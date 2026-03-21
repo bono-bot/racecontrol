@@ -1,105 +1,252 @@
 # Stack Research
 
-**Domain:** Anti-cheat compatible Windows pod management (sim racing venue)
-**Researched:** 2026-03-21
-**Confidence:** MEDIUM overall — code signing toolchain HIGH (official CA docs), Keyboard Filter HIGH (official MS docs), anti-cheat detection behavior MEDIUM (derived from ecosystem evidence, no official EAC API)
+**Domain:** Bidirectional AI-to-AI dynamic execution protocol (v18.0 Seamless Execution)
+**Researched:** 2026-03-22
+**Confidence:** HIGH — grounded in direct codebase analysis plus Node.js v22 stdlib capabilities
 
 ---
 
-## Context: What This Research Covers
+## Context: What Already Exists (Do Not Re-Research)
 
-v15.0 AntiCheat Compatibility is a hardening milestone on top of an existing validated Rust/Axum stack. This file covers ONLY the net-new toolchain additions needed:
+The comms-link is a mature Node.js v22.14.0 ES module system. Before any decisions, here is what is already in place:
 
-1. Code signing toolchain for `rc-agent.exe` and `rc-sentry.exe`
-2. Safe keyboard lockdown replacement for `SetWindowsHookEx`
-3. Anti-cheat detection behavior model (what triggers EAC, iRacing EOS, etc.)
-4. Testing approach for per-game compatibility validation
+| Component | File | What It Does |
+|-----------|------|--------------|
+| WebSocket transport | `james/comms-client.js`, `bono/comms-server.js` | Persistent WS, PSK auth, reconnect with backoff |
+| Message protocol | `shared/protocol.js` | Envelope with v/type/from/ts/id, MessageType enum |
+| ACK + WAL queue | `shared/ack-tracker.js`, `shared/message-queue.js` | Sequence tracking, JSON Lines WAL, crash-safe |
+| Static command registry | `shared/exec-protocol.js` | 13 frozen commands, ApprovalTier enum, buildSafeEnv(), validateExecRequest() |
+| Execution handler | `james/exec-handler.js` | ExecHandler class, 3-tier approval, execFile (shell:false), dedup, pending approval Map |
+| Connection mode | `shared/connection-mode.js` | REALTIME/EMAIL_FALLBACK/OFFLINE_QUEUE graceful degradation |
+| Task delegation | `james/index.js` | sendTaskRequest() + pendingTasks Map, existing task_request/task_response MessageTypes |
 
-Existing stack (Rust 1.93.1, Axum, Tokio, windows-service, winapi/windows crates) is NOT re-researched here.
+**npm deps:** only `ws@8.19.0` and `toml@3.0.0`. **Runtime:** Node.js v22.14.0.
+
+**Central finding:** All four new v18.0 features are implementable with zero new npm packages. The Node.js v22 stdlib covers every gap.
 
 ---
 
-## Recommended Stack
+## Recommended Stack for New Features
 
 ### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `signtool.exe` (Windows SDK) | Ships with Windows SDK 10.0.26100+ (Win11 24H2 SDK) | Sign `rc-agent.exe` and `rc-sentry.exe` post-build | Industry-standard Authenticode signer. Already available on James's machine (Windows SDK). Zero new install. Produces signed PE that EAC validates. |
-| Sectigo OV Code Signing Certificate | 1-year max (CA/B Forum cap since Feb 2026) | Authenticode certificate for Racing Point eSports org | ~$225/yr via resellers (ssl2buy, cheapsslsecurity). OV is sufficient for venue-internal binaries. EV (~$280/yr) gives instant SmartScreen reputation but requires HSM hardware token — unnecessary complexity for venue-only distribution. |
-| Windows Keyboard Filter (built-in OS feature) | Windows 10 Enterprise 1607+ / Windows 11 Enterprise/Education | Replace `SetWindowsHookEx` global keyboard hook for kiosk lockdown | Built-in Optional Feature configured via WMI — no third-party kernel driver installed. Suppresses Ctrl+Alt+Delete, Win+L, Alt+F4 etc. at OS level without appearing in the game process hook chain. This is the architectural difference vs. SetWindowsHookEx: Keyboard Filter does not inject into the game process's hook list. |
-| Windows Local Group Policy (built-in) | All Windows 11 editions | Suppress Win key hotkeys and system shortcuts for kiosk user account | Zero-risk complement to Keyboard Filter. `User Configuration > Administrative Templates > Windows Components > File Explorer > Turn off Windows key hotkeys`. No drivers, no hooks, applies per-user. |
+| Node.js stdlib `node:fs/promises` | v22.14.0 (current) | Dynamic registry persistence (JSON file), chain state persistence (JSONL), audit log | Already used throughout `james/index.js` and `shared/message-queue.js`. Proven pattern. |
+| Node.js stdlib `node:crypto` | v22.14.0 (current) | randomUUID() for chain IDs, exec IDs, delegation correlation IDs | Already imported in `james/index.js`. |
+| Node.js stdlib `node:child_process` | v22.14.0 (current) | execFile for shell relay (array-args, shell:false always) | ExecHandler already uses this correctly. Shell relay reuses the same path — no new execution primitive needed. |
+| Node.js stdlib `node:events` | v22.14.0 (current) | EventEmitter base for ChainOrchestrator and DynamicRegistry state events | ExecHandler, MessageQueue, CommsClient all extend EventEmitter. Established pattern. |
+| Node.js stdlib `node:timers/promises` | v22.14.0 (current) | setTimeout as a Promise for async chain step timeouts without callback nesting | Available since Node.js v16, stable in v22. |
+| `ws@8.19.0` (existing) | 8.19.0 | All message transport — new message types route over existing WS connection | No version change needed. New MessageType entries added to `protocol.js` only. |
 
 ### Supporting Libraries
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `signtool-rs` | 0.1.x (crates.io) | Rust wrapper that auto-locates `signtool.exe` in Windows SDK without hardcoding SDK version path | Use in `build.rs` or deploy script to sign release builds. Eliminates fragile path like `C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe` that breaks on SDK updates. |
-| `windows` crate (microsoft/windows-rs) | 0.58+ (already in workspace) | WMI COM calls to configure Keyboard Filter rules (`WEKF_PredefinedKey`, `WEKF_CustomKey`) | Use in rc-agent's safe-mode initialization to enable/configure Keyboard Filter via `Windows::Win32::System::Wmi`. Replaces the Phase 78 `SetWindowsHookEx` module. |
-| `wmi` crate | 0.13.x | Higher-level serde-based WMI query wrapper | Optional alternative to raw windows-rs WMI COM. Use only if raw CIM calls become verbose. Not currently in workspace — adds one new Cargo.lock entry. |
+None needed. The table below documents what was evaluated and rejected:
+
+| Feature | Tempting External Library | Reason to Reject | Node.js Stdlib Alternative |
+|---------|--------------------------|------------------|---------------------------|
+| Dynamic command registry persistence | conf, lowdb, keyv | All solve a non-problem: a JSON file with fewer than 100 entries needs only readFile/writeFile. Each adds transitive deps. | node:fs/promises read/write to data/dynamic-commands.json |
+| Shell relay execution | execa npm package | ExecHandler already implements the secure pattern: execFile with shell:false, array-args, sanitized env, timeout, maxBuffer. execa adds zero security value here and would be a third npm package. | node:child_process execFile (already used in ExecHandler) |
+| Execution chain orchestration | bull, bullmq, p-queue | All require Redis or add significant infrastructure. 2-machine linear chains with 2-10 steps do not need a queue broker. The WAL already provides crash-safe durability. | In-memory Map plus WAL file per chain in data/chains/ |
+| Claude-to-Claude delegation | Any orchestration library | The WS channel is the transport. Delegation is a structured task_request with a resolve/reject Promise keyed by taskId. This is 30 lines of code, not a library. | Extend sendTaskRequest() in james/index.js with a Promise-returning variant |
+| Audit trail | winston, pino, SQLite | Structured JSON append to a .jsonl file is sufficient for 2-machine audit. Log databases add schema migration complexity. | node:fs/promises appendFile to data/exec-audit.jsonl |
+| Schema validation for dynamic registry | zod, ajv | Dynamic command spec validation is 5 checks: binary is string, args is array, tier is valid enum value, timeoutMs is positive integer, no shell metacharacters in binary. Not worth a dep. | Inline validation function in DynamicRegistry.register() |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `signtool.exe` | Sign `.exe` after `cargo build --release` | Path: `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe`. Always use `/fd SHA256 /tr http://timestamp.sectigo.com/rfc3161 /td SHA256`. The RFC 3161 timestamp is mandatory — it makes the signature valid after the cert expires (otherwise signatures break at cert renewal). |
-| DISM (built-in) | Enable Keyboard Filter optional feature on pods | `Dism /online /Enable-Feature /FeatureName:Client-KeyboardFilter /NoRestart` — requires reboot. Run once per pod during setup, before any game sessions. |
-| Pod 8 canary | Manual anti-cheat compatibility validation | Run each protected game on Pod 8 with signed rc-agent and Keyboard Filter active. Observe: game launches, EAC does not block, Windows Event Log shows no driver conflicts. Document per game. |
+| `node --test` (Node.js built-in) | Unit tests for new modules: DynamicRegistry, ChainOrchestrator, DelegationHandler, ExecAudit | Already used: `"test": "node --test test/*.test.js"`. No Jest or Vitest needed. |
 
 ---
 
 ## Installation
 
 ```bash
-# [target: pod] Enable Keyboard Filter once per pod (requires admin + reboot)
-Dism /online /Enable-Feature /FeatureName:Client-KeyboardFilter /NoRestart
-# Reboot, then configure suppressed keys via WMI:
+# No new packages needed.
+# npm install is not required for v18.0.
 ```
 
-```powershell
-# [target: pod] Configure Keyboard Filter rules after reboot
-$ns = "root\standardcimv2\embedded"
-# Suppress Ctrl+Alt+Delete, Win+L, Win key (breakout escape)
-$suppress = @("Ctrl+Alt+Del", "Win+L", "Win", "Alt+F4", "Ctrl+Shift+Esc")
-foreach ($key in $suppress) {
-    $rule = Get-CimInstance -Namespace $ns -ClassName WEKF_PredefinedKey |
-            Where-Object { $_.Id -eq $key }
-    if ($rule) {
-        $rule.Enabled = $true
-        Set-CimInstance -InputObject $rule
-    }
+---
+
+## Integration Points with Existing Code
+
+### 1. Dynamic Command Registration
+
+**Integration target:** `shared/exec-protocol.js` (read-only augmentation, not modification)
+
+The existing COMMAND_REGISTRY is Object.freeze()-d by design — it is the static trusted baseline. Dynamic registration adds a parallel mutable layer:
+
+**New file: `shared/dynamic-registry.js`**
+
+```
+class DynamicRegistry
+  #commands: Map<name, spec>     -- in-memory, mutable
+  #persistPath: string           -- data/dynamic-commands.json
+
+  async load()                   -- reads JSON on startup, validates each entry
+  async register(name, spec)     -- validate spec, add to Map, persist, emit 'registered'
+  async deregister(name)         -- remove from Map, persist, emit 'deregistered'
+  lookup(name): spec | null      -- caller checks static registry first, then this
+  list(): Array<{name, spec}>    -- for audit/display
+
+  #validate(spec): void
+    - binary: non-empty string, no shell metacharacters (|;&`$(){}), no path traversal
+    - args: array of strings
+    - tier: must be ApprovalTier.APPROVE (all dynamic commands are APPROVE-only)
+    - timeoutMs: integer 1000-300000
+```
+
+**ExecHandler change (minimal):** The constructor already accepts commandRegistry as a DI param. Change: pass a lookup function that checks static COMMAND_REGISTRY first (the trusted baseline), falls back to DynamicRegistry.lookup(). One-line change to how spec is resolved in handleExecRequest.
+
+**Protocol additions to `shared/protocol.js`:**
+```javascript
+register_command: 'register_command',    // Request to register a new dynamic command
+register_result: 'register_result',      // Confirmation or rejection of registration
+deregister_command: 'deregister_command', // Remove a dynamic command
+```
+
+Registration itself is always APPROVE tier. The approval flow runs through the existing queueForApproval path in ExecHandler — no new approval mechanism needed.
+
+### 2. Shell Relay with Approval Gate
+
+**Integration target:** `shared/dynamic-registry.js` (special built-in entry) + ExecHandler (no changes)
+
+Shell relay is not a separate execution path. It is a pre-registered dynamic command where the binary is resolved from the first element of a validated args array:
+
+```
+Command name: "shell_relay"
+Tier: ApprovalTier.APPROVE (hardcoded, cannot be overridden by caller)
+Invocation: execFile(cmd_args[0], cmd_args.slice(1), { shell: false })
+```
+
+**Security gate (before ExecHandler sees it):**
+```javascript
+validateShellRelayArgs(cmd_args) {
+  // Reject if any arg contains shell injection chars: |;&`$(){}><
+  // Reject if cmd_args[0] is not on the approved-binaries allowlist
+  // Reject if cmd_args is empty or cmd_args[0] is a relative path
 }
 ```
 
-```bash
-# [target: james] Sign rc-agent.exe after cargo build --release
-signtool.exe sign /fd SHA256 \
-  /tr http://timestamp.sectigo.com/rfc3161 \
-  /td SHA256 \
-  /n "Racing Point eSports" \
-  target\release\rc-agent.exe
+**ExecHandler changes:** None. Shell relay arrives as a normal exec_request with command: "shell_relay" and payload.cmd_args: [...]. The APPROVE tier flow handles queueing, Uday notification, and timeout default-deny exactly as today.
 
-# Verify signature
-signtool.exe verify /pa /v target\release\rc-agent.exe
+**Protocol additions (exec_request payload shape for shell relay):**
+```javascript
+{ command: "shell_relay", cmd_args: ["git", "status"], reason: "...", requestedBy: "bono" }
 ```
 
-```toml
-# Cargo.toml — add to rc-agent build-dependencies if automating signing
-[build-dependencies]
-signtool-rs = "0.1"
+### 3. Execution Chain Orchestration
+
+**New files:**
+
 ```
+shared/exec-chain.js
+  class ExecChain
+    chainId: string              -- randomUUID()
+    steps: ChainStep[]           -- [{ command, argsOverride?, captureOutput: bool }]
+    state: ChainState            -- 'pending'|'running'|'completed'|'failed'|'cancelled'
+    currentStep: number          -- index into steps[]
+    results: ExecStepResult[]    -- accumulated per-step result objects
+    startedAt: number
+
+    toJSON(): object             -- serialized for WAL persistence
+    static fromJSON(obj): ExecChain
+
+  class ChainOrchestrator extends EventEmitter
+    #chains: Map<chainId, ExecChain>
+    #execHandler: ExecHandler
+    #persistDir: string          -- data/chains/
+
+    async start(chainDef): chainId    -- validate, persist, begin step 0
+    async onStepResult(execId, result) -- advance chain or fail it
+    async cancel(chainId): bool
+
+    Events emitted:
+      'step_complete': { chainId, stepIndex, result }
+      'chain_complete': { chainId, results[] }
+      'chain_failed':   { chainId, failedStep, result }
+```
+
+**Protocol additions to `shared/protocol.js`:**
+```javascript
+chain_request: 'chain_request',         // Initiate a multi-step chain on remote machine
+chain_step_result: 'chain_step_result', // Intermediate step result (informational)
+chain_complete: 'chain_complete',       // Final bundle of all step results
+chain_cancelled: 'chain_cancelled',     // Chain was cancelled (timeout or explicit)
+```
+
+**Integration in `james/index.js`:** exec_result messages carry an optional chainId field. The message handler checks: if chainId is present, route to ChainOrchestrator.onStepResult(); otherwise route to existing standalone result handler. This is additive — existing flows are unaffected.
+
+**Persistence:** Each chain writes `data/chains/<chainId>.json` after every step. On startup, ChainOrchestrator scans `data/chains/` for in-progress chains (state not 'completed' or 'failed') and resumes them. This covers the WS-drop-mid-chain case.
+
+### 4. Claude-to-Claude Task Delegation
+
+**Integration target:** `james/index.js` — sendTaskRequest() and pendingTasks Map
+
+The task_request / task_response MessageTypes already exist in protocol.js. The existing sendTaskRequest() sends and forgets (fire-and-forget with a timeout warning). The v18.0 addition is Promise-based result resolution:
+
+**New file: `james/delegation-handler.js`**
+
+```
+class DelegationHandler
+  #pending: Map<taskId, { resolve, reject, timer }>
+
+  async delegate(task): Promise<DelegationResult>
+    -- task: { taskType: 'exec_single'|'exec_chain', target: 'bono', command?, chainDef?, reason }
+    -- sends task_request via connectionMode.sendCritical()
+    -- returns Promise that resolves on matching task_response
+    -- rejects on timeout (default: TASK_TIMEOUT_MS = 300s)
+
+  onTaskResponse(msg)
+    -- called from message handler when task_response arrives
+    -- resolves matching Promise in #pending Map
+    -- no-ops unknown taskIds (dedup safe)
+```
+
+**Bono side (`bono/index.js`):** Receives task_request with taskType 'exec_chain' or 'exec_single'. Routes to its own ExecHandler or ChainOrchestrator. Returns task_response with:
+```javascript
+{ taskId, success: bool, exitCode, stdout?, stderr?, results?: ExecStepResult[], durationMs }
+```
+
+**No new transport.** Everything routes over the existing WS connection through connectionMode.sendCritical() — which already handles REALTIME/EMAIL_FALLBACK/OFFLINE_QUEUE degradation.
+
+### 5. Audit Trail (Mandatory for All Cross-Machine Execution)
+
+**New file: `shared/exec-audit.js`**
+
+```
+class ExecAudit
+  #path: string              -- data/exec-audit.jsonl
+  #appendFn: Function        -- node:fs/promises appendFile (injectable for tests)
+  #maxSizeBytes: number      -- default 10MB, then rotate
+
+  async log(entry): void
+    entry: {
+      ts: number, requestedBy: string, machine: 'james'|'bono',
+      command: string, chainId?: string, stepIndex?: number,
+      execId: string, exitCode: number, durationMs: number,
+      tier: ApprovalTier, truncated: bool, registrationType: 'static'|'dynamic'|'shell_relay'
+    }
+
+  async rotate(): void       -- rename to exec-audit.YYYY-MM-DD.jsonl if >maxSizeBytes
+```
+
+Every exec_result, chain_step_result, and chain_complete flows through ExecAudit.log() before acknowledgment. This is the source of truth for "who requested, what ran, exit code, duration."
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| Sectigo OV Code Signing (~$225/yr) | DigiCert OV (~$370/yr) | DigiCert when enterprise support SLA is needed. Functionally identical for Authenticode. |
-| Sectigo OV (~$225/yr) | Any EV certificate (~$280-560/yr) | EV gives instant SmartScreen reputation bar and is worth it for public software distribution. For venue-only pods, OV is sufficient. EV requires FIPS 140-2 Level 2 HSM (physical token or cloud HSM), adding friction to the deploy workflow. |
-| Windows Keyboard Filter (built-in) | `SetWindowsHookEx(WH_KEYBOARD_LL)` — current Phase 78 implementation | SetWindowsHookEx is acceptable on machines that never run anti-cheat games. On pods running F1 25 (EAC), iRacing (EOS), LMU (EOS), or BattlEye games, global low-level keyboard hooks appear in the game process's hook chain and are flagged as potential input-injection vectors. |
-| Windows Keyboard Filter (built-in) | Third-party kiosk software (Netkiosk, FrontFace) | Never use third-party kiosk products on gaming pods — they install their own kernel drivers, which is worse than SetWindowsHookEx. |
-| Group Policy key suppression | AutoHotkey or Python scripting for key blocking | AHK and scripting runtimes inject into processes. Instant EAC detection. |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| In-memory Map + JSON file for dynamic registry | SQLite | SQLite is a native module; complex on Windows without prebuilt binaries. Fewer than 100 dynamic commands fit in a 10KB JSON file. |
+| node:child_process execFile (existing) | execa npm package | ExecHandler's usage is already correct: array-args, shell:false, sanitized env, timeout. execa adds zero security value and would be the third npm package. |
+| Custom ChainOrchestrator (Map + EventEmitter) | bull or bullmq | Require Redis. 2-machine linear chains with up to 20 steps don't need a queue broker or persistent job store beyond the existing WAL pattern. |
+| Existing WAL pattern for chain persistence | New SQLite store | WAL is proven crash-safe in MessageQueue. Reuse the pattern (one JSON file per chain) rather than adding a new persistence layer. |
+| node --test for new module tests | Jest or Vitest | Already established in the project. Consistent tooling matters more than test runner features for this scope. |
+| Structured JSONL audit file | Grafana/Loki/ELK | No infrastructure change is justified for a 2-machine protocol. JSONL is readable, grepable, and rotatable with 20 lines of code. |
+| Promise-based DelegationHandler | RxJS observables | Overkill. Each delegation is a single request-response pair, not a stream. Promise is the right primitive. |
 
 ---
 
@@ -107,100 +254,70 @@ signtool-rs = "0.1"
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `SetWindowsHookEx(WH_KEYBOARD_LL)` for kiosk lockdown | Global low-level hooks appear in every process's hook chain, including EAC-protected games. Input hook APIs are prime cheating vectors (input injection, macro automation) — EAC and BattlEye specifically monitor hook chain for external entries. | Windows Keyboard Filter (WMI-configured, no hook injection) + Group Policy |
-| Unsigned `rc-agent.exe` / `rc-sentry.exe` | EAC validates signatures of co-running processes. The FanControl/WinRing0 issue confirms: unsigned binaries running alongside an EAC game are the primary trigger for flagging. OBS resolved EAC conflicts by publishing a signed capture hook certificate. Signing is the single highest-value change in v15.0. | Authenticode signing via signtool.exe + Sectigo OV cert |
-| Any kernel-mode driver for venue management | Kernel drivers are the #1 trigger for EAC "Forbidden Windows Kernel Modification" and BattlEye kernel integrity errors. WinRing0 (used by FanControl) is the canonical example: even legitimate hardware monitoring drivers are flagged because they expose exploitable memory access primitives. rc-agent has zero need for kernel drivers. | Stay entirely in user-mode. All current rc-agent operations (process management, registry writes, WebSocket, HTTP) are user-mode and must remain so. |
-| `ReadProcessMemory` / `WriteProcessMemory` on game processes | EAC hooks these Win32 APIs in user-mode and catches callers instantly. Any process calling these on an EAC-protected game PID is immediately flagged regardless of signature. | Use official game telemetry APIs only: iRacing MemMapFile, rF2/LMU shared memory plugin, F1 25 UDP, EA WRC UDP — these are explicitly sanctioned. |
-| Debug APIs (`OpenProcess(PROCESS_VM_READ)`, `DebugActiveProcess`) | Same detection mechanism as ReadProcessMemory. rc-sentry v11.2 already correctly avoids this by using HTTP health polling. | HTTP polling `localhost:8090/health` (already implemented) |
-| AutoHotkey, AHK2, Python scripting runtimes | Spawn additional processes, may inject hooks. EAC watches for scripting runtimes that could wrap game input. | Native Rust Win32 calls only |
-| DLL injection into game processes | Instant account ban regardless of signing. Even OBS's signed game capture hook requires per-game EAC whitelisting — and the whitelisting is done by the game developer, not by the software author. rc-agent has no legitimate reason to ever inject into a game. | Read telemetry from external interfaces only |
-| Continuous process enumeration while anti-cheat games run | Polling `CreateToolhelp32Snapshot` or `sysinfo::processes()` continuously while EAC is active is flagged as process monitoring (a cheating technique). Snapshot is safe for one-time startup detection; NOT safe as a continuous 1-second loop beside a live EAC game. | Health endpoint polling + safe mode that suspends process enumeration during protected game sessions |
+| Any job queue library (bull, bullmq, p-queue, bee-queue) | All require external infrastructure (Redis) or add multi-hundred-KB deps. 2-machine linear chains do not need a broker. | ChainOrchestrator with in-memory Map + per-chain JSON persistence |
+| zod or ajv for spec validation | Dynamic registry validation is 5 checks. A validation library would add more code than it replaces. | Inline validate() method in DynamicRegistry |
+| execa or shelljs | ExecHandler already implements the secure pattern. shelljs enables shell:true by default (injection risk). execa is well-designed but redundant here. | node:child_process execFile with shell:false (existing) |
+| New WebSocket library or HTTP transport layer | ws@8.19.0 handles all message routing. New message types are protocol additions, not transport changes. | Add new entries to MessageType in shared/protocol.js |
+| TypeScript migration for this milestone | Would require adding a build step, tsconfig, and type-checking to a working ES module project. No return on investment for this scope. | Continue ES modules with JSDoc type annotations |
+| Storing execution results in SQLite | Schema migration complexity, native binary dep on Windows. JSONL audit is sufficient. | data/exec-audit.jsonl with rotation |
+| Shell relay with shell:true | Enables shell string interpolation, opening command injection. The entire security model of ExecHandler is built on shell:false with array-args. | shell:false always, validate cmd_args as an array before dispatch |
+| Auto-approve tier for any dynamic command | Dynamic commands are unknown at deploy time. Auto-approve lets Bono run arbitrary code on James's machine without human confirmation. All dynamic commands must be APPROVE tier — no exceptions. | Force APPROVE tier in DynamicRegistry.register() validation |
 
 ---
 
 ## Stack Patterns by Variant
 
-**For keyboard lockdown (kiosk account on pods):**
-- Enable Keyboard Filter via DISM on first pod setup (one-time, requires reboot)
-- Configure suppressed keys via WMI from rc-agent's initialization path (or deploy-time PowerShell script)
-- Remove the `SetWindowsHookEx` call from the Phase 78 keyboard hook module
-- Group Policy `Turn off Windows key hotkeys` as belt-and-suspenders for the kiosk user account
+**If a chain step fails:**
+- Fail the entire chain (no partial-commit semantics)
+- Persist state 'failed' to data/chains/<chainId>.json
+- Emit chain_failed with { chainId, failedStep: stepIndex, result }
+- Do NOT auto-retry — re-run requires a new chain_request with explicit approval
 
-**For code signing (deploy pipeline):**
-- Buy Sectigo OV certificate (1-year, digital key delivery — confirm HSM requirement with reseller before purchase)
-- Add `signtool.exe` call to the deploy script immediately after `cargo build --release`
-- Sign both `rc-agent.exe` and `rc-sentry.exe`
-- Use RFC 3161 timestamp server (`http://timestamp.sectigo.com/rfc3161`) — mandatory for long-term validity
+**If the WS drops mid-chain:**
+- Chain state is persisted to disk after each completed step
+- On reconnect, ChainOrchestrator scans data/chains/ for in-progress chains
+- Caller (or DelegationHandler) emits chain_resume_needed event
+- Human decides: resume from last completed step or cancel
 
-**For telemetry shared memory (v13.0 readiness):**
-- iRacing: open `Local\IRSDKMemMapFileName` (official iRacing SDK MemMapFile) — sanctioned API, not process memory
-- LMU/rF2: open rF2 shared memory plugin mappings (`$rFactor2SMMP_*`) — official plugin API
-- Gate: open shared memory handles only after the game process is confirmed running AND billing session is active. Close handles on game exit. Never hold persistent open handles to MemMapFiles while EAC is initializing.
+**If dynamic registration is requested:**
+- Always APPROVE tier — validate binary path before queuing for approval
+- Log the registration attempt to exec-audit.jsonl regardless of approval outcome
+- On approval: persist to data/dynamic-commands.json, emit 'registered' event
+- On rejection or timeout: remove from pending, log rejection
 
-**For anti-cheat safe mode detection:**
-- One-time `CreateToolhelp32Snapshot` on game launch event to identify which game launched (safe — snapshot, not attach)
-- On protected game detected: disable any keyboard hook (N/A post-Keyboard Filter migration), suspend continuous process enumeration, defer shared memory open until after EAC init completes (~30s after game launch)
-- On game exit: resume normal operations, close all shared memory handles
+**If Claude-to-Claude delegation times out:**
+- DelegationHandler.delegate() rejects the Promise with { timedOut: true, taskId }
+- Caller (James's Claude session) handles: log to audit, notify Uday via existing WhatsApp channel
+- No auto-retry — human decides next action
 
----
-
-## Anti-Cheat Detection Behavior Model
-
-Derived from: FanControl EAC issue #2104, OBS Capture Hook Certificate KB, EAC kernel driver conflict reports on Microsoft Q&A, iRacing EOS migration support notes. Confidence: MEDIUM (ecosystem evidence; no official EAC detection criteria document exists publicly).
-
-| rc-agent Behavior | Detection Risk | Rationale | Verdict |
-|-------------------|---------------|-----------|---------|
-| Unsigned `rc-agent.exe` running alongside EAC game | HIGH | EAC checks signatures of co-running processes. Unsigned = suspicious. Primary root cause of FanControl flagging. | Fix: sign both binaries |
-| `SetWindowsHookEx(WH_KEYBOARD_LL)` global hook | MEDIUM-HIGH | Hook appears in game process hook chain. Known input-injection vector. EAC and BattlEye scan hook chains. | Fix: migrate to Keyboard Filter |
-| One-time `CreateToolhelp32Snapshot` for game detection | LOW | Snapshot-based, user-mode, same API Windows Task Manager uses. Does not attach to game process. | Safe as-is |
-| Continuous `CreateToolhelp32Snapshot` loop while EAC running | MEDIUM | Continuous enumeration mimics cheat process monitoring behavior. | Safe with gate: suspend in safe mode |
-| HTTP polling `localhost:8090/health` | NONE | Network call to local port, no process interaction whatsoever. | Safe, keep as-is |
-| Shared memory MemMapFile read (official game API) | LOW with gating | Official game SDK interface. Risk window: opening handle during EAC initialization. Gate: open after game fully loaded. | Safe with gate |
-| `OpenProcess(PROCESS_VM_READ)` on game PID | CRITICAL | EAC hooks this API. Instant flag. rc-agent does not do this — must stay that way. | Never do |
-| Registry writes (HKLM Run, HKCU) | NONE | EAC does not monitor registry writes. Existing rc-agent behavior. | Safe |
-| Port listener `0.0.0.0:8090` | NONE | TCP listener. Not monitored by EAC. | Safe |
-| Windows Service hosting rc-agent | NONE | Standard Windows service mechanism, separate session from game. | Safe |
-| Keyboard Filter (built-in Windows feature) | NONE | Microsoft OS feature. Not flagged by EAC. Distinct from third-party kernel drivers. | Safe |
+**If shell relay args fail validation:**
+- Reject synchronously in DynamicRegistry before the request reaches ExecHandler
+- Return exec_result with exitCode: -1, stderr: "Shell relay args failed validation: <reason>"
+- Log attempt to audit trail with registrationType: 'shell_relay'
 
 ---
 
 ## Version Compatibility
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| Sectigo OV cert (2026+) | Windows Authenticode (all versions) | Max 459-day validity since Feb 2026 CA/B Forum rule. Budget annual renewal. |
-| Windows Keyboard Filter | Windows 10 Enterprise 1607+ / Win11 Enterprise/Education | NOT available on Windows 11 Home or Pro (Home only). Pods must be on Enterprise or Education SKU. Verify with `winver` before implementing. |
-| `signtool.exe` SHA256 | Windows Vista+ verifiers | SHA1 deprecated for Authenticode since 2020. Use `/fd SHA256 /td SHA256` everywhere. |
-| `windows` crate 0.58 | Rust 1.70+ | Already in workspace. WMI interfaces under `Windows::Win32::System::Wmi`. |
-| `CreateToolhelp32Snapshot` | All Windows versions | Safe for process detection. Part of standard Win32 API surface. |
-
----
-
-## Open Question: OV Certificate HSM Key Storage (Verify Before Purchase)
-
-Since November 2022, CA/B Forum requires all code signing private keys — including OV — to be stored on a FIPS 140-2 Level 2 hardware token or cloud HSM equivalent. Some CAs ship a physical USB token (SafeNet eToken) with OV certs; others offer cloud-based signing (DigiCert KeyLocker, SSL.com eSigner).
-
-**Before buying:** confirm with the reseller whether the OV cert ships with:
-- A **physical USB token** — signing can only happen on the machine with the token plugged in (workable for James's machine as sole build machine), OR
-- **Cloud key storage** — CI-compatible, no physical token required, ~$50/yr more
-
-For a single build machine at the venue, a physical token is workable. For any future CI pipeline, prefer cloud key storage (SSL.com eSigner at ~$249/yr for OV+cloud is the most CI-friendly option).
+| Package / API | Version | Notes |
+|---------------|---------|-------|
+| ws | 8.19.0 | No change. New MessageType entries are payload-level, not library-level. |
+| toml | 3.0.0 | No change. Used only for racecontrol.toml config reading. |
+| node:timers/promises | stable since Node.js v16 | setTimeout as Promise. Fully stable in v22.14.0, no polyfill needed. |
+| node:fs/promises | stable since Node.js v14 | appendFile, readFile, writeFile, readdir, rename — all used. |
+| node:crypto randomUUID | stable since Node.js v15.6.0 | Already imported in james/index.js. |
+| node:events EventEmitter | stable | Already the base class for ExecHandler, MessageQueue, CommsClient, ConnectionStateMachine. |
 
 ---
 
 ## Sources
 
-- [Windows Keyboard Filter — Microsoft Learn](https://learn.microsoft.com/en-us/windows/configuration/keyboard-filter/) — official docs updated March 2025. Edition requirements, WMI configuration, Safe Mode limitation. HIGH confidence.
-- [FanControl EAC Issue #2104](https://github.com/Rem0o/FanControl.Releases/issues/2104) — real-world evidence that unsigned kernel driver is the primary EAC trigger; user-mode signed binaries are not flagged. MEDIUM confidence (community issue tracker).
-- [OBS Capture Hook Certificate Update KB](https://obsproject.com/kb/capture-hook-certificate-update) — confirms EAC resolves conflicts via signed binary certificate updates; game devs must opt-in to new cert hashes. MEDIUM confidence.
-- [sslinsights.com — Code Signing Certificate Providers 2026](https://sslinsights.com/best-code-signing-certificate-providers/) — pricing verified across multiple reseller sites. LOW-MEDIUM confidence (reseller aggregator).
-- [DigiCert Code Signing Changes 2023](https://knowledge.digicert.com/alerts/code-signing-changes-in-2023) — HSM requirement for all code signing certs from Nov 2022. HIGH confidence (official CA source).
-- [signtool-rs crate](https://github.com/SecSamDev/signtool-rs) — Rust wrapper for signtool.exe auto-location. LOW confidence on production maturity (small crate, use as convenience shim only).
-- [iRacing EOS migration notes](https://support.iracing.com/support/solutions/articles/31000173103-anticheat-not-installed-uninstalling-eac-and-installing-eos-) — iRacing moved from Kamu EAC to Epic EOS EAC in 2024/2025. MEDIUM confidence.
-- [EAC kernel driver incompatibility — Microsoft Q&A](https://learn.microsoft.com/en-us/answers/questions/3962392/easy-anti-cheat-driver-incompatible-with-kernel-mo) — EAC "Forbidden Windows Kernel Modification" triggered by third-party kernel drivers. HIGH confidence.
-- GlobalSign SignTool guide — confirmed signtool.exe SHA256 + RFC 3161 timestamp command syntax. HIGH confidence.
+- Direct codebase analysis: `shared/exec-protocol.js`, `james/exec-handler.js`, `shared/protocol.js`, `shared/message-queue.js`, `shared/state.js`, `james/index.js` — HIGH confidence (code read 2026-03-22)
+- Node.js v22 LTS stdlib documentation: node:child_process, node:fs/promises, node:events, node:timers/promises, node:crypto — all stable APIs. HIGH confidence.
+- ws@8.19.0 — no breaking changes to message routing in ws@8.x series. HIGH confidence.
+- PROJECT.md v18.0 feature requirements — HIGH confidence (authoritative spec, read 2026-03-22)
 
 ---
 
-*Stack research for: v15.0 AntiCheat Compatibility — Racing Point eSports RaceControl*
-*Researched: 2026-03-21*
+*Stack research for: v18.0 Seamless Execution — dynamic execution protocol additions to comms-link*
+*Researched: 2026-03-22 IST*

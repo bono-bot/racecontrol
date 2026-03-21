@@ -1,141 +1,160 @@
-# Feature Research: RC Sentry AI Debugger
+# Feature Research: v18.0 Seamless Execution — Bidirectional AI-to-AI Dynamic Execution Protocol
 
-**Domain:** Crash-diagnosing external watchdog for a Windows process (rc-agent) on sim racing pods, with anti-cheat-safe detection, log parsing, pattern memory, LLM triage, and escalation decisions.
-**Researched:** 2026-03-21
-**Confidence:** HIGH (codebase audit of rc-sentry, rc-agent, ai_debugger, self_monitor; confirmed EAC detection mechanisms from official sources; confirmed iRacing EOS anti-cheat approach; existing 4-tier debug order is direct prior art)
+**Domain:** Bidirectional AI-to-AI remote execution over persistent WebSocket — dynamic command registration, shell relay, execution chains, and Claude-to-Claude task delegation between James (Windows 11, .27) and Bono (Linux VPS).
+**Researched:** 2026-03-22
+**Confidence:** HIGH (codebase audit of exec-protocol.js, exec-handler.js, protocol.js, james/index.js, bono/comms-server.js; established patterns from LSP protocol, Ansible, supervisor patterns, and task queue systems)
 
 ---
 
-## Context: What Already Exists
+## Context: What Already Exists (Do Not Re-Build)
 
-Before listing features, it matters what the new sentry debugger can build on versus what it must build fresh:
+Before mapping features, it is essential to separate "already shipped" from "net new."
 
-| Already in rc-agent (dies with the patient) | Must move to rc-sentry (external survivor) |
-|---------------------------------------------|---------------------------------------------|
-| `ai_debugger.rs` — 14 auto-fix patterns, DebugMemory, Ollama query | None of it survives rc-agent crash |
-| `self_monitor.rs` — CLOSE_WAIT detection, WS dead detection, relaunch_self() | The relaunch_self() pattern is reusable |
-| `debug-memory.json` on disk at C:\RacingPoint\ | File survives crash — sentry can read it |
-| `rc-bot-events.log` on disk | File survives crash — sentry can read it |
-| `/health` on :8090 (rc-agent's own health endpoint) | Port goes away when rc-agent dies |
-| `PodStateSnapshot` — runtime context at crash time | Lost with rc-agent unless serialized to disk |
+| Already in exec-protocol.js + exec-handler.js | Net new for v18.0 |
+|------------------------------------------------|-------------------|
+| 20 static commands in frozen COMMAND_REGISTRY | Dynamic runtime registration of commands on either side |
+| 3-tier approval (AUTO / NOTIFY / APPROVE) | Shell relay for arbitrary commands (maps to APPROVE tier) |
+| ExecHandler with dedup (completedExecs Set) | Execution chains: step N+1 receives step N output |
+| exec_request / exec_result / exec_approval message types | Chain orchestration protocol (chain_request, chain_result) |
+| Bidirectional: both James and Bono have ExecHandler | Claude-to-Claude seamless delegation (auto-invoke, response integration) |
+| sanitized env (buildSafeEnv), no-shell execution, array args | Per-command env injection for dynamic commands |
+| approvalTimeoutMs (default 10 min), default-deny | Approval UI / callback for Claude-side approval |
+| Structured exec_result (exitCode, stdout, stderr, durationMs, truncated) | Chain-level result aggregation |
+| AckTracker reliable delivery (3 retries, 10s timeout) | Audit trail persistence (beyond in-memory completedExecs) |
+| ConnectionMode graceful degradation (WS to email fallback) | Chain pause/resume across reconnects |
+| sendTaskRequest() with timeout tracking in james/index.js | Chain step timeouts individual vs chain-total |
 
-The sentry already has `/health`, `/processes`, `/files`, `/exec` endpoints and the `rc-common::exec::run_cmd_sync` primitive. It is a pure-std no-async binary running on :8091. Adding a crash analysis loop means adding a background thread (no async needed — the pattern is already std::thread based).
+The security model (no-shell execution, sanitized env, frozen registry) must be PRESERVED and EXTENDED — not replaced — for dynamic commands.
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Operations Expects These)
+### Table Stakes (Must Have for Milestone Goal to Be Met)
 
-Features the sentry AI debugger must have. Missing any means rc-agent still restarts blindly — the milestone goal is not met.
+These are the features that define what "Seamless Execution" actually means. Missing any means the milestone is not complete.
 
-| # | Feature | Why Expected | Complexity | Existing Dependency |
-|---|---------|--------------|------------|---------------------|
-| TS-1 | **Health endpoint polling for rc-agent crash detection** | Without detecting the crash, nothing else can happen. Poll `localhost:8090/health` every 5s. Non-response for 2+ consecutive polls = crashed. | LOW | HTTP client in std (no reqwest — no async in sentry). `std::net::TcpStream::connect_timeout` + basic GET. Pattern: rc-sentry is already pure-std for connections. |
-| TS-2 | **Post-crash log reading: startup_log, stderr capture, panic output** | The WHY of a crash lives in the log files. rc-agent already writes startup errors to disk (HEAL-01 through HEAL-04 in v4.0). Without reading these, every restart is still blind. | LOW | `std::fs::read_to_string` on known paths: `C:\RacingPoint\startup_errors.log`, `C:\RacingPoint\rc-agent-stderr.log`, `C:\RacingPoint\rc-bot-events.log`. All paths are constants in the project. `/files` sentry endpoint already exists but internal read is simpler. |
-| TS-3 | **Tier 1 deterministic fixes before restart** | rc-agent's own `ai_debugger.rs` Tier 1 has 14 patterns. The most critical ones (stale sockets, zombie processes, config repair, shader cache) must be replicated in sentry so they run even when rc-agent is dead. | MEDIUM | Patterns replicated from `ai_debugger.rs`. Implementation: shell-outs via `rc_common::exec::run_cmd_sync` (already used in sentry's `/exec` handler). Billing gate does NOT apply here — rc-agent is dead, no session in progress. |
-| TS-4 | **Crash pattern memory: read debug-memory.json for instant fix replay** | debug-memory.json on disk survives the crash. If rc-agent solved this exact pattern before (success_count > 0), apply the known fix immediately without querying Ollama. | LOW | `std::fs::read_to_string(C:\RacingPoint\debug-memory.json)` + `serde_json` parse. The `DebugMemory` struct and `pattern_key` logic in `ai_debugger.rs` can be extracted to `rc-common` or duplicated with minimal code (it's just JSON read + key lookup). |
-| TS-5 | **Tier 3 Ollama query for unknown crash patterns** | Patterns not in debug-memory.json and not matched by Tier 1 keywords need LLM triage. Ollama runs on James (.27:11434), survives pod crashes. Query with crash log excerpt and receive RESTART / FIX / ALERT. | MEDIUM | `std::net::TcpStream` raw HTTP POST to `192.168.31.27:11434/api/generate` — no async needed. Blocking 30s timeout via `set_read_timeout`. Same Ollama model already serving rc-agent queries. |
-| TS-6 | **Crash diagnostics reported to server via fleet API** | Server needs to know WHY pod was restarted, not just that it was. The `/api/v1/fleet/health` endpoint and fleet dashboard show pod state. A `CrashDiagnostic` event to the server closes the observability loop. | LOW | HTTP POST to `192.168.31.23:8080` — plain std TCP, same approach as Ollama query. Server logs the event. No new server endpoint needed if it maps to existing `AgentMessage` channel via rc-agent (but rc-agent is dead). Sentry posts directly via HTTP. |
-| TS-7 | **Escalation decision: restart vs alert staff vs block pod** | Not every crash should result in a restart loop. A pod crashing 5 times in 10 minutes signals a hardware or config problem that staff must physically address. Three outcomes: restart (most crashes), alert (repeat crashes), block with maintenance screen. | MEDIUM | Three-state FSM in the sentry crash loop: `restart_count` + `last_crash_at` in memory. If `restart_count >= 3 in 10 min` → email alert + `/exec` to show maintenance screen (the lock_screen HTML approach already used). |
-| TS-8 | **Anti-cheat-safe detection: HTTP health polling only, no process inspection** | F1 25 uses Easy Anti-Cheat (EAC). EAC scans for handles to the game process, OpenProcess calls, and memory access from external processes. Health polling via TCP to :8090 does not touch the game process — it is completely invisible to EAC. The sentry already avoids process inspection in its `/processes` endpoint (it uses sysinfo for reporting, not game debugging). | LOW | This is a constraint, not a feature to build, but it must be explicitly honored: the crash detection loop MUST NOT call OpenProcess/TerminateProcess on game PIDs, MUST NOT call `EnumProcessModules`, MUST NOT attach debug events. Only allowed: HTTP polling localhost:8090, reading log files from disk, running shell commands (netstat, taskkill by name — not by PID attachment). |
-| TS-9 | **Write crash diagnostic to crash-sentry.log on disk** | Every crash event (detected, logs read, fixes applied, outcome) must be persisted locally. This log survives the sentry's own restarts and enables post-mortem by Uday or James. | LOW | Append to `C:\RacingPoint\crash-sentry.log` with 512KB rotation. Same `log_event()` pattern from `self_monitor.rs` — replicate in sentry. Structured line: `[epoch_secs] CRASH_DETECTED | fixes=stale_socket,restart | outcome=restart | ollama=RESTART`. |
+| # | Feature | Why Expected | Complexity | Dependency on Existing Code |
+|---|---------|--------------|------------|------------------------------|
+| TS-1 | **Dynamic command registration: either side can add a command at runtime** | The 20-entry static COMMAND_REGISTRY requires code deploy to change. Dynamic registration means either AI can teach the other a new operation (e.g., "add a command to query fleet health") without a redeploy. Core milestone requirement. | MEDIUM | COMMAND_REGISTRY is a frozen object — the dynamic registry must be a separate mutable store (Map) that merges with static registry on lookup. ExecHandler already accepts `commandRegistry` injection; dynamic version passes a live Map. |
+| TS-2 | **Shell relay with APPROVE tier: send arbitrary shell commands between machines** | James frequently needs to run commands on Bono's Linux VPS and vice versa. Today this requires constructing a new static command and deploying. Shell relay wraps arbitrary binary+args in an exec_request with tier=APPROVE, which requires explicit approval before execution. | MEDIUM | ExecHandler's execute() already supports arbitrary binary+args from the registry spec. Shell relay is a new command type that passes binary+args as payload fields rather than looking them up by name. Must use same sanitized-env + no-shell execution model. |
+| TS-3 | **Execution chain: multi-step task where step N+1 receives step N output** | A chain like "git pull then npm install then restart daemon" fails silently if step 2 runs regardless of step 1 exit code. Chain orchestration feeds step N stdout/exitCode into step N+1 invocation decision and argument construction. | HIGH | exec_result payloads already carry exitCode + stdout. Chain orchestrator is a new component that sequences exec_requests and accumulates results. Uses existing AckTracker for each step reliable delivery. |
+| TS-4 | **Chain abort on step failure with configurable continue-on-error flag** | A chain that continues past a failed step produces unpredictable state (e.g., deploying after a failed build). Default: abort chain when any step exitCode != 0. Optional `continue_on_error: true` per step for non-critical steps. | LOW | Builds on TS-3. Chain orchestrator checks exitCode after each step result. |
+| TS-5 | **Structured chain result: all step outputs returned as single response** | The requesting Claude (James or Bono) needs to see every step output in a single structured result, not one-at-a-time exec_result messages. Chain result aggregates steps into `{ chainId, steps: [{command, exitCode, stdout, stderr, durationMs}], totalDurationMs, aborted, abortReason }`. | LOW | New message type `chain_result` in protocol.js. Aggregation logic in chain orchestrator. |
+| TS-6 | **Seamless Claude-to-Claude delegation: James auto-delegates to Bono and integrates response** | When a user asks James something that requires action on Bono machine (e.g., "check if cloud racecontrol is healthy and restart it if not"), James should automatically send the task, wait for Bono response, and return an integrated answer — not expose the delegation to the user. | HIGH | sendTaskRequest() + pendingTasks Map already exists in james/index.js for task tracking. Delegation means James sends a chain_request, Bono executes and replies, James awaits and integrates. TASK_TIMEOUT_MS (default 5 min) already configurable. |
+| TS-7 | **Audit trail for all cross-machine execution persisted to disk** | INBOX.md captures messages but not exec outcomes. Every exec_request (who requested it, what command, what args if shell relay, exitCode, durationMs) must be appended to a structured execution log file. This is the compliance record for all remote execution. | LOW | appendAuditLog() in james/index.js already writes to INBOX.md. Execution log is a separate append-only file with structured entries (not free-text). Same pattern, different target file. |
+| TS-8 | **Backward compatibility: all 20 existing static commands continue to work** | Existing COMMAND_REGISTRY entries (git_status, activate_failover, etc.) must work identically after dynamic registration is added. The new dynamic layer must fall through to the static registry for unknown command names. | LOW | Lookup order: dynamic registry first, static COMMAND_REGISTRY second. ExecHandler commandRegistry injection already supports custom registries. |
+| TS-9 | **Approval gate for shell relay: APPROVE tier always, human-readable prompt to Uday** | Shell relay with arbitrary binary+args is the highest-risk operation in the system. It must always route through the APPROVE tier with a notification that includes the full command being requested (not just the command name). The notification must be Uday-readable: "Bono is requesting to run: pm2 restart racecontrol on Bono VPS." | LOW | ExecHandler's queueForApproval() already calls notifyFn with command name. Shell relay version must pass the full binary+args in the notification text. Uses existing WhatsApp notification path. |
 
 ### Differentiators (Beyond the Mandatory Floor)
 
-Features that make the crash-diagnosing watchdog significantly better without being required for the core mission.
+Features that make the execution protocol significantly more capable without being required for the core mission.
 
 | # | Feature | Value Proposition | Complexity | Notes |
 |---|---------|-------------------|------------|-------|
-| D-1 | **Write debug-memory.json from sentry after successful fix** | Today, only rc-agent writes debug-memory.json (after a successful fix). If sentry fixes a crash pattern, it should record that fix in debug-memory.json so future crashes (whether handled by sentry or rc-agent) can use it. Closes the learning loop. | LOW | `std::fs::write` with atomic rename pattern (already in `ai_debugger.rs`). Sentry reads the same JSON format. |
-| D-2 | **Capture rc-agent stderr at launch: redirect output to file before rc-agent starts** | Currently rc-agent is started from `start-rcagent.bat`. If that bat file pipes stderr to a file, sentry has structured error output to parse. The sentry can check if the bat file already does this and add the redirect if not. | MEDIUM | Modifying the bat file is an operational deploy step, not a code change. Sentry can check if `rc-agent-stderr.log` exists and is non-empty as a signal of previous crash details. Document the required bat file change. |
-| D-3 | **Hysteresis on crash detection: require 2+ consecutive polling failures before acting** | Single poll failure can be network blip (Windows Defender scan locks port briefly). Requiring 2 consecutive failures (within 10s total) eliminates false-positive restarts that interrupt customer sessions. | LOW | Counter variable in the poll loop: `consecutive_failures`. Reset to 0 on success. Trigger analysis only when `>= 2`. |
-| D-4 | **Pass last known PodStateSnapshot to Ollama query** | rc-agent serializes a `PodStateSnapshot` to disk on panic (if the panic hook writes it). If this file exists at crash time, pass it as context to Ollama. Better context = more accurate fix suggestion. | MEDIUM | Requires rc-agent panic hook to write `C:\RacingPoint\last-crash-state.json`. Sentry reads this file if it exists and appends to the Ollama prompt. Richer context (billing_active, game_pid, ws_connected at time of crash). |
-| D-5 | **Startup error classification: distinguish config crash vs runtime crash vs OOM crash** | Log parsing can classify the crash type before Ollama is consulted. Config parse errors have distinctive messages ("missing field", "invalid TOML"). OOM crashes have distinct Windows Event Log entries. This pre-classification narrows the Tier 1 fix selection before wasting Ollama budget on already-known patterns. | MEDIUM | Keyword matching on log content: config errors → fix_config(), OOM → fix_memory_pressure(), port conflict → fix_stale_socket(). Narrows the search space and may eliminate the Ollama call entirely. |
-| D-6 | **Report diagnostic to fleet health dashboard with crash_reason field** | Extend `PodFleetStatus` with `last_crash_reason: Option<String>` and `restart_count_24h: u32`. Staff kiosk can show "Pod 3: restarted 2x today — port conflict" without reading logs. | MEDIUM | HTTP POST from sentry to server. New fields on `PodFleetStatus` struct in rc-common. |
-| D-7 | **Configurable via rc-agent.toml section** | The crash analysis poll interval, Ollama URL, escalation threshold, and log paths should be configurable without rebuilding sentry. Sentry reads rc-agent.toml at startup (it shares the same `C:\RacingPoint\` working directory). | LOW | `serde_json` / `toml` parse in sentry's main. Reasonable defaults if config absent. One TOML section: `[sentry]` with `poll_interval_ms`, `ollama_url`, `max_restarts_per_window`, `restart_window_secs`. |
+| D-1 | **Per-command env injection for dynamic commands** | Dynamic commands registered at runtime may need specific environment variables (e.g., API keys, paths) not in the static buildSafeEnv(). Per-command env injection allows the registrant to specify additional env vars merged with safeEnv at execution time. | LOW | ExecHandler execute() already merges EXEC_REASON into safeEnv. Same pattern: merge per-command env dict into safeEnv at execution time. Allowlist-based to prevent leaking arbitrary secrets. |
+| D-2 | **Chain step output templating: inject previous step stdout into next step args** | A chain like "get pod IP then connect to pod IP" requires step 2 args to contain step 1 stdout. Output templating lets args contain {{prev_stdout}} which is substituted before execution. | MEDIUM | Requires template substitution in chain orchestrator before sending each step exec_request. Sanitization required: templated value must be validated as safe input (no special characters even with no-shell execution, since array args are passed directly to the process). |
+| D-3 | **Chain pause and resume across WS reconnect** | If the WS drops mid-chain, the chain state must be preserved so execution resumes when connection is restored, not silently abandoned. Uses the existing WAL (message-queue.wal) pattern. | HIGH | The existing MessageQueue WAL is for message delivery. Chain state is higher-level: serialized step index + accumulated results. New chain-state.json file or in-memory state with reconnect handler in client. Depends on ConnectionMode RECONNECTING state transition events. |
+| D-4 | **Registry introspection endpoint: list all registered commands with descriptions** | Either AI can query the other current command registry (static + dynamic) to discover what is available before sending an exec_request. Returns a list of `{ name, description, tier, timeoutMs }` — never binary/args (security). | LOW | New relay HTTP endpoint GET /relay/commands on the existing HTTP relay server (port 8766). Reads from merged static + dynamic registry. Binary and args fields are omitted from the response — only name, description, tier, timeoutMs are exposed. |
+| D-5 | **Chain templates: named reusable chains stored in config** | Common chains (e.g., "deploy-comms-link": git_pull then npm_install then restart_daemon) are defined once in a config section and invoked by name. Eliminates the need to re-specify the steps on every invocation. | MEDIUM | Chain templates in a comms-link chains.json. Loaded at startup. Invocable via chain_request with `template: "deploy-comms-link"`. |
+| D-6 | **Execution timeout at chain level (not just per-step)** | Per-step timeouts exist in the registry. A chain of 5 steps each with 60s timeout could run for 5 minutes. Chain-level timeout caps the entire chain regardless of step count. | LOW | Chain orchestrator tracks chain start time. If chain-total elapsed >= chain timeout, abort remaining steps and return partial result. |
+| D-7 | **Retry policy per chain step** | Some steps (network calls, git operations) are transient-failure-prone. Per-step retry count + backoff lets the chain handle transient errors without requiring the requesting AI to re-issue the full chain. | MEDIUM | Chain orchestrator: if step fails and `retries > 0`, wait for backoff duration and re-send exec_request for that step. Retry must use a new execId (existing dedup is execId-keyed). |
 
 ### Anti-Features (Do Not Build)
 
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| **Process inspection of game PID (OpenProcess, debug APIs, CreateRemoteThread)** | EAC kernel driver scans for handles to the game process from external processes. Any OpenProcess call on F1 25 or iRacing EOS risks a ban or game crash. iRacing EOS runs a sandbox preventing external program access. This is a hard constraint. | Health poll localhost:8090 only. Shell commands (taskkill by name) are safe because they use the kernel's standard process management API, not the game's process memory. |
-| **Minidump analysis (WinDbg, DbgHelp.dll)** | Minidump parsing requires loading DbgHelp.dll with the correct symbol paths. Symbols are game-specific, change every patch, and the game EXE minidumps are not accessible (EAC guards the game process memory). rc-agent minidumps are accessible but setting up symbol servers adds significant operational complexity for marginal gain over log parsing. | Read rc-agent's own text log output and panic messages. Rust panics produce readable stack traces to stderr if `RUST_BACKTRACE=1` is set. Text log parsing is sufficient. |
-| **Real-time Windows Event Log subscription** | Subscribing to Windows Event Log for application crashes (EventID 1000/1001) via `EvtSubscribe` requires COM initialization and significant Win32 plumbing. The sentry deliberately avoids async and complex win32 to stay minimal. | Poll a known log file path every 5s. Already covers 99% of the crash information. Event Log polling is not worth the complexity for the marginal case where a crash leaves no disk log. |
-| **Restart loop without exponential backoff** | Rapid restart loops during persistent crashes consume CPU, corrupt state, and may trigger Windows service recovery limits. A sentry that restarts rc-agent 20 times in 2 minutes is worse than one that blocks the pod and alerts staff. | Escalating backoff after each restart: 3s, 5s, 10s, 30s. Block pod and alert staff after 3 restarts in 10 minutes. Already validated pattern from rc-agent's own `EscalatingBackoff` in rc-common. |
-| **Ollama for every crash without Tier 1 first** | Sending every log to Ollama skips deterministic fixes that always work (stale socket = netsh delete, zombie = taskkill). Ollama adds 5-30s latency. Most crashes have known patterns that resolve in <1s with the right command. | 4-tier debug order: Tier 1 deterministic → Tier 2 memory → Tier 3 Ollama. Only reach Tier 3 if Tiers 1+2 yield no applicable fix. This is the established pattern from `ai_debugger.rs`. |
-| **Game-crash debugging in sentry** | rc-agent is alive when a game crashes (it detects and handles game crashes itself). Sentry only activates when rc-agent is dead. Adding game-crash debugging to sentry creates a confusing dual-ownership of the same problem. | Game crash debugging stays in rc-agent's `ai_debugger.rs`. Sentry handles only rc-agent crashes. Scope boundary: sentry = rc-agent dead, rc-agent = game dead. |
-| **Cross-pod crash correlation in sentry** | Detecting "3 pods crashed at the same time = server problem" is a valid observation but belongs to racecontrol's `pod_monitor.rs` + `bot_coordinator.rs` on the server, which has fleet-wide visibility. The sentry is a per-pod tool with no cross-pod communication path. | Server-side pod_monitor already detects fleet-wide health drops. Feed sentry crash events to the server (TS-6) and let the server do fleet-level correlation. |
+| Anti-Feature | Why Requested | Why Problematic | Alternative |
+|--------------|---------------|-----------------|-------------|
+| **Shell-mode execution for shell relay** | "Easier" to pass command strings including pipes, redirects, operators | Breaks the entire security model. Shell-mode expands the attack surface to shell injection. A compromised message payload can execute anything on the machine. The no-shell + array-args model is the entire foundation of the exec protocol security claim. | Require binary + args array even for shell relay. If pipes are needed, wrap in a script file and register the script as a command, or use the existing pattern of inline node -e scripts (as seen in notify_failover / notify_failback in COMMAND_REGISTRY). |
+| **Arbitrary env passthrough for dynamic commands** | Dynamic commands need env vars | Arbitrary env passthrough from message payload to child process leaks whatever is in the message — including anything a compromised peer might inject. | Explicit allowlist: the dynamic command registration includes a named list of env var keys that are permitted. Values come from the registering machine environment, not from the exec_request payload. |
+| **Bidirectional shell access without approval** | "It is just between two trusted AIs" | James and Bono are Claude Code instances. Either can be given instructions by a user or a compromised context. AUTO-tier shell relay means a malicious message triggers arbitrary code execution with no human in the loop. The APPROVE tier and Uday notification are non-negotiable for shell relay. | Shell relay always APPROVE tier. AUTO tier only for pre-approved registry entries with known binary+args. |
+| **Storing exec_result stdout in WAL** | Audit trail needs output | Stdout from commands can be large (50KB per STDOUT_LIMIT). Storing it in the WAL bloats the WAL and risks leaking sensitive output (API responses, config file contents) if the WAL file is accessed. | Audit log stores command name, exitCode, durationMs, execId, and a truncated summary. Full stdout is returned in the exec_result message to the requesting side and is their responsibility to store if needed. |
+| **Command registry merge across machines (shared registry state)** | "Both sides should know about all commands" | Registry replication creates consistency problems. If James registers a Windows-only command (wmic, tasklist) and it replicates to Bono Linux VPS, Bono will try to execute it and fail. Commands are inherently machine-specific. | Keep registries local. Use D-4 (introspection endpoint) to let either AI discover what the other side supports. Commands are registered on the machine that will execute them. |
+| **Chain step conditional logic (if/else branching)** | Complex automation needs branching | Conditional chains are a workflow engine. This is scope creep toward building a general DAG executor. Adds significant complexity to the orchestrator for marginal use cases. The two AIs can handle conditional logic in their own reasoning — the execution protocol sends the decisions, not makes them. | The requesting AI evaluates step N result and decides whether to send step N+1 or a different follow-up. Conditional logic stays in the Claude layer, execution protocol stays linear. |
+| **Cross-session chain state across process restarts** | "What if comms-link restarts mid-chain?" | Persisting chain state across process restarts requires a durable store with atomic updates and recovery logic. Chains are already bounded by TASK_TIMEOUT_MS (5 min default). A restart within a chain is a failure scenario, not a success path to optimize for. | On reconnect, the requesting AI receives a task timeout notification (existing behavior). The AI can re-issue the chain from the beginning or from the last known step using its own knowledge of what succeeded. |
+| **Real-time chain progress streaming** | "Show each step result as it runs" | step_result streaming adds a new message type and requires the client to maintain chain state on the receiving side to assemble partial results. The overall chain_result already returns all steps. Streaming is complexity for marginal UX benefit (chains are typically seconds, not minutes). | The chain_result message includes all step outputs with timestamps. The requesting AI can display them sequentially. If a step has a very long timeout, use D-3 (chain pause/resume) rather than streaming. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-TS-1 (health poll: is rc-agent dead?)
-    └──triggers──> TS-2 (read crash logs from disk)
-                       └──feeds──> D-5 (classify crash type: config/OOM/port)
-                                       └──narrows──> TS-3 (Tier 1 deterministic fixes)
-                                                         └──if no fix──> TS-4 (debug-memory instant replay)
-                                                                             └──if no match──> TS-5 (Ollama Tier 3)
-                                                                                                   └──outcome feeds──> TS-7 (escalation FSM)
+TS-1 (dynamic registry: mutable Map of commands)
+    └──used by──> TS-8 (backward compat: lookup dynamic first, static second)
+    └──used by──> D-4 (introspection endpoint: returns merged registry)
+    └──required by──> D-1 (per-command env injection: registered with the command)
+    └──required by──> D-5 (chain templates: steps reference registry entries)
 
-TS-7 (escalation: restart vs alert vs block)
-    └──restart outcome──> rc-agent.exe launched via existing relaunch_self() pattern
-    └──alert outcome──> TS-6 (report to server) + email alert
-    └──block outcome──> /exec to show maintenance lock screen on pod
+TS-2 (shell relay: arbitrary binary+args with APPROVE tier)
+    └──requires──> TS-9 (APPROVE tier notification includes full command)
+    └──uses──> ExecHandler execute() (existing, no changes needed to ExecHandler itself)
 
-D-3 (hysteresis 2+ failures)
-    └──gates──> TS-1 (prevents false-positive crash detection)
+TS-3 (chain orchestration: sequential exec_requests, step N output feeds step N+1)
+    └──requires──> TS-4 (abort on failure: orchestrator checks exitCode after each step)
+    └──requires──> TS-5 (chain_result: aggregate all steps into one response)
+    └──enables──> TS-6 (Claude-to-Claude delegation: James sends chain, awaits chain_result)
+    └──enables──> D-2 (output templating: orchestrator substitutes prev_stdout into next args)
+    └──enables──> D-6 (chain-level timeout: orchestrator tracks total elapsed)
+    └──enables──> D-7 (per-step retry: orchestrator retries step before moving forward)
+    └──enables──> D-5 (templates: pre-defined step lists loaded and sent as chains)
 
-D-1 (write debug-memory.json after fix)
-    └──requires──> TS-3 (a fix was applied and succeeded)
-    └──requires──> TS-4 (pattern key derived from crash content)
+TS-6 (Claude-to-Claude delegation)
+    └──requires──> TS-3 (chains: delegation is typically a chain not a single command)
+    └──requires──> TS-5 (chain_result: integration requires structured response)
+    └──uses──> sendTaskRequest() + pendingTasks (existing in james/index.js)
+    └──uses──> TASK_TIMEOUT_MS (existing configurable timeout)
 
-D-4 (pass PodStateSnapshot to Ollama)
-    └──requires──> rc-agent panic hook writing last-crash-state.json (rc-agent code change)
-    └──enhances──> TS-5 (richer Ollama context)
+TS-7 (audit trail: persisted execution log)
+    └──independent: can be built standalone, enhanced by TS-3 (chain steps logged)
+    └──uses──> appendAuditLog() pattern (existing in james/index.js)
 
-TS-9 (crash-sentry.log write)
-    └──written at──> every stage: crash detected, logs read, fix applied, outcome
+D-3 (chain pause/resume across WS reconnect)
+    └──requires──> TS-3 (chain state exists to be paused)
+    └──requires──> ConnectionMode reconnect events (existing, connection-mode.js)
+    └──requires──> New chain-state serialization (not in existing WAL)
+
+D-2 (output templating)
+    └──requires──> TS-3 (chain orchestrator is the substitution point)
+    └──adds──> sanitization step before each exec_request (must strip metacharacters)
 ```
 
 ### Dependency Notes
 
-- **TS-1 is the trigger for everything**: Nothing activates until health poll detects rc-agent is down. This is the critical path — poll interval and hysteresis (D-3) must be set correctly before any other feature matters.
-- **TS-3 Tier 1 fixes require careful port between rc-agent and sentry**: The billing gate from `ai_debugger.rs` ("don't kill game if billing active") does NOT apply in sentry — rc-agent is already dead, so billing has already been interrupted. The sentry fixes run unconditionally.
-- **TS-5 Ollama is a pure-std blocking HTTP call in sentry**: Unlike rc-agent which uses reqwest (async), sentry must do this via raw TCP or a blocking HTTP client. The constraint is sentry's no-async architecture. Implementation: `std::net::TcpStream` + manual HTTP/1.1 POST. Max 30s timeout via `set_read_timeout`.
-- **D-4 requires a rc-agent code change (panic hook writes JSON)**: This is a cross-binary dependency. The sentry can still work without it (just queries Ollama without snapshot context). D-4 is enhancement, not blocking.
-- **Anti-cheat constraint (TS-8) is architectural**: It gates how TS-1 is implemented (HTTP poll only) and how TS-3 fixes are applied (taskkill by name, not by PID attachment). This constraint flows through every feature that touches processes.
+- **TS-1 is the foundation for everything except TS-2**: Dynamic registry enables all non-shell-relay features. It must be the first component built.
+- **TS-3 is the most complex single feature**: Chain orchestration introduces state management (which step are we on, what was the output, did it abort). The chain orchestrator is a new class, not an extension of ExecHandler. ExecHandler handles individual command execution; chain orchestrator sequences multiple ExecHandler calls.
+- **TS-6 (delegation) requires zero new protocol work on Bono side**: Bono already has an ExecHandler. Delegation is James sending chain_requests that Bono handler processes. The only new code is the chain orchestrator and the chain_result message type.
+- **D-3 (chain pause/resume) has the highest risk-to-value ratio**: It requires new serialization infrastructure. Given that TASK_TIMEOUT_MS defaults to 5 minutes and chains are typically 10-60 seconds, WS drops during chains are rare. Defer to post-MVP.
+- **TS-2 (shell relay) is architecturally simple but operationally significant**: The code change is minimal (new dynamic command type with binary/args from payload). The operational significance is large — it permanently expands what can be executed. Must be tested under approval gate before shipping.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v11.2 core)
+### Launch With (v18.0 core — Phases to build)
 
-The minimum sentry that solves the problem: rc-agent crashes → sentry reads why → sentry fixes or reports → rc-agent restarts with context.
+The minimum that achieves "Seamless Execution" as stated in the milestone goal.
 
-- [ ] **TS-1** — Health poll loop on :8090 every 5s, 2 consecutive failures = crash detected (D-3 hysteresis included from day 1 — trivial to add and prevents false positives during customer sessions).
-- [ ] **TS-2** — Read startup_log + stderr capture + rc-bot-events.log from known disk paths. Truncate to last 8KB for Ollama prompt budget.
-- [ ] **TS-3** — Tier 1 deterministic fixes: stale sockets (`netsh int ip delete arpcache`, close port-in-use), zombie processes (`taskkill /F /IM rc-agent.exe`), config repair (copy backup toml if main is corrupt/empty), shader cache clear (known NVIDIA DXCache path).
-- [ ] **TS-4** — Read debug-memory.json, extract `pattern_key` from crash log text, apply cached fix if match found with `success_count > 0`.
-- [ ] **TS-5** — Ollama query via blocking std TCP POST to James :11434. 30s timeout. Prompt includes crash log excerpt + rc-agent version + crash count in window. Parse RESTART / FIX_X / ALERT from response.
-- [ ] **TS-7** — Escalation FSM: track restart_count + timestamps. After 3 restarts in 10 minutes: email alert via `send_email.js` shell-out + `/exec` to show maintenance screen. Reset counter after 30 minutes of stable operation.
-- [ ] **TS-9** — Append to `C:\RacingPoint\crash-sentry.log` at every state transition. 512KB rotation.
+- [ ] **TS-1** — Dynamic command registration: `DynamicRegistry` class (Map-backed). `register(name, spec)` and `lookup(name)` methods. ExecHandler modified to accept a DynamicRegistry that takes precedence over COMMAND_REGISTRY.
+- [ ] **TS-8** — Backward compat: static COMMAND_REGISTRY remains untouched. DynamicRegistry.lookup() falls through to static. All 20 existing commands pass existing tests unchanged.
+- [ ] **TS-3** — Chain orchestrator: new `ChainOrchestrator` class that accepts an array of `{command, reason}` steps, sends them sequentially as exec_requests via the existing ExecHandler, awaits each exec_result, and proceeds or aborts.
+- [ ] **TS-4** — Abort on failure: built into ChainOrchestrator. Default `abort_on_failure: true`. Per-step `continue_on_error: true` opt-in.
+- [ ] **TS-5** — `chain_result` message type added to protocol.js. ChainOrchestrator emits one chain_result with all step outputs after the chain completes or aborts.
+- [ ] **TS-6** — Claude-to-Claude delegation: James sends `chain_request` message to Bono; Bono ChainOrchestrator runs the steps and sends back `chain_result`. James awaits using pendingTasks Map pattern (already exists). Result integrated into James response to user.
+- [ ] **TS-7** — Execution audit log: `/data/exec-audit.log` on both James and Bono. Append-only structured entries: `[ISO_TIMESTAMP] execId=X command=Y from=Z exitCode=N durationMs=N tier=auto`. Chain entries include chainId and stepIndex.
+- [ ] **TS-2** — Shell relay: `__shell_relay` as a special command type (not a registry entry). Payload: `{ binary, args, cwd, reason }`. Always APPROVE tier. Uday notification includes full `binary args` string. Executed via existing ExecHandler after approval. Binary must be in allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic) — matching binaries already in static COMMAND_REGISTRY.
+- [ ] **TS-9** — Shell relay notification: full command text in Uday WhatsApp message. Uses existing notifyFn path.
 
-### Add After Validation (v11.2 polish)
+### Add After Validation (v18.1)
 
-- [ ] **TS-6** — Report crash diagnostic to server fleet API once server-side handler is confirmed working.
-- [ ] **D-1** — Write successful fix back to debug-memory.json (closes the learning loop with rc-agent's memory).
-- [ ] **D-5** — Log classification (config vs OOM vs port) to narrow Tier 1 before Ollama.
-- [ ] **D-7** — Sentry configurable via `[sentry]` section in rc-agent.toml.
+- [ ] **D-4** — Registry introspection: `GET /relay/commands` endpoint on relay HTTP server (port 8766). Returns `{ commands: [{name, description, tier, timeoutMs}] }`. Binary/args never exposed.
+- [ ] **D-1** — Per-command env injection: dynamic commands can specify `allowedEnvKeys: ['MY_VAR']`. At execution, those keys are read from the registering machine env and merged with safeEnv.
+- [ ] **D-6** — Chain-level timeout: `chainTimeoutMs` field on chain_request. ChainOrchestrator tracks total elapsed and aborts with `chain_timed_out` reason if exceeded.
+- [ ] **D-5** — Chain templates: load named chains from `comms-link/chains.json` at startup. Invocable by template name.
 
-### Future Consideration (v11.3+)
+### Future Consideration (v18.2+)
 
-- [ ] **D-4** — PodStateSnapshot at crash time (requires rc-agent panic hook change — separate phase).
-- [ ] **D-6** — Crash reason field in fleet health dashboard (requires racecontrol schema change).
-- [ ] **D-2** — Structured stderr capture from rc-agent (requires bat file change + ops deploy).
+- [ ] **D-2** — Output templating: `{{prev_stdout}}` substitution in step args. Requires robust sanitization — defer until core chains are validated.
+- [ ] **D-7** — Per-step retry: `retries: N, retryBackoffMs: M` per step in chain_request. Adds significant complexity to ChainOrchestrator.
+- [ ] **D-3** — Chain pause/resume across reconnect: new chain-state serialization. High complexity, low frequency of need given 5-minute TASK_TIMEOUT_MS.
 
 ---
 
@@ -143,85 +162,97 @@ The minimum sentry that solves the problem: rc-agent crashes → sentry reads wh
 
 | Feature | Operational Value | Implementation Cost | Priority |
 |---------|-------------------|---------------------|----------|
-| TS-1 Health poll (crash detection) | HIGH — without this, nothing works | LOW — std TcpStream | P1 |
-| TS-2 Post-crash log read | HIGH — tells us WHY | LOW — std::fs::read | P1 |
-| TS-3 Tier 1 deterministic fixes | HIGH — resolves 70%+ of crashes instantly | MEDIUM — port patterns from ai_debugger | P1 |
-| TS-4 Pattern memory (debug-memory.json) | HIGH — instant fix replay, no Ollama needed | LOW — JSON read + key lookup | P1 |
-| TS-7 Escalation FSM | HIGH — prevents restart loops, protects customers | MEDIUM — state machine + email | P1 |
-| TS-9 crash-sentry.log | HIGH — operational record, post-mortem | LOW — append + rotate | P1 |
-| D-3 Hysteresis (2 failures) | HIGH — prevents false restart during game session | LOW — counter only | P1 |
-| TS-5 Ollama Tier 3 | MEDIUM — needed for unknown patterns | MEDIUM — blocking std TCP HTTP | P1 |
-| TS-6 Report to server | MEDIUM — visibility | LOW — HTTP POST | P2 |
-| D-1 Write debug-memory.json | MEDIUM — closes learning loop | LOW — JSON write | P2 |
-| D-5 Crash classification | MEDIUM — reduces Ollama calls | MEDIUM — keyword matching | P2 |
-| D-7 TOML config | LOW-MEDIUM — operational flexibility | LOW — toml parse | P2 |
-| D-4 PodStateSnapshot at crash | MEDIUM — better Ollama context | HIGH — requires rc-agent change | P3 |
-| D-6 Fleet health crash_reason field | LOW — nice dashboard metric | MEDIUM — server schema | P3 |
-| D-2 stderr capture from bat | LOW — marginal log improvement | MEDIUM — ops deploy step | P3 |
+| TS-1 Dynamic registry | HIGH — foundation for all new features | MEDIUM — new Map-backed class, ExecHandler injection | P1 |
+| TS-8 Backward compat | HIGH — existing 20 commands must not regress | LOW — lookup order change only | P1 |
+| TS-3 Chain orchestrator | HIGH — multi-step automation is the core value | HIGH — new stateful class, message sequencing | P1 |
+| TS-4 Abort on failure | HIGH — prevents bad state from partial chains | LOW — exitCode check in orchestrator | P1 |
+| TS-5 chain_result message | HIGH — structured response for delegation | LOW — new message type + aggregation | P1 |
+| TS-6 Claude-to-Claude delegation | HIGH — core milestone requirement | MEDIUM — chain_request/chain_result wiring, pendingTasks integration | P1 |
+| TS-7 Audit log | HIGH — compliance, post-mortem | LOW — append pattern, new file | P1 |
+| TS-2 Shell relay | MEDIUM-HIGH — escape hatch for ad-hoc operations | MEDIUM — new command type, allowlist validation | P1 |
+| TS-9 Shell relay notification | HIGH (security gate — required with TS-2) | LOW — notification text update | P1 |
+| D-4 Registry introspection | MEDIUM — AI discovery of capabilities | LOW — new HTTP endpoint | P2 |
+| D-1 Per-command env injection | MEDIUM — needed for dynamic API-calling commands | LOW — env merge at execute time | P2 |
+| D-6 Chain-level timeout | MEDIUM — prevents runaway chains | LOW — elapsed time tracking | P2 |
+| D-5 Chain templates | MEDIUM — operational efficiency | MEDIUM — config loading, template lookup | P2 |
+| D-2 Output templating | MEDIUM — enables data-flow chains | HIGH — sanitization complexity | P3 |
+| D-7 Per-step retry | LOW-MEDIUM — nice for flaky operations | HIGH — retry state in orchestrator | P3 |
+| D-3 Chain pause/resume | LOW — WS drops during 10-60s chains are rare | HIGH — new serialization layer | P3 |
 
 ---
 
-## Anti-Cheat Safety Summary
+## Protocol Changes Required
 
-This is the highest-risk constraint for this milestone. Concrete safe vs unsafe list:
+The existing protocol.js needs new message types for this milestone:
 
-| Action | EAC/EOS Safe? | Reason |
-|--------|--------------|--------|
-| HTTP GET to `localhost:8090/health` | YES | TCP to rc-agent's own port, no game process contact |
-| `std::fs::read_to_string` on log files | YES | File I/O, not process memory access |
-| `taskkill /F /IM rc-agent.exe` (by name) | YES | Standard Windows process management by name |
-| `netstat -ano` shell-out | YES | Network statistics query, no process memory |
-| `netsh` socket cleanup | YES | Network stack command, no process memory |
-| HTTP POST to Ollama `192.168.31.27:11434` | YES | Local network call to James, no game contact |
-| `sysinfo::System::processes()` (read-only list) | YES | Reads process list via standard API — no handle to game process, no memory read |
-| `OpenProcess(game_pid)` | NO | EAC scans for open handles to game process |
-| `CreateRemoteThread(game_pid, ...)` | NO | Immediate EAC flag |
-| `VirtualQueryEx(game_pid, ...)` | NO | Memory inspection of game process |
-| Attaching WinDbg or debug events | NO | EAC detects debug events on game process |
-| `taskkill /F /PID <game_pid>` (by game PID) | GRAY — avoid | PID-based kill requires OpenProcess internally; prefer stopping billing and letting rc-agent handle game teardown when it restarts |
+| New Type | Direction | Purpose | Payload Fields |
+|----------|-----------|---------|----------------|
+| `chain_request` | James to Bono or Bono to James | Initiate a multi-step chain | `chainId, steps: [{command, args?, reason, continue_on_error?}], chainTimeoutMs?` |
+| `chain_step_ack` | Receiver to Sender | Confirm chain received and step N started | `chainId, stepIndex, execId` |
+| `chain_result` | Executor to Requester | Final chain outcome with all steps | `chainId, steps: [{command, exitCode, stdout, stderr, durationMs}], totalDurationMs, aborted, abortReason?` |
+| `registry_register` | Either direction | Register a new command in remote dynamic registry | `name, spec: {binary, args, tier, timeoutMs, description, allowedEnvKeys?}` |
+| `registry_ack` | Either direction | Confirm command registration or error | `name, success, error?` |
 
-**Verdict**: The sentry's health poll + log read + deterministic shell commands approach is entirely EAC-safe. The constraint requires discipline about PID-based operations on game processes specifically, not rc-agent processes.
+Shell relay does NOT need a new message type — it uses the existing `exec_request` with a special command name (`__shell_relay`) and binary/args in the payload.
+
+The existing `exec_request`, `exec_result`, `exec_approval` message types are UNCHANGED.
+
+---
+
+## Security Model for New Features
+
+The existing security model (no-shell execution, sanitized env, array args, frozen registry) is the foundation. New features must not erode it:
+
+| New Feature | Security Mechanism | Risk Level |
+|-------------|-------------------|------------|
+| Dynamic registry | Registration requires a valid spec with binary in allowlist | MEDIUM — binary allowlist is the gate |
+| Shell relay | Always APPROVE tier + Uday notification + binary allowlist | HIGH — mitigated by mandatory human approval |
+| Chain orchestration | Each step validated against registry before execution | LOW — same validation as single exec |
+| Per-command env injection | Only keys listed in `allowedEnvKeys` are passed; values come from local env, not from payload | LOW — allowlist prevents payload injection |
+| Registry introspection | Returns name/description/tier only, never binary/args | LOW — read-only, no sensitive data |
+| Output templating (D-2, future) | Strip metacharacters from substituted values even with no-shell execution | HIGH — template injection possible if not sanitized |
+
+The binary allowlist for shell relay should initially include: `node`, `git`, `pm2`, `cargo`, `systemctl`, `curl`, `sqlite3`, `taskkill`, `shutdown`, `net`, `wmic`. This matches the binaries already used in the static COMMAND_REGISTRY.
 
 ---
 
 ## Relationship to Existing Modules
 
-| Feature | Ports From | Extends | Creates |
-|---------|-----------|---------|---------|
-| TS-1 Health poll | `self_monitor.rs` query pattern | `rc-sentry/src/main.rs` — new background thread | `crash_watcher` thread in sentry |
-| TS-2 Log read | `ai_debugger.rs` — log path constants | rc-sentry main | `read_crash_logs()` fn |
-| TS-3 Tier 1 fixes | `ai_debugger.rs` — fix_stale_socket, fix_zombie_game, fix_config, fix_shader_cache | `rc_common::exec::run_cmd_sync` | `tier1_fixes()` fn in sentry |
-| TS-4 Pattern memory | `ai_debugger.rs` — DebugMemory struct, instant_fix() | Duplicate or extract to rc-common | `pattern_memory.rs` or inline in sentry |
-| TS-5 Ollama query | `self_monitor.rs` — query_ollama() (async) | Blocking rewrite for sentry's std context | `query_ollama_blocking()` fn |
-| TS-7 Escalation FSM | `ai_debugger.rs` — restart count patterns | `EscalatingBackoff` in rc-common | `escalation_state` struct in crash watcher |
-| TS-9 Crash log | `self_monitor.rs` — `log_event()`, `EVENT_LOG` constant | New log file path | `log_crash_event()` fn |
-| D-1 Memory write | `ai_debugger.rs` — `DebugMemory::record_fix()`, `save()` | Shares debug-memory.json | |
-| TS-8 Anti-cheat constraint | Architecture constraint — no new code | Affects how TS-1, TS-3 are implemented | |
+| Feature | Extends | New Code | File Location |
+|---------|---------|----------|---------------|
+| TS-1 Dynamic registry | ExecHandler (commandRegistry injection already exists) | `DynamicRegistry` class | `shared/dynamic-registry.js` |
+| TS-2 Shell relay | ExecHandler execute() (no changes needed to ExecHandler itself) | Shell relay validation + allowlist check + notification text | `shared/exec-protocol.js` or `shared/shell-relay.js` |
+| TS-3 Chain orchestrator | ExecHandler (calls it per step), AckTracker (per-step reliable delivery) | `ChainOrchestrator` class | `shared/chain-orchestrator.js` |
+| TS-5 chain_result | protocol.js MessageType | New message type constants | `shared/protocol.js` |
+| TS-6 Delegation wiring | pendingTasks + sendTaskRequest in james/index.js | chain_request send + chain_result receive handler | `james/index.js`, `bono/comms-server.js` |
+| TS-7 Audit log | appendAuditLog() pattern | New exec-audit.log target + structured formatter | `james/index.js`, `bono/comms-server.js` |
+| D-4 Introspection | Relay HTTP server (port 8766, already in james/index.js) | New `/relay/commands` route | `james/index.js` |
 
 ---
 
 ## Sources
 
 - **Codebase audit (HIGH confidence):**
-  - `crates/rc-sentry/src/main.rs` — confirmed pure-std, no-async architecture; 6 endpoints; `run_cmd_sync` usage; thread-per-connection model
-  - `crates/rc-agent/src/ai_debugger.rs` — 14 Tier 1 fix patterns, DebugMemory struct, 4-tier debug order, pattern_key logic, billing gate rule
-  - `crates/rc-agent/src/self_monitor.rs` — health monitoring pattern, relaunch_self(), log_event(), CLOSE_WAIT detection, escalation logic
-  - `.planning/PROJECT.md` — v11.2 target feature list, constraints (no new crates, extend rc-sentry only, anti-cheat safe)
+  - `comms-link/shared/exec-protocol.js` — 20-entry frozen COMMAND_REGISTRY, buildSafeEnv(), ApprovalTier, validateExecRequest()
+  - `comms-link/james/exec-handler.js` — ExecHandler class: dedup, 3-tier routing, execute(), queueForApproval(), approveCommand(), rejectCommand(); commandRegistry injection via constructor
+  - `comms-link/shared/protocol.js` — MessageType enum, CONTROL_TYPES, createMessage(), parseMessage(); confirmed exec_request/exec_result/exec_approval exist
+  - `comms-link/james/index.js` — ExecHandler wiring, sendTaskRequest(), pendingTasks Map, TASK_TIMEOUT_MS, appendAuditLog(), relay HTTP server on 8766, ConnectionMode
+  - `.planning/PROJECT.md` — v18.0 target features, constraints (no new transport, retain approval tiers, backward compat, Tailscale + WS paths)
 
-- **EAC detection mechanisms (MEDIUM confidence — WebSearch + arxiv paper):**
-  - EAC scans for open handles to the game process, memory read/write access, suspicious threads in kernel/user mode, and hooking techniques. Source: arxiv.org/html/2408.00500v1 (academic analysis of kernel anti-cheat systems)
-  - HTTP polling to a separate localhost port (rc-agent :8090) does not create handles to the game process and is invisible to EAC's detection surface.
-  - EAC's Windows 11 24H2 compatibility issue was resolved in June 2025 (KB5063060) — pods must have this update installed for F1 25 to be stable regardless of sentry design.
+- **Execution chain patterns (HIGH confidence — established systems):**
+  - Ansible playbook model: tasks run sequentially, each task result available to subsequent tasks via register variables. Abort on failure is default; ignore_errors is per-task opt-in. Direct prior art for TS-3/TS-4.
+  - LSP (Language Server Protocol) JSON-RPC: bidirectional request/response over a persistent channel with message IDs for correlation. The exec_request/exec_result pattern mirrors LSP request/response pairing exactly. Direct prior art for exec_request correlation.
+  - Supervisor pattern (Erlang/Akka): supervisor monitors child workers and decides restart vs escalation. The chain orchestrator plays the supervisor role — it decides whether to continue, abort, or retry based on step outcomes.
 
-- **iRacing EOS anti-cheat (MEDIUM confidence — WebSearch + iRacing support docs):**
-  - iRacing transitioned from Kamu/EAC to Epic EOS anti-cheat. EOS runs iRacing inside a sandbox preventing external program access to the simulation memory. External telemetry tools that use UDP (not process memory) coexist with EOS safely. HTTP health polling falls in the same safe category.
+- **Dynamic plugin/registry patterns (HIGH confidence):**
+  - LSP dynamic capability registration (client/registerCapability) — runtime registration of new protocol capabilities without reconnection. Same pattern as TS-1: static capabilities at startup, dynamic ones added via message exchange.
+  - Redis COMMAND INFO — read-only introspection of the command set without exposing implementation. Same pattern as D-4: expose metadata, not internals.
 
-- **Watchdog escalation patterns (HIGH confidence — embedded systems best practice + Akka supervisor pattern):**
-  - Check-in pattern: supervisor monitors health signals; absence triggers escalation. Source: interrupt.memfault.com/blog/firmware-watchdog-best-practices
-  - Exponential backoff with restart ceiling: stop restarting after N failures in window, escalate to staff. Source: xebia.com/blog/exponential-backoff-with-akka-actors/
-  - Both patterns are already implemented in rc-common (EscalatingBackoff) and rc-agent (self_monitor.rs) — the sentry reuses, not reinvents.
+- **Security model (HIGH confidence — Node.js official docs + execFile design):**
+  - The existing exec-protocol.js security model (no-shell execution, array args, sanitized env, frozen registry) eliminates shell injection by never invoking a shell. This is the Node.js child_process.execFile vs exec distinction — execFile passes arguments directly to the OS without shell interpretation.
+  - Binary allowlisting is the industry standard for restricting what a relay can run. Same approach used by Ansible execution modules, Salt execution modules, and SSH forced commands.
 
 ---
 
-*Feature research for: v11.2 RC Sentry AI Debugger (rc-sentry crash watcher for rc-agent on sim racing pods)*
-*Researched: 2026-03-21*
+*Feature research for: v18.0 Seamless Execution — Bidirectional AI-to-AI Dynamic Execution Protocol*
+*Researched: 2026-03-22*

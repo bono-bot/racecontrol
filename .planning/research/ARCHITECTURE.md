@@ -1,576 +1,682 @@
 # Architecture Research
 
-**Domain:** Anti-cheat safe mode integration into existing rc-agent pod software
-**Researched:** 2026-03-21
-**Confidence:** HIGH (based on direct codebase inspection + anti-cheat behaviour research)
+**Domain:** Bidirectional AI-to-AI dynamic execution protocol — v18.0 Seamless Execution
+**Researched:** 2026-03-22
+**Confidence:** HIGH (direct codebase inspection of comms-link source, no speculation)
 
 ---
 
-## Existing Architecture Context
+## Existing Architecture Baseline
 
-Understanding the current system is essential before describing what changes.
+Before describing integration points, here is the current comms-link structure as read from source.
 
-**Deployment topology per pod:**
-
-```
-Pod (Windows 11, 192.168.31.x)
-  rc-agent.exe         port 8090   Axum HTTP + WebSocket client to racecontrol
-  rc-sentry.exe        port 8091   Pure std::net TCP, no tokio, 6 endpoints
-```
-
-**rc-agent current state (v11.0 decomposed):**
-- `main.rs` spawns all subsystems and enters the WebSocket reconnect loop
-- `app_state.rs` — all long-lived state that survives WS reconnections
-- `ws_handler.rs` — dispatches `CoreToAgentMessage` from racecontrol
-- `event_loop.rs` — main `tokio::select!` loop, heartbeat, telemetry, game lifecycle
-- `kiosk.rs` — process allowlist enforcement, LLM classifier, kill-path
-- `process_guard.rs` — continuous whitelist scan, autostart audit, kill-path
-- `game_process.rs` — spawn/kill/monitor game child process
-- `sims/` — `SimAdapter` trait + per-game adapters (AC, F1 25, iRacing, LMU, AC EVO)
-
-**Game launch flow (existing):**
+### Transport and Connection Layer
 
 ```
-Staff kiosk → POST /api/v1/fleet/launch
-    ↓
-racecontrol → WS CoreToAgentMessage::LaunchGame { sim_type, launch_args }
-    ↓
-ws_handler.rs::handle_ws_message (LaunchGame arm)
-    → game_process::launch()
-    → persist_pid(pid)
-    ↓
-event_loop.rs game_check_interval (every 2s)
-    → game_process.is_running()
-    → adapter.connect() (when not connected)
-    → adapter.read_telemetry() (100ms)
+James (Windows 11, .27)                         Bono (VPS, srv1422716.hstgr.cloud)
+  james/comms-client.js                           bono/comms-server.js
+    CommsClient (EventEmitter)                      createCommsServer({ port, psk })
+    - WS outbound to Bono :8765                     - WS server on :8765
+    - PSK Bearer auth                               - PSK timing-safe validation
+    - exponential backoff reconnect                 - 45s ping keepalive
+    - offline send queue (100 cap)                  - HTTP relay routes (/relay/sync, /relay/action, /relay/health)
+    - sendRaw() for AckTracker retry
 ```
 
-**Shared memory adapters (existing, relevant to anti-cheat):**
-- `sims/iracing.rs` — opens `IRSDKMemMapFileName` via `OpenFileMapping` + `MapViewOfFile`
-- `sims/lmu.rs` — opens `$rFactor2SMMP_Scoring$` and `$rFactor2SMMP_Telemetry$` same way
-- `sims/assetto_corsa.rs` — opens `acpmf_physics`, `acpmf_graphics`, `acpmf_static`
-- `sims/f1_25.rs` — UDP only (port 20777), no shared memory, no anti-cheat risk
-- All adapters use `adapter.connect()` called lazily from event_loop when `!adapter.is_connected()`
+James connects outbound — this makes the architecture NAT-safe. All WS flows originate from James.
 
-**Subsystems with anti-cheat risk (existing):**
-- `kiosk.rs` — uses `sysinfo::System::refresh_processes()` to scan running processes. Can kill any non-whitelisted process. Risky if it scans and kills while an anti-cheat driver is watching.
-- `process_guard.rs` — same process scanning, runs every 60s. More aggressive: kills CRITICAL binaries with zero grace.
-- `overlay.rs` — creates a Win32 overlay window on top of game. Rendered as a separate process window (not DLL injection). Lower risk than SetWindowsHookEx, but EA Javelin may flag unusual window layering.
-- Keyboard hook (`SetWindowsHookEx WH_KEYBOARD_LL`) — system-wide low-level keyboard hook installed by rc-agent. This is the **highest risk** behaviour for kernel-level anti-cheat systems. EAC and Javelin actively monitor `SetWindowsHookEx` calls as a known injection vector.
+### Protocol Layer (shared/protocol.js)
+
+Every message follows a standard envelope:
+
+```
+{ v: 1, type, from, ts, id (UUID), payload: {} }
+```
+
+Current registered message types: `echo`, `echo_reply`, `heartbeat`, `heartbeat_ack`, `msg_ack`,
+`status`, `recovery`, `file_sync`, `file_ack`, `message`, `task_request`, `task_response`,
+`status_query`, `status_response`, `daily_report`, `sync_push`, `sync_pull`, `sync_action`,
+`sync_action_ack`, `exec_request`, `exec_result`, `exec_approval`.
+
+Control messages (heartbeat, echo, msg_ack) skip ACK tracking. All others go through AckTracker.
+
+### Exec Protocol Layer (shared/exec-protocol.js)
+
+The static command registry (`COMMAND_REGISTRY`) contains 13 named commands with:
+- `binary` + `args[]` — no shell strings ever
+- `tier: AUTO | NOTIFY | APPROVE`
+- `timeoutMs`, `cwd`
+
+`ExecHandler` (james/exec-handler.js, also instantiated in bono/index.js as `bonoExecHandler`):
+- Routes `exec_request` messages by tier
+- `#pendingApprovals` Map with 10-min default-deny timeout
+- Emits events: `exec_started`, `exec_completed`, `pending_approval`, `approval_timeout`
+- Injectable: `execFileFn`, `sendResultFn`, `notifyFn`, `commandRegistry`
+
+The `commandRegistry` parameter is already injectable in `ExecHandler` constructor — this is the primary extension point for dynamic registration.
+
+### Reliability Layer
+
+```
+shared/ack-tracker.js   -- AckTracker: tracks in-flight messages, 3 retries × 10s timeout
+                           DeduplicatorCache: 1000-entry LRU dedup on receiver side
+shared/message-queue.js -- MessageQueue: WAL-backed durable queue, survives crash/restart
+shared/connection-mode.js -- ConnectionMode: WS-primary / email-fallback degradation
+```
+
+### Current Message Routing (James side, james/index.js)
+
+The central `client.on('message', handler)` dispatches by `msg.type`:
+
+| Incoming type | Handler |
+|---------------|---------|
+| `msg_ack` | AckTracker.acknowledge |
+| `sync_push` | forward to rcCoreUrl/sync/push |
+| `sync_action` | forward to rcCoreUrl/sync/receive-action |
+| `sync_action_ack` | forward to rcCoreUrl/actions/{id}/ack |
+| `exec_request` | ExecHandler.handleExecRequest |
+| `exec_approval` | ExecHandler.approve/rejectCommand |
+| `task_request` | send task_response accepted + audit log |
+| `task_response` | clear pendingTasks timer |
+| `status_query` | send status_response (uptime) |
+| `exec_result` | log + failoverOrchestrator.handleExecResult |
+| `message` | audit log (INBOX.md) |
+
+### Current Message Routing (Bono side, bono/index.js wireBono)
+
+| Incoming type | Handler |
+|---------------|---------|
+| `msg_ack` | AckTracker.acknowledge |
+| `heartbeat` | HeartbeatMonitor.receivedHeartbeat |
+| `recovery` | AlertManager.handleRecovery |
+| `exec_result` | log + wss.emit('exec_result', payload) |
+| `exec_request` | bonoExecHandler.handleExecRequest |
+| `task_request` | send task_response + persist to comms.db |
+| `task_response` | clear pendingTasks timer |
+| `status_query` | send status_response |
+| `daily_report` | DailySummaryScheduler.receivePodReport |
+| `sync_push` | forward to rcCoreUrl/sync/push |
+| `sync_action_ack` | forward to rcCoreUrl/actions/{id}/ack |
+| `message` | relay to other clients + persist to comms.db |
+
+### Existing exec_result Promise Resolution (FailoverOrchestrator pattern)
+
+`james/failover-orchestrator.js` already demonstrates the exec-result-as-promise pattern:
+- `#pending` Map: `execId -> { resolve, reject, timer }`
+- `handleExecResult(payload)` called from `james/index.js` on `exec_result`
+- Resolves the promise for the matching execId
+- 30s timeout per pending exec
+
+This pattern is the foundation for execution chain orchestration.
 
 ---
 
-## System Overview: v15.0 Safe Mode Integration
+## System Overview: v18.0 Target State
 
 ```
-+----------------------------------------------------------------------+
-| racecontrol (server :8080)                                            |
-|  LaunchGame WS → { sim_type: F125, launch_args }                     |
-+----------------------------------------------------------------------+
-                              |  WebSocket
-+----------------------------------------------------------------------+
-| rc-agent (pod :8090)                                                  |
-|                                                                       |
-|  ws_handler.rs — LaunchGame dispatch                                  |
-|    existing: conn.current_sim_type = Some(launch_sim)                 |
-|    NEW:      if safe_mode::requires_safe_mode(launch_sim) {           |
-|                  state.safe_mode.enter(launch_sim);                   |
-|              }                                                        |
-|    existing: game_process::launch() [unchanged]                       |
-|                            |                                          |
-|                  AppState mutation                                     |
-|                            |                                          |
-|  +-------------------------v-------------------------------------+    |
-|  |  AppState                                                     |    |
-|  |    existing: sim_type, game_process, adapter, ...             |    |
-|  |    NEW:      safe_mode: SafeModeState                         |    |
-|  |               { active: bool,                                 |    |
-|  |                 game: Option<SimType>,                        |    |
-|  |                 entered_at: Option<Instant> }                 |    |
-|  +---+---------------+------------------+------------------+----+    |
-|      |               |                  |                  |         |
-|  +---v----+  +-------v------+  +--------v---+  +----------v----+     |
-|  |kiosk.rs|  |process_guard |  |game_process|  |sims/ adapters  |    |
-|  |        |  |.rs           |  |.rs         |  |(iracing, lmu)  |    |
-|  |GATED:  |  |GATED:        |  |UNCHANGED   |  |DEFERRED:       |    |
-|  |skip    |  |skip kill_and |  |            |  |connect() after |    |
-|  |kill in |  |report when   |  |            |  |game is live    |    |
-|  |safe    |  |safe_mode     |  |            |  |+ 5s grace      |    |
-|  |mode    |  |active        |  |            |  |                |    |
-|  +--------+  +--------------+  +------------+  +----------------+    |
-|                                                                       |
-|  event_loop.rs — game exit detection                                  |
-|    existing: game_process.is_running() → false → arm exit_grace_timer|
-|    NEW: on exit_grace fire → safe_mode.exit()                         |
-|    belt-and-suspenders: ws_handler BillingStopped → safe_mode.exit() |
-+----------------------------------------------------------------------+
+James (Windows 11, .27)                              Bono (VPS, Linux)
++-------------------------------------------------+  +-------------------------------------------------+
+| james/index.js (message router)                 |  | bono/index.js / wireBono (message router)       |
+|                                                 |  |                                                 |
+| [NEW] DynamicCommandRegistry                    |  | [NEW] DynamicCommandRegistry (Bono-side)        |
+|   - runtime register/deregister                 |  |   - runtime register/deregister                 |
+|   - merges with static COMMAND_REGISTRY         |  |   - merges with static COMMAND_REGISTRY         |
+|                                                 |  |                                                 |
+| [EXTENDED] ExecHandler                          |  | [EXTENDED] bonoExecHandler                      |
+|   - injected registry = DynamicCommandRegistry  |  |   - injected registry = DynamicCommandRegistry  |
+|   - adds exec_result promise-tracking           |  |   - adds exec_result promise-tracking           |
+|                                                 |  |                                                 |
+| [NEW] ShellRelayHandler                         |  | [NEW] ShellRelayHandler                         |
+|   - APPROVE-tier shell execution                |  |   - APPROVE-tier shell execution (Linux)        |
+|   - sanitized environment                       |  |   - sanitized environment                       |
+|                                                 |  |                                                 |
+| [NEW] ChainOrchestrator                         |  | [NEW] ChainOrchestrator                         |
+|   - multi-step chain definition + execution     |  |   - multi-step chain definition + execution     |
+|   - step N+1 receives step N output             |  |   - step N+1 receives step N output             |
+|   - chain-level audit entry                     |  |   - chain-level audit entry                     |
+|                                                 |  |                                                 |
+| [NEW] TaskDelegator                             |  | [NEW] TaskDelegator                             |
+|   - Claude-to-Claude delegation API             |  |   - Claude-to-Claude delegation API             |
+|   - awaitable remote task results               |  |   - awaitable remote task results               |
+|                                                 |  |                                                 |
+| [EXTENDED] james/index.js                       |  | [EXTENDED] bono/index.js                        |
+|   - new message types routed                    |  |   - new message types routed                    |
+|   - exec_result forwarded to ChainOrchestrator  |  |   - exec_result forwarded to ChainOrchestrator  |
++-------------------------------------------------+  +-------------------------------------------------+
+           |  WebSocket :8765  |
+           | (unchanged transport) |
 ```
+
+### New Protocol Message Types
+
+Six new types need registration in `shared/protocol.js`:
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `cmd_register` | Bono -> James or James -> Bono | Register a new runtime command |
+| `cmd_deregister` | Bono -> James or James -> Bono | Remove a runtime command |
+| `shell_request` | Either direction | Arbitrary shell command (APPROVE tier only) |
+| `shell_result` | Either direction | Output of shell_request |
+| `chain_request` | Either direction | Multi-step execution chain definition |
+| `chain_result` | Either direction | Final aggregated chain result |
+| `delegate_request` | Either direction | Claude-to-Claude task delegation |
+| `delegate_result` | Either direction | Result of delegated Claude task |
+
+`chain_request` and `chain_result` both flow through the existing `exec_request`/`exec_result` mechanism internally per step — they are a layer above it.
 
 ---
 
-## Component Responsibilities
+## Component Map: New vs Modified
 
-| Component | Status | Anti-cheat Role |
-|-----------|--------|-----------------|
-| `safe_mode.rs` | **NEW** | SafeModeState struct, `enter()`/`exit()` transitions, `requires_safe_mode(sim)` classification table |
-| `app_state.rs` | MODIFIED | Holds `safe_mode: SafeModeState` — persists across WS reconnections (game stays running during transient disconnect) |
-| `ws_handler.rs` LaunchGame arm | MODIFIED | Calls `safe_mode.enter(sim)` before `game_process::launch()` |
-| `ws_handler.rs` BillingStopped/SessionEnded | MODIFIED | Calls `safe_mode.exit()` as belt-and-suspenders |
-| `event_loop.rs` exit grace path | MODIFIED | Calls `safe_mode.exit()` when `exit_grace_timer` fires |
-| `event_loop.rs` telemetry branch | MODIFIED | Guards `adapter.connect()` — defers shm connect for protected games until 5s after game is live |
-| `kiosk.rs` kill-path | MODIFIED | Checks `state.safe_mode.active` before killing unknown processes |
-| `process_guard.rs` kill-path | MODIFIED | Checks `state.safe_mode.active` before `kill_and_report` |
-| `game_process.rs` | UNCHANGED | Process spawn/kill/monitor is not anti-cheat risky (killing our own child) |
-| `sims/iracing.rs` | reference | `connect()` opens `IRSDKMemMapFileName` — caller in event_loop must gate the call |
-| `sims/lmu.rs` | reference | `connect()` opens rF2 shared memory — same gate |
-| `sims/assetto_corsa.rs` | reference | AC has no kernel anti-cheat — connect immediately, no gate needed |
-| `sims/f1_25.rs` | reference | UDP only, no memory reads — no gate needed |
-| `config.rs` | MODIFIED | Add `[anti_cheat]` TOML section with enable flag and per-pod overrides |
+### New Components
 
----
-
-## Recommended Project Structure
-
-The safe mode feature adds one new module and modifies four existing ones. No new crate is needed.
+#### shared/dynamic-registry.js
 
 ```
-crates/rc-agent/src/
-├── safe_mode.rs          NEW — SafeModeState, enter/exit, requires_safe_mode() table
-├── app_state.rs          MODIFIED — add safe_mode: SafeModeState field
-├── ws_handler.rs         MODIFIED — enter on LaunchGame, exit on BillingStopped/SessionEnded
-├── event_loop.rs         MODIFIED — exit on game death; gate adapter.connect()
-├── kiosk.rs              MODIFIED — gate kill-path on safe_mode.active
-├── process_guard.rs      MODIFIED — gate kill-path on safe_mode.active
-└── config.rs             MODIFIED — add [anti_cheat] config section
+DynamicCommandRegistry
+  #static: COMMAND_REGISTRY (frozen, read-only source)
+  #dynamic: Map<string, CommandSpec>
+
+  register(name, spec)        -- validates spec shape, rejects CONTROL_TYPES conflicts
+  deregister(name)            -- only dynamic entries removable, static are permanent
+  get(name)                   -- checks dynamic first, falls back to static
+  list()                      -- merged view for introspection
+  serialize() / hydrate()     -- JSON round-trip for persistence across restarts
 ```
 
-### Structure Rationale
+**Integration:** Replaces the direct `COMMAND_REGISTRY` import in `ExecHandler` constructor.
+`ExecHandler` already accepts `commandRegistry` as a constructor parameter — inject
+`DynamicCommandRegistry` instance. Zero changes to ExecHandler internals.
 
-- **`safe_mode.rs` as a new module:** Keeps the classification table (which sims need protection) in one auditable place. An exhaustive `match` in `requires_safe_mode()` ensures a compile error when a new `SimType` variant is added without updating this table.
-- **`AppState` as owner:** Safe mode state must survive WebSocket reconnections — the game keeps running through a transient WS drop and must stay in safe mode throughout. Same rationale as all other `AppState` fields.
-- **No new crate:** All logic is boolean flag propagation and a lookup table. No external dependencies are needed.
+**Persistence:** On registration, serialize to `./data/dynamic-registry.json`. Load at startup
+before wiring `ExecHandler`. Registration survives process restart.
 
----
+#### shared/shell-relay.js
 
-## Architectural Patterns
+```
+ShellRelayHandler
+  #execFileFn                 -- injectable (same as ExecHandler)
+  #sendResultFn               -- (shellId, result) => void
+  #notifyFn                   -- APPROVE tier notification
+  #approvalTimeoutMs          -- default 600000ms (same as ExecHandler)
+  #pendingApprovals: Map
 
-### Pattern 1: Safe Mode State Machine
+  handleShellRequest(msg)     -- msg.payload: { shellId, command, args[], cwd, tier, reason }
+  approveShell(shellId)
+  rejectShell(shellId, reason)
+  get pendingApprovals()
+```
 
-**What:** `SafeModeState` is a plain struct with three fields — `active: bool`, `game: Option<SimType>`, `entered_at: Option<Instant>`. It is entered on `LaunchGame` for protected sims and exited when the game process dies. All gated subsystems check the `active` flag before performing risky operations.
+**Key constraint:** `tier` in the shell_request payload MUST be `APPROVE` — any attempt to
+send a shell_request with AUTO or NOTIFY tier is rejected at the handler level with an error
+result. Shell relay is an escape hatch for one-off operations not in the static registry, and
+it is always gated by operator approval.
 
-**When to use:** Any subsystem that calls `kill_process` / `kill_and_report` on processes that are not the active game, or that opens a shared memory handle into the game's address space.
+**Integration:** Wired alongside ExecHandler in both `james/index.js` and `bono/index.js`.
+New HTTP relay routes added for shell approval: `/relay/shell/pending`,
+`/relay/shell/approve/:shellId`, `/relay/shell/reject/:shellId`.
 
-**Trade-offs:** Single bool check adds zero measurable latency. The risk is forgetting to add a check when new risky behaviour is introduced in future phases. Mitigation: document the gating requirement in `safe_mode.rs` module doc.
+#### shared/chain-orchestrator.js
 
-**Example:**
-```rust
-// safe_mode.rs
+```
+ChainOrchestrator
+  #execRequestFn              -- (command, args, reason) => Promise<ExecResult>
+  #shellRequestFn             -- (command, args, cwd, reason) => Promise<ShellResult>
+  #nowFn
 
-pub struct SafeModeState {
-    pub active: bool,
-    pub game: Option<SimType>,
-    pub entered_at: Option<std::time::Instant>,
-}
+  executeChain(chain)         -- runs steps sequentially, passes output forward
+  #resolveStep(step, ctx)     -- resolves template vars in args from prior step output
+  #auditChain(chain, results) -- writes chain-level audit entry
+```
 
-impl SafeModeState {
-    pub fn new() -> Self {
-        Self { active: false, game: None, entered_at: None }
+**Chain definition structure:**
+
+```json
+{
+  "chainId": "uuid",
+  "name": "deploy-and-verify",
+  "steps": [
+    {
+      "stepId": "pull",
+      "type": "exec",
+      "command": "git_pull",
+      "reason": "deploy step 1"
+    },
+    {
+      "stepId": "verify",
+      "type": "exec",
+      "command": "health_check",
+      "reason": "deploy step 2",
+      "dependsOn": "pull",
+      "condition": { "exitCode": 0 }
     }
-
-    pub fn enter(&mut self, sim: SimType) {
-        if self.active {
-            tracing::warn!(target: "safe-mode", "enter() called while already active — idempotent");
-            self.game = Some(sim);
-            return;
-        }
-        self.active = true;
-        self.game = Some(sim);
-        self.entered_at = Some(std::time::Instant::now());
-        tracing::info!(target: "safe-mode", sim = ?sim, "Anti-cheat safe mode ENTERED");
-    }
-
-    pub fn exit(&mut self) {
-        if !self.active {
-            return; // idempotent
-        }
-        tracing::info!(target: "safe-mode", game = ?self.game,
-            elapsed_secs = ?self.entered_at.map(|t| t.elapsed().as_secs()),
-            "Anti-cheat safe mode EXITED");
-        self.active = false;
-        self.game = None;
-        self.entered_at = None;
-    }
-}
-
-/// Which sims require safe mode?
-/// Exhaustive match — compile error when new SimType added without updating this table.
-pub fn requires_safe_mode(sim: SimType) -> bool {
-    match sim {
-        SimType::F125            => true,  // EA Javelin (kernel) — scans external process memory
-        SimType::IRacing         => true,  // Epic EOS — bans for unauthorized memory access
-        SimType::LeMansUltimate  => true,  // Epic EOS (rF2 engine) — same enforcement
-        SimType::AssettoCorsaEvo => true,  // Unknown AC (Early Access) — default protected
-        SimType::AssettoCorsa    => false, // No kernel AC — hooks and scanning safe
-        SimType::AssettoCorsaRally => false, // No AC confirmed
-        SimType::Forza           => false, // No ban risk confirmed for LAN/offline play
-        SimType::ForzaHorizon5   => false, // Same
-    }
+  ],
+  "onFailure": "abort"
 }
 ```
 
-### Pattern 2: Guard Suspension via Flag Check
+`condition` allows step N+1 to be skipped or the chain to abort if step N's exit code or
+stdout does not match expectations. This prevents half-completed deploy chains from silently
+proceeding.
 
-**What:** Gated subsystems check `state.safe_mode.active` at the top of their kill-path before executing. Scanning continues — only the kill action is suppressed. This preserves observability without risking a ban.
+**Integration:** ChainOrchestrator wraps ExecHandler's exec-result-as-promise pattern
+(already demonstrated in FailoverOrchestrator). The `#execRequestFn` sends an `exec_request`
+and returns a promise resolved by `handleExecResult`. For cross-machine chains, the exec
+travels via WS; for local chains, it calls ExecHandler directly.
 
-**When to use:** In `kiosk.rs` before the WARN_BEFORE_ACTION kill path, and in `process_guard.rs` before `kill_and_report`.
+#### shared/task-delegator.js
 
-**Critical exception:** `process_guard.rs` CRITICAL tier (racecontrol.exe on a pod) must still kill even in safe mode — this protects against standing rule #2 violations regardless of session state.
+```
+TaskDelegator
+  #sendFn                     -- client.send or ws.send
+  #pendingDelegations: Map    -- delegationId -> { resolve, reject, timer }
+  #delegationTimeoutMs        -- default 300000ms (5 min)
 
-**Example:**
-```rust
-// In process_guard.rs run_scan_cycle(), before kill_and_report():
-if safe_mode_active {
-    tracing::info!(target: LOG_TARGET,
-        process = %pname,
-        "Safe mode active — logging violation but NOT killing (anti-cheat gate)");
-    // Still send ProcessViolation to server for logging, but with kill=false
-    return;
-}
-// Normal kill path continues below
+  delegate(payload)           -- sends delegate_request, returns Promise<DelegateResult>
+  handleDelegateResult(msg)   -- resolves pending promise by delegationId
+  handleDelegateRequest(msg)  -- executes local Claude response, sends delegate_result
 ```
 
-### Pattern 3: Deferred Shared Memory Connect
+**Claude-to-Claude flow:**
 
-**What:** `SimAdapter::connect()` for iRacing and LMU is deferred until the game has been confirmed live (game is in `GameState::Running`) AND a 5-second grace period has elapsed. A new `shm_connect_allowed(state, conn)` guard in `event_loop.rs` controls this.
-
-**When to use:** Only for `SimType::IRacing` and `SimType::LeMansUltimate`. F1 25 uses UDP only. AC has no anti-cheat concern.
-
-**Trade-offs:** 5-second telemetry delay at session start. Acceptable because billing starts from `PlayableSignal` (game confirmed live), not from process spawn. The 5s is conservative — the key risk window is anti-cheat driver initialization which completes within the first 3-5 seconds of the game process.
-
-**Example:**
-```rust
-// In event_loop.rs telemetry_interval branch:
-let Some(ref mut adapter) = state.adapter else { continue };
-if !adapter.is_connected() {
-    if shm_connect_allowed(&state, &conn) {
-        if adapter.connect().is_ok() {
-            state.overlay.set_max_rpm(adapter.max_rpm());
-        }
-    }
-    continue;
-}
-
-// Separate helper:
-fn shm_connect_allowed(state: &AppState, conn: &ConnectionState) -> bool {
-    if !state.safe_mode.active {
-        return true; // unprotected sim — connect immediately
-    }
-    // Protected sim: require game live and 5s elapsed since game_check confirmed Running
-    // conn.current_sim_type.is_some() && game_process running is already checked by adapter connect path
-    // Use safe_mode.entered_at as proxy — game was launched when safe mode entered
-    state.safe_mode.entered_at
-        .map(|t| t.elapsed().as_secs() >= 5)
-        .unwrap_or(false)
-}
 ```
+James receives user question requiring Bono data
+  -> TaskDelegator.delegate({ question, context })
+  -> sends delegate_request via WS
+  -> Bono receives delegate_request
+  -> Bono runs query (exec, HTTP, DB read)
+  -> Bono sends delegate_result with { answer, data, exitCode }
+  -> James receives delegate_result
+  -> TaskDelegator resolves promise
+  -> James integrates answer into response
+```
+
+**Audit:** Every delegate_request and delegate_result is appended to INBOX.md on both sides.
+The `delegationId` links request to result in the audit log.
+
+**Integration:** TaskDelegator replaces the current `sendTaskRequest` + `pendingTasks` Map
+pattern in both `james/index.js` and `bono/index.js wireBono`. The existing `task_request` /
+`task_response` flow currently only ACKs receipt (no actual result payload returned).
+TaskDelegator extends this with a proper request-response pair that carries data.
+
+### Modified Components (Existing Files Extended)
+
+#### shared/protocol.js — ADD new message types
+
+Add to `MessageType` object:
+- `cmd_register`, `cmd_deregister` — dynamic registry sync
+- `shell_request`, `shell_result` — shell relay
+- `chain_request`, `chain_result` — chain orchestration
+- `delegate_request`, `delegate_result` — Claude-to-Claude delegation
+
+These are all data messages (not control) — they participate in ACK tracking automatically.
+
+**Backward compatibility:** All existing types unchanged. New types are additive.
+
+#### shared/exec-protocol.js — ADD shell_request validation
+
+Add `validateShellRequest(payload)` alongside existing `validateExecRequest`. Validates:
+- `command` is a non-empty string
+- `args` is an array
+- `tier` must be `APPROVE` (reject anything else)
+- `cwd` if present is an absolute path
+
+The static `COMMAND_REGISTRY` and `buildSafeEnv` are unchanged.
+
+#### james/exec-handler.js — NO changes needed
+
+ExecHandler already accepts `commandRegistry` as a constructor injection point. The only
+change is at instantiation time in `james/index.js` — pass `DynamicCommandRegistry` instead
+of the static `COMMAND_REGISTRY`. ExecHandler's internal `#commandRegistry` lookup already
+reads from whatever was injected.
+
+#### james/index.js — ADD routing for new message types
+
+The existing `client.on('message', handler)` block is extended with:
+
+```
+cmd_register    -> dynamicRegistry.register(payload.name, payload.spec)
+                   + persist + log
+cmd_deregister  -> dynamicRegistry.deregister(payload.name) + persist + log
+shell_request   -> shellRelayHandler.handleShellRequest(msg)
+shell_result    -> chainOrchestrator.handleShellResult(msg.payload)
+chain_request   -> chainOrchestrator.executeChain(msg.payload)
+chain_result    -> chainOrchestrator.handleChainResult(msg.payload) (for remote chains)
+delegate_request -> taskDelegator.handleDelegateRequest(msg)
+delegate_result  -> taskDelegator.handleDelegateResult(msg)
+```
+
+Existing `exec_result` routing is extended: in addition to `failoverOrchestrator.handleExecResult`,
+also call `chainOrchestrator.handleExecResult` so chain steps waiting on exec results are resolved.
+
+New HTTP relay routes added to `relayServer`:
+```
+POST /relay/cmd/register       -- register a new command (JSON body: name, spec)
+POST /relay/cmd/deregister     -- remove a command (JSON body: name)
+GET  /relay/cmd/list           -- list all registered commands (static + dynamic)
+POST /relay/shell/send         -- trigger shell_request to Bono
+GET  /relay/shell/pending      -- list pending shell approvals
+POST /relay/shell/approve/:id  -- approve a pending shell
+POST /relay/shell/reject/:id   -- reject a pending shell
+POST /relay/chain/send         -- trigger chain_request to Bono
+POST /relay/delegate           -- send delegate_request to Bono
+```
+
+#### bono/index.js (wireBono) — ADD routing for new message types
+
+Mirrors james/index.js additions, symmetric:
+
+```
+cmd_register    -> bonoRegistry.register(...) + persist
+cmd_deregister  -> bonoRegistry.deregister(...)
+shell_request   -> bonoShellHandler.handleShellRequest(msg)
+shell_result    -> bonoChainOrchestrator.handleShellResult(msg.payload)
+chain_request   -> bonoChainOrchestrator.executeChain(msg.payload)
+chain_result    -> bonoChainOrchestrator.handleChainResult(msg.payload)
+delegate_request -> bonoTaskDelegator.handleDelegateRequest(msg)
+delegate_result  -> bonoTaskDelegator.handleDelegateResult(msg)
+```
+
+Existing `exec_result` routing (currently only logs + wss.emit) extended to also call
+`bonoChainOrchestrator.handleExecResult`.
 
 ---
 
 ## Data Flow
 
-### Safe Mode Entry Flow (LaunchGame)
+### Dynamic Command Registration Flow
 
 ```
-Server → WS CoreToAgentMessage::LaunchGame { sim_type: F125, launch_args }
-    ↓ ws_handler.rs handle_ws_message
-conn.current_sim_type = Some(F125)          [existing]
-if safe_mode::requires_safe_mode(F125) {    [NEW]
-    state.safe_mode.enter(F125);
-}
-    ↓ (side effects, immediate)
-kiosk:        kill-path suppressed this session
-process_guard: kill_and_report suppressed (except CRITICAL binaries)
-adapter:       connect() gated until 5s post-launch
-    ↓
-game_process::launch() → spawns F1_25.exe   [existing, unchanged]
-    ↓ 5s later (event_loop telemetry interval)
-shm_connect_allowed() returns true
-adapter.connect() → opens UDP bind or shm handle
+Claude Code (James session)
+  -> POST /relay/cmd/register { name: "build_racecontrol", spec: { binary, args, tier, timeoutMs } }
+  -> james/index.js relayServer
+  -> dynamicRegistry.register("build_racecontrol", spec)
+  -> persist to ./data/dynamic-registry.json
+  -> optionally: client.send('cmd_register', { name, spec })
+     -> Bono receives cmd_register -> bonoRegistry.register(name, spec)
+  Response: { ok: true, name: "build_racecontrol" }
 ```
 
-### Safe Mode Exit Flow (Game Death)
+The registration is local-first: the registering side can use it immediately. Syncing to the
+other side is optional and triggered by an explicit sync flag in the POST body.
+
+### Single Exec Request Flow (existing, unchanged)
 
 ```
-event_loop.rs game_check_interval (every 2s)
-    → game_process.is_running() → false
-    ↓ [existing exit_grace_timer logic]
-exit_grace_timer armed (30s)
-    ↓ on timer fire:
-GameStatusUpdate::Off sent to server            [existing]
-safe_mode.exit()                                [NEW — inserted here]
-    ↓ (side effects, immediate)
-kiosk:        kill-path restored
-process_guard: kill_and_report restored
-adapter:       already disconnected by BillingStopped path
+Bono wants to run git_status on James:
+  wireBono.sendExecRequest(ws, { command: 'git_status', reason: '...' })
+  -> createMessage('exec_request', 'bono', { execId, command, reason, requestedBy: 'bono' })
+  -> WS to James
+  -> james/index.js: execHandler.handleExecRequest(msg)
+  -> ExecHandler: lookup in DynamicCommandRegistry (dynamic first, then static)
+  -> execFile('git', ['status'], safeEnv)
+  -> sendResultFn -> connectionMode.sendCritical('exec_result', { execId, ...result })
+  -> WS back to Bono
+  -> wireBono: log + wss.emit('exec_result', payload)
 ```
 
-### Belt-and-Suspenders Exit (BillingStopped / SessionEnded)
+### Execution Chain Flow (new)
 
 ```
-ws_handler.rs BillingStopped or SessionEnded arm
-    → [existing: stop game, disconnect adapter, ffb zero, lock screen]
-    → safe_mode.exit()   [NEW — added at end of these handlers]
+Bono wants to deploy + verify on James:
+  POST /relay/chain/send {
+    name: "deploy-and-verify",
+    steps: [
+      { stepId: "pull", type: "exec", command: "git_pull" },
+      { stepId: "install", type: "exec", command: "npm_install", dependsOn: "pull", condition: { exitCode: 0 } }
+    ]
+  }
+  -> james/index.js: ChainOrchestrator.executeChain(chain)
+  -> Step 1: sendExecRequest('git_pull') -> await execResult promise
+  -> Step 1 result: { exitCode: 0, stdout: "..." }
+  -> condition check: exitCode === 0, proceed
+  -> Step 2: sendExecRequest('npm_install') -> await execResult promise
+  -> Step 2 result: { exitCode: 0 }
+  -> ChainOrchestrator: aggregate results, write audit entry
+  -> optionally: send chain_result back to requester
 ```
 
-These run in parallel with the exit_grace path. `exit()` is idempotent — calling it twice is safe.
+For remote chains (Bono sends chain_request to James), the chain executes on James and the
+aggregated result returns as a `chain_result` message.
 
-### State Ownership Summary
+### Shell Relay Flow (new)
 
 ```
-AppState.safe_mode: SafeModeState
-    Written (enter) by:   ws_handler.rs LaunchGame arm
-    Written (exit) by:    event_loop.rs exit_grace fire
-                          ws_handler.rs BillingStopped arm
-                          ws_handler.rs SessionEnded arm
-    Read by:              kiosk.rs (before kill-path)
-                          process_guard.rs (before kill_and_report)
-                          event_loop.rs (before adapter.connect())
+Bono wants to run an arbitrary command not in the registry:
+  POST /relay/shell/send {
+    command: "powershell",
+    args: ["-Command", "Get-NetAdapter"],
+    reason: "diagnose network adapter state",
+    tier: "approve"
+  }
+  -> james/index.js: client.send('shell_request', { shellId, command, args, cwd, tier, reason })
+  -> Bono receives shell_request
+  -> bonoShellHandler.handleShellRequest(msg)
+  -> tier === 'approve': queue, send WhatsApp to Uday: "Approval required: powershell Get-NetAdapter"
+  -> Uday approves via /relay/shell/approve/:shellId on Bono's relay
+  -> execFile('powershell', ['-Command', 'Get-NetAdapter'], safeEnv)
+  -> send shell_result back to James
+```
+
+### Claude-to-Claude Delegation Flow (new)
+
+```
+User asks James: "What are the latest 5 sessions on the cloud DB?"
+  James (Claude) knows this requires Bono's SQLite:
+  -> TaskDelegator.delegate({
+       question: "SELECT top 5 billing_sessions from cloud DB",
+       context: { dbPath: "/root/racecontrol/racecontrol.db" },
+       type: "db_query"
+     })
+  -> sends delegate_request via WS
+  -> Bono receives delegate_request
+  -> TaskDelegator.handleDelegateRequest: runs export_failover_sessions exec (or dynamic cmd)
+  -> sends delegate_result { delegationId, data: [...sessions], exitCode: 0 }
+  -> James TaskDelegator resolves promise
+  -> James integrates data into user response
 ```
 
 ---
 
-## New vs Modified Components
+## Component Boundaries and Communication
 
-### New Components
+| Component | File | Communicates With | Data Contract |
+|-----------|------|-------------------|---------------|
+| DynamicCommandRegistry | shared/dynamic-registry.js | ExecHandler (injected), index.js (persist) | CommandSpec: { binary, args, tier, timeoutMs, cwd, description } |
+| ShellRelayHandler | shared/shell-relay.js | index.js (routing), notifyFn, execFileFn | ShellRequest: { shellId, command, args, cwd, tier, reason } |
+| ChainOrchestrator | shared/chain-orchestrator.js | ExecHandler (exec-result promises), index.js | ChainDef: { chainId, name, steps[], onFailure } |
+| TaskDelegator | shared/task-delegator.js | sendFn (WS), index.js (routing) | DelegationPayload: { delegationId, question, context, type } |
+| ExecHandler | james/exec-handler.js | DynamicCommandRegistry (injected), sendResultFn | Unchanged from v10.0 |
 
-| Component | File | Justification |
-|-----------|------|---------------|
-| `SafeModeState` struct | `safe_mode.rs` | Centralises state transitions and classification. Single source of truth for which sims need protection. |
-| `requires_safe_mode(sim)` fn | `safe_mode.rs` | Exhaustive `match` on `SimType` — compile error prevents silent omissions when new games are added in v13.0. |
-| `[anti_cheat]` TOML section | `config.rs` | Allows per-pod override (Pod 8 canary testing with forced safe mode on AC to verify no regression). Fields: `enabled: bool`, `shm_defer_secs: u64`. |
+### ExecResult Promise Pattern (shared concern)
 
-### Modified Components
+Both ChainOrchestrator and TaskDelegator need the exec-result-as-promise pattern. The cleanest
+approach is a shared `ExecResultBroker` (or inline Map in each orchestrator):
 
-| Component | Change | Risk |
-|-----------|--------|------|
-| `app_state.rs` | Add `safe_mode: SafeModeState` field | LOW — additive, no existing code broken |
-| `ws_handler.rs` LaunchGame arm | Insert `safe_mode.enter()` after `conn.current_sim_type` assignment, before `game_process::launch()` | LOW — non-blocking, no ordering issue |
-| `ws_handler.rs` BillingStopped / SessionEnded | Insert `safe_mode.exit()` at end of each handler | LOW — belt-and-suspenders, idempotent |
-| `event_loop.rs` exit_grace fire path | Insert `safe_mode.exit()` alongside existing `GameStatusUpdate::Off` emission | LOW — single line addition at correct lifecycle point |
-| `event_loop.rs` telemetry interval adapter connect | Wrap `adapter.connect()` call with `shm_connect_allowed()` guard | LOW-MEDIUM — must preserve existing AC connect behaviour (AC returns `true` immediately) |
-| `kiosk.rs` kill-path | Check `state.safe_mode.active` before kill in `enforce()` | MEDIUM — must not gate the game process itself (already excluded by existing self-exclusion) |
-| `process_guard.rs` kill-path | Check `state.safe_mode.active` before `kill_and_report` | MEDIUM — CRITICAL binaries must bypass the gate |
+```
+ExecResultBroker
+  #pending: Map<execId, { resolve, reject, timer }>
+
+  waitFor(execId, timeoutMs)  -> Promise<ExecResult>
+  settle(execId, result)      -> void  (called from index.js exec_result handler)
+```
+
+`james/index.js` and `bono/index.js` each instantiate one broker and call `broker.settle()`
+in the `exec_result` handler alongside the existing `failoverOrchestrator.handleExecResult`.
+ChainOrchestrator and TaskDelegator both reference the same broker instance.
+
+This replaces the duplicated `#pending` Maps in FailoverOrchestrator, ChainOrchestrator,
+and TaskDelegator — one broker serves all.
 
 ---
 
-## Integration Points
+## Audit Trail Architecture
 
-### Primary Integration Point: `ws_handler.rs` LaunchGame
+All cross-machine execution must produce an audit entry. The current INBOX.md + comms.db
+pattern is extended:
 
-This is where detection and safe mode entry happens. The existing code at line ~283 already has:
-```rust
-conn.current_sim_type = Some(launch_sim);  // existing
+```
+Audit entry fields:
+  timestamp (IST)
+  direction (james->bono | bono->james)
+  type (exec | shell | chain | delegation)
+  requestedBy (james | bono | operator)
+  command / chainId / delegationId
+  exitCode(s)
+  durationMs
+  tier (auto | notify | approve)
+  approved_by (for APPROVE tier: who triggered /relay/*/approve)
 ```
 
-The new call inserts immediately after this, before any game launch logic:
-```rust
-if safe_mode::requires_safe_mode(launch_sim) {
-    state.safe_mode.enter(launch_sim);
-}
-```
+James side: append to INBOX.md (existing audit file).
+Bono side: persist to comms.db via `persistToCommsDb()` (existing mechanism).
 
-This is the single source of entry — nothing else calls `safe_mode.enter()`.
-
-### Secondary Integration Point: `event_loop.rs` exit_grace fire
-
-The existing exit_grace path already handles:
-1. `emit GameStatusUpdate::Off`
-2. clear `exit_grace_armed`
-
-Safe mode exit inserts as step 3:
-3. `state.safe_mode.exit()`
-
-The `exit_grace_timer` fires 30 seconds after `is_running()` returns false — this is exactly when the anti-cheat driver has fully cleaned up after the game exit.
-
-### Tertiary Integration Point: `event_loop.rs` telemetry branch, adapter.connect()
-
-The existing pattern:
-```rust
-if !adapter.is_connected() {
-    if adapter.connect().is_ok() { ... }
-    continue;
-}
-```
-
-Becomes:
-```rust
-if !adapter.is_connected() {
-    if shm_connect_allowed(&state, &conn) && adapter.connect().is_ok() { ... }
-    continue;
-}
-```
-
-For non-protected sims (AC, Forza, F1 25), `shm_connect_allowed` returns `true` immediately — existing behaviour preserved.
-
-### Subsystem Gate Placement: `kiosk.rs`
-
-The kill-path in `kiosk.rs` runs inside `KioskManager::enforce()` when an unknown process exceeds `WARN_BEFORE_ACTION_COUNT`. The gate inserts before the kill call:
-```rust
-if app_state_safe_mode_active {
-    tracing::info!(target: LOG_TARGET, process = %name, "Safe mode: skip kill");
-    return;
-}
-```
-
-Note: `KioskManager` does not currently hold a reference to `AppState` — it operates on passed parameters. The safe mode flag is best passed as a `bool` argument to `enforce()` from `event_loop.rs` where `AppState` is available.
-
-### Subsystem Gate Placement: `process_guard.rs`
-
-`process_guard::spawn()` runs as a detached `tokio::spawn` task. It currently receives only `ProcessGuardConfig`, `whitelist`, `tx`, and `machine_id`. To gate on safe mode, a `Arc<AtomicBool>` shared safe mode indicator should be passed to the spawn function — OR — process_guard can check a new shared atomic that `AppState` exposes, matching the pattern of `heartbeat_status` (which is already an `Arc<HeartbeatStatus>` with atomics).
-
-Recommended: add `safe_mode_active: Arc<AtomicBool>` to the `process_guard::spawn()` signature, sourced from a new `AppState::safe_mode_flag: Arc<AtomicBool>` that is `store(true/false)` in parallel with `SafeModeState`.
+Chain audits write one entry per chain (not per step) to avoid log spam, but include step
+summaries in the `body` field.
 
 ---
 
-## Anti-cheat System Classification
+## Recommended Project Structure Changes
 
-| Game | Anti-cheat | Kernel Level | Risk to rc-agent | Notes |
-|------|------------|--------------|------------------|-------|
-| F1 25 | **EA Javelin** (not EAC — confirmed) | YES | CRITICAL | Javelin scans external process memory access, monitors SetWindowsHookEx as injection vector. UDP telemetry (port 20777) is explicitly the official telemetry channel — safe to use. |
-| iRacing | **Epic EOS** (migrated from EAC in May 2024) | YES | HIGH | iRacing SDK shared memory (`IRSDKMemMapFileName`) is the official telemetry API — used by iOverlay, RaceLab, Crew Chief without bans. Risk is in timing: opening handle during EOS driver init. Defer connect by 5s. |
-| LMU | **Epic EOS** (rF2/LMU common engine) | YES | HIGH | rF2SharedMemoryMapPlugin is official. Same connect-timing caution as iRacing. |
-| AC EVO | **Unknown** (Early Access, Kunos/505 Games) | UNKNOWN | HIGH by default | Treat as protected until Pod 8 canary confirms safe. May use EAC, Javelin, or Kunos custom. |
-| Assetto Corsa (classic) | **None** | NO | SAFE | No kernel anti-cheat. SetWindowsHookEx, process scanning, and shared memory all safe. |
-| AC Rally | **None confirmed** | NO | SAFE | Small Kunos EA title, no AC reported. |
-| Forza Motorsport | Unknown | UNCLEAR | LOW | Xbox/Microsoft title — bans require online play. LAN/offline sessions unlikely to trigger detection. |
-| Forza Horizon 5 | Unknown | UNCLEAR | LOW | Same reasoning as Forza Motorsport. |
+```
+comms-link/
+  shared/
+    protocol.js          -- ADD 8 new message types
+    exec-protocol.js     -- ADD validateShellRequest(), shell_request schema
+    dynamic-registry.js  -- NEW: DynamicCommandRegistry
+    shell-relay.js       -- NEW: ShellRelayHandler
+    chain-orchestrator.js-- NEW: ChainOrchestrator
+    task-delegator.js    -- NEW: TaskDelegator
+    exec-result-broker.js-- NEW: ExecResultBroker (shared promise resolver)
+    [existing unchanged]
+  james/
+    index.js             -- EXTENDED: new routing + new relay HTTP routes
+    exec-handler.js      -- NO CHANGES (registry injected)
+    [existing unchanged]
+  bono/
+    index.js             -- EXTENDED: wireBono gets new routing
+    [existing unchanged]
+  data/
+    dynamic-registry.json-- NEW: persisted runtime commands (gitignored, machine-local)
+```
 
-**Key finding on F1 25:** EA Javelin is NOT Easy Anti-Cheat (EAC). The PROJECT.md currently says "EAC" — this is incorrect. Javelin is EA's own kernel-level anti-cheat. The risk profile is similar to EAC but the detection triggers differ. Javelin is known to block: external process memory reads, unsigned DLL injection, SetWindowsHookEx system-wide hooks. UDP telemetry on port 20777 is not flagged — it is the official developer-provided channel.
-
-**Key finding on iRacing:** iRacing migrated from EAC to Epic EOS in May 2024. The SDK shared memory interface is officially supported and commercially used by dozens of overlay tools without bans. The risk is not the API itself but the timing of opening the handle.
-
----
-
-## Shared Memory + Anti-cheat Interaction (Detailed)
-
-### iRacing
-
-`IracingAdapter::connect()` opens `IRSDKMemMapFileName` using `OpenFileMapping(FILE_MAP_READ, FALSE, "Local\\IRSDKMemMapFileName")`. This is the official iRacing SDK pattern. Commercial tools (iOverlay, RaceLab, Crew Chief) do this continuously without bans.
-
-**Risk window:** The 5-10 seconds immediately after `iRacingSim64DX11.exe` spawns, while EOS is initializing and scanning the process environment. Opening a new shared memory handle during this window may appear suspicious in combination with other rc-agent behaviors (process scanning, keyboard hook).
-
-**Mitigation:** Defer `IracingAdapter::connect()` until `shm_connect_allowed()` returns true (5s after safe mode entered). By that point, EOS initialization is complete and the handle open looks like a normal telemetry reader.
-
-**Additional safety:** `IracingAdapter::disconnect()` closes the `MapViewOfFile` and `CloseHandle` handles. Verify this runs on game exit (it is called via `BillingStopped` handler: `if let Some(ref mut adp) = state.adapter { adp.disconnect(); }`). Confirmed via `ws_handler.rs` lines 239, 273.
-
-### LMU / rFactor 2
-
-`LmuAdapter` opens `$rFactor2SMMP_Scoring$` and `$rFactor2SMMP_Telemetry$`. These are exposed by the rF2SharedMemoryMapPlugin — a DLL that must be installed in the game's `Plugins/` folder. rc-agent does not install this DLL; that is an ops setup step per pod.
-
-**Risk:** Same timing window as iRacing. Same 5-second defer mitigation applies.
-
-**Note:** If the rF2 plugin is not installed, `OpenFileMapping` returns `NULL` and `LmuAdapter::connect()` returns an error. The adapter retries every 100ms via the existing `!adapter.is_connected()` path. This is benign.
-
-### AC EVO
-
-AC EVO shares memory via the `acpmf_*` named maps (same as classic AC). Whether Kunos has added kernel-level anti-cheat to the Early Access title is unconfirmed as of 2026-03-21. Treating it as protected (safe mode active, deferred connect) is the conservative default. The Pod 8 canary validation phase will confirm the actual risk level before any `requires_safe_mode(AssettoCorsaEvo)` change.
+Total new files: 5 in shared/. Total modified files: 3 (protocol.js, exec-protocol.js, james/index.js, bono/index.js). ExecHandler itself requires zero changes.
 
 ---
 
-## Build Order (Phase Dependencies)
+## Build Order (dependency-driven)
 
-| Phase | Work | Depends On | Notes |
-|-------|------|------------|-------|
-| 1 | `safe_mode.rs` — `SafeModeState` struct + `requires_safe_mode()` table | Nothing | Standalone new module. Write tests for exhaustive SimType coverage. |
-| 2 | `app_state.rs` — add `safe_mode: SafeModeState` + `safe_mode_flag: Arc<AtomicBool>` | Phase 1 | Additive field. `safe_mode_flag` is the shared atomic for process_guard. |
-| 3 | `process_guard.rs` — accept `safe_mode_flag: Arc<AtomicBool>`, gate kill-path | Phase 2 | CRITICAL tier bypasses gate. |
-| 4 | `kiosk.rs` — accept `safe_mode_active: bool` parameter in `enforce()`, gate kill-path | Phase 2 | Passed from event_loop which has AppState access. |
-| 5 | `ws_handler.rs` — `safe_mode.enter()` in LaunchGame; `safe_mode.exit()` in BillingStopped/SessionEnded | Phase 2 | Primary entry/exit wiring. |
-| 6 | `event_loop.rs` — `safe_mode.exit()` on exit_grace fire; `shm_connect_allowed()` guard | Phase 5 | Exit path wiring + adapter connect gate. |
-| 7 | `config.rs` — add `[anti_cheat]` section | Phase 1 | Simple config extension. |
-| 8 | Keyboard hook replacement — policy-based lockdown for protected games | After Phase 5-6 | Independent from 1-6 but safe_mode state available for per-game dispatch. Requires design work separate from the flag-gating above. |
-| 9 | Code signing — procure cert, sign `rc-agent.exe` and `rc-sentry.exe` | Independent | Procurement + build pipeline task. Highest impact mitigation (unsigned binaries are flagged by most anti-cheat). Can run in parallel with Phases 1-8. |
-| 10 | Pod 8 canary validation — per-game test sessions, anti-cheat matrix documentation | All phases complete | Pod 8 canary-first per standing policy. |
+Build order must respect import dependencies. Lower numbers have no dependencies on higher numbers.
 
-Phases 1-7 form the safe mode mechanism and should ship as one milestone phase. Phase 8 (keyboard hook replacement) is a separate phase requiring its own research (what policy-based alternative to use). Phase 9 (code signing) is a procurement task that should start immediately — certificate issuance takes 1-7 days.
+```
+Phase 1: shared/protocol.js — add new types
+  Rationale: everything imports protocol.js; must be first.
+  Risk: LOW — pure additive to frozen object.
+
+Phase 2: shared/exec-result-broker.js — new standalone module
+  Rationale: no dependencies on new components; consumed by phases 4 and 5.
+  Risk: LOW — small, well-understood pattern (mirrors FailoverOrchestrator#pending).
+
+Phase 3: shared/dynamic-registry.js — new standalone module
+  Rationale: no dependencies on new components; consumed by phases 4 and 6.
+  Risk: LOW — straightforward Map + JSON persistence.
+  Dependency: exec-protocol.js (COMMAND_REGISTRY as static base).
+
+Phase 4: shared/exec-protocol.js — add validateShellRequest
+  Rationale: needed before ShellRelayHandler.
+  Risk: LOW — additive function only.
+
+Phase 5: shared/shell-relay.js — new ShellRelayHandler
+  Rationale: depends on exec-protocol.js (phase 4) + protocol.js (phase 1).
+  Risk: MEDIUM — new APPROVE-tier flow; approval routing new.
+
+Phase 6: shared/chain-orchestrator.js — new ChainOrchestrator
+  Rationale: depends on exec-result-broker.js (phase 2) + protocol.js (phase 1).
+  Risk: MEDIUM — step sequencing + template var resolution is new logic.
+
+Phase 7: shared/task-delegator.js — new TaskDelegator
+  Rationale: depends on exec-result-broker.js (phase 2) + protocol.js (phase 1).
+  Risk: LOW — promise-over-WS pattern already proven in FailoverOrchestrator.
+
+Phase 8: james/index.js — wire new components, add relay routes
+  Rationale: depends on all phases 1-7.
+  Risk: MEDIUM — large file, many new routing cases; existing routes must not regress.
+  Mitigation: add new routing blocks AFTER existing ones to avoid accidental shadowing.
+
+Phase 9: bono/index.js (wireBono) — mirror james-side wiring
+  Rationale: depends on phases 1-7 plus james/index.js being stable for reference.
+  Risk: MEDIUM — same pattern as phase 8 but Linux-side env assumptions differ.
+```
 
 ---
 
-## Anti-patterns to Avoid
+## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Disabling All rc-agent Behaviour During Safe Mode
+### Anti-Pattern 1: Registering Commands with Shell Strings
 
-**What people do:** Treat safe mode as "minimal mode" — disable billing, lock screen, overlay, and WS heartbeat to "be safe."
+**What people do:** Register a dynamic command with `binary: 'bash'` and `args: ['-c', 'rm -rf /tmp && rsync ...']`.
 
-**Why it's wrong:** Billing, lock screen, overlay (separate window, not DLL injection), and WebSocket heartbeats are not anti-cheat risks. They do not inspect game memory, inject DLLs, or install system-wide hooks. Disabling them breaks the core business logic while providing no protection benefit.
+**Why wrong:** Shell interpretation re-opens all injection vectors the current design closes. The `shell: false` + array-args guarantee is the entire security model.
 
-**Do this instead:** Gate only the two specific risky paths: (a) process kill in `kiosk.rs` and `process_guard.rs`, and (b) shared memory connect timing for iRacing and LMU. Everything else runs normally.
+**Do this instead:** Register granular commands — one command per binary. If a multi-step operation is needed, use a chain rather than a shell string.
 
-### Anti-Pattern 2: Permanent Removal of Keyboard Hook
+### Anti-Pattern 2: Returning exec_result Payloads to Claude Without Sanitization
 
-**What people do:** Remove `SetWindowsHookEx WH_KEYBOARD_LL` entirely to eliminate the anti-cheat risk.
+**What people do:** Pipe raw stdout from an exec_result directly into Claude's context as "trusted data."
 
-**Why it's wrong:** The hook provides kiosk lockdown for ALL games — it prevents customers from pressing Win key, Alt+F4, Alt+Tab, etc. during sessions. Removing it entirely weakens kiosk security for unprotected games (AC, Forza) where it is safe to use.
+**Why wrong:** If a compromised process writes to stdout, it could inject instructions into the AI context (prompt injection via exec output).
 
-**Do this instead:** Suspend the hook when safe mode is active (protected game is running), restore it on safe mode exit. For protected games, use policy-based lockdown: Edge kiosk flags (`--kiosk`, `--kiosk-printing`), `SetForegroundWindow` enforcement loop, and Windows Group Policy to disable Win key — none of which use `SetWindowsHookEx`.
+**Do this instead:** TaskDelegator always labels delegated data as `[REMOTE DATA]` in the context. Claude Code on the receiving side treats it as untrusted user content, not trusted system prompt content.
 
-### Anti-Pattern 3: Re-entrant Safe Mode Without Idempotency
+### Anti-Pattern 3: Bypassing APPROVE Tier for Shell Relay
 
-**What people do:** Call `safe_mode.enter()` in LaunchGame without checking if already active. If a second LaunchGame fires (crash recovery relaunch), safe mode enters twice but only exits once, leaving the pod permanently in safe mode after the session ends.
+**What people do:** Add a `shell_relay_auto` option to skip approval for "trusted" one-liners.
 
-**Do this instead:** Make `enter()` and `exit()` idempotent. `enter()` when already active updates the game field but does not double-arm. `exit()` when already inactive is a no-op. See the `enter()` implementation in Pattern 1 above.
+**Why wrong:** Shell relay is the only path to arbitrary execution. A single AUTO-tier shell command breaks the containment model for all dynamic commands.
 
-### Anti-Pattern 4: Racing Shared Memory Handles Against Anti-cheat Init
+**Do this instead:** If a shell operation is needed frequently enough to feel tedious to approve, convert it into a named dynamic command (binary + args array) in the registry.
 
-**What people do:** Call `adapter.connect()` immediately when the game process appears in `game_check_interval` (i.e., when `game_process.is_running()` first returns true).
+### Anti-Pattern 4: Separate ExecResult Pending Maps per Orchestrator
 
-**Why it's wrong:** The game process appearing does not mean EOS/Javelin has finished its own initialization scan. Opening a new file mapping handle during the first 3-5 seconds of game launch is the highest-risk window.
+**What people do:** Give ChainOrchestrator its own `#pending` Map and TaskDelegator its own `#pending` Map, both listening to `exec_result`.
 
-**Do this instead:** The 5-second defer in `shm_connect_allowed()`. For iRacing specifically, the adapter already has a natural delay — `IsOnTrack` must be true before meaningful telemetry exists, which takes 15-30 seconds from launch. The 5-second gate is conservative and still well within the natural connect window.
+**Why wrong:** The exec_result handler in `james/index.js` can only call one resolver. If two Maps both claim the same `execId`, only one resolves — the other hangs until timeout.
 
-### Anti-Pattern 5: Holding Shared Memory Handles After Game Exit
+**Do this instead:** One shared `ExecResultBroker` instance, all orchestrators register with it via `broker.waitFor(execId)`. The `exec_result` handler calls `broker.settle(execId, result)` exactly once.
 
-**What people do:** Leave `IracingAdapter` or `LmuAdapter` in connected state after the billing session ends, relying on the next session's `disconnect()` call to clean up.
+### Anti-Pattern 5: Storing Dynamic Commands Only in Memory
 
-**Why it's wrong:** Some anti-cheat systems perform a cleanup scan after the game exits. An open `MapViewOfFile` handle into their memory region during that scan can trigger false positives in future sessions.
+**What people do:** Register commands at startup via startup script, skip persistence.
 
-**Do this instead:** Confirm that `BillingStopped` and `SessionEnded` handlers call `adp.disconnect()` promptly (they do — lines 239, 273 in `ws_handler.rs`). Verify that `IracingAdapter::disconnect()` and `LmuAdapter::disconnect()` call both `UnmapViewOfFile` and `CloseHandle`. Add a test assertion.
+**Why wrong:** Comms-link restarts on every deploy. Without persistence, dynamic commands disappear. The next deploy to comms-link undoes all runtime registrations silently.
+
+**Do this instead:** `DynamicCommandRegistry` serializes to `./data/dynamic-registry.json` on every mutation. `james/index.js` loads it at startup before wiring ExecHandler.
 
 ---
 
 ## Scaling Considerations
 
-Fixed 8-pod fleet. Traditional scaling does not apply. The relevant operational considerations:
+This system is single-connection (one James, one Bono) by design. Scaling concerns are
+reliability and throughput, not concurrency:
 
-| Concern | Impact | Mitigation |
-|---------|--------|------------|
-| `safe_mode.active` check in kiosk scan | Single bool read per 5s scan | Negligible |
-| `safe_mode_flag.load()` in process_guard | Single atomic load per 60s scan | Negligible |
-| 5s deferred shm connect | Telemetry missing for first 5s of protected game session | Acceptable — billing starts from PlayableSignal, not lap 1 |
-| `requires_safe_mode()` match | Called once per game launch (LaunchGame WS message) | Negligible |
-| Safe mode persisting through WS reconnect | AppState owns the field — reconnect loop never resets AppState | Correct by design |
+| Concern | Current state | With v18.0 |
+|---------|---------------|------------|
+| Chain step failures | N/A | `onFailure: abort` prevents cascades |
+| Shell approval timeout | ExecHandler: 10 min default-deny | ShellRelayHandler: same 10 min default-deny |
+| Delegation timeout | task_request: 5 min timer (no result carried) | TaskDelegator: 5 min, rejects promise with error |
+| Dynamic registry size | Static: 13 commands | Dynamic: expected <50 commands, no scaling issue |
+| Exec concurrency | ExecHandler: unlimited concurrent | ChainOrchestrator: sequential per chain, parallel chains allowed |
 
 ---
 
 ## Sources
 
-- Direct codebase inspection: `crates/rc-agent/src/app_state.rs` — all AppState fields, confirmed no existing safe_mode field
-- Direct codebase inspection: `crates/rc-agent/src/ws_handler.rs` — LaunchGame dispatch, BillingStopped, SessionEnded handlers; `disconnect()` calls at lines 239, 273
-- Direct codebase inspection: `crates/rc-agent/src/event_loop.rs` — ConnectionState, game_check_interval, exit_grace_timer, adapter.connect() call site
-- Direct codebase inspection: `crates/rc-agent/src/game_process.rs` — all SimType process names, is_running(), stop()
-- Direct codebase inspection: `crates/rc-agent/src/kiosk.rs` — WARN_BEFORE_ACTION_COUNT kill-path
-- Direct codebase inspection: `crates/rc-agent/src/process_guard.rs` — spawn() signature, CRITICAL_BINARIES, kill_and_report path
-- Direct codebase inspection: `crates/rc-agent/src/sims/iracing.rs` — IRSDKMemMapFileName, connect() implementation
-- Direct codebase inspection: `crates/rc-agent/src/sims/lmu.rs` — rF2SharedMemoryMapPlugin handle names, connect() implementation
-- Direct codebase inspection: `crates/rc-agent/src/config.rs` — AgentConfig structure, existing config sections
-- [iRacing EAC to EOS migration (official support)](https://support.iracing.com/support/solutions/articles/31000173103-anticheat-not-installed-uninstalling-eac-and-installing-eos-) — confirms iRacing uses EOS not EAC since May 2024 (HIGH confidence, official source)
-- [F1 25 PCGamingWiki](https://www.pcgamingwiki.com/wiki/F1_25) — confirms EA Javelin anti-cheat, not EAC (MEDIUM confidence)
-- [EA Anti-Cheat overview](https://players.com.ua/en/ea-anticheat-a-beginner-s-guidea-brief-look-at-the-world-of-cheats-and-anti-cheats-using-f1-as-an-example/) — Javelin detection: process memory reads, external injection, DLL hash (MEDIUM confidence, third-party analysis)
-- [iRacing SDK docs](https://sajax.github.io/irsdkdocs/) — confirms IRSDKMemMapFileName is official API (MEDIUM confidence)
-- [SetWindowsHookExA MSDN](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexa) — WH_KEYBOARD_LL is system-wide hook, monitored by anti-cheat as injection vector (HIGH confidence, official)
-- PROJECT.md — v15.0 requirements, constraints, SimType inventory (HIGH confidence, source of truth)
+- Direct inspection of `comms-link/` source (2026-03-22): comms-client.js, comms-server.js,
+  exec-handler.js, exec-protocol.js, protocol.js, message-queue.js, ack-tracker.js,
+  connection-mode.js, james/index.js, bono/index.js, failover-orchestrator.js
+- Existing FailoverOrchestrator `#pending` map as proven pattern for exec-result promises
+- PROJECT.md v18.0 Seamless Execution feature targets
 
 ---
-
-*Architecture research for: v15.0 AntiCheat Compatibility — rc-agent safe mode integration*
-*Researched: 2026-03-21 IST*
+*Architecture research for: v18.0 Seamless Execution — comms-link bidirectional dynamic execution*
+*Researched: 2026-03-22 IST*
