@@ -66,27 +66,27 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PF-01 | Phase 90 | Pending |
-| PF-02 | Phase 90 | Pending |
-| PF-03 | Phase 90 | Pending |
-| PF-07 | Phase 90 | Pending |
-| HW-01 | Phase 90 | Pending |
-| HW-02 | Phase 90 | Pending |
-| HW-03 | Phase 90 | Pending |
-| SYS-01 | Phase 90 | Pending |
-| PF-04 | Phase 91 | Pending |
-| PF-05 | Phase 91 | Pending |
-| PF-06 | Phase 91 | Pending |
-| DISP-01 | Phase 91 | Pending |
-| DISP-02 | Phase 91 | Pending |
-| SYS-02 | Phase 92 | Pending |
-| SYS-03 | Phase 92 | Pending |
-| SYS-04 | Phase 92 | Pending |
-| NET-01 | Phase 92 | Pending |
-| STAFF-04 | Phase 92 | Pending |
-| STAFF-01 | Phase 93 | Pending |
-| STAFF-02 | Phase 93 | Pending |
-| STAFF-03 | Phase 93 | Pending |
+| PF-01 | Phase 97 | Pending |
+| PF-02 | Phase 97 | Pending |
+| PF-03 | Phase 97 | Pending |
+| PF-07 | Phase 97 | Pending |
+| HW-01 | Phase 97 | Pending |
+| HW-02 | Phase 97 | Pending |
+| HW-03 | Phase 97 | Pending |
+| SYS-01 | Phase 97 | Pending |
+| PF-04 | Phase 98 | Pending |
+| PF-05 | Phase 98 | Pending |
+| PF-06 | Phase 98 | Pending |
+| DISP-01 | Phase 98 | Pending |
+| DISP-02 | Phase 98 | Pending |
+| SYS-02 | Phase 99 | Pending |
+| SYS-03 | Phase 99 | Pending |
+| SYS-04 | Phase 99 | Pending |
+| NET-01 | Phase 99 | Pending |
+| STAFF-04 | Phase 99 | Pending |
+| STAFF-01 | Phase 100 | Pending |
+| STAFF-02 | Phase 100 | Pending |
+| STAFF-03 | Phase 100 | Pending |
 
 **Coverage:**
 - v11.1 requirements: 21 total
@@ -95,4 +95,4 @@ Deferred to future release.
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after roadmap creation — all 21 requirements mapped to phases 90-93*
+*Last updated: 2026-03-21 after roadmap creation — all 21 requirements mapped to phases 97-100*

@@ -195,7 +195,8 @@ Make server .23 IP permanently stable, establish reliable James↔Server↔Bono 
 - [x] **Phase 67: Config Sync** - racecontrol.toml changes detected by SHA-256 hash, sanitized (credentials/paths stripped), and pushed to Bono via comms-link sync_push; Bono applies TOML-based config (venue/pods/branding) to cloud racecontrol. Billing rates and game catalog already synced via DB-level cloud_sync. (completed 2026-03-20)
  (completed 2026-03-20)
 - [x] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol (completed 2026-03-20)
-- [x] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover (completed 2026-03-20)
+- [x] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
+ (completed 2026-03-20)
 - [x] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp (completed 2026-03-21)
 - [x] **Phase 70: Failback & Data Reconciliation** - James detects .23 recovery (2-up threshold); cloud sessions merged to local DB before .23 resumes primary; racecontrol broadcasts SwitchController with original URL; Uday notified on failback (completed 2026-03-21)
 
@@ -214,7 +215,8 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 
 - [x] **Phase 75: Security Audit & Foundations** - Inventory all exposed endpoints, trace PII locations, move secrets to env vars, auto-generate JWT key (completed 2026-03-20)
 - [x] **Phase 76: API Authentication & Admin Protection** - JWT enforcement on all sensitive routes, admin PIN gate with argon2, rate limiting, bot auth, pod HMAC, session integrity (completed 2026-03-20)
-- [x] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers (completed 2026-03-20)
+- [x] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers
+ (completed 2026-03-20)
 - [x] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert (completed 2026-03-21)
 - [x] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion (completed 2026-03-21)
 - [ ] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing
@@ -1259,14 +1261,14 @@ Every customer session begins with automated health verification. On BillingStar
 
 ## Phases
 
-- [ ] **Phase 90: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag
-- [ ] **Phase 91: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
-- [ ] **Phase 92: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
-- [ ] **Phase 93: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
+- [ ] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag
+- [ ] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
+- [ ] **Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
+- [ ] **Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
 
 ## Phase Details
 
-### Phase 90: rc-common Protocol + pre_flight.rs Framework + Hardware Checks
+### Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks
 **Goal**: The foundational layer exists and compiles — new AgentMessage variants in rc-common are available to rc-agent, pre_flight.rs owns the concurrent check gate with a hard 5-second timeout, and the three highest-value hardware checks (HID wheelbase, ConspitLink process+config, orphaned game PID-targeted kill) run correctly with one auto-fix attempt each
 **Depends on**: Phase 89 (v14.0 Psychology Foundation)
 **Requirements**: PF-01, PF-02, PF-03, PF-07, HW-01, HW-02, HW-03, SYS-01
@@ -1278,7 +1280,7 @@ Every customer session begins with automated health verification. On BillingStar
   5. When disable_preflight = true in rc-agent.toml, BillingStarted proceeds directly to show_active_session() with no pre_flight::run() call — rollback escape hatch works
 **Plans**: TBD
 
-### Phase 91: MaintenanceRequired Lock Screen + Display Checks
+### Phase 98: MaintenanceRequired Lock Screen + Display Checks
 **Goal**: A pod that fails pre-flight shows a branded "Maintenance Required — Staff Notified" lock screen and stays blocked with two explicit exit paths — staff sends ClearMaintenance from kiosk, or 30 seconds of successful auto-retry self-clears the pod; display checks (HTTP probe and window rect) are wired into the pre-flight gate
 **Depends on**: Phase 90
 **Requirements**: PF-04, PF-05, PF-06, DISP-01, DISP-02
@@ -1290,7 +1292,7 @@ Every customer session begins with automated health verification. On BillingStar
   5. A GET to http://localhost:18923 returns HTTP 200 and the window rect of the lock screen Edge window is centered within 5% of the primary monitor center — display checks pass on a healthy pod
 **Plans**: TBD
 
-### Phase 92: System + Network + Billing Checks + BillingStarted Handler Wiring
+### Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring
 **Goal**: All remaining checks are live (billing stuck-session, disk, memory, WebSocket stability) and the pre-flight gate is wired into ws_handler.rs — every BillingStarted now triggers the complete concurrent check gate before any session state is mutated; staff alerts fire exactly once per MaintenanceRequired entry, not once per failure
 **Depends on**: Phase 91
 **Requirements**: SYS-02, SYS-03, SYS-04, NET-01, STAFF-04
@@ -1302,7 +1304,7 @@ Every customer session begins with automated health verification. On BillingStar
   5. When a pod is already in MaintenanceRequired and BillingStarted arrives, racecontrol does not book the pod for a new customer — the server rejects the booking before it reaches the pod, and the pod also guards the BillingStarted arm with a state check
 **Plans**: TBD
 
-### Phase 93: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
+### Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
 **Goal**: Staff can see at a glance which pods are in maintenance (Racing Red badge on kiosk dashboard), view failure reasons (PIN-gated), and manually clear a pod from the dashboard; maintenance pods appear as unavailable in fleet health; alert cooldown prevents notification floods
 **Depends on**: Phase 92
 **Requirements**: STAFF-01, STAFF-02, STAFF-03, STAFF-04
@@ -1316,11 +1318,11 @@ Every customer session begins with automated health verification. On BillingStar
 
 ## Progress
 
-**Execution Order:** 90 → 91 → 92 → 93
+**Execution Order:** 97 → 98 → 99 → 93
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 90. rc-common Protocol + Framework + Hardware | TBD | Not started | - |
-| 91. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
-| 92. System + Network + Billing + Handler Wiring | TBD | Not started | - |
-| 93. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
+| 97. rc-common Protocol + Framework + Hardware | TBD | Not started | - |
+| 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
+| 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
+| 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
