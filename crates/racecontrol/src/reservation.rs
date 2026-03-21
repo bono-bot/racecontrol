@@ -9,8 +9,12 @@ use rand::Rng;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::auth;
+use crate::billing;
+use crate::pod_reservation;
 use crate::state::AppState;
 use crate::wallet;
+use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 
 /// 31-char charset excluding ambiguous characters (O/0/I/1/L).
 const PIN_CHARSET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -462,6 +466,202 @@ pub async fn modify_reservation(
         "price_paise": price_paise,
         "expires_at": original_expires_at,
         "modified": true,
+    }))
+}
+
+// ─── Redeem PIN (Kiosk) ─────────────────────────────────────────────────────
+
+/// Redeem a confirmed reservation PIN at the kiosk.
+///
+/// Flow: validate PIN -> check pod availability -> atomic mark redeemed ->
+/// assign pod -> defer billing -> launch game -> return session info.
+///
+/// pending_debit PINs get a distinct "being processed" message.
+/// If no pods are idle, the PIN is NOT consumed.
+/// Atomic UPDATE prevents double-redeem race conditions.
+pub async fn redeem_pin(state: &Arc<AppState>, pin: &str) -> Result<Value, String> {
+    // 1. Normalize PIN
+    let pin = pin.trim().to_uppercase();
+    if pin.len() != 6 {
+        return Err("PIN must be exactly 6 characters".to_string());
+    }
+
+    // 2. Check for pending_debit status first (distinct message)
+    let pending = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM reservations WHERE pin = ? AND status = 'pending_debit' AND expires_at > datetime('now') LIMIT 1",
+    )
+    .bind(&pin)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    if pending.is_some() {
+        return Err("Your booking is being processed. Please try again in a minute.".to_string());
+    }
+
+    // 3. Check pod availability BEFORE consuming PIN
+    let pod_id = pod_reservation::find_idle_pod(state)
+        .await
+        .ok_or_else(|| "All pods are currently in use. Please wait a moment and try again.".to_string())?;
+
+    // 4. Get pod_number from in-memory state
+    let pod_number = {
+        let pods = state.pods.read().await;
+        pods.get(&pod_id).map(|p| p.number).unwrap_or(0)
+    };
+
+    // 5. Atomic UPDATE to prevent double-redeem
+    let redeemed = sqlx::query_as::<_, (String, String, String)>(
+        "UPDATE reservations SET status = 'redeemed', redeemed_at = datetime('now'),
+           pod_number = ?, updated_at = datetime('now')
+         WHERE id = (
+           SELECT id FROM reservations WHERE pin = ? AND status = 'confirmed'
+             AND expires_at > datetime('now') LIMIT 1
+         ) AND status = 'confirmed'
+         RETURNING id, driver_id, experience_id",
+    )
+    .bind(pod_number as i64)
+    .bind(&pin)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    let (reservation_id, driver_id, experience_id) = match redeemed {
+        Some(row) => (row.0, row.1, row.2),
+        None => return Err("Invalid PIN or reservation not found".to_string()),
+    };
+
+    // 6. Get pricing_tier_id from kiosk_experiences
+    let pricing_tier_id: String = sqlx::query_scalar(
+        "SELECT pricing_tier_id FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(&experience_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .unwrap_or_else(|| "default".to_string());
+
+    // 7. Create pod_reservation
+    if let Err(e) = pod_reservation::create_reservation(state, &driver_id, &pod_id).await {
+        // Rollback reservation status
+        let _ = sqlx::query(
+            "UPDATE reservations SET status = 'confirmed', redeemed_at = NULL, pod_number = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'redeemed'",
+        )
+        .bind(&reservation_id)
+        .execute(&state.db)
+        .await;
+        return Err(format!("Failed to reserve pod: {}", e));
+    }
+
+    // 8. Create billing_session_id
+    let billing_session_id = format!("deferred-{}", Uuid::new_v4());
+
+    // 9. Defer billing start
+    if let Err(e) = billing::defer_billing_start(
+        state,
+        pod_id.clone(),
+        driver_id.clone(),
+        pricing_tier_id.clone(),
+        None, // custom_price_paise
+        None, // custom_duration_minutes
+        None, // staff_id
+        None, // split_count
+        None, // split_duration_minutes
+        None, // group_session_id
+    )
+    .await
+    {
+        // Rollback reservation status on billing failure
+        let _ = sqlx::query(
+            "UPDATE reservations SET status = 'confirmed', redeemed_at = NULL, pod_number = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'redeemed'",
+        )
+        .bind(&reservation_id)
+        .execute(&state.db)
+        .await;
+        return Err(format!("Failed to start billing: {}", e));
+    }
+
+    // 10. Get driver_name
+    let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Driver".to_string());
+
+    // 11. Get pricing tier name + duration
+    let tier_row = sqlx::query_as::<_, (String, Option<i64>)>(
+        "SELECT name, duration_minutes FROM pricing_tiers WHERE id = ?",
+    )
+    .bind(&pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let tier_name = tier_row
+        .as_ref()
+        .map(|r| r.0.clone())
+        .unwrap_or_else(|| "Session".to_string());
+
+    let duration_minutes = tier_row
+        .as_ref()
+        .and_then(|r| r.1)
+        .unwrap_or(30);
+
+    // 12. Clear lock screen on pod agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // 13. Launch game or show assistance screen
+    auth::launch_or_assist(
+        state,
+        &pod_id,
+        &billing_session_id,
+        &Some(experience_id.clone()),
+        &None,
+        &driver_name,
+    )
+    .await;
+
+    // 14. Update pod state (current_driver) and broadcast PodUpdate
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&pod_id) {
+            pod.current_driver = Some(driver_name.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
+
+    // 15. Get experience_name
+    let experience_name: String = sqlx::query_scalar(
+        "SELECT name FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(&experience_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "Unknown".to_string());
+
+    tracing::info!(
+        "Reservation PIN redeemed on pod {} (#{}) driver {}, billing deferred",
+        pod_id, pod_number, driver_name
+    );
+
+    // 16. Return JSON
+    Ok(json!({
+        "pod_number": pod_number,
+        "pod_id": pod_id,
+        "driver_name": driver_name,
+        "experience_name": experience_name,
+        "tier_name": tier_name,
+        "allocated_seconds": duration_minutes * 60,
+        "billing_session_id": billing_session_id,
     }))
 }
 
