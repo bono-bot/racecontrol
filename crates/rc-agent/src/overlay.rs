@@ -10,6 +10,8 @@
 use std::sync::{Arc, Mutex};
 use rc_common::types::{LapData, TelemetryFrame};
 
+const LOG_TARGET: &str = "overlay";
+
 /// Height of the HUD bar (px).
 const BAR_HEIGHT: i32 = 96;
 /// Maximum bar width.
@@ -807,7 +809,7 @@ impl OverlayManager {
     /// The old implementation started an HTTP server here; the native window
     /// is created on-demand in `activate()`.
     pub fn start_server(&self) {
-        tracing::info!("Overlay: native Win32 mode — no HTTP server needed");
+        tracing::info!(target: LOG_TARGET, "native Win32 mode — no HTTP server needed");
     }
 
     /// Activate overlay for a new billing session.
@@ -918,7 +920,7 @@ impl OverlayManager {
         // or lap_time advancing). This syncs the HUD timer with AC being on track.
         if !data.game_live && (frame.speed_kmh > 0.0 || frame.rpm > 0 || frame.lap_time_ms > 0) {
             data.game_live = true;
-            tracing::info!("Overlay: game is LIVE — HUD timer synced");
+            tracing::info!(target: LOG_TARGET, "game is LIVE — HUD timer synced");
         }
         data.current_lap_number = frame.lap_number;
         data.current_lap_time_ms = frame.lap_time_ms;
@@ -1052,7 +1054,7 @@ impl OverlayManager {
         if let Some(handle) = self.window_thread.take() {
             let _ = handle.join();
         }
-        tracing::info!("Overlay window closed");
+        tracing::info!(target: LOG_TARGET, "window closed");
     }
 }
 
@@ -1129,7 +1131,7 @@ fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option
     };
 
     if hwnd.is_null() {
-        tracing::error!("Overlay: CreateWindowExW failed");
+        tracing::error!(target: LOG_TARGET, "CreateWindowExW failed");
         // Clean up the leaked state pointer
         unsafe { drop(Box::from_raw(state_ptr)); }
         return;
@@ -1152,7 +1154,7 @@ fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option
         SetTimer(hwnd, TIMER_ID, REPAINT_INTERVAL_MS, None);
     }
 
-    tracing::info!("Overlay: native Win32 window created ({}x{} at {},0)", bar_w, BAR_HEIGHT, x);
+    tracing::info!(target: LOG_TARGET, "native Win32 window created ({}x{} at {},0)", bar_w, BAR_HEIGHT, x);
 
     // Message loop
     unsafe {
@@ -1188,7 +1190,8 @@ unsafe extern "system" fn wnd_proc(
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, cs.lpCreateParams as isize);
                 let ws = &*(cs.lpCreateParams as *const WindowState);
                 tracing::info!(
-                    "Overlay: GDI resources cached (13 handles), baseline GDI count = {}",
+                    target: LOG_TARGET,
+                    "GDI resources cached (13 handles), baseline GDI count = {}",
                     ws.gdi_baseline
                 );
                 0
@@ -1204,12 +1207,14 @@ unsafe extern "system" fn wnd_proc(
                         let drift = current.saturating_sub(ws.gdi_baseline);
                         if drift > GDI_DRIFT_THRESHOLD {
                             tracing::warn!(
-                                "Overlay: GDI handle drift detected! baseline={}, current={}, drift=+{}",
+                                target: LOG_TARGET,
+                                "GDI handle drift detected! baseline={}, current={}, drift=+{}",
                                 ws.gdi_baseline, current, drift
                             );
                         } else {
                             tracing::debug!(
-                                "Overlay: GDI handle check OK (baseline={}, current={}, drift=+{})",
+                                target: LOG_TARGET,
+                                "GDI handle check OK (baseline={}, current={}, drift=+{})",
                                 ws.gdi_baseline, current, drift
                             );
                         }
@@ -1234,7 +1239,8 @@ unsafe extern "system" fn wnd_proc(
                     let ws = &*ws_ptr;
                     let final_count = gdi_handle_count();
                     tracing::info!(
-                        "Overlay: closing — GDI baseline={}, final={}, drift=+{}",
+                        target: LOG_TARGET,
+                        "closing — GDI baseline={}, final={}, drift=+{}",
                         ws.gdi_baseline, final_count,
                         final_count.saturating_sub(ws.gdi_baseline)
                     );
@@ -1242,7 +1248,7 @@ unsafe extern "system" fn wnd_proc(
                     drop(Box::from_raw(ws_ptr));
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                 }
-                tracing::info!("Overlay: GDI resources released");
+                tracing::info!(target: LOG_TARGET, "GDI resources released");
                 PostQuitMessage(0);
                 0
             }

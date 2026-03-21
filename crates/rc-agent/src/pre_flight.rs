@@ -21,6 +21,8 @@ use tracing;
 use crate::app_state::AppState;
 use crate::ffb_controller::FfbBackend;
 
+const LOG_TARGET: &str = "pre-flight";
+
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -66,7 +68,7 @@ pub async fn run(state: &AppState, ffb: &dyn FfbBackend, ws_connect_elapsed_secs
     let mut results = match join_result {
         Ok(results) => results,
         Err(_) => {
-            tracing::warn!("Pre-flight hard timeout (5s) expired");
+            tracing::warn!(target: LOG_TARGET, "Pre-flight hard timeout (5s) expired");
             return PreFlightResult::MaintenanceRequired {
                 failures: vec![CheckResult {
                     name: "pre_flight_timeout",
@@ -81,14 +83,14 @@ pub async fn run(state: &AppState, ffb: &dyn FfbBackend, ws_connect_elapsed_secs
     for result in results.iter_mut() {
         if matches!(result.status, CheckStatus::Fail) {
             if result.name == "conspit_link" {
-                tracing::warn!("ConspitLink check failed ({}), attempting auto-fix", result.detail);
+                tracing::warn!(target: LOG_TARGET, "ConspitLink check failed ({}), attempting auto-fix", result.detail);
                 let fixed = fix_conspit().await;
                 if fixed {
                     let new_result = check_conspit().await;
-                    tracing::info!("ConspitLink after auto-fix: {:?}", new_result.status);
+                    tracing::info!(target: LOG_TARGET, "ConspitLink after auto-fix: {:?}", new_result.status);
                     *result = new_result;
                 } else {
-                    tracing::warn!("ConspitLink auto-fix failed (process did not start)");
+                    tracing::warn!(target: LOG_TARGET, "ConspitLink auto-fix failed (process did not start)");
                 }
             }
             // HID: no auto-fix available (hardware)
@@ -103,10 +105,10 @@ pub async fn run(state: &AppState, ffb: &dyn FfbBackend, ws_connect_elapsed_secs
         .collect();
 
     if failures.is_empty() {
-        tracing::info!("Pre-flight passed");
+        tracing::info!(target: LOG_TARGET, "Pre-flight passed");
         PreFlightResult::Pass
     } else {
-        tracing::warn!("Pre-flight FAILED: {:?}", failures.iter().map(|f| &f.detail).collect::<Vec<_>>());
+        tracing::warn!(target: LOG_TARGET, "Pre-flight FAILED: {:?}", failures.iter().map(|f| &f.detail).collect::<Vec<_>>());
         PreFlightResult::MaintenanceRequired { failures }
     }
 }
@@ -253,7 +255,7 @@ async fn check_orphan_game(billing_active: bool, has_game_process: bool, game_pi
 
             match kill_result {
                 Ok(Ok(output)) if output.status.success() => {
-                    tracing::info!("Orphaned game process (PID {}) killed successfully", pid);
+                    tracing::info!(target: LOG_TARGET, "Orphaned game process (PID {}) killed successfully", pid);
                     CheckResult {
                         name: "orphan_game",
                         status: CheckStatus::Pass,
@@ -262,7 +264,7 @@ async fn check_orphan_game(billing_active: bool, has_game_process: bool, game_pi
                 }
                 Ok(Ok(output)) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    tracing::warn!("taskkill PID {} failed: {}", pid, stderr);
+                    tracing::warn!(target: LOG_TARGET, "taskkill PID {} failed: {}", pid, stderr);
                     CheckResult {
                         name: "orphan_game",
                         status: CheckStatus::Fail,

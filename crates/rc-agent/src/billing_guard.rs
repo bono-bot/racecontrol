@@ -17,6 +17,7 @@ use rc_common::protocol::AgentMessage;
 use rc_common::types::{DrivingState, PodFailureReason};
 use crate::failure_monitor::FailureMonitorState;
 
+const LOG_TARGET: &str = "billing";
 const POLL_INTERVAL_SECS: u64 = 5;
 const STUCK_SESSION_THRESHOLD_SECS: u64 = 60;
 const IDLE_DRIFT_THRESHOLD_SECS: u64 = 300;
@@ -38,7 +39,7 @@ async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &
     match client.post(&url).send().await {
         Ok(resp) => resp.status().is_success(),
         Err(e) => {
-            tracing::warn!("[billing-guard] orphan end HTTP failed: {}", e);
+            tracing::warn!(target: LOG_TARGET, "orphan end HTTP failed: {}", e);
             false
         }
     }
@@ -101,7 +102,7 @@ pub fn spawn(
                         ),
                     };
                     let _ = agent_msg_tx.try_send(msg);
-                    tracing::warn!("[billing-guard] pod={} BillingStuckSession anomaly sent", pod_id);
+                    tracing::warn!(target: LOG_TARGET, "pod={} BillingStuckSession anomaly sent", pod_id);
                 }
 
                 // SESSION-01: Orphan auto-end escalation at configurable threshold (default 300s)
@@ -110,7 +111,8 @@ pub fn spawn(
                     orphan_fired = true;
                     if let Some(ref session_id) = state.active_billing_session_id {
                         tracing::warn!(
-                            "[billing-guard] pod={} ORPHAN auto-end: billing active {}s with no game (threshold={}s) — ending session {}",
+                            target: LOG_TARGET,
+                            "pod={} ORPHAN auto-end: billing active {}s with no game (threshold={}s) — ending session {}",
                             pod_id, since.elapsed().as_secs(), orphan_end_threshold_secs, session_id
                         );
                         let session_id_clone = session_id.clone();
@@ -125,10 +127,10 @@ pub fn spawn(
                             for (i, delay) in delays.iter().enumerate() {
                                 if attempt_orphan_end(&base_url, &session_id_clone, "orphan_timeout").await {
                                     succeeded = true;
-                                    tracing::info!("[billing-guard] Orphan session {} ended successfully on attempt {}", session_id_clone, i + 1);
+                                    tracing::info!(target: LOG_TARGET, "Orphan session {} ended successfully on attempt {}", session_id_clone, i + 1);
                                     break;
                                 }
-                                tracing::warn!("[billing-guard] Orphan end attempt {} failed, retrying in {}s", i + 1, delay);
+                                tracing::warn!(target: LOG_TARGET, "Orphan end attempt {} failed, retrying in {}s", i + 1, delay);
                                 tokio::time::sleep(Duration::from_secs(*delay)).await;
                             }
                             // Send WS notification regardless of HTTP outcome
@@ -139,11 +141,11 @@ pub fn spawn(
                             };
                             let _ = tx.try_send(msg);
                             if !succeeded {
-                                tracing::error!("[billing-guard] All 3 orphan end attempts failed — SessionAutoEnded sent but billing may be stale on server");
+                                tracing::error!(target: LOG_TARGET, "All 3 orphan end attempts failed — SessionAutoEnded sent but billing may be stale on server");
                             }
                         });
                     } else {
-                        tracing::warn!("[billing-guard] pod={} Orphan detected but no session_id in FailureMonitorState — cannot auto-end", pod_id);
+                        tracing::warn!(target: LOG_TARGET, "pod={} Orphan detected but no session_id in FailureMonitorState — cannot auto-end", pod_id);
                     }
                 }
             } else {
@@ -170,7 +172,7 @@ pub fn spawn(
                         ),
                     };
                     let _ = agent_msg_tx.try_send(msg);
-                    tracing::warn!("[billing-guard] pod={} IdleDriftDetected anomaly sent", pod_id);
+                    tracing::warn!(target: LOG_TARGET, "pod={} IdleDriftDetected anomaly sent", pod_id);
                 }
             } else {
                 idle_since = None;

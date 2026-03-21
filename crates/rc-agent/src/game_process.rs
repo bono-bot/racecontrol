@@ -4,6 +4,8 @@ use std::process::{Child, Command};
 use rc_common::types::{GameState, SimType};
 use serde::Deserialize;
 
+const LOG_TARGET: &str = "game-process";
+
 /// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
 /// Used for background utilities (taskkill, cmd wrappers). NOT for game exe launches.
 fn hidden_cmd(program: &str) -> Command {
@@ -34,9 +36,9 @@ pub fn persist_pid(pid: u32) {
     let dir = pid_file_dir();
     let _ = std::fs::create_dir_all(&dir);
     if let Err(e) = std::fs::write(pid_file_path(), pid.to_string()) {
-        tracing::warn!("Failed to persist game PID {}: {}", pid, e);
+        tracing::warn!(target: LOG_TARGET, "Failed to persist game PID {}: {}", pid, e);
     } else {
-        tracing::debug!("Persisted game PID {} to {:?}", pid, pid_file_path());
+        tracing::debug!(target: LOG_TARGET, "Persisted game PID {} to {:?}", pid, pid_file_path());
     }
 }
 
@@ -78,14 +80,14 @@ pub fn cleanup_orphaned_games() -> u32 {
     // 1. Check persisted PID
     if let Some(pid) = read_persisted_pid() {
         if is_process_alive(pid) {
-            tracing::warn!(pid, "Killing orphaned game process from PID file on startup");
+            tracing::warn!(target: LOG_TARGET, pid, "Killing orphaned game process from PID file on startup");
             if let Err(e) = kill_process(pid) {
-                tracing::error!(pid, "Failed to kill orphaned game by PID: {}", e);
+                tracing::error!(target: LOG_TARGET, pid, "Failed to kill orphaned game by PID: {}", e);
             } else {
                 cleaned += 1;
             }
         } else {
-            tracing::info!(pid, "Persisted game PID is no longer alive — cleaning up");
+            tracing::info!(target: LOG_TARGET, pid, "Persisted game PID is no longer alive — cleaning up");
         }
         clear_persisted_pid();
     }
@@ -100,9 +102,9 @@ pub fn cleanup_orphaned_games() -> u32 {
         for name in known_names {
             if pname.eq_ignore_ascii_case(name) {
                 let pid = _pid.as_u32();
-                tracing::warn!(pid, process_name = %pname, "Killing orphaned game process found by name scan on startup");
+                tracing::warn!(target: LOG_TARGET, pid, process_name = %pname, "Killing orphaned game process found by name scan on startup");
                 if let Err(e) = kill_process(pid) {
-                    tracing::error!(pid, "Failed to kill orphaned game process: {}", e);
+                    tracing::error!(target: LOG_TARGET, pid, "Failed to kill orphaned game process: {}", e);
                 } else {
                     cleaned += 1;
                 }
@@ -112,7 +114,7 @@ pub fn cleanup_orphaned_games() -> u32 {
     }
 
     if cleaned > 0 {
-        tracing::info!("Cleaned up {} orphaned game processes on startup", cleaned);
+        tracing::info!(target: LOG_TARGET, "Cleaned up {} orphaned game processes on startup", cleaned);
     }
     cleaned
 }
@@ -162,7 +164,7 @@ impl GameProcess {
                 #[cfg(not(target_os = "windows"))]
                 {
                     // Linux dev: open URL (xdg-open or just log)
-                    tracing::info!("Would launch Steam URL: {}", url);
+                    tracing::info!(target: LOG_TARGET, "Would launch Steam URL: {}", url);
                     let _ = Command::new("xdg-open").arg(&url).spawn();
                 }
                 // Steam launch doesn't give us a Child handle directly
@@ -243,7 +245,7 @@ impl GameProcess {
             kill_process(pid)?;
         } else if let Some(pid) = read_persisted_pid() {
             // Fallback: no in-memory child or PID, but PID file exists (post-restart)
-            tracing::info!(pid, "Stopping game via persisted PID file fallback");
+            tracing::info!(target: LOG_TARGET, pid, "Stopping game via persisted PID file fallback");
             if is_process_alive(pid) {
                 kill_process(pid)?;
             }
@@ -257,7 +259,7 @@ impl GameProcess {
 
     /// Launch via URL scheme (Content Manager join URL or Steam URL)
     fn launch_url(url: &str, sim_type: SimType) -> anyhow::Result<Self> {
-        tracing::info!("Launching via URL scheme: {}", url);
+        tracing::info!(target: LOG_TARGET, "Launching via URL scheme: {}", url);
         #[cfg(target_os = "windows")]
         {
             hidden_cmd("cmd")
@@ -266,7 +268,7 @@ impl GameProcess {
         }
         #[cfg(not(target_os = "windows"))]
         {
-            tracing::info!("Would launch URL: {}", url);
+            tracing::info!(target: LOG_TARGET, "Would launch URL: {}", url);
             let _ = Command::new("xdg-open").arg(url).spawn();
         }
 
