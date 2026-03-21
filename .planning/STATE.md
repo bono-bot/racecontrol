@@ -525,6 +525,10 @@ Plan: 1 of 2
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 106 added: Structured Log Labels — Add [build_id][module] prefix to all rc-agent tracing output
+
 ### Decisions (v11.0)
 
 - Build order: rc-common extraction -> rc-sentry hardening -> rc-agent decomposition (rc-common unblocks both sentry and agent)
