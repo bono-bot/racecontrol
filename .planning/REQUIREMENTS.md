@@ -9,11 +9,11 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 
 ### Dynamic Registry
 
-- [ ] **DREG-01**: Either side can register a new command at runtime without redeploying
-- [ ] **DREG-02**: Dynamic commands use a binary allowlist — only permitted binaries can be registered
+- [x] **DREG-01**: Either side can register a new command at runtime without redeploying
+- [x] **DREG-02**: Dynamic commands use a binary allowlist — only permitted binaries can be registered
 - [ ] **DREG-03**: Static COMMAND_REGISTRY (20 commands) remains frozen and unmodified
 - [ ] **DREG-04**: Lookup order: dynamic registry first, static registry fallback
-- [ ] **DREG-05**: Dynamic commands can specify allowed env var keys merged with safeEnv at execution
+- [x] **DREG-05**: Dynamic commands can specify allowed env var keys merged with safeEnv at execution
 - [ ] **DREG-06**: Either AI can query the other's full command registry (name, description, tier — never binary/args)
 
 ### Shell Relay
@@ -68,11 +68,11 @@ None — all features scoped into v18.0.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DREG-01 | Phase 130 | Pending |
-| DREG-02 | Phase 130 | Pending |
+| DREG-01 | Phase 130 | Complete |
+| DREG-02 | Phase 130 | Complete |
 | DREG-03 | Phase 130 | Pending |
 | DREG-04 | Phase 130 | Pending |
-| DREG-05 | Phase 130 | Pending |
+| DREG-05 | Phase 130 | Complete |
 | DREG-06 | Phase 134 | Pending |
 | SHRL-01 | Phase 131 | Pending |
 | SHRL-02 | Phase 131 | Pending |
