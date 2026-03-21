@@ -153,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
             let trk = Arc::clone(&tracker);
             tokio::spawn(async move {
                 detection::pipeline::run(
-                    cam_name, buf, det, conf, stats, rec, qg, gal, trk,
+                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, None,
                 )
                 .await;
             });

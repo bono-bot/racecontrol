@@ -21,3 +21,8 @@ pub mod recognition {
 pub mod enrollment {
     pub mod types;
 }
+
+pub mod attendance {
+    pub mod db;
+    pub mod engine;
+}

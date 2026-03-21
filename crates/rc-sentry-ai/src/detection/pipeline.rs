@@ -43,6 +43,7 @@ pub async fn run(
     quality_gates: QualityGates,
     gallery: Arc<Gallery>,
     tracker: Arc<FaceTracker>,
+    recognition_tx: Option<tokio::sync::broadcast::Sender<crate::recognition::types::RecognitionResult>>,
 ) {
     let mut decoder = match super::decoder::FrameDecoder::new() {
         Ok(d) => d,
@@ -188,6 +189,16 @@ pub async fn run(
                             confidence = confidence,
                             "face recognized"
                         );
+                        if let Some(ref tx) = recognition_tx {
+                            let result = crate::recognition::types::RecognitionResult {
+                                person_id,
+                                person_name: person_name.clone(),
+                                confidence,
+                                camera: camera_name.clone(),
+                                timestamp: chrono::Utc::now(),
+                            };
+                            let _ = tx.send(result);
+                        }
                     }
                 }
             }

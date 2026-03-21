@@ -14,6 +14,8 @@ pub struct Config {
     pub recognition: RecognitionConfig,
     #[serde(default)]
     pub enrollment: EnrollmentConfig,
+    #[serde(default)]
+    pub attendance: AttendanceConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -223,6 +225,45 @@ impl Default for EnrollmentConfig {
             min_face_size: default_enrollment_min_face_size(),
             min_laplacian_var: default_enrollment_min_laplacian(),
             max_yaw_degrees: default_enrollment_max_yaw(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AttendanceConfig {
+    #[serde(default = "default_attendance_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_dedup_window_secs")]
+    pub dedup_window_secs: u64,
+    #[serde(default = "default_present_timeout_secs")]
+    pub present_timeout_secs: u64,
+    #[serde(default = "default_min_shift_hours")]
+    pub min_shift_hours: u64,
+}
+
+fn default_attendance_enabled() -> bool {
+    true
+}
+
+fn default_dedup_window_secs() -> u64 {
+    300
+}
+
+fn default_present_timeout_secs() -> u64 {
+    1800
+}
+
+fn default_min_shift_hours() -> u64 {
+    4
+}
+
+impl Default for AttendanceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_attendance_enabled(),
+            dedup_window_secs: default_dedup_window_secs(),
+            present_timeout_secs: default_present_timeout_secs(),
+            min_shift_hours: default_min_shift_hours(),
         }
     }
 }
