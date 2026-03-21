@@ -485,3 +485,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 20:48 IST | James | a74b984 | docs(112-03): complete stream health monitoring plan — SUMMARY, STATE, ROADMAP updated |
 | 2026-03-21 20:48 IST | James | 0913e82 | feat(109-02): wire safe mode into event_loop and ws_handler — LaunchGame entry, WMI polling, cooldown timer, Ollama suppression |
 | 2026-03-21 20:48 IST | James | 705b07d | feat(109-02): gate process_guard scan loop, kiosk GPO writes, lock_screen Focus Assist during safe mode |
+
+| 2026-03-21 21:50 IST | James | c727b70 | feat(110-02): gate F1 25 UDP socket to GameState::Running, enhance disconnect log with port 20777 |
+| 2026-03-21 21:51 IST | James | 2afab9d | docs(110-02): complete UDP socket lifecycle plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
