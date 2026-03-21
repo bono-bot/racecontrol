@@ -109,7 +109,7 @@
 5. **Learn From Past Fixes** — check LOGBOOK + commit history before re-investigating.
 6. **Bono comms:** append to `C:\Users\bono\racingpoint\comms-link\INBOX.md` → `git add INBOX.md && git commit && git push`. Entry format: `## YYYY-MM-DD HH:MM IST — from james`
 7. **Auto-push rule:** always `git push` after every commit. No exceptions.
-8. **Bono deploy updates:** when pushing code, ALWAYS notify Bono (commit list + what to rebuild). Even cleanup/docs commits.
+8. **Bono deploy updates:** `git push` → comms-link WS message → INBOX.md entry is an **atomic sequence**. Do all three before marking tasks complete, starting new work, or responding to the user. Every push, every commit — even cleanup/docs/logbook. No mental ranking of "important" vs "minor" commits.
 9. **LOGBOOK:** after every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`
 10. **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others. Specifically:
     - A graceful self-restart must be distinguishable from a real crash (use sentinel files or IPC).
