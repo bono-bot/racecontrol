@@ -35,6 +35,30 @@ pub async fn log_audit(
     .await;
 }
 
+/// Record a sensitive admin action in audit_log with action_type classification.
+/// Fire-and-forget: never blocks the caller on DB errors.
+pub async fn log_admin_action(
+    state: &Arc<AppState>,
+    action_type: &str,
+    details: &str,
+    staff_id: Option<&str>,
+    ip_address: Option<&str>,
+) {
+    let id = Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO audit_log (id, table_name, row_id, action, action_type, new_values, staff_id, ip_address)
+         VALUES (?, 'admin_actions', ?, 'create', ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&id)
+    .bind(action_type)
+    .bind(details)
+    .bind(staff_id)
+    .bind(ip_address)
+    .execute(&state.db)
+    .await;
+}
+
 /// Fetch the current row as JSON for audit trail (before an update/delete).
 /// Returns None if the row doesn't exist.
 pub async fn snapshot_row(

@@ -2276,6 +2276,13 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Phase 82: Add sim_type column for per-game billing rates
+    // NULL = universal rate (applies to all games when no game-specific rate exists)
+    let _ = sqlx::query("ALTER TABLE billing_rates ADD COLUMN sim_type TEXT")
+        .execute(pool)
+        .await;
+    // ok() / let _ ignores "duplicate column" error on re-run -- idempotent
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
