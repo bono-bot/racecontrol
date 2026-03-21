@@ -124,6 +124,8 @@ fn default_starting_position() -> u32 { 1 }
 // AI driver names moved to rc-common::ai_names (shared between rc-agent and racecontrol)
 use rc_common::ai_names::{AI_DRIVER_NAMES, pick_ai_names};
 
+const LOG_TARGET: &str = "ac-launcher";
+
 /// AC launch parameters parsed from the `launch_args` JSON
 #[derive(Debug, Clone, Deserialize)]
 pub struct AcLaunchParams {
@@ -249,7 +251,7 @@ fn bootstrap_ac_config() -> Result<()> {
     let gui_path = cfg_dir.join("gui.ini");
     if !gui_path.exists() {
         std::fs::write(&gui_path, "[SETTINGS]\nFORCE_START=1\nHIDE_MAIN_MENU=1\n")?;
-        tracing::info!("Bootstrap: created gui.ini (FORCE_START=1)");
+        tracing::info!(target: LOG_TARGET, "Bootstrap: created gui.ini (FORCE_START=1)");
     }
 
     // video.ini — display settings (1080p fullscreen, reasonable quality)
@@ -261,27 +263,27 @@ fn bootstrap_ac_config() -> Result<()> {
             "VSYNC=1\nAASAMPLES=2\nANISOTROPIC=8\n",
             "SHADOW_MAP_SIZE=2048\nWORLD_DETAIL=1\nSMOKE=1\n",
         ))?;
-        tracing::info!("Bootstrap: created video.ini (1080p fullscreen)");
+        tracing::info!(target: LOG_TARGET, "Bootstrap: created video.ini (1080p fullscreen)");
     }
 
     // controls.ini — FFB defaults (medium gain)
     let controls_path = cfg_dir.join("controls.ini");
     if !controls_path.exists() {
         std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\n")?;
-        tracing::info!("Bootstrap: created controls.ini (FFB gain=70)");
+        tracing::info!(target: LOG_TARGET, "Bootstrap: created controls.ini (FFB gain=70)");
     }
 
     Ok(())
 }
 
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
-    tracing::info!("AC launch: {} @ {} for {}", params.car, params.track, params.driver);
+    tracing::info!(target: LOG_TARGET, "AC launch: {} @ {} for {}", params.car, params.track, params.driver);
 
     // Step 0: Ensure all config files exist (self-healing bootstrap)
     bootstrap_ac_config()?;
 
     // Step 1: Kill existing AC
-    tracing::info!("[1/4] Killing existing AC...");
+    tracing::info!(target: LOG_TARGET, "[1/4] Killing existing AC...");
     let _ = hidden_cmd("taskkill")
         .args(["/IM", "acs.exe", "/F"])
         .output();
@@ -291,7 +293,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Step 2: Write race.ini + assists.ini + apps preset
-    tracing::info!("[2/4] Writing race.ini + assists.ini + apps preset...");
+    tracing::info!(target: LOG_TARGET, "[2/4] Writing race.ini + assists.ini + apps preset...");
     write_race_ini(params)?;
     write_assists_ini(params)?;
     write_apps_preset()?;
@@ -312,7 +314,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
 
     let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
         diag.cm_attempted = true;
-        tracing::info!("[3/5] Launching multiplayer via Content Manager...");
+        tracing::info!(target: LOG_TARGET, "[3/5] Launching multiplayer via Content Manager...");
         launch_via_cm(params)?;
         match wait_for_ac_process(15) {
             Ok(pid) => pid,
@@ -323,14 +325,14 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                     "CM multiplayer launch failed: {}. Diagnostics: {}",
                     e, cm_diag
                 );
-                tracing::error!("[CM_ERROR] {}", error_detail);
+                tracing::error!(target: LOG_TARGET, "[CM_ERROR] {}", error_detail);
                 cm_error = Some(error_detail);
                 diag.cm_log_errors = read_cm_log_errors();
                 diag.cm_exit_code = get_cm_exit_code();
                 diag.fallback_used = true;
 
                 // Fall back to direct acs.exe (race.ini has [REMOTE] ACTIVE=1)
-                tracing::warn!("Falling back to direct acs.exe launch for multiplayer...");
+                tracing::warn!(target: LOG_TARGET, "Falling back to direct acs.exe launch for multiplayer...");
                 let ac_dir = find_ac_dir()?;
                 let child = Command::new(ac_dir.join("acs.exe"))
                     .current_dir(&ac_dir)
@@ -340,7 +342,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             }
         }
     } else {
-        tracing::info!("[3/5] Launching acs.exe directly (race.ini pre-written)...");
+        tracing::info!(target: LOG_TARGET, "[3/5] Launching acs.exe directly (race.ini pre-written)...");
         let ac_dir = find_ac_dir()?;
         let child = Command::new(ac_dir.join("acs.exe"))
             .current_dir(&ac_dir)
@@ -348,16 +350,16 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
         child.id()
     };
-    tracing::info!("AC launched with PID {}", pid);
+    tracing::info!(target: LOG_TARGET, "AC launched with PID {}", pid);
 
     // Step 4: Wait for AC to load, then minimize Conspit Link
     // (Don't kill Conspit Link — it crashes on force-restart. Just minimize it.)
-    tracing::info!("[4/5] Waiting 8s for AC to load, then minimizing Conspit Link...");
+    tracing::info!(target: LOG_TARGET, "[4/5] Waiting 8s for AC to load, then minimizing Conspit Link...");
     std::thread::sleep(std::time::Duration::from_secs(8));
     minimize_conspit_window();
 
     // Step 5: Minimize background windows and bring game to foreground
-    tracing::info!("[5/5] Minimizing background windows and focusing game...");
+    tracing::info!(target: LOG_TARGET, "[5/5] Minimizing background windows and focusing game...");
     std::thread::sleep(std::time::Duration::from_secs(2));
     minimize_background_windows();
     bring_game_to_foreground();
@@ -391,7 +393,7 @@ pub fn set_transmission(transmission: &str) -> Result<()> {
         .join("\r\n");
 
     std::fs::write(&race_ini_path, &updated)?;
-    tracing::info!("Updated race.ini AUTO_SHIFTER={} (transmission={})", new_value, transmission);
+    tracing::info!(target: LOG_TARGET, "Updated race.ini AUTO_SHIFTER={} (transmission={})", new_value, transmission);
 
     // Also update assists.ini to prevent CSP/CM override
     let assists_ini_path = race_ini_path.with_file_name("assists.ini");
@@ -410,7 +412,7 @@ pub fn set_transmission(transmission: &str) -> Result<()> {
             .collect::<Vec<_>>()
             .join("\r\n");
         std::fs::write(&assists_ini_path, &assists_updated)?;
-        tracing::info!("Updated assists.ini AUTO_SHIFTER={}", new_value);
+        tracing::info!(target: LOG_TARGET, "Updated assists.ini AUTO_SHIFTER={}", new_value);
     }
 
     Ok(())
@@ -453,12 +455,12 @@ pub fn set_ffb(preset: &str) -> Result<()> {
         .collect();
 
     if !found {
-        tracing::warn!("No [FF] GAIN= line found in controls.ini, skipping FFB update");
+        tracing::warn!(target: LOG_TARGET, "No [FF] GAIN= line found in controls.ini, skipping FFB update");
         return Ok(());
     }
 
     std::fs::write(&controls_ini_path, updated.join("\r\n"))?;
-    tracing::info!("Updated controls.ini [FF] GAIN={} (preset={})", gain, preset);
+    tracing::info!(target: LOG_TARGET, "Updated controls.ini [FF] GAIN={} (preset={})", gain, preset);
     Ok(())
 }
 
@@ -469,6 +471,8 @@ pub fn set_ffb(preset: &str) -> Result<()> {
 /// AC supports Ctrl+A (ABS cycle), Ctrl+T (TC cycle), Ctrl+G (transmission toggle)
 /// as built-in keyboard shortcuts that work while driving.
 pub mod mid_session {
+    use super::LOG_TARGET;
+
     /// Send a Ctrl+key combination to the foreground window (AC).
     /// Produces 4 INPUT structs: Ctrl down, key down, key up, Ctrl up.
     #[cfg(windows)]
@@ -524,7 +528,7 @@ pub mod mid_session {
             };
 
             SendInput(4, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
-            tracing::info!("SendInput: Ctrl+{:#04x} sent", vk_key);
+            tracing::info!(target: LOG_TARGET, "SendInput: Ctrl+{:#04x} sent", vk_key);
         }
     }
 
@@ -603,7 +607,7 @@ pub mod mid_session {
             };
 
             SendInput(6, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
-            tracing::info!("SendInput: Ctrl+Shift+{:#04x} sent", vk_key);
+            tracing::info!(target: LOG_TARGET, "SendInput: Ctrl+Shift+{:#04x} sent", vk_key);
         }
     }
 
@@ -628,27 +632,27 @@ pub mod mid_session {
     // Non-Windows stubs for cross-compilation
     #[cfg(not(windows))]
     pub fn send_ctrl_key(_vk_key: u16) {
-        tracing::warn!("SendInput not available on non-Windows");
+        tracing::warn!(target: LOG_TARGET, "SendInput not available on non-Windows");
     }
 
     #[cfg(not(windows))]
     pub fn send_ctrl_shift_key(_vk_key: u16) {
-        tracing::warn!("SendInput not available on non-Windows");
+        tracing::warn!(target: LOG_TARGET, "SendInput not available on non-Windows");
     }
 
     #[cfg(not(windows))]
     pub fn toggle_ac_abs() {
-        tracing::warn!("SendInput not available on non-Windows");
+        tracing::warn!(target: LOG_TARGET, "SendInput not available on non-Windows");
     }
 
     #[cfg(not(windows))]
     pub fn toggle_ac_tc() {
-        tracing::warn!("SendInput not available on non-Windows");
+        tracing::warn!(target: LOG_TARGET, "SendInput not available on non-Windows");
     }
 
     #[cfg(not(windows))]
     pub fn toggle_ac_transmission() {
-        tracing::warn!("SendInput not available on non-Windows");
+        tracing::warn!(target: LOG_TARGET, "SendInput not available on non-Windows");
     }
 }
 
@@ -706,6 +710,7 @@ fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
         let capped = params.ai_cars.len().min(MAX_AI_SINGLE_PLAYER);
         if params.ai_cars.len() > MAX_AI_SINGLE_PLAYER {
             tracing::warn!(
+                target: LOG_TARGET,
                 "AI car count {} exceeds max {}, clamping to {}",
                 params.ai_cars.len(), MAX_AI_SINGLE_PLAYER, MAX_AI_SINGLE_PLAYER
             );
@@ -991,7 +996,7 @@ fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&race_ini_path, content.as_bytes())?;
-    tracing::info!("Wrote race.ini to {}", race_ini_path.display());
+    tracing::info!(target: LOG_TARGET, "Wrote race.ini to {}", race_ini_path.display());
     Ok(())
 }
 
@@ -1024,6 +1029,7 @@ fn write_assists_ini(params: &AcLaunchParams) -> Result<()> {
     let mut file = std::fs::File::create(&assists_ini_path)?;
     file.write_all(content.as_bytes())?;
     tracing::info!(
+        target: LOG_TARGET,
         "Wrote assists.ini: DAMAGE=0 (hardcoded), AUTO_SHIFTER={} (transmission={})",
         auto_shifter, params.transmission
     );
@@ -1044,7 +1050,7 @@ fn verify_safety_content(content: &str) -> Result<()> {
         anyhow::bail!("SAFETY VIOLATION: race.ini SESSION_START is not 100 -- refusing to launch AC");
     }
 
-    tracing::info!("[safety] Post-write verification passed: DAMAGE=0, SESSION_START=100");
+    tracing::info!(target: LOG_TARGET, "[safety] Post-write verification passed: DAMAGE=0, SESSION_START=100");
     Ok(())
 }
 
@@ -1075,11 +1081,11 @@ fn find_cm_exe() -> Option<std::path::PathBuf> {
     for path in &candidates {
         let p = Path::new(path);
         if p.exists() {
-            tracing::info!("Found Content Manager at {}", path);
+            tracing::info!(target: LOG_TARGET, "Found Content Manager at {}", path);
             return Some(p.to_path_buf());
         }
     }
-    tracing::warn!("Content Manager not found in any known location");
+    tracing::warn!(target: LOG_TARGET, "Content Manager not found in any known location");
     None
 }
 
@@ -1100,7 +1106,7 @@ fn launch_via_cm(params: &AcLaunchParams) -> Result<()> {
         "acmanager://race/config".to_string()
     };
 
-    tracing::info!("Launching via Content Manager URI: {}", uri);
+    tracing::info!(target: LOG_TARGET, "Launching via Content Manager URI: {}", uri);
     hidden_cmd("cmd")
         .args(["/c", "start", "", &uri])
         .spawn()
@@ -1117,7 +1123,7 @@ fn wait_for_ac_process(timeout_secs: u64) -> Result<u32> {
 
     while std::time::Instant::now() < deadline {
         if let Some(pid) = find_acs_pid() {
-            tracing::info!("Found acs.exe with PID {}", pid);
+            tracing::info!(target: LOG_TARGET, "Found acs.exe with PID {}", pid);
             return Ok(pid);
         }
         std::thread::sleep(poll_interval);
@@ -1352,7 +1358,7 @@ pub(crate) fn minimize_conspit_window() {
                 let hwnd = winapi::um::winuser::FindWindowW(std::ptr::null(), title_wide.as_ptr());
                 if !hwnd.is_null() {
                     winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_MINIMIZE);
-                    tracing::info!("Conspit Link minimized via FindWindowW(\"{}\")", title);
+                    tracing::info!(target: LOG_TARGET, "Conspit Link minimized via FindWindowW(\"{}\")", title);
                     return;
                 }
             }
@@ -1369,12 +1375,12 @@ pub(crate) fn minimize_conspit_window() {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if stdout.trim().is_empty() {
-                    tracing::warn!("Conspit Link: no window found to minimize (not running?)");
+                    tracing::warn!(target: LOG_TARGET, "Conspit Link: no window found to minimize (not running?)");
                 } else {
-                    tracing::info!("Conspit Link minimized via PowerShell: {}", stdout.trim());
+                    tracing::info!(target: LOG_TARGET, "Conspit Link minimized via PowerShell: {}", stdout.trim());
                 }
             }
-            Err(e) => tracing::warn!("Conspit Link minimize PowerShell failed: {}", e),
+            Err(e) => tracing::warn!(target: LOG_TARGET, "Conspit Link minimize PowerShell failed: {}", e),
         }
     }
 }
@@ -1389,7 +1395,7 @@ pub fn ensure_conspit_link_running() {
 
     // Skip if safe_session_end() is currently managing CL lifecycle
     if crate::ffb_controller::SESSION_END_IN_PROGRESS.load(std::sync::atomic::Ordering::Acquire) {
-        tracing::debug!("Skipping CL watchdog — session-end in progress");
+        tracing::debug!(target: LOG_TARGET, "Skipping CL watchdog — session-end in progress");
         return;
     }
 
@@ -1397,7 +1403,7 @@ pub fn ensure_conspit_link_running() {
         return; // Already running, nothing to do
     }
 
-    tracing::warn!("Conspit Link not running — delegating to hardened restart (crash recovery)...");
+    tracing::warn!(target: LOG_TARGET, "Conspit Link not running — delegating to hardened restart (crash recovery)...");
     crate::ffb_controller::restart_conspit_link_hardened(true);
 }
 
@@ -1437,7 +1443,7 @@ VISIBLE=1
 ";
     let mut file = std::fs::File::create(&apps_ini_path)?;
     file.write_all(content.as_bytes())?;
-    tracing::info!("Wrote apps preset to {}", apps_ini_path.display());
+    tracing::info!(target: LOG_TARGET, "Wrote apps preset to {}", apps_ini_path.display());
     Ok(())
 }
 
@@ -1482,10 +1488,10 @@ pub fn minimize_background_windows() {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if !stdout.trim().is_empty() {
-                tracing::info!("minimize_background_windows: {}", stdout.trim());
+                tracing::info!(target: LOG_TARGET, "minimize_background_windows: {}", stdout.trim());
             }
         }
-        Err(e) => tracing::warn!("minimize_background_windows failed: {}", e),
+        Err(e) => tracing::warn!(target: LOG_TARGET, "minimize_background_windows failed: {}", e),
     }
 }
 
@@ -1503,7 +1509,7 @@ fn bring_game_to_foreground() {
                 if !hwnd.is_null() {
                     winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_RESTORE);
                     winapi::um::winuser::SetForegroundWindow(hwnd);
-                    tracing::info!("Brought AC window to foreground via FindWindowW");
+                    tracing::info!(target: LOG_TARGET, "Brought AC window to foreground via FindWindowW");
                     return;
                 }
             }
@@ -1514,7 +1520,7 @@ fn bring_game_to_foreground() {
                 "Add-Type -Name WF -Namespace NF -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; \
                  Get-Process acs -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [NF.WF]::ShowWindow($_.MainWindowHandle, 9); [NF.WF]::SetForegroundWindow($_.MainWindowHandle) }"])
             .output();
-        tracing::info!("Brought AC window to foreground via PowerShell fallback");
+        tracing::info!(target: LOG_TARGET, "Brought AC window to foreground via PowerShell fallback");
     }
 }
 
@@ -1522,19 +1528,19 @@ fn bring_game_to_foreground() {
 /// Kills game, dismisses error dialogs, minimizes background windows
 /// (including Conspit Link), and ensures the lock screen is in the foreground.
 pub fn cleanup_after_session() {
-    tracing::info!("[cleanup] Starting post-session cleanup...");
+    tracing::info!(target: LOG_TARGET, "[cleanup] Starting post-session cleanup...");
 
     // 1. Kill AC and Content Manager (Conspit Link stays running — minimized in step 3)
     let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
     let _ = hidden_cmd("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
     let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
-    tracing::info!("[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
+    tracing::info!(target: LOG_TARGET, "[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!("[cleanup] Dismissed error dialogs and system popups");
+    tracing::info!(target: LOG_TARGET, "[cleanup] Dismissed error dialogs and system popups");
 
     // 3. Minimize all background windows, bring lock screen to foreground
     let ps_script = r#"
@@ -1563,7 +1569,7 @@ pub fn cleanup_after_session() {
     let _ = hidden_cmd("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output();
-    tracing::info!("[cleanup] Background windows minimized, lock screen foregrounded");
+    tracing::info!(target: LOG_TARGET, "[cleanup] Background windows minimized, lock screen foregrounded");
 }
 
 /// Enforce a known-good safe state on the pod — the "factory reset" for runtime.
@@ -1577,7 +1583,7 @@ pub fn cleanup_after_session() {
 /// - Reconnecting after a network disconnect (when no billing active)
 /// - On startup
 pub fn enforce_safe_state(skip_conspit_restart: bool) {
-    tracing::info!("[safe-state] Enforcing default safe state...");
+    tracing::info!(target: LOG_TARGET, "[safe-state] Enforcing default safe state...");
 
     // 1. Kill ALL known game processes
     let game_processes = [
@@ -1592,13 +1598,13 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
     for proc in &game_processes {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!("[safe-state] All game processes killed");
+    tracing::info!(target: LOG_TARGET, "[safe-state] All game processes killed");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!("[safe-state] Dismissed error dialogs and system popups");
+    tracing::info!(target: LOG_TARGET, "[safe-state] Dismissed error dialogs and system popups");
 
     // 3. Ensure Conspit Link is alive (it's the wheelbase driver — always needed)
     //    Skip when safe_session_end() already manages the ConspitLink lifecycle.
@@ -1610,7 +1616,7 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
     minimize_background_windows();
     lock_screen::enforce_kiosk_foreground();
 
-    tracing::info!("[safe-state] Safe state enforced — pod ready for next customer");
+    tracing::info!(target: LOG_TARGET, "[safe-state] Safe state enforced — pod ready for next customer");
 }
 
 #[cfg(test)]
