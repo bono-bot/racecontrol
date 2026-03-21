@@ -50,40 +50,40 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 | Feature | Reason |
 |---------|--------|
-| Anti-cheat SDK integration (EAC/Javelin whitelisting) | Requires publisher partnership — not available to venue operators |
-| Kernel-level driver for rc-agent | Explicitly prohibited — user-mode only, forever |
-| Modifying game files or game memory | Obvious ban trigger — never considered |
-| Anti-cheat bypass or circumvention | Illegal and unethical — we make our software transparent, not invisible |
+| Anti-cheat SDK integration (EAC/Javelin whitelisting) | Requires publisher partnership -- not available to venue operators |
+| Kernel-level driver for rc-agent | Explicitly prohibited -- user-mode only, forever |
+| Modifying game files or game memory | Obvious ban trigger -- never considered |
+| Anti-cheat bypass or circumvention | Illegal and unethical -- we make our software transparent, not invisible |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUDIT-01 | — | Pending |
-| AUDIT-02 | — | Pending |
-| AUDIT-03 | — | Pending |
-| AUDIT-04 | — | Pending |
-| SAFE-01 | — | Pending |
-| SAFE-02 | — | Pending |
-| SAFE-03 | — | Pending |
-| SAFE-04 | — | Pending |
-| SAFE-05 | — | Pending |
-| SAFE-06 | — | Pending |
-| SAFE-07 | — | Pending |
-| HARD-01 | — | Pending |
-| HARD-02 | — | Pending |
-| HARD-03 | — | Pending |
-| HARD-04 | — | Pending |
-| HARD-05 | — | Pending |
-| VALID-01 | — | Pending |
-| VALID-02 | — | Pending |
-| VALID-03 | — | Pending |
+| AUDIT-01 | Phase 107 | Pending |
+| AUDIT-02 | Phase 107 | Pending |
+| AUDIT-03 | Phase 107 | Pending |
+| AUDIT-04 | Phase 107 | Pending |
+| SAFE-01 | Phase 109 | Pending |
+| SAFE-02 | Phase 109 | Pending |
+| SAFE-03 | Phase 109 | Pending |
+| SAFE-04 | Phase 109 | Pending |
+| SAFE-05 | Phase 109 | Pending |
+| SAFE-06 | Phase 109 | Pending |
+| SAFE-07 | Phase 109 | Pending |
+| HARD-01 | Phase 108 | Pending |
+| HARD-02 | Phase 111 | Pending |
+| HARD-03 | Phase 110 | Pending |
+| HARD-04 | Phase 110 | Pending |
+| HARD-05 | Phase 110 | Pending |
+| VALID-01 | Phase 111 | Pending |
+| VALID-02 | Phase 111 | Pending |
+| VALID-03 | Phase 108 | Pending |
 
 **Coverage:**
 - v15.0 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation (phases 107-111 assigned)*

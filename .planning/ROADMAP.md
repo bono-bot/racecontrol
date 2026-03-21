@@ -1448,3 +1448,84 @@ Plans:
 Plans:
 - [ ] 105-01: TBD
 - [ ] 105-02: TBD
+
+
+## v15.0 AntiCheat Compatibility
+
+Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry, and kiosk software never trigger anti-cheat detection in F1 25 (EA Javelin), iRacing (EOS), LMU (EAC), AC EVO, or EA WRC -- preventing customer account bans. Must complete before v13.0 Multi-Game Launcher deploys to customers.
+
+- [ ] **Phase 107: Behavior Audit + Certificate Procurement** - Exhaustive risk inventory of every pod-side behavior classified per anti-cheat system; ConspitLink signed-binary audit; code signing certificate procured and integrated into build pipeline
+- [ ] **Phase 108: Keyboard Hook Replacement** - SetWindowsHookEx hook fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr); kiosk lockdown verified without any hook on Pod 8
+- [ ] **Phase 109: Safe Mode State Machine** - safe_mode.rs module; WMI Win32_ProcessStartTrace event subscription for sub-second game detection; 30-second exit cooldown; process guard, Ollama queries, and registry writes gated; safe mode startup default
+- [ ] **Phase 110: Telemetry Gating** - shm_connect_allowed() guard defers shared memory adapter connect by 5s; UDP sockets scoped to active game; AC EVO telemetry feature-flagged off by default
+- [ ] **Phase 111: Code Signing + Per-Game Canary Validation** - rc-agent.exe and rc-sentry.exe signed via signtool in deploy pipeline; staff test session per game (F1 25, iRacing, LMU) on Pod 8 with safe mode active; billing continuity verified during safe mode
+
+## v15.0 AntiCheat Compatibility -- Phase Details
+
+### Phase 107: Behavior Audit + Certificate Procurement
+**Goal**: The team has an exhaustive, classified inventory of every pod-side behavior that could trigger anti-cheat, and a code signing certificate is procured and integrated into the build pipeline before any canary testing begins
+**Depends on**: Phase 106 (last shipped phase) -- can start in parallel with ongoing milestones
+**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
+**Success Criteria** (what must be TRUE):
+  1. Staff can open a risk inventory document listing every pod-side behavior (keyboard hooks, process monitoring, shared memory access, UDP ports, registry writes, unsigned binaries) with CRITICAL/HIGH/MEDIUM/LOW severity per anti-cheat system (EA Javelin, iRacing EOS, LMU EAC, Kunos, EA WRC) -- no behavior is unlisted
+  2. ConspitLink is audited via Sysinternals Process Monitor on Pod 8: the audit report documents whether ConspitLink installs kernel drivers, performs DLL injection, or opens handles to game processes -- the risk level is known before v15.0 canary testing begins
+  3. All 8 pods have their Windows 11 edition verified (winver output documented) -- the Keyboard Filter vs GPO registry key decision for Phase 108 is made with confirmed facts, not assumptions
+  4. Ops team has a per-game anti-cheat compatibility matrix document (racecontrol.toml safe_mode_subsystems section + ops reference doc) covering what is safe to run while each game is active
+**Plans**: TBD
+
+### Phase 108: Keyboard Hook Replacement
+**Goal**: The SetWindowsHookEx global keyboard hook installed by Phase 78 is fully removed from rc-agent source and permanently replaced by GPO registry key writes -- kiosk lockdown is equally effective without any hook, and no hook install/uninstall cycle is ever visible to a running anti-cheat driver
+**Depends on**: Phase 107 (audit must confirm Pod OS edition and hook risk classification before replacement begins)
+**Requirements**: HARD-01, VALID-03
+**Success Criteria** (what must be TRUE):
+  1. grep -r SetWindowsHookEx crates/rc-agent/src/ returns no matches -- the hook is fully removed from Rust source, not gated or disabled conditionally
+  2. On a Pod 8 canary build, pressing the Windows key, Alt+Tab, and Ctrl+Shift+Esc while the kiosk is active produces no response -- GPO registry keys (NoWinKeys=1, DisableTaskMgr=1) are enforced and kiosk lockdown is intact without any hook
+  3. Task Manager cannot be opened by a customer at the pod after the hook replacement -- VALID-03 is satisfied by the registry key path, not by the removed hook
+  4. cargo build --release --bin rc-agent succeeds and cargo test -p rc-agent passes with the hook removal in place -- no compilation errors from the removal
+**Plans**: TBD
+
+### Phase 109: Safe Mode State Machine
+**Goal**: rc-agent automatically enters a defined safe mode within 1 second of a protected game launching, disables all risky subsystems (process guard, Ollama queries, registry writes) for the duration of the game plus a 30-second cooldown, and defaults to safe mode at startup if a protected game is already running -- billing, lock screen, and WebSocket exec are unaffected throughout
+**Depends on**: Phase 108 (hook must be replaced before safe mode design locks in -- safe mode no longer needs to manage hook state)
+**Requirements**: SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07
+**Success Criteria** (what must be TRUE):
+  1. When F1 25, iRacing, or LMU launches on Pod 8, rc-agent logs safe_mode entering within 1 second of the process creation event -- WMI Win32_ProcessStartTrace subscription fires before anti-cheat driver initialization completes
+  2. While safe mode is active, rc-agent does not attempt to kill any process, does not send queries to Ollama, and does not write to any registry key -- verified by log inspection during a 10-minute protected game session
+  3. After the protected game exits, safe mode remains active for exactly 30 seconds before deactivating -- verified by log timestamps on Pod 8 during a test session
+  4. When rc-agent starts and F1 25 is already running (simulated by pre-launching game before agent start), rc-agent initializes directly into safe mode without a Normal state transition -- startup default is safe
+  5. Billing ticks, lock screen state transitions, WebSocket keepalive, and rc-agent heartbeat all continue normally throughout a protected game session in safe mode -- no billing gaps or disconnects
+**Plans**: TBD
+
+### Phase 110: Telemetry Gating
+**Goal**: Shared memory telemetry readers for iRacing and LMU defer their MapViewOfFile connection until 5 seconds after the game process is stable, UDP telemetry sockets exist only while their corresponding game is active, and AC EVO telemetry is feature-flagged off by default until its anti-cheat status is confirmed at full release
+**Depends on**: Phase 109 (safe mode state machine must exist before shm_connect_allowed() has a state to check)
+**Requirements**: HARD-03, HARD-04, HARD-05
+**Success Criteria** (what must be TRUE):
+  1. The iRacing shared memory adapter does not call OpenFileMapping or MapViewOfFile within the first 5 seconds of iRacing launching -- log shows shm_connect deferred before the first connect attempt; the connection uses named shared memory, never ReadProcessMemory or a game PID handle
+  2. The LMU (rFactor 2) shared memory adapter applies the same 5-second deferred connect -- log shows shm_connect deferred for LMU on launch
+  3. UDP telemetry sockets for F1 25 (port 20777) and iRacing (port 6789) are bound only while their respective game is in Running state and are closed within 5 seconds of game exit -- netstat on Pod 8 confirms no orphaned UDP bindings after game closes
+  4. When racecontrol.toml has ac_evo_telemetry_enabled = false (the default), no shared memory mapping attempt is made for AC EVO even when the game is running -- feature flag is enforced at the adapter initialization path
+**Plans**: TBD
+
+### Phase 111: Code Signing + Per-Game Canary Validation
+**Goal**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate and signtool is integrated into the deploy pipeline; each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active, signed binaries running, and no anti-cheat warnings logged -- billing continuity is verified throughout
+**Depends on**: Phase 107 (certificate procurement -- OV cert must be in hand), Phase 109 (safe mode), Phase 110 (telemetry gating)
+**Requirements**: HARD-02, VALID-01, VALID-02
+**Success Criteria** (what must be TRUE):
+  1. signtool verify /pa rc-agent.exe returns Successfully verified -- the binary carries a valid OV code signing certificate recognized by Windows
+  2. signtool verify /pa rc-sentry.exe returns Successfully verified -- both pod binaries are signed
+  3. A staff member completes a full test session for each of F1 25, iRacing, and LMU on Pod 8 (launch game, play 5 minutes, exit game) with safe mode active and signed binaries; the session produces no anti-cheat warning dialogs, no game disconnections attributed to third-party software, and rc-agent logs show safe mode entry and exit with correct timing
+  4. Billing lifecycle (session start, per-minute ticks, session end) produces correct credit amounts during a safe mode test session -- no billing gaps caused by safe mode subsystem suspension
+**Plans**: TBD
+
+## v15.0 Progress
+
+**Execution Order:** 107 -> 108 -> 109 -> 110 -> 111
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 107. Behavior Audit + Certificate Procurement | TBD | Not started | - |
+| 108. Keyboard Hook Replacement | TBD | Not started | - |
+| 109. Safe Mode State Machine | TBD | Not started | - |
+| 110. Telemetry Gating | TBD | Not started | - |
+| 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |

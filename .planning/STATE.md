@@ -31,15 +31,31 @@ decisions:
 gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
-status: in_progress
-stopped_at: Defining requirements
-last_updated: "2026-03-21T19:45:00.000Z"
+status: roadmap_created
+stopped_at: Roadmap written -- awaiting plan-phase 107
+last_updated: "2026-03-21T20:30:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
+current_phase: 107
+current_phase_name: Behavior Audit + Certificate Procurement
+phases:
+  - "107: Behavior Audit + Certificate Procurement (AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04)"
+  - "108: Keyboard Hook Replacement (HARD-01, VALID-03)"
+  - "109: Safe Mode State Machine (SAFE-01 through SAFE-07)"
+  - "110: Telemetry Gating (HARD-03, HARD-04, HARD-05)"
+  - "111: Code Signing + Per-Game Canary Validation (HARD-02, VALID-01, VALID-02)"
+decisions:
+  - "Phases 107-111 start numbering -- continues from Phase 106 (last shipped)"
+  - "Hook replacement (Phase 108) must complete BEFORE safe mode state machine (Phase 109) -- safe mode has no hook state to manage after replacement"
+  - "Certificate procurement begins Phase 107 -- OV cert delivery (1-5 days) is on the critical path to Phase 111 signing"
+  - "Safe mode is a positive-enable allowlist, not a negative-disable blocklist -- only approved operations proceed during a protected session"
+  - "AC EVO telemetry feature-flagged off by default (HARD-05) -- reassess at Kunos v1.0 release"
+  - "WMI Win32_ProcessStartTrace subscription chosen over polling to close the EAC 2-5s initialization window"
+  - "v13.0 Multi-Game Launcher MUST NOT deploy to customer pods until Phase 111 canary validation complete"
 ---
 
 ---
