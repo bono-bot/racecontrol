@@ -22,8 +22,8 @@ use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
     billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
-    pod_monitor, pod_reservation, psychology, remote_terminal, scheduler, server_ops, wallet,
-    udp_heartbeat, wol, ws,
+    pod_monitor, pod_reservation, process_guard, psychology, remote_terminal, scheduler,
+    server_ops, wallet, udp_heartbeat, wol, ws,
 };
 
 /// Sends a test email on first boot to verify Gmail OAuth works.
@@ -560,6 +560,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
+
+    // Spawn server-side process guard (monitors server .23 for unauthorized processes)
+    process_guard::spawn_server_guard(state.clone());
 
     // Start server_ops HTTP endpoint on :8090 (remote command execution, file ops)
     server_ops::start();
