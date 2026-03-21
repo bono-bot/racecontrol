@@ -336,6 +336,7 @@ async fn main() -> Result<()> {
         installed_games: installed_games.clone(),
         screen_blanked: None,
         ffb_preset: None,
+        freedom_mode: None,
     };
 
     // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)

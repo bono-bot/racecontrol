@@ -490,6 +490,7 @@ async fn register_pod(
         installed_games: vec![],
         screen_blanked: None,
         ffb_preset: None,
+        freedom_mode: None,
     };
 
     state.pods.write().await.insert(id.clone(), pod.clone());
@@ -531,6 +532,7 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
             installed_games: vec![],
             screen_blanked: None,
             ffb_preset: None,
+            freedom_mode: None,
         };
         state.pods.write().await.insert(id.to_string(), pod.clone());
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -1207,6 +1209,7 @@ mod pod_status_summary_tests {
                     installed_games: Vec::new(),
                     screen_blanked: None,
                     ffb_preset: None,
+                    freedom_mode: None,
                 });
             }
         }
@@ -1231,7 +1234,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Idle,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None,
             });
             pods.insert("pod-2".into(), PodInfo {
                 id: "pod-2".into(), number: 2, name: "Pod 2".into(),
@@ -1239,7 +1242,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Offline,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None,
             });
             pods.insert("pod-3".into(), PodInfo {
                 id: "pod-3".into(), number: 3, name: "Pod 3".into(),
@@ -1247,7 +1250,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Error,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None,
             });
         }
 
@@ -7631,6 +7634,7 @@ async fn sync_push(
                 installed_games: vec![],
                 screen_blanked: None,
                 ffb_preset: None,
+                freedom_mode: None,
             };
             state.pods.write().await.insert(id.to_string(), pod_info.clone());
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));

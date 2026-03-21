@@ -108,6 +108,9 @@ pub struct PodInfo {
     /// Current FFB preset: "light", "medium", or "strong".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ffb_preset: Option<String>,
+    /// Whether freedom mode is active (all restrictions lifted, monitoring only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freedom_mode: Option<bool>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────
