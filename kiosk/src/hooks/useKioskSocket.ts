@@ -36,6 +36,13 @@ interface AssistanceRequest {
   timestamp: number;
 }
 
+export interface GameLaunchRequest {
+  pod_id: string;
+  sim_type: string;
+  driver_name: string;
+  request_id: string;
+}
+
 export type { AssistanceRequest };
 
 export function useKioskSocket() {
@@ -50,6 +57,7 @@ export function useKioskSocket() {
   const [gameStates, setGameStates] = useState<Map<string, GameLaunchInfo>>(new Map());
   const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
   const [assistanceRequests, setAssistanceRequests] = useState<AssistanceRequest[]>([]);
+  const [gameLaunchRequests, setGameLaunchRequests] = useState<GameLaunchRequest[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
   const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
   const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
@@ -295,6 +303,17 @@ export function useKioskSocket() {
             setMultiplayerGroup(data);
             break;
           }
+          case "GameLaunchRequested": {
+            const req = msg.data as GameLaunchRequest;
+            setGameLaunchRequests((prev) => [req, ...prev]);
+            // Auto-expire after 60 seconds
+            setTimeout(() => {
+              setGameLaunchRequests((prev) =>
+                prev.filter((r) => r.request_id !== req.request_id)
+              );
+            }, 60 * 1000);
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -339,6 +358,10 @@ export function useKioskSocket() {
     setAssistanceRequests((prev) => prev.filter((r) => r.pod_id !== podId));
   }, []);
 
+  const dismissGameRequest = useCallback((requestId: string) => {
+    setGameLaunchRequests((prev) => prev.filter((r) => r.request_id !== requestId));
+  }, []);
+
   const clearPendingSplitContinuation = useCallback(() => {
     setPendingSplitContinuation(null);
   }, []);
@@ -358,6 +381,8 @@ export function useKioskSocket() {
     pendingAuthTokens,
     assistanceRequests,
     dismissAssistance,
+    gameLaunchRequests,
+    dismissGameRequest,
     cameraFocus,
     activityLog,
     sendCommand,

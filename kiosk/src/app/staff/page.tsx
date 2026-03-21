@@ -12,6 +12,7 @@ import { WalletTopupPanel } from "@/components/WalletTopupPanel";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
 import { GamePickerPanel } from "@/components/GamePickerPanel";
+import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
 import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode } from "@/lib/types";
 
@@ -59,6 +60,8 @@ export default function StaffTerminal() {
     pendingAuthTokens,
     assistanceRequests,
     dismissAssistance,
+    gameLaunchRequests,
+    dismissGameRequest,
     sendCommand,
     pendingSplitContinuation,
     clearPendingSplitContinuation,
@@ -379,6 +382,22 @@ export default function StaffTerminal() {
       <AssistanceAlert
         requests={assistanceRequests}
         onAcknowledge={handleAcknowledgeAssistance}
+      />
+
+      {/* PWA Game Launch Request Banner */}
+      <GameLaunchRequestBanner
+        requests={gameLaunchRequests}
+        onConfirm={async (req) => {
+          try {
+            await api.launchGame(req.pod_id, req.sim_type, undefined);
+          } catch (err) {
+            alert(
+              `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
+            );
+          }
+          dismissGameRequest(req.request_id);
+        }}
+        onDismiss={(requestId) => dismissGameRequest(requestId)}
       />
 
       {/* Main Content: Grid + Side Panel */}
