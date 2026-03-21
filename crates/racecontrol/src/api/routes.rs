@@ -4292,20 +4292,110 @@ async fn kiosk_validate_pin(
     }
 }
 
+// ─── PIN Redemption Lockout ─────────────────────────────────────────────────
+
+struct PinLockoutState {
+    fail_count: u32,
+    last_attempt: std::time::Instant,
+    locked_until: Option<std::time::Instant>,
+}
+
+static PIN_LOCKOUT: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, PinLockoutState>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Prune lockout entries older than 10 minutes to prevent unbounded memory growth.
+fn prune_pin_lockout_entries(map: &mut std::collections::HashMap<std::net::IpAddr, PinLockoutState>) {
+    let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(600);
+    map.retain(|_, v| v.last_attempt > cutoff);
+}
+
 #[derive(Debug, Deserialize)]
 struct KioskRedeemPinRequest {
     pin: String,
 }
 
 async fn kiosk_redeem_pin(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(state): State<Arc<AppState>>,
     Json(req): Json<KioskRedeemPinRequest>,
 ) -> Json<Value> {
+    let client_ip = addr.ip();
+
+    // Check lockout FIRST
+    {
+        let mut lockout_map = PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Prune old entries periodically (when map grows large)
+        if lockout_map.len() > 1000 {
+            prune_pin_lockout_entries(&mut lockout_map);
+        }
+
+        if let Some(entry) = lockout_map.get_mut(&client_ip) {
+            if let Some(locked_until) = entry.locked_until {
+                let now = std::time::Instant::now();
+                if now < locked_until {
+                    let remaining = locked_until.duration_since(now);
+                    let remaining_secs = remaining.as_secs();
+                    let minutes = remaining_secs / 60;
+                    let seconds = remaining_secs % 60;
+                    let time_str = if minutes > 0 {
+                        format!("{} minutes and {} seconds", minutes, seconds)
+                    } else {
+                        format!("{} seconds", seconds)
+                    };
+                    return Json(json!({
+                        "error": format!("Too many failed attempts. Please wait {}.", time_str),
+                        "lockout_remaining_seconds": remaining_secs,
+                    }));
+                } else {
+                    // Lockout expired, reset
+                    entry.fail_count = 0;
+                    entry.locked_until = None;
+                }
+            }
+        }
+    }
+
     match reservation::redeem_pin(&state, &req.pin).await {
-        Ok(result) => Json(result),
+        Ok(result) => {
+            // Success: reset lockout for this IP
+            let mut lockout_map = PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+            lockout_map.remove(&client_ip);
+            Json(result)
+        }
         Err(e) => {
             state.record_api_error("kiosk/redeem-pin");
-            Json(json!({ "error": e }))
+
+            // Track failure for lockout (only for actual PIN validation errors, not "pods busy" etc.)
+            let remaining_attempts = {
+                let mut lockout_map = PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = lockout_map.entry(client_ip).or_insert(PinLockoutState {
+                    fail_count: 0,
+                    last_attempt: std::time::Instant::now(),
+                    locked_until: None,
+                });
+                entry.fail_count += 1;
+                entry.last_attempt = std::time::Instant::now();
+
+                if entry.fail_count >= 10 {
+                    entry.locked_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(300));
+                    0u32
+                } else {
+                    10 - entry.fail_count
+                }
+            };
+
+            if remaining_attempts == 0 {
+                Json(json!({
+                    "error": "Too many failed attempts. Please wait 5 minutes and 0 seconds.",
+                    "lockout_remaining_seconds": 300,
+                }))
+            } else {
+                Json(json!({
+                    "error": e,
+                    "remaining_attempts": remaining_attempts,
+                }))
+            }
         }
     }
 }
