@@ -99,7 +99,7 @@ export default function ReservationsPage() {
     setError(null);
     try {
       const res = await api.modifyReservation(selectedExperience, selectedTier);
-      if (res.status === "modified" && res.pin) {
+      if (res.pin) {
         // Refresh reservation
         const updated = await api.getReservation();
         setReservation(updated.reservation || null);

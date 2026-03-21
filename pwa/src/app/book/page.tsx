@@ -265,7 +265,7 @@ function BookWizard() {
           custom.track, // experience_id mapped from track selection
           tier.id
         );
-        if (res.status === "reserved" && res.pin) {
+        if (res.pin) {
           setCloudPin(res.pin);
           setCloudExpiresAt(res.expires_at || null);
           setCloudExperienceName(res.experience_name || `${car?.name || "Custom"} at ${track?.name || "Track"}`);
