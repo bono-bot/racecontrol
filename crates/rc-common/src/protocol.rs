@@ -318,6 +318,12 @@ pub enum CoreToAgentMessage {
     /// Blank the screen (show black screen)
     BlankScreen,
 
+    /// Enter freedom mode (unrestricted pod access)
+    EnterFreedomMode,
+
+    /// Exit freedom mode (return to normal restrictions)
+    ExitFreedomMode,
+
     /// Billing timer tick — sent every second to update pod overlay
     BillingTick {
         remaining_seconds: u32,
