@@ -453,3 +453,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 16:19 IST | James | 42ebcb6 | feat(104-01): ProcessViolation WS handler + email escalation for repeat offenders |
 | 2026-03-21 17:00 IST | James | c8f8324 | feat(104-02): spawn_server_guard() server scan loop — rc-agent.exe CRITICAL, 512KB log rotation, pod_violations["server"] |
 | 2026-03-21 17:02 IST | James | 151bf37 | docs(104-02): complete server guard module plan — STATE, ROADMAP, REQUIREMENTS, SUMMARY |
+| 2026-03-21 16:41 IST | James | 9506d1d | feat(104-03): violation badge on kiosk fleet grid — PodFleetStatus violation_count_24h + last_violation_at, Racing Red badge |
