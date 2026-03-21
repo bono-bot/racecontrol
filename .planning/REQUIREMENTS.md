@@ -28,9 +28,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 - [x] **HARD-01**: SetWindowsHookEx keyboard hook (Phase 78) is fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr)
 - [ ] **HARD-02**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate via signtool in the deploy pipeline
-- [ ] **HARD-03**: Shared memory telemetry readers defer MapViewOfFile connect until 5 seconds after game process is stable (anti-cheat init window)
+- [x] **HARD-03**: Shared memory telemetry readers defer MapViewOfFile connect until 5 seconds after game process is stable (anti-cheat init window)
 - [x] **HARD-04**: UDP telemetry sockets are created only when the corresponding game is active and destroyed on game exit
-- [ ] **HARD-05**: AC EVO telemetry is feature-flagged off by default until anti-cheat status is confirmed at v1.0 release
+- [x] **HARD-05**: AC EVO telemetry is feature-flagged off by default until anti-cheat status is confirmed at v1.0 release
 
 ### Validation
 
@@ -72,9 +72,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | SAFE-07 | Phase 109 | Complete |
 | HARD-01 | Phase 108 | Complete |
 | HARD-02 | Phase 111 | Pending |
-| HARD-03 | Phase 110 | Pending |
+| HARD-03 | Phase 110 | Complete |
 | HARD-04 | Phase 110 | Complete |
-| HARD-05 | Phase 110 | Pending |
+| HARD-05 | Phase 110 | Complete |
 | VALID-01 | Phase 111 | Pending |
 | VALID-02 | Phase 111 | Pending |
 | VALID-03 | Phase 108 | Complete |
