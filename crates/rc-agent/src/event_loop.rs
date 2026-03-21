@@ -362,14 +362,13 @@ pub async fn run(
                     // If safe mode is active (WMI or LaunchGame) but game_process is None,
                     // check if any protected exe is still running. If not, start cooldown.
                     if state.safe_mode.active && state.safe_mode.game.is_some() && state.game_process.is_none() && !wmi_triggered {
-                        // Protected game was launched externally — check if it's gone
-                        let still_running = crate::safe_mode::PROTECTED_EXE_NAMES.iter().any(|name| {
-                            // Use the game field to check the right process
-                            // We already know game is Some here — check via exe name
-                            let _ = name;
-                            false // conservative: don't trigger cooldown from this path
-                        });
-                        let _ = still_running;
+                        // Protected game was launched externally — check if it's still running
+                        let still_running = crate::safe_mode::detect_running_protected_game().is_some();
+                        if !still_running && state.safe_mode.cooldown_until.is_none() {
+                            tracing::info!(target: LOG_TARGET, "Safe mode: external protected game exited — starting 30s cooldown");
+                            state.safe_mode.start_cooldown();
+                            state.safe_mode_cooldown_timer.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
+                        }
                     }
                 }
 
