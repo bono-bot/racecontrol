@@ -6,6 +6,7 @@ mod enrollment;
 mod frame;
 mod health;
 mod mjpeg;
+mod nvr;
 mod privacy;
 mod recognition;
 mod relay;
