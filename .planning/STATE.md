@@ -31,15 +31,15 @@ decisions:
 gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
-status: roadmap_created
-stopped_at: Roadmap written -- awaiting plan-phase 107
-last_updated: "2026-03-21T20:30:00.000Z"
+status: in_progress
+stopped_at: Completed 107-02-PLAN.md
+last_updated: "2026-03-21T13:37:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 4
+  completed_plans: 2
+  percent: 20
 current_phase: 107
 current_phase_name: Behavior Audit + Certificate Procurement
 phases:
@@ -56,6 +56,9 @@ decisions:
   - "AC EVO telemetry feature-flagged off by default (HARD-05) -- reassess at Kunos v1.0 release"
   - "WMI Win32_ProcessStartTrace subscription chosen over polling to close the EAC 2-5s initialization window"
   - "v13.0 Multi-Game Launcher MUST NOT deploy to customer pods until Phase 111 canary validation complete"
+  - "ConspitLink audit deferred -- template created and ready; ProcMon capture requires physical access to Pod 8"
+  - "SetWindowsHookEx is UNSAFE (permanent removal, Phase 108) for all kernel-level AC games -- not just suspended"
+  - "Ollama queries must be SUSPENDED during protected game sessions due to GPU/VRAM contention visible to EAAC"
 ---
 
 ---

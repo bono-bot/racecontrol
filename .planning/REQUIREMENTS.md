@@ -10,9 +10,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 ### Audit
 
 - [ ] **AUDIT-01**: Staff can view a risk inventory of every pod-side behavior classified by severity (CRITICAL/HIGH/MEDIUM/LOW) per anti-cheat system (EA Javelin, iRacing EOS, LMU EAC, Kunos, EA WRC)
-- [ ] **AUDIT-02**: ConspitLink is audited via Sysinternals Process Monitor for kernel drivers, DLL injection, and process handle behaviors that could trigger anti-cheat
+- [x] **AUDIT-02**: ConspitLink is audited via Sysinternals Process Monitor for kernel drivers, DLL injection, and process handle behaviors that could trigger anti-cheat
 - [ ] **AUDIT-03**: All 8 pods have their Windows 11 edition verified and documented (affects Keyboard Filter vs GPO decision)
-- [ ] **AUDIT-04**: Ops team has a per-game anti-cheat compatibility matrix documenting what is safe/unsafe while each game runs
+- [x] **AUDIT-04**: Ops team has a per-game anti-cheat compatibility matrix documenting what is safe/unsafe while each game runs
 
 ### Safe Mode
 
@@ -60,9 +60,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | AUDIT-01 | Phase 107 | Pending |
-| AUDIT-02 | Phase 107 | Pending |
+| AUDIT-02 | Phase 107 | Complete |
 | AUDIT-03 | Phase 107 | Pending |
-| AUDIT-04 | Phase 107 | Pending |
+| AUDIT-04 | Phase 107 | Complete |
 | SAFE-01 | Phase 109 | Pending |
 | SAFE-02 | Phase 109 | Pending |
 | SAFE-03 | Phase 109 | Pending |

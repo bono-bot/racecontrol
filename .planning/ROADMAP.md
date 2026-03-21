@@ -1528,7 +1528,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 107. Behavior Audit + Certificate Procurement | TBD | Not started | - |
+| 107. Behavior Audit + Certificate Procurement | 1/2 | In Progress|  |
 | 108. Keyboard Hook Replacement | TBD | Not started | - |
 | 109. Safe Mode State Machine | TBD | Not started | - |
 | 110. Telemetry Gating | TBD | Not started | - |
