@@ -35,7 +35,7 @@ Standard 8-point scale. All values already in use across KioskPodCard.tsx and pr
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Icon gaps, inline chip padding (px-1 py-0.5) |
+| xs | 4px | Icon gaps, inline chip padding (px-1) |
 | sm | 8px | Row padding, compact element spacing |
 | md | 16px | Card internal padding, form field spacing |
 | lg | 24px | Section padding (mb-6), card-to-card gaps |
@@ -44,9 +44,9 @@ Standard 8-point scale. All values already in use across KioskPodCard.tsx and pr
 | 3xl | 64px | Page-level spacing |
 
 Exceptions:
-- KioskPodCard state badge: 10px font, px-2 py-0.5 (matches existing StateLabel pattern — do not change)
-- Loading timer badge on pod card: same chip dimensions as StateLabel (px-2 py-0.5, text-[10px])
-- Touch/click targets on admin table action buttons: minimum 32px height (py-1.5 minimum)
+- KioskPodCard state badge: 10px font, px-2 py-0.5 (2px) — pre-existing frozen production exception — not changed in this phase. Chip dimensions match existing StateLabel pattern exactly.
+- Loading timer badge on pod card: same chip dimensions as StateLabel (px-2 py-0.5, text-[10px]) — same frozen production exception as above.
+- Touch/click targets on admin table action buttons: minimum 32px height — use py-2 (8px, on-grid). Meets 32px minimum touch target.
 
 ---
 
@@ -54,12 +54,14 @@ Exceptions:
 
 Source: observed across pricing/page.tsx and KioskPodCard.tsx. Exact values used in production.
 
+Two weights only: 400 (body, sub-heading) and 700 (heading, label). Weight differentiates headings and small-size labels from body text.
+
 | Role | Size | Weight | Line Height | Usage |
 |------|------|--------|-------------|-------|
 | Body | 14px (text-sm) | 400 (normal) | 1.5 | Table rows, form field values, pod card data |
-| Label | 12px (text-xs) | 500 (medium) | 1.4 | Column headers (uppercase tracking-wider), form labels, state badges |
+| Label | 12px (text-xs) | 700 (bold) | 1.4 | Column headers (uppercase tracking-wider), form labels, state badges — bold compensates for small size |
 | Heading | 24px (text-2xl) | 700 (bold) | 1.2 | Page title ("Pricing Tiers", "Per-Minute Rates") |
-| Sub-heading | 14px (text-sm) | 500 (medium) | 1.4 | Section headings within cards ("Add New Tier", "Add Rate") |
+| Sub-heading | 14px (text-sm) | 400 (normal) | 1.4 | Section headings within cards ("Add New Tier", "Add Rate") — differentiated by context and placement, not weight |
 
 Font: Montserrat for all text. No Enthocentric in these UIs (Enthocentric is reserved for marketing/branding headers, not operational dashboards).
 
@@ -77,10 +79,10 @@ Source: globals.css CSS custom properties. Exact hex values are the project stan
 | Destructive | #EF4444 (text-red-500) | #EF4444 | Delete rate action, crashed pod badge background |
 
 **Accent (#E10600) reserved for:**
-- "Save Rate" / "Add Rate" primary CTA button (enabled state only)
+- "Add Rate" primary CTA button (enabled state only)
+- "Save Rate" button in inline rate row edit mode
 - Active pod card border (border-rp-red/40) when billing session is live
 - Focus ring on rate input fields (focus:border-rp-red)
-- "Save" button in inline rate row edit mode
 
 **Supporting semantic colors (not accent — use sparingly):**
 - `text-amber-400 bg-amber-400/10` — "Loading" state badge (billing not yet started — visual distinction from Running)
@@ -126,6 +128,9 @@ Existing components this phase extends (do NOT redesign — extend only):
 - Add Rate form: add "Game" field as `<select>` with same options, defaulting to "All games"
 - Display label mapping: `null` → `"All games"`, `"f1_25"` → `"F1 25"`, `"iracing"` → `"iRacing"`, `"le_mans_ultimate"` → `"LMU"`, `"assetto_corsa_evo"` → `"AC EVO"`, `"ea_wrc"` → `"EA WRC"`, `"assetto_corsa"` → `"AC"`
 
+**Focal point — admin billing rates screen:**
+Primary focal point: Per-Minute Rates table body — the tier name and rate columns are where the eye lands first. The Game column is secondary context. Column order (Tier → Threshold → Game → Rate) reflects this reading priority: staff identifies the tier, checks the threshold, reads the game filter, then reads the rate.
+
 ---
 
 ## Copywriting Contract
@@ -136,8 +141,8 @@ Existing components this phase extends (do NOT redesign — extend only):
 | Loading state with game name | "Loading F1 25..." | When sim_type is available on gameInfo — preferred form |
 | Loading timer label | (no label — just M:SS count-up) | Amber monospace timer below badge |
 | Add Rate CTA (primary) | "Add Rate" | Per-Minute Rates form submit button |
-| Save Rate CTA (inline edit) | "Save" | Inline edit confirm in rate row |
-| Cancel edit | "Cancel" | Inline edit cancel — no confirmation needed |
+| Save Rate CTA (inline edit) | "Save Rate" | Inline edit confirm in rate row — specific verb+noun, not generic "Save" |
+| Discard edit | "Discard" | Inline edit cancel — no confirmation needed. Not "Cancel" (generic). |
 | Empty state — no billing rates | "No per-minute rates" / "Add your first rate above." | Rates table when empty after DB migration |
 | Empty state — rates loading | "Loading rates..." | During initial fetch, text-center py-12 text-rp-grey text-sm |
 | Error state — rate save failed | "Save failed. Check your connection and try again." | Inline below the row, text-red-400 text-xs |
@@ -172,7 +177,7 @@ No timer shown             Timer counts up (M:SS)      Timer hidden, billing cou
 View mode: "F1 25" label (text-sm text-neutral-200)
               ↓ (click Edit button on row)
 Edit mode: <select> with current sim_type selected, border-rp-border focus:border-rp-red
-              ↓ (click Save)
+              ↓ (click "Save Rate")
 Save: PUT /api/v1/billing_rates/:id with { sim_type: "f1_25" | null }
               ↓
 View mode: updated label shown
@@ -209,7 +214,7 @@ When multiple rates exist for the same tier but different games, the table shows
 | rate.sim_type = valid sim key | Mapped display name (text-neutral-200) |
 | rate.sim_type = unknown value | Raw value string in text-amber-400 (migration guard) |
 | Row in edit mode | `<select>` with current value pre-selected |
-| Save in progress | "Saving..." text on Save button, input disabled |
+| Save in progress | "Saving..." text on Save Rate button, input disabled |
 | Save failed | "Save failed." inline below row in text-red-400 text-xs |
 
 ---
@@ -232,12 +237,16 @@ No third-party component registries in this project. All new UI uses existing pr
 | Font: Montserrat body, Space Grotesk display, JetBrains Mono mono | globals.css @theme inline |
 | amber-400 for loading/pending state | CONTEXT.md: "Loading F1 25... staff can see billing hasn't started"; amber chosen as "billing-not-yet-active" semantic, consistent with existing amber-400 "waiting" state in KioskPodCard |
 | Inline row editing pattern for rates | pricing/page.tsx: editId/editName/handleSaveEdit() pattern — observed directly |
-| StateLabel chip style (text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded) | KioskPodCard.tsx line 793 — matched exactly |
+| StateLabel chip style (text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded) | KioskPodCard.tsx line 793 — matched exactly; py-0.5 is a frozen production exception |
 | No destructive confirmation for rate delete | pricing/page.tsx handleDelete() calls api.deletePricingTier() directly |
 | Count-up timer (not countdown) | CONTEXT.md: "Loading F1 25... with timer counting up" — explicit user decision |
 | Spacing scale | Tailwind v4 defaults + observed class usage (mb-6, px-4 py-3, gap-3) |
 | Typography sizes | Observed: text-2xl (heading), text-sm (body/table), text-xs (labels) |
 | "All games" as null display | RESEARCH.md: NULL = universal rate, applies when no game-specific rate exists |
+| Two weights only (400, 700) | Checker fix 2026-03-21: removed weight 500 — max 2 weights per spec |
+| "Save Rate" / "Discard" labels | Checker fix 2026-03-21: replaced generic "Save"/"Cancel" with specific verb+noun labels |
+| py-0.5 frozen exception; py-2 for action buttons | Checker fix 2026-03-21: py-0.5 is pre-existing production chip; action buttons use py-2 (on-grid) |
+| Focal point declared for rates screen | Checker fix 2026-03-21: tier name + rate are primary; game column is secondary |
 
 ---
 
