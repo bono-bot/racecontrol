@@ -62,9 +62,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Sync Hardening
 
-- [ ] **SYNC-01**: Reservations table added to cloud_sync (cloud-authoritative)
-- [ ] **SYNC-02**: Wallet uses debit intent pattern — cloud sends debit request, local processes and syncs balance back
-- [ ] **SYNC-03**: Origin tags added to sync payloads to prevent sync loops
+- [x] **SYNC-01**: Reservations table added to cloud_sync (cloud-authoritative)
+- [x] **SYNC-02**: Wallet uses debit intent pattern — cloud sends debit request, local processes and syncs balance back
+- [x] **SYNC-03**: Origin tags added to sync payloads to prevent sync loops
 - [ ] **SYNC-04**: Cloud shows "booking pending confirmation" when sync lag exceeds 60 seconds
 - [ ] **SYNC-05**: Split-brain handling: cloud bookings during outage queue as pending_sync, local confirms post-reconnection
 - [ ] **SYNC-06**: All admin-managed tables (pricing, experiences, settings) sync correctly cloud-to-local
@@ -147,9 +147,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | KIOSK-04 | Phase 5 | Pending |
 | KIOSK-05 | Phase 5 | Pending |
 | KIOSK-06 | Phase 5 | Pending |
-| SYNC-01 | Phase 3 | Pending |
-| SYNC-02 | Phase 3 | Pending |
-| SYNC-03 | Phase 3 | Pending |
+| SYNC-01 | Phase 3 | Complete |
+| SYNC-02 | Phase 3 | Complete |
+| SYNC-03 | Phase 3 | Complete |
 | SYNC-04 | Phase 3 | Pending |
 | SYNC-05 | Phase 10 | Pending |
 | SYNC-06 | Phase 3 | Pending |
