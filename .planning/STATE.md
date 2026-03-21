@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Phase 83 context gathered
-last_updated: "2026-03-21T04:23:52.933Z"
+stopped_at: Completed 83-01-PLAN.md
+last_updated: "2026-03-21T04:32:00.084Z"
 last_activity: "2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runner (HID, ConspitLink, orphan game) + ws_handler pre-flight gate with billing_active.store(true) inside Pass branch (PF-01, PF-02, PF-03, HW-01, HW-02, HW-03, SYS-01)"
 progress:
   total_phases: 65
-  completed_phases: 36
-  total_plans: 97
-  completed_plans: 94
+  completed_phases: 37
+  total_plans: 98
+  completed_plans: 95
 ---
 
 ---
@@ -335,10 +335,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 97 (rc-common-protocol-pre-flight-rs-framework-hardware-checks)
-Plan: 02 of 02 complete
+Phase: 83 (f1-25-telemetry)
+Plan: 01 of 01 complete
 Status: Complete
-Last activity: 2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runner (HID, ConspitLink, orphan game) + ws_handler pre-flight gate with billing_active.store(true) inside Pass branch (PF-01, PF-02, PF-03, HW-01, HW-02, HW-03, SYS-01)
+Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -435,6 +435,7 @@ Last activity: 2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runn
 - 97-02: Orphan game state captured before AppState borrow in tokio::join! -- game_pid and has_game_process extracted as plain values to avoid lifetime issues with &AppState across await points
 - 97-02: billing_active.store(true) at line 167 in ws_handler.rs -- confirmed AFTER pre_flight gate block (lines 141-165); customers on failed pod never billed (PF-01, HW-01, HW-02, HW-03, SYS-01 complete)
 - 82-03: GameState union must include 'loading' for TypeScript to accept game_state === 'loading' comparisons in kiosk KioskPodCard; SIM_TYPE_LABELS + SIM_TYPE_OPTIONS module-level pattern for consistent sim_type display (BILL-03, BILL-05)
+- 83-01: No production code changes needed — existing F1 25 adapter already satisfies TEL-F1-01/02/03; 6 unit tests added to prove it. adapter.connected=true set directly in session_type_mapping test to avoid binding port 20777 in unit test environment
 
 ### Blockers/Concerns
 
@@ -457,7 +458,7 @@ Last activity: 2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runn
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:23:52.926Z
-Stopped at: Phase 83 context gathered
-Resume file: .planning/phases/83-f1-25-telemetry/83-CONTEXT.md
+Last session: 2026-03-21T04:32:00.078Z
+Stopped at: Completed 83-01-PLAN.md
+Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
