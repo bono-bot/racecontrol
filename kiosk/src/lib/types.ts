@@ -51,6 +51,7 @@ export interface Pod {
   installed_games?: string[];
   screen_blanked?: boolean;
   ffb_preset?: string;
+  freedom_mode?: boolean;
 }
 
 // ─── Telemetry ────────────────────────────────────────────────────────────

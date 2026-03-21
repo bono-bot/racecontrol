@@ -148,6 +148,7 @@ pub async fn run(
                     current_game: state.game_process.as_ref().map(|g| g.sim_type),
                     screen_blanked: Some(state.lock_screen.is_blanked()),
                     ffb_preset: Some(conn.last_ffb_preset.clone()),
+                    freedom_mode: Some(state.kiosk.is_freedom_mode()),
                     ..state.pod_info.clone()
                 });
                 let json = serde_json::to_string(&hb)?;
@@ -638,7 +639,41 @@ pub async fn run(
             }
 
             _ = conn.kiosk_interval.tick() => {
-                if state.kiosk_enabled && state.kiosk.should_enforce() {
+                if state.kiosk.is_freedom_mode() {
+                    // Freedom mode: passive monitoring only — no process killing
+                    let pod_id_freedom = state.pod_id.clone();
+                    let freedom_msg_tx = state.ws_exec_result_tx.clone();
+                    let monitor_handle = tokio::task::spawn_blocking(move || {
+                        kiosk::KioskManager::monitor_processes_blocking()
+                    });
+                    if let Ok(monitored) = monitor_handle.await {
+                        const GAME_EXES: &[&str] = &[
+                            "acs.exe", "assettocorsa2.exe", "ac2-win64-shipping.exe",
+                            "iracing.exe", "iracingsim64dx11.exe", "f1_25.exe",
+                            "lemansultimate.exe", "forzahorizon5.exe", "forzamotorsport.exe",
+                            "content manager.exe",
+                        ];
+                        let games_detected: Vec<String> = monitored.iter()
+                            .filter(|p| GAME_EXES.contains(&p.process_name.as_str()))
+                            .map(|p| p.process_name.clone())
+                            .collect();
+                        let processes: Vec<(String, String)> = monitored.iter()
+                            .map(|p| (p.process_name.clone(), p.exe_path.clone()))
+                            .collect();
+                        if !processes.is_empty() {
+                            tracing::debug!(
+                                "[freedom] Monitoring {} processes, {} games on pod {}",
+                                processes.len(), games_detected.len(), pod_id_freedom
+                            );
+                        }
+                        let msg = AgentMessage::FreedomModeReport {
+                            pod_id: pod_id_freedom,
+                            processes,
+                            games_detected,
+                        };
+                        let _ = freedom_msg_tx.try_send(msg);
+                    }
+                } else if state.kiosk_enabled && state.kiosk.should_enforce() {
                     let allowed = state.kiosk.allowed_set_snapshot();
                     let pod_id_kiosk = state.pod_id.clone();
                     let kiosk_msg_tx = state.ws_exec_result_tx.clone();
@@ -720,7 +755,7 @@ pub async fn run(
 
             _ = conn.overlay_topmost_interval.tick() => {
                 state.overlay.enforce_topmost();
-                if state.kiosk_enabled {
+                if state.kiosk_enabled && !state.kiosk.is_freedom_mode() {
                     tokio::task::spawn_blocking(|| {
                         ac_launcher::minimize_background_windows();
                         crate::lock_screen::enforce_kiosk_foreground();

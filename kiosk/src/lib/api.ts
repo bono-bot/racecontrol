@@ -329,6 +329,13 @@ export const api = {
       body: JSON.stringify({ unrestrict }),
     }),
 
+  // Pod Freedom Mode (all restrictions lifted, but passive monitoring stays active)
+  setFreedomMode: (pod_id: string, enabled: boolean) =>
+    fetchApi<{ ok: boolean; pod_id: string; freedom_mode: boolean }>(`/pods/${pod_id}/freedom`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
   // Pod Power Management
   wakePod: (id: string) =>
     fetchApi<{ status: string; pod_id: string }>(`/pods/${id}/wake`, { method: "POST" }),

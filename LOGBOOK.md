@@ -424,3 +424,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 15:10 IST | James | 17750da | feat(102-01): ProcessGuardConfig + AllowedProcess + ProcessGuardOverride structs; 6 TDD tests pass; C:/RacingPoint/racecontrol.toml with 185 global allowed entries + 3 per-machine overrides |
 | 2026-03-21 13:48 IST | James | d88f422 | feat(88-02): add sim_type filtering to all leaderboard endpoints — public, public_track, staff track, bot |
 | 2026-03-21 13:49 IST | James | 42775d9 | docs(88-02): complete leaderboard sim_type filtering plan — SUMMARY.md + STATE.md + ROADMAP.md |
+| 2026-03-21 13:57 IST | James | ad364f3 | fix(102-02): remove duplicate EnterFreedomMode/ExitFreedomMode variants in CoreToAgentMessage — blocked all racecontrol tests |
+| 2026-03-21 13:57 IST | James | 8b4aebb | docs(102-02): 102-02-SUMMARY.md + STATE-v12.1.md — phase 102 complete, GET /api/v1/guard/whitelist/{machine_id} endpoint verified |

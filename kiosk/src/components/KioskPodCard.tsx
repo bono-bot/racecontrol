@@ -357,6 +357,8 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           )}
           {/* Unrestrict toggle — available when online */}
           {!isOffline && <UnrestrictButton podId={pod.id} />}
+          {/* Freedom mode toggle — allow everything but monitor */}
+          {!isOffline && <FreedomModeButton podId={pod.id} freedomMode={pod.freedom_mode} />}
           {/* Blank screen toggle — available when online */}
           {!isOffline && <BlankScreenButton podId={pod.id} screenBlanked={pod.screen_blanked} />}
           <StateLabel state={state} isOffline={isOffline} gameInfo={gameInfo} />
@@ -762,6 +764,52 @@ function UnrestrictButton({ podId }: { podId: string }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
         ) : (
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        )}
+      </svg>
+    </button>
+  );
+}
+
+function FreedomModeButton({ podId, freedomMode }: { podId: string; freedomMode?: boolean }) {
+  const [active, setActive] = useState(freedomMode ?? false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (freedomMode !== undefined) setActive(freedomMode);
+  }, [freedomMode]);
+
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !active;
+    if (!confirm(`${next ? "Enable" : "Disable"} Freedom Mode on ${podId}? ${next ? "All restrictions will be lifted but activity will be monitored." : "Kiosk restrictions will be re-enabled."}`)) return;
+    setBusy(true);
+    try {
+      const res = await api.setFreedomMode(podId, next);
+      if (res.ok) {
+        setActive(next);
+      }
+    } catch (err) {
+      alert(`Freedom mode toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+        active
+          ? "bg-emerald-600/40 text-emerald-300 hover:bg-emerald-500/50"
+          : "bg-zinc-800 text-rp-grey hover:bg-zinc-700 hover:text-white"
+      }`}
+      title={active ? "Disable freedom mode (re-engage kiosk)" : "Enable freedom mode (allow all, monitor)"}
+    >
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {active ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         )}
       </svg>
     </button>

@@ -601,6 +601,21 @@ pub async fn handle_ws_message(
             state.lock_screen.clear();
         }
 
+        CoreToAgentMessage::EnterFreedomMode => {
+            tracing::info!("Freedom mode activated — all restrictions lifted, monitoring active");
+            state.kiosk.exit_debug_mode();
+            state.kiosk.enter_freedom_mode();
+            state.lock_screen.clear();
+        }
+
+        CoreToAgentMessage::ExitFreedomMode => {
+            tracing::info!("Freedom mode deactivated — re-engaging kiosk restrictions");
+            state.kiosk.exit_freedom_mode();
+            if state.kiosk_enabled {
+                state.kiosk.activate();
+            }
+        }
+
         CoreToAgentMessage::SettingsUpdated { settings } => {
             tracing::info!("Kiosk settings updated: {:?}", settings);
             if let Some(v) = settings.get("kiosk_lockdown_enabled") {
@@ -621,6 +636,20 @@ pub async fn handle_ws_message(
                 } else if v == "false" {
                     state.lock_screen.clear();
                     tracing::info!("Screen blanking DISABLED -- screen restored");
+                }
+            }
+            if let Some(v) = settings.get("freedom_mode_enabled") {
+                if v == "true" && !state.kiosk.is_freedom_mode() {
+                    state.kiosk.exit_debug_mode();
+                    state.kiosk.enter_freedom_mode();
+                    state.lock_screen.clear();
+                    tracing::info!("Freedom mode ENABLED via remote settings");
+                } else if v == "false" && state.kiosk.is_freedom_mode() {
+                    state.kiosk.exit_freedom_mode();
+                    if state.kiosk_enabled {
+                        state.kiosk.activate();
+                    }
+                    tracing::info!("Freedom mode DISABLED via remote settings");
                 }
             }
             if let Some(url) = settings.get("lock_screen_wallpaper_url") {

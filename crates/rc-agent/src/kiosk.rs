@@ -415,10 +415,18 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "xboxpcappft.exe",             // Xbox PC app
 ];
 
+/// A monitored process entry reported during freedom mode.
+#[derive(Clone, Debug)]
+pub struct MonitoredProcess {
+    pub process_name: String,
+    pub exe_path: String,
+}
+
 /// Kiosk mode manager.
 pub struct KioskManager {
     active: Arc<AtomicBool>,
     debug_mode: bool,
+    freedom_mode: bool,
     pub lockdown: Arc<AtomicBool>,
     pub lockdown_reason: Arc<Mutex<String>>,
     allowed_extra: HashSet<String>,
@@ -436,6 +444,7 @@ impl KioskManager {
         Self {
             active: Arc::new(AtomicBool::new(false)),
             debug_mode: false,
+            freedom_mode: false,
             lockdown: Arc::new(AtomicBool::new(false)),
             lockdown_reason: Arc::new(Mutex::new(String::new())),
             allowed_extra: HashSet::new(),
@@ -502,6 +511,24 @@ impl KioskManager {
     /// Check if in debug mode
     pub fn is_debug_mode(&self) -> bool {
         self.debug_mode
+    }
+
+    /// Enter freedom mode — allows everything, unblanks screen, but monitors all processes.
+    pub fn enter_freedom_mode(&mut self) {
+        self.freedom_mode = true;
+        self.deactivate();
+        tracing::info!("Kiosk: FREEDOM MODE — all apps allowed, monitoring active");
+    }
+
+    /// Exit freedom mode — re-engages kiosk restrictions.
+    pub fn exit_freedom_mode(&mut self) {
+        self.freedom_mode = false;
+        tracing::info!("Kiosk: exiting freedom mode");
+    }
+
+    /// Check if in freedom mode
+    pub fn is_freedom_mode(&self) -> bool {
+        self.freedom_mode
     }
 
     /// Enter lockdown mode — shows "contact staff" message on lock screen.
@@ -715,6 +742,45 @@ impl KioskManager {
         }
 
         result
+    }
+
+    /// Passive process monitoring for freedom mode — scans all running processes
+    /// and returns non-system ones without killing anything.
+    pub fn monitor_processes_blocking() -> Vec<MonitoredProcess> {
+        let mut monitored = Vec::new();
+        let system_procs: HashSet<&str> = [
+            "system", "system idle process", "svchost.exe", "csrss.exe",
+            "wininit.exe", "winlogon.exe", "lsass.exe", "services.exe",
+            "smss.exe", "dwm.exe", "fontdrvhost.exe", "sihost.exe",
+            "taskhostw.exe", "runtimebroker.exe", "conhost.exe", "dllhost.exe",
+            "audiodg.exe", "spoolsv.exe", "registry", "memory compression",
+            "dashost.exe", "wmiprvse.exe", "lsaiso.exe", "secure system",
+            "explorer.exe", "searchhost.exe", "ctfmon.exe",
+            "rc-agent.exe", "rc-agent", "rc-sentry.exe", "rc-sentry",
+            "msedge.exe", "msedgewebview2.exe",
+        ].into_iter().collect();
+
+        let mut sys = System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+        for (pid, process) in sys.processes() {
+            let name = process.name().to_string_lossy().to_lowercase();
+            if name.is_empty() || pid.as_u32() <= 4 {
+                continue;
+            }
+            if system_procs.contains(name.as_str()) {
+                continue;
+            }
+            let exe_path = process.exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            monitored.push(MonitoredProcess {
+                process_name: name,
+                exe_path,
+            });
+        }
+
+        monitored
     }
 }
 
