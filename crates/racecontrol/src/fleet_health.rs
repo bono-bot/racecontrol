@@ -49,6 +49,10 @@ pub struct FleetHealthStore {
     pub hid_detected: Option<bool>,
     /// Phase 46: UDP telemetry ports that bound successfully on last startup.
     pub udp_ports_bound: Option<Vec<u16>>,
+    /// Phase 100: True if the pod sent PreFlightFailed and has not yet cleared maintenance.
+    pub in_maintenance: bool,
+    /// Phase 100: Check names from the most recent PreFlightFailed message.
+    pub maintenance_failures: Vec<String>,
 }
 
 /// API response shape for a single pod in GET /api/v1/fleet/health.
@@ -70,6 +74,10 @@ pub struct PodFleetStatus {
     pub last_seen: Option<String>,
     /// ISO-8601 timestamp of the most recent HTTP probe attempt.
     pub last_http_check: Option<String>,
+    /// Phase 100: True if the pod is in maintenance state (PreFlightFailed and not cleared).
+    pub in_maintenance: bool,
+    /// Phase 100: Check names from the most recent PreFlightFailed event.
+    pub maintenance_failures: Vec<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -112,6 +120,9 @@ pub fn clear_on_disconnect(store: &mut FleetHealthStore) {
     store.remote_ops_port_bound = None;
     store.hid_detected = None;
     store.udp_ports_bound = None;
+    // Disconnected pods are offline, not "in maintenance" from the server's perspective.
+    store.in_maintenance = false;
+    store.maintenance_failures.clear();
 }
 
 /// Spawns the background HTTP probe loop.
@@ -231,6 +242,8 @@ pub async fn fleet_health_handler(
                     ip_address: None,
                     last_seen: None,
                     last_http_check: None,
+                    in_maintenance: false,
+                    maintenance_failures: vec![],
                 });
             }
             Some(info) => {
@@ -265,6 +278,9 @@ pub async fn fleet_health_handler(
                     .last_seen
                     .map(|t| t.to_rfc3339());
 
+                let in_maintenance = store.map(|s| s.in_maintenance).unwrap_or(false);
+                let maintenance_failures = store.map(|s| s.maintenance_failures.clone()).unwrap_or_default();
+
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -277,6 +293,8 @@ pub async fn fleet_health_handler(
                     ip_address: Some(info.ip_address.clone()),
                     last_seen,
                     last_http_check,
+                    in_maintenance,
+                    maintenance_failures,
                 });
             }
         }
@@ -469,6 +487,27 @@ mod tests {
             .unwrap_or(false);
 
         assert!(!ws_connected, "dropped receiver should give ws_connected=false");
+    }
+
+    // ── Phase 100: maintenance state ──────────────────────────────────────────
+
+    #[test]
+    fn fleet_health_store_default_not_in_maintenance() {
+        let store = FleetHealthStore::default();
+        assert!(!store.in_maintenance, "in_maintenance defaults to false");
+        assert!(store.maintenance_failures.is_empty(), "maintenance_failures defaults to empty");
+    }
+
+    #[test]
+    fn fleet_health_clear_on_disconnect_clears_maintenance() {
+        let mut store = FleetHealthStore::default();
+        store.in_maintenance = true;
+        store.maintenance_failures = vec!["DisplayCheck".to_string(), "HidCheck".to_string()];
+
+        clear_on_disconnect(&mut store);
+
+        assert!(!store.in_maintenance, "in_maintenance should be cleared on disconnect");
+        assert!(store.maintenance_failures.is_empty(), "maintenance_failures should be cleared on disconnect");
     }
 
     // ── Phase 46: boot verification fields ───────────────────────────────────
