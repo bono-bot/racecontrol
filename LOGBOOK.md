@@ -383,3 +383,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 09:44 IST | James | 40467d8 | feat(97-02): wire pre-flight gate into BillingStarted — billing_active.store(true) inside Pass branch only |
 | 2026-03-21 09:44 IST | James | 89325ed | docs(97-02): complete pre_flight.rs + ws_handler gate plan |
 | 2026-03-21 10:15 IST | James | 9bb4f92 | docs(98): research phase — MaintenanceRequired lock screen + display checks (PF-04, PF-05, PF-06, DISP-01, DISP-02) |
+| 2026-03-21 09:59 IST | James | 483b4dc | test(83-01): add 6 F1 25 unit tests — lap completion, sector splits, invalid lap, session type mapping, first-packet safety, take semantics (TEL-F1-01, TEL-F1-02, TEL-F1-03) |
+| 2026-03-21 09:59 IST | James | 4f14435 | docs(83-01): complete F1 25 telemetry test coverage plan — 83-01-SUMMARY.md, STATE.md, ROADMAP.md |
