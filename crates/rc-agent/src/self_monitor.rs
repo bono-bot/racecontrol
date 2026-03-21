@@ -216,13 +216,25 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
     Ok(resp.response)
 }
 
+/// Sentinel file that tells rc-sentry this was a graceful self-restart,
+/// not a crash. rc-sentry checks for this and skips escalation if present.
+const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
+
 /// Spawn a detached PowerShell process that waits 3s then starts a fresh rc-agent,
 /// then exit the current process. The 3s gap ensures the port :8090 and
 /// :18923 are freed before the new instance binds them.
 ///
 /// Uses Start-Process instead of cmd `start ""` — Start-Process works reliably
 /// even when the invoking process has no attached console or interactive desktop.
+///
+/// Writes a GRACEFUL_RELAUNCH sentinel so rc-sentry distinguishes this from a
+/// real crash and does not count it toward escalation / MAINTENANCE_MODE.
 pub fn relaunch_self() {
+    // Write sentinel BEFORE exiting so rc-sentry sees it when it detects the "crash"
+    if let Err(e) = std::fs::write(GRACEFUL_RELAUNCH_SENTINEL, "self_monitor relaunch\n") {
+        tracing::warn!(target: LOG_TARGET, "Failed to write graceful relaunch sentinel: {}", e);
+    }
+
     let ps_cmd = concat!(
         "Start-Sleep 3; ",
         "Start-Process 'C:\\RacingPoint\\rc-agent.exe' ",
@@ -234,10 +246,12 @@ pub fn relaunch_self() {
         .spawn()
     {
         Ok(_) => {
-            tracing::info!(target: LOG_TARGET, "Relaunch scheduled. Exiting current process.");
+            tracing::info!(target: LOG_TARGET, "Relaunch scheduled (sentinel written). Exiting current process.");
             std::process::exit(0);
         }
         Err(e) => {
+            // Clean up sentinel on failure — we didn't actually relaunch
+            let _ = std::fs::remove_file(GRACEFUL_RELAUNCH_SENTINEL);
             tracing::error!(target: LOG_TARGET, "Failed to spawn relaunch: {}", e);
         }
     }

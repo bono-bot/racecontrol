@@ -19,6 +19,7 @@ const LOG_TARGET: &str = "tier1-fixes";
 const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PORT_WAIT_POLL: Duration = Duration::from_millis(500);
 const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
+const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 
 // ─── Escalation State ────────────────────────────────────────────────────────
 
@@ -341,6 +342,16 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
         return (results, false);
     }
 
+    // Check for graceful relaunch sentinel from rc-agent's self_monitor.
+    // If present, this was a self-initiated restart (e.g. WS dead, server down),
+    // NOT a real crash. Skip escalation counter to prevent false MAINTENANCE_MODE.
+    let graceful = std::path::Path::new(GRACEFUL_RELAUNCH_SENTINEL).exists();
+    if graceful {
+        tracing::info!(target: LOG_TARGET,
+            "GRACEFUL_RELAUNCH sentinel found — self_monitor restart, not a crash. Skipping escalation.");
+        let _ = std::fs::remove_file(GRACEFUL_RELAUNCH_SENTINEL);
+    }
+
     // 1. Kill zombies
     let r = fix_kill_zombies();
     tracing::info!(target: LOG_TARGET, "fix_kill_zombies: {} ({})", r.success, r.detail);
@@ -366,25 +377,29 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
     tracing::info!(target: LOG_TARGET, "fix_shader_cache: {} ({})", r.success, r.detail);
     results.push(r);
 
-    // 6. Check escalation
-    let escalated = tracker.record_restart();
-    if escalated {
-        tracing::error!(target: LOG_TARGET,
-            "ESCALATION: {} restarts in {:?} — entering maintenance mode",
-            tracker.restart_count(), tracker.window
-        );
-        enter_maintenance_mode(&format!(
-            "{} restarts in 10 minutes. Last crash: {:?}",
-            tracker.restart_count(),
-            ctx.panic_message.as_deref().unwrap_or("unknown")
-        ));
-        return (results, false);
-    }
+    // 6. Check escalation (skip counter for graceful self-monitor restarts)
+    if !graceful {
+        let escalated = tracker.record_restart();
+        if escalated {
+            tracing::error!(target: LOG_TARGET,
+                "ESCALATION: {} restarts in {:?} — entering maintenance mode",
+                tracker.restart_count(), tracker.window
+            );
+            enter_maintenance_mode(&format!(
+                "{} restarts in 10 minutes. Last crash: {:?}",
+                tracker.restart_count(),
+                ctx.panic_message.as_deref().unwrap_or("unknown")
+            ));
+            return (results, false);
+        }
 
-    // 7. Wait for backoff delay
-    let delay = tracker.current_delay();
-    tracing::info!(target: LOG_TARGET, "backoff delay: {:?} (restart #{})", delay, tracker.restart_count());
-    std::thread::sleep(delay);
+        // 7. Wait for backoff delay
+        let delay = tracker.current_delay();
+        tracing::info!(target: LOG_TARGET, "backoff delay: {:?} (restart #{})", delay, tracker.restart_count());
+        std::thread::sleep(delay);
+    } else {
+        tracing::info!(target: LOG_TARGET, "Graceful relaunch — skipping escalation counter and backoff");
+    }
 
     // 8. Restart rc-agent
     let r = restart_service();
