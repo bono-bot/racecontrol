@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Phase 81 context gathered
-last_updated: "2026-03-21T00:54:49.676Z"
-last_activity: "2026-03-20 -- 77-02 complete: dual-port HTTPS 8443 + tower-helmet security headers + protocol-aware kiosk API_BASE (TLS-01, TLS-03, TLS-04, KIOSK-06)"
+stopped_at: Completed 69-01-PLAN.md
+last_updated: "2026-03-21T00:56:00.000Z"
+last_activity: "2026-03-21 -- 69-01 complete: HealthMonitor FSM (12-tick/60s hysteresis) + FailoverOrchestrator (activate_failover -> exec_result -> broadcast -> notify) wired into james/index.js (HLTH-01, HLTH-02, HLTH-03, ORCH-01, ORCH-04)"
 progress:
   total_phases: 53
   completed_phases: 26
@@ -162,6 +162,8 @@ Progress: [█████████░] 91% (64/70 plans complete)
 - 68-02: active_url Arc<RwLock<String>> read inside outer reconnect loop on each iteration — picks up new URL from SwitchController without restart; strict URL allowlist (primary+failover only); log_event made pub for cross-module SWITCH event recording; switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000 (FAIL-02, FAIL-03, FAIL-04 runtime wiring complete)
 - 77-01: rcgen 0.14 generate_simple_self_signed takes Vec<String> with auto IP detection (not SanType enum); CertifiedKey has signing_key (not key_pair); backward-compat ServerConfig with Option fields (TLS-02, TLS-04)
 - 77-02: HelmetLayer::blank() with selective headers (not with_defaults) -- avoids COEP/COOP/upgrade-insecure-requests that break kiosk proxy; HSTS max-age=300 for testing safety; racingpoint.cloud CORS exact match (security fix from .contains()); HTTPS listener via tokio::spawn with .into_make_service() (no ConnectInfo/rate-limiting on HTTPS port) (TLS-01, TLS-03, TLS-04, KIOSK-06)
+- 69-01: ONE cycleOk boolean per 5s tick in HealthMonitor -- consecutiveFailures increments by exactly 1 per cycle, not per probe attempt; guarantees DOWN_THRESHOLD=12 = 60s sustained outage (HLTH-01, HLTH-02, HLTH-03 complete)
+- 69-01: notify_failover via exec_request to Bono -- server .23 is down so James cannot use .23 email_alerts; FailoverOrchestrator delegates notification to Bono (ORCH-01, ORCH-04 complete)
 
 ### Blockers/Concerns
 
