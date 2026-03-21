@@ -6,6 +6,24 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
+## Current Milestone: v18.0 Seamless Execution
+
+**Goal:** Enable full bidirectional dynamic execution between James (on-site AI, Windows 11) and Bono (VPS AI, Linux) — when either AI needs something done on the other's machine, it delegates the task, the remote side executes, and results flow back seamlessly. Evolves the static 13-command exec registry into a dynamic, chainable execution protocol.
+
+**Target features:**
+- Dynamic command registration — either side can register new exec commands at runtime without redeploying
+- Bidirectional task chain — James sends a task to Bono, Bono executes and returns structured results (and vice versa)
+- Shell relay with approval gates — arbitrary shell commands between machines with APPROVE tier security
+- Execution chain orchestration — multi-step tasks where step N+1 depends on step N's output
+- Seamless Claude-to-Claude coordination — when a user asks James something that requires Bono, James auto-delegates and integrates the response
+- Audit trail for all cross-machine execution (who requested, what ran, exit codes, duration)
+
+**Constraints:**
+- Must extend existing comms-link WebSocket + exec-protocol infrastructure (no new transport)
+- Security model must retain approval tiers (AUTO/NOTIFY/APPROVE) — no unaudited shell access
+- Must work over both direct WebSocket and Tailscale paths
+- Backward compatible with existing 13 static commands
+
 ## Current Milestone: v11.2 RC Sentry AI Debugger
 
 **Goal:** Move crash diagnostics from rc-agent (where they die with the patient) to rc-sentry (external survivor). When rc-agent crashes, rc-sentry reads local crash logs, runs Tier 1 deterministic fixes, and restarts rc-agent with context — instead of blind restarts.
