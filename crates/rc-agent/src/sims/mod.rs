@@ -1,6 +1,7 @@
 pub mod assetto_corsa;
 pub mod f1_25;
 pub mod iracing;
+pub mod lmu;
 
 use anyhow::Result;
 use rc_common::types::{AcStatus, SimType, TelemetryFrame, SessionInfo, LapData};
