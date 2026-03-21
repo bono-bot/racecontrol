@@ -770,10 +770,13 @@ Plans:
   2. Any billing sessions that ran on Bono's VPS during the outage appear in the local .23 SQLite DB after failback sync completes
   3. After failback: all 8 pods are connected to .23's WebSocket within 30s of racecontrol broadcasting SwitchController with the original URL
   4. Uday receives an email and WhatsApp notification confirming the venue is back on local server and the outage duration
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 70-01: TBD
+- [ ] 70-01-PLAN.md — import_sessions Rust endpoint (INSERT OR IGNORE for cloud session sync)
+- [ ] 70-02-PLAN.md — HealthMonitor server_recovery + FailoverOrchestrator.initiateFailback() + COMMAND_REGISTRY + wiring
+
+
 
 
 ## v11.0 Agent & Sentry Hardening -- Phase Details
