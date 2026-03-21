@@ -33,6 +33,10 @@ toml = "0.8"
 jsonwebtoken = "9"
 rand = "0.8"
 argon2 = "0.5"
+aes-gcm = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 # rc-common
 rc-common = { path = "crates/rc-common" }
