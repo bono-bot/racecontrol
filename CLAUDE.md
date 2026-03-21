@@ -111,6 +111,12 @@
 7. **Auto-push rule:** always `git push` after every commit. No exceptions.
 8. **Bono deploy updates:** when pushing code, ALWAYS notify Bono (commit list + what to rebuild). Even cleanup/docs commits.
 9. **LOGBOOK:** after every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`
+10. **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others. Specifically:
+    - A graceful self-restart must be distinguishable from a real crash (use sentinel files or IPC).
+    - Escalation (e.g. MAINTENANCE_MODE) must know *why* restarts are happening, not just count them. Server-down restarts ≠ pod crashes.
+    - WoL auto-wake will revive pods that entered MAINTENANCE_MODE, creating infinite loops. Any "pod offline" recovery must check whether the pod was deliberately taken offline.
+    - Always test recovery paths against **server downtime**, not just pod failures.
+11. **Allowlist Auth** — the `/api/v1/config/kiosk-allowlist` endpoint requires auth. rc-agent currently calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
 
 ---
 
