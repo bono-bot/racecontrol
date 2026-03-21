@@ -959,12 +959,12 @@ Plans:
   3. If a game crashes or hangs, rc-agent detects it within 30 seconds, cleans up stale processes, and alerts staff with relaunch option
   4. Kiosk and fleet health dashboard show which game is running on which pod in real time
   5. Each game has a TOML launch profile defining exe path, launch args, and safe defaults
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 81-01: TBD
-- [ ] 81-02: TBD
-- [ ] 81-03: TBD
+- [ ] 81-01-PLAN.md -- Backend: non-AC crash recovery + DashboardEvent variant + PWA game request endpoint
+- [ ] 81-02-PLAN.md -- Frontend: GamePickerPanel direct launch + GameLaunchRequestBanner + game logos + pod card display
+- [ ] 81-03-PLAN.md -- TOML game profiles + end-to-end build verification + kiosk visual checkpoint
 
 ### Phase 82: Billing and Session Lifecycle
 **Goal**: Customers are charged only for actual gameplay time, with billing starting when the game is playable and stopping cleanly on exit or crash
