@@ -1531,7 +1531,11 @@ Plans:
   2. signtool verify /pa rc-sentry.exe returns Successfully verified -- both pod binaries are signed
   3. A staff member completes a full test session for each of F1 25, iRacing, and LMU on Pod 8 (launch game, play 5 minutes, exit game) with safe mode active and signed binaries; the session produces no anti-cheat warning dialogs, no game disconnections attributed to third-party software, and rc-agent logs show safe mode entry and exit with correct timing
   4. Billing lifecycle (session start, per-minute ticks, session end) produces correct credit amounts during a safe mode test session -- no billing gaps caused by safe mode subsystem suspension
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 111-01-PLAN.md — Build and deploy latest rc-agent to Pod 8 (canary)
+- [ ] 111-02-PLAN.md — Per-game canary validation (F1 25, iRacing, LMU) + billing continuity + HARD-02 deferred
 
 ## v15.0 Progress
 
