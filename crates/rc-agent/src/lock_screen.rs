@@ -564,6 +564,18 @@ impl LockScreenManager {
                 "--disable-component-update",
                 "--autoplay-policy=no-user-gesture-required",
                 "--suppress-message-center-popups",
+                "--disable-extensions",
+                "--disable-dev-tools",
+                "--disable-dev-tools-extension",
+                "--disable-translate",
+                "--disable-features=FileSystemAPI",
+                "--disable-file-system",
+                "--incognito",
+                "--disable-pinch",
+                "--disable-print-preview",
+                "--no-experiments",
+                "--disable-background-networking",
+                "--block-new-web-contents",
             ];
             if use_window_sizing {
                 args.push(&window_pos);

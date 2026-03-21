@@ -814,7 +814,7 @@ mod windows_impl {
         AtomicPtr::new(ptr::null_mut());
 
     /// Low-level keyboard hook callback.
-    /// Blocks: Win key, Alt+Tab, Alt+F4, Ctrl+Esc, Alt+Esc.
+    /// Blocks: Win key, Alt+Tab, Alt+F4, Ctrl+Esc, Alt+Esc, F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+L.
     unsafe extern "system" fn keyboard_hook_proc(
         code: i32,
         w_param: WPARAM,
@@ -847,6 +847,32 @@ mod windows_impl {
                 let ctrl_down =
                     unsafe { winuser::GetAsyncKeyState(winuser::VK_CONTROL) } < 0;
                 if ctrl_down {
+                    return 1;
+                }
+            }
+            // Block F12 (DevTools -- defense in depth with browser flag)
+            if vk == winuser::VK_F12 as u32 {
+                return 1;
+            }
+            // Block Ctrl+Shift+I (DevTools alternate)
+            if vk == 0x49 /* I */ {
+                let ctrl = unsafe { winuser::GetAsyncKeyState(winuser::VK_CONTROL) } < 0;
+                let shift = unsafe { winuser::GetAsyncKeyState(winuser::VK_SHIFT) } < 0;
+                if ctrl && shift {
+                    return 1;
+                }
+            }
+            // Block Ctrl+Shift+J (Console)
+            if vk == 0x4A /* J */ {
+                let ctrl = unsafe { winuser::GetAsyncKeyState(winuser::VK_CONTROL) } < 0;
+                let shift = unsafe { winuser::GetAsyncKeyState(winuser::VK_SHIFT) } < 0;
+                if ctrl && shift {
+                    return 1;
+                }
+            }
+            // Block Ctrl+L (URL bar -- defense in depth)
+            if vk == 0x4C /* L */ {
+                if unsafe { winuser::GetAsyncKeyState(winuser::VK_CONTROL) } < 0 {
                     return 1;
                 }
             }
