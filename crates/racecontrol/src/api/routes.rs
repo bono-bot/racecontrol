@@ -358,6 +358,8 @@ fn service_routes() -> Router<Arc<AppState>> {
         .route("/bot/register-lead", post(bot_register_lead))
         // Server logs (service-level, used by cloud terminal)
         .route("/logs", get(get_server_logs))
+        // Failover orchestration (Phase 69: broadcast SwitchController to all pods)
+        .route("/failover/broadcast", post(failover_broadcast))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -11806,6 +11808,65 @@ async fn get_server_logs(Query(q): Query<LogsQuery>) -> Json<Value> {
         "total": all_lines.len(),
         "filtered": filtered.len(),
     }))
+}
+
+// ─── Failover Orchestration (Phase 69) ───────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct FailoverBroadcastRequest {
+    target_url: String,
+}
+
+/// POST /api/v1/failover/broadcast
+/// Body: { "target_url": "ws://100.70.177.44:8080/ws/agent" }
+/// Auth: x-terminal-secret header (same as sync endpoints).
+/// Iterates agent_senders and sends SwitchController to all connected pods.
+async fn failover_broadcast(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<FailoverBroadcastRequest>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    // Auth: x-terminal-secret check (consistent with sync_push and other service routes)
+    if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
+        let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
+        if provided != Some(secret) {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "unauthorized"})),
+            )
+                .into_response();
+        }
+    }
+
+    let target_url = body.target_url;
+    let agent_senders = state.agent_senders.read().await;
+    let mut sent = 0usize;
+    let total = agent_senders.len();
+
+    for (pod_id, sender) in agent_senders.iter() {
+        if sender
+            .send(rc_common::protocol::CoreToAgentMessage::SwitchController {
+                target_url: target_url.clone(),
+            })
+            .await
+            .is_ok()
+        {
+            sent += 1;
+            tracing::info!("[failover] SwitchController sent to pod {}", pod_id);
+        } else {
+            tracing::warn!("[failover] Failed to send SwitchController to pod {}", pod_id);
+        }
+    }
+
+    tracing::info!(
+        "[failover] Broadcast SwitchController to {}/{} agents, target: {}",
+        sent,
+        total,
+        target_url
+    );
+    Json(serde_json::json!({ "ok": true, "sent": sent, "total": total })).into_response()
 }
 
 // ─── Debug System ────────────────────────────────────────────────────────
