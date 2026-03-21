@@ -389,9 +389,11 @@ async fn check_window_rect() -> CheckResult {
             fn GetWindowRect(hWnd: isize, lpRect: *mut [i32; 4]) -> i32;
         }
 
-        // Get primary screen dimensions
-        let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
-        let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+        // Get VIRTUAL screen dimensions (covers all monitors)
+        // SM_CXVIRTUALSCREEN=78, SM_CYVIRTUALSCREEN=79
+        // On triple 2560x1440 setup: 7680x1440 (not 2560x1440)
+        let screen_w = unsafe { GetSystemMetrics(78) }; // SM_CXVIRTUALSCREEN
+        let screen_h = unsafe { GetSystemMetrics(79) }; // SM_CYVIRTUALSCREEN
 
         // Find the Edge/Chromium window by class name
         let class_name = b"Chrome_WidgetWin_1\0";

@@ -11,6 +11,9 @@ use rc_common::types::CrashDiagResult;
 use super::watchdog::CrashContext;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const LOG_TARGET: &str = "tier1-fixes";
 const RC_AGENT_PORT: u16 = 8090;
 const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
