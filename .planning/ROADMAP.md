@@ -1077,8 +1077,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 88-01: TBD
-- [ ] 88-02: TBD
+- [ ] 88-01-PLAN.md — Track name normalization + sim_type-scoped personal_bests and track_records schema migration
+- [ ] 88-02-PLAN.md — Add sim_type filtering to all leaderboard endpoints (public, staff, bot)
 
 ---
 
