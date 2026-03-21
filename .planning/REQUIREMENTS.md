@@ -15,7 +15,7 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 - [ ] **PF-04**: Lock screen shows "Maintenance Required" state when pre-flight fails after auto-fix
 - [ ] **PF-05**: PreFlightFailed AgentMessage sent to racecontrol with failed check details
 - [ ] **PF-06**: Pod auto-retries pre-flight every 30s while in MaintenanceRequired state
-- [ ] **PF-07**: Pre-flight can be disabled per-pod via rc-agent.toml config flag
+- [x] **PF-07**: Pre-flight can be disabled per-pod via rc-agent.toml config flag
 
 ### Hardware Checks
 
@@ -69,7 +69,7 @@ Deferred to future release.
 | PF-01 | Phase 97 | Pending |
 | PF-02 | Phase 97 | Pending |
 | PF-03 | Phase 97 | Pending |
-| PF-07 | Phase 97 | Pending |
+| PF-07 | Phase 97 | Complete |
 | HW-01 | Phase 97 | Pending |
 | HW-02 | Phase 97 | Pending |
 | HW-03 | Phase 97 | Pending |

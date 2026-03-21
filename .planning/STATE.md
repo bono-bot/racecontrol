@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 82-01-PLAN.md
-last_updated: "2026-03-21T04:02:07.823Z"
+stopped_at: Completed 97-01-PLAN.md
+last_updated: "2026-03-21T04:06:13.920Z"
 last_activity: "2026-03-21 -- 80-02 complete: PIN rotation alerting (system_settings + 24h WhatsApp check) + HMAC-SHA256 cloud sync signing/verification in permissive mode (ADMIN-06, AUTH-07)"
 progress:
   total_phases: 61
   completed_phases: 29
   total_plans: 82
-  completed_plans: 79
+  completed_plans: 80
   percent: 95
 ---
 
@@ -273,10 +273,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 80 (audit-trail-defense-in-depth)
-Plan: 02 of 02 complete
+Phase: 97 (rc-common-protocol-pre-flight-rs-framework-hardware-checks)
+Plan: 01 of 02 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 80-02 complete: PIN rotation alerting (system_settings + 24h WhatsApp check) + HMAC-SHA256 cloud sync signing/verification in permissive mode (ADMIN-06, AUTH-07)
+Last activity: 2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -366,6 +366,9 @@ Last activity: 2026-03-21 -- 80-02 complete: PIN rotation alerting (system_setti
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
 - 80-02: SHA-256 of admin_pin_hash stored in system_settings for change detection without duplicating sensitive hash; 24h check in alerter loop sends WhatsApp if >30 days (ADMIN-06)
 - 80-02: HMAC verification in permissive mode initially -- warns but allows mismatches for deployment transition; GET signing uses reconstructed query string as body (AUTH-07)
+- 97-01: pod_id: String (not u32) for PreFlightPassed/PreFlightFailed -- CONTEXT.md had u32 but RESEARCH.md identified deserialization-breaking mismatch; all existing AgentMessage variants use String
+- 97-01: ClearMaintenance is a unit variant (no fields) -- CoreToAgentMessage is always routed to a specific pod via its WS connection, pod_id redundant
+- 97-01: PreflightConfig follows KioskConfig serde(default) pattern exactly -- reuses existing default_true() fn (PF-07)
 
 ### Blockers/Concerns
 
@@ -388,7 +391,7 @@ Last activity: 2026-03-21 -- 80-02 complete: PIN rotation alerting (system_setti
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:02:07.818Z
-Stopped at: Completed 82-01-PLAN.md
+Last session: 2026-03-21T04:06:13.914Z
+Stopped at: Completed 97-01-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
