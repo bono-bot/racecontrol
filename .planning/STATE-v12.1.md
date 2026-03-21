@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 104 of 105 (Server Guard Module Alerts) — COMPLETE
-Plan: 2 of 2 complete
-Status: Phase 104 complete — server guard scan loop, CRITICAL rc-agent.exe detection, pod_violations["server"], log rotation
-Last activity: 2026-03-21 — Phase 104 Plan 02 executed: spawn_server_guard() in process_guard.rs, wired into main.rs
+Phase: 104 of 105 (Server Guard Module Alerts) — IN PROGRESS
+Plan: 3 of 3 — checkpoint:human-verify (violation badge built, awaiting visual verification)
+Status: Task 1 complete — PodFleetStatus violation_count_24h/last_violation_at added, fleet grid badge renders in Racing Red
+Last activity: 2026-03-21 — Phase 104 Plan 03 Task 1 committed: kiosk fleet grid violation badge (9506d1d)
 
 Progress: [████████░░] 80%
 
@@ -78,6 +78,8 @@ Progress: [████████░░] 80%
 - [104-02]: sysinfo 0.33 actual API: System::new() + refresh_processes(ProcessesToUpdate::All, true) — NOT System::new_all() + refresh_processes()
 - [104-02]: spawn_server_guard() wired in main.rs (not lib.rs) — start_probe_loop is in main.rs; process_guard added to use racecontrol_crate::{ ... } block
 - [104-02]: Server guard self-excludes racecontrol.exe by name (own binary) + own PID inline; rc-agent.exe = SERVER_CRITICAL_BINARIES zero grace
+- [104-03]: Null-safety via ?? 0 on violation_count_24h — old agents not yet sending this field default to no badge rather than TypeScript error
+- [104-03]: inline style backgroundColor: '#E10600' for violation badge — brand color purity, consistent with Maintenance button pattern
 
 ### Pending Todos
 
@@ -91,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 17:02 IST
-Stopped at: 104-02-PLAN.md complete — server guard scan loop, CRITICAL rc-agent.exe detection, violations in pod_violations["server"]
+Last session: 2026-03-21 16:42 IST
+Stopped at: 104-03-PLAN.md checkpoint:human-verify — violation badge built, awaiting visual verification at /fleet
 Resume file: None
