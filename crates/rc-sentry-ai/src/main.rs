@@ -1,3 +1,4 @@
+mod alerts;
 mod attendance;
 mod config;
 mod detection;

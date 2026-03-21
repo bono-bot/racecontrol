@@ -16,6 +16,8 @@ pub struct Config {
     pub enrollment: EnrollmentConfig,
     #[serde(default)]
     pub attendance: AttendanceConfig,
+    #[serde(default)]
+    pub alerts: AlertsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,6 +266,45 @@ impl Default for AttendanceConfig {
             dedup_window_secs: default_dedup_window_secs(),
             present_timeout_secs: default_present_timeout_secs(),
             min_shift_hours: default_min_shift_hours(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AlertsConfig {
+    #[serde(default = "default_alerts_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_unknown_rate_limit_secs")]
+    pub unknown_rate_limit_secs: u64,
+    #[serde(default = "default_face_crop_dir")]
+    pub face_crop_dir: String,
+    #[serde(default = "default_face_crop_quality")]
+    pub face_crop_quality: u8,
+}
+
+fn default_alerts_enabled() -> bool {
+    true
+}
+
+fn default_unknown_rate_limit_secs() -> u64 {
+    300
+}
+
+fn default_face_crop_dir() -> String {
+    r"C:\RacingPoint\face-crops\".to_string()
+}
+
+fn default_face_crop_quality() -> u8 {
+    85
+}
+
+impl Default for AlertsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_alerts_enabled(),
+            unknown_rate_limit_secs: default_unknown_rate_limit_secs(),
+            face_crop_dir: default_face_crop_dir(),
+            face_crop_quality: default_face_crop_quality(),
         }
     }
 }
