@@ -704,3 +704,36 @@ Plan: 1 of 2
 Last session: 2026-03-21T11:35:09.533Z
 Stopped at: Completed 105-02-PLAN.md
 Resume file: None
+
+---
+gsd_state_version: 1.0
+milestone: v16.0
+milestone_name: Security Camera AI & Attendance
+status: roadmap_created
+stopped_at: Roadmap written -- awaiting plan-phase 112
+last_updated: "2026-03-21T22:00:00.000Z"
+progress:
+  total_phases: 8
+  completed_phases: 0
+  total_plans: 27
+  completed_plans: 0
+  percent: 0
+current_phase: 112
+current_phase_name: RTSP Infrastructure & Camera Pipeline
+phases:
+  - "112: RTSP Infrastructure & Camera Pipeline (CAM-01, CAM-02, CAM-03, CAM-04)"
+  - "113: Face Detection & Privacy Foundation (FACE-01, PRIV-01)"
+  - "114: Face Recognition & Quality Gates (FACE-02, FACE-03, FACE-04)"
+  - "115: Face Enrollment System (ENRL-01, ENRL-02)"
+  - "116: Attendance Engine (ATTN-01, ATTN-02)"
+  - "117: Alerts & Notifications (ALRT-01, ALRT-02, ALRT-03)"
+  - "118: Live Camera Feeds (MNTR-01)"
+  - "119: NVR Playback Proxy (MNTR-02)"
+decisions:
+  - "Phases 112-119 start numbering -- continues from Phase 111 (v15.0 last phase)"
+  - "Local face recognition on RTX 4070 (SCRFD + ArcFace via ort) -- NO cloud API"
+  - "NVR at .18 handles all recording -- no separate recording pipeline"
+  - "Separate service (rc-sentry-ai) feeding into racecontrol dashboard"
+  - "Face-only staff auth (no PIN) -- cameras already at entry points"
+  - "DPDP consent framework in Phase 113 -- before any face data collection"
+---

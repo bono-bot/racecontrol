@@ -84,24 +84,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAM-01 | Phase 1 | Pending |
-| CAM-02 | Phase 1 | Pending |
-| CAM-03 | Phase 1 | Pending |
-| CAM-04 | Phase 1 | Pending |
-| FACE-01 | Phase 2 | Pending |
-| FACE-02 | Phase 3 | Pending |
-| FACE-03 | Phase 3 | Pending |
-| FACE-04 | Phase 3 | Pending |
-| ENRL-01 | Phase 4 | Pending |
-| ENRL-02 | Phase 4 | Pending |
-| ATTN-01 | Phase 5 | Pending |
-| ATTN-02 | Phase 5 | Pending |
-| ALRT-01 | Phase 6 | Pending |
-| ALRT-02 | Phase 6 | Pending |
-| ALRT-03 | Phase 6 | Pending |
-| MNTR-01 | Phase 7 | Pending |
-| MNTR-02 | Phase 8 | Pending |
-| PRIV-01 | Phase 2 | Pending |
+| CAM-01 | Phase 112 | Pending |
+| CAM-02 | Phase 112 | Pending |
+| CAM-03 | Phase 112 | Pending |
+| CAM-04 | Phase 112 | Pending |
+| FACE-01 | Phase 113 | Pending |
+| FACE-02 | Phase 114 | Pending |
+| FACE-03 | Phase 114 | Pending |
+| FACE-04 | Phase 114 | Pending |
+| ENRL-01 | Phase 115 | Pending |
+| ENRL-02 | Phase 115 | Pending |
+| ATTN-01 | Phase 116 | Pending |
+| ATTN-02 | Phase 116 | Pending |
+| ALRT-01 | Phase 117 | Pending |
+| ALRT-02 | Phase 117 | Pending |
+| ALRT-03 | Phase 117 | Pending |
+| MNTR-01 | Phase 118 | Pending |
+| MNTR-02 | Phase 119 | Pending |
+| PRIV-01 | Phase 113 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
