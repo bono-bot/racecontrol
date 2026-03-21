@@ -505,3 +505,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 03:43 IST | James | 2ee10f2 | feat(130-02): ExecHandler dynamic-first lookup, completedExecs LRU cap, integration tests |
 | 2026-03-22 03:43 IST | James | 43f9faf | feat(130-02): James HTTP registry endpoints, Bono WS handler, both-side JSON persistence |
 | 2026-03-22 03:43 IST | James | b9dd5df | docs(130-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updates |
+| 2026-03-22 04:10 IST | James | 4102750 | docs(02-02): complete PWA cloud deployment plan (PWA live, API pending racecontrol on VPS) |
