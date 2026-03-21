@@ -1,0 +1,94 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      pwa:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+
+  pwa:
+    build:
+      context: ./racecontrol/pwa
+      args:
+        NEXT_PUBLIC_API_URL: https://api.racingpoint.cloud
+    restart: unless-stopped
+    expose:
+      - "3100"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      # Alpine-based image (node:22-alpine) lacks curl — using wget instead
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  admin:
+    build:
+      context: ./racingpoint-admin
+      args:
+        NEXT_PUBLIC_API_URL: https://api.racingpoint.cloud
+    restart: unless-stopped
+    expose:
+      - "3300"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      # bookworm-slim base image has curl available
+      test: ["CMD", "curl", "-f", "http://localhost:3300/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  dashboard:
+    build:
+      context: ./racecontrol/web
+      args:
+        NEXT_PUBLIC_API_URL: https://api.racingpoint.cloud
+    restart: unless-stopped
+    expose:
+      - "3200"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      # Alpine-based image (node:22-alpine) lacks curl — using wget instead
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  caddy_data:
+  caddy_config:

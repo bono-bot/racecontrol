@@ -1,0 +1,36 @@
+{
+    # Use staging during initial testing to avoid Let's Encrypt rate limits (50/domain/week).
+    # Remove this line after confirming certs work.
+    acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+(security_headers) {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "interest-cohort=()"
+        -Server
+    }
+}
+
+app.racingpoint.cloud {
+    import security_headers
+    reverse_proxy pwa:3100
+}
+
+admin.racingpoint.cloud {
+    import security_headers
+    reverse_proxy admin:3300
+}
+
+dashboard.racingpoint.cloud {
+    import security_headers
+    reverse_proxy dashboard:3200
+}
+
+api.racingpoint.cloud {
+    import security_headers
+    reverse_proxy host.docker.internal:8080
+}
