@@ -414,3 +414,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 12:39 IST | James | 79ff2b4 | feat(86-01): wire EVO adapter into main.rs — sim string match + adapter creation + freedom_mode fix |
 | 2026-03-21 12:40 IST | James | e26075c | docs(86-01): 86-01-SUMMARY.md + STATE.md + ROADMAP.md — phase 86 complete |
 | 2026-03-21 11:57 IST | James | 58c3a36 | docs(100-02): 100-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 100 complete |
+| 2026-03-21 13:00 IST | James | c728074 | feat(101-01): add MachineWhitelist, ViolationType, ProcessViolation to rc-common/types |
+| 2026-03-21 13:05 IST | James | be02757 | feat(101-01): add ProcessViolation, ProcessGuardStatus, UpdateProcessWhitelist protocol variants |
+| 2026-03-21 13:10 IST | James | 20d9c98 | fix(101-01): add wildcard arm to racecontrol ws match for new process guard variants |
+| 2026-03-21 13:12 IST | James | 68fa9c7 | docs(101-01): 101-01-SUMMARY.md + STATE-v12.1.md + ROADMAP-v12.1.md + REQUIREMENTS-v12.1.md — phase 101 plan 01 complete |
