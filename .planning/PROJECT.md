@@ -2,20 +2,9 @@
 
 ## Current State
 
-**Shipped:** v1.0 through v5.5 (HUD, Kiosk, Leaderboards, Self-Healing, Bot Expansion, Credits), v7.0 E2E Test Suite, v8.0 Bot Autonomy (2026-03-13 to 2026-03-19)
+**Shipped:** v1.0 through v5.5 (HUD, Kiosk, Leaderboards, Self-Healing, Bot Expansion, Credits), v7.0 E2E Test Suite, v8.0 Bot Autonomy, v11.0 Agent & Sentry Hardening (2026-03-13 to 2026-03-21)
 
-The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls, E2E test coverage, and 8/10 bot autonomy. 51+ phases shipped across 9 milestones.
-
-## Current Milestone: v11.0 Agent & Sentry Hardening
-
-**Goal:** Harden rc-sentry into a reliable fallback operations tool, decompose rc-agent's 3,400-line main.rs into focused modules, extract shared exec/HTTP patterns into rc-common, and add unit/integration tests for critical safety paths.
-
-**Target features:**
-- rc-sentry hardening: enforce timeout_ms, output truncation, concurrency limits, structured logging
-- rc-agent main.rs decomposition: extract state machine, WS handler, config, and event loop into separate modules
-- rc-sentry feature expansion: /health, /version, /files, /processes endpoints as fallback when rc-agent is down
-- Shared extraction: common exec/HTTP patterns between rc-agent remote_ops and rc-sentry into rc-common
-- Testing: unit/integration tests for billing guard, failure monitor, FFB safety, sentry endpoints
+The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
 ## Active Milestone: v10.0 Connectivity & Redundancy
 
@@ -143,15 +132,14 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Session lifecycle autonomy (orphan auto-end, crash recovery, fast reconnect)
 - ✓ LLM self-test with 22 probes + deterministic verdict + auto-fix patterns 8-14
 
-### Active (v11.0)
+### Completed (v11.0 — shipped 2026-03-21)
 
-- [ ] rc-sentry enforces command timeout and output truncation
-- [ ] rc-sentry has concurrency limits and structured logging
-- [ ] rc-sentry exposes /health, /version, /files, /processes endpoints
-- [ ] rc-agent main.rs decomposed into focused modules (<500 lines each)
-- [ ] Common exec/HTTP patterns extracted to rc-common
-- [ ] Unit/integration tests for billing guard, failure monitor, FFB safety
-- [ ] rc-sentry endpoint tests
+- ✓ rc-common exec.rs — shared sync/async exec primitive with feature-gated tokio boundary
+- ✓ rc-sentry hardened — timeout enforcement, 64KB truncation, 4-slot concurrency cap, TCP read fix, tracing
+- ✓ rc-sentry expanded to 6 endpoints — /health, /version, /files, /processes + 7 integration tests + graceful shutdown
+- ✓ FfbBackend trait seam — mockall-based FFB tests without real HID hardware
+- ✓ billing_guard + failure_monitor tests — 12 async/sync tests covering BILL-02/03 and CRASH-01/02
+- ✓ rc-agent decomposed — main.rs split into config.rs, app_state.rs, ws_handler.rs, event_loop.rs
 
 ### Active (v10.0)
 
@@ -232,7 +220,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 
 - **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
 - **Stack:** Rust/Axum (racecontrol port 8080, rc-agent per-pod), Salt (fleet management), Next.js (kiosk + PWA)
-- **Crates:** rc-common (shared types/protocol), racecontrol (server), rc-agent (pod client)
+- **Crates:** rc-common (shared types/protocol/exec), racecontrol (server), rc-agent (pod client — decomposed: config.rs, app_state.rs, ws_handler.rs, event_loop.rs), rc-sentry (hardened fallback ops tool)
 - **Cloud:** app.racingpoint.cloud (72.60.101.58, Bono's VPS) — existing cloud_sync pushes laps, track records, driver stats
 - **Existing data foundations:** laps table (sector1/2/3_ms, valid flag), personal_bests, track_records, telemetry_samples, group_sessions, friendships, drivers (total_laps, total_time_ms)
 - **Existing API endpoints:** /leaderboard/{track}, /public/leaderboard, /public/laps/{id}/telemetry, /sessions, /laps
@@ -279,4 +267,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-20 after milestone v11.0 Agent & Sentry Hardening started*
+*Last updated: 2026-03-21 after v11.0 Agent & Sentry Hardening milestone shipped*

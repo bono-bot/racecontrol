@@ -4,8 +4,8 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 81-03-PLAN.md
-last_updated: "2026-03-21T02:26:38.668Z"
-last_activity: "2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)"
+last_updated: "2026-03-21T02:30:19.551Z"
+last_activity: "2026-03-21 -- 81-03 complete: TOML template + example config updated with all 6 game stanzas (Steam app IDs for F1 25, iRacing, AC EVO, EA WRC, LMU); full build pipeline green; kiosk UI human-approved (LAUNCH-01, LAUNCH-03, LAUNCH-06)"
 progress:
   total_phases: 61
   completed_phases: 31
