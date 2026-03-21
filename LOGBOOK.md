@@ -341,3 +341,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 06:30 IST | James | 067fcbe | docs(74-01): 74-01-SUMMARY.md, STATE.md phase 74 progress, REQUIREMENTS DECOMP-01 complete |
 | 2026-03-21 06:31 IST | James | 7d1fe0a | feat(69-03): secondary watchdog in bono/index.js for venue power outage failover (HLTH-04) |
 | 2026-03-21 06:31 IST | James | 3e9cc7b | docs(69-03): complete secondary watchdog plan summary and state updates |
+| 2026-03-21 06:28 IST | James | e6d2ff4 | feat(78-02): network source classification middleware with IP tagging (KIOSK-07) |
+| 2026-03-21 06:37 IST | James | 62b603a | feat(78-02): wire source middleware and protect staff routes from pod access (KIOSK-05) |
+| 2026-03-21 06:37 IST | James | 69b9508 | docs(78-02): complete network source tagging plan summary and state updates |
