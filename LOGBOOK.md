@@ -431,3 +431,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 14:18 IST | James | 368ac82 | docs(103-01): complete ProcessGuardConfig foundations plan |
 | 2026-03-21 14:43 IST | James | 482079b | feat(103-02): implement process_guard.rs — spawn_blocking sysinfo scan, two-cycle grace, PID-verified taskkill, CRITICAL racecontrol.exe, 512KB log rotation, 9 tests |
 | 2026-03-21 14:43 IST | James | b6e2344 | docs(103-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — PROC-01-05, ALERT-01, ALERT-04 complete |
+| 2026-03-21 14:57 IST | James | b5035a1 | feat(103-03): add run_autostart_audit() + autostart tests to process_guard.rs (TDD, 17 tests green) |
+| 2026-03-21 14:57 IST | James | 3416f9e | feat(103-03): wire process guard into rc-agent — whitelist fetch, spawn, WS drain, UpdateProcessWhitelist handler |
+| 2026-03-21 14:57 IST | James | a79f042 | docs(103-03): Phase 103 complete — AUTO-01/02/04, DEPLOY-01 requirements satisfied |
