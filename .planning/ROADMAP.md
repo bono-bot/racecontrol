@@ -1082,6 +1082,21 @@ Plans:
 - [ ] 88-01: TBD
 - [ ] 88-02: TBD
 
+### Phase 106: Structured Log Labels
+
+**Goal:** Every rc-agent tracing call carries a structured target: label and build_id propagates via root span — enabling per-module RUST_LOG filtering and binary-traceable log lines
+**Requirements**: LOG-01 (build_id root span), LOG-02 (module target labels), LOG-03 (strip bracket prefixes), LOG-04 (full test suite green)
+**Depends on:** Phase 105
+**Plans:** 6 plans (5 migration waves + 1 audit)
+
+Plans:
+- [ ] 106-01-PLAN.md — build_id root span + main.rs migration (66 calls)
+- [ ] 106-02-PLAN.md — ws_handler, event_loop, ac_launcher migration (164 calls)
+- [ ] 106-03-PLAN.md — ffb_controller, ai_debugger, kiosk, lock_screen migration (114 calls)
+- [ ] 106-04-PLAN.md — remote_ops, self_monitor, self_heal, game_process, overlay, billing_guard, pre_flight migration (79 calls)
+- [ ] 106-05-PLAN.md — small files + sim modules migration (68 calls)
+- [ ] 106-06-PLAN.md — final audit + full test suite verification
+
 ---
 
 ## v14.0 HR & Marketing Psychology -- Phase Details
