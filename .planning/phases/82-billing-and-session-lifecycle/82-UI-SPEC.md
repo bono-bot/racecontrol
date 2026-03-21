@@ -35,7 +35,7 @@ Standard 8-point scale. All values already in use across KioskPodCard.tsx and pr
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Icon gaps, inline chip padding (px-1) |
+| xs | 4px | Icon gaps, inline chip padding (px-1), Loading timer badge vertical padding (py-1) |
 | sm | 8px | Row padding, compact element spacing |
 | md | 16px | Card internal padding, form field spacing |
 | lg | 24px | Section padding (mb-6), card-to-card gaps |
@@ -43,10 +43,10 @@ Standard 8-point scale. All values already in use across KioskPodCard.tsx and pr
 | 2xl | 48px | Major section breaks |
 | 3xl | 64px | Page-level spacing |
 
-Exceptions:
-- KioskPodCard state badge: 10px font, px-2 py-0.5 (2px) — pre-existing frozen production exception — not changed in this phase. Chip dimensions match existing StateLabel pattern exactly.
-- Loading timer badge on pod card: same chip dimensions as StateLabel (px-2 py-0.5, text-[10px]) — same frozen production exception as above.
+Exception:
 - Touch/click targets on admin table action buttons: minimum 32px height — use py-2 (8px, on-grid). Meets 32px minimum touch target.
+
+> **Pre-existing components — not modified in this phase:** KioskPodCard StateLabel chip uses `px-2 py-0.5 text-[10px]` (2px vertical padding) — this is frozen production code. It is not declared in this phase's spacing contract because Phase 82 does not change it.
 
 ---
 
@@ -109,7 +109,7 @@ Existing components this phase extends (do NOT redesign — extend only):
 - `StateLabel`: Add `"loading"` key to both `styles` and `labels` maps
   - `styles.loading`: `"text-amber-400 bg-amber-400/10"`
   - `labels.loading`: `"Loading..."` (generic fallback) or `"Loading {game}..."` if sim_type available on gameInfo
-- Loading timer: count-up display below the badge showing elapsed seconds since `game_state` became `"loading"`. Format: `M:SS` (same `formatTime()` function). Color: `text-amber-400`. Font: `font-mono`.
+- Loading timer: count-up display below the badge showing elapsed seconds since `game_state` became `"loading"`. Format: `M:SS` (same `formatTime()` function). Color: `text-amber-400`. Font: `font-mono`. Padding: `px-2 py-1` (4px vertical — on-grid).
 - `KioskPodState` TypeScript union: add `"loading"` literal
 
 **Loading timer behavior:**
@@ -237,7 +237,7 @@ No third-party component registries in this project. All new UI uses existing pr
 | Font: Montserrat body, Space Grotesk display, JetBrains Mono mono | globals.css @theme inline |
 | amber-400 for loading/pending state | CONTEXT.md: "Loading F1 25... staff can see billing hasn't started"; amber chosen as "billing-not-yet-active" semantic, consistent with existing amber-400 "waiting" state in KioskPodCard |
 | Inline row editing pattern for rates | pricing/page.tsx: editId/editName/handleSaveEdit() pattern — observed directly |
-| StateLabel chip style (text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded) | KioskPodCard.tsx line 793 — matched exactly; py-0.5 is a frozen production exception |
+| StateLabel chip style (text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded) | KioskPodCard.tsx line 793 — pre-existing frozen production code, not modified in this phase, not declared in spacing contract |
 | No destructive confirmation for rate delete | pricing/page.tsx handleDelete() calls api.deletePricingTier() directly |
 | Count-up timer (not countdown) | CONTEXT.md: "Loading F1 25... with timer counting up" — explicit user decision |
 | Spacing scale | Tailwind v4 defaults + observed class usage (mb-6, px-4 py-3, gap-3) |
@@ -245,8 +245,9 @@ No third-party component registries in this project. All new UI uses existing pr
 | "All games" as null display | RESEARCH.md: NULL = universal rate, applies when no game-specific rate exists |
 | Two weights only (400, 700) | Checker fix 2026-03-21: removed weight 500 — max 2 weights per spec |
 | "Save Rate" / "Discard" labels | Checker fix 2026-03-21: replaced generic "Save"/"Cancel" with specific verb+noun labels |
-| py-0.5 frozen exception; py-2 for action buttons | Checker fix 2026-03-21: py-0.5 is pre-existing production chip; action buttons use py-2 (on-grid) |
+| py-2 for action buttons | Checker fix 2026-03-21: action buttons use py-2 (on-grid) |
 | Focal point declared for rates screen | Checker fix 2026-03-21: tier name + rate are primary; game column is secondary |
+| Loading timer badge uses py-1 (4px) | Checker fix 2026-03-21: new element uses on-grid spacing; py-0.5 StateLabel exception removed from contract (pre-existing code, not modified in phase 82) |
 
 ---
 
