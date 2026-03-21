@@ -405,16 +405,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 11:55 IST | James | 0156d19 | docs(100-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
 | 2026-03-21 12:30 IST | James | 1161d80 | feat(85-01): LmuAdapter — rF2 shared memory reader for Le Mans Ultimate (Scoring + Telemetry buffers, torn-read guard, sector splits, first-packet safety, session transition, 6 unit tests) |
 | 2026-03-21 12:32 IST | James | 487c6a7 | docs(85-01): 85-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
-| 2026-03-21 14:15 IST | James | e32391f | feat(85-02): wire LmuAdapter into main.rs — import + SimType::LeMansUltimate arm |
-| 2026-03-21 14:16 IST | James | 3fa9de5 | feat(85-02): add LMU PlayableSignal arm in event_loop.rs — replaces 90s fallback with IsOnTrack |
-| 2026-03-21 14:18 IST | James | 5c724a3 | docs(85-02): 85-02-SUMMARY.md + STATE.md + ROADMAP.md — phase 85 complete |
 | 2026-03-21 11:41 IST | James | 4b9e6a8 | feat(100-02): add in_maintenance+maintenance_failures to PodFleetStatus TypeScript type; api.clearMaintenance method (STAFF-01, STAFF-02) |
 | 2026-03-21 11:55 IST | James | af45623 | feat(100-02): fleet page Racing Red Maintenance badge + PIN-gated modal + Clear Maintenance button (STAFF-01, STAFF-02) |
-| 2026-03-21 12:37 IST | James | b9cb7ba | feat(86-01): AssettoCorsaEvoAdapter with zero-guard SHM reads — warn-once flags, physics-based read_is_on_track(), 7 unit tests (TEL-EVO-01, TEL-EVO-02, TEL-EVO-03) |
-| 2026-03-21 12:39 IST | James | 79ff2b4 | feat(86-01): wire EVO adapter into main.rs — sim string match + adapter creation + freedom_mode fix |
-| 2026-03-21 12:40 IST | James | e26075c | docs(86-01): 86-01-SUMMARY.md + STATE.md + ROADMAP.md — phase 86 complete |
 | 2026-03-21 11:57 IST | James | 58c3a36 | docs(100-02): 100-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 100 complete |
-| 2026-03-21 13:00 IST | James | c728074 | feat(101-01): add MachineWhitelist, ViolationType, ProcessViolation to rc-common/types |
-| 2026-03-21 13:05 IST | James | be02757 | feat(101-01): add ProcessViolation, ProcessGuardStatus, UpdateProcessWhitelist protocol variants |
-| 2026-03-21 13:10 IST | James | 20d9c98 | fix(101-01): add wildcard arm to racecontrol ws match for new process guard variants |
-| 2026-03-21 13:12 IST | James | 68fa9c7 | docs(101-01): 101-01-SUMMARY.md + STATE-v12.1.md + ROADMAP-v12.1.md + REQUIREMENTS-v12.1.md — phase 101 plan 01 complete |
+| 2026-03-21 12:51 IST | Bono | e643174 | feat(91-01): PbAchieved broadcast + compute_percentile + enhanced session detail + active-session polling endpoint |
+| 2026-03-21 12:52 IST | Bono | de363ba | feat(91-01): install canvas-confetti + sonner + update TypeScript types for session experience (Phase 91) |
+| 2026-03-21 12:52 IST | Bono | 1c5410f | docs(91-01): 91-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
