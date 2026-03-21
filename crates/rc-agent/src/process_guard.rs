@@ -21,6 +21,8 @@ use rc_common::types::{MachineWhitelist, ProcessViolation, ViolationType};
 
 use crate::config::ProcessGuardConfig;
 
+const LOG_TARGET: &str = "process-guard";
+
 const GUARD_LOG: &str = r"C:\RacingPoint\process-guard.log";
 const MAX_LOG_BYTES: u64 = 512 * 1024; // 512 KB
 
@@ -38,13 +40,14 @@ pub fn spawn(
     machine_id: String,
 ) {
     if !config.enabled {
-        tracing::info!("Process guard DISABLED (process_guard.enabled=false)");
+        tracing::info!(target: LOG_TARGET, "Process guard DISABLED (process_guard.enabled=false)");
         return;
     }
     tokio::spawn(async move {
         // 60s amnesty window on startup — allow transient Windows Update / MpCmdRun to settle
         tokio::time::sleep(Duration::from_secs(60)).await;
         tracing::info!(
+            target: LOG_TARGET,
             "Process guard started (interval={}s, machine={})",
             config.scan_interval_secs,
             machine_id
@@ -65,7 +68,7 @@ pub fn spawn(
                     if let Err(e) =
                         run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await
                     {
-                        tracing::error!("Process guard scan error: {}", e);
+                        tracing::error!(target: LOG_TARGET, "Process guard scan error: {}", e);
                     }
                 }
                 _ = audit_interval.tick() => {
@@ -225,6 +228,7 @@ async fn kill_process_verified(pid: u32, expected_name: String, expected_start_t
             }
             Some(_) => {
                 tracing::warn!(
+                    target: LOG_TARGET,
                     "PID {} reused before kill (was {}) — skipping",
                     pid,
                     expected_name
@@ -233,6 +237,7 @@ async fn kill_process_verified(pid: u32, expected_name: String, expected_start_t
             }
             None => {
                 tracing::debug!(
+                    target: LOG_TARGET,
                     "PID {} ({}) already exited before kill",
                     pid,
                     expected_name

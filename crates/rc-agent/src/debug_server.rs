@@ -12,6 +12,8 @@ use tokio::net::TcpListener;
 
 use crate::lock_screen::LockScreenState;
 
+const LOG_TARGET: &str = "debug-server";
+
 /// Shared state for game launch errors (visible in debug console).
 /// Set by the LaunchGame handler when CM reports errors.
 pub type LastLaunchError = Arc<Mutex<Option<String>>>;
@@ -26,11 +28,11 @@ pub fn spawn(
     tokio::spawn(async move {
         let listener = match TcpListener::bind("0.0.0.0:18924").await {
             Ok(l) => {
-                tracing::info!("Debug server listening on http://0.0.0.0:18924");
+                tracing::info!(target: LOG_TARGET, "Debug server listening on http://0.0.0.0:18924");
                 l
             }
             Err(e) => {
-                tracing::warn!("Debug server failed to bind port 18924: {}", e);
+                tracing::warn!(target: LOG_TARGET, "Debug server failed to bind port 18924: {}", e);
                 return;
             }
         };
@@ -54,7 +56,7 @@ pub fn spawn(
 
                 let request = String::from_utf8_lossy(&buf[..n]);
                 let first_line = request.lines().next().unwrap_or("");
-                tracing::debug!("Debug server request from {}: {}", addr, first_line);
+                tracing::debug!(target: LOG_TARGET, "Debug server request from {}: {}", addr, first_line);
 
                 if first_line.contains("/screenshot") {
                     serve_screenshot(&mut stream).await;

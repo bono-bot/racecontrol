@@ -63,6 +63,8 @@ pub enum VerdictLevel {
     Critical,
 }
 
+const LOG_TARGET: &str = "self-test";
+
 // ─── Shared HTTP client for Ollama probes ────────────────────────────────────
 
 static SELF_TEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -728,7 +730,7 @@ pub async fn get_llm_verdict(
     match query_ollama_for_verdict(ollama_url, ollama_model, &prompt).await {
         Ok(response) => parse_verdict_response(&response),
         Err(e) => {
-            tracing::warn!("[self_test] Ollama verdict failed ({}), using deterministic fallback", e);
+            tracing::warn!(target: LOG_TARGET, "Ollama verdict failed ({}), using deterministic fallback", e);
             deterministic_verdict(probes)
         }
     }

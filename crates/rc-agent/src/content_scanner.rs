@@ -7,6 +7,8 @@ use std::path::Path;
 
 use rc_common::types::{CarManifestEntry, ContentManifest, TrackConfigManifest, TrackManifestEntry};
 
+const LOG_TARGET: &str = "content-scanner";
+
 /// Default AC content path on pods.
 const AC_CONTENT_PATH: &str =
     r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content";
@@ -21,6 +23,7 @@ pub fn scan_ac_content_at(content_path: &Path) -> ContentManifest {
     let cars = scan_cars(&content_path.join("cars"));
     let tracks = scan_tracks(&content_path.join("tracks"));
     tracing::info!(
+        target: LOG_TARGET,
         "Content scan complete: {} cars, {} tracks",
         cars.len(),
         tracks.len()
@@ -31,7 +34,7 @@ pub fn scan_ac_content_at(content_path: &Path) -> ContentManifest {
 /// Enumerate car folders under `content/cars/`.
 fn scan_cars(cars_dir: &Path) -> Vec<CarManifestEntry> {
     let Ok(entries) = std::fs::read_dir(cars_dir) else {
-        tracing::warn!("Cannot read cars directory: {:?}", cars_dir);
+        tracing::warn!(target: LOG_TARGET, "Cannot read cars directory: {:?}", cars_dir);
         return Vec::new();
     };
     entries
@@ -54,7 +57,7 @@ fn scan_cars(cars_dir: &Path) -> Vec<CarManifestEntry> {
 /// Enumerate track folders and detect configs for each.
 fn scan_tracks(tracks_dir: &Path) -> Vec<TrackManifestEntry> {
     let Ok(entries) = std::fs::read_dir(tracks_dir) else {
-        tracing::warn!("Cannot read tracks directory: {:?}", tracks_dir);
+        tracing::warn!(target: LOG_TARGET, "Cannot read tracks directory: {:?}", tracks_dir);
         return Vec::new();
     };
     entries

@@ -24,6 +24,8 @@ use crate::udp_heartbeat::HeartbeatStatus;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{DrivingState, PodFailureReason, SimType};
 
+const LOG_TARGET: &str = "failure-monitor";
+
 const POLL_INTERVAL_SECS: u64 = 5;
 const STARTUP_GRACE_SECS: u64 = 30;
 const FREEZE_UDP_SILENCE_SECS: u64 = 30;
@@ -94,7 +96,7 @@ pub fn spawn(
     tokio::spawn(async move {
         // Grace period: let game processes, HID devices, and UDP listeners fully start
         tokio::time::sleep(Duration::from_secs(STARTUP_GRACE_SECS)).await;
-        tracing::info!("[failure-monitor] Starting polling loop (interval: {}s)", POLL_INTERVAL_SECS);
+        tracing::info!(target: LOG_TARGET, "Starting polling loop (interval: {}s)", POLL_INTERVAL_SECS);
 
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         let mut prev_hid_connected = false;
@@ -114,14 +116,14 @@ pub fn spawn(
 
             // Skip all autonomous fixes when server-commanded recovery in progress
             if state.recovery_in_progress {
-                tracing::debug!("[failure-monitor] recovery_in_progress — skipping autonomous checks");
+                tracing::debug!(target: LOG_TARGET, "recovery_in_progress — skipping autonomous checks");
                 prev_hid_connected = state.hid_connected;
                 continue;
             }
 
             // USB-01: Detect disconnect (billing active) — send HardwareFailure message
             if prev_hid_connected && !state.hid_connected && state.billing_active {
-                tracing::warn!("[failure-monitor] Wheelbase USB disconnect detected during billing");
+                tracing::warn!(target: LOG_TARGET, "Wheelbase USB disconnect detected during billing");
                 let msg = AgentMessage::HardwareFailure {
                     pod_id: pod_id.clone(),
                     reason: PodFailureReason::WheelbaseDisconnected,
@@ -132,7 +134,7 @@ pub fn spawn(
 
             // USB-01: Detect reconnect (billing active) — fire FFB reset fix
             if !prev_hid_connected && state.hid_connected && state.billing_active {
-                tracing::info!("[failure-monitor] Wheelbase USB reconnect detected — firing FFB reset");
+                tracing::info!(target: LOG_TARGET, "Wheelbase USB reconnect detected — firing FFB reset");
                 let synthetic = "Wheelbase usb reset required — HID reconnected VID:0x1209 PID:0xFFB0";
                 let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
                 let synthetic_owned = synthetic.to_string();
@@ -154,7 +156,8 @@ pub fn spawn(
                     telem_gap_fired = true;
                     let gap = state.last_udp_secs_ago.unwrap_or(TELEM_GAP_SECS);
                     tracing::warn!(
-                        "[failure-monitor] TELEM-01: UDP silent {}s on pod {} — sending TelemetryGap",
+                        target: LOG_TARGET,
+                        "TELEM-01: UDP silent {}s on pod {} — sending TelemetryGap",
                         gap,
                         pod_id
                     );
@@ -182,7 +185,8 @@ pub fn spawn(
                     && state.game_pid.is_none()
                 {
                     tracing::warn!(
-                        "[failure-monitor] Launch timeout: {}s elapsed, no game PID — killing Content Manager",
+                        target: LOG_TARGET,
+                        "Launch timeout: {}s elapsed, no game PID — killing Content Manager",
                         launched_at.elapsed().as_secs()
                     );
                     launch_timeout_fired = true; // suppress duplicate fires for this launch attempt
@@ -211,7 +215,8 @@ pub fn spawn(
 
                     if hung {
                         tracing::warn!(
-                            "[failure-monitor] Game frozen: PID {} — UDP silent {}s + IsHungAppWindow=true",
+                            target: LOG_TARGET,
+                            "Game frozen: PID {} — UDP silent {}s + IsHungAppWindow=true",
                             game_pid,
                             state.last_udp_secs_ago.unwrap_or(0)
                         );

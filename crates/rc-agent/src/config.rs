@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::Deserialize;
 
+const LOG_TARGET: &str = "config";
+
 use crate::ai_debugger::AiDebuggerConfig;
 use crate::game_process::GameExeConfig;
 use rc_common::types::SimType;
@@ -131,6 +133,7 @@ pub(crate) fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
                 installed.push(*sim_type);
             } else {
                 tracing::info!(
+                    target: LOG_TARGET,
                     "Game {:?} configured (app_id={}) but not installed on disk — skipping",
                     sim_type, app_id
                 );
@@ -275,7 +278,7 @@ pub fn load_config() -> Result<AgentConfig> {
     for path in &search_paths {
         if let Ok(content) = std::fs::read_to_string(path) {
             let config: AgentConfig = toml::from_str(&content)?;
-            tracing::info!("Loaded config from {}", path.display());
+            tracing::info!(target: LOG_TARGET, "Loaded config from {}", path.display());
             validate_config(&config)?;
             return Ok(config);
         }

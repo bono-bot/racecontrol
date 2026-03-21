@@ -13,6 +13,8 @@ use tokio::sync::mpsc;
 
 use rc_common::udp_protocol::*;
 
+const LOG_TARGET: &str = "udp";
+
 /// Events from the UDP heartbeat to the main event loop
 #[derive(Debug)]
 pub enum HeartbeatEvent {
@@ -66,7 +68,7 @@ pub async fn run(
 ) {
     loop {
         if let Err(e) = run_inner(&core_ip, pod_number, &status, &event_tx).await {
-            tracing::warn!("UDP heartbeat error: {} — restarting in 5s", e);
+            tracing::warn!(target: LOG_TARGET, "UDP heartbeat error: {} — restarting in 5s", e);
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
@@ -83,7 +85,7 @@ async fn run_inner(
     let core_addr = format!("{}:{}", core_ip, HEARTBEAT_PORT);
     socket.connect(&core_addr).await?;
 
-    tracing::info!("UDP heartbeat started → {}", core_addr);
+    tracing::info!(target: LOG_TARGET, "UDP heartbeat started → {}", core_addr);
 
     let mut sequence: u32 = 0;
     let mut last_pong = Instant::now();
@@ -121,6 +123,7 @@ async fn run_inner(
                 if last_pong.elapsed() > dead_timeout {
                     if !core_was_dead {
                         tracing::warn!(
+                            target: LOG_TARGET,
                             "UDP heartbeat: racecontrol unreachable for {}s — signaling reconnect",
                             DEAD_TIMEOUT_SECS
                         );
@@ -139,25 +142,25 @@ async fn run_inner(
 
                             // If we thought core was dead, it's back
                             if core_was_dead {
-                                tracing::info!("UDP heartbeat: racecontrol recovered");
+                                tracing::info!(target: LOG_TARGET, "UDP heartbeat: racecontrol recovered");
                                 let _ = event_tx.send(HeartbeatEvent::CoreAlive).await;
                                 core_was_dead = false;
                             }
 
                             // Handle server flags
                             if pong.flags.force_reconnect() {
-                                tracing::info!("UDP heartbeat: core requested force reconnect");
+                                tracing::info!(target: LOG_TARGET, "UDP heartbeat: core requested force reconnect");
                                 let _ = event_tx.send(HeartbeatEvent::ForceReconnect).await;
                             }
                             if pong.flags.force_restart() {
-                                tracing::warn!("UDP heartbeat: core requested force restart");
+                                tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested force restart");
                                 let _ = event_tx.send(HeartbeatEvent::ForceRestart).await;
                             }
                         }
                     }
                     Err(e) => {
                         // ICMP port unreachable or similar — not fatal
-                        tracing::debug!("UDP heartbeat recv error: {}", e);
+                        tracing::debug!(target: LOG_TARGET, "UDP heartbeat recv error: {}", e);
                     }
                 }
             }

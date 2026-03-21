@@ -12,6 +12,8 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+const LOG_TARGET: &str = "firewall";
+
 const RULE_ICMP: &str = "RacingPoint-ICMP";
 const RULE_TCP: &str = "RacingPoint-RemoteOps";
 
@@ -33,7 +35,7 @@ pub enum FirewallResult {
 /// runs via the admin-level HKLM Run key so this succeeds in normal operation.
 /// Phase 19 (rc-watchdog SYSTEM service) may affect this — see open question in RESEARCH.md.
 pub fn configure() -> FirewallResult {
-    tracing::info!("[firewall] Applying firewall rules (profile=any)...");
+    tracing::info!(target: LOG_TARGET, "Applying firewall rules (profile=any)...");
 
     // Delete stale rules — exit 0 even if absent on Windows 11
     run_netsh(&build_delete_args(RULE_ICMP).iter().map(String::as_str).collect::<Vec<_>>());
@@ -50,7 +52,8 @@ pub fn configure() -> FirewallResult {
     match (icmp_ok, tcp_ok) {
         (true, true) => {
             tracing::info!(
-                "[firewall] Firewall configured — ICMP + TCP 8090 open (profile=any)"
+                target: LOG_TARGET,
+                "Firewall configured — ICMP + TCP 8090 open (profile=any)"
             );
             FirewallResult::Configured
         }
@@ -58,7 +61,7 @@ pub fn configure() -> FirewallResult {
             let msg =
                 "netsh failed — agent may lack admin privileges. Port 8090 may be blocked."
                     .to_string();
-            tracing::warn!("[firewall] {}", msg);
+            tracing::warn!(target: LOG_TARGET, "{}", msg);
             FirewallResult::Failed(msg)
         }
     }
@@ -118,12 +121,12 @@ fn run_netsh(args: &[&str]) -> bool {
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                tracing::warn!("[firewall] netsh {:?} failed: {}", args, stderr.trim());
+                tracing::warn!(target: LOG_TARGET, "netsh {:?} failed: {}", args, stderr.trim());
             }
             out.status.success()
         }
         Err(e) => {
-            tracing::warn!("[firewall] failed to spawn netsh: {}", e);
+            tracing::warn!(target: LOG_TARGET, "failed to spawn netsh: {}", e);
             false
         }
     }
