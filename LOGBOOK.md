@@ -498,3 +498,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 00:37 IST | James | 861a717 | docs(119-03): complete NVR playback page plan (phase 119 complete 3/3) |
 | 2026-03-21 21:23 IST | James | edc340c | chore(01-02): switch Caddyfile to production Let's Encrypt (remove staging ACME) |
 | 2026-03-21 21:29 IST | James | 24bcc7a | docs(01-02): complete VPS deployment plan |
+| 2026-03-22 02:30 IST | James | 25e34cb | feat(130-01): add v18.0 MessageType constants to protocol.js (chain_request, chain_step_ack, chain_result, registry_register, registry_ack) |
+| 2026-03-22 02:35 IST | James | 6d4a9ca | test(130-01): add failing TDD tests for DynamicCommandRegistry (18 test cases) |
+| 2026-03-22 02:45 IST | James | d8eb9c1 | feat(130-01): implement DynamicCommandRegistry — Map storage, binary allowlist, env key isolation, TDD GREEN |
+| 2026-03-22 02:50 IST | James | df436fc | docs(130-01): complete protocol-foundation-dynamic-registry plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (DREG-01, DREG-02, DREG-05) |
