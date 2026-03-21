@@ -1501,7 +1501,11 @@ Plans:
   3. After the protected game exits, safe mode remains active for exactly 30 seconds before deactivating -- verified by log timestamps on Pod 8 during a test session
   4. When rc-agent starts and F1 25 is already running (simulated by pre-launching game before agent start), rc-agent initializes directly into safe mode without a Normal state transition -- startup default is safe
   5. Billing ticks, lock screen state transitions, WebSocket keepalive, and rc-agent heartbeat all continue normally throughout a protected game session in safe mode -- no billing gaps or disconnects
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 109-01-PLAN.md — SafeMode struct, WMI watcher, startup detection, AppState integration (SAFE-01, SAFE-02, SAFE-03)
+- [ ] 109-02-PLAN.md — Event loop wiring, subsystem gates, SAFE-07 verification (SAFE-01 through SAFE-07)
 
 ### Phase 110: Telemetry Gating
 **Goal**: Shared memory telemetry readers for iRacing and LMU defer their MapViewOfFile connection until 5 seconds after the game process is stable, UDP telemetry sockets exist only while their corresponding game is active, and AC EVO telemetry is feature-flagged off by default until its anti-cheat status is confirmed at full release
@@ -1533,7 +1537,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 107. Behavior Audit + Certificate Procurement | 2/2 | Complete    | 2026-03-21 |
 | 108. Keyboard Hook Replacement | 1/1 | Complete    | 2026-03-21 |
-| 109. Safe Mode State Machine | TBD | Not started | - |
+| 109. Safe Mode State Machine | 0/2 | Planned | - |
 | 110. Telemetry Gating | TBD | Not started | - |
 | 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |
 
