@@ -622,3 +622,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 21:30 IST | James | 375f6e9d | docs(162): phase 162 plan — james watchdog migration (2 plans) |
 | 2026-03-22 21:11 IST | James | ca187c3c | feat(162-01): add failure_state.rs + bono_alert.rs — persistent JSON state, atomic write, degraded Bono alert |
 | 2026-03-22 21:11 IST | James | 3d67f8b5 | feat(162-01): implement james_monitor.rs graduated response + main.rs --service branching, 29 tests green |
+| 2026-03-22 21:15 IST | James | b7cad99c | feat(162-02): register-james-watchdog.bat + rc-watchdog.exe deployed to staging |
