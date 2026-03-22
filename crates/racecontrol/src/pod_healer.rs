@@ -972,10 +972,112 @@ pub(crate) async fn scan_warn_logs(state: &Arc<AppState>) {
         WARN_THRESHOLD
     );
 
-    // Phase 141-02 will add deduplication + AI escalation here.
-    // For now, log the breach so it's visible in the activity log.
-    // Placeholder: pass warn_lines to escalate_warn_surge() in plan 02.
-    let _ = warn_lines; // plan 02 will consume this
+    escalate_warn_surge(state, warn_count, warn_lines).await;
+}
+
+/// Deduplicate warn_lines and escalate to AI with a grouped summary.
+///
+/// Groups identical message strings, counts occurrences, and builds a compact
+/// context prompt. Caps at 20 unique messages to keep the prompt under token limits.
+/// Uses the same query_ai() path as escalate_to_ai() so results land in ai_suggestions.
+///
+/// No .unwrap() — all parse errors skip silently; the message field falls back to the raw line.
+async fn escalate_warn_surge(
+    state: &Arc<AppState>,
+    total_warn_count: usize,
+    warn_lines: Vec<String>,
+) {
+    // Deduplicate: extract fields.message, count occurrences
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for line in &warn_lines {
+        let message = if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+            entry
+                .get("fields")
+                .and_then(|f| f.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| line.chars().take(120).collect())
+        } else {
+            line.chars().take(120).collect()
+        };
+        *counts.entry(message).or_insert(0) += 1;
+    }
+
+    // Sort by frequency descending, cap at 20 unique messages
+    let mut sorted: Vec<(String, usize)> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.truncate(20);
+
+    let grouped_text = sorted
+        .iter()
+        .map(|(msg, count)| {
+            if *count > 1 {
+                format!("  [x{}] {}", count, msg)
+            } else {
+                format!("  {}", msg)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let context = format!(
+        "RACECONTROL SERVER WARN SURGE\n\n\
+         Total WARNs in last 5 minutes: {}\n\
+         Unique message types: {}\n\n\
+         Top WARN messages (grouped by frequency):\n{}\n\n\
+         Threshold: {} WARNs/5min",
+        total_warn_count,
+        sorted.len(),
+        grouped_text,
+        WARN_THRESHOLD,
+    );
+
+    let messages = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "You are an expert Rust/Axum server diagnostician for a sim racing venue management system. \
+                        Analyze the WARN log surge below. Identify the most likely root cause from the message patterns. \
+                        Suggest one concrete investigation step. Keep under 120 words."
+        }),
+        serde_json::json!({
+            "role": "user",
+            "content": context
+        }),
+    ];
+
+    match crate::ai::query_ai(
+        &state.config.ai_debugger,
+        &messages,
+        Some(&state.db),
+        Some("warn_scanner"),
+    )
+    .await
+    {
+        Ok((suggestion, model)) => {
+            tracing::info!(
+                "WARN scanner AI suggestion (via {}): {}",
+                model,
+                suggestion.chars().take(150).collect::<String>()
+            );
+            // Persist to ai_suggestions as a server-level event (no pod_id)
+            let id = uuid::Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO ai_suggestions (id, pod_id, sim_type, error_context, suggestion, model, source) \
+                 VALUES (?, ?, ?, ?, ?, ?, 'warn_scanner')",
+            )
+            .bind(&id)
+            .bind("server")
+            .bind("server")
+            .bind(&context)
+            .bind(&suggestion)
+            .bind(&model)
+            .execute(&state.db)
+            .await;
+        }
+        Err(e) => {
+            tracing::warn!("WARN scanner AI escalation failed: {}", e);
+        }
+    }
 }
 
 /// Returns true if the pod is currently in a watchdog recovery cycle (Restarting or Verifying).
