@@ -11,6 +11,7 @@ pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod billing;
+pub mod cafe;
 pub mod catalog;
 pub mod cloud_sync;
 pub mod config;

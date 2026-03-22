@@ -2379,6 +2379,52 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Cafe Menu ──────────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cafe_categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cafe_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            category_id TEXT NOT NULL REFERENCES cafe_categories(id),
+            selling_price_paise INTEGER NOT NULL,
+            cost_price_paise INTEGER NOT NULL,
+            is_available BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_items_category ON cafe_items(category_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_items_available ON cafe_items(is_available)")
+        .execute(pool)
+        .await?;
+
+    // Seed default categories (idempotent)
+    for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT OR IGNORE INTO cafe_categories (id, name, sort_order) VALUES (?, ?, ?)")
+            .bind(&id)
+            .bind(name)
+            .bind(order)
+            .execute(pool)
+            .await?;
+    }
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
