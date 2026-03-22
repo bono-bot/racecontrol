@@ -624,3 +624,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 21:11 IST | James | 3d67f8b5 | feat(162-01): implement james_monitor.rs graduated response + main.rs --service branching, 29 tests green |
 | 2026-03-22 21:15 IST | James | b7cad99c | feat(162-02): register-james-watchdog.bat + rc-watchdog.exe deployed to staging |
 | 2026-03-22 22:05 IST | James | 9795d330 | docs(162-02): SUMMARY + STATE + ROADMAP — phase 162 james watchdog migration complete |
+| 2026-03-22 22:30 IST | James | fa858364 | feat(154-01): cafe_orders table + place_cafe_order atomic handler — BEGIN IMMEDIATE, stock race check, compensating rollback |
+| 2026-03-22 22:31 IST | James | 494f7ebf | feat(154-01): register cafe/orders routes + public menu stock info (is_countable, stock_quantity, out_of_stock) |

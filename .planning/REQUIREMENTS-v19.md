@@ -22,7 +22,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **INV-01**: Admin can set stock quantities for countable items (bottles, buns, packaged snacks)
 - [ ] **INV-02**: Items are categorized as countable (stock-tracked) or uncountable (made-to-order, availability toggle only)
-- [ ] **INV-03**: Stock auto-decrements when a countable item is sold via POS or PWA order
+- [x] **INV-03**: Stock auto-decrements when a countable item is sold via POS or PWA order
 - [ ] **INV-04**: Admin can manually adjust stock quantities (restock entry when supplies arrive)
 - [ ] **INV-05**: Admin can set low-stock threshold per countable item
 - [ ] **INV-06**: Low-stock alert fires via WhatsApp when threshold is reached (once per breach, with cooldown)
@@ -34,12 +34,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **ORD-01**: Customer can browse cafe menu in PWA, add items to cart, and place order
 - [ ] **ORD-02**: Staff can enter cafe orders via POS on behalf of a customer
-- [ ] **ORD-03**: Order amount deducts from the existing RP customer wallet
-- [ ] **ORD-04**: Each order generates a unique receipt number and transaction ID
+- [x] **ORD-03**: Order amount deducts from the existing RP customer wallet
+- [x] **ORD-04**: Each order generates a unique receipt number and transaction ID
 - [ ] **ORD-05**: Order prints a thermal receipt for cafe staff to prepare
 - [ ] **ORD-06**: Order receipt is sent to customer via WhatsApp
-- [ ] **ORD-07**: Items with zero stock cannot be ordered (out-of-stock blocking)
-- [ ] **ORD-08**: Order deduction and stock decrement are atomic (no race conditions on concurrent orders)
+- [x] **ORD-07**: Items with zero stock cannot be ordered (out-of-stock blocking)
+- [x] **ORD-08**: Order deduction and stock decrement are atomic (no race conditions on concurrent orders)
 - [ ] **ORD-09**: Customer can view their cafe order history in PWA
 
 ### Promotions & Deals
@@ -100,7 +100,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MENU-08 | Phase 151 | Pending |
 | INV-01 | Phase 152 | Pending |
 | INV-02 | Phase 152 | Pending |
-| INV-03 | Phase 154 | Pending |
+| INV-03 | Phase 154 | Complete |
 | INV-04 | Phase 152 | Pending |
 | INV-05 | Phase 152 | Pending |
 | INV-06 | Phase 153 | Pending |
@@ -109,12 +109,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INV-09 | Phase 152 | Pending |
 | ORD-01 | Phase 154 | Pending |
 | ORD-02 | Phase 154 | Pending |
-| ORD-03 | Phase 154 | Pending |
-| ORD-04 | Phase 154 | Pending |
+| ORD-03 | Phase 154 | Complete |
+| ORD-04 | Phase 154 | Complete |
 | ORD-05 | Phase 155 | Pending |
 | ORD-06 | Phase 155 | Pending |
-| ORD-07 | Phase 154 | Pending |
-| ORD-08 | Phase 154 | Pending |
+| ORD-07 | Phase 154 | Complete |
+| ORD-08 | Phase 154 | Complete |
 | ORD-09 | Phase 155 | Pending |
 | PROMO-01 | Phase 156 | Pending |
 | PROMO-02 | Phase 156 | Pending |
