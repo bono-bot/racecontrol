@@ -789,6 +789,26 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 pod_id, scan_count, violation_count_total, violation_count_last_scan, last_scan_at, guard_active
                             );
                         }
+                        AgentMessage::IdleHealthFailed { pod_id, failures, consecutive_count, timestamp } => {
+                            tracing::warn!(
+                                "Pod {} idle health failed: {:?} ({} consecutive, at {})",
+                                pod_id, failures, consecutive_count, timestamp
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Idle Health Failed",
+                                &format!("Failures: {:?}, consecutive: {}", failures, consecutive_count),
+                                "agent",
+                            );
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(pod_id.clone()).or_default();
+                                store.idle_health_fail_count = *consecutive_count;
+                                store.idle_health_failures = failures.clone();
+                            }
+                        }
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }
