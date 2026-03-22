@@ -6,6 +6,7 @@
 <title>Racing Point — Cameras</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap">
+<script type="module" src="http://192.168.31.27:1984/video-stream.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
@@ -713,14 +714,27 @@ function buildGrid() {
       label.appendChild(nameSpan);
       label.appendChild(dot);
 
-      // Camera image
-      var img = document.createElement('img');
-      img.alt = camera.display_name;
-      img.style.cursor = 'pointer';
-      if (ch != null) {
-        img.addEventListener('click', (function(cam) {
+      // Camera video stream (live via go2rtc MSE/WebRTC)
+      var vid;
+      if (ch != null && camera.status !== 'offline' && camera.status !== 'disconnected') {
+        vid = document.createElement('video-stream');
+        vid.style.width = '100%';
+        vid.style.display = 'block';
+        vid.style.aspectRatio = '16/9';
+        vid.style.objectFit = 'cover';
+        vid.style.background = '#000';
+        vid.style.cursor = 'pointer';
+        vid.setAttribute('background', 'true');
+        vid.mode = 'mse,webrtc,mjpeg';
+        vid.media = 'video';
+        vid.src = 'http://192.168.31.27:1984/api/ws?src=ch' + ch;
+        vid.addEventListener('click', (function(cam) {
           return function() { openFullscreen(cam); };
         })(camera));
+      } else {
+        vid = document.createElement('img');
+        vid.alt = camera.display_name;
+        vid.style.cursor = 'default';
       }
 
       // Offline overlay text
@@ -806,12 +820,12 @@ function buildGrid() {
       });
 
       tile.appendChild(label);
-      tile.appendChild(img);
+      tile.appendChild(vid);
       gridEl.appendChild(tile);
 
       if (ch != null) {
         tileElements[ch] = tile;
-        imgElements[ch]  = img;
+        imgElements[ch]  = vid;
         dotElements[ch]  = dot;
       }
     });
@@ -859,50 +873,29 @@ document.querySelectorAll('.layout-btn').forEach(function(btn) {
   });
 });
 
-// ── Snapshot refresh loop (staggered to avoid browser connection queue) ───────
-var BATCH_SIZE = 4; // browser allows ~6 concurrent per origin; leave headroom
-var BATCH_GAP = 80; // ms between batches
-
-function refresh() {
-  var camsWithChannel = cameras.filter(function(c) { return c.nvr_channel != null; });
-  var total = camsWithChannel.length;
-  if (total === 0) { statusEl.textContent = '0/' + cameras.length + ' online'; return; }
-
-  var ok = 0;
-  var fail = 0;
-  var t = Date.now();
-
-  function loadBatch(startIdx) {
-    var end = Math.min(startIdx + BATCH_SIZE, total);
-    for (var i = startIdx; i < end; i++) {
-      (function(camera) {
-        var ch = camera.nvr_channel;
-        var preload = new Image();
-        preload.onload = function() {
-          if (imgElements[ch]) imgElements[ch].src = this.src;
-          if (dotElements[ch]) dotElements[ch].className = 'dot dot-live';
-          ok++;
-          if (ok + fail === total) statusEl.textContent = ok + '/' + cameras.length + ' online';
-        };
-        preload.onerror = function() {
-          if (dotElements[ch]) dotElements[ch].className = 'dot dot-offline';
-          fail++;
-          if (ok + fail === total) statusEl.textContent = ok + '/' + cameras.length + ' online';
-        };
-        preload.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + t;
-      })(camsWithChannel[i]);
-    }
-    if (end < total) {
-      setTimeout(function() { loadBatch(end); }, BATCH_GAP);
-    }
-  }
-  loadBatch(0);
+// ── Status poll (lightweight — live video handles frames, this just updates status dots) ──
+function refreshStatus() {
+  fetch('/api/v1/cameras')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var online = 0;
+      data.forEach(function(cam) {
+        var ch = cam.nvr_channel;
+        if (ch == null) return;
+        if (dotElements[ch]) {
+          dotElements[ch].className = 'dot ' + statusToDotClass(cam.status);
+        }
+        if (cam.status === 'connected' || cam.status === 'reconnecting') online++;
+      });
+      statusEl.textContent = online + '/' + cameras.length + ' online';
+    })
+    .catch(function() {});
 }
 
 function startLoop() {
   clearInterval(timer);
-  refresh();
-  timer = setInterval(refresh, parseInt(rateEl.value, 10));
+  refreshStatus();
+  timer = setInterval(refreshStatus, 5000); // status poll every 5s (video is live)
 }
 
 rateEl.addEventListener('change', startLoop);
