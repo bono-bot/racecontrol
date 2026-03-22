@@ -10,6 +10,19 @@ import type {
   ImportPreview,
   ConfirmedImportRow,
   LowStockItem,
+  CafePromo,
+  CreateCafePromoRequest,
+  PromoType,
+  ComboConfig,
+  HappyHourConfig,
+  GamingBundleConfig,
+} from "@/lib/api";
+import {
+  listCafePromos,
+  createCafePromo,
+  updateCafePromo,
+  deleteCafePromo,
+  toggleCafePromo,
 } from "@/lib/api";
 
 const formatRupees = (paise: number) => `\u20b9${(paise / 100).toFixed(2)}`;
@@ -36,7 +49,7 @@ const emptyForm: FormData = {
   low_stock_threshold: "0",
 };
 
-type ActiveTab = "items" | "inventory";
+type ActiveTab = "items" | "inventory" | "promos";
 
 function getStockStatus(item: CafeItem): {
   label: string;
@@ -73,6 +86,14 @@ export default function CafePage() {
   // Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>("items");
 
+  // Promo state
+  const [promos, setPromos] = useState<CafePromo[]>([]);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [showPromoPanel, setShowPromoPanel] = useState(false);
+  const [editPromo, setEditPromo] = useState<CafePromo | null>(null);
+  const [selectedPromoType, setSelectedPromoType] = useState<PromoType>("combo");
+  const [promoSaving, setPromoSaving] = useState(false);
+
   // Restock inline flow state
   const [restockItemId, setRestockItemId] = useState<string | null>(null);
   const [restockQty, setRestockQty] = useState("");
@@ -106,6 +127,15 @@ export default function CafePage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "promos") return;
+    setPromoLoading(true);
+    listCafePromos()
+      .then(setPromos)
+      .catch(console.error)
+      .finally(() => setPromoLoading(false));
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -398,6 +428,16 @@ export default function CafePage() {
           }`}
         >
           Inventory
+        </button>
+        <button
+          onClick={() => setActiveTab("promos")}
+          className={`px-5 py-2.5 text-sm font-semibold transition-colors ${
+            activeTab === "promos"
+              ? "border-b-2 border-[#E10600] text-white"
+              : "text-[#5A5A5A] hover:text-neutral-300"
+          }`}
+        >
+          Promos
         </button>
       </div>
 
@@ -939,6 +979,125 @@ export default function CafePage() {
         </div>
       )}
 
+      {/* ── PROMOS TAB ── */}
+      {activeTab === "promos" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Promotions</h2>
+            <button
+              onClick={() => { setEditPromo(null); setSelectedPromoType("combo"); setShowPromoPanel(true); }}
+              className="px-4 py-2 text-sm font-semibold bg-[#E10600] text-white rounded hover:bg-red-700 transition-colors"
+            >
+              + New Promo
+            </button>
+          </div>
+
+          {promoLoading ? (
+            <p className="text-[#5A5A5A]">Loading...</p>
+          ) : promos.length === 0 ? (
+            <p className="text-[#5A5A5A] text-sm">No promos yet. Create one to get started.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[#5A5A5A] border-b border-[#333333]">
+                  <th className="pb-2 pr-4">Name</th>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">Window</th>
+                  <th className="pb-2 pr-4">Group</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {promos.map((promo) => (
+                  <tr key={promo.id} className="border-b border-[#333333]/50 hover:bg-[#222222]/50">
+                    <td className="py-2 pr-4 text-white font-medium">{promo.name}</td>
+                    <td className="py-2 pr-4 text-neutral-300 capitalize">{promo.promo_type.replace("_", " ")}</td>
+                    <td className="py-2 pr-4 text-neutral-400 text-xs">
+                      {promo.start_time && promo.end_time
+                        ? `${promo.start_time}–${promo.end_time} IST`
+                        : "—"}
+                    </td>
+                    <td className="py-2 pr-4 text-neutral-400 text-xs">{promo.stacking_group ?? "—"}</td>
+                    <td className="py-2 pr-4">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        promo.is_active
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-neutral-700/40 text-neutral-400"
+                      }`}>
+                        {promo.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td className="py-2 flex gap-2">
+                      <button
+                        onClick={() => toggleCafePromo(promo.id).then(() =>
+                          listCafePromos().then(setPromos)
+                        )}
+                        className="text-xs text-[#5A5A5A] hover:text-white transition-colors"
+                      >
+                        {promo.is_active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditPromo(promo);
+                          setSelectedPromoType(promo.promo_type);
+                          setShowPromoPanel(true);
+                        }}
+                        className="text-xs text-[#5A5A5A] hover:text-white transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!confirm(`Delete "${promo.name}"?`)) return;
+                          deleteCafePromo(promo.id).then(() =>
+                            setPromos((prev) => prev.filter((p) => p.id !== promo.id))
+                          );
+                        }}
+                        className="text-xs text-red-500 hover:text-red-400 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* Promo create/edit panel */}
+          {showPromoPanel && (
+            <PromoPanel
+              promo={editPromo}
+              promoType={selectedPromoType}
+              items={items}
+              categories={categories}
+              onTypeChange={setSelectedPromoType}
+              onSave={async (data: CreateCafePromoRequest) => {
+                setPromoSaving(true);
+                try {
+                  if (editPromo) {
+                    await updateCafePromo(editPromo.id, data);
+                  } else {
+                    await createCafePromo(data);
+                  }
+                  const updated = await listCafePromos();
+                  setPromos(updated);
+                  setShowPromoPanel(false);
+                  setEditPromo(null);
+                } catch (e) {
+                  console.error(e);
+                } finally {
+                  setPromoSaving(false);
+                }
+              }}
+              onClose={() => { setShowPromoPanel(false); setEditPromo(null); }}
+              saving={promoSaving}
+            />
+          )}
+        </div>
+      )}
+
       {/* Import Modal */}
       {showImportModal && (
         <div
@@ -1098,5 +1257,473 @@ export default function CafePage() {
         </div>
       )}
     </DashboardLayout>
+  );
+}
+
+// ─── PromoPanel ───────────────────────────────────────────────────────────────
+
+interface PromoPanelProps {
+  promo: CafePromo | null;
+  promoType: PromoType;
+  items: CafeItem[];
+  categories: CafeCategory[];
+  onTypeChange: (t: PromoType) => void;
+  onSave: (data: CreateCafePromoRequest) => Promise<void>;
+  onClose: () => void;
+  saving: boolean;
+}
+
+function PromoPanel({
+  promo,
+  promoType,
+  items,
+  categories,
+  onTypeChange,
+  onSave,
+  onClose,
+  saving,
+}: PromoPanelProps) {
+  const [name, setName] = useState(promo?.name ?? "");
+  const [stackingGroup, setStackingGroup] = useState(promo?.stacking_group ?? "");
+  const [startTime, setStartTime] = useState(promo?.start_time ?? "");
+  const [endTime, setEndTime] = useState(promo?.end_time ?? "");
+
+  // Combo state
+  const [comboItems, setComboItems] = useState<Array<{ id: string; qty: number }>>(() => {
+    if (promo?.promo_type === "combo") {
+      const cfg = JSON.parse(promo.config) as ComboConfig;
+      return cfg.items;
+    }
+    return [];
+  });
+  const [comboBundlePriceRupees, setComboBundlePriceRupees] = useState<string>(() => {
+    if (promo?.promo_type === "combo") {
+      const cfg = JSON.parse(promo.config) as ComboConfig;
+      return (cfg.bundle_price_paise / 100).toFixed(2);
+    }
+    return "";
+  });
+
+  // Happy hour state
+  const [discountMode, setDiscountMode] = useState<"percent" | "paise">("percent");
+  const [discountPercent, setDiscountPercent] = useState<string>(() => {
+    if (promo?.promo_type === "happy_hour") {
+      const cfg = JSON.parse(promo.config) as HappyHourConfig;
+      return cfg.discount_percent !== undefined ? String(cfg.discount_percent) : "";
+    }
+    return "";
+  });
+  const [discountPaise, setDiscountPaise] = useState<string>(() => {
+    if (promo?.promo_type === "happy_hour") {
+      const cfg = JSON.parse(promo.config) as HappyHourConfig;
+      return cfg.discount_paise !== undefined ? (cfg.discount_paise / 100).toFixed(2) : "";
+    }
+    return "";
+  });
+  const [appliesTo, setAppliesTo] = useState<"category" | "item" | "all">(() => {
+    if (promo?.promo_type === "happy_hour") {
+      const cfg = JSON.parse(promo.config) as HappyHourConfig;
+      return cfg.applies_to;
+    }
+    return "all";
+  });
+  const [targetIds, setTargetIds] = useState<string[]>(() => {
+    if (promo?.promo_type === "happy_hour") {
+      const cfg = JSON.parse(promo.config) as HappyHourConfig;
+      return cfg.target_ids;
+    }
+    return [];
+  });
+
+  // Gaming bundle state
+  const [sessionDuration, setSessionDuration] = useState<string>(() => {
+    if (promo?.promo_type === "gaming_bundle") {
+      const cfg = JSON.parse(promo.config) as GamingBundleConfig;
+      return String(cfg.session_duration_mins);
+    }
+    return "";
+  });
+  const [bundleCafeItemIds, setBundleCafeItemIds] = useState<string[]>(() => {
+    if (promo?.promo_type === "gaming_bundle") {
+      const cfg = JSON.parse(promo.config) as GamingBundleConfig;
+      return cfg.cafe_item_ids;
+    }
+    return [];
+  });
+  const [gamingBundlePriceRupees, setGamingBundlePriceRupees] = useState<string>(() => {
+    if (promo?.promo_type === "gaming_bundle") {
+      const cfg = JSON.parse(promo.config) as GamingBundleConfig;
+      return (cfg.bundle_price_paise / 100).toFixed(2);
+    }
+    return "";
+  });
+
+  const inputClass =
+    "w-full bg-[#1A1A1A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-[#5A5A5A] focus:outline-none focus:border-[#E10600] transition-colors";
+
+  function toggleComboItem(itemId: string) {
+    setComboItems((prev) => {
+      const exists = prev.find((i) => i.id === itemId);
+      if (exists) return prev.filter((i) => i.id !== itemId);
+      return [...prev, { id: itemId, qty: 1 }];
+    });
+  }
+
+  function setComboItemQty(itemId: string, qty: number) {
+    setComboItems((prev) =>
+      prev.map((i) => (i.id === itemId ? { ...i, qty } : i))
+    );
+  }
+
+  function toggleTargetId(id: string) {
+    setTargetIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+  }
+
+  function toggleBundleCafeItem(itemId: string) {
+    setBundleCafeItemIds((prev) =>
+      prev.includes(itemId) ? prev.filter((i) => i !== itemId) : [...prev, itemId]
+    );
+  }
+
+  function buildConfig(): CreateCafePromoRequest["config"] {
+    if (promoType === "combo") {
+      const cfg: ComboConfig = {
+        items: comboItems,
+        bundle_price_paise: Math.round(parseFloat(comboBundlePriceRupees || "0") * 100),
+      };
+      return cfg;
+    }
+    if (promoType === "happy_hour") {
+      const cfg: HappyHourConfig = {
+        applies_to: appliesTo,
+        target_ids: targetIds,
+        ...(discountMode === "percent"
+          ? { discount_percent: parseFloat(discountPercent || "0") }
+          : { discount_paise: Math.round(parseFloat(discountPaise || "0") * 100) }),
+      };
+      return cfg;
+    }
+    // gaming_bundle
+    const cfg: GamingBundleConfig = {
+      session_duration_mins: parseInt(sessionDuration || "0", 10),
+      cafe_item_ids: bundleCafeItemIds,
+      bundle_price_paise: Math.round(parseFloat(gamingBundlePriceRupees || "0") * 100),
+    };
+    return cfg;
+  }
+
+  async function handleSubmit() {
+    if (!name.trim()) return;
+    await onSave({
+      name: name.trim(),
+      promo_type: promoType,
+      config: buildConfig(),
+      is_active: promo?.is_active ?? false,
+      start_time: startTime || null,
+      end_time: endTime || null,
+      stacking_group: stackingGroup.trim() || null,
+    });
+  }
+
+  const targetOptions = appliesTo === "category" ? categories : items;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex justify-end">
+      <div className="w-[480px] bg-[#1A1A1A] border-l border-[#333333] h-full overflow-y-auto p-6 flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">
+            {promo ? "Edit Promo" : "New Promo"}
+          </h2>
+          <button onClick={onClose} className="text-[#5A5A5A] hover:text-white text-xl leading-none">
+            &times;
+          </button>
+        </div>
+
+        {/* Name */}
+        <div>
+          <label className="block text-xs text-[#5A5A5A] mb-1">
+            Name <span className="text-[#E10600]">*</span>
+          </label>
+          <input
+            type="text"
+            placeholder="Promo name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        {/* Promo Type */}
+        <div>
+          <label className="block text-xs text-[#5A5A5A] mb-1">Type</label>
+          <select
+            value={promoType}
+            onChange={(e) => onTypeChange(e.target.value as PromoType)}
+            disabled={!!promo}
+            className={inputClass + (promo ? " opacity-50 cursor-not-allowed" : "")}
+          >
+            <option value="combo">Combo Deal</option>
+            <option value="happy_hour">Happy Hour</option>
+            <option value="gaming_bundle">Gaming + Cafe Bundle</option>
+          </select>
+        </div>
+
+        {/* Stacking Group */}
+        <div>
+          <label className="block text-xs text-[#5A5A5A] mb-1">
+            Exclusivity Group
+            <span className="ml-1 text-[#5A5A5A]/70 font-normal">
+              (promos sharing the same group name are mutually exclusive)
+            </span>
+          </label>
+          <input
+            type="text"
+            placeholder="Optional group name"
+            value={stackingGroup}
+            onChange={(e) => setStackingGroup(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        {/* ── Combo fields ── */}
+        {promoType === "combo" && (
+          <>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-2">Select Items</label>
+              <div className="space-y-1 max-h-48 overflow-y-auto border border-[#333333] rounded-lg p-2">
+                {items.map((item) => {
+                  const selected = comboItems.find((ci) => ci.id === item.id);
+                  return (
+                    <div key={item.id} className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id={`combo-item-${item.id}`}
+                        checked={!!selected}
+                        onChange={() => toggleComboItem(item.id)}
+                        className="w-4 h-4 accent-[#E10600]"
+                      />
+                      <label
+                        htmlFor={`combo-item-${item.id}`}
+                        className="flex-1 text-sm text-neutral-300 cursor-pointer"
+                      >
+                        {item.name}
+                      </label>
+                      {selected && (
+                        <input
+                          type="number"
+                          min={1}
+                          value={selected.qty}
+                          onChange={(e) =>
+                            setComboItemQty(item.id, parseInt(e.target.value || "1", 10))
+                          }
+                          className="w-16 bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-neutral-200 focus:outline-none focus:border-[#E10600]"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-1">Bundle Price (rupees)</label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                placeholder="0.00"
+                value={comboBundlePriceRupees}
+                onChange={(e) => setComboBundlePriceRupees(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </>
+        )}
+
+        {/* ── Happy Hour fields ── */}
+        {promoType === "happy_hour" && (
+          <>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-2">Discount Type</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-neutral-300">
+                  <input
+                    type="radio"
+                    checked={discountMode === "percent"}
+                    onChange={() => setDiscountMode("percent")}
+                    className="accent-[#E10600]"
+                  />
+                  Percent (%)
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-neutral-300">
+                  <input
+                    type="radio"
+                    checked={discountMode === "paise"}
+                    onChange={() => setDiscountMode("paise")}
+                    className="accent-[#E10600]"
+                  />
+                  Flat Amount (rupees)
+                </label>
+              </div>
+            </div>
+            {discountMode === "percent" ? (
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">Discount Percent</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  placeholder="e.g. 20"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">Flat Discount (rupees)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  placeholder="0.00"
+                  value={discountPaise}
+                  onChange={(e) => setDiscountPaise(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-1">Applies To</label>
+              <select
+                value={appliesTo}
+                onChange={(e) => {
+                  setAppliesTo(e.target.value as "category" | "item" | "all");
+                  setTargetIds([]);
+                }}
+                className={inputClass}
+              >
+                <option value="all">All Items</option>
+                <option value="category">Specific Category</option>
+                <option value="item">Specific Items</option>
+              </select>
+            </div>
+            {appliesTo !== "all" && (
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-2">
+                  Select {appliesTo === "category" ? "Categories" : "Items"}
+                </label>
+                <div className="space-y-1 max-h-40 overflow-y-auto border border-[#333333] rounded-lg p-2">
+                  {targetOptions.map((opt) => (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-2 cursor-pointer text-sm text-neutral-300"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={targetIds.includes(opt.id)}
+                        onChange={() => toggleTargetId(opt.id)}
+                        className="w-4 h-4 accent-[#E10600]"
+                      />
+                      {opt.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">Start Time (IST)</label>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">End Time (IST)</label>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Gaming Bundle fields ── */}
+        {promoType === "gaming_bundle" && (
+          <>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-1">
+                Session Duration (minutes)
+              </label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                placeholder="e.g. 60"
+                value={sessionDuration}
+                onChange={(e) => setSessionDuration(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-2">Include Cafe Items</label>
+              <div className="space-y-1 max-h-48 overflow-y-auto border border-[#333333] rounded-lg p-2">
+                {items.map((item) => (
+                  <label
+                    key={item.id}
+                    className="flex items-center gap-2 cursor-pointer text-sm text-neutral-300"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bundleCafeItemIds.includes(item.id)}
+                      onChange={() => toggleBundleCafeItem(item.id)}
+                      className="w-4 h-4 accent-[#E10600]"
+                    />
+                    {item.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-[#5A5A5A] mb-1">Bundle Price (rupees)</label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                placeholder="0.00"
+                value={gamingBundlePriceRupees}
+                onChange={(e) => setGamingBundlePriceRupees(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Save / Cancel */}
+        <div className="flex gap-3 pt-2 mt-auto">
+          <button
+            onClick={handleSubmit}
+            disabled={!name.trim() || saving}
+            className="flex-1 bg-[#E10600] text-white text-sm font-semibold py-2 rounded-lg hover:bg-[#c40500] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-[#222222] border border-[#333333] text-neutral-400 text-sm font-semibold py-2 rounded-lg hover:text-white hover:border-neutral-500 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
