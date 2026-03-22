@@ -2016,11 +2016,11 @@ Close 6 architectural gaps that prevented the system from self-healing when Edge
   2. When msedge.exe count exceeds 5 (simulated by repeated Edge launches), rc-agent kills all msedge.exe and msedgewebview2.exe processes before launching a clean Edge instance
   3. After close_browser() executes, no msedge.exe or msedgewebview2.exe processes remain -- the spawned child reference alone is not sufficient to clear stacked browsers
   4. When anti-cheat safe mode is active (protected game running), watchdog polling does not execute taskkill -- the game session continues uninterrupted
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 137-01-PLAN.md -- Browser watchdog loop in LockScreenManager: poll + relaunch logic (BWDOG-01, BWDOG-02)
-- [ ] 137-02-PLAN.md -- close_browser() rewrite to kill all msedge/WebView2 + safe mode gate (BWDOG-03, BWDOG-04)
+- [ ] 137-01-PLAN.md -- close_browser() safe mode gate + count_edge_processes helper + tests (BWDOG-03, BWDOG-04)
+- [ ] 137-02-PLAN.md -- Browser watchdog loop in event_loop: liveness poll + stacking detection (BWDOG-01, BWDOG-02)
 
 ### Phase 138: Idle Health Monitor
 **Goal**: Pods continuously verify their own health during idle periods and self-heal display failures before they require human intervention or server escalation
