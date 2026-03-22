@@ -21,6 +21,8 @@ mod tier1_fixes;
 mod debug_memory;
 mod ollama;
 
+use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision, RecoveryLogger,
+                          RECOVERY_LOG_POD};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -115,6 +117,8 @@ fn main() {
     std::thread::Builder::new()
         .name("sentry-crash-handler".to_string())
         .spawn(move || {
+            let recovery_logger = RecoveryLogger::new(RECOVERY_LOG_POD);
+            let machine = sysinfo::System::host_name().unwrap_or_else(|| "pod-unknown".to_string());
             let mut tracker = tier1_fixes::RestartTracker::new();
             while let Ok(ctx) = crash_rx.recv() {
                 tracing::warn!(
@@ -148,6 +152,21 @@ fn main() {
                     "crash handled: {} fixes applied, restarted={}",
                     results.len(), restarted
                 );
+
+                // Log recovery decision to JSONL audit trail (SENT-03)
+                let tracker_count = tracker.restart_count();
+                let mut decision = build_restart_decision(
+                    &machine,
+                    &pattern_key,
+                    restarted,
+                    tier1_fixes::is_maintenance_mode(),
+                    tracker_count,
+                );
+                decision.context = format!(
+                    "fixes_applied:{} restarted:{}",
+                    results.len(), restarted
+                );
+                let _ = recovery_logger.log(&decision);
 
                 // Record successful fix in pattern memory
                 if restarted {
@@ -506,6 +525,33 @@ fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+/// Build a RecoveryDecision for a crash handler outcome.
+/// Extracted as a pure function so it can be unit-tested without I/O.
+pub(crate) fn build_restart_decision(
+    machine: &str,
+    pattern_key: &str,
+    restarted: bool,
+    maintenance_mode: bool,
+    restart_count: u32,
+) -> RecoveryDecision {
+    let action = if restarted {
+        RecoveryAction::Restart
+    } else if maintenance_mode {
+        RecoveryAction::SkipMaintenanceMode
+    } else {
+        RecoveryAction::EscalateToAi
+    };
+    let mut d = RecoveryDecision::new(
+        machine,
+        "rc-agent.exe",
+        RecoveryAuthority::RcSentry,
+        action,
+        format!("pattern:{} restart_count:{}", pattern_key, restart_count),
+    );
+    d.context = format!("restarted:{}", restarted);
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +661,26 @@ mod tests {
         let resp = http_get(port, "/nonexistent");
         assert!(resp.contains("404"), "expected HTTP 404: {resp}");
         assert!(resp.contains("not found"), "expected not found message: {resp}");
+    }
+
+    #[test]
+    fn build_restart_decision_restart_action() {
+        let d = build_restart_decision("pod-3", "exit:101", true, false, 1);
+        assert_eq!(d.action, RecoveryAction::Restart);
+        assert!(d.reason.contains("exit:101"), "reason should contain pattern key: {}", d.reason);
+        assert_eq!(d.process, "rc-agent.exe");
+        assert_eq!(d.authority, RecoveryAuthority::RcSentry);
+    }
+
+    #[test]
+    fn build_restart_decision_maintenance_action() {
+        let d = build_restart_decision("pod-3", "unknown", false, true, 3);
+        assert_eq!(d.action, RecoveryAction::SkipMaintenanceMode);
+    }
+
+    #[test]
+    fn build_restart_decision_escalate_action() {
+        let d = build_restart_decision("pod-3", "panic:overflow", false, false, 3);
+        assert_eq!(d.action, RecoveryAction::EscalateToAi);
     }
 }
