@@ -136,12 +136,39 @@ fn main() {
 
                 // Check pattern memory for known fix
                 let memory = debug_memory::DebugMemory::load();
-                if let Some(known) = memory.instant_fix(&pattern_key) {
+                let pattern_hit_count = memory.instant_fix(&pattern_key)
+                    .map(|i| i.hit_count)
+                    .unwrap_or(0);
+                if pattern_hit_count > 0 {
                     tracing::info!(
                         target: "crash-handler",
                         "INSTANT FIX from pattern memory: {} (hit #{})",
-                        known.fix_type, known.hit_count
+                        memory.instant_fix(&pattern_key).map(|i| i.fix_type.as_str()).unwrap_or(""),
+                        pattern_hit_count
                     );
+                }
+
+                // Pattern escalation: skip restart if same crash seen 3+ times (SENT-01)
+                if should_escalate_pattern(pattern_hit_count) {
+                    tracing::error!(
+                        target: "crash-handler",
+                        "PATTERN ESCALATION: {} seen {} times — skipping restart, escalating to AI",
+                        pattern_key, pattern_hit_count
+                    );
+                    let mut decision = build_restart_decision(
+                        &machine,
+                        &pattern_key,
+                        false,
+                        false,
+                        pattern_hit_count,
+                    );
+                    decision.action = RecoveryAction::EscalateToAi;
+                    decision.reason = format!(
+                        "pattern_seen_{}x threshold:{}",
+                        pattern_hit_count, PATTERN_ESCALATION_THRESHOLD
+                    );
+                    let _ = recovery_logger.log(&decision);
+                    continue;
                 }
 
                 // Run Tier 1 fixes + restart
@@ -525,6 +552,12 @@ fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+const PATTERN_ESCALATION_THRESHOLD: u32 = 3;
+
+fn should_escalate_pattern(hit_count: u32) -> bool {
+    hit_count >= PATTERN_ESCALATION_THRESHOLD
+}
+
 /// Build a RecoveryDecision for a crash handler outcome.
 /// Extracted as a pure function so it can be unit-tested without I/O.
 pub(crate) fn build_restart_decision(
@@ -661,6 +694,18 @@ mod tests {
         let resp = http_get(port, "/nonexistent");
         assert!(resp.contains("404"), "expected HTTP 404: {resp}");
         assert!(resp.contains("not found"), "expected not found message: {resp}");
+    }
+
+    #[test]
+    fn should_escalate_below_threshold() {
+        assert!(!should_escalate_pattern(2));
+        assert!(!should_escalate_pattern(0));
+    }
+
+    #[test]
+    fn should_escalate_at_threshold() {
+        assert!(should_escalate_pattern(3));
+        assert!(should_escalate_pattern(10));
     }
 
     #[test]
