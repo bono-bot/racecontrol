@@ -17,7 +17,7 @@ gsd_state_version: 1.0
 milestone: v17.1
 milestone_name: Watchdog-to-AI Migration
 status: not_started
-stopped_at: "Roadmap created � ready to plan Phase 159"
+stopped_at: "Roadmap created, ready to plan Phase 159"
 last_updated: "2026-03-22T20:30:00+05:30"
 current_phase: 159
 current_phase_name: Recovery Consolidation Foundation
