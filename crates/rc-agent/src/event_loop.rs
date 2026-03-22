@@ -750,6 +750,29 @@ pub async fn run(
                         fix_result.fix_type, fix_result.detail, suggestion.suggestion
                     );
                 }
+                // Phase 140: AI action execution whitelist
+                if let Some(ai_action) = crate::ai_debugger::parse_ai_action(&suggestion.suggestion) {
+                    let safe = state.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed);
+                    let action_result = execute_ai_action(&ai_action, safe, &mut state.lock_screen);
+                    match &action_result {
+                        Ok(detail) => tracing::info!(
+                            target: LOG_TARGET,
+                            "[ai-action] {:?} executed — {} (model={})",
+                            ai_action, detail, suggestion.model
+                        ),
+                        Err(reason) => tracing::warn!(
+                            target: LOG_TARGET,
+                            "[ai-action] {:?} blocked — {} (model={})",
+                            ai_action, reason, suggestion.model
+                        ),
+                    }
+                    // Annotate suggestion text with action outcome for server audit
+                    let outcome = match &action_result {
+                        Ok(d) => format!("[AI-ACTION: {:?} — {}]", ai_action, d),
+                        Err(e) => format!("[AI-ACTION: {:?} — BLOCKED: {}]", ai_action, e),
+                    };
+                    suggestion.suggestion = format!("{}\n\n{}", outcome, suggestion.suggestion);
+                }
                 let msg = AgentMessage::AiDebugResult(suggestion);
                 let json = serde_json::to_string(&msg)?;
                 tracing::info!(target: LOG_TARGET, "Sending AiDebugResult via WebSocket...");
@@ -1387,6 +1410,93 @@ pub(crate) fn shm_connect_allowed(game_running_since: Option<std::time::Instant>
     }
 }
 
+/// Phase 140: Execute a whitelisted AI action with safe mode gate.
+///
+/// Destructive actions (KillEdge, KillGame, RestartRcAgent) are blocked when
+/// safe_mode is true (anti-cheat session active). Non-destructive actions
+/// (RelaunchLockScreen, ClearTemp) are always allowed.
+///
+/// All system commands (taskkill, cmd, process::exit) are gated behind
+/// #[cfg(not(test))] — safe to call in unit tests.
+pub(crate) fn execute_ai_action(
+    action: &crate::ai_debugger::AiSafeAction,
+    safe_mode: bool,
+    lock_screen: &mut crate::lock_screen::LockScreenManager,
+) -> Result<String, String> {
+    use crate::ai_debugger::AiSafeAction::*;
+
+    // Process-killing actions are blocked during anti-cheat safe mode
+    let is_destructive = matches!(action, KillEdge | KillGame | RestartRcAgent);
+    if is_destructive && safe_mode {
+        return Err("blocked: safe mode active".to_string());
+    }
+
+    match action {
+        KillEdge => {
+            #[cfg(not(test))]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/IM", "msedge.exe", "/F"])
+                    .output();
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/IM", "msedgewebview2.exe", "/F"])
+                    .output();
+            }
+            Ok("kill_edge executed".to_string())
+        }
+        RelaunchLockScreen => {
+            lock_screen.close_browser();
+            lock_screen.launch_browser();
+            Ok("relaunch_lock_screen executed".to_string())
+        }
+        RestartRcAgent => {
+            // Graceful restart: write sentinel file so watchdog knows this is intentional,
+            // then process::exit(0). The HKLM Run key / watchdog will restart rc-agent.
+            // Per cross-process recovery awareness: intentional exit must be distinguishable from crash.
+            #[cfg(not(test))]
+            {
+                let sentinel =
+                    std::path::Path::new("C:\\RacingPoint\\rcagent-restart-sentinel.txt");
+                let _ = std::fs::write(sentinel, "graceful restart by AI action");
+                // Spawn a delayed exit to allow WS message to flush
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+            }
+            Ok("restart_rcagent initiated".to_string())
+        }
+        KillGame => {
+            #[cfg(not(test))]
+            {
+                let game_exes = [
+                    "acs.exe",
+                    "F1_25.exe",
+                    "iRacingSim64DX11.exe",
+                    "LMU.exe",
+                    "ForzaMotorsport.exe",
+                    "assettocorsa2.exe",
+                ];
+                for exe in &game_exes {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/IM", exe, "/F"])
+                        .output();
+                }
+            }
+            Ok("kill_game executed".to_string())
+        }
+        ClearTemp => {
+            #[cfg(not(test))]
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "del /Q /F /S %TEMP%\\* 2>nul"])
+                    .output();
+            }
+            Ok("clear_temp executed".to_string())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1458,5 +1568,90 @@ mod tests {
             !shm_connect_allowed(None),
             "shm connect must NOT be allowed when game_running_since is None"
         );
+    }
+
+    // ─── Phase 140-02: execute_ai_action tests ────────────────────────────────
+
+    fn make_lock_screen() -> crate::lock_screen::LockScreenManager {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        crate::lock_screen::LockScreenManager::new(tx)
+    }
+
+    #[test]
+    fn test_execute_ai_action_kill_edge_safe_mode_false_ok() {
+        // Test 1: KillEdge with safe_mode=false → Ok (system cmd gated by #[cfg(not(test))])
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::KillEdge,
+            false,
+            &mut ls,
+        );
+        assert!(result.is_ok(), "KillEdge with safe_mode=false must return Ok");
+        assert_eq!(result.unwrap(), "kill_edge executed");
+    }
+
+    #[test]
+    fn test_execute_ai_action_kill_game_safe_mode_true_blocked() {
+        // Test 2: KillGame with safe_mode=true → blocked
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::KillGame,
+            true,
+            &mut ls,
+        );
+        assert!(result.is_err(), "KillGame with safe_mode=true must return Err");
+        assert_eq!(result.unwrap_err(), "blocked: safe mode active");
+    }
+
+    #[test]
+    fn test_execute_ai_action_kill_edge_safe_mode_true_blocked() {
+        // Test 3: KillEdge with safe_mode=true → blocked
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::KillEdge,
+            true,
+            &mut ls,
+        );
+        assert!(result.is_err(), "KillEdge with safe_mode=true must return Err");
+        assert_eq!(result.unwrap_err(), "blocked: safe mode active");
+    }
+
+    #[test]
+    fn test_execute_ai_action_restart_rcagent_safe_mode_true_blocked() {
+        // Test 4: RestartRcAgent with safe_mode=true → blocked
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::RestartRcAgent,
+            true,
+            &mut ls,
+        );
+        assert!(result.is_err(), "RestartRcAgent with safe_mode=true must return Err");
+        assert_eq!(result.unwrap_err(), "blocked: safe mode active");
+    }
+
+    #[test]
+    fn test_execute_ai_action_relaunch_lock_screen_safe_mode_true_allowed() {
+        // Test 5: RelaunchLockScreen with safe_mode=true → allowed (non-destructive)
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::RelaunchLockScreen,
+            true,
+            &mut ls,
+        );
+        assert!(result.is_ok(), "RelaunchLockScreen with safe_mode=true must return Ok");
+        assert_eq!(result.unwrap(), "relaunch_lock_screen executed");
+    }
+
+    #[test]
+    fn test_execute_ai_action_clear_temp_safe_mode_true_allowed() {
+        // Test 6: ClearTemp with safe_mode=true → allowed (non-destructive)
+        let mut ls = make_lock_screen();
+        let result = execute_ai_action(
+            &crate::ai_debugger::AiSafeAction::ClearTemp,
+            true,
+            &mut ls,
+        );
+        assert!(result.is_ok(), "ClearTemp with safe_mode=true must return Ok");
+        assert_eq!(result.unwrap(), "clear_temp executed");
     }
 }
