@@ -561,3 +561,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 06:49 IST | James | 2b6e388 | v17.0 deployed: rc-agent to all 8 pods + racecontrol to server .23 + racecontrol.toml (Ollama fix). 0 WARNs post-deploy. |
 | 2026-03-22 18:05 IST | James | f500c26 | feat(145-01): register 13 NVR channels (ch1-ch13) + ch1_h264 + CORS in go2rtc.yaml |
 | 2026-03-22 18:10 IST | James | 0cc56fa7 | docs(145-01): complete go2rtc infrastructure plan — WebRTC + snapshot coexistence verified live |
+| 2026-03-22 18:15 IST | James | 71bd2d1f | feat(146-01): add display_name, display_order, zone to CameraConfig with serde defaults |
+| 2026-03-22 18:16 IST | James | 2f0d0572 | feat(146-01): extend /api/v1/cameras to return full camera metadata (8 fields, no nulls) |
+| 2026-03-22 18:17 IST | James | e220d147 | docs(146-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (INFRA-03, INFRA-04 complete) |
