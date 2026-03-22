@@ -2152,7 +2152,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 144-01-PLAN.md — Integration test entry point: single command, structured output, exit code contract (GATE-01)
+- [x] 144-01-PLAN.md — Integration test entry point: single command, structured output, exit code contract (GATE-01)
 - [ ] 144-02-PLAN.md — Wire integration tests into GSD execute-phase verifier; failure blocks completion (GATE-02, GATE-03)
 
 ## v18.2 Progress
@@ -2163,4 +2163,4 @@ Plans:
 |-------|----------------|--------|-----------|
 | 142. Rules Hygiene | 1/1 | Complete    | 2026-03-22 |
 | 143. Integration Test Suite | 2/2 | Complete    | 2026-03-22 |
-| 144. GSD Quality Gate | 0/2 | Not started | - |
+| 144. GSD Quality Gate | 1/2 | In progress | - |

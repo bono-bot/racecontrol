@@ -22,7 +22,7 @@
 
 ### GSD Gate
 
-- [ ] **GATE-01**: Integration test invocable with single command (node test/integration.js or bash test/e2e.sh)
+- [x] **GATE-01**: Integration test invocable with single command (node test/integration.js or bash test/e2e.sh)
 - [ ] **GATE-02**: GSD execute-phase verifier runs integration test as part of phase verification
 - [ ] **GATE-03**: Integration test failures block phase from being marked complete
 
@@ -47,7 +47,7 @@
 | INTEG-03 | Phase 143 | Complete |
 | INTEG-04 | Phase 143 | Complete |
 | INTEG-05 | Phase 143 | Complete |
-| GATE-01 | Phase 144 | Pending |
+| GATE-01 | Phase 144 | Complete |
 | GATE-02 | Phase 144 | Pending |
 | GATE-03 | Phase 144 | Pending |
 
