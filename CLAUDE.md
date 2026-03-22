@@ -118,6 +118,9 @@
     - Always test recovery paths against **server downtime**, not just pod failures.
 11. **Allowlist Auth** — the `/api/v1/config/kiosk-allowlist` endpoint requires auth. rc-agent currently calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
 12. **Bono VPS exec (v18.0 — DEFAULT):** Use comms-link relay, not SSH. Single command: `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d '{"command":"git_pull"}'`. Chain: `curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[...]}'`. SSH (`ssh root@100.70.177.44`) only when relay is down.
+13. **E2E Before Shipped** — `cargo check` proves structure, not function. Any system that interacts with hardware (cameras, GPU, sensors, network devices) MUST be tested with live data before marking shipped. Compile-time verification cannot catch runtime data format mismatches (e.g. H.265 fed to H.264 decoder, AVCC framing vs Annex B).
+14. **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` that runs a loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Silent task death is unacceptable. Errors in new pipelines use `warn`/`error` level, not `debug`. Downgrade only after the pipeline is proven working with live data.
+15. **Standing Rules Sync** — after modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
 
 ---
 
