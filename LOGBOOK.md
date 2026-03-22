@@ -564,3 +564,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 18:15 IST | James | 71bd2d1f | feat(146-01): add display_name, display_order, zone to CameraConfig with serde defaults |
 | 2026-03-22 18:16 IST | James | 2f0d0572 | feat(146-01): extend /api/v1/cameras to return full camera metadata (8 fields, no nulls) |
 | 2026-03-22 18:17 IST | James | e220d147 | docs(146-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (INFRA-03, INFRA-04 complete) |
+| 2026-03-22 18:49 IST | James | 8267f3f8 | feat(146-02): add CameraLayout, LayoutState, GET/PUT /api/v1/cameras/layout with atomic file write |
+| 2026-03-22 18:50 IST | James | 66cb98c8 | feat(146-02): wire LayoutState into MjpegState in main.rs, load from camera-layout.json at startup |
+| 2026-03-22 18:52 IST | James | 0d3db4b6 | docs(146-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-04 complete) |
