@@ -628,8 +628,8 @@ fn default_watchdog_interval() -> u64 { 10 }
 fn default_heartbeat_timeout() -> i64 { 30 }
 fn default_restart_cooldown() -> i64 { 120 }
 fn default_claude_cli_timeout() -> u32 { 30 }
-fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
-fn default_ollama_model() -> String { "racing-point-ops".to_string() }
+fn default_ollama_url() -> String { "http://192.168.31.27:11434".to_string() }
+fn default_ollama_model() -> String { "qwen2.5:3b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
 fn default_healer_interval() -> u32 { 120 }
 fn default_false() -> bool { false }

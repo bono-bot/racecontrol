@@ -1021,6 +1021,18 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
         .map(|p| state.field_cipher.encrypt_field(p))
         .transpose().map_err(|e| anyhow::anyhow!("encrypt guardian_phone: {}", e))?;
 
+    // Clear customer_id from any other driver row to avoid UNIQUE constraint violation.
+    // Cloud is authoritative: if it says this driver owns this customer_id, release it elsewhere.
+    if let Some(cid) = driver.get("customer_id").and_then(|v| v.as_str()) {
+        if !cid.is_empty() {
+            sqlx::query("UPDATE drivers SET customer_id = NULL WHERE customer_id = ? AND id != ?")
+                .bind(cid)
+                .bind(id)
+                .execute(&state.db)
+                .await?;
+        }
+    }
+
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
     // PII stored in _enc/_hash columns only; plaintext columns set to NULL.
     sqlx::query(
