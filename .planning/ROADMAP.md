@@ -2328,11 +2328,11 @@ Plans:
   2. A warning banner appears in the admin dashboard for any item below its low-stock threshold
   3. An email alert fires when a low-stock threshold is breached
   4. Repeated threshold checks for the same item do not spam alerts (cooldown/dedup works)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 153-01: TBD
-- [ ] 153-02: TBD
+- [ ] 153-01-PLAN.md -- Backend: cafe_alerts module (WA + email), last_stock_alert_at cooldown, low-stock API route
+- [ ] 153-02-PLAN.md -- Frontend: LowStockItem type + api method + warning banner in cafe admin page
 
 ### Phase 154: Ordering Core
 **Goal**: Customers can order cafe items and pay from their RP wallet -- the core value delivery
