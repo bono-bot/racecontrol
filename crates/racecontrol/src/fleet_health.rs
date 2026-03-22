@@ -61,6 +61,11 @@ pub struct FleetHealthStore {
     pub violation_count_last_at: Option<String>,
     /// Phase 105 (v11.2): Last crash report from rc-sentry on this pod.
     pub last_sentry_crash: Option<rc_common::types::SentryCrashReport>,
+    /// Phase 138: Consecutive idle health check failures on this pod.
+    /// Reset to 0 when a passing tick is observed (not tracked server-side — just stores last reported count).
+    pub idle_health_fail_count: u32,
+    /// Phase 138: Check names from the most recent IdleHealthFailed message (e.g. ["lock_screen_http", "window_rect"]).
+    pub idle_health_failures: Vec<String>,
 }
 
 /// Per-pod violation history. Capped at 100 entries (FIFO eviction).
@@ -142,6 +147,10 @@ pub struct PodFleetStatus {
     pub violation_count_24h: u32,
     /// Phase 104: ISO-8601 timestamp of most recent violation.
     pub last_violation_at: Option<String>,
+    /// Phase 138: Consecutive idle health failures reported by this pod (0 = healthy).
+    pub idle_health_fail_count: u32,
+    /// Phase 138: Check names from most recent IdleHealthFailed.
+    pub idle_health_failures: Vec<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -311,6 +320,8 @@ pub async fn fleet_health_handler(
                     maintenance_failures: vec![],
                     violation_count_24h: 0,
                     last_violation_at: None,
+                    idle_health_fail_count: 0,
+                    idle_health_failures: vec![],
                 });
             }
             Some(info) => {
@@ -353,6 +364,9 @@ pub async fn fleet_health_handler(
                 let violation_count_24h = vstore.map(|vs| vs.violation_count_24h(now)).unwrap_or(0);
                 let last_violation_at = vstore.and_then(|vs| vs.last_violation_at()).map(String::from);
 
+                let idle_health_fail_count = store.map(|s| s.idle_health_fail_count).unwrap_or(0);
+                let idle_health_failures = store.map(|s| s.idle_health_failures.clone()).unwrap_or_default();
+
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -369,6 +383,8 @@ pub async fn fleet_health_handler(
                     maintenance_failures,
                     violation_count_24h,
                     last_violation_at,
+                    idle_health_fail_count,
+                    idle_health_failures,
                 });
             }
         }
