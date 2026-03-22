@@ -2296,11 +2296,11 @@ Plans:
   2. PWA displays cafe items grouped by category with images, descriptions, and selling price
   3. Unavailable items do not appear in either POS or PWA views
   4. Menu loads within 2 seconds on the cafe WiFi network
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 151-01: TBD
-- [ ] 151-02: TBD
+- [ ] 151-01-PLAN.md -- POS cafe menu display (kiosk CafeMenuPanel)
+- [ ] 151-02-PLAN.md -- PWA cafe menu page (customer-facing /cafe)
 
 ### Phase 152: Inventory Tracking
 **Goal**: Admin has full visibility into stock levels and can manage inventory for all countable items
