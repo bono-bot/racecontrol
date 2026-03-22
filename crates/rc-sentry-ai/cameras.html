@@ -106,13 +106,26 @@
   .dot-stale   { background: #ffc107; }
   .dot-offline { background: #E10600; }
 
-  /* ── Camera image ───────────────────────────────────────────── */
-  .cam img {
+  /* ── Camera image / video ──────────────────────────────────── */
+  .cam img, .cam video-stream {
     width: 100%; height: 100%;
     display: block;
     background: #000;
     cursor: pointer;
     object-fit: cover;
+  }
+  /* Hide go2rtc video-stream internal controls, status, and native video controls */
+  .cam video-stream video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+  .cam video-stream video::-webkit-media-controls { display: none !important; }
+  .cam video-stream video::-webkit-media-controls-enclosure { display: none !important; }
+  .cam video-stream .info,
+  .cam video-stream .mode,
+  .cam video-stream .status {
+    display: none !important;
   }
 
   /* ── Offline state ──────────────────────────────────────────── */
@@ -137,18 +150,17 @@
   /* ── Zone headers ───────────────────────────────────────────── */
   .zone-header {
     grid-column: 1 / -1;
-    padding: 4px 10px;
-    font-size: 0.65rem;
+    padding: 2px 10px;
+    font-size: 0.55rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #999;
-    background: #1A1A1A;
-    border-radius: 3px;
+    color: #666;
+    background: transparent;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     user-select: none;
   }
   .zone-header:hover { color: #ccc; }
@@ -669,29 +681,17 @@ function buildGrid() {
     groups[zone].push(camera);
   });
 
-  // Render each zone that has cameras
+  // Render all cameras in flat order (zone shown via colored left border)
+  var ZONE_COLORS = { entrance: '#E10600', reception: '#2196f3', pods: '#4caf50', other: '#666' };
+
+  // Flatten zones into ordered camera list
+  var orderedCameras = [];
   ZONE_ORDER.forEach(function(zone) {
-    var zoneCameras = groups[zone];
-    if (!zoneCameras || zoneCameras.length === 0) return;
+    var zc = groups[zone];
+    if (zc && zc.length > 0) zc.forEach(function(c) { orderedCameras.push(c); });
+  });
 
-    // Zone header
-    var header = document.createElement('div');
-    header.className = 'zone-header';
-    if (collapsedZones[zone]) header.classList.add('collapsed');
-
-    var arrow = document.createElement('span');
-    arrow.className = 'zone-arrow';
-    arrow.textContent = '\u25BC';
-
-    var labelText = document.createElement('span');
-    labelText.textContent = zone.toUpperCase() + ' (' + zoneCameras.length + ')';
-
-    header.appendChild(arrow);
-    header.appendChild(labelText);
-    gridEl.appendChild(header);
-
-    // Render cameras in this zone
-    zoneCameras.forEach(function(camera) {
+  orderedCameras.forEach(function(camera) {
       var ch = camera.nvr_channel;
 
       // Tile container
@@ -702,11 +702,9 @@ function buildGrid() {
       if (camera.status === 'offline' || camera.status === 'disconnected') {
         tile.classList.add('offline');
       }
-
-      // Apply hidden state if zone is collapsed
-      if (collapsedZones[zone]) {
-        tile.classList.add('zone-cameras-hidden');
-      }
+      // Zone indicator: colored left border
+      var zoneColor = ZONE_COLORS[camera.zone || 'other'] || '#666';
+      tile.style.borderLeft = '3px solid ' + zoneColor;
 
       // Label bar
       var label = document.createElement('div');
@@ -852,22 +850,6 @@ function buildGrid() {
         dotElements[ch]  = dot;
       }
     });
-
-    // Zone header click handler — toggle collapse
-    header.addEventListener('click', function() {
-      var isCollapsed = !collapsedZones[zone];
-      collapsedZones[zone] = isCollapsed;
-      header.classList.toggle('collapsed', isCollapsed);
-
-      // Toggle visibility of all tiles in this zone
-      zoneCameras.forEach(function(camera) {
-        var ch = camera.nvr_channel;
-        if (ch != null && tileElements[ch]) {
-          tileElements[ch].classList.toggle('zone-cameras-hidden', isCollapsed);
-        }
-      });
-    });
-  });
 }
 
 // ── Layout mode switching ─────────────────────────────────────────────────────
