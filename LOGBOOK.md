@@ -522,3 +522,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 10:35 IST | James | 680fc74 | feat(133-01): add delegation protocol types + envelope tests |
 | 2026-03-22 10:40 IST | James | 464d175 | docs(133-01): complete AuditLogger + delegation protocol foundation plan SUMMARY, STATE, ROADMAP, REQUIREMENTS |
 | 2026-03-22 01:55 IST | James | 02f9961 | feat(07-01): add dashboard to Caddy depends_on in compose.yml |
+| 2026-03-22 01:57 IST | James | 680226f | docs(07-01): complete dashboard Caddy dependency plan SUMMARY, STATE, ROADMAP |
+| 2026-03-22 07:29 IST | James | 0f8e2e5 | docs(07-02): complete dashboard cloud deploy plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (DASH-01-05) |
