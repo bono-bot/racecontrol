@@ -2364,8 +2364,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 155-01: TBD
-- [ ] 155-02: TBD
+- [ ] 155-01-PLAN.md -- Backend: WhatsApp receipt dispatch, thermal print dispatch, GET /customer/cafe/orders/history endpoint
+- [ ] 155-02-PLAN.md -- PWA: /cafe/orders order history page with expand/collapse rows, human verify checkpoint
 
 ### Phase 156: Promotions Engine
 **Goal**: Admin can create and configure promotional deals that drive cafe revenue
