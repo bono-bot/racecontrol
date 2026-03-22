@@ -991,18 +991,19 @@ pub async fn run(
                     continue;
                 }
 
-                // IDLE-01: probe the full display stack
+                // IDLE-01: probe lock screen HTTP server
+                // NOTE: window_rect disabled for idle health — FindWindowA matches
+                // ConspitLink WebView2 windows (same Chrome_WidgetWin_1 class) causing
+                // false failures on all pods. HTTP probe is the reliable check.
+                // Window rect remains in pre-flight (session-start gate, less noise).
                 let http_result = crate::pre_flight::check_lock_screen_http().await;
-                let rect_result = crate::pre_flight::check_window_rect().await;
 
                 let http_failed = matches!(http_result.status, crate::pre_flight::CheckStatus::Fail);
-                // window_rect returns Warn when Edge not found — treat Warn as failure for healing
-                let rect_failed = matches!(rect_result.status, crate::pre_flight::CheckStatus::Fail | crate::pre_flight::CheckStatus::Warn);
 
-                if !http_failed && !rect_failed {
-                    // All checks passed — reset hysteresis counter
+                if !http_failed {
+                    // HTTP check passed — reset hysteresis counter
                     if conn.idle_health_fail_count > 0 {
-                        tracing::info!(target: LOG_TARGET, "Idle health: all checks passed — resetting failure count");
+                        tracing::info!(target: LOG_TARGET, "Idle health: HTTP check passed — resetting failure count");
                     }
                     conn.idle_health_fail_count = 0;
                     continue;
@@ -1010,14 +1011,8 @@ pub async fn run(
 
                 // IDLE-02: self-heal on failure
                 let mut failure_names: Vec<String> = Vec::new();
-                if http_failed {
-                    failure_names.push("lock_screen_http".to_string());
-                    tracing::warn!(target: LOG_TARGET, "Idle health: lock_screen_http failed — {}", http_result.detail);
-                }
-                if rect_failed {
-                    failure_names.push("window_rect".to_string());
-                    tracing::warn!(target: LOG_TARGET, "Idle health: window_rect check failed — {}", rect_result.detail);
-                }
+                failure_names.push("lock_screen_http".to_string());
+                tracing::warn!(target: LOG_TARGET, "Idle health: lock_screen_http failed — {}", http_result.detail);
                 tracing::warn!(target: LOG_TARGET, "Idle health: self-healing — close + relaunch browser");
                 state.lock_screen.close_browser();
                 state.lock_screen.launch_browser();
