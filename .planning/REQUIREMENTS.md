@@ -35,21 +35,21 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RECOV-01 | — | Pending |
-| RECOV-02 | — | Pending |
-| RECOV-03 | — | Pending |
-| RECOV-04 | — | Pending |
-| CHAIN-10 | — | Pending |
-| CHAIN-11 | — | Pending |
-| VIS-01 | — | Pending |
-| VIS-02 | — | Pending |
-| VIS-03 | — | Pending |
+| RECOV-01 | Phase 135 | Pending |
+| RECOV-02 | Phase 135 | Pending |
+| RECOV-03 | Phase 135 | Pending |
+| RECOV-04 | Phase 135 | Pending |
+| CHAIN-10 | Phase 136 | Pending |
+| CHAIN-11 | Phase 136 | Pending |
+| VIS-01 | Phase 136 | Pending |
+| VIS-02 | Phase 136 | Pending |
+| VIS-03 | Phase 136 | Pending |
 
 **Coverage:**
 - v18.1 requirements: 9 total
-- Mapped to phases: 0
-- Unmapped: 9
+- Mapped to phases: 9
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-22 after roadmap creation (v18.1)*

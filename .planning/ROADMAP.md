@@ -1940,3 +1940,47 @@ Plans:
 | 132. Chain Orchestration | 2/2 | Complete    | 2026-03-21 |
 | 133. Task Delegation + Audit Trail | 2/2 | Complete    | 2026-03-21 |
 | 134. Advanced Chain Features + Integration Hardening | 2/2 | Complete    | 2026-03-21 |
+
+---
+
+## v18.1 Seamless Execution Hardening -- Phase Details
+
+> All implementation lives in `C:/Users/bono/racingpoint/comms-link` (separate repo from racecontrol).
+> Two phases: Windows daemon recovery (James-only, Task Scheduler + HKLM Run key) and code-only chain + visibility fixes.
+
+## Phases (v18.1)
+
+- [ ] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04)
+- [ ] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03)
+
+### Phase 135: Daemon Recovery
+**Goal**: James comms-link daemon survives crashes and reboots — auto-restarts within 30s after a crash and starts automatically on Windows boot
+**Depends on**: Nothing (first v18.1 phase)
+**Requirements**: RECOV-01, RECOV-02, RECOV-03, RECOV-04
+**Success Criteria** (what must be TRUE):
+  1. After killing the comms-link Node process on James, the daemon is running again within 30 seconds without any manual action
+  2. After rebooting James's Windows machine, comms-link is running and connected before any user interaction
+  3. Bono receives a WhatsApp or email notification when the James daemon crashes and again when it recovers
+  4. james_watchdog.ps1 detects a stopped comms-link process and restarts it — the watchdog itself is managed by Task Scheduler with a repeat interval
+**Plans**: TBD
+
+### Phase 136: Chain Endpoint + Visibility
+**Goal**: /relay/chain/run returns chain results synchronously (no 504), and callers can always tell whether the relay is connected before sending
+**Depends on**: Phase 135
+**Requirements**: CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03
+**Success Criteria** (what must be TRUE):
+  1. POST /relay/chain/run returns a chain_result JSON body within the chain timeout — not a 504 gateway timeout
+  2. chain_result WS messages arriving at james/index.js are routed through ExecResultBroker.handleResult() so the HTTP caller's promise resolves
+  3. GET /relay/health returns a JSON body with connection mode (connected/disconnected) and last heartbeat timestamp
+  4. POST /relay/exec/run returns HTTP 503 with a descriptive error message when the WS to Bono is disconnected — not a hang or silent failure
+  5. Exec skills (comms-link skill wrappers) call /relay/health before sending and surface connection status to the caller when the relay is down
+**Plans**: TBD
+
+## v18.1 Progress
+
+**Execution Order:** 135 -> 136
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 135. Daemon Recovery | 0/2 | Not started | - |
+| 136. Chain Endpoint + Visibility | 0/2 | Not started | - |
