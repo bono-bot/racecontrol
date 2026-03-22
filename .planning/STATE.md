@@ -3,13 +3,23 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 154-01-PLAN.md
-last_updated: "2026-03-22T16:34:09.308Z"
+stopped_at: "Completed 154-03-PLAN.md"
+last_updated: "2026-03-22T17:48:00+05:30"
+current_phase: 154
+current_phase_name: Ordering Core
+current_plan: 04
 progress:
+  [██████████] 98%
   total_phases: 124
   completed_phases: 91
   total_plans: 218
-  completed_plans: 213
+  completed_plans: 214
+  percent: 98
+decisions:
+  - "154-03: Cart state React-only (no localStorage) — simple and sufficient for staff POS flow"
+  - "154-03: Out-of-stock overlay on card (not disabled button) for unambiguous visual status"
+  - "154-03: Driver autocomplete filters preloaded list client-side — no per-keystroke API calls"
+  - "154-03: Order preserved on API error so staff can adjust and retry without rebuilding cart"
 ---
 
 ---
