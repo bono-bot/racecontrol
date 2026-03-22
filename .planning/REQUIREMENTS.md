@@ -15,14 +15,14 @@
 ### Pod Monitor Migration
 
 - [x] **PMON-01**: pod_monitor checks billing_active before triggering WoL/restart — never wake a deliberately offline pod during maintenance
-- [ ] **PMON-02**: pod_monitor merges with pod_healer into single recovery authority — no separate restart logic
+- [x] **PMON-02**: pod_monitor merges with pod_healer into single recovery authority — no separate restart logic
 - [x] **PMON-03**: pod recovery uses graduated response: 1st failure → wait 30s, 2nd → Tier 1 fix, 3rd → AI escalation, 4th+ → alert staff
 
 ### James Watchdog Migration
 
-- [ ] **JWAT-01**: Replace james_watchdog.ps1 with a Rust-based monitor using AI debugger pattern memory
-- [ ] **JWAT-02**: James monitor checks Ollama, Claude Code, comms-link, webterm with graduated response (not blind restart)
-- [ ] **JWAT-03**: James monitor alerts Bono via comms-link WS on repeated failures instead of silent restart
+- [x] **JWAT-01**: Replace james_watchdog.ps1 with a Rust-based monitor using AI debugger pattern memory
+- [x] **JWAT-02**: James monitor checks Ollama, Claude Code, comms-link, webterm with graduated response (not blind restart)
+- [x] **JWAT-03**: James monitor alerts Bono via comms-link WS on repeated failures instead of silent restart
 
 ### Recovery Consolidation
 
@@ -55,11 +55,11 @@
 | SENT-03 | Phase 160 | Complete |
 | SENT-04 | Phase 160 | Complete |
 | PMON-01 | Phase 161 | Complete |
-| PMON-02 | Phase 161 | Pending |
+| PMON-02 | Phase 161 | Complete |
 | PMON-03 | Phase 161 | Complete |
-| JWAT-01 | Phase 162 | Pending |
-| JWAT-02 | Phase 162 | Pending |
-| JWAT-03 | Phase 162 | Pending |
+| JWAT-01 | Phase 162 | Complete |
+| JWAT-02 | Phase 162 | Complete |
+| JWAT-03 | Phase 162 | Complete |
 
 **Coverage:**
 - v17.1 requirements: 13 total

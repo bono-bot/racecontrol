@@ -620,3 +620,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 21:15 IST | James | a97015a8 | chore(161-02): verify single-authority, update ROADMAP Phase 161 complete |
 | 2026-03-22 21:15 IST | James | 94f4732a | docs(161-02): SUMMARY + STATE + ROADMAP for 161-02 plan completion |
 | 2026-03-22 21:30 IST | James | 375f6e9d | docs(162): phase 162 plan — james watchdog migration (2 plans) |
+| 2026-03-22 21:11 IST | James | ca187c3c | feat(162-01): add failure_state.rs + bono_alert.rs — persistent JSON state, atomic write, degraded Bono alert |
+| 2026-03-22 21:11 IST | James | 3d67f8b5 | feat(162-01): implement james_monitor.rs graduated response + main.rs --service branching, 29 tests green |
