@@ -1439,8 +1439,10 @@ Plans:
 - [x] **Phase 101: Protocol Foundation** - completed 2026-03-21
 - [x] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - completed 2026-03-21
 - [x] **Phase 103: Pod Guard Module** - completed 2026-03-21
-- [x] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration (completed 2026-03-21)
-- [x] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation (completed 2026-03-21)
+- [x] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration
+ (completed 2026-03-21)
+- [x] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation
+ (completed 2026-03-21)
 
 ## v12.1 Phase Details (continued)
 
@@ -1962,7 +1964,10 @@ Plans:
   2. After rebooting James's Windows machine, comms-link is running and connected before any user interaction
   3. Bono receives a WhatsApp or email notification when the James daemon crashes and again when it recovers
   4. james_watchdog.ps1 detects a stopped comms-link process and restarts it — the watchdog itself is managed by Task Scheduler with a repeat interval
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 135-01-PLAN.md — Create james_watchdog.ps1 and register-comms-watchdog.js
+- [ ] 135-02-PLAN.md — Register Task Scheduler task, verify boot Run key, integration test
 
 ### Phase 136: Chain Endpoint + Visibility
 **Goal**: /relay/chain/run returns chain results synchronously (no 504), and callers can always tell whether the relay is connected before sending
