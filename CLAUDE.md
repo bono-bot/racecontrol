@@ -96,6 +96,10 @@ curl -s http://localhost:8766/relay/health   # health + connection mode
 **All three must pass. No exceptions. No "I'll verify later."**
 _Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Every bug was caught only by manual E2E after deploy. This rule ensures automated + live + compliance verification happens BEFORE shipped._
 
+**4. Visual verification for display-affecting deploys:**
+Any change that touches lock screen, Edge kiosk, overlay, blanking, or browser launch MUST include a visual check — ask the user "are the screens showing correctly?" BEFORE marking shipped. Build IDs, fleet health, and cargo tests cannot catch flicker, misalignment, or rendering issues. Do NOT declare "PASS" from terminal output alone when the change affects what customers see.
+_Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cycle every 30s, plus location.reload() every 5s). Four deploy rounds declared "fixed" without anyone looking at the screens. The flicker was obvious to anyone in the venue._
+
 ### Deploy
 
 - **Remote deploy sequence (rc-agent):** (1) `cargo build --release`, (2) copy to deploy-staging, (3) start HTTP server on :9998, (4) exec download on pod: `curl.exe -s -o C:\RacingPoint\rc-agent-new.exe http://192.168.31.27:9998/rc-agent.exe`, (5) exec `RCAGENT_SELF_RESTART` sentinel — rc-agent calls `relaunch_self()` → `start-rcagent.bat` swaps `rc-agent-new.exe` → `rc-agent.exe` and starts the new binary. (6) verify build_id on `/health`.
