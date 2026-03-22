@@ -611,3 +611,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 20:12 IST | James | f8b6333c | feat(153-01): cafe_alerts module — check_low_stock_alerts + reset_alert_cooldown + 8 unit tests + last_stock_alert_at migration |
 | 2026-03-22 20:13 IST | James | 8695adff | feat(153-01): wire GET /cafe/items/low-stock route + restock integration calling alert check/reset |
 | 2026-03-22 20:14 IST | James | 9b8e2a5a | docs(153-01): 153-01-SUMMARY.md + STATE.md + ROADMAP.md phase 153 1/2 |
+| 2026-03-22 20:25 IST | James | 330aaf7b | feat(160-02): add pattern-hit escalation to rc-sentry crash handler |
+| 2026-03-22 20:25 IST | James | d07c686d | feat(160-02): pre-restart Ollama query with 8s timeout for unknown patterns |
+| 2026-03-22 20:25 IST | James | ea288a92 | docs(160-02): complete pattern escalation + pre-restart Ollama plan |
