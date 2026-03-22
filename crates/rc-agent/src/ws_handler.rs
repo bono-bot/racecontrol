@@ -958,10 +958,49 @@ pub async fn handle_ws_message(
             tracing::info!(target: LOG_TARGET, "Process guard: whitelist updated via WS push ({} processes)", wl.processes.len());
         }
 
+        CoreToAgentMessage::ForceRelaunchBrowser { pod_id: _ } => {
+            // Phase 139: Server-initiated lock screen recovery.
+            // Guard: never relaunch during an active billing session (standing rule #10).
+            if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Ignoring ForceRelaunchBrowser -- billing is active, skipping relaunch"
+                );
+            } else {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "ForceRelaunchBrowser received -- relaunching Edge lock screen"
+                );
+                state.lock_screen.close_browser();
+                state.lock_screen.launch_browser();
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "ForceRelaunchBrowser: close_browser + launch_browser complete"
+                );
+            }
+        }
+
         other => {
             tracing::warn!(target: LOG_TARGET, "Unhandled CoreToAgentMessage: {:?}", other);
         }
     }
 
     Ok(HandleResult::Continue)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn force_relaunch_browser_variant_exists() {
+        // Verify the variant deserializes correctly from JSON
+        // (tests protocol contract without spawning browser)
+        let json = r#"{"type":"force_relaunch_browser","data":{"pod_id":"pod-1"}}"#;
+        let msg: rc_common::protocol::CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            rc_common::protocol::CoreToAgentMessage::ForceRelaunchBrowser { pod_id } => {
+                assert_eq!(pod_id, "pod-1");
+            }
+            _ => panic!("expected ForceRelaunchBrowser"),
+        }
+    }
 }
