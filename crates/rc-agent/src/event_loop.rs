@@ -970,12 +970,23 @@ pub async fn run(
 
                 // BWDOG-01: check browser child process liveness
                 if !state.lock_screen.is_browser_alive() {
-                    tracing::warn!(
-                        target: LOG_TARGET,
-                        "Browser watchdog: Edge not alive — relaunching"
-                    );
-                    state.lock_screen.close_browser();
-                    state.lock_screen.launch_browser();
+                    // Edge may be running without our child handle (launched by prior
+                    // rc-agent instance or previous watchdog cycle). If Edge processes
+                    // exist, don't kill+relaunch — that causes screen flicker every 30s.
+                    if edge_count > 0 {
+                        tracing::debug!(
+                            target: LOG_TARGET,
+                            "Browser watchdog: no child handle but {} msedge.exe running — skipping relaunch",
+                            edge_count
+                        );
+                    } else {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            "Browser watchdog: Edge not alive (0 processes) — relaunching"
+                        );
+                        state.lock_screen.close_browser();
+                        state.lock_screen.launch_browser();
+                    }
                 }
             }
 
