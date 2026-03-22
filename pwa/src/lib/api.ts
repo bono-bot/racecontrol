@@ -142,6 +142,19 @@ export interface CafeOrderResponse {
   items: CafeOrderItemDetail[];
 }
 
+export interface CafeOrderHistoryItem {
+  id: string;
+  receipt_number: string;
+  items: CafeOrderItemDetail[];
+  total_paise: number;
+  status: string;
+  created_at: string;
+}
+
+export interface CafeOrderHistoryResponse {
+  orders: CafeOrderHistoryItem[];
+}
+
 export interface DriverProfile {
   id: string;
   customer_id: string | null;
@@ -1091,6 +1104,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ driver_id: "", items }),
     }),
+
+  getCafeOrderHistory: () =>
+    fetchApi<CafeOrderHistoryResponse>("/customer/cafe/orders/history"),
 };
 
 // ─── Leaderboard Types ────────────────────────────────────────────────────
