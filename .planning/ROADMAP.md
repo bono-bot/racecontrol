@@ -2004,7 +2004,7 @@ Close 6 architectural gaps that prevented the system from self-healing when Edge
 - [x] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions (completed 2026-03-22)
 - [x] **Phase 139: Healer Edge Recovery** - Pod healer adds HealAction::RelaunchLockScreen for failed lock screen HTTP checks; healer sends ForceRelaunchBrowser WS message to pod; rc-agent handles ForceRelaunchBrowser via close_browser + launch_browser (completed 2026-03-22)
 - [x] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
-- [ ] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation
+- [x] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation (completed 2026-03-22)
 
 ## v17.0 Phase Details
 
@@ -2093,7 +2093,7 @@ Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser r
 | 138. Idle Health Monitor | 3/3 | Complete    | 2026-03-22 |
 | 139. Healer Edge Recovery | 2/2 | Complete    | 2026-03-22 |
 | 140. AI Action Execution Whitelist | 1/2 | Complete    | 2026-03-22 |
-| 141. WARN Log Scanner | 1/2 | In Progress|  |
+| 141. WARN Log Scanner | 2/2 | Complete   | 2026-03-22 |
 
 ---
 
