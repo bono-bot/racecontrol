@@ -2567,7 +2567,12 @@ Plans:
   1. Each active repo (racingpoint-admin, comms-link, deploy-staging, kiosk) has a CLAUDE.md with the standing rules subset relevant to that repo domain
   2. Bono VPS repos have the same standing rules applied - verified by reading a Bono repo CLAUDE.md via comms-link relay
   3. Running the compliance check script from James prints "All repos compliant" and exits 0, or exits non-zero listing exactly which repos are missing which rule categories
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 172-01-PLAN.md — Write CLAUDE.md rule subsets for all James-side active repos (14 repos)
+- [ ] 172-02-PLAN.md — Update comms-link CLAUDE.md categories + write compliance check script
+- [ ] 172-03-PLAN.md — Sync Bono VPS repos via relay and run compliance verification
 
 ### Phase 173: API Contracts
 **Goal**: Every API boundary is documented, shared TypeScript types are extracted for kiosk and admin API communication, OpenAPI specs are generated for racecontrol REST endpoints, contract tests break on drift, and a CI check enforces this on every PR
