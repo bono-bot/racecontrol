@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { api } from "@/lib/api";
-import type { CafeItem, CafeCategory, CreateCafeItemRequest } from "@/lib/api";
+import type {
+  CafeItem,
+  CafeCategory,
+  CreateCafeItemRequest,
+  ImportPreview,
+  ConfirmedImportRow,
+} from "@/lib/api";
 
 const formatRupees = (paise: number) => `\u20b9${(paise / 100).toFixed(2)}`;
 
@@ -34,6 +40,13 @@ export default function CafePage() {
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creatingCategory, setCreatingCategory] = useState(false);
+
+  // Import modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importConfirming, setImportConfirming] = useState(false);
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
 
   async function loadData() {
     try {
@@ -146,12 +159,75 @@ export default function CafePage() {
     }
   }
 
+  async function handleImageUpload(itemId: string, file: File) {
+    setUploadingImageId(itemId);
+    try {
+      const res = await api.uploadCafeItemImage(itemId, file);
+      const filename = res.image_url.split("/").pop() || "";
+      setItems((prev) =>
+        prev.map((i) => (i.id === itemId ? { ...i, image_path: filename } : i))
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to upload image");
+    } finally {
+      setUploadingImageId(null);
+    }
+  }
+
+  async function handleImportPreview(file: File) {
+    setImportLoading(true);
+    try {
+      const preview = await api.importCafePreview(file);
+      setImportPreview(preview);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to parse file");
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function handleImportConfirm() {
+    if (!importPreview) return;
+    setImportConfirming(true);
+    try {
+      const validRows: ConfirmedImportRow[] = importPreview.rows
+        .filter((r) => r.valid)
+        .map((r) => ({
+          name: r.name,
+          category: r.category,
+          selling_price_paise: Math.round(parseFloat(r.selling_price) * 100),
+          cost_price_paise: Math.round(parseFloat(r.cost_price) * 100),
+          description: r.description || null,
+        }));
+      const res = await api.confirmCafeImport(validRows);
+      alert(`Successfully imported ${res.imported} items`);
+      setShowImportModal(false);
+      setImportPreview(null);
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImportConfirming(false);
+    }
+  }
+
+  function closeImportModal() {
+    setShowImportModal(false);
+    setImportPreview(null);
+    setImportLoading(false);
+    setImportConfirming(false);
+  }
+
   function getCategoryName(categoryId: string): string {
     return categories.find((c) => c.id === categoryId)?.name || categoryId;
   }
 
   const inputClass =
     "w-full bg-[#1A1A1A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-[#5A5A5A] focus:outline-none focus:border-[#E10600] transition-colors";
+
+  const displayRows = importPreview
+    ? importPreview.rows.slice(0, 100)
+    : [];
 
   return (
     <DashboardLayout>
@@ -161,12 +237,20 @@ export default function CafePage() {
           <h1 className="text-2xl font-bold text-white">Cafe Menu</h1>
           <p className="text-sm text-[#5A5A5A]">Manage cafe items and categories</p>
         </div>
-        <button
-          onClick={openAddPanel}
-          className="bg-[#E10600] text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#c40500] transition-colors"
-        >
-          Add Item
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="bg-[#222222] border border-[#333333] text-neutral-300 text-sm font-semibold px-4 py-2 rounded-lg hover:border-[#E10600] hover:text-white transition-colors"
+          >
+            Import
+          </button>
+          <button
+            onClick={openAddPanel}
+            className="bg-[#E10600] text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#c40500] transition-colors"
+          >
+            Add Item
+          </button>
+        </div>
       </div>
 
       {/* Main flex container */}
@@ -191,6 +275,9 @@ export default function CafePage() {
                       Name
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-[#5A5A5A] uppercase tracking-wider">
+                      Image
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-[#5A5A5A] uppercase tracking-wider">
                       Category
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-[#5A5A5A] uppercase tracking-wider">
@@ -211,6 +298,56 @@ export default function CafePage() {
                   {items.map((item) => (
                     <tr key={item.id} className="hover:bg-[#1A1A1A]/50 transition-colors">
                       <td className="px-4 py-3 text-neutral-200 font-medium">{item.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {item.image_path ? (
+                            <img
+                              src={`/static/cafe-images/${item.image_path}`}
+                              alt={item.name}
+                              className="w-10 h-10 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded bg-[#1A1A1A] border border-[#333333] flex items-center justify-center text-[#5A5A5A] text-xs">
+                              No img
+                            </div>
+                          )}
+                          <label
+                            className="cursor-pointer text-[#5A5A5A] hover:text-[#E10600] transition-colors"
+                            title="Upload image"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="w-4 h-4"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
+                            </svg>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={uploadingImageId === item.id}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(item.id, file);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-neutral-400">
                         {getCategoryName(item.category_id)}
                       </td>
@@ -402,6 +539,165 @@ export default function CafePage() {
           </div>
         )}
       </div>
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={closeImportModal}
+        >
+          <div
+            className="bg-[#222222] border border-[#333333] rounded-xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#333333]">
+              <h2 className="text-lg font-bold text-white">Import Menu Items</h2>
+              <button
+                onClick={closeImportModal}
+                className="text-[#5A5A5A] hover:text-white transition-colors text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {importPreview === null ? (
+                /* Step 1: File Upload */
+                <div>
+                  {importLoading ? (
+                    <div className="text-center py-16 text-[#5A5A5A] text-sm">
+                      Parsing file...
+                    </div>
+                  ) : (
+                    <label className="block cursor-pointer">
+                      <div className="border-2 border-dashed border-[#333333] rounded-xl p-16 text-center hover:border-[#E10600] transition-colors">
+                        <div className="text-[#5A5A5A] text-sm mb-2">
+                          Drop an XLSX or CSV file here, or click to browse
+                        </div>
+                        <div className="text-[#5A5A5A] text-xs">
+                          Supported columns: Name, Category, Selling Price, Cost Price, Description
+                        </div>
+                      </div>
+                      <input
+                        type="file"
+                        accept=".xlsx,.csv"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportPreview(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              ) : (
+                /* Step 2: Preview Table */
+                <div>
+                  {/* Summary */}
+                  <div className="flex items-center gap-4 mb-4">
+                    <span className="text-sm text-neutral-300">
+                      <span className="text-emerald-400 font-semibold">{importPreview.valid_rows} valid</span>
+                      {importPreview.invalid_rows > 0 && (
+                        <>, <span className="text-red-400 font-semibold">{importPreview.invalid_rows} invalid</span></>
+                      )}
+                      <span className="text-[#5A5A5A]"> of {importPreview.total_rows} total rows</span>
+                    </span>
+                  </div>
+
+                  {/* Column mapping bar */}
+                  {importPreview.columns.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {importPreview.columns.map((col) => (
+                        <span
+                          key={col.index}
+                          className={`text-xs px-2 py-1 rounded font-medium ${
+                            col.mapped_to
+                              ? "bg-[#1A1A1A] border border-[#333333] text-neutral-300"
+                              : "bg-amber-500/10 border border-amber-500/30 text-amber-400"
+                          }`}
+                        >
+                          {col.mapped_to ? `${col.mapped_to}: ${col.header}` : `? ${col.header}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Preview table */}
+                  <div className="max-h-96 overflow-y-auto border border-[#333333] rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-[#1A1A1A]">
+                        <tr className="border-b border-[#333333]">
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">#</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Name</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Category</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Sell Price</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Cost Price</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Description</th>
+                          <th className="text-left px-3 py-2 text-[#5A5A5A] uppercase tracking-wider font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#333333]/50">
+                        {displayRows.map((row) => (
+                          <tr
+                            key={row.row_num}
+                            className={row.valid ? "" : "bg-red-500/10"}
+                          >
+                            <td className="px-3 py-2 text-[#5A5A5A]">{row.row_num}</td>
+                            <td className="px-3 py-2 text-neutral-200">{row.name || <span className="text-red-400 italic">empty</span>}</td>
+                            <td className="px-3 py-2 text-neutral-400">{row.category}</td>
+                            <td className="px-3 py-2 text-neutral-300 font-mono">{row.selling_price}</td>
+                            <td className="px-3 py-2 text-neutral-400 font-mono">{row.cost_price}</td>
+                            <td className="px-3 py-2 text-[#5A5A5A] max-w-xs truncate">{row.description || ""}</td>
+                            <td className="px-3 py-2">
+                              {row.valid ? (
+                                <span className="text-emerald-400 font-semibold">OK</span>
+                              ) : (
+                                <span className="text-red-400 font-semibold" title={row.errors.join("; ")}>
+                                  {row.errors.join(", ")}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importPreview.total_rows > 100 && (
+                    <p className="text-xs text-[#5A5A5A] mt-2">
+                      Showing first 100 of {importPreview.total_rows} rows
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {importPreview !== null && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-[#333333]">
+                <button
+                  onClick={() => setImportPreview(null)}
+                  disabled={importConfirming}
+                  className="bg-[#1A1A1A] border border-[#333333] text-neutral-400 text-sm font-semibold px-4 py-2 rounded-lg hover:text-white hover:border-neutral-500 disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleImportConfirm}
+                  disabled={importPreview.valid_rows === 0 || importConfirming}
+                  className="bg-[#E10600] text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-[#c40500] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {importConfirming
+                    ? "Importing..."
+                    : `Import ${importPreview.valid_rows} Item${importPreview.valid_rows !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
