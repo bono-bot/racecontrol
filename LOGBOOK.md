@@ -591,3 +591,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 18:18 IST | James | be01510e | feat(150-02): /cafe import modal (2-step: file upload -> preview table with column mapping + red invalid rows) + image column with thumbnail + camera icon upload |
 | 2026-03-22 18:20 IST | James | aab31406 | docs(150-02): 150-02-SUMMARY.md + STATE.md progress 99% + ROADMAP.md phase 150 Complete |
 | 22/3/2026 18:54:14 IST | James | f40a7372 | docs(150-02): mark plan fully complete after checkpoint approval — STATE/ROADMAP/REQUIREMENTS updated |
+| 2026-03-22 20:45 IST | James | adc9204b | feat(151-01): add CafeMenuItem types and publicCafeMenu API method |
+| 2026-03-22 20:47 IST | James | a4dec792 | feat(151-01): build CafeMenuPanel and integrate into POS control page |
+| 2026-03-22 20:49 IST | James | 2d60fb7c | docs(151-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 151 plan 01 complete) |
