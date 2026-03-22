@@ -1,92 +1,60 @@
-# Requirements: Racing Point Operations — v17.0 AI Debugger Autonomy & Self-Healing
+# Requirements: v18.2 Debugging & Quality Gates
 
 **Defined:** 2026-03-22
-**Core Value:** Pods self-heal browser/display issues autonomously — no human intervention needed for Edge crashes, stacking, or lock screen failures.
+**Core Value:** Bugs must be caught by automated tests BEFORE deploy, not discovered manually after. Standing rules must be organized so they're actually followed, not skimmed.
 
-## v17.0 Requirements
+## v18.2 Requirements
 
-### Browser Watchdog
+### Rules Hygiene
 
-- [x] **BWDOG-01**: rc-agent polls browser_process liveness every 30s and relaunches Edge if dead
-- [x] **BWDOG-02**: rc-agent detects Edge stacking (>5 msedge.exe processes) and kills all before relaunching
-- [x] **BWDOG-03**: close_browser() kills ALL msedge.exe and msedgewebview2.exe, not just the spawned child
-- [x] **BWDOG-04**: Browser watchdog is suppressed during safe mode (anti-cheat active) — no taskkill while protected game is running
+- [ ] **RULES-01**: CLAUDE.md standing rules reorganized into named categories (Deploy, Comms, Code Quality, Process, Debugging)
+- [ ] **RULES-02**: Obsolete/duplicate rules pruned (rules superseded by v18.0, duplicate across sections)
+- [ ] **RULES-03**: Each rule has a one-line justification comment so future sessions can evaluate relevance
+- [ ] **RULES-04**: standing-rules.md memory file matches CLAUDE.md (no drift)
 
-### Idle Health Monitor
+### Integration Tests
 
-- [x] **IDLE-01**: rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session is active
-- [x] **IDLE-02**: Idle health failure triggers close_browser + launch_browser (self-heal before alerting)
-- [ ] **IDLE-03**: Idle health sends IdleHealthFailed message to server after 3 consecutive failures (hysteresis)
-- [x] **IDLE-04**: Idle health checks are skipped during active billing sessions — no interference with running games
+- [ ] **INTEG-01**: Integration test starts comms-link daemon, sends exec_request over WS, verifies exec_result with correct fields
+- [ ] **INTEG-02**: Integration test sends chain_request with 2+ steps, verifies chain_result with matching chainId and all step outputs
+- [ ] **INTEG-03**: Integration test sends message with from:james, verifies relay and persistence
+- [ ] **INTEG-04**: Cross-platform syntax check runs node --check on all source files on both James and Bono
+- [ ] **INTEG-05**: Contract tests verify chainId passthrough, from field preservation, MessageType routing
 
-### AI Action Execution
+### GSD Gate
 
-- [ ] **AIACT-01**: AI debugger Tier 3/4 responses are parsed for structured safe actions from a whitelist
-- [ ] **AIACT-02**: Safe action whitelist includes: kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp
-- [ ] **AIACT-03**: Executed AI actions are logged to activity_log with action, source model, and outcome
-- [ ] **AIACT-04**: AI actions that kill processes are gated by safe mode check — blocked when anti-cheat active
-
-### Healer Edge Recovery
-
-- [ ] **HEAL-01**: Pod healer adds HealAction::RelaunchLockScreen when lock screen HTTP check fails
-- [ ] **HEAL-02**: RelaunchLockScreen sends ForceRelaunchBrowser WS message to pod (rc-agent handles relaunch)
-- [ ] **HEAL-03**: rc-agent handles ForceRelaunchBrowser message by calling close_browser + launch_browser
-
-### WARN Log Scanner
-
-- [ ] **WARN-01**: Pod healer scans racecontrol log for WARN count in last 5 minutes each cycle
-- [ ] **WARN-02**: WARN threshold exceeded (>50/5min) triggers AI escalation with log context
-- [ ] **WARN-03**: Recurring identical WARNs are grouped and deduplicated before AI escalation
-
-## Future Requirements
-
-### Browser Watchdog Enhancements
-
-- **BWDOG-05**: Browser watchdog reports Edge crash count to fleet health dashboard
-- **BWDOG-06**: Edge auto-update suppression verified on every watchdog cycle
-
-### AI Debugger Enhancements
-
-- **AIACT-05**: AI learns from executed action outcomes (success/failure) to improve future suggestions
-- **AIACT-06**: Dashboard shows pending AI suggestions with approve/reject for non-whitelisted actions
+- [ ] **GATE-01**: Integration test invocable with single command (node test/integration.js or bash test/e2e.sh)
+- [ ] **GATE-02**: GSD execute-phase verifier runs integration test as part of phase verification
+- [ ] **GATE-03**: Integration test failures block phase from being marked complete
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Full AI shell access | Security risk — whitelist-only safe actions |
-| Auto-restart rc-agent from healer | rc-sentry already handles this — avoid recovery system fights (standing rule #10) |
-| Browser watchdog as separate binary | Belongs in rc-agent, not a new process to deploy |
-| Real-time log streaming to dashboard | Nice-to-have, not self-healing — defer to future milestone |
-| Edge browser replacement | Edge kiosk mode works — the issue was lack of monitoring, not the browser |
+| Full CI/CD pipeline | v17.0 Phase 127 handles CI/CD — this milestone is about the local test gate |
+| Rewriting GSD executor | The executor is fine — just needs the integration test wired as a post-step |
+| Mock-based integration tests | Defeats the purpose — tests must run against real daemons |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BWDOG-01 | Phase 137 | Complete |
-| BWDOG-02 | Phase 137 | Complete |
-| BWDOG-03 | Phase 137 | Complete |
-| BWDOG-04 | Phase 137 | Complete |
-| IDLE-01 | Phase 138 | Complete |
-| IDLE-02 | Phase 138 | Complete |
-| IDLE-03 | Phase 138 | In progress (protocol variant done; agent+server in 138-02/03) |
-| IDLE-04 | Phase 138 | Complete |
-| AIACT-01 | Phase 140 | Pending |
-| AIACT-02 | Phase 140 | Pending |
-| AIACT-03 | Phase 140 | Pending |
-| AIACT-04 | Phase 140 | Pending |
-| HEAL-01 | Phase 139 | Pending |
-| HEAL-02 | Phase 139 | Pending |
-| HEAL-03 | Phase 139 | Pending |
-| WARN-01 | Phase 141 | Pending |
-| WARN-02 | Phase 141 | Pending |
-| WARN-03 | Phase 141 | Pending |
+| RULES-01 | — | Pending |
+| RULES-02 | — | Pending |
+| RULES-03 | — | Pending |
+| RULES-04 | — | Pending |
+| INTEG-01 | — | Pending |
+| INTEG-02 | — | Pending |
+| INTEG-03 | — | Pending |
+| INTEG-04 | — | Pending |
+| INTEG-05 | — | Pending |
+| GATE-01 | — | Pending |
+| GATE-02 | — | Pending |
+| GATE-03 | — | Pending |
 
 **Coverage:**
-- v17.0 requirements: 18 total
-- Mapped to phases: 18
-- Unmapped: 0 (100% coverage)
+- v18.2 requirements: 12 total
+- Mapped to phases: 0
+- Unmapped: 12
 
 ---
 *Requirements defined: 2026-03-22*
