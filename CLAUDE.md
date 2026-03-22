@@ -75,17 +75,93 @@
 
 ---
 
-## Deployment Rules
+## Standing Rules
 
-1. **Verification sequence (NO EXCEPTIONS):** kill → delete → download → size check → start → connect
-2. **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation
-3. **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods
-4. **Clean old binaries** before downloading new. Never leave stale binaries.
-5. **Latest builds take priority** — check comms-link logbook to confirm newest
-6. **.bat files:** clean ASCII + CRLF. Use bash heredoc + `sed 's/$/\r/'`. Never Write tool directly (adds UTF-8 BOM = breaks cmd.exe).
-7. **Deploy staging:** `C:\Users\bono\racingpoint\deploy-staging\`
-8. **Pendrive:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod
-9. **Static CRT:** `.cargo/config.toml` enables +crt-static — no vcruntime140.dll dependency
+### Deploy
+
+- **Verification sequence (NO EXCEPTIONS):** kill → delete → download → size check → start → connect. Clean old binaries before downloading; never leave stale ones. Latest build ID must match `git rev-parse --short HEAD` recorded before staging.
+  _Why: Nine post-deploy failures traced to skipped steps or stale binaries overwritten by a concurrent session._
+- **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
+  _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
+- **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
+  _Why: Pod 8 canary catches runtime failures (DLL missing, wrong CWD, config mismatch) before fleet-wide damage._
+- **Deploy staging path:** `C:\Users\bono\racingpoint\deploy-staging\`
+  _Why: Consistent staging root prevents "which binary is current" confusion across sessions._
+- **Pendrive install:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod.
+  _Why: Pendrive path is fixed; using ad-hoc paths leaves install.bat version drift._
+
+### Comms
+
+- **Bono INBOX.md:** Append to `C:\Users\bono\racingpoint\comms-link\INBOX.md` → `git add INBOX.md && git commit && git push`. Entry format: `## YYYY-MM-DD HH:MM IST — from james`. Then also send via WS (send-message.js). Git push alone is insufficient — Bono does not auto-pull.
+  _Why: Git-only comms left Bono's context stale on three occasions; WS+git is the required dual channel._
+- **Auto-push + notify (atomic sequence):** `git push` → comms-link WS message → INBOX.md entry. Do all three before marking tasks complete, starting new work, or responding to Uday. Every push, every commit — even cleanup/docs/logbook. No ranking of "important" vs "minor" commits.
+  _Why: Commits without push leave Bono's context stale and break deploy chains; treating minor commits as optional caused missed notifications._
+- **Bono VPS exec (v18.0 — DEFAULT):** Use comms-link relay, not SSH. Single: `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d '{"command":"git_pull"}'`. Chain: `curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[...]}'`. SSH (`ssh root@100.70.177.44`) only when relay is down.
+  _Why: SSH requires Tailscale up and leaves no audit trail; relay is always-on and returns structured results._
+- **Standing Rules Sync:** After modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
+  _Why: Rules drift between AIs causes inconsistent behavior and contradictory decisions in multi-agent tasks._
+
+### Code Quality
+
+- **No `.unwrap()` in production Rust** — use `?`, `.ok()`, or match.
+  _Why: Unwrap panics crash the entire service; production code must degrade gracefully._
+- **No `any` in TypeScript** — type everything explicitly.
+  _Why: `any` hides real type errors that surface at runtime, not compile time._
+- **`.bat` files: clean ASCII + CRLF.** Use bash heredoc + `sed 's/$/\r/'`. Never Write tool directly (adds UTF-8 BOM = breaks cmd.exe). Never use parentheses in if/else — use `goto` labels. Test with `cmd /c` before deploying.
+  _Why: BOM and parentheses in .bat files cause silent command failures on Windows; caught after multiple broken deploys._
+- **Static CRT:** `.cargo/config.toml` `+crt-static` — no vcruntime140.dll dependency on pods.
+  _Why: Pod images don't ship VS redistributables; dynamic CRT causes instant crash-on-launch._
+- **Cascade updates:** When changing a process, update ALL linked references (training data, playbooks, prompts, docs, memory). Never change one place and leave stale references.
+  _Why: Stale references in playbooks or prompts cause both AIs to apply the old behavior after a fix._
+- **Next.js hydration:** Never read `sessionStorage`/`localStorage` in `useState` initializer — use `useEffect` + hydrated flag.
+  _Why: SSR reads fail server-side; hydration mismatch breaks the entire page silently._
+- **Git Bash JSON:** Write JSON payloads to a file with Write tool, then `curl -d @file`. Bash string escaping mangles backslashes.
+  _Why: Inline JSON in Git Bash strips backslashes from Windows paths, corrupting the payload._
+
+### Process
+
+- **Refactor Second** — characterization tests first, verify green, then refactor. No exceptions.
+  _Why: Refactoring without a green test baseline turns every compile error into an unknown regression._
+- **Cross-Process Updates** — changing a feature? Update ALL: rc-agent, racecontrol, PWA, Admin, Gateway, Dashboard.
+  _Why: Single-crate updates leave other components speaking a different protocol version, causing silent data corruption._
+- **No Fake Data** — use `TEST_ONLY`, `0000000000`, or leave empty. Never real-looking identifiers.
+  _Why: Realistic-looking fake data (names, IDs, emails) has leaked into production databases twice._
+- **Prompt Quality Check** — missing clarity/specificity/actionability/scope → ask one focused question before acting.
+  _Why: Acting on ambiguous prompts produces work that must be redone; one question costs less than one wrong implementation._
+- **Learn From Past Fixes** — check LOGBOOK + commit history before re-investigating.
+  _Why: Re-investigating solved problems wastes session time; LOGBOOK has resolved the same issue in under 2 minutes._
+- **LOGBOOK:** After every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`.
+  _Why: LOGBOOK is Tier 2 debugging — without consistent entries, memory-based debugging fails._
+
+### Debugging
+
+- **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others.
+  - A graceful self-restart must be distinguishable from a real crash (use sentinel files or IPC).
+  - Escalation (e.g. MAINTENANCE_MODE) must know *why* restarts are happening, not just count them. Server-down restarts ≠ pod crashes.
+  - WoL auto-wake will revive pods that entered MAINTENANCE_MODE, creating infinite loops. Any "pod offline" recovery must check whether the pod was deliberately taken offline.
+  - Always test recovery paths against **server downtime**, not just pod failures.
+
+  _Why: Self-restart + watchdog + WoL created an infinite restart loop that took 45 minutes to diagnose; the systems had no coordination._
+- **Allowlist Auth known issue** — `/api/v1/config/kiosk-allowlist` requires auth. rc-agent calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
+  _Why: Known gap; documenting here prevents it being "fixed" in isolation without updating rc-agent._
+- **"Shipped" Means "Works For The User"** — A milestone is NOT shipped until every user-facing endpoint is verified working at runtime:
+  - Binary built, deployed, and **running** (not just compiled). All runtime dependencies present (DLLs, models, config files).
+  - Every API endpoint returns correct data (not just HTTP 200 — check response content).
+  - Every UI page renders and is interactive (open in browser, verify visually with screenshot).
+  - Hardware integrations tested with live data (cameras, GPU inference, network devices).
+  - **Frontend: verify from the user's browser, not from the server.** `NEXT_PUBLIC_` env vars are baked at build time — rebuild with correct LAN IP.
+  - **Frontend: standalone deploy requires `.next/static` copied into `.next/standalone/`.**
+
+  _Why: "Phase Complete" was reported 9 times based on compilation alone — runtime failures were hidden each time._
+- **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Errors in new pipelines use `warn`/`error`, not `debug`.
+  _Why: Silent task death (panic in spawned thread, channel close) went undetected for hours because no lifecycle logs existed._
+
+### Security
+
+- **Allowlist auth required** on `/api/v1/config/kiosk-allowlist` — see Debugging section for full context.
+  _Why: Unauthenticated endpoint would allow any LAN device to overwrite the process allowlist._
+- **Process guard safe mode:** Do not disable rc-process-guard during testing sessions — use the allowlist override instead.
+  _Why: Disabling the guard entirely during a test left the machine unprotected when the session ended without re-enabling it._
 
 ---
 
@@ -97,39 +173,6 @@
 | 2 | **Memory** | After Tier 1 fails | Check LOGBOOK.md + commit history for identical past incident |
 | 3 | **Local Ollama** | After Tier 2 fails | Query qwen3:0.6b at James .27:11434 |
 | 4 | **Cloud Claude** | Last resort | Escalate — NOT auto-triggered |
-
----
-
-## Standing Process Rules
-
-1. **Refactor Second** — characterization tests first, verify green, then refactor. No exceptions.
-2. **Cross-Process Updates** — changing a feature? Update ALL: rc-agent, racecontrol, PWA, Admin, Gateway, Dashboard.
-3. **No Fake Data** — use `TEST_ONLY`, `0000000000`, or leave empty. Never real-looking identifiers.
-4. **Prompt Quality Check** — missing clarity/specificity/actionability/scope → ask one focused question before acting.
-5. **Learn From Past Fixes** — check LOGBOOK + commit history before re-investigating.
-6. **Bono comms:** append to `C:\Users\bono\racingpoint\comms-link\INBOX.md` → `git add INBOX.md && git commit && git push`. Entry format: `## YYYY-MM-DD HH:MM IST — from james`
-7. **Auto-push rule:** always `git push` after every commit. No exceptions.
-8. **Bono deploy updates:** `git push` → comms-link WS message → INBOX.md entry is an **atomic sequence**. Do all three before marking tasks complete, starting new work, or responding to the user. Every push, every commit — even cleanup/docs/logbook. No mental ranking of "important" vs "minor" commits.
-9. **LOGBOOK:** after every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`
-10. **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others. Specifically:
-    - A graceful self-restart must be distinguishable from a real crash (use sentinel files or IPC).
-    - Escalation (e.g. MAINTENANCE_MODE) must know *why* restarts are happening, not just count them. Server-down restarts ≠ pod crashes.
-    - WoL auto-wake will revive pods that entered MAINTENANCE_MODE, creating infinite loops. Any "pod offline" recovery must check whether the pod was deliberately taken offline.
-    - Always test recovery paths against **server downtime**, not just pod failures.
-11. **Allowlist Auth** — the `/api/v1/config/kiosk-allowlist` endpoint requires auth. rc-agent currently calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
-12. **Bono VPS exec (v18.0 — DEFAULT):** Use comms-link relay, not SSH. Single command: `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d '{"command":"git_pull"}'`. Chain: `curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[...]}'`. SSH (`ssh root@100.70.177.44`) only when relay is down.
-13. **"Shipped" Means "Works For The User"** — A milestone is NOT shipped until every user-facing endpoint is verified working at runtime. The verification checklist MUST include:
-    - Binary built, deployed, and **running** (not just compiled).
-    - All runtime dependencies present (DLLs, models, config files, directories).
-    - Every API endpoint returns correct data (not just HTTP 200 — check response content).
-    - Every UI page renders and is interactive (open in browser, verify visually with screenshot).
-    - Hardware integrations tested with live data (cameras, GPU inference, network devices).
-    - `cargo check` and unit tests are necessary but NOT sufficient. They prove structure, not function.
-    - Never report "all green" based on compilation alone. 9 deployment failures were hidden behind "Phase Complete ✓" because no runtime test was performed.
-    - **Frontend: verify from the user's browser, not from the server.** A Next.js page that calls `localhost:8080` works when the browser is on the server but fails from any other machine. `NEXT_PUBLIC_` env vars are baked at build time — rebuild with the correct LAN IP. Always open the dashboard from a different machine than the server to catch `localhost` hardcoding.
-    - **Frontend: standalone deploy requires `.next/static` copied into `.next/standalone/`** — Next.js standalone mode outputs `server.js` without static assets. Missing this step causes "client-side exception" errors.
-14. **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` that runs a loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Silent task death is unacceptable. Errors in new pipelines use `warn`/`error` level, not `debug`. Downgrade only after the pipeline is proven working with live data.
-15. **Standing Rules Sync** — after modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
 
 ---
 

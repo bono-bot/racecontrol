@@ -41,7 +41,7 @@ pub fn mjpeg_router(state: Arc<MjpegState>) -> axum::Router {
 
     axum::Router::new()
         .route("/api/v1/cameras", get(cameras_list_handler))
-        .route("/api/v1/cameras/{name}/stream", get(mjpeg_stream_handler))
+        .route("/api/v1/cameras/:name/stream", get(mjpeg_stream_handler))
         .with_state(state)
         .layer(cors)
 }
