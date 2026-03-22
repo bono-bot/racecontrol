@@ -126,6 +126,8 @@
     - Hardware integrations tested with live data (cameras, GPU inference, network devices).
     - `cargo check` and unit tests are necessary but NOT sufficient. They prove structure, not function.
     - Never report "all green" based on compilation alone. 9 deployment failures were hidden behind "Phase Complete ✓" because no runtime test was performed.
+    - **Frontend: verify from the user's browser, not from the server.** A Next.js page that calls `localhost:8080` works when the browser is on the server but fails from any other machine. `NEXT_PUBLIC_` env vars are baked at build time — rebuild with the correct LAN IP. Always open the dashboard from a different machine than the server to catch `localhost` hardcoding.
+    - **Frontend: standalone deploy requires `.next/static` copied into `.next/standalone/`** — Next.js standalone mode outputs `server.js` without static assets. Missing this step causes "client-side exception" errors.
 14. **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` that runs a loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Silent task death is unacceptable. Errors in new pipelines use `warn`/`error` level, not `debug`. Downgrade only after the pipeline is proven working with live data.
 15. **Standing Rules Sync** — after modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
 
