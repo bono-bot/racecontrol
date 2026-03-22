@@ -1,17 +1,32 @@
 ---
 gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: not_started
+stopped_at: "Completed quick task 260322-pa9: Add UI consistency standing rule and camera dashboard keyboard navigation"
+last_updated: "2026-03-22T13:30:15.033Z"
+progress:
+  total_phases: 124
+  completed_phases: 84
+  total_plans: 201
+  completed_plans: 198
+---
+
+---
+gsd_state_version: 1.0
 milestone: v17.1
 milestone_name: Watchdog-to-AI Migration
 status: not_started
-stopped_at: "Defining requirements"
-last_updated: "2026-03-22T20:00:00+05:30"
-current_phase: null
-current_phase_name: null
+stopped_at: "Roadmap created � ready to plan Phase 159"
+last_updated: "2026-03-22T20:30:00+05:30"
+current_phase: 159
+current_phase_name: Recovery Consolidation Foundation
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
+  percent: 0
 ---
 
 ---

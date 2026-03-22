@@ -2420,7 +2420,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 149. Menu Data Model & CRUD | 2/2 | Complete    | 2026-03-22 |
-| 150. Menu Import | 2/2 | Complete   | 2026-03-22 |
+| 150. Menu Import | 2/2 | Complete    | 2026-03-22 |
 | 151. Menu Display | 0/0 | Not started | - |
 | 152. Inventory Tracking | 0/0 | Not started | - |
 | 153. Inventory Alerts | 0/0 | Not started | - |
@@ -2429,3 +2429,86 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | 156. Promotions Engine | 0/0 | Not started | - |
 | 157. Promotions Integration | 0/0 | Not started | - |
 | 158. Marketing & Content | 0/0 | Not started | - |
+
+## v17.1 Watchdog-to-AI Migration
+
+Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that detects patterns, escalates intelligently, and never causes more problems than it solves. Single recovery authority per machine, no fighting between systems.
+
+- [ ] **Phase 159: Recovery Consolidation Foundation** - Single recovery authority per machine, decision logging, and anti-cascade guard to prevent recovery systems fighting each other
+- [ ] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection
+- [ ] **Phase 161: Pod Monitor Merge** - Merge pod_monitor into pod_healer as single recovery authority with billing-aware WoL and graduated response
+- [ ] **Phase 162: James Watchdog Migration** - Replace james_watchdog.ps1 with Rust-based AI monitor using pattern memory, graduated response, and Bono escalation
+
+## Phase Details
+
+### Phase 159: Recovery Consolidation Foundation
+**Goal**: No two recovery systems on any machine can restart the same process — single authority established, every recovery action is logged, and a cascade guard halts all recovery and alerts staff if 3+ actions fire within 60s
+**Depends on**: Phase 158 (last completed phase)
+**Requirements**: CONS-01, CONS-02, CONS-03
+**Success Criteria** (what must be TRUE):
+  1. A recovery authority registry exists (in racecontrol.toml or AppState) that maps each process to exactly one owner — no unregistered recovery system can trigger a restart
+  2. Every restart, kill, and WoL decision is written to a recovery log (timestamp, machine, process, authority, reason) — an operator can read the log and understand why any recovery fired
+  3. When 3+ recovery actions fire across any systems within 60 seconds, all automated recovery pauses and Uday receives a WhatsApp alert with the cascade summary — the system never silently spirals
+  4. The anti-cascade guard distinguishes normal multi-pod recovery bursts (server downtime → all 8 pods restart) from true cascade scenarios — server-down restarts do not falsely trigger the guard
+**Plans**: TBD
+
+Plans:
+- [ ] 159-01: TBD
+- [ ] 159-02: TBD
+
+### Phase 160: RC-Sentry AI Migration
+**Goal**: rc-sentry stops blindly restarting rc-agent and instead checks pattern memory, distinguishes graceful restarts from real crashes, escalates to Ollama for unknown patterns, and logs every decision — blind 5s health poll + restart loop replaced end-to-end
+**Depends on**: Phase 159
+**Requirements**: SENT-01, SENT-02, SENT-03, SENT-04
+**Success Criteria** (what must be TRUE):
+  1. When the same crash pattern recurs 3+ times within 10 minutes, rc-sentry does not restart rc-agent — it queries Ollama instead and the restart is blocked until AI responds or timeout fires
+  2. When rc-agent performs a graceful self-restart (RCAGENT_SELF_RESTART sentinel file present), rc-sentry detects it and does not escalate — no false-positive Ollama queries or staff alerts on intentional restarts
+  3. Every restart decision made by rc-sentry is written to the activity log with: timestamp, crash pattern matched (or "unknown"), action taken, and outcome — the log shows a full audit trail
+  4. When Ollama is queried for an unknown crash pattern, the response (or timeout) is recorded in debug-memory.json — the same pattern is handled faster on next occurrence
+**Plans**: TBD
+
+Plans:
+- [ ] 160-01: TBD
+- [ ] 160-02: TBD
+
+### Phase 161: Pod Monitor Merge
+**Goal**: pod_monitor and pod_healer become a single recovery authority — pod_monitor's WoL/restart logic merges into pod_healer, the separate restart path is deleted, maintenance-offline pods are never woken, and recovery uses a 4-step graduated response instead of immediate restart
+**Depends on**: Phase 159
+**Requirements**: PMON-01, PMON-02, PMON-03
+**Success Criteria** (what must be TRUE):
+  1. A pod in MAINTENANCE_MODE is never woken by WoL or restarted — pod_monitor checks billing_active and maintenance flags before triggering any recovery action
+  2. There is one code path for pod recovery (pod_healer) — the old pod_monitor restart logic is deleted and cargo grep finds no duplicate restart triggers
+  3. A first pod failure waits 30 seconds before any action; second failure triggers Tier 1 fix (rc-agent service restart); third failure escalates to AI; fourth failure alerts staff — the graduated response is observable in the recovery log
+  4. Staff can observe the current recovery tier for any pod from the fleet health dashboard — the dashboard shows "waiting / Tier 1 / AI escalation / staff alert" state per pod
+**Plans**: TBD
+
+Plans:
+- [ ] 161-01: TBD
+- [ ] 161-02: TBD
+
+### Phase 162: James Watchdog Migration
+**Goal**: james_watchdog.ps1 is replaced by a Rust binary that monitors Ollama, Claude Code, comms-link, and webterm with pattern memory and graduated response — blind 2-minute PowerShell restart loop eliminated, Bono is alerted on repeated failures instead of silent restarts continuing indefinitely
+**Depends on**: Phase 159
+**Requirements**: JWAT-01, JWAT-02, JWAT-03
+**Success Criteria** (what must be TRUE):
+  1. james_watchdog.ps1 is no longer running on James (.27) — the Rust monitor binary has replaced it in the Windows Task Scheduler and HKLM Run entries
+  2. When any monitored service (Ollama, Claude Code, comms-link, webterm) fails once, the monitor waits and retries before acting — a single transient failure does not trigger an immediate restart
+  3. When a monitored service fails 3+ times within a session, the Rust monitor sends a comms-link WS message to Bono with the service name, failure count, and last known error — Bono receives the alert without James or Uday needing to notice
+  4. Pattern memory persists across monitor restarts (debug-memory.json on James) — known failure patterns are recognized and acted on immediately without re-learning from scratch
+**Plans**: TBD
+
+Plans:
+- [ ] 162-01: TBD
+- [ ] 162-02: TBD
+
+## v17.1 Progress
+
+**Execution Order:** 159 -> 160 -> 161 -> 162
+Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/161/162 can execute in parallel after 159 completes.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 159. Recovery Consolidation Foundation | 0/0 | Not started | - |
+| 160. RC-Sentry AI Migration | 0/0 | Not started | - |
+| 161. Pod Monitor Merge | 0/0 | Not started | - |
+| 162. James Watchdog Migration | 0/0 | Not started | - |

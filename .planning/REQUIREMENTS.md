@@ -47,25 +47,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SENT-01 | — | Pending |
-| SENT-02 | — | Pending |
-| SENT-03 | — | Pending |
-| SENT-04 | — | Pending |
-| PMON-01 | — | Pending |
-| PMON-02 | — | Pending |
-| PMON-03 | — | Pending |
-| JWAT-01 | — | Pending |
-| JWAT-02 | — | Pending |
-| JWAT-03 | — | Pending |
-| CONS-01 | — | Pending |
-| CONS-02 | — | Pending |
-| CONS-03 | — | Pending |
+| CONS-01 | Phase 159 | Pending |
+| CONS-02 | Phase 159 | Pending |
+| CONS-03 | Phase 159 | Pending |
+| SENT-01 | Phase 160 | Pending |
+| SENT-02 | Phase 160 | Pending |
+| SENT-03 | Phase 160 | Pending |
+| SENT-04 | Phase 160 | Pending |
+| PMON-01 | Phase 161 | Pending |
+| PMON-02 | Phase 161 | Pending |
+| PMON-03 | Phase 161 | Pending |
+| JWAT-01 | Phase 162 | Pending |
+| JWAT-02 | Phase 162 | Pending |
+| JWAT-03 | Phase 162 | Pending |
 
 **Coverage:**
 - v17.1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13
+- Mapped to phases: 13
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-22 after roadmap creation (phases 159-162 assigned)*
