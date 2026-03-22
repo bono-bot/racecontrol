@@ -61,6 +61,8 @@ pub async fn run(
     let mut last_frame_count: u64 = 0;
     let mut log_first_frame = true;
     let mut poll_count: u64 = 0;
+    let mut consecutive_decode_errors: u32 = 0;
+    const DECODER_RESET_THRESHOLD: u32 = 50;
 
     loop {
         // Poll for new frame
@@ -90,6 +92,7 @@ pub async fn run(
         // Decode H.264 NAL to RGB
         let decoded = match decoder.decode(&frame_data.data) {
             Ok(Some(d)) => {
+                consecutive_decode_errors = 0;
                 if log_first_frame {
                     tracing::info!(camera = %camera_name, w = d.width, h = d.height, rgb_len = d.rgb.len(), "first successful decode");
                 }
@@ -102,8 +105,31 @@ pub async fn run(
                 continue;
             }
             Err(e) => {
-                if log_first_frame {
-                    tracing::warn!(camera = %camera_name, error = %e, data_len = frame_data.data.len(), frame = frame_data.frame_count, "frame decode failed");
+                consecutive_decode_errors += 1;
+                if consecutive_decode_errors <= 3 || consecutive_decode_errors % 100 == 0 {
+                    tracing::warn!(
+                        camera = %camera_name,
+                        error = %e,
+                        data_len = frame_data.data.len(),
+                        frame = frame_data.frame_count,
+                        consecutive_errors = consecutive_decode_errors,
+                        "frame decode failed"
+                    );
+                }
+                if consecutive_decode_errors >= DECODER_RESET_THRESHOLD {
+                    tracing::warn!(
+                        camera = %camera_name,
+                        errors = consecutive_decode_errors,
+                        "resetting decoder after sustained errors"
+                    );
+                    decoder = match super::decoder::FrameDecoder::new() {
+                        Ok(d) => d,
+                        Err(e) => {
+                            tracing::error!(camera = %camera_name, error = %e, "failed to recreate decoder");
+                            return;
+                        }
+                    };
+                    consecutive_decode_errors = 0;
                 }
                 continue;
             }

@@ -80,13 +80,28 @@ async fn connect_and_stream(
     tracing::info!(
         camera = %camera.name,
         fps = camera.fps,
-        "stream connected, extracting frames"
+        "stream connected, waiting for keyframe"
     );
+
+    let mut seen_keyframe = false;
 
     while let Some(item) = session.next().await {
         let item = item.map_err(|e| anyhow::anyhow!("stream item error: {e}"))?;
         match item {
             retina::codec::CodecItem::VideoFrame(frame) => {
+                if !seen_keyframe {
+                    if frame.is_random_access_point() {
+                        seen_keyframe = true;
+                        tracing::info!(
+                            camera = %camera.name,
+                            "keyframe received, starting frame extraction"
+                        );
+                    } else {
+                        // Skip P/B-frames before first keyframe — decoder
+                        // cannot decode them without a reference I-frame.
+                        continue;
+                    }
+                }
                 frame_buf.update(&camera.name, frame.data().to_vec()).await;
                 // Rate limit to configured FPS
                 tokio::time::sleep(frame_interval).await;
