@@ -613,6 +613,8 @@ async fn main() -> anyhow::Result<()> {
                 "version": env!("CARGO_PKG_VERSION"),
             }))
         }))
+        // Static file serving for cafe item images
+        .nest_service("/static/cafe-images", tower_http::services::ServeDir::new("./data/cafe-images"))
         // Reverse proxy: kiosk UI + Next.js assets → localhost:3300
         .fallback(kiosk_proxy)
         .layer(axum_mw::from_fn(jwt_error_to_401))
