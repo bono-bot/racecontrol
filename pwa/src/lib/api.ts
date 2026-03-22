@@ -91,6 +91,26 @@ async function fetchApi<T>(
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+export interface CafeMenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category_id: string;
+  category_name: string;
+  selling_price_paise: number;
+  cost_price_paise: number;
+  is_available: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  image_path: string | null;
+}
+
+export interface CafeMenuResponse {
+  items: CafeMenuItem[];
+  total: number;
+  page: number;
+}
+
 export interface DriverProfile {
   id: string;
   customer_id: string | null;
@@ -1077,6 +1097,11 @@ export interface LapTelemetryData {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
+export function getImageBaseUrl(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+  return base.replace(/\/api\/v1$/, "");
+}
+
 export const publicApi = {
   leaderboard: () =>
     fetch(`${API_BASE_URL}/public/leaderboard`).then(r => r.json()),
@@ -1120,6 +1145,9 @@ export const publicApi = {
   sessionSummary: (id: string) =>
     fetch(`${API_BASE_URL}/public/sessions/${encodeURIComponent(id)}`)
       .then(r => r.json()) as Promise<PublicSessionSummary>,
+
+  cafeMenu: () =>
+    fetch(`${API_BASE_URL}/cafe/menu`).then(r => r.json()) as Promise<CafeMenuResponse>,
 };
 
 export interface TerminalCommand {
