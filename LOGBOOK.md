@@ -12,6 +12,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 12:18 IST | James | `0b5ee831` | 154-03: Add CafeOrderItem/Response types and placeCafeOrder API method |
 | Mar 22 12:18 IST | James | `13156b26` | 154-03: Transform CafeMenuPanel into POS order builder for staff |
 | Mar 22 12:18 IST | James | `6f31118f` | 154-03: docs — SUMMARY, STATE, ROADMAP updated |
+| Mar 22 22:09 IST | James | `08779e48` | 154-02: Add stock fields to CafeMenuItem and placeCafeOrder API method |
+| Mar 22 22:09 IST | James | `363c70fc` | 154-02: Add cart, checkout flow, and order submission to cafe PWA page |
+| Mar 22 22:09 IST | James | `e06327b3` | 154-02: docs — SUMMARY, STATE, ROADMAP updated (phase 154 Complete) |
 
 ## 2026-03-01
 
