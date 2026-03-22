@@ -2313,11 +2313,11 @@ Plans:
   3. Admin can record a restock event and see the stock quantity increase accordingly
   4. Admin can set a low-stock threshold per countable item
   5. Inventory dashboard shows all items with current stock, threshold status, and countable/uncountable designation
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 152-01: TBD
-- [ ] 152-02: TBD
+- [ ] 152-01-PLAN.md -- Backend: DB migration + inventory columns + restock API endpoint
+- [ ] 152-02-PLAN.md -- Frontend: TypeScript types + inventory tab UI + restock flow
 
 ### Phase 153: Inventory Alerts
 **Goal**: Staff never misses a low-stock situation -- alerts fire through three independent channels when thresholds are breached
@@ -2423,7 +2423,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | 149. Menu Data Model & CRUD | 2/2 | Complete    | 2026-03-22 |
 | 150. Menu Import | 2/2 | Complete    | 2026-03-22 |
 | 151. Menu Display | 2/2 | Complete    | 2026-03-22 |
-| 152. Inventory Tracking | 0/0 | Not started | - |
+| 152. Inventory Tracking | 0/2 | In progress | - |
 | 153. Inventory Alerts | 0/0 | Not started | - |
 | 154. Ordering Core | 0/0 | Not started | - |
 | 155. Receipts & Order History | 0/0 | Not started | - |
