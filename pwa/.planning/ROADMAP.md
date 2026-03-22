@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud (completed 2026-03-22)
 - [x] **Phase 7: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud (completed 2026-03-22)
 - [x] **Phase 8: CI/CD Pipeline** - Automated build and deploy on push to main (completed 2026-03-22)
-- [ ] **Phase 9: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
+- [ ] **Phase 9: Health Monitoring + Alerts** - PM2 process health checks with WhatsApp alerts on failure
 - [ ] **Phase 10: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
 
 ## Phase Details
@@ -148,16 +148,19 @@ Plans:
 - [x] 08-01-PLAN.md — GitHub Actions deploy workflow: SSH into VPS on push to main, pull repos, build and restart Docker services (completed 2026-03-22, workflow green in 1m44s)
 
 ### Phase 9: Health Monitoring + Alerts
-**Goal**: Container failures and resource exhaustion are detected and reported automatically via WhatsApp
+**Goal**: PM2 process failures and resource exhaustion are detected and reported automatically via WhatsApp within 2 minutes
 **Depends on**: Phase 1
 **Requirements**: INFRA-05
 **Success Criteria** (what must be TRUE):
-  1. When a container crashes, restarts, or goes OOM, a WhatsApp alert is sent to Uday within 2 minutes
-  2. Container healthchecks detect unresponsive services and trigger automatic restart
+  1. When a PM2 process crashes, restarts, or goes errored, a WhatsApp alert is sent to Uday within 2 minutes
+  2. Crash loops (>3 restarts in 10 min), disk >90%, and memory >90% trigger alerts
+  3. Alert cooldown prevents re-alerting the same failure within 30 minutes
+  4. 2GB swap is configured on VPS to prevent OOM
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: TBD
+- [ ] 09-01-PLAN.md — Create health-check.sh (PM2 + disk + memory monitoring, WhatsApp + comms-link alerts, 30-min cooldown) and setup-swap.sh (2GB swap)
+- [ ] 09-02-PLAN.md — Deploy to VPS via Bono, configure cron (*/2), verify end-to-end alert delivery
 
 ### Phase 10: Operational Hardening
 **Goal**: Production edge cases (extended outages, brute force, sync conflicts) are handled gracefully
@@ -188,5 +191,5 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 6. Admin Panel Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 7. Dashboard Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 8. CI/CD Pipeline | 0/1 | Complete    | 2026-03-22 |
-| 9. Health Monitoring + Alerts | 0/1 | Not started | - |
+| 9. Health Monitoring + Alerts | 0/2 | Not started | - |
 | 10. Operational Hardening | 0/2 | Not started | - |
