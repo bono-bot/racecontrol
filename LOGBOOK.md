@@ -551,3 +551,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 10:15 IST | James | 85a8d76 | docs(139-01): complete healer edge recovery plan 01 |
 | 2026-03-22 10:38 IST | James | 6b9cce5 | feat(139-02): add ForceRelaunchBrowser handler in ws_handler.rs — billing-gated close_browser+launch_browser |
 | 2026-03-22 10:39 IST | James | d2bffda | docs(139-02): complete ForceRelaunchBrowser agent handler plan SUMMARY STATE ROADMAP |
+| 2026-03-22 10:46 IST | James | d434295 | feat(140-01): add AiSafeAction whitelist enum + parse_ai_action() + prompt injection (8/8 tests pass) |
+| 2026-03-22 10:47 IST | James | d28801f | docs(140-01): complete AiSafeAction whitelist plan SUMMARY STATE ROADMAP |
