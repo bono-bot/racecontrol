@@ -539,3 +539,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 09:41 IST | James | e9c42f1 | feat(137-02): wire browser_watchdog_interval into event loop (BWDOG-01, BWDOG-02, BWDOG-04) |
 | 2026-03-22 09:42 IST | James | 6ea1165 | docs(137-02): complete browser watchdog plan SUMMARY STATE ROADMAP REQUIREMENTS |
 | 2026-03-22 04:14 IST | James | 883c67c | docs(138): create phase 138 idle health monitor plans (3 plans, 2 waves) |
+| 2026-03-22 09:50 IST | James | 4448aa7 | feat(138-01): add AgentMessage::IdleHealthFailed variant to rc-common protocol |
