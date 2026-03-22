@@ -2419,7 +2419,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 149. Menu Data Model & CRUD | 1/2 | In Progress|  |
+| 149. Menu Data Model & CRUD | 2/2 | Complete   | 2026-03-22 |
 | 150. Menu Import | 0/0 | Not started | - |
 | 151. Menu Display | 0/0 | Not started | - |
 | 152. Inventory Tracking | 0/0 | Not started | - |
