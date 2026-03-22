@@ -24,7 +24,7 @@
 - [ ] **LYOT-01**: User can switch between layout modes: 1x1, 2x2, 3x3, 4x4 grid presets via toolbar buttons
 - [ ] **LYOT-02**: User can drag cameras to reorder their position in the grid
 - [ ] **LYOT-03**: Grid layout (mode + camera order) persists across page reloads via server-side camera-layout.json
-- [ ] **LYOT-04**: PUT /api/v1/cameras/layout saves layout preferences to camera-layout.json
+- [x] **LYOT-04**: PUT /api/v1/cameras/layout saves layout preferences to camera-layout.json
 - [ ] **LYOT-05**: Cameras can be grouped by zone (entrance, pods, reception) with zone headers in the grid
 
 ### UI/UX (UIUX)
@@ -75,7 +75,7 @@
 | LYOT-01 | Phase 147 | Pending |
 | LYOT-02 | Phase 147 | Pending |
 | LYOT-03 | Phase 147 | Pending |
-| LYOT-04 | Phase 146 | Pending |
+| LYOT-04 | Phase 146 | Complete |
 | LYOT-05 | Phase 147 | Pending |
 | UIUX-01 | Phase 147 | Pending |
 | UIUX-02 | Phase 147 | Pending |

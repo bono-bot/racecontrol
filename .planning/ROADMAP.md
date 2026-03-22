@@ -2176,7 +2176,7 @@ Transform the basic 13-camera snapshot grid into a professional NVR dashboard â€
 ## Phases (v16.1)
 
 - [x] **Phase 145: go2rtc Infrastructure** - Register all 13 NVR cameras in go2rtc, configure CORS, verify WebRTC signaling works from both deployment origins (INFRA-01, INFRA-02) (completed 2026-03-22)
-- [ ] **Phase 146: Backend Config and API** - Camera config in rc-sentry-ai.toml with display_name/display_order, /api/v1/cameras endpoint, PUT /api/v1/cameras/layout endpoint, camera-layout.json persistence (INFRA-03, INFRA-04, LYOT-04)
+- [x] **Phase 146: Backend Config and API** - Camera config in rc-sentry-ai.toml with display_name/display_order, /api/v1/cameras endpoint, PUT /api/v1/cameras/layout endpoint, camera-layout.json persistence (INFRA-03, INFRA-04, LYOT-04) (completed 2026-03-22)
 - [ ] **Phase 147: cameras.html Dashboard Rewrite** - Full rewrite of embedded dashboard with layout modes, drag-to-rearrange, WebRTC fullscreen, all UI/UX requirements, deployed at /cameras/live (LYOT-01, LYOT-02, LYOT-03, LYOT-05, UIUX-01, UIUX-02, UIUX-03, UIUX-04, UIUX-05, STRM-01, STRM-02, STRM-03, STRM-04, DPLY-01)
 - [ ] **Phase 148: Web Dashboard Page** - Standalone camera dashboard page in Next.js web dashboard at /cameras, feature-identical to cameras.html (DPLY-02, DPLY-03)
 
@@ -2240,6 +2240,6 @@ Note: Phases 145 and 146 are strictly sequential infrastructure prerequisites. P
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 145. go2rtc Infrastructure | 1/1 | Complete   | 2026-03-22 |
-| 146. Backend Config and API | 1/2 | In Progress|  |
+| 146. Backend Config and API | 2/2 | Complete   | 2026-03-22 |
 | 147. cameras.html Dashboard Rewrite | 0/? | Not started | - |
 | 148. Web Dashboard Page | 0/? | Not started | - |
