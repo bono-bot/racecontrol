@@ -2106,7 +2106,7 @@ Fix the root cause of bugs slipping through GSD execution — 135 unit tests cau
 ## Phases (v18.2)
 
 - [x] **Phase 142: Rules Hygiene** - Reorganize CLAUDE.md standing rules into named categories, prune obsolete/duplicate rules, add justification comments, sync standing-rules.md (RULES-01 through RULES-04)
-- [ ] **Phase 143: Integration Test Suite** - Build comms-link integration test script: start real daemons, send WS exec/chain/delegation, verify round-trip results; cross-platform syntax check; contract tests for parameter agreements (INTEG-01 through INTEG-05)
+- [x] **Phase 143: Integration Test Suite** - Build comms-link integration test script: start real daemons, send WS exec/chain/delegation, verify round-trip results; cross-platform syntax check; contract tests for parameter agreements (INTEG-01 through INTEG-05) (completed 2026-03-22)
 - [ ] **Phase 144: GSD Quality Gate** - Wire integration tests into GSD execute-phase as automatic post-execution verification; single-command invocation; failures block phase completion (GATE-01 through GATE-03)
 
 ## v18.2 Phase Details
@@ -2162,5 +2162,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 142. Rules Hygiene | 1/1 | Complete    | 2026-03-22 |
-| 143. Integration Test Suite | 1/2 | In Progress|  |
+| 143. Integration Test Suite | 2/2 | Complete   | 2026-03-22 |
 | 144. GSD Quality Gate | 0/2 | Not started | - |

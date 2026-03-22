@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v18.2
 milestone_name: Debugging & Quality Gates
 status: in_progress
-stopped_at: Completed 143-02-PLAN.md
-last_updated: "2026-03-22T10:32:00.000Z"
+stopped_at: Completed 143-01-PLAN.md
+last_updated: "2026-03-22T10:35:00.000Z"
 progress:
   total_phases: 106
   completed_phases: 74
   total_plans: 183
-  completed_plans: 179
+  completed_plans: 180
 decisions:
   - "143-02: Bono-side full syntax check excluded from automated test — shell_relay requires APPROVE tier; relay liveness probe only"
   - "143-02: INTEG-02 appended to existing integration.test.js inside PSK else branch"
+  - "143-01: Used node:http over fetch for compatibility with existing test pattern; chain status assertion case-insensitive after daemon returns 'OK'"
 ---
 
 ---
