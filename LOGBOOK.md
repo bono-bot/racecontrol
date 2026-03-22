@@ -558,3 +558,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 11:35 IST | James | 9f9cf94 | feat(141-01): extend AppState with warn_scanner_last_escalated cooldown field |
 | 2026-03-22 11:36 IST | James | 1859c84 | feat(141-01): implement scan_warn_logs() and wire into heal_all_pods() |
 | 2026-03-22 12:00 IST | James | 62c7443 | feat(141-02): escalate_warn_surge() — deduplication + AI escalation for WARN surge path |
+| 2026-03-22 06:49 IST | James | 2b6e388 | v17.0 deployed: rc-agent to all 8 pods + racecontrol to server .23 + racecontrol.toml (Ollama fix). 0 WARNs post-deploy. |
