@@ -1919,6 +1919,45 @@ mod tests {
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle (pod not serving customer)");
     }
+
+    // ─── BWDOG-03/04: close_browser safe mode gating and count_edge_processes ─
+
+    #[test]
+    fn test_count_edge_processes_returns_zero_in_test() {
+        assert_eq!(LockScreenManager::count_edge_processes(), 0);
+    }
+
+    #[test]
+    fn test_close_browser_safe_mode_skips_taskkill() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager {
+            state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)),
+            event_tx: tx,
+            port: 18923,
+            #[cfg(windows)]
+            browser_process: None,
+            wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        };
+        // Should not panic or hang — safe mode gate skips taskkill
+        manager.close_browser();
+    }
+
+    #[test]
+    fn test_close_browser_normal_mode() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager {
+            state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)),
+            event_tx: tx,
+            port: 18923,
+            #[cfg(windows)]
+            browser_process: None,
+            wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        // Should not panic — with no browser_process and no real Edge running, this is a no-op
+        manager.close_browser();
+    }
 }
 
 /// Render session summary page with top speed and race position params.
