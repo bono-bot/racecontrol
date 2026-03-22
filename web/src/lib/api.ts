@@ -45,6 +45,40 @@ export interface CafeItem {
   is_available: boolean;
   created_at: string | null;
   updated_at: string | null;
+  image_path: string | null;
+}
+
+export interface ImportColumnMapping {
+  index: number;
+  header: string;
+  mapped_to: string | null;
+}
+
+export interface ImportRowResult {
+  row_num: number;
+  name: string;
+  category: string;
+  selling_price: string;
+  cost_price: string;
+  description: string | null;
+  valid: boolean;
+  errors: string[];
+}
+
+export interface ImportPreview {
+  columns: ImportColumnMapping[];
+  rows: ImportRowResult[];
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+}
+
+export interface ConfirmedImportRow {
+  name: string;
+  category: string;
+  selling_price_paise: number;
+  cost_price_paise: number;
+  description: string | null;
 }
 
 export interface CreateCafeItemRequest {
@@ -280,6 +314,36 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, sort_order }),
     }),
+
+  importCafePreview: async (file: File): Promise<ImportPreview> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/cafe/import/preview`, {
+      method: "POST",
+      body: fd,
+      // DO NOT set Content-Type — browser sets multipart boundary
+    });
+    if (!res.ok) throw new Error(`Import preview failed: ${res.status}`);
+    return res.json() as Promise<ImportPreview>;
+  },
+
+  confirmCafeImport: async (rows: ConfirmedImportRow[]): Promise<{ imported: number }> => {
+    return fetchApi<{ imported: number }>("/cafe/import/confirm", {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    });
+  },
+
+  uploadCafeItemImage: async (itemId: string, file: File): Promise<{ image_url: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/cafe/items/${itemId}/image`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new Error(`Image upload failed: ${res.status}`);
+    return res.json() as Promise<{ image_url: string }>;
+  },
 };
 
 interface GameLaunchEvent {
