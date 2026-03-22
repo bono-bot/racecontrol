@@ -657,4 +657,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 22:31 IST | James | 494f7ebf | feat(154-01): register cafe/orders routes + public menu stock info (is_countable, stock_quantity, out_of_stock) |
 | 2026-03-22 17:05 IST | James | 24ff9223 | feat(155-02): CafeOrderHistoryItem type + getCafeOrderHistory in api.ts |
 | 2026-03-22 17:10 IST | James | 00b50b93 | feat(155-02): /cafe/orders PWA page — skeleton, empty state, expand/collapse order list |
+| 2026-03-23 00:30 IST | James | d720761d | feat(158-01): Next.js satori/resvg-wasm PNG generation route for promo/menu/new_item templates |
+| 2026-03-23 00:31 IST | James | 5420fcbb | feat(158-01): Rust broadcast_promo handler — Evolution API WhatsApp, 24h per-driver cooldown |
+| 2026-03-23 00:32 IST | James | 705a4282 | docs(158-01): 158-01-SUMMARY.md + STATE.md + ROADMAP.md updated |
 | 2026-03-22 17:30 IST | James | 40cd39ce | docs(155-02): SUMMARY + STATE + ROADMAP — plan 155-02 complete, ORD-05/06/09 marked done |
