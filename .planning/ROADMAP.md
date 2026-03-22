@@ -1987,5 +1987,5 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 135. Daemon Recovery | 0/2 | Not started | - |
+| 135. Daemon Recovery | 1/2 | In Progress|  |
 | 136. Chain Endpoint + Visibility | 0/2 | Not started | - |

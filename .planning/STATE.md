@@ -2,17 +2,20 @@
 gsd_state_version: 1.0
 milestone: v18.1
 milestone_name: Seamless Execution Hardening
-status: roadmap_created
-stopped_at: null
-last_updated: "2026-03-22T05:00:00.000Z"
+status: in_progress
+stopped_at: "Completed 135-01-PLAN.md"
+last_updated: "2026-03-22T03:23:00.000Z"
 current_phase: 135
 current_phase_name: Daemon Recovery
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-decisions: []
+  completed_plans: 1
+decisions:
+  - "135-01: /sc MINUTE /mo 2 chosen over ONLOGON+repeat — simpler and achieves same 2-min detection window"
+  - "135-01: Restart via start-comms-link.bat (not node directly) to preserve all env vars and start supervisor"
+  - "135-01: No -Wait on bat start since start /min backgrounds immediately"
 ---
 
 ---

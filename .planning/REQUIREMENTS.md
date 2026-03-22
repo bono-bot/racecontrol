@@ -7,10 +7,10 @@
 
 ### Daemon Recovery
 
-- [ ] **RECOV-01**: James comms-link daemon auto-restarts within 30s after a crash
+- [x] **RECOV-01**: James comms-link daemon auto-restarts within 30s after a crash
 - [ ] **RECOV-02**: James comms-link daemon starts automatically on Windows boot
-- [ ] **RECOV-03**: Watchdog detects comms-link down and restarts it (james_watchdog.ps1)
-- [ ] **RECOV-04**: Bono notified via WhatsApp/email when James daemon crashes and recovers
+- [x] **RECOV-03**: Watchdog detects comms-link down and restarts it (james_watchdog.ps1)
+- [x] **RECOV-04**: Bono notified via WhatsApp/email when James daemon crashes and recovers
 
 ### Chain Endpoint Fix
 
@@ -35,10 +35,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RECOV-01 | Phase 135 | Pending |
+| RECOV-01 | Phase 135 | Complete |
 | RECOV-02 | Phase 135 | Pending |
-| RECOV-03 | Phase 135 | Pending |
-| RECOV-04 | Phase 135 | Pending |
+| RECOV-03 | Phase 135 | Complete |
+| RECOV-04 | Phase 135 | Complete |
 | CHAIN-10 | Phase 136 | Pending |
 | CHAIN-11 | Phase 136 | Pending |
 | VIS-01 | Phase 136 | Pending |
