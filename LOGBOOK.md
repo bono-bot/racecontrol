@@ -24,6 +24,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 19:15 IST | James | `a4aff594` | 156-01: DB migration — cafe_promos table + idx_cafe_promos_active |
 | Mar 22 19:15 IST | James | `8ce96368` | 156-01: cafe_promos.rs module — 5 admin CRUD endpoints, routes.rs registration |
 | Mar 22 19:15 IST | James | `504403c2` | 156-01: docs — SUMMARY, STATE, ROADMAP updated |
+| Mar 22 22:56 IST | James | `1826731d` | 156-02: add CafePromo types and API call functions (no any) |
+| Mar 22 22:56 IST | James | `e8d3f04a` | 156-02: Promos tab with PromoPanel component — three promo types, full CRUD |
+| Mar 22 22:56 IST | James | `5777d05a` | 156-02: docs — SUMMARY, STATE, ROADMAP updated (phase 156 Complete) |
 
 ## 2026-03-01
 
