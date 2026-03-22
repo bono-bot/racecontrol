@@ -1,96 +1,71 @@
-# Requirements: v16.1 Camera Dashboard Pro
+# Requirements: v17.1 Watchdog-to-AI Migration
 
 **Defined:** 2026-03-22
-**Core Value:** Staff can monitor all 13 venue cameras from a professional, low-latency dashboard — grid overview + instant fullscreen streaming
+**Core Value:** Recovery systems use intelligent AI-driven decisions instead of blind restart loops — detect, remember, escalate, never cause more problems than they solve.
 
-## v16.1 Requirements
+## v17.1 Requirements
 
-### Infrastructure (INFRA)
+### RC-Sentry Migration
 
-- [x] **INFRA-01**: All 13 NVR cameras are registered in go2rtc with RTSP sub-stream URLs
-- [x] **INFRA-02**: go2rtc CORS is configured and verified for cross-port WebRTC access from :8096 and :3200
-- [x] **INFRA-03**: Each camera has a configurable display_name and display_order in rc-sentry-ai.toml
-- [x] **INFRA-04**: /api/v1/cameras returns display_name, display_order, nvr_channel, and zone for each camera
+- [ ] **SENT-01**: rc-sentry checks pattern memory before restarting rc-agent — if same crash pattern seen 3+ times in 10 min, escalate to AI instead of restarting
+- [ ] **SENT-02**: rc-sentry queries Ollama for unknown crash patterns before blind restart
+- [ ] **SENT-03**: rc-sentry logs every restart decision to activity log with reason, pattern match, and outcome
+- [ ] **SENT-04**: rc-sentry distinguishes graceful restart (sentinel file) from real crash — no escalation on graceful
 
-### Streaming (STRM)
+### Pod Monitor Migration
 
-- [x] **STRM-01**: User can click any camera tile to open fullscreen with live WebRTC video via go2rtc
-- [x] **STRM-02**: Only one WebRTC connection is active at a time — previous connection is torn down on camera switch
-- [x] **STRM-03**: Hovering a camera tile for >500ms pre-warms the WebRTC connection to reduce cold-start delay
-- [x] **STRM-04**: Fullscreen view shows camera name, connection status indicator, and close button (click or Escape)
+- [ ] **PMON-01**: pod_monitor checks billing_active before triggering WoL/restart — never wake a deliberately offline pod during maintenance
+- [ ] **PMON-02**: pod_monitor merges with pod_healer into single recovery authority — no separate restart logic
+- [ ] **PMON-03**: pod recovery uses graduated response: 1st failure → wait 30s, 2nd → Tier 1 fix, 3rd → AI escalation, 4th+ → alert staff
 
-### Layout (LYOT)
+### James Watchdog Migration
 
-- [x] **LYOT-01**: User can switch between layout modes: 1x1, 2x2, 3x3, 4x4 grid presets via toolbar buttons
-- [x] **LYOT-02**: User can drag cameras to reorder their position in the grid
-- [x] **LYOT-03**: Grid layout (mode + camera order) persists across page reloads via server-side camera-layout.json
-- [x] **LYOT-04**: PUT /api/v1/cameras/layout saves layout preferences to camera-layout.json
-- [x] **LYOT-05**: Cameras can be grouped by zone (entrance, pods, reception) with zone headers in the grid
+- [ ] **JWAT-01**: Replace james_watchdog.ps1 with a Rust-based monitor using AI debugger pattern memory
+- [ ] **JWAT-02**: James monitor checks Ollama, Claude Code, comms-link, webterm with graduated response (not blind restart)
+- [ ] **JWAT-03**: James monitor alerts Bono via comms-link WS on repeated failures instead of silent restart
 
-### UI/UX (UIUX)
+### Recovery Consolidation
 
-- [x] **UIUX-01**: Dashboard fills entire browser viewport with no scrollbars (compact toolbar, edge-to-edge grid)
-- [x] **UIUX-02**: Each camera tile shows status indicator (green=live, red=offline, yellow=stale)
-- [x] **UIUX-03**: Loading state shown during WebRTC connection setup (spinner or placeholder)
-- [x] **UIUX-04**: Smooth CSS transition when switching layout modes (no DOM rebuild flash)
-- [x] **UIUX-05**: Refresh rate selector in toolbar (0.2, 0.5, 1 fps for snapshot grid)
-
-### Deployment (DPLY)
-
-- [x] **DPLY-01**: cameras.html embedded in rc-sentry-ai serves the full dashboard at /cameras/live
-- [x] **DPLY-02**: Standalone camera dashboard page accessible from web dashboard on server .23 at /cameras
-- [x] **DPLY-03**: Both deployments share identical feature set (layouts, WebRTC, drag-to-rearrange)
+- [ ] **CONS-01**: Single recovery authority per machine — no two systems can restart the same process
+- [ ] **CONS-02**: Recovery decision log — every restart/kill/wake decision logged with who triggered it and why
+- [ ] **CONS-03**: Anti-cascade guard — if 3+ recovery actions fire within 60s across different systems, pause all and alert staff
 
 ## Future Requirements
 
-### Advanced Features
-
-- **ADV-01**: PTZ (pan-tilt-zoom) controls for supported cameras
-- **ADV-02**: Motion detection overlay on camera tiles
-- **ADV-03**: Recording playback timeline integrated into fullscreen view
-- **ADV-04**: Multi-monitor support (pop-out individual cameras)
+- **SENT-05**: rc-sentry learns from successful fixes and applies them faster next time
+- **PMON-04**: pod_monitor predicts failures from metric trends (memory pressure, disk fill rate)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Simultaneous 13x WebRTC streams | NVR connection limit + GPU decoder overload — hybrid model only |
-| RTSP direct in browser | Browsers cannot play RTSP natively |
-| Cloud-accessible streaming | DMSS HD app already covers this — no custom cloud streaming |
-| Mobile app | Web dashboard is responsive enough for phone/tablet use |
-| Audio streaming | Security cameras — visual monitoring only |
+| Browser watchdog replacement | Already done in v17.0 (server healer + ForceRelaunchBrowser) |
+| AI debugger Tier 3/4 execution | Already done in v17.0 (Phase 140 — AIACT whitelist) |
+| Full AI autonomy (no human alerts) | Too risky — staff must be in the loop for repeated failures |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 145 | Complete |
-| INFRA-02 | Phase 145 | Complete |
-| INFRA-03 | Phase 146 | Complete |
-| INFRA-04 | Phase 146 | Complete |
-| STRM-01 | Phase 147 | Complete |
-| STRM-02 | Phase 147 | Complete |
-| STRM-03 | Phase 147 | Complete |
-| STRM-04 | Phase 147 | Complete |
-| LYOT-01 | Phase 147 | Complete |
-| LYOT-02 | Phase 147 | Complete |
-| LYOT-03 | Phase 147 | Complete |
-| LYOT-04 | Phase 146 | Complete |
-| LYOT-05 | Phase 147 | Complete |
-| UIUX-01 | Phase 147 | Complete |
-| UIUX-02 | Phase 147 | Complete |
-| UIUX-03 | Phase 147 | Complete |
-| UIUX-04 | Phase 147 | Complete |
-| UIUX-05 | Phase 147 | Complete |
-| DPLY-01 | Phase 147 | Complete |
-| DPLY-02 | Phase 148 | Complete |
-| DPLY-03 | Phase 148 | Complete |
+| SENT-01 | — | Pending |
+| SENT-02 | — | Pending |
+| SENT-03 | — | Pending |
+| SENT-04 | — | Pending |
+| PMON-01 | — | Pending |
+| PMON-02 | — | Pending |
+| PMON-03 | — | Pending |
+| JWAT-01 | — | Pending |
+| JWAT-02 | — | Pending |
+| JWAT-03 | — | Pending |
+| CONS-01 | — | Pending |
+| CONS-02 | — | Pending |
+| CONS-03 | — | Pending |
 
 **Coverage:**
-- v16.1 requirements: 21 total
-- Mapped to phases: 21
-- Unmapped: 0
+- v17.1 requirements: 13 total
+- Mapped to phases: 0
+- Unmapped: 13
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after roadmap creation (phases 145-148 assigned)*
+*Last updated: 2026-03-22 after initial definition*
