@@ -1,16 +1,21 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v16.1
+milestone_name: Camera Dashboard Pro
 status: in_progress
-stopped_at: "Completed 148-01-PLAN.md (awaiting checkpoint:human-verify at Task 2)"
-last_updated: "2026-03-22T08:25:36.969Z"
+stopped_at: "Completed 148-01-PLAN.md"
+last_updated: "2026-03-22T13:55:00+05:30"
 progress:
   total_phases: 110
-  completed_phases: 82
+  completed_phases: 83
   total_plans: 197
-  completed_plans: 194
-  percent: 97
+  completed_plans: 195
+  percent: 98
+decisions:
+  - "148-01: Native HTML5 DnD used (no @dnd-kit) per plan instruction"
+  - "148-01: camerasRef kept in sync with cameras state so polling interval callbacks see current order"
+  - "148-01: Pre-warm connection promoted to fullscreen if channel matches, including already-arrived tracks via getReceivers()"
+  - "148-01: -m-6 negative margin applied to outer wrapper to cancel DashboardLayout p-6 for edge-to-edge grid"
 ---
 
 ---

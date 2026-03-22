@@ -116,3 +116,10 @@ None - no external service configuration required.
 ---
 *Phase: 143-integration-test-suite*
 *Completed: 2026-03-22*
+
+## Self-Check: PASSED
+
+- FOUND: C:/Users/bono/racingpoint/comms-link/test/integration.test.js
+- FOUND: commit 0290e8e (test task)
+- FOUND: commit 175c581 (LOGBOOK chore)
+- FOUND: 143-01-SUMMARY.md in .planning/phases/143-integration-test-suite/

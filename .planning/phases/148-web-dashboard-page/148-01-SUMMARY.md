@@ -30,10 +30,11 @@ decisions:
   - "148-01: catch blocks use bare catch{} not catch(_){} to avoid ESLint unused-vars warning"
   - "148-01: Pre-warm connection promoted to fullscreen if channel matches, including already-arrived tracks via getReceivers()"
   - "148-01: -m-6 negative margin applied to outer wrapper to cancel DashboardLayout p-6 for edge-to-edge grid"
+requirements-completed: [DPLY-02, DPLY-03]
 metrics:
-  duration: "~25 minutes"
-  completed_date: "2026-03-22T08:50:00+05:30"
-  tasks_completed: 1
+  duration: "~45 minutes"
+  completed_date: "2026-03-22T13:55:00+05:30"
+  tasks_completed: 2
   tasks_total: 2
   files_modified: 1
 ---
@@ -64,6 +65,7 @@ A single `"use client"` React component (849 lines) that wraps inside `Dashboard
 | Task | Name | Commit | Files |
 |------|------|--------|-------|
 | 1 | Complete cameras/page.tsx rewrite | a74c35c8 | web/src/app/cameras/page.tsx |
+| 2 | Verify camera dashboard in browser | checkpoint:human-verify | — approved by user |
 
 ## Verification
 
@@ -75,7 +77,7 @@ A single `"use client"` React component (849 lines) that wraps inside `Dashboard
 - `SENTRY_BASE = "http://192.168.31.27:8096"` present
 - `GO2RTC_WS = "ws://192.168.31.27:1984/api/ws"` present
 - 849 lines (exceeds 400-line minimum)
-- Browser verification: awaiting human checkpoint (Task 2)
+- Browser verification: PASSED — user confirmed all 12 features working at http://192.168.31.23:3200/cameras, feature parity with cameras.html at :8096/cameras/live confirmed
 
 ## Deviations from Plan
 
@@ -97,7 +99,13 @@ A single `"use client"` React component (849 lines) that wraps inside `Dashboard
 
 ## Status
 
-Task 1 complete. Task 2 is a `checkpoint:human-verify` — awaiting browser verification at http://192.168.31.23:3200/cameras.
+COMPLETE — both tasks done. User approved checkpoint:human-verify confirming full feature parity at :3200/cameras.
+
+## Next Phase Readiness
+
+- DPLY-02 and DPLY-03 requirements fulfilled: standalone camera dashboard at /cameras on :3200 with identical feature set to cameras.html
+- v16.1 Camera Dashboard Pro milestone complete
+- All 9 success criteria from the plan met and user-verified
 
 ## Self-Check: PASSED
 
@@ -105,3 +113,4 @@ Task 1 complete. Task 2 is a `checkpoint:human-verify` — awaiting browser veri
 - [x] Commit a74c35c8 — exists in git log
 - [x] TypeScript: no errors
 - [x] ESLint: no errors
+- [x] Browser verification: PASSED (user approved checkpoint)
