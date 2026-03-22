@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -11,6 +11,7 @@ use crate::ac_server;
 use crate::accounting;
 use crate::cafe;
 use crate::cafe_alerts;
+use crate::cafe_promos;
 use crate::auth;
 use crate::whatsapp_alerter;
 use crate::psychology;
@@ -386,6 +387,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/cafe/import/preview", post(cafe::import_preview))
         .route("/cafe/import/confirm", post(cafe::confirm_import))
         .route("/cafe/orders", post(cafe::place_cafe_order))
+        .route("/cafe/promos", get(cafe_promos::list_cafe_promos).post(cafe_promos::create_cafe_promo))
+        .route("/cafe/promos/{id}", put(cafe_promos::update_cafe_promo).delete(cafe_promos::delete_cafe_promo))
+        .route("/cafe/promos/{id}/toggle", post(cafe_promos::toggle_cafe_promo))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))

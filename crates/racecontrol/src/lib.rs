@@ -14,6 +14,7 @@ pub mod auth;
 pub mod billing;
 pub mod cafe;
 pub mod cafe_alerts;
+pub mod cafe_promos;
 pub mod catalog;
 pub mod cloud_sync;
 pub mod config;
