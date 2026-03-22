@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::cafe;
+use crate::cafe_alerts;
 use crate::auth;
 use crate::whatsapp_alerter;
 use crate::psychology;
@@ -371,6 +372,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/psychology/nudge-queue", get(list_nudge_queue))
         .route("/psychology/test-nudge", post(test_nudge))
         // ─── Cafe Menu ──────────────────────────────────────────────────────────
+        // NOTE: /cafe/items/low-stock MUST be registered before /cafe/items/{id} wildcard
+        .route("/cafe/items/low-stock", get(cafe_alerts::list_low_stock_items))
         .route("/cafe/items", get(cafe::list_cafe_items).post(cafe::create_cafe_item))
         .route("/cafe/items/{id}", put(cafe::update_cafe_item).delete(cafe::delete_cafe_item))
         .route("/cafe/items/{id}/toggle", post(cafe::toggle_cafe_item_availability))

@@ -828,6 +828,26 @@ pub async fn restock_cafe_item(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Check new stock level and fire or reset low-stock alerts accordingly
+    let new_stock_row: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT stock_quantity, low_stock_threshold FROM cafe_items WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((new_stock, threshold)) = new_stock_row {
+        if new_stock > threshold {
+            // Restocked above threshold: reset cooldown so next breach re-alerts
+            crate::cafe_alerts::reset_alert_cooldown(&state.db, &id).await;
+        } else {
+            // Still at or below threshold: check and possibly fire alert
+            crate::cafe_alerts::check_low_stock_alerts(&state.db, &state.config, &id).await;
+        }
+    }
+
     // Return updated item
     let item = sqlx::query_as::<_, CafeItem>(
         "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
