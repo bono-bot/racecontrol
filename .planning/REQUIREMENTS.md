@@ -9,8 +9,8 @@
 
 - [ ] **BWDOG-01**: rc-agent polls browser_process liveness every 30s and relaunches Edge if dead
 - [ ] **BWDOG-02**: rc-agent detects Edge stacking (>5 msedge.exe processes) and kills all before relaunching
-- [ ] **BWDOG-03**: close_browser() kills ALL msedge.exe and msedgewebview2.exe, not just the spawned child
-- [ ] **BWDOG-04**: Browser watchdog is suppressed during safe mode (anti-cheat active) — no taskkill while protected game is running
+- [x] **BWDOG-03**: close_browser() kills ALL msedge.exe and msedgewebview2.exe, not just the spawned child
+- [x] **BWDOG-04**: Browser watchdog is suppressed during safe mode (anti-cheat active) — no taskkill while protected game is running
 
 ### Idle Health Monitor
 
@@ -66,8 +66,8 @@
 |-------------|-------|--------|
 | BWDOG-01 | Phase 137 | Pending |
 | BWDOG-02 | Phase 137 | Pending |
-| BWDOG-03 | Phase 137 | Pending |
-| BWDOG-04 | Phase 137 | Pending |
+| BWDOG-03 | Phase 137 | Complete |
+| BWDOG-04 | Phase 137 | Complete |
 | IDLE-01 | Phase 138 | Pending |
 | IDLE-02 | Phase 138 | Pending |
 | IDLE-03 | Phase 138 | Pending |
