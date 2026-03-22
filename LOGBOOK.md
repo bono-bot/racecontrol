@@ -603,3 +603,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 19:59 IST | James | 4bc02f36 | feat(159-02): CascadeGuard with 60s window, 3-authority threshold, server-startup exemption, 9 tests — cascade_guard.rs + lib.rs |
 | 2026-03-22 19:59 IST | James | 55c3ee97 | feat(159-02): wire CascadeGuard into AppState (cascade_guard field) and pod_healer (is_paused check + record per action) |
 | 2026-03-22 19:59 IST | James | 2a0f0c99 | docs(159-02): 159-02-SUMMARY.md + STATE.md + ROADMAP.md phase 159 Complete + CONS-03 done |
+| 2026-03-22 19:57 IST | James | 3dba469a | feat(152-02): add inventory fields to CafeItem type and restockCafeItem API method in api.ts |
+| 2026-03-22 19:58 IST | James | a48dadc8 | feat(152-02): add inventory UI to cafe admin page — tabs, type/stock columns, restock, threshold badges |
