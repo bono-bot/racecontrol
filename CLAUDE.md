@@ -117,6 +117,7 @@
     - WoL auto-wake will revive pods that entered MAINTENANCE_MODE, creating infinite loops. Any "pod offline" recovery must check whether the pod was deliberately taken offline.
     - Always test recovery paths against **server downtime**, not just pod failures.
 11. **Allowlist Auth** — the `/api/v1/config/kiosk-allowlist` endpoint requires auth. rc-agent currently calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
+12. **Bono VPS exec (v18.0 — DEFAULT):** Use comms-link relay, not SSH. Single command: `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d '{"command":"git_pull"}'`. Chain: `curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[...]}'`. SSH (`ssh root@100.70.177.44`) only when relay is down.
 
 ---
 
