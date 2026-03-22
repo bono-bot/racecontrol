@@ -2429,7 +2429,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | 155. Receipts & Order History | 2/2 | Complete    | 2026-03-22 |
 | 156. Promotions Engine | 2/2 | Complete    | 2026-03-22 |
 | 157. Promotions Integration | 2/2 | Complete    | 2026-03-22 |
-| 158. Marketing & Content | 2/2 | Complete   | 2026-03-22 |
+| 158. Marketing & Content | 2/2 | Complete    | 2026-03-22 |
 
 ## v17.1 Watchdog-to-AI Migration
 
