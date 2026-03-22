@@ -1007,6 +1007,9 @@ pub struct PlaceOrderResponse {
     pub receipt_number: String,
     pub wallet_txn_id: String,
     pub total_paise: i64,
+    pub discount_paise: i64,
+    pub applied_promo_id: Option<String>,
+    pub applied_promo_name: Option<String>,
     pub new_balance_paise: i64,
     pub items: Vec<OrderItemDetail>,
 }
@@ -1155,6 +1158,56 @@ pub async fn place_cafe_order_inner(
         });
     }
 
+    // ── Step C2: Evaluate promos and apply best discount ─────────────────────
+    // Fetch currently active promos from DB (outside transaction — read-only, non-blocking)
+    let active_promos: Vec<crate::cafe_promos::ActivePromo> = {
+        let now_ist = {
+            let now_utc = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let ist_secs = now_utc + 19800;
+            let h = (ist_secs / 3600) % 24;
+            let m = (ist_secs % 3600) / 60;
+            format!("{:02}:{:02}", h, m)
+        };
+        sqlx::query_as::<_, crate::cafe_promos::CafePromo>(
+            "SELECT id, name, promo_type, config, is_active, start_time, end_time, stacking_group, created_at, updated_at
+             FROM cafe_promos WHERE is_active = 1",
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default() // promo fetch failure must NOT block the order
+        .into_iter()
+        .filter_map(|p| {
+            if let (Some(start), Some(end)) = (&p.start_time, &p.end_time) {
+                if !(now_ist.as_str() >= start.as_str() && now_ist.as_str() < end.as_str()) {
+                    return None;
+                }
+            }
+            let config = serde_json::from_str(&p.config).unwrap_or_default();
+            Some(crate::cafe_promos::ActivePromo {
+                id: p.id,
+                name: p.name,
+                promo_type: p.promo_type,
+                config,
+                stacking_group: p.stacking_group,
+                time_label: None,
+            })
+        })
+        .collect()
+    };
+
+    let cart_items: Vec<(String, i64)> = verified_items
+        .iter()
+        .map(|v| (v.item_id.clone(), v.quantity))
+        .collect();
+
+    let promo_result =
+        crate::cafe_promos::evaluate_promos(&cart_items, &active_promos, total_paise);
+    let discount_paise = promo_result.discount_paise.min(total_paise); // discount cannot exceed total
+    let final_total_paise = total_paise - discount_paise;
+
     // ── Step D: Decrement stock for countable items (with race check) ─────────
     for item in &verified_items {
         if item.is_countable {
@@ -1228,7 +1281,7 @@ pub async fn place_cafe_order_inner(
     let debit_result = crate::wallet::debit(
         state,
         &req.driver_id,
-        total_paise,
+        final_total_paise,
         "cafe_order",
         Some(&order_id),
         Some(&format!("Cafe order {}", receipt_number)),
@@ -1267,14 +1320,16 @@ pub async fn place_cafe_order_inner(
     // ── Step I: Insert order record ───────────────────────────────────────────
     let items_json = serde_json::to_string(&order_item_details).unwrap_or_else(|_| "[]".to_string());
     sqlx::query(
-        "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, wallet_txn_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'confirmed')",
+        "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, discount_paise, applied_promo_id, wallet_txn_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')",
     )
     .bind(&order_id)
     .bind(&receipt_number)
     .bind(&req.driver_id)
     .bind(&items_json)
-    .bind(total_paise)
+    .bind(final_total_paise)
+    .bind(discount_paise)
+    .bind(&promo_result.applied_promo_id)
     .bind(&wallet_txn_id)
     .execute(&state.db)
     .await
@@ -1299,7 +1354,7 @@ pub async fn place_cafe_order_inner(
         let driver_id = req.driver_id.clone();
         let receipt_number_l = receipt_number.clone();
         let items_for_wa = order_item_details.clone();
-        let total = total_paise;
+        let total = final_total_paise;
         let balance = new_balance;
         tokio::spawn(async move {
             send_order_receipt_whatsapp(&state_l, &driver_id, &receipt_number_l, &items_for_wa, total, balance).await;
@@ -1311,7 +1366,7 @@ pub async fn place_cafe_order_inner(
         let state_m = state.clone();
         let receipt_number_m = receipt_number.clone();
         let items_for_print = order_item_details.clone();
-        let total = total_paise;
+        let total = final_total_paise;
         // Fetch customer name best-effort — empty string is acceptable
         let customer_name = sqlx::query_scalar::<_, String>("SELECT COALESCE(name, '') FROM drivers WHERE id = ?")
             .bind(&req.driver_id)
@@ -1327,18 +1382,24 @@ pub async fn place_cafe_order_inner(
 
     // ── Step K: Return response ───────────────────────────────────────────────
     tracing::info!(
-        "Cafe order placed: {} receipt={} driver={} total={}p",
+        "Cafe order placed: {} receipt={} driver={} gross={}p discount={}p final={}p promo={:?}",
         order_id,
         receipt_number,
         req.driver_id,
-        total_paise
+        total_paise,
+        discount_paise,
+        final_total_paise,
+        promo_result.applied_promo_id
     );
 
     Ok(Json(serde_json::to_value(PlaceOrderResponse {
         order_id,
         receipt_number,
         wallet_txn_id,
-        total_paise,
+        total_paise: final_total_paise,
+        discount_paise,
+        applied_promo_id: promo_result.applied_promo_id,
+        applied_promo_name: promo_result.promo_name,
         new_balance_paise: new_balance,
         items: order_item_details,
     })
