@@ -1,15 +1,19 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v17.0
+milestone_name: AI Debugger Autonomy & Self-Healing
 status: in_progress
-stopped_at: Completed 138-03-PLAN.md
-last_updated: "2026-03-22T05:04:50.751Z"
+stopped_at: Completed 139-02-PLAN.md
+last_updated: "2026-03-22T05:10:00.000Z"
 progress:
   total_phases: 106
   completed_phases: 74
   total_plans: 184
-  completed_plans: 180
+  completed_plans: 181
+decisions:
+  - "139-02: ForceRelaunchBrowser arm uses direct state.lock_screen access matching all other lock_screen arms"
+  - "139-02: Billing guard uses Relaxed ordering matching existing BlankScreen arm pattern"
+  - "139-02: pod_id destructured as pod_id: _ — agent acts on its own lock screen unconditionally"
 ---
 
 ---
