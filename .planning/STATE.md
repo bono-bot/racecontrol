@@ -1,15 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v17.0
+milestone_name: AI Debugger Autonomy & Self-Healing
 status: in_progress
-stopped_at: Completed 140-01-PLAN.md
-last_updated: "2026-03-22T05:21:11.416Z"
+stopped_at: Completed 140-02-PLAN.md
+last_updated: "2026-03-22T11:15:00+05:30"
 progress:
   total_phases: 106
   completed_phases: 76
-  total_plans: 188
-  completed_plans: 184
+  total_plans: 189
+  completed_plans: 185
+decisions:
+  - "140-02: execute_ai_action uses matches!(action, KillEdge|KillGame|RestartRcAgent) for destructive detection"
+  - "140-02: RestartRcAgent writes sentinel file before delayed exit so watchdog distinguishes intentional restart from crash"
+  - "140-02: parse_ai_action_server in pod_healer.rs returns &str to avoid cross-crate rc-agent dependency"
+  - "140-02: debug_suggestion.clone() added before broadcast so pod_id and model fields accessible post-send"
 ---
 
 ---

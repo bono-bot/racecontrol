@@ -2003,7 +2003,7 @@ Close 6 architectural gaps that prevented the system from self-healing when Edge
 - [x] **Phase 137: Browser Watchdog** - rc-agent polls browser_process liveness every 30s, detects Edge stacking (>5 processes), and kills all before relaunch; close_browser() purges all msedge and WebView2 processes; watchdog suppressed during anti-cheat safe mode (completed 2026-03-22)
 - [x] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions (completed 2026-03-22)
 - [x] **Phase 139: Healer Edge Recovery** - Pod healer adds HealAction::RelaunchLockScreen for failed lock screen HTTP checks; healer sends ForceRelaunchBrowser WS message to pod; rc-agent handles ForceRelaunchBrowser via close_browser + launch_browser (completed 2026-03-22)
-- [ ] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
+- [x] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
 - [ ] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation
 
 ## v17.0 Phase Details
@@ -2065,8 +2065,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 140-01-PLAN.md -- Safe action parser in ai_debugger.rs: structured response parsing + 5-entry whitelist enum (AIACT-01, AIACT-02)
-- [ ] 140-02-PLAN.md -- Action executor with activity_log writes + safe mode gate + server-side parsing (AIACT-03, AIACT-04)
+- [x] 140-01-PLAN.md -- Safe action parser in ai_debugger.rs: structured response parsing + 5-entry whitelist enum (AIACT-01, AIACT-02)
+- [x] 140-02-PLAN.md -- Action executor with activity_log writes + safe mode gate + server-side parsing (AIACT-03, AIACT-04)
 
 ### Phase 141: WARN Log Scanner
 **Goal**: Racecontrol proactively detects degraded conditions by scanning its own logs for WARN accumulation and escalates to AI before a cascade becomes an incident
