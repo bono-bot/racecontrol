@@ -104,6 +104,15 @@ None - no external service configuration required.
 - pod_healer will dispatch `ForceRelaunchBrowser` to any pod that has a live WS but a failing HTTP lock screen probe (and no active billing session)
 - Phase 139-02 should implement the rc-agent handler for `ForceRelaunchBrowser`
 
+## Self-Check: PASSED
+
+- FOUND: crates/rc-common/src/protocol.rs
+- FOUND: crates/racecontrol/src/pod_healer.rs
+- FOUND: .planning/phases/139-healer-edge-recovery/139-01-SUMMARY.md
+- FOUND commit: 0e704e1 (feat: ForceRelaunchBrowser protocol variant)
+- FOUND commit: ad3aaf0 (feat: relaunch_lock_screen HealAction + Rule 2 WS dispatch)
+- FOUND commit: 85a8d76 (docs: SUMMARY + STATE + ROADMAP)
+
 ---
 *Phase: 139-healer-edge-recovery*
 *Completed: 2026-03-22*
