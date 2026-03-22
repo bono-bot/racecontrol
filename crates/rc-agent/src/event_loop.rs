@@ -67,6 +67,8 @@ pub(crate) struct ConnectionState {
     pub(crate) overlay_topmost_interval: tokio::time::Interval,
     pub(crate) maintenance_retry_interval: tokio::time::Interval,
     pub(crate) browser_watchdog_interval: tokio::time::Interval,
+    pub(crate) idle_health_interval: tokio::time::Interval,
+    pub(crate) idle_health_fail_count: u32,
     pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
     pub(crate) blank_timer_armed: bool,
     pub(crate) crash_recovery: CrashRecoveryState,
@@ -106,6 +108,8 @@ impl ConnectionState {
             overlay_topmost_interval: tokio::time::interval(Duration::from_secs(10)),
             maintenance_retry_interval: tokio::time::interval(Duration::from_secs(30)),
             browser_watchdog_interval: tokio::time::interval(Duration::from_secs(30)),
+            idle_health_interval: tokio::time::interval(Duration::from_secs(60)),
+            idle_health_fail_count: 0,
             blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
             blank_timer_armed: false,
             crash_recovery: CrashRecoveryState::Idle,
@@ -949,6 +953,71 @@ pub async fn run(
                     );
                     state.lock_screen.close_browser();
                     state.lock_screen.launch_browser();
+                }
+            }
+
+            _ = conn.idle_health_interval.tick() => {
+                // IDLE-04: skip entirely during active billing sessions
+                if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::debug!(target: LOG_TARGET, "Idle health: skipping — billing session active");
+                    continue;
+                }
+                // Also skip during safe mode (standing rule #10 — no process kills while anti-cheat active)
+                if state.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::debug!(target: LOG_TARGET, "Idle health: skipping — safe mode active");
+                    continue;
+                }
+
+                // IDLE-01: probe the full display stack
+                let http_result = crate::pre_flight::check_lock_screen_http().await;
+                let rect_result = crate::pre_flight::check_window_rect().await;
+
+                let http_failed = matches!(http_result.status, crate::pre_flight::CheckStatus::Fail);
+                // window_rect returns Warn when Edge not found — treat Warn as failure for healing
+                let rect_failed = matches!(rect_result.status, crate::pre_flight::CheckStatus::Fail | crate::pre_flight::CheckStatus::Warn);
+
+                if !http_failed && !rect_failed {
+                    // All checks passed — reset hysteresis counter
+                    if conn.idle_health_fail_count > 0 {
+                        tracing::info!(target: LOG_TARGET, "Idle health: all checks passed — resetting failure count");
+                    }
+                    conn.idle_health_fail_count = 0;
+                    continue;
+                }
+
+                // IDLE-02: self-heal on failure
+                let mut failure_names: Vec<String> = Vec::new();
+                if http_failed {
+                    failure_names.push("lock_screen_http".to_string());
+                    tracing::warn!(target: LOG_TARGET, "Idle health: lock_screen_http failed — {}", http_result.detail);
+                }
+                if rect_failed {
+                    failure_names.push("window_rect".to_string());
+                    tracing::warn!(target: LOG_TARGET, "Idle health: window_rect check failed — {}", rect_result.detail);
+                }
+                tracing::warn!(target: LOG_TARGET, "Idle health: self-healing — close + relaunch browser");
+                state.lock_screen.close_browser();
+                state.lock_screen.launch_browser();
+
+                conn.idle_health_fail_count = conn.idle_health_fail_count.saturating_add(1);
+
+                // IDLE-03: send IdleHealthFailed after 3 consecutive failures (hysteresis)
+                const IDLE_HEALTH_HYSTERESIS_THRESHOLD: u32 = 3;
+                if conn.idle_health_fail_count >= IDLE_HEALTH_HYSTERESIS_THRESHOLD {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "Idle health: {} consecutive failures — sending IdleHealthFailed to server",
+                        conn.idle_health_fail_count
+                    );
+                    let msg = AgentMessage::IdleHealthFailed {
+                        pod_id: state.pod_id.clone(),
+                        failures: failure_names,
+                        consecutive_count: conn.idle_health_fail_count,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                    }
                 }
             }
 
