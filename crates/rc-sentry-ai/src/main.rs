@@ -198,8 +198,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn per-camera detection tasks (if detector available)
     if let Some(ref detector) = shared_detector {
+        tracing::info!("spawning detection pipeline for {} cameras", config.cameras.len());
         for camera in config.cameras.iter() {
             let cam_name = camera.name.clone();
+            tracing::info!(camera = %cam_name, "spawning detection task");
             let buf = frame_buf.clone();
             let det = Arc::clone(detector);
             let conf = config.detection.confidence_threshold;
@@ -215,12 +217,16 @@ async fn main() -> anyhow::Result<()> {
             let tx = recognition_tx.clone();
             let utx = unknown_tx.clone();
             tokio::spawn(async move {
+                tracing::info!(camera = %cam_name, "detection pipeline started");
                 detection::pipeline::run(
-                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, Some(tx), Some(utx),
+                    cam_name.clone(), buf, det, conf, stats, rec, qg, gal, trk, Some(tx), Some(utx),
                 )
                 .await;
+                tracing::error!(camera = %cam_name, "detection pipeline exited unexpectedly");
             });
         }
+    } else {
+        tracing::warn!("no SCRFD detector available — detection pipeline NOT spawned");
     }
 
     // Initialize audit writer (single-writer pattern for Windows file locking)

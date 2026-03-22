@@ -57,9 +57,13 @@ async fn connect_and_stream(
     session
         .setup(
             0,
-            retina::client::SetupOptions::default().transport(retina::client::Transport::Tcp(
-                retina::client::TcpTransportOptions::default(),
-            )),
+            retina::client::SetupOptions::default()
+                .transport(retina::client::Transport::Tcp(
+                    retina::client::TcpTransportOptions::default(),
+                ))
+                // Use Annex B framing (00 00 00 01 start codes) + SPS/PPS on each keyframe.
+                // OpenH264 decoder requires Annex B format; retina defaults to AVCC (length-prefixed).
+                .frame_format(retina::codec::FrameFormat::SIMPLE),
         )
         .await
         .map_err(|e| anyhow::anyhow!("RTSP SETUP failed: {e}"))?;
