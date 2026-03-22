@@ -535,3 +535,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 09:26 IST | James | 291c2a9 | feat(137-01): gate close_browser() taskkill behind safe_mode_active, add count_edge_processes() |
 | 2026-03-22 09:27 IST | James | 371bf37 | test(137-01): add unit tests for close_browser safe mode gate and count_edge_processes — 3/3 pass |
 | 2026-03-22 09:28 IST | James | 76f3bff | docs(137-01): complete browser-watchdog close_browser safe mode gate plan SUMMARY STATE ROADMAP REQUIREMENTS |
+| 2026-03-22 09:40 IST | James | 12624c1 | feat(137-02): add is_browser_alive(), is_browser_expected(), pub launch/close_browser on LockScreenManager |
+| 2026-03-22 09:41 IST | James | e9c42f1 | feat(137-02): wire browser_watchdog_interval into event loop (BWDOG-01, BWDOG-02, BWDOG-04) |
+| 2026-03-22 09:42 IST | James | 6ea1165 | docs(137-02): complete browser watchdog plan SUMMARY STATE ROADMAP REQUIREMENTS |
