@@ -532,3 +532,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 08:53 IST | James | 26c2218 | docs(135-01): complete daemon watchdog plan SUMMARY STATE ROADMAP REQUIREMENTS |
 | 2026-03-22 08:58 IST | James | 9aeb6e9 | chore(135-02): register CommsLink-DaemonWatchdog Task Scheduler task, verify HKCU Run key |
 | 2026-03-22 09:06 IST | James | f4dba16 | docs(09-02): complete health monitoring deploy plan SUMMARY STATE ROADMAP — Phase 9 complete, INFRA-05 done |
+| 2026-03-22 09:26 IST | James | 291c2a9 | feat(137-01): gate close_browser() taskkill behind safe_mode_active, add count_edge_processes() |
+| 2026-03-22 09:27 IST | James | 371bf37 | test(137-01): add unit tests for close_browser safe mode gate and count_edge_processes — 3/3 pass |
+| 2026-03-22 09:28 IST | James | 76f3bff | docs(137-01): complete browser-watchdog close_browser safe mode gate plan SUMMARY STATE ROADMAP REQUIREMENTS |
