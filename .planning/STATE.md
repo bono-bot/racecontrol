@@ -35,19 +35,21 @@ gsd_state_version: 1.0
 milestone: v18.2
 milestone_name: Debugging & Quality Gates
 status: in_progress
-stopped_at: Completed 144-01-PLAN.md
-last_updated: "2026-03-22T10:42:00.000Z"
+stopped_at: Completed 144-02-PLAN.md
+last_updated: "2026-03-22T10:52:00.000Z"
 progress:
   total_phases: 106
   completed_phases: 74
   total_plans: 184
-  completed_plans: 181
+  completed_plans: 182
 decisions:
   - "143-02: Bono-side full syntax check excluded from automated test — shell_relay requires APPROVE tier; relay liveness probe only"
   - "143-02: INTEG-02 appended to existing integration.test.js inside PSK else branch"
   - "143-01: Used node:http over fetch for compatibility with existing test pattern; chain status assertion case-insensitive after daemon returns 'OK'"
   - "144-01: Integration suite skip (no COMMS_PSK) is pass — skip is not failure; INTEG_EXIT only gates when PSK set"
   - "144-01: set -euo pipefail omitted from run-all.sh — all suites must run even if early one fails; per-suite exit codes captured manually"
+  - "144-02: Pre-Ship Gate placed before [James Only] in CLAUDE.md to apply to both AIs equally"
+  - "144-02: SKILL.md not in any git repo — content saved to disk, no commit possible for Task 2"
 ---
 
 ---
