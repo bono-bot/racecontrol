@@ -1,0 +1,21 @@
+[
+  {
+    "id": "TEST_ONLY_billing_1",
+    "driver_id": "TEST_ONLY_driver_1",
+    "driver_name": "TEST DRIVER",
+    "pod_id": "TEST_ONLY_pod_1",
+    "pricing_tier_name": "30min",
+    "allocated_seconds": 1800,
+    "driving_seconds": 600,
+    "remaining_seconds": 1200,
+    "status": "active",
+    "driving_state": "active",
+    "started_at": "2026-01-01T00:00:00Z",
+    "split_count": 1,
+    "split_duration_minutes": null,
+    "current_split_number": 1,
+    "elapsed_seconds": 600,
+    "cost_paise": 46500,
+    "rate_per_min_paise": 1500
+  }
+]

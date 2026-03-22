@@ -1,0 +1,15 @@
+{
+  "name": "@racingpoint/contract-tests",
+  "version": "1.0.0",
+  "description": "Contract tests for racecontrol API response shapes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "pods": [
+    {
+      "pod_number": 1,
+      "pod_id": "TEST_ONLY_pod_1",
+      "ws_connected": true,
+      "http_reachable": true,
+      "version": "1.0.0-test",
+      "build_id": "abc1234",
+      "uptime_secs": 3600,
+      "crash_recovery": false,
+      "ip_address": "192.168.31.0",
+      "last_seen": "2026-01-01T00:00:00Z",
+      "last_http_check": "2026-01-01T00:00:00Z",
+      "in_maintenance": false,
+      "maintenance_failures": [],
+      "violation_count_24h": 0,
+      "last_violation_at": null,
+      "idle_health_fail_count": 0,
+      "idle_health_failures": []
+    }
+  ],
+  "timestamp": "2026-01-01T00:00:00Z"
+}
