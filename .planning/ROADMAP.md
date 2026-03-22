@@ -2607,9 +2607,9 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 174-01-PLAN.md — Add /health to kiosk and web dashboard Next.js apps
-- [ ] 174-02-PLAN.md — Fix comms-link relay /health, verify racecontrol + rc-sentry
-- [ ] 174-03-PLAN.md — Triage deploy-staging 719 dirty files (gitignore + commit)
+- [x] 174-01-PLAN.md — Add /health to kiosk and web dashboard Next.js apps
+- [x] 174-02-PLAN.md — Fix comms-link relay /health, verify racecontrol + rc-sentry
+- [x] 174-03-PLAN.md — Triage deploy-staging 719 dirty files (gitignore + commit)
 - [ ] 174-04-PLAN.md — Create check-health.sh and deploy.sh with post-deploy health check
 - [ ] 174-05-PLAN.md — Deployment runbook + REPO-04/REPO-05 live verification checkpoint
 
@@ -2634,5 +2634,5 @@ Plans:
 | 171. Bug Fixes | 0/TBD | Complete    | 2026-03-22 |
 | 172. Standing Rules Sync | 3/3 | Complete    | 2026-03-22 |
 | 173. API Contracts | 4/4 | Complete    | 2026-03-22 |
-| 174. Health Monitoring & Unified Deploy | 2/5 | In Progress|  |
+| 174. Health Monitoring & Unified Deploy | 3/5 | In Progress|  |
 | 175. E2E Validation | 0/TBD | Not started | - |
