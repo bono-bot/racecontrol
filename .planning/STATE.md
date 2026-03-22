@@ -1,5 +1,27 @@
 ---
 gsd_state_version: 1.0
+milestone: v17.1
+milestone_name: Watchdog-to-AI Migration
+status: in_progress
+stopped_at: "Completed 161-01-PLAN.md"
+last_updated: "2026-03-22T21:00:00+05:30"
+current_phase: 161
+current_phase_name: Pod Monitor Merge
+current_plan: 02
+progress:
+  total_phases: 124
+  completed_phases: 89
+  total_plans: 211
+  completed_plans: 209
+  percent: 99
+decisions:
+  - "161-01: PodRecoveryTracker held in local HashMap in heal_all_pods loop — not in AppState, no shared state complexity"
+  - "161-01: Step 1 logs SkipCascadeGuardActive with reason graduated_step1_wait_30s (no dedicated Wait action in RecoveryAction)"
+  - "161-01: AlertStaff step stays at AlertStaff and re-alerts each cycle until pod comes back online"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress

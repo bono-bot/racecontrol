@@ -14,9 +14,9 @@
 
 ### Pod Monitor Migration
 
-- [ ] **PMON-01**: pod_monitor checks billing_active before triggering WoL/restart — never wake a deliberately offline pod during maintenance
+- [x] **PMON-01**: pod_monitor checks billing_active before triggering WoL/restart — never wake a deliberately offline pod during maintenance
 - [ ] **PMON-02**: pod_monitor merges with pod_healer into single recovery authority — no separate restart logic
-- [ ] **PMON-03**: pod recovery uses graduated response: 1st failure → wait 30s, 2nd → Tier 1 fix, 3rd → AI escalation, 4th+ → alert staff
+- [x] **PMON-03**: pod recovery uses graduated response: 1st failure → wait 30s, 2nd → Tier 1 fix, 3rd → AI escalation, 4th+ → alert staff
 
 ### James Watchdog Migration
 
@@ -54,9 +54,9 @@
 | SENT-02 | Phase 160 | Complete |
 | SENT-03 | Phase 160 | Complete |
 | SENT-04 | Phase 160 | Complete |
-| PMON-01 | Phase 161 | Pending |
+| PMON-01 | Phase 161 | Complete |
 | PMON-02 | Phase 161 | Pending |
-| PMON-03 | Phase 161 | Pending |
+| PMON-03 | Phase 161 | Complete |
 | JWAT-01 | Phase 162 | Pending |
 | JWAT-02 | Phase 162 | Pending |
 | JWAT-03 | Phase 162 | Pending |
