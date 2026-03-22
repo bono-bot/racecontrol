@@ -3,6 +3,20 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
+stopped_at: Completed 160-02-PLAN.md
+last_updated: "2026-03-22T14:56:39.587Z"
+progress:
+  total_phases: 124
+  completed_phases: 89
+  total_plans: 211
+  completed_plans: 208
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
 stopped_at: Completed 153-02-PLAN.md
 last_updated: "2026-03-22T15:05:00+05:30"
 progress:
