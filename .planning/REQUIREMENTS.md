@@ -21,7 +21,7 @@
 
 ### Layout (LYOT)
 
-- [ ] **LYOT-01**: User can switch between layout modes: 1x1, 2x2, 3x3, 4x4 grid presets via toolbar buttons
+- [x] **LYOT-01**: User can switch between layout modes: 1x1, 2x2, 3x3, 4x4 grid presets via toolbar buttons
 - [ ] **LYOT-02**: User can drag cameras to reorder their position in the grid
 - [ ] **LYOT-03**: Grid layout (mode + camera order) persists across page reloads via server-side camera-layout.json
 - [x] **LYOT-04**: PUT /api/v1/cameras/layout saves layout preferences to camera-layout.json
@@ -29,15 +29,15 @@
 
 ### UI/UX (UIUX)
 
-- [ ] **UIUX-01**: Dashboard fills entire browser viewport with no scrollbars (compact toolbar, edge-to-edge grid)
-- [ ] **UIUX-02**: Each camera tile shows status indicator (green=live, red=offline, yellow=stale)
+- [x] **UIUX-01**: Dashboard fills entire browser viewport with no scrollbars (compact toolbar, edge-to-edge grid)
+- [x] **UIUX-02**: Each camera tile shows status indicator (green=live, red=offline, yellow=stale)
 - [ ] **UIUX-03**: Loading state shown during WebRTC connection setup (spinner or placeholder)
-- [ ] **UIUX-04**: Smooth CSS transition when switching layout modes (no DOM rebuild flash)
-- [ ] **UIUX-05**: Refresh rate selector in toolbar (0.2, 0.5, 1 fps for snapshot grid)
+- [x] **UIUX-04**: Smooth CSS transition when switching layout modes (no DOM rebuild flash)
+- [x] **UIUX-05**: Refresh rate selector in toolbar (0.2, 0.5, 1 fps for snapshot grid)
 
 ### Deployment (DPLY)
 
-- [ ] **DPLY-01**: cameras.html embedded in rc-sentry-ai serves the full dashboard at /cameras/live
+- [x] **DPLY-01**: cameras.html embedded in rc-sentry-ai serves the full dashboard at /cameras/live
 - [ ] **DPLY-02**: Standalone camera dashboard page accessible from web dashboard on server .23 at /cameras
 - [ ] **DPLY-03**: Both deployments share identical feature set (layouts, WebRTC, drag-to-rearrange)
 
@@ -72,17 +72,17 @@
 | STRM-02 | Phase 147 | Pending |
 | STRM-03 | Phase 147 | Pending |
 | STRM-04 | Phase 147 | Pending |
-| LYOT-01 | Phase 147 | Pending |
+| LYOT-01 | Phase 147 | Complete |
 | LYOT-02 | Phase 147 | Pending |
 | LYOT-03 | Phase 147 | Pending |
 | LYOT-04 | Phase 146 | Complete |
 | LYOT-05 | Phase 147 | Pending |
-| UIUX-01 | Phase 147 | Pending |
-| UIUX-02 | Phase 147 | Pending |
+| UIUX-01 | Phase 147 | Complete |
+| UIUX-02 | Phase 147 | Complete |
 | UIUX-03 | Phase 147 | Pending |
-| UIUX-04 | Phase 147 | Pending |
-| UIUX-05 | Phase 147 | Pending |
-| DPLY-01 | Phase 147 | Pending |
+| UIUX-04 | Phase 147 | Complete |
+| UIUX-05 | Phase 147 | Complete |
+| DPLY-01 | Phase 147 | Complete |
 | DPLY-02 | Phase 148 | Pending |
 | DPLY-03 | Phase 148 | Pending |
 
