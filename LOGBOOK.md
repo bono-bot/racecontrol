@@ -528,3 +528,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 12:00 IST | James | c93ea43 | fix(08-01): update deploy workflow for PM2+nginx VPS setup |
 | 2026-03-22 12:00 IST | James | 0cf64bf | docs(08-01): complete CI/CD pipeline plan SUMMARY, STATE, ROADMAP, REQUIREMENTS (INFRA-04) |
 | 2026-03-22 02:59 IST | James | 68b4c81 | fix: resolve driver upsert UNIQUE constraint (clear stale customer_id) + configure pod healer AI (Ollama → James .27, qwen2.5:3b) |
+| 2026-03-22 08:53 IST | James | 6420871 | feat(135-01): add CommsLink daemon watchdog + scheduler registration |
