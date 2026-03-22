@@ -7,10 +7,10 @@
 
 ### Rules Hygiene
 
-- [ ] **RULES-01**: CLAUDE.md standing rules reorganized into named categories (Deploy, Comms, Code Quality, Process, Debugging)
-- [ ] **RULES-02**: Obsolete/duplicate rules pruned (rules superseded by v18.0, duplicate across sections)
-- [ ] **RULES-03**: Each rule has a one-line justification comment so future sessions can evaluate relevance
-- [ ] **RULES-04**: standing-rules.md memory file matches CLAUDE.md (no drift)
+- [x] **RULES-01**: CLAUDE.md standing rules reorganized into named categories (Deploy, Comms, Code Quality, Process, Debugging)
+- [x] **RULES-02**: Obsolete/duplicate rules pruned (rules superseded by v18.0, duplicate across sections)
+- [x] **RULES-03**: Each rule has a one-line justification comment so future sessions can evaluate relevance
+- [x] **RULES-04**: standing-rules.md memory file matches CLAUDE.md (no drift)
 
 ### Integration Tests
 
@@ -38,10 +38,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RULES-01 | Phase 142 | Pending |
-| RULES-02 | Phase 142 | Pending |
-| RULES-03 | Phase 142 | Pending |
-| RULES-04 | Phase 142 | Pending |
+| RULES-01 | Phase 142 | Complete (2026-03-22) |
+| RULES-02 | Phase 142 | Complete (2026-03-22) |
+| RULES-03 | Phase 142 | Complete (2026-03-22) |
+| RULES-04 | Phase 142 | Complete (2026-03-22) |
 | INTEG-01 | Phase 143 | Pending |
 | INTEG-02 | Phase 143 | Pending |
 | INTEG-03 | Phase 143 | Pending |

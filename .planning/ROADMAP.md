@@ -2105,7 +2105,7 @@ Fix the root cause of bugs slipping through GSD execution — 135 unit tests cau
 
 ## Phases (v18.2)
 
-- [ ] **Phase 142: Rules Hygiene** - Reorganize CLAUDE.md standing rules into named categories, prune obsolete/duplicate rules, add justification comments, sync standing-rules.md (RULES-01 through RULES-04)
+- [x] **Phase 142: Rules Hygiene** - Reorganize CLAUDE.md standing rules into named categories, prune obsolete/duplicate rules, add justification comments, sync standing-rules.md (RULES-01 through RULES-04)
 - [ ] **Phase 143: Integration Test Suite** - Build comms-link integration test script: start real daemons, send WS exec/chain/delegation, verify round-trip results; cross-platform syntax check; contract tests for parameter agreements (INTEG-01 through INTEG-05)
 - [ ] **Phase 144: GSD Quality Gate** - Wire integration tests into GSD execute-phase as automatic post-execution verification; single-command invocation; failures block phase completion (GATE-01 through GATE-03)
 
@@ -2123,7 +2123,7 @@ Fix the root cause of bugs slipping through GSD execution — 135 unit tests cau
 **Plans**: 1 plan
 
 Plans:
-- [ ] 142-01-PLAN.md — Reorganize CLAUDE.md rules into 6 categories, prune 3 redundant rules, add justifications, sync standing-rules.md (RULES-01 through RULES-04)
+- [x] 142-01-PLAN.md — Reorganize CLAUDE.md rules into 6 categories, prune 3 redundant rules, add justifications, sync standing-rules.md (RULES-01 through RULES-04)
 
 ### Phase 143: Integration Test Suite
 **Goal**: A single script starts real comms-link daemons on James and verifies that WS exec, chain, delegation, syntax, and contract behaviors all work end-to-end against live processes — no mocks
@@ -2161,6 +2161,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 142. Rules Hygiene | 0/2 | Not started | - |
+| 142. Rules Hygiene | 1/1 | Complete | 2026-03-22 |
 | 143. Integration Test Suite | 0/2 | Not started | - |
 | 144. GSD Quality Gate | 0/2 | Not started | - |

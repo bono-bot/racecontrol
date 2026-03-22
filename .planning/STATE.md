@@ -3,13 +3,16 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: defining_requirements
-stopped_at: Completed 138-03-PLAN.md
-last_updated: "2026-03-22T04:42:46.689Z"
+stopped_at: Completed 142-01-PLAN.md
+last_updated: "2026-03-22T10:30:00.000Z"
 progress:
   total_phases: 106
   completed_phases: 72
-  total_plans: 180
-  completed_plans: 176
+  total_plans: 181
+  completed_plans: 177
+decisions:
+  - "142-01: Standing rules merged into 6 categories with justifications — Deploy, Comms, Code Quality, Process, Debugging, Security"
+  - "142-01: Deploy rules 4+5 pruned (absorbed into verification sequence); Standing rule 8 merged into auto-push"
 ---
 
 ---
