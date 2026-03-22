@@ -66,6 +66,7 @@ pub(crate) struct ConnectionState {
     pub(crate) kiosk_interval: tokio::time::Interval,
     pub(crate) overlay_topmost_interval: tokio::time::Interval,
     pub(crate) maintenance_retry_interval: tokio::time::Interval,
+    pub(crate) browser_watchdog_interval: tokio::time::Interval,
     pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
     pub(crate) blank_timer_armed: bool,
     pub(crate) crash_recovery: CrashRecoveryState,
@@ -104,6 +105,7 @@ impl ConnectionState {
             kiosk_interval: tokio::time::interval(Duration::from_secs(5)),
             overlay_topmost_interval: tokio::time::interval(Duration::from_secs(10)),
             maintenance_retry_interval: tokio::time::interval(Duration::from_secs(30)),
+            browser_watchdog_interval: tokio::time::interval(Duration::from_secs(30)),
             blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
             blank_timer_armed: false,
             crash_recovery: CrashRecoveryState::Idle,
@@ -912,6 +914,41 @@ pub async fn run(
                         // Retry only refreshes the lock screen with updated failure details.
                         state.lock_screen.show_maintenance_required(failure_strings);
                     }
+                }
+            }
+
+            _ = conn.browser_watchdog_interval.tick() => {
+                // BWDOG-04: skip entirely during safe mode
+                if state.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
+
+                // Only check when lock screen is active (browser expected to be running)
+                if !state.lock_screen.is_browser_expected() {
+                    continue;
+                }
+
+                // BWDOG-02: check for Edge process stacking (>5 msedge.exe)
+                let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+                if edge_count > 5 {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "Browser watchdog: Edge stacking detected ({} msedge.exe processes) — killing all and relaunching",
+                        edge_count
+                    );
+                    state.lock_screen.close_browser();
+                    state.lock_screen.launch_browser();
+                    continue;
+                }
+
+                // BWDOG-01: check browser child process liveness
+                if !state.lock_screen.is_browser_alive() {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "Browser watchdog: Edge not alive — relaunching"
+                    );
+                    state.lock_screen.close_browser();
+                    state.lock_screen.launch_browser();
                 }
             }
 
