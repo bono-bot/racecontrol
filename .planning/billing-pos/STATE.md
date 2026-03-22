@@ -12,6 +12,7 @@ progress:
   total_plans: 10
   completed_plans: 3
   percent: 30
+  note: "Phase 4.1 (PDF Receipt) inserted — 1 additional plan pending"
 ---
 
 # Project State

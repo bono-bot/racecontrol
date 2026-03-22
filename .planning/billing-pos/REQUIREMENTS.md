@@ -1,6 +1,6 @@
 # Requirements: RaceControl Billing & POS (v3.0)
 
-**Total:** 25 requirements across 5 categories
+**Total:** 26 requirements across 5 categories
 **Status:** All pending
 
 ---
@@ -49,6 +49,7 @@
 | PWA-02 | Customer can view session performance in session detail: total laps, best lap time, top speed (where telemetry available) | 4 | [x] |
 | PWA-03 | Customer can view session timeline in session detail: session start, each pause/resume with reason, warnings, session end | 4 | [x] |
 | PWA-04 | Customer receives a WhatsApp message after session end summarising duration, cost, best lap, and wallet balance remaining | 4 | [x] |
+| PWA-06 | WhatsApp receipt is sent as a PDF attachment styled to resemble an 80mm (3.14") thermal roll receipt — narrow layout, monospaced feel, Racing Point branding | 4.1 | [ ] |
 | PWA-05 | Session results page has a shareable link (no auth required to view public summary) | 4 | [x] |
 
 ---
@@ -73,4 +74,5 @@
 | Phase 2: Cloud Live Dashboard | LIVE-01, LIVE-02, LIVE-03, LIVE-04, LIVE-05 |
 | Phase 3: Cloud Analytics | ANA-01, ANA-02, ANA-03, ANA-04, ANA-05 |
 | Phase 4: PWA Session Results | PWA-01, PWA-02, PWA-03, PWA-04, PWA-05 |
+| Phase 4.1: PDF Receipt | PWA-06 |
 | Phase 5: Kiosk POS Operations | POS-01, POS-02, POS-03, POS-04, POS-05 |

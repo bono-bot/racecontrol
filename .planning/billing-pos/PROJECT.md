@@ -64,4 +64,4 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) — 25 requirements across 5 categories.
 
 ## Phases
 
-See [ROADMAP.md](ROADMAP.md) — 6 phases, 13 plans.
+See [ROADMAP.md](ROADMAP.md) — 6 phases (including Phase 4.1 inserted), 10 plans.

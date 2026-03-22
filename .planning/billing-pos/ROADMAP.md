@@ -18,6 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Cloud Dashboard — Live Operations** - Real-time pod grid, revenue ticker, and session alerts at dashboard.racingpoint.cloud
 - [ ] **Phase 3: Cloud Dashboard — Analytics & Reports** - Session list with filters, revenue charts, utilization heatmap, CSV export
 - [x] **Phase 4: PWA Session Results & Receipt** - Session detail page (cost, laps, timeline) + WhatsApp receipt on session end
+- [ ] **Phase 4.1: PDF Receipt** *(INSERTED)* - WhatsApp receipt as PDF attachment styled like 80mm thermal roll print
 - [ ] **Phase 5: Kiosk POS — Staff Operations** - Payment method recording, refund UI, manual discount UI
 
 ## Phase Details
@@ -85,6 +86,21 @@ Plans:
 - [x] 04-01-PLAN.md — racecontrol: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
 - [x] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
 
+### Phase 4.1: PDF Receipt *(INSERTED)*
+**Goal**: WhatsApp receipt is sent as a PDF attachment that visually resembles an 80mm (3.14") diameter thermal roll receipt — narrow layout, monospaced typography, Racing Point branding at the top, session details in receipt format
+**Depends on**: Phase 4 (existing WhatsApp receipt logic)
+**Requirements**: PWA-06
+**Success Criteria** (what must be TRUE):
+  1. WhatsApp receipt is delivered as a PDF file attachment (not plain text message)
+  2. PDF layout is narrow (~80mm / 226pt width) mimicking a thermal receipt roll
+  3. PDF includes Racing Point branding (logo or styled header), session details (duration, cost, laps, best lap), and wallet balance
+  4. Receipt uses monospaced or receipt-style typography with dashed separators
+  5. Existing 5-second timeout and best-effort delivery semantics are preserved
+**Plans**: 1 plan
+
+Plans:
+- [ ] 04.1-01-PLAN.md — Generate PDF receipt in racecontrol (printpdf or similar), send as document via Evolution API sendMedia endpoint
+
 ### Phase 5: Kiosk POS — Staff Operations
 **Goal**: Staff can record how a customer paid, issue refunds for any session, and apply manual discounts — all from the kiosk dashboard without touching a terminal
 **Depends on**: Nothing (independent)
@@ -112,9 +128,10 @@ Phase 1 first (enables cloud phases). Phases 2 and 3 depend on Phase 1. Phases 4
 | 2. Cloud Dashboard — Live | 0/2 | Not started | - |
 | 3. Cloud Dashboard — Analytics | 0/2 | Not started | - |
 | 4. PWA Session Results & Receipt | 2/2 | Complete | 2026-03-14 |
+| 4.1 PDF Receipt *(INSERTED)* | 0/1 | Not started | - |
 | 5. Kiosk POS — Staff Operations | 0/2 | Not started | - |
 
-**Total: 3/9 plans complete**
+**Total: 3/10 plans complete**
 
 ## Dependency Graph
 
@@ -126,6 +143,9 @@ Phase 1: Billing Cloud Sync
     +-- (independent of below)
 
 Phase 4: PWA Session Results    (independent, can start any time)
+    |
+    +---> Phase 4.1: PDF Receipt  (replaces plain text with PDF attachment)
+
 Phase 5: Kiosk POS Operations   (independent, can start any time)
 ```
 
