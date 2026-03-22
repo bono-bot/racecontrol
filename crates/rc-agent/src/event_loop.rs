@@ -945,6 +945,12 @@ pub async fn run(
             }
 
             _ = conn.browser_watchdog_interval.tick() => {
+                // BWDOG DISABLED: kills+relaunches Edge every 30s causing flicker.
+                // count_edge_processes() returns 0 even when Edge is running (tasklist
+                // filter issue on pods), so the watchdog always thinks Edge is dead.
+                // Root cause needs investigation before re-enabling.
+                continue;
+
                 // BWDOG-04: skip entirely during safe mode
                 if state.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
