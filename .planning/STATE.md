@@ -1,5 +1,20 @@
 ---
 gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 161-02-PLAN.md
+last_updated: "2026-03-22T15:27:01.320Z"
+progress:
+  total_phases: 124
+  completed_phases: 90
+  total_plans: 213
+  completed_plans: 210
+  percent: 99
+---
+
+---
+gsd_state_version: 1.0
 milestone: v17.1
 milestone_name: Watchdog-to-AI Migration
 status: in_progress
@@ -9,7 +24,7 @@ current_phase: 161
 current_phase_name: Pod Monitor Merge
 current_plan: 02
 progress:
-  total_phases: 124
+  [██████████] 99%
   completed_phases: 89
   total_plans: 211
   completed_plans: 209
@@ -1406,6 +1421,7 @@ Plan: 1 of 2
 | Phase 160-rc-sentry-ai-migration P01 | 15 | 2 tasks | 2 files |
 | Phase 153-inventory-alerts P01 | 9 | 2 tasks | 5 files |
 | Phase 160 P02 | 20 | 2 tasks | 1 files |
+| Phase 161-pod-monitor-merge P02 | 8 | 2 tasks | 2 files |
 
 ### Pending Todos
 
@@ -1416,8 +1432,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-22T14:55:15.878Z
-Stopped at: Completed 160-02-PLAN.md
+Last session: 2026-03-22T15:27:01.306Z
+Stopped at: Completed 161-02-PLAN.md
 Resume file: None
 
 ---
