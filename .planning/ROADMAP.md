@@ -2466,11 +2466,11 @@ Plans:
   2. When rc-agent performs a graceful self-restart (RCAGENT_SELF_RESTART sentinel file present), rc-sentry detects it and does not escalate — no false-positive Ollama queries or staff alerts on intentional restarts
   3. Every restart decision made by rc-sentry is written to the activity log with: timestamp, crash pattern matched (or "unknown"), action taken, and outcome — the log shows a full audit trail
   4. When Ollama is queried for an unknown crash pattern, the response (or timeout) is recorded in debug-memory.json — the same pattern is handled faster on next occurrence
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 160-01: TBD
-- [ ] 160-02: TBD
+- [ ] 160-01-PLAN.md — Sentinel detection + RecoveryLogger wiring (SENT-03, SENT-04)
+- [ ] 160-02-PLAN.md — Pattern-aware escalation + pre-restart Ollama query (SENT-01, SENT-02)
 
 ### Phase 161: Pod Monitor Merge
 **Goal**: pod_monitor and pod_healer become a single recovery authority — pod_monitor's WoL/restart logic merges into pod_healer, the separate restart path is deleted, maintenance-offline pods are never woken, and recovery uses a 4-step graduated response instead of immediate restart
