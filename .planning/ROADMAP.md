@@ -1952,7 +1952,7 @@ Plans:
 
 ## Phases (v18.1)
 
-- [ ] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04)
+- [x] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04) (completed 2026-03-22)
 - [ ] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03)
 
 ### Phase 135: Daemon Recovery
@@ -1987,5 +1987,5 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 135. Daemon Recovery | 1/2 | In Progress|  |
+| 135. Daemon Recovery | 2/2 | Complete   | 2026-03-22 |
 | 136. Chain Endpoint + Visibility | 0/2 | Not started | - |
