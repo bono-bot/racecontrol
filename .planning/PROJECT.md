@@ -10,7 +10,25 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Professional NVR camera dashboard with 13 cameras, DMSS HD-inspired UI. Hybrid streaming (cached snapshots for grid + WebRTC fullscreen via go2rtc), 4 layout modes (1×1/2×2/3×3/4×4), drag-to-rearrange, zone grouping, camera naming, layout persistence via server-side JSON, and dual deployment (rc-sentry-ai :8096 + web dashboard :3200). 936-line cameras.html + 849-line React page.tsx, 21 requirements, 4 phases, 7 plans.
 
-## Current Milestone: v17.0 AI Debugger Autonomy & Self-Healing
+## Current Milestone: v17.1 Watchdog-to-AI Migration
+
+**Goal:** Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery. Watchdogs do "if dead → restart" without understanding WHY, causing infinite loops, cascading conflicts (standing rule #10), and user-facing flicker. AI recovery does: detect → pattern memory → Tier 1 fix → escalate to AI → alert staff after 3+ failures.
+
+**Target features:**
+- rc-sentry: replace blind 5s health poll + restart with AI healer pattern memory + graduated response + escalation
+- pod_monitor: merge server-side WoL + restart into AI healer with context-aware recovery (distinguish crash vs deliberate shutdown)
+- James watchdog: replace james_watchdog.ps1 blind 2min service check with AI debugger + pattern memory
+- Recovery consolidation: single recovery authority per machine, prevent fighting between self_monitor / rc-sentry / pod_monitor / WoL
+
+**Constraints:**
+- Must not reduce recovery reliability — AI recovery must be at least as fast as dumb watchdog for real crashes
+- Pattern memory must persist across rc-agent restarts (debug-memory.json)
+- Standing rule #10: recovery systems must not fight each other — this milestone enforces it
+- Browser watchdog already replaced in v17.0 (server healer + ForceRelaunchBrowser)
+
+**Incident trigger:** v17.0 browser watchdog caused 30s screen flicker on all 8 pods. Root cause: `tasklist /FI` returns empty on pods → watchdog thinks Edge is dead → kills + relaunches every 30s. Dumb watchdogs are fragile.
+
+## Shipped Milestone: v17.0 AI Debugger Autonomy & Self-Healing
 
 **Goal:** Close 6 architectural gaps that prevented the system from self-healing when Edge died/stacked on pods. Make pre-flight continuous, add browser watchdog, give AI debugger execution capability for safe actions, and let the pod healer relaunch Edge.
 

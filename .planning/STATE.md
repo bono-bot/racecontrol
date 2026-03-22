@@ -1,5 +1,21 @@
 ---
 gsd_state_version: 1.0
+milestone: v17.1
+milestone_name: Watchdog-to-AI Migration
+status: not_started
+stopped_at: "Defining requirements"
+last_updated: "2026-03-22T20:00:00+05:30"
+current_phase: null
+current_phase_name: null
+progress:
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
