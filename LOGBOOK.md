@@ -665,3 +665,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 00:31 IST | James | 5420fcbb | feat(158-01): Rust broadcast_promo handler — Evolution API WhatsApp, 24h per-driver cooldown |
 | 2026-03-23 00:32 IST | James | 705a4282 | docs(158-01): 158-01-SUMMARY.md + STATE.md + ROADMAP.md updated |
 | 2026-03-22 17:30 IST | James | 40cd39ce | docs(155-02): SUMMARY + STATE + ROADMAP — plan 155-02 complete, ORD-05/06/09 marked done |
+| 2026-03-23 12:45 IST | James | e58504cd | chore(170-01): catalogue non-git folders with disposition decisions — 7 folders, 3 archive/2 delete/2 keep |
+| 2026-03-23 12:45 IST | James | 8cb0d652 | docs(170-01): SUMMARY/STATE/ROADMAP — 3 repos archived on GitHub, REPO-01/02 complete |
