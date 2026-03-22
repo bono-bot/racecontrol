@@ -2438,7 +2438,7 @@ Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that
 - [x] **Phase 159: Recovery Consolidation Foundation** - Single recovery authority per machine, decision logging, and anti-cascade guard to prevent recovery systems fighting each other (completed 2026-03-22)
 - [x] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection
  (completed 2026-03-22)
-- [ ] **Phase 161: Pod Monitor Merge** - Merge pod_monitor into pod_healer as single recovery authority with billing-aware WoL and graduated response
+- [x] **Phase 161: Pod Monitor Merge** - Merge pod_monitor into pod_healer as single recovery authority with billing-aware WoL and graduated response (completed 2026-03-22)
 - [ ] **Phase 162: James Watchdog Migration** - Replace james_watchdog.ps1 with Rust-based AI monitor using pattern memory, graduated response, and Bono escalation
 
 ## Phase Details
@@ -2485,8 +2485,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 161-01-PLAN.md — Graduated recovery tracker + billing/maintenance gate (PMON-01, PMON-03)
-- [ ] 161-02-PLAN.md — Strip restart/WoL from pod_monitor, single recovery authority (PMON-02)
+- [x] 161-01-PLAN.md — Graduated recovery tracker + billing/maintenance gate (PMON-01, PMON-03)
+- [x] 161-02-PLAN.md — Strip restart/WoL from pod_monitor, single recovery authority (PMON-02)
 
 ### Phase 162: James Watchdog Migration
 **Goal**: james_watchdog.ps1 is replaced by a Rust binary that monitors Ollama, Claude Code, comms-link, and webterm with pattern memory and graduated response — blind 2-minute PowerShell restart loop eliminated, Bono is alerted on repeated failures instead of silent restarts continuing indefinitely
@@ -2512,5 +2512,5 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 |-------|----------------|--------|-----------|
 | 159. Recovery Consolidation Foundation | 2/2 | Complete    | 2026-03-22 |
 | 160. RC-Sentry AI Migration | 2/2 | Complete    | 2026-03-22 |
-| 161. Pod Monitor Merge | 1/2 | In Progress|  |
+| 161. Pod Monitor Merge | 2/2 | Complete    | 2026-03-22 |
 | 162. James Watchdog Migration | 0/0 | Not started | - |
