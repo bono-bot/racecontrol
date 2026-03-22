@@ -18,6 +18,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 22:30 IST | James | `10078e53` | 155-01: send_order_receipt_whatsapp + Step L spawn + CafeConfig in config |
 | Mar 22 22:30 IST | James | `6864c454` | 155-01: print_thermal_receipt + list_customer_orders + GET /customer/cafe/orders/history |
 | Mar 22 22:30 IST | James | `52a9f8f9` | 155-01: docs — SUMMARY, STATE, ROADMAP updated |
+| Mar 22 22:45 IST | James | `24ff9223` | 155-02: Add CafeOrderHistoryItem type and getCafeOrderHistory to api.ts |
+| Mar 22 22:45 IST | James | `00b50b93` | 155-02: Build /cafe/orders page with expand/collapse order history |
+| Mar 22 22:45 IST | James | `729787c7` | 155-02: docs — SUMMARY, STATE, ROADMAP updated |
 
 ## 2026-03-01
 
