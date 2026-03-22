@@ -3,14 +3,18 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: "Completed 150-02-PLAN.md (awaiting checkpoint:human-verify at Task 3)"
-last_updated: "2026-03-22T12:48:11.004Z"
+stopped_at: "Completed 150-02-PLAN.md"
+last_updated: "2026-03-22T18:30:00+05:30"
 progress:
   total_phases: 120
-  completed_phases: 84
+  completed_phases: 85
   total_plans: 201
-  completed_plans: 198
-  percent: 98
+  completed_plans: 199
+  percent: 99
+decisions:
+  - "150-02: importCafePreview and uploadCafeItemImage use raw fetch (not fetchApi) — fetchApi sets Content-Type: application/json which breaks multipart boundary"
+  - "150-02: Column mapping bar is read-only in v1 — fuzzy matching handles 95% of cases, dropdown override deferred"
+  - "150-02: Preview table limited to first 100 rows via .slice(0, 100)"
 ---
 
 ---

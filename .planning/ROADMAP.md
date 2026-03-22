@@ -2284,8 +2284,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 150-01-PLAN.md -- Backend: Cargo deps, DB migration, XLSX/CSV parsing, import/confirm endpoints, image upload handler, static serving
-- [ ] 150-02-PLAN.md -- Frontend: TypeScript types + API methods, import modal with preview table, image column with upload
+- [x] 150-01-PLAN.md -- Backend: Cargo deps, DB migration, XLSX/CSV parsing, import/confirm endpoints, image upload handler, static serving
+- [x] 150-02-PLAN.md -- Frontend: TypeScript types + API methods, import modal with preview table, image column with upload
 
 ### Phase 151: Menu Display
 **Goal**: Customers and staff can browse the complete cafe menu with correct pricing, categories, and images

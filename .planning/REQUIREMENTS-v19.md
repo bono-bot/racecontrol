@@ -9,12 +9,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Menu & Item Management
 
-- [ ] **MENU-01**: Admin can upload cafe items from PDF or spreadsheet (name, price, category, cost price, description) with preview-and-confirm flow
+- [x] **MENU-01**: Admin can upload cafe items from PDF or spreadsheet (name, price, category, cost price, description) with preview-and-confirm flow
 - [ ] **MENU-02**: Admin can manually add cafe items with name, description, category, selling price, and cost price
 - [ ] **MENU-03**: Admin can edit existing cafe item details (name, description, category, prices)
 - [ ] **MENU-04**: Admin can delete cafe items
 - [ ] **MENU-05**: Admin can toggle item availability (available/unavailable -- hides from POS/PWA)
-- [ ] **MENU-06**: Admin can upload item images that display in PWA and POS
+- [x] **MENU-06**: Admin can upload item images that display in PWA and POS
 - [ ] **MENU-07**: Cafe items display in POS grouped by category with correct pricing
 - [ ] **MENU-08**: Cafe items display in PWA grouped by category with images, descriptions, and pricing
 
@@ -90,12 +90,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MENU-01 | Phase 150 | Pending |
+| MENU-01 | Phase 150 | Complete |
 | MENU-02 | Phase 149 | Pending |
 | MENU-03 | Phase 149 | Pending |
 | MENU-04 | Phase 149 | Pending |
 | MENU-05 | Phase 149 | Pending |
-| MENU-06 | Phase 150 | Pending |
+| MENU-06 | Phase 150 | Complete |
 | MENU-07 | Phase 151 | Pending |
 | MENU-08 | Phase 151 | Pending |
 | INV-01 | Phase 152 | Pending |
