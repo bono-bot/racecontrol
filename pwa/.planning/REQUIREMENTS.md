@@ -12,7 +12,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INFRA-01**: DNS A records for app, admin, dashboard, api subdomains pointing to VPS (72.60.101.58)
 - [x] **INFRA-02**: Caddy reverse proxy routes each subdomain to correct container with auto-TLS (Let's Encrypt)
 - [x] **INFRA-03**: Docker Compose orchestrates all services (Caddy + 3 frontends + racecontrol) with memory limits and healthchecks
-- [ ] **INFRA-04**: GitHub Actions CI/CD pipeline: push to main triggers build + deploy to VPS via SSH
+- [x] **INFRA-04**: GitHub Actions CI/CD pipeline: push to main triggers build + deploy to VPS via SSH
 - [ ] **INFRA-05**: Container health monitoring with WhatsApp alerts on failures or OOM
 - [x] **INFRA-06**: VPS firewall allows ports 80/443 inbound, all other ports blocked externally
 - [x] **INFRA-07**: Swap enabled on VPS (2GB) to prevent OOM with 3 Next.js containers
@@ -115,7 +115,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 1 | Complete |
-| INFRA-04 | Phase 8 | Pending |
+| INFRA-04 | Phase 8 | Complete |
 | INFRA-05 | Phase 9 | Pending |
 | INFRA-06 | Phase 1 | Complete |
 | INFRA-07 | Phase 1 | Complete |

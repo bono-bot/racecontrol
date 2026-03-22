@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches (completed 2026-03-21)
 - [x] **Phase 6: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud (completed 2026-03-22)
 - [x] **Phase 7: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud (completed 2026-03-22)
-- [ ] **Phase 8: CI/CD Pipeline** - Automated build and deploy on push to main
+- [x] **Phase 8: CI/CD Pipeline** - Automated build and deploy on push to main (completed 2026-03-22)
 - [ ] **Phase 9: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
 - [ ] **Phase 10: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
 
@@ -145,7 +145,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 08-01-PLAN.md — GitHub Actions deploy workflow: SSH into VPS on push to main, pull repos, build and restart Docker services
+- [x] 08-01-PLAN.md — GitHub Actions deploy workflow: SSH into VPS on push to main, pull repos, build and restart Docker services (completed 2026-03-22, workflow green in 1m44s)
 
 ### Phase 9: Health Monitoring + Alerts
 **Goal**: Container failures and resource exhaustion are detected and reported automatically via WhatsApp
