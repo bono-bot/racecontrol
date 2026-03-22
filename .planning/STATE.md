@@ -1,16 +1,21 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v17.1
+milestone_name: Watchdog-to-AI Migration
 status: in_progress
-stopped_at: Completed 162-01-PLAN.md
-last_updated: "2026-03-22T15:43:39.590Z"
+stopped_at: "Completed 162-02-PLAN.md"
+last_updated: "2026-03-22T22:00:00+05:30"
+current_phase: 162
+current_phase_name: James Watchdog Migration
+current_plan: 03
 progress:
-  total_phases: 124
-  completed_phases: 90
+  completed_phases: 91
   total_plans: 215
-  completed_plans: 211
+  completed_plans: 212
   percent: 99
+decisions:
+  - "162-02: HKLM Run key requires admin elevation — Task Scheduler (SYSTEM) is sufficient primary persistence"
+  - "162-02: watchdog-state.json empty counts at first run confirms all 5 services healthy on James"
 ---
 
 ---
