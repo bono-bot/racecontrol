@@ -600,3 +600,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 19:15 IST | James | 287591b7 | feat(159-01): add recovery authority contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger) to rc-common |
 | 2026-03-22 19:30 IST | James | 73a8c901 | feat(152-01): add inventory columns migration + CafeItem struct update (is_countable, stock_quantity, low_stock_threshold) — all SELECT/INSERT queries updated |
 | 2026-03-22 19:52 IST | James | f980d39f | feat(152-01): add restock endpoint POST /cafe/items/{id}/restock + fix test schema for inventory columns — all 15 cafe tests pass |
+| 2026-03-22 19:59 IST | James | 4bc02f36 | feat(159-02): CascadeGuard with 60s window, 3-authority threshold, server-startup exemption, 9 tests — cascade_guard.rs + lib.rs |
+| 2026-03-22 19:59 IST | James | 55c3ee97 | feat(159-02): wire CascadeGuard into AppState (cascade_guard field) and pod_healer (is_paused check + record per action) |
+| 2026-03-22 19:59 IST | James | 2a0f0c99 | docs(159-02): 159-02-SUMMARY.md + STATE.md + ROADMAP.md phase 159 Complete + CONS-03 done |
