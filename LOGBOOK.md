@@ -524,3 +524,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 01:55 IST | James | 02f9961 | feat(07-01): add dashboard to Caddy depends_on in compose.yml |
 | 2026-03-22 01:57 IST | James | 680226f | docs(07-01): complete dashboard Caddy dependency plan SUMMARY, STATE, ROADMAP |
 | 2026-03-22 07:29 IST | James | 0f8e2e5 | docs(07-02): complete dashboard cloud deploy plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (DASH-01-05) |
+| 2026-03-22 02:10 IST | James | 2cceafc | feat(08-01): add GitHub Actions deploy workflow |
+| 2026-03-22 12:00 IST | James | c93ea43 | fix(08-01): update deploy workflow for PM2+nginx VPS setup |
+| 2026-03-22 12:00 IST | James | 0cf64bf | docs(08-01): complete CI/CD pipeline plan SUMMARY, STATE, ROADMAP, REQUIREMENTS (INFRA-04) |
