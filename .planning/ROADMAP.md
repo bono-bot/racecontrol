@@ -2554,7 +2554,10 @@ Plans:
   2. After a pod restarts, no orphan powershell.exe processes appear in Task Manager - verified on at least 2 pods
   3. Process guard report_only mode emits a report listing all processes seen on live pods, with the allowlist file committed to deploy-staging
   4. After pod boot, Variable_dump.exe does not appear in Task Manager - verified on at least 2 pods
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 171-01-PLAN.md — Patch all 4 bugs: auto-seed pods on startup (BUG-01), process guard report_only config (BUG-03), confirm bat fixes for orphan PowerShell (BUG-02) and Variable_dump (BUG-04)
 
 ### Phase 172: Standing Rules Sync
 **Goal**: Relevant standing rules from racecontrol CLAUDE.md are propagated to every active repo, Bono VPS repos are updated with matching rules, and a compliance check script verifies rule presence across all repos in one command
