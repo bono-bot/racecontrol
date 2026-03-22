@@ -128,6 +128,38 @@
     pointer-events: none;
   }
 
+  /* ── Drag visual feedback ───────────────────────────────────── */
+  .cam[draggable="true"] { cursor: grab; }
+  .cam.dragging { opacity: 0.6; cursor: grabbing; }
+  .cam.drag-over { outline: 2px dashed #E10600; outline-offset: -2px; }
+
+  /* ── Zone headers ───────────────────────────────────────────── */
+  .zone-header {
+    grid-column: 1 / -1;
+    padding: 4px 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #999;
+    background: #1A1A1A;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  .zone-header:hover { color: #ccc; }
+  .zone-header .zone-arrow {
+    font-size: 0.5rem;
+    transition: transform 0.2s;
+  }
+  .zone-header.collapsed .zone-arrow {
+    transform: rotate(-90deg);
+  }
+  .zone-cameras-hidden { display: none; }
+
   /* ── Fullscreen overlay (placeholder for plan 03) ───────────── */
   .fullscreen {
     position: fixed; inset: 0;
@@ -173,6 +205,12 @@ var dotElements = {};   // keyed by nvr_channel
 var currentMode = '3x3';
 var timer = null;
 
+// Drag and zone state
+var dragSrcChannel = null;
+var collapsedZones = {};  // { 'entrance': false, 'pods': true, ... }
+
+var ZONE_ORDER = ['entrance', 'reception', 'pods', 'other'];
+
 var gridEl   = document.getElementById('grid');
 var statusEl = document.getElementById('status');
 var rateEl   = document.getElementById('rate');
@@ -204,17 +242,13 @@ function fetchLayout() {
       }
       if (layout.camera_order && layout.camera_order.length > 0) {
         // Reorder cameras to match saved order; unordered cameras go at end
-        var ordered = [];
-        layout.camera_order.forEach(function(ch) {
-          var cam = cameras.find(function(c) { return c.nvr_channel === ch; });
-          if (cam) ordered.push(cam);
+        var orderMap = {};
+        layout.camera_order.forEach(function(ch, i) { orderMap[ch] = i; });
+        cameras.sort(function(a, b) {
+          var aIdx = (a.nvr_channel in orderMap) ? orderMap[a.nvr_channel] : 9999;
+          var bIdx = (b.nvr_channel in orderMap) ? orderMap[b.nvr_channel] : 9999;
+          return aIdx - bIdx;
         });
-        cameras.forEach(function(cam) {
-          if (layout.camera_order.indexOf(cam.nvr_channel) === -1) {
-            ordered.push(cam);
-          }
-        });
-        cameras = ordered;
         buildGrid();
       }
     })
@@ -231,57 +265,159 @@ function buildGrid() {
   imgElements  = {};
   dotElements  = {};
 
+  // Group cameras by zone
+  var groups = {};
+  ZONE_ORDER.forEach(function(z) { groups[z] = []; });
+
   cameras.forEach(function(camera) {
-    var ch = camera.nvr_channel;
+    var zone = camera.zone || 'other';
+    if (!groups[zone]) groups[zone] = [];
+    groups[zone].push(camera);
+  });
 
-    // Tile container
-    var tile = document.createElement('div');
-    tile.className = 'cam';
-    if (ch != null) tile.setAttribute('data-channel', ch);
-    if (camera.status === 'offline' || camera.status === 'disconnected') {
-      tile.classList.add('offline');
-    }
+  // Render each zone that has cameras
+  ZONE_ORDER.forEach(function(zone) {
+    var zoneCameras = groups[zone];
+    if (!zoneCameras || zoneCameras.length === 0) return;
 
-    // Label bar
-    var label = document.createElement('div');
-    label.className = 'cam-label';
+    // Zone header
+    var header = document.createElement('div');
+    header.className = 'zone-header';
+    if (collapsedZones[zone]) header.classList.add('collapsed');
 
-    var nameSpan = document.createElement('span');
-    nameSpan.textContent = camera.display_name;
+    var arrow = document.createElement('span');
+    arrow.className = 'zone-arrow';
+    arrow.textContent = '\u25BC';
 
-    var dot = document.createElement('span');
-    dot.className = 'dot ' + statusToDotClass(camera.status);
+    var labelText = document.createElement('span');
+    labelText.textContent = zone.toUpperCase() + ' (' + zoneCameras.length + ')';
 
-    label.appendChild(nameSpan);
-    label.appendChild(dot);
+    header.appendChild(arrow);
+    header.appendChild(labelText);
+    gridEl.appendChild(header);
 
-    // Camera image
-    var img = document.createElement('img');
-    img.alt = camera.display_name;
-    img.style.cursor = 'pointer';
-    if (ch != null) {
-      img.addEventListener('click', (function(cam) {
-        return function() { openFullscreen(cam); };
-      })(camera));
-    }
+    // Render cameras in this zone
+    zoneCameras.forEach(function(camera) {
+      var ch = camera.nvr_channel;
 
-    // Offline overlay text
-    if (camera.status === 'offline' || camera.status === 'disconnected') {
-      var offlineText = document.createElement('span');
-      offlineText.className = 'offline-text';
-      offlineText.textContent = 'OFFLINE';
-      tile.appendChild(offlineText);
-    }
+      // Tile container
+      var tile = document.createElement('div');
+      tile.className = 'cam';
+      tile.setAttribute('draggable', 'true');
+      if (ch != null) tile.setAttribute('data-channel', ch);
+      if (camera.status === 'offline' || camera.status === 'disconnected') {
+        tile.classList.add('offline');
+      }
 
-    tile.appendChild(label);
-    tile.appendChild(img);
-    gridEl.appendChild(tile);
+      // Apply hidden state if zone is collapsed
+      if (collapsedZones[zone]) {
+        tile.classList.add('zone-cameras-hidden');
+      }
 
-    if (ch != null) {
-      tileElements[ch] = tile;
-      imgElements[ch]  = img;
-      dotElements[ch]  = dot;
-    }
+      // Label bar
+      var label = document.createElement('div');
+      label.className = 'cam-label';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = camera.display_name;
+
+      var dot = document.createElement('span');
+      dot.className = 'dot ' + statusToDotClass(camera.status);
+
+      label.appendChild(nameSpan);
+      label.appendChild(dot);
+
+      // Camera image
+      var img = document.createElement('img');
+      img.alt = camera.display_name;
+      img.style.cursor = 'pointer';
+      if (ch != null) {
+        img.addEventListener('click', (function(cam) {
+          return function() { openFullscreen(cam); };
+        })(camera));
+      }
+
+      // Offline overlay text
+      if (camera.status === 'offline' || camera.status === 'disconnected') {
+        var offlineText = document.createElement('span');
+        offlineText.className = 'offline-text';
+        offlineText.textContent = 'OFFLINE';
+        tile.appendChild(offlineText);
+      }
+
+      // Drag and drop event handlers
+      tile.addEventListener('dragstart', function(e) {
+        dragSrcChannel = parseInt(this.dataset.channel);
+        this.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(dragSrcChannel));
+      });
+
+      tile.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('drag-over');
+      });
+
+      tile.addEventListener('dragleave', function(e) {
+        this.classList.remove('drag-over');
+      });
+
+      tile.addEventListener('dragend', function(e) {
+        this.classList.remove('dragging');
+        // Clean up any lingering drag-over highlights
+        document.querySelectorAll('.drag-over').forEach(function(el) {
+          el.classList.remove('drag-over');
+        });
+      });
+
+      tile.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+        var targetChannel = parseInt(this.dataset.channel);
+        if (dragSrcChannel === null || dragSrcChannel === targetChannel) return;
+
+        // Find source and target indices in cameras array
+        var srcIdx = cameras.findIndex(function(c) { return c.nvr_channel === dragSrcChannel; });
+        var tgtIdx = cameras.findIndex(function(c) { return c.nvr_channel === targetChannel; });
+        if (srcIdx === -1 || tgtIdx === -1) return;
+
+        // Reorder: remove source, insert at target position
+        var moved = cameras.splice(srcIdx, 1)[0];
+        cameras.splice(tgtIdx, 0, moved);
+
+        // Rebuild grid to reflect new order (preserves zone grouping)
+        buildGrid();
+        // Auto-save on drop (user decision: no save button needed)
+        saveLayout();
+        dragSrcChannel = null;
+      });
+
+      tile.appendChild(label);
+      tile.appendChild(img);
+      gridEl.appendChild(tile);
+
+      if (ch != null) {
+        tileElements[ch] = tile;
+        imgElements[ch]  = img;
+        dotElements[ch]  = dot;
+      }
+    });
+
+    // Zone header click handler — toggle collapse
+    header.addEventListener('click', function() {
+      var isCollapsed = !collapsedZones[zone];
+      collapsedZones[zone] = isCollapsed;
+      header.classList.toggle('collapsed', isCollapsed);
+
+      // Toggle visibility of all tiles in this zone
+      zoneCameras.forEach(function(camera) {
+        var ch = camera.nvr_channel;
+        if (ch != null && tileElements[ch]) {
+          tileElements[ch].classList.toggle('zone-cameras-hidden', isCollapsed);
+        }
+      });
+    });
   });
 }
 
@@ -363,17 +499,15 @@ rateEl.addEventListener('change', startLoop);
 
 // ── Layout persistence ────────────────────────────────────────────────────────
 function saveLayout() {
-  var order = cameras
-    .map(function(c) { return c.nvr_channel; })
-    .filter(function(ch) { return ch != null; });
-
   fetch('/api/v1/cameras/layout', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grid_mode: currentMode, camera_order: order, zone_filter: null })
-  }).catch(function() {
-    // Fire-and-forget; ignore errors silently
-  });
+    body: JSON.stringify({
+      grid_mode: currentMode,
+      camera_order: cameras.map(function(c) { return c.nvr_channel; }).filter(Boolean),
+      zone_filter: null
+    })
+  }).catch(function(err) { console.warn('Layout save failed:', err); });
 }
 
 // ── Status dot mapping ────────────────────────────────────────────────────────
