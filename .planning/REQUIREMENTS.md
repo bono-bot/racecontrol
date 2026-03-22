@@ -64,33 +64,33 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | - | Pending |
-| INFRA-02 | - | Pending |
-| INFRA-03 | - | Pending |
-| INFRA-04 | - | Pending |
-| STRM-01 | - | Pending |
-| STRM-02 | - | Pending |
-| STRM-03 | - | Pending |
-| STRM-04 | - | Pending |
-| LYOT-01 | - | Pending |
-| LYOT-02 | - | Pending |
-| LYOT-03 | - | Pending |
-| LYOT-04 | - | Pending |
-| LYOT-05 | - | Pending |
-| UIUX-01 | - | Pending |
-| UIUX-02 | - | Pending |
-| UIUX-03 | - | Pending |
-| UIUX-04 | - | Pending |
-| UIUX-05 | - | Pending |
-| DPLY-01 | - | Pending |
-| DPLY-02 | - | Pending |
-| DPLY-03 | - | Pending |
+| INFRA-01 | Phase 145 | Pending |
+| INFRA-02 | Phase 145 | Pending |
+| INFRA-03 | Phase 146 | Pending |
+| INFRA-04 | Phase 146 | Pending |
+| STRM-01 | Phase 147 | Pending |
+| STRM-02 | Phase 147 | Pending |
+| STRM-03 | Phase 147 | Pending |
+| STRM-04 | Phase 147 | Pending |
+| LYOT-01 | Phase 147 | Pending |
+| LYOT-02 | Phase 147 | Pending |
+| LYOT-03 | Phase 147 | Pending |
+| LYOT-04 | Phase 146 | Pending |
+| LYOT-05 | Phase 147 | Pending |
+| UIUX-01 | Phase 147 | Pending |
+| UIUX-02 | Phase 147 | Pending |
+| UIUX-03 | Phase 147 | Pending |
+| UIUX-04 | Phase 147 | Pending |
+| UIUX-05 | Phase 147 | Pending |
+| DPLY-01 | Phase 147 | Pending |
+| DPLY-02 | Phase 148 | Pending |
+| DPLY-03 | Phase 148 | Pending |
 
 **Coverage:**
 - v16.1 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21 (pending roadmap creation)
+- Mapped to phases: 21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after research synthesis*
+*Last updated: 2026-03-22 after roadmap creation (phases 145-148 assigned)*

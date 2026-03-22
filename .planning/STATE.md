@@ -1255,3 +1255,23 @@ decisions:
   - "138-01: IdleHealthFailed placed after PreFlightFailed for logical locality with health-check variants"
   - "138-01: consecutive_count uses u32 (not usize) for cross-arch serde stability"
 ---
+
+---
+gsd_state_version: 1.0
+milestone: v16.1
+milestone_name: Camera Dashboard Pro
+status: in_progress
+stopped_at: Roadmap created — no plans executed yet
+last_updated: "2026-03-22T00:00:00+05:30"
+progress:
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+decisions:
+  - "145: NVR coexistence strategy (snapshot-through-go2rtc vs pause-during-WebRTC) to be decided on live hardware in Phase 145"
+  - "146: All mutable user preferences go to camera-layout.json; rc-sentry-ai.toml is read-only at runtime"
+  - "147: teardownRtc() written before any connection-opening code — singleton activePeerConnection pattern enforced"
+  - "147: CSS grid class swap for layout switching — tiles never destroyed/recreated across mode changes"
+  - "148: Next.js localStorage reads only inside useEffect with hydrated flag — never in useState initializer"
+---

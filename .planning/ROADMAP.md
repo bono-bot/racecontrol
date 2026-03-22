@@ -2164,3 +2164,77 @@ Plans:
 | 142. Rules Hygiene | 1/1 | Complete    | 2026-03-22 |
 | 143. Integration Test Suite | 2/2 | Complete    | 2026-03-22 |
 | 144. GSD Quality Gate | 2/2 | Complete    | 2026-03-22 |
+
+---
+
+## v16.1 Camera Dashboard Pro
+
+Transform the basic 13-camera snapshot grid into a professional NVR dashboard — hybrid streaming (cached snapshots for grid + WebRTC for fullscreen), configurable layouts (1/4/9/16), camera naming, drag-to-rearrange, and dual deployment (rc-sentry-ai :8096 + server web dashboard :3200).
+
+> Implementation lives in `rc-sentry-ai` (Rust/Axum), `cameras.html` (embedded), and `web/src/app/cameras/page.tsx` (Next.js).
+
+## Phases (v16.1)
+
+- [ ] **Phase 145: go2rtc Infrastructure** - Register all 13 NVR cameras in go2rtc, configure CORS, verify WebRTC signaling works from both deployment origins (INFRA-01, INFRA-02)
+- [ ] **Phase 146: Backend Config and API** - Camera config in rc-sentry-ai.toml with display_name/display_order, /api/v1/cameras endpoint, PUT /api/v1/cameras/layout endpoint, camera-layout.json persistence (INFRA-03, INFRA-04, LYOT-04)
+- [ ] **Phase 147: cameras.html Dashboard Rewrite** - Full rewrite of embedded dashboard with layout modes, drag-to-rearrange, WebRTC fullscreen, all UI/UX requirements, deployed at /cameras/live (LYOT-01, LYOT-02, LYOT-03, LYOT-05, UIUX-01, UIUX-02, UIUX-03, UIUX-04, UIUX-05, STRM-01, STRM-02, STRM-03, STRM-04, DPLY-01)
+- [ ] **Phase 148: Web Dashboard Page** - Standalone camera dashboard page in Next.js web dashboard at /cameras, feature-identical to cameras.html (DPLY-02, DPLY-03)
+
+## v16.1 Phase Details
+
+### Phase 145: go2rtc Infrastructure
+**Goal**: go2rtc is configured, verified, and ready to serve WebRTC for all 13 cameras — no frontend WebRTC code is written until this phase confirms the infrastructure works
+**Depends on**: Nothing (first v16.1 phase; go2rtc already running on James .27:1984)
+**Requirements**: INFRA-01, INFRA-02
+**Success Criteria** (what must be TRUE):
+  1. All 13 NVR cameras are reachable via go2rtc stream names (ch1-ch13) and a test WebRTC session opens for at least one camera using the go2rtc web UI at :1984
+  2. `curl -X OPTIONS http://192.168.31.27:1984/api/webrtc` returns `Access-Control-Allow-Origin: *` — CORS is verified working before any frontend code is written
+  3. Snapshot polling via SnapshotCache and a simultaneous go2rtc WebRTC connection to the same channel both succeed without the NVR dropping either connection — NVR coexistence strategy is decided and tested on live hardware
+  4. NVR credentials (Admin@123) do not appear in any go2rtc.yaml stream name or in any URL visible to browser JavaScript — all 13 streams are accessible by canonical name only
+**Plans**: TBD
+
+### Phase 146: Backend Config and API
+**Goal**: rc-sentry-ai serves a complete camera metadata API that both frontend targets can use, and user layout preferences persist across sessions via server-side storage
+**Depends on**: Phase 145 (stream names from go2rtc.yaml must match what the API returns)
+**Requirements**: INFRA-03, INFRA-04, LYOT-04
+**Success Criteria** (what must be TRUE):
+  1. `GET /api/v1/cameras` returns display_name, display_order, nvr_channel, and zone for all 13 cameras — the response shape is complete and no field is null for any camera
+  2. Camera friendly names (e.g. "Pod Area", "Cashier", "Entrance") are read from rc-sentry-ai.toml and appear in the API response — stream IDs never appear as display labels
+  3. `PUT /api/v1/cameras/layout` with a reorder payload writes atomically to camera-layout.json and `GET /api/v1/cameras/layout` returns the saved layout on the next page load — state survives rc-sentry-ai restart
+  4. rc-sentry-ai.toml is never written to at runtime — all mutable user preferences go to camera-layout.json only
+**Plans**: TBD
+
+### Phase 147: cameras.html Dashboard Rewrite
+**Goal**: Staff can monitor all 13 cameras from the rc-sentry-ai embedded dashboard with professional NVR controls — layout switching, drag-to-rearrange, and instant WebRTC fullscreen
+**Depends on**: Phase 146 (API must return complete camera metadata before frontend is written)
+**Requirements**: LYOT-01, LYOT-02, LYOT-03, LYOT-05, UIUX-01, UIUX-02, UIUX-03, UIUX-04, UIUX-05, STRM-01, STRM-02, STRM-03, STRM-04, DPLY-01
+**Success Criteria** (what must be TRUE):
+  1. Staff can open /cameras/live at :8096 and immediately see all 13 camera tiles filling the viewport with no scrollbars — the grid is edge-to-edge with a compact toolbar above
+  2. Clicking the 1x1/2x2/3x3/4x4 toolbar buttons switches the grid layout without any tile being destroyed and rebuilt — the transition is smooth with no flash
+  3. Staff can drag any camera tile to a new position in the grid; after releasing, the new order is saved and persists across page reload
+  4. Clicking a camera tile opens a fullscreen view with live WebRTC video via go2rtc within a few seconds — hovering for 500ms before clicking visibly reduces the cold-start delay
+  5. Closing the fullscreen view (click X or press Escape) tears down the WebRTC connection completely — verified by go2rtc /api/streams showing 0 viewers within 5 seconds
+  6. Each camera tile shows a green/yellow/red status indicator and the tile's friendly display name from the API — offline cameras are visually distinct from live ones
+**Plans**: TBD
+
+### Phase 148: Web Dashboard Page
+**Goal**: The same professional camera dashboard is accessible from the server web dashboard at :3200 with an identical feature set — staff can use either deployment interchangeably
+**Depends on**: Phase 147 (cameras.html proves the full feature set; Next.js implementation follows the same patterns)
+**Requirements**: DPLY-02, DPLY-03
+**Success Criteria** (what must be TRUE):
+  1. Staff can open /cameras in the web dashboard at :3200 and see the same 13-camera grid with layout controls, drag-to-rearrange, and WebRTC fullscreen — no features are missing compared to cameras.html
+  2. A layout change made at :8096 (cameras.html) is reflected when /cameras at :3200 is opened — server-side camera-layout.json is the shared source of truth for both deployments
+  3. Next.js hydration completes without mismatch errors — localStorage is only read inside useEffect with a hydrated flag, never in a useState initializer
+**Plans**: TBD
+
+## v16.1 Progress
+
+**Execution Order:** 145 -> 146 -> 147 -> 148
+Note: Phases 145 and 146 are strictly sequential infrastructure prerequisites. Phase 147 (cameras.html) must complete before Phase 148 (Next.js) to validate the full feature set in vanilla JS before the React implementation begins.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 145. go2rtc Infrastructure | 0/? | Not started | - |
+| 146. Backend Config and API | 0/? | Not started | - |
+| 147. cameras.html Dashboard Rewrite | 0/? | Not started | - |
+| 148. Web Dashboard Page | 0/? | Not started | - |
