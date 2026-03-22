@@ -1,71 +1,122 @@
-# Requirements: v17.1 Watchdog-to-AI Migration
+# Requirements: v21.0 Cross-Project Sync & Stabilization
 
-**Defined:** 2026-03-22
-**Core Value:** Recovery systems use intelligent AI-driven decisions instead of blind restart loops — detect, remember, escalate, never cause more problems than they solve.
+**Defined:** 2026-03-23
+**Core Value:** All Racing Point repos work in sync — shared contracts, no dead code, no known bugs, unified deploy, every service verified running.
 
-## v17.1 Requirements
+## v21.0 Requirements
 
-### RC-Sentry Migration
+### Repo Hygiene
 
-- [x] **SENT-01**: rc-sentry checks pattern memory before restarting rc-agent — if same crash pattern seen 3+ times in 10 min, escalate to AI instead of restarting
-- [x] **SENT-02**: rc-sentry queries Ollama for unknown crash patterns before blind restart
-- [x] **SENT-03**: rc-sentry logs every restart decision to activity log with reason, pattern match, and outcome
-- [x] **SENT-04**: rc-sentry distinguishes graceful restart (sentinel file) from real crash — no escalation on graceful
+- [ ] **REPO-01**: Dead repos (game-launcher, ac-launcher, conspit-link) are archived with README noting "Archived — code merged into racecontrol"
+- [ ] **REPO-02**: Non-git folders (bat-sandbox, computer-use, glitch-frames, marketing, serve, voice-assistant) are catalogued and archived or deleted
+- [ ] **REPO-03**: All active repos have consistent git config (user.name, user.email) and .gitignore
+- [ ] **REPO-04**: Every active repo has latest code built and deployed to its target environment
+- [ ] **REPO-05**: Every deployed service verified running at runtime (API responds, UI renders) — not just compiled
 
-### Pod Monitor Migration
+### Bug Fixes
 
-- [x] **PMON-01**: pod_monitor checks billing_active before triggering WoL/restart — never wake a deliberately offline pod during maintenance
-- [x] **PMON-02**: pod_monitor merges with pod_healer into single recovery authority — no separate restart logic
-- [x] **PMON-03**: pod recovery uses graduated response: 1st failure → wait 30s, 2nd → Tier 1 fix, 3rd → AI escalation, 4th+ → alert staff
+- [ ] **BUG-01**: racecontrol auto-seeds pods table on startup when empty (pods DB desync fix)
+- [ ] **BUG-02**: start-rcagent.bat kills orphan powershell.exe on boot (deployed to all 8 pods)
+- [ ] **BUG-03**: Process guard allowlist built from live pod scan, enabled in report_only mode
+- [ ] **BUG-04**: Variable_dump.exe killed on pod boot via start-rcagent.bat (deployed to all 8 pods)
 
-### James Watchdog Migration
+### E2E Testing
 
-- [x] **JWAT-01**: Replace james_watchdog.ps1 with a Rust-based monitor using AI debugger pattern memory
-- [x] **JWAT-02**: James monitor checks Ollama, Claude Code, comms-link, webterm with graduated response (not blind restart)
-- [x] **JWAT-03**: James monitor alerts Bono via comms-link WS on repeated failures instead of silent restart
+- [ ] **E2E-01**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on POS (:3200)
+- [ ] **E2E-02**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on Kiosk (:8000)
+- [ ] **E2E-03**: Cross-cutting real-time sync tests pass (POS action reflected on Kiosk and vice versa)
+- [ ] **E2E-04**: All test failures triaged, critical failures fixed, remaining documented as known issues
 
-### Recovery Consolidation
+### API Contracts
 
-- [x] **CONS-01**: Single recovery authority per machine — no two systems can restart the same process
-- [x] **CONS-02**: Recovery decision log — every restart/kill/wake decision logged with who triggered it and why
-- [x] **CONS-03**: Anti-cascade guard — if 3+ recovery actions fire within 60s across different systems, pause all and alert staff
+- [ ] **CONT-01**: All API boundaries documented (racecontrol <-> kiosk, racecontrol <-> admin, racecontrol <-> comms-link, racecontrol <-> rc-agent)
+- [ ] **CONT-02**: Shared TypeScript types/interfaces extracted for racecontrol <-> kiosk API communication
+- [ ] **CONT-03**: Shared TypeScript types/interfaces extracted for racecontrol <-> admin API communication
+- [ ] **CONT-04**: OpenAPI specs generated for racecontrol REST API endpoints
+- [ ] **CONT-05**: Contract tests validate request/response shapes between services
+- [ ] **CONT-06**: CI check prevents API drift (contract test runs on PR)
 
-## Future Requirements
+### Deployment
 
-- **SENT-05**: rc-sentry learns from successful fixes and applies them faster next time
-- **PMON-04**: pod_monitor predicts failures from metric trends (memory pressure, disk fill rate)
+- [ ] **DEPL-01**: deploy-staging cleaned up (714 dirty files triaged — keep, delete, or .gitignore)
+- [ ] **DEPL-02**: Unified deploy script covers all services (racecontrol, rc-agent, kiosk, web dashboard, comms-link)
+- [ ] **DEPL-03**: Deployment runbook documents step-by-step for each service with rollback procedures
+- [ ] **DEPL-04**: deploy-staging committed and pushed with clean git status
+
+### Standing Rules
+
+- [ ] **RULE-01**: CLAUDE.md standing rules synced to all active repos (relevant subset per repo)
+- [ ] **RULE-02**: Bono's VPS repos updated with matching standing rules
+- [ ] **RULE-03**: Standing rules compliance check script (automated, runnable before any ship)
+
+### Dependency Audit
+
+- [ ] **DEPS-01**: npm audit run on all Node.js repos, security vulnerabilities patched
+- [ ] **DEPS-02**: cargo audit run on all Rust crates, vulnerabilities patched
+- [ ] **DEPS-03**: Outdated packages flagged with upgrade-or-defer decision documented
+
+### Health Monitoring
+
+- [ ] **HLTH-01**: Every running service exposes a /health endpoint
+- [ ] **HLTH-02**: Central health check script polls all services and reports status
+- [ ] **HLTH-03**: Health check integrated into deploy verification (post-deploy auto-check)
+
+## v2 Requirements
+
+None — this milestone is stabilization, not feature work.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Browser watchdog replacement | Already done in v17.0 (server healer + ForceRelaunchBrowser) |
-| AI debugger Tier 3/4 execution | Already done in v17.0 (Phase 140 — AIACT whitelist) |
-| Full AI autonomy (no human alerts) | Too risky — staff must be in the loop for repeated failures |
+| Monorepo migration | Too disruptive — would break all existing CI, deploy, and dev workflows |
+| Duplicate WhatsApp bot consolidation | Separate concern, needs Bono coordination, not blocking stability |
+| New feature development | This milestone is purely stabilization and sync |
+| Performance optimization | Focus on correctness first, optimize later |
+| people-tracker status | Single-commit repo, needs Uday input on direction |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONS-01 | Phase 159 | Complete (159-01) |
-| CONS-02 | Phase 159 | Complete (159-01) |
-| CONS-03 | Phase 159 | Complete |
-| SENT-01 | Phase 160 | Complete |
-| SENT-02 | Phase 160 | Complete |
-| SENT-03 | Phase 160 | Complete |
-| SENT-04 | Phase 160 | Complete |
-| PMON-01 | Phase 161 | Complete |
-| PMON-02 | Phase 161 | Complete |
-| PMON-03 | Phase 161 | Complete |
-| JWAT-01 | Phase 162 | Complete |
-| JWAT-02 | Phase 162 | Complete |
-| JWAT-03 | Phase 162 | Complete |
+| REPO-01 | TBD | Pending |
+| REPO-02 | TBD | Pending |
+| REPO-03 | TBD | Pending |
+| REPO-04 | TBD | Pending |
+| REPO-05 | TBD | Pending |
+| BUG-01 | TBD | Pending |
+| BUG-02 | TBD | Pending |
+| BUG-03 | TBD | Pending |
+| BUG-04 | TBD | Pending |
+| E2E-01 | TBD | Pending |
+| E2E-02 | TBD | Pending |
+| E2E-03 | TBD | Pending |
+| E2E-04 | TBD | Pending |
+| CONT-01 | TBD | Pending |
+| CONT-02 | TBD | Pending |
+| CONT-03 | TBD | Pending |
+| CONT-04 | TBD | Pending |
+| CONT-05 | TBD | Pending |
+| CONT-06 | TBD | Pending |
+| DEPL-01 | TBD | Pending |
+| DEPL-02 | TBD | Pending |
+| DEPL-03 | TBD | Pending |
+| DEPL-04 | TBD | Pending |
+| RULE-01 | TBD | Pending |
+| RULE-02 | TBD | Pending |
+| RULE-03 | TBD | Pending |
+| DEPS-01 | TBD | Pending |
+| DEPS-02 | TBD | Pending |
+| DEPS-03 | TBD | Pending |
+| HLTH-01 | TBD | Pending |
+| HLTH-02 | TBD | Pending |
+| HLTH-03 | TBD | Pending |
 
 **Coverage:**
-- v17.1 requirements: 13 total
-- Mapped to phases: 13
-- Unmapped: 0
+- v21.0 requirements: 28 total (updated to 32 with RULE/DEPS/HLTH)
+- Mapped to phases: 0
+- Unmapped: 32
 
 ---
-*Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after roadmap creation (phases 159-162 assigned)*
+*Requirements defined: 2026-03-23*
+*Last updated: 2026-03-23 after initial definition*
