@@ -1,238 +1,226 @@
 # Stack Research
 
-**Domain:** Bidirectional AI-to-AI dynamic execution protocol (v18.0 Seamless Execution)
+**Domain:** Camera dashboard hybrid streaming — WebRTC fullscreen + snapshot grid (v16.1)
 **Researched:** 2026-03-22
-**Confidence:** HIGH — grounded in direct codebase analysis plus Node.js v22 stdlib capabilities
+**Confidence:** HIGH (go2rtc WebRTC API verified via source code + DeepWiki; drag-drop pattern verified against HTML5 spec; localStorage per MDN)
 
 ---
 
-## Context: What Already Exists (Do Not Re-Research)
+## Context: What Already Exists (Do Not Re-research)
 
-The comms-link is a mature Node.js v22.14.0 ES module system. Before any decisions, here is what is already in place:
+| Component | Version | Status |
+|-----------|---------|--------|
+| Axum | 0.7 | In Cargo.toml |
+| reqwest | 0.12 | In Cargo.toml |
+| tokio | workspace | In Cargo.toml |
+| tower-http (CORS) | 0.6 | In Cargo.toml |
+| serde_json | workspace | In Cargo.toml |
+| Embedded HTML | cameras.html via `include_str!` | Existing pattern |
+| Snapshot proxy | `/api/v1/cameras/nvr/{ch}/snapshot` | Already serving background-cached snapshots |
+| go2rtc | port 1984 | Running on James .27 (192.168.31.27:1984) |
+| SnapshotCache | `mjpeg.rs` | Background-refreshed per-channel cache, already working |
 
-| Component | File | What It Does |
-|-----------|------|--------------|
-| WebSocket transport | `james/comms-client.js`, `bono/comms-server.js` | Persistent WS, PSK auth, reconnect with backoff |
-| Message protocol | `shared/protocol.js` | Envelope with v/type/from/ts/id, MessageType enum |
-| ACK + WAL queue | `shared/ack-tracker.js`, `shared/message-queue.js` | Sequence tracking, JSON Lines WAL, crash-safe |
-| Static command registry | `shared/exec-protocol.js` | 13 frozen commands, ApprovalTier enum, buildSafeEnv(), validateExecRequest() |
-| Execution handler | `james/exec-handler.js` | ExecHandler class, 3-tier approval, execFile (shell:false), dedup, pending approval Map |
-| Connection mode | `shared/connection-mode.js` | REALTIME/EMAIL_FALLBACK/OFFLINE_QUEUE graceful degradation |
-| Task delegation | `james/index.js` | sendTaskRequest() + pendingTasks Map, existing task_request/task_response MessageTypes |
-
-**npm deps:** only `ws@8.19.0` and `toml@3.0.0`. **Runtime:** Node.js v22.14.0.
-
-**Central finding:** All four new v18.0 features are implementable with zero new npm packages. The Node.js v22 stdlib covers every gap.
+**Constraint confirmed:** Stay as a single embedded HTML page. No npm, no bundler, no new Rust crates.
 
 ---
 
-## Recommended Stack for New Features
+## Recommended Stack (New Additions Only)
 
 ### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Node.js stdlib `node:fs/promises` | v22.14.0 (current) | Dynamic registry persistence (JSON file), chain state persistence (JSONL), audit log | Already used throughout `james/index.js` and `shared/message-queue.js`. Proven pattern. |
-| Node.js stdlib `node:crypto` | v22.14.0 (current) | randomUUID() for chain IDs, exec IDs, delegation correlation IDs | Already imported in `james/index.js`. |
-| Node.js stdlib `node:child_process` | v22.14.0 (current) | execFile for shell relay (array-args, shell:false always) | ExecHandler already uses this correctly. Shell relay reuses the same path — no new execution primitive needed. |
-| Node.js stdlib `node:events` | v22.14.0 (current) | EventEmitter base for ChainOrchestrator and DynamicRegistry state events | ExecHandler, MessageQueue, CommsClient all extend EventEmitter. Established pattern. |
-| Node.js stdlib `node:timers/promises` | v22.14.0 (current) | setTimeout as a Promise for async chain step timeouts without callback nesting | Available since Node.js v16, stable in v22. |
-| `ws@8.19.0` (existing) | 8.19.0 | All message transport — new message types route over existing WS connection | No version change needed. New MessageType entries added to `protocol.js` only. |
+| go2rtc `video-stream.js` | served from go2rtc :1984 | WebRTC player custom element `<video-stream>` | Built into go2rtc; zero extra deps; handles WebRTC/MSE/MJPEG fallback automatically; already running on the LAN |
+| HTML5 Drag and Drop API | browser native | Camera grid reorder via tile drag | No library needed; `draggable` attribute + `dragstart`/`dragover`/`drop` events; all modern browsers support it since 2012 |
+| `localStorage` | browser native | Layout persistence (mode, order, names) | Survives page reload without a server round-trip; JSON-serializable; 5MB quota (layout JSON is under 1KB); synchronous reads safe in vanilla JS |
+| CSS Grid with column-count class swap | browser native | Layout mode switching (1/4/9/16 split) | Single class change on `.grid` element switches all layouts; no JS layout calculation; browser handles cell sizing |
 
-### Supporting Libraries
+### Backend Additions (Rust/Axum)
 
-None needed. The table below documents what was evaluated and rejected:
+**No new Rust crates required.** The existing snapshot proxy endpoint continues unchanged. The only potential new endpoint is optional:
 
-| Feature | Tempting External Library | Reason to Reject | Node.js Stdlib Alternative |
-|---------|--------------------------|------------------|---------------------------|
-| Dynamic command registry persistence | conf, lowdb, keyv | All solve a non-problem: a JSON file with fewer than 100 entries needs only readFile/writeFile. Each adds transitive deps. | node:fs/promises read/write to data/dynamic-commands.json |
-| Shell relay execution | execa npm package | ExecHandler already implements the secure pattern: execFile with shell:false, array-args, sanitized env, timeout, maxBuffer. execa adds zero security value here and would be a third npm package. | node:child_process execFile (already used in ExecHandler) |
-| Execution chain orchestration | bull, bullmq, p-queue | All require Redis or add significant infrastructure. 2-machine linear chains with 2-10 steps do not need a queue broker. The WAL already provides crash-safe durability. | In-memory Map plus WAL file per chain in data/chains/ |
-| Claude-to-Claude delegation | Any orchestration library | The WS channel is the transport. Delegation is a structured task_request with a resolve/reject Promise keyed by taskId. This is 30 lines of code, not a library. | Extend sendTaskRequest() in james/index.js with a Promise-returning variant |
-| Audit trail | winston, pino, SQLite | Structured JSON append to a .jsonl file is sufficient for 2-machine audit. Log databases add schema migration complexity. | node:fs/promises appendFile to data/exec-audit.jsonl |
-| Schema validation for dynamic registry | zod, ajv | Dynamic command spec validation is 5 checks: binary is string, args is array, tier is valid enum value, timeoutMs is positive integer, no shell metacharacters in binary. Not worth a dep. | Inline validation function in DynamicRegistry.register() |
+| Endpoint | Method | Purpose | Notes |
+|----------|--------|---------|-------|
+| `/api/v1/cameras/dashboard-config` | GET + POST | Persist layout/names server-side for multi-browser sync | Optional — localStorage covers single-browser use; only add if Uday needs to see the same layout from different devices |
 
-### Development Tools
+If added, this endpoint reads/writes a flat JSON file at `C:\RacingPoint\camera-dashboard.json` using existing `serde_json` + `tokio::fs`. No new crate.
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| `node --test` (Node.js built-in) | Unit tests for new modules: DynamicRegistry, ChainOrchestrator, DelegationHandler, ExecAudit | Already used: `"test": "node --test test/*.test.js"`. No Jest or Vitest needed. |
+### Browser-Side Library (Load from go2rtc)
+
+| Library | Version | Source | When to Use |
+|---------|---------|--------|-------------|
+| `video-stream.js` | bundled with go2rtc | `http://192.168.31.27:1984/video-stream.js` | Load as ES module via `<script type="module">` in cameras.html; use `<video-stream>` custom element for WebRTC fullscreen |
+
+**Critical:** Load from the live go2rtc instance, never copy/vendor. The JS and server must stay in sync — protocol changes in go2rtc updates would break a vendored copy.
 
 ---
 
-## Installation
+## go2rtc WebRTC Integration
 
-```bash
-# No new packages needed.
-# npm install is not required for v18.0.
+### How go2rtc WebRTC Works (Verified from Source)
+
+go2rtc exposes WebSocket-based WebRTC signaling at `/api/ws?src=<stream_name>`. The bundled `video-stream.js` (class `VideoStream extends VideoRTC`) registers a `<video-stream>` custom element that handles the full offer/answer/ICE exchange internally. Protocol fallback order (automatic): WebRTC → MSE → HLS → MJPEG.
+
+**Stream naming:** Each camera must have a named stream in `go2rtc.yaml`. For Dahua NVR channel N, the stream name convention is `cam_chNN`. The sub-stream (`subtype=1`) is correct for dashboard use — lower bitrate, browser-decodable H.264, ~512Kbps vs ~4Mbps for main stream.
+
+**go2rtc.yaml pattern for all 13 Dahua NVR channels:**
+
+```yaml
+streams:
+  cam_ch01:
+    - rtsp://admin:Admin%40123@192.168.31.18/cam/realmonitor?channel=1&subtype=1
+  cam_ch02:
+    - rtsp://admin:Admin%40123@192.168.31.18/cam/realmonitor?channel=2&subtype=1
+  cam_ch03:
+    - rtsp://admin:Admin%40123@192.168.31.18/cam/realmonitor?channel=3&subtype=1
+  # ... repeat through cam_ch13
 ```
+
+Note: `Admin@123` must be percent-encoded as `Admin%40123` in RTSP URLs. Currently only 3 cameras are in go2rtc — all 13 must be added before v16.1 can work.
+
+**Embedding a WebRTC player in the HTML page:**
+
+```html
+<!-- Load once, at top of <body> or in <head> -->
+<script type="module" src="http://192.168.31.27:1984/video-stream.js"></script>
+
+<!-- Per-camera element — src auto-converts http/relative to ws:// -->
+<video-stream
+  src="ws://192.168.31.27:1984/api/ws?src=cam_ch01"
+  mode="webrtc,mse,mjpeg"
+  style="width:100%;height:100%;background:#000;">
+</video-stream>
+```
+
+**Key properties (source-verified — HIGH confidence):**
+
+| Property | Value | Notes |
+|----------|-------|-------|
+| `src` | WebSocket URL or path | Setter auto-converts `http://` → `ws://`; relative paths resolve against current origin |
+| `mode` | `"webrtc,mse,mjpeg"` | Protocol priority order; WebRTC tried first, MJPEG as last resort |
+| `background` | `false` (default) | Pauses stream when element is not visible — use to stop non-fullscreen streams |
+| `visibilityCheck` | `true` (default) | Pauses stream when browser tab loses focus |
+
+### Fullscreen Mode — Hybrid Switch Pattern
+
+The grid shows snapshots (cheap, 0.5fps). Fullscreen upgrades one camera to WebRTC. Pattern:
+
+1. User clicks a camera tile
+2. Snapshot polling loop pauses (`clearInterval(timer)`)
+3. Fullscreen overlay becomes `display: flex`
+4. `<video-stream>` element is created and inserted into overlay with the clicked camera's `src`
+5. WebRTC connection negotiates (typically sub-second on LAN)
+6. User presses Escape or clicks outside
+7. `<video-stream>` is removed from DOM — this closes the WebRTC peer connection automatically
+8. Snapshot polling resumes (`startLoop()`)
+
+**Why this pattern:** Only one WebRTC connection is active at any time. Attempting 13 simultaneous WebRTC connections would overwhelm the Dahua NVR (it has a connection limit) and waste bandwidth. One connection at a time matches the DMSS HD pattern.
+
+**No TURN server needed:** All devices are on the 192.168.31.x LAN. go2rtc uses direct host ICE candidates. WebRTC completes without STUN negotiation in most cases.
 
 ---
 
-## Integration Points with Existing Code
+## Layout Mode Implementation
 
-### 1. Dynamic Command Registration
+### CSS Grid Class Swap
 
-**Integration target:** `shared/exec-protocol.js` (read-only augmentation, not modification)
+Four layout modes controlled by a single class on `.grid`. No JavaScript layout math.
 
-The existing COMMAND_REGISTRY is Object.freeze()-d by design — it is the static trusted baseline. Dynamic registration adds a parallel mutable layer:
-
-**New file: `shared/dynamic-registry.js`**
-
-```
-class DynamicRegistry
-  #commands: Map<name, spec>     -- in-memory, mutable
-  #persistPath: string           -- data/dynamic-commands.json
-
-  async load()                   -- reads JSON on startup, validates each entry
-  async register(name, spec)     -- validate spec, add to Map, persist, emit 'registered'
-  async deregister(name)         -- remove from Map, persist, emit 'deregistered'
-  lookup(name): spec | null      -- caller checks static registry first, then this
-  list(): Array<{name, spec}>    -- for audit/display
-
-  #validate(spec): void
-    - binary: non-empty string, no shell metacharacters (|;&`$(){}), no path traversal
-    - args: array of strings
-    - tier: must be ApprovalTier.APPROVE (all dynamic commands are APPROVE-only)
-    - timeoutMs: integer 1000-300000
+```css
+.grid { display: grid; gap: 4px; padding: 4px; height: 100%; }
+.grid.mode-1  { grid-template-columns: 1fr; }
+.grid.mode-4  { grid-template-columns: 1fr 1fr; }
+.grid.mode-9  { grid-template-columns: 1fr 1fr 1fr; }
+.grid.mode-16 { grid-template-columns: 1fr 1fr 1fr 1fr; }
 ```
 
-**ExecHandler change (minimal):** The constructor already accepts commandRegistry as a DI param. Change: pass a lookup function that checks static COMMAND_REGISTRY first (the trusted baseline), falls back to DynamicRegistry.lookup(). One-line change to how spec is resolved in handleExecRequest.
+Switching in JS: `grid.className = 'grid mode-' + count;`
 
-**Protocol additions to `shared/protocol.js`:**
+The layout selector in the toolbar becomes: `<select onchange="setMode(this.value)">` with options 1, 4, 9, 16.
+
+---
+
+## Drag-to-Reorder Implementation
+
+### HTML5 Native Drag and Drop API
+
+No library. The built-in API is sufficient for a fixed-count grid where cells swap positions.
+
 ```javascript
-register_command: 'register_command',    // Request to register a new dynamic command
-register_result: 'register_result',      // Confirmation or rejection of registration
-deregister_command: 'deregister_command', // Remove a dynamic command
-```
+var dragSrc = null;
 
-Registration itself is always APPROVE tier. The approval flow runs through the existing queueForApproval path in ExecHandler — no new approval mechanism needed.
+function makeDraggable(card) {
+  card.draggable = true;
+  card.addEventListener('dragstart', function(e) {
+    dragSrc = card;
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragover', function(e) {
+    e.preventDefault();               // REQUIRED — without this, drop never fires
+    e.dataTransfer.dropEffect = 'move';
+  });
+  card.addEventListener('drop', function(e) {
+    e.preventDefault();
+    if (dragSrc && dragSrc !== card) {
+      swapCards(dragSrc, card);
+      persistLayout();
+    }
+  });
+}
 
-### 2. Shell Relay with Approval Gate
-
-**Integration target:** `shared/dynamic-registry.js` (special built-in entry) + ExecHandler (no changes)
-
-Shell relay is not a separate execution path. It is a pre-registered dynamic command where the binary is resolved from the first element of a validated args array:
-
-```
-Command name: "shell_relay"
-Tier: ApprovalTier.APPROVE (hardcoded, cannot be overridden by caller)
-Invocation: execFile(cmd_args[0], cmd_args.slice(1), { shell: false })
-```
-
-**Security gate (before ExecHandler sees it):**
-```javascript
-validateShellRelayArgs(cmd_args) {
-  // Reject if any arg contains shell injection chars: |;&`$(){}><
-  // Reject if cmd_args[0] is not on the approved-binaries allowlist
-  // Reject if cmd_args is empty or cmd_args[0] is a relative path
+function swapCards(a, b) {
+  // Swap DOM positions
+  var parentA = a.parentNode;
+  var siblingA = a.nextSibling === b ? a : a.nextSibling;
+  b.parentNode.insertBefore(a, b);
+  parentA.insertBefore(b, siblingA);
+  // Update order array
+  updateOrderFromDOM();
 }
 ```
 
-**ExecHandler changes:** None. Shell relay arrives as a normal exec_request with command: "shell_relay" and payload.cmd_args: [...]. The APPROVE tier flow handles queueing, Uday notification, and timeout default-deny exactly as today.
+**Critical:** `dragover` must call `e.preventDefault()`. This is the most common drag-drop bug — without it, the browser treats the target as non-droppable and `drop` never fires.
 
-**Protocol additions (exec_request payload shape for shell relay):**
+---
+
+## Layout Persistence
+
+### localStorage Schema
+
 ```javascript
-{ command: "shell_relay", cmd_args: ["git", "status"], reason: "...", requestedBy: "bono" }
+var LAYOUT_KEY = 'rp_camera_layout_v1';
+
+var defaultLayout = {
+  mode: 9,                   // default: 3x3 grid
+  order: [1,2,3,4,5,6,7,8,9,10,11,12,13],  // ch numbers in display order
+  names: {                   // friendly names, keyed by ch number as string
+    '1':  'Entrance',
+    '2':  'Camera 2',
+    '3':  'Reception Wide',
+    '4':  'Reception',
+    // ... etc
+  }
+};
+
+function persistLayout() {
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+    mode: currentMode,
+    order: cameraOrder,
+    names: cameraNames
+  }));
+}
+
+function loadLayout() {
+  try {
+    var saved = localStorage.getItem(LAYOUT_KEY);
+    return saved ? JSON.parse(saved) : defaultLayout;
+  } catch (e) {
+    return defaultLayout;
+  }
+}
 ```
 
-### 3. Execution Chain Orchestration
-
-**New files:**
-
-```
-shared/exec-chain.js
-  class ExecChain
-    chainId: string              -- randomUUID()
-    steps: ChainStep[]           -- [{ command, argsOverride?, captureOutput: bool }]
-    state: ChainState            -- 'pending'|'running'|'completed'|'failed'|'cancelled'
-    currentStep: number          -- index into steps[]
-    results: ExecStepResult[]    -- accumulated per-step result objects
-    startedAt: number
-
-    toJSON(): object             -- serialized for WAL persistence
-    static fromJSON(obj): ExecChain
-
-  class ChainOrchestrator extends EventEmitter
-    #chains: Map<chainId, ExecChain>
-    #execHandler: ExecHandler
-    #persistDir: string          -- data/chains/
-
-    async start(chainDef): chainId    -- validate, persist, begin step 0
-    async onStepResult(execId, result) -- advance chain or fail it
-    async cancel(chainId): bool
-
-    Events emitted:
-      'step_complete': { chainId, stepIndex, result }
-      'chain_complete': { chainId, results[] }
-      'chain_failed':   { chainId, failedStep, result }
-```
-
-**Protocol additions to `shared/protocol.js`:**
-```javascript
-chain_request: 'chain_request',         // Initiate a multi-step chain on remote machine
-chain_step_result: 'chain_step_result', // Intermediate step result (informational)
-chain_complete: 'chain_complete',       // Final bundle of all step results
-chain_cancelled: 'chain_cancelled',     // Chain was cancelled (timeout or explicit)
-```
-
-**Integration in `james/index.js`:** exec_result messages carry an optional chainId field. The message handler checks: if chainId is present, route to ChainOrchestrator.onStepResult(); otherwise route to existing standalone result handler. This is additive — existing flows are unaffected.
-
-**Persistence:** Each chain writes `data/chains/<chainId>.json` after every step. On startup, ChainOrchestrator scans `data/chains/` for in-progress chains (state not 'completed' or 'failed') and resumes them. This covers the WS-drop-mid-chain case.
-
-### 4. Claude-to-Claude Task Delegation
-
-**Integration target:** `james/index.js` — sendTaskRequest() and pendingTasks Map
-
-The task_request / task_response MessageTypes already exist in protocol.js. The existing sendTaskRequest() sends and forgets (fire-and-forget with a timeout warning). The v18.0 addition is Promise-based result resolution:
-
-**New file: `james/delegation-handler.js`**
-
-```
-class DelegationHandler
-  #pending: Map<taskId, { resolve, reject, timer }>
-
-  async delegate(task): Promise<DelegationResult>
-    -- task: { taskType: 'exec_single'|'exec_chain', target: 'bono', command?, chainDef?, reason }
-    -- sends task_request via connectionMode.sendCritical()
-    -- returns Promise that resolves on matching task_response
-    -- rejects on timeout (default: TASK_TIMEOUT_MS = 300s)
-
-  onTaskResponse(msg)
-    -- called from message handler when task_response arrives
-    -- resolves matching Promise in #pending Map
-    -- no-ops unknown taskIds (dedup safe)
-```
-
-**Bono side (`bono/index.js`):** Receives task_request with taskType 'exec_chain' or 'exec_single'. Routes to its own ExecHandler or ChainOrchestrator. Returns task_response with:
-```javascript
-{ taskId, success: bool, exitCode, stdout?, stderr?, results?: ExecStepResult[], durationMs }
-```
-
-**No new transport.** Everything routes over the existing WS connection through connectionMode.sendCritical() — which already handles REALTIME/EMAIL_FALLBACK/OFFLINE_QUEUE degradation.
-
-### 5. Audit Trail (Mandatory for All Cross-Machine Execution)
-
-**New file: `shared/exec-audit.js`**
-
-```
-class ExecAudit
-  #path: string              -- data/exec-audit.jsonl
-  #appendFn: Function        -- node:fs/promises appendFile (injectable for tests)
-  #maxSizeBytes: number      -- default 10MB, then rotate
-
-  async log(entry): void
-    entry: {
-      ts: number, requestedBy: string, machine: 'james'|'bono',
-      command: string, chainId?: string, stepIndex?: number,
-      execId: string, exitCode: number, durationMs: number,
-      tier: ApprovalTier, truncated: bool, registrationType: 'static'|'dynamic'|'shell_relay'
-    }
-
-  async rotate(): void       -- rename to exec-audit.YYYY-MM-DD.jsonl if >maxSizeBytes
-```
-
-Every exec_result, chain_step_result, and chain_complete flows through ExecAudit.log() before acknowledgment. This is the source of truth for "who requested, what ran, exit code, duration."
+The `try/catch` around `JSON.parse` is required — localStorage can contain stale/invalid JSON if the schema changes between versions. The `_v1` suffix in the key allows a future schema bump to use `_v2` without migration logic.
 
 ---
 
@@ -240,84 +228,69 @@ Every exec_result, chain_step_result, and chain_complete flows through ExecAudit
 
 | Recommended | Alternative | Why Not |
 |-------------|-------------|---------|
-| In-memory Map + JSON file for dynamic registry | SQLite | SQLite is a native module; complex on Windows without prebuilt binaries. Fewer than 100 dynamic commands fit in a 10KB JSON file. |
-| node:child_process execFile (existing) | execa npm package | ExecHandler's usage is already correct: array-args, shell:false, sanitized env, timeout. execa adds zero security value and would be the third npm package. |
-| Custom ChainOrchestrator (Map + EventEmitter) | bull or bullmq | Require Redis. 2-machine linear chains with up to 20 steps don't need a queue broker or persistent job store beyond the existing WAL pattern. |
-| Existing WAL pattern for chain persistence | New SQLite store | WAL is proven crash-safe in MessageQueue. Reuse the pattern (one JSON file per chain) rather than adding a new persistence layer. |
-| node --test for new module tests | Jest or Vitest | Already established in the project. Consistent tooling matters more than test runner features for this scope. |
-| Structured JSONL audit file | Grafana/Loki/ELK | No infrastructure change is justified for a 2-machine protocol. JSONL is readable, grepable, and rotatable with 20 lines of code. |
-| Promise-based DelegationHandler | RxJS observables | Overkill. Each delegation is a single request-response pair, not a stream. Promise is the right primitive. |
+| go2rtc `video-stream.js` custom element | Writing raw WebRTC signaling from scratch | go2rtc's JS handles offer/answer/ICE/codec negotiation + MSE/MJPEG fallback; writing it from scratch is ~400 lines, fragile, and unmaintained |
+| HTML5 native drag-drop | SortableJS (6KB gzip) | Works fine, but adds an external dependency to an embedded HTML page with no bundler; native API is sufficient for fixed-count grid swap |
+| `localStorage` | Server-side SQLite or JSON file layout endpoint | Adds Axum endpoint + state for a single-browser dashboard; localStorage is simpler and equally durable for the single-operator use case |
+| CSS Grid class swap | JavaScript `flex-wrap` or inline style calculation | CSS handles the math; JS class swap is one line; no layout thrashing |
+| go2rtc sub-stream `subtype=1` | Main stream `subtype=0` | Main stream is 4MP ~4Mbps per camera; browser WebRTC decode of even one simultaneous 4MP stream is heavy; sub-stream is ~512Kbps H.264, designed for monitoring |
+| One WebRTC connection (fullscreen only) | 13 simultaneous WebRTC connections | NVR has connection limits; browser peer connection overhead for 13 simultaneous streams is significant; snapshot grid is adequate for overview |
 
 ---
 
-## What NOT to Use
+## What NOT to Add
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Any job queue library (bull, bullmq, p-queue, bee-queue) | All require external infrastructure (Redis) or add multi-hundred-KB deps. 2-machine linear chains do not need a broker. | ChainOrchestrator with in-memory Map + per-chain JSON persistence |
-| zod or ajv for spec validation | Dynamic registry validation is 5 checks. A validation library would add more code than it replaces. | Inline validate() method in DynamicRegistry |
-| execa or shelljs | ExecHandler already implements the secure pattern. shelljs enables shell:true by default (injection risk). execa is well-designed but redundant here. | node:child_process execFile with shell:false (existing) |
-| New WebSocket library or HTTP transport layer | ws@8.19.0 handles all message routing. New message types are protocol additions, not transport changes. | Add new entries to MessageType in shared/protocol.js |
-| TypeScript migration for this milestone | Would require adding a build step, tsconfig, and type-checking to a working ES module project. No return on investment for this scope. | Continue ES modules with JSDoc type annotations |
-| Storing execution results in SQLite | Schema migration complexity, native binary dep on Windows. JSONL audit is sufficient. | data/exec-audit.jsonl with rotation |
-| Shell relay with shell:true | Enables shell string interpolation, opening command injection. The entire security model of ExecHandler is built on shell:false with array-args. | shell:false always, validate cmd_args as an array before dispatch |
-| Auto-approve tier for any dynamic command | Dynamic commands are unknown at deploy time. Auto-approve lets Bono run arbitrary code on James's machine without human confirmation. All dynamic commands must be APPROVE tier — no exceptions. | Force APPROVE tier in DynamicRegistry.register() validation |
+| `video.js`, `plyr`, or similar player libraries | Wrong abstraction layer — designed for HTTP video, not WebRTC signaling | go2rtc's bundled `video-stream.js` |
+| React / Vue / any component framework | No bundler, no build step, single HTML page constraint | Vanilla JS DOM manipulation |
+| SortableJS or similar drag library | External dep with no bundler; native HTML5 DnD is sufficient | HTML5 DnD API (`draggable`, `dragstart`, `dragover`, `drop`) |
+| TURN server | Not needed on LAN — all devices on 192.168.31.x subnet | go2rtc uses direct host ICE candidates; no relay needed |
+| Copying/vendoring `video-stream.js` | Version drift with go2rtc server causes signaling failures on go2rtc update | Always load from live go2rtc instance at `:1984` |
+| 13 simultaneous WebRTC connections in the grid | NVR connection limit exceeded; browser overhead | One WebRTC connection for fullscreen only; snapshot polling for grid |
+| MSE/HLS as primary streaming mode | Higher latency than WebRTC; no advantage on LAN | WebRTC as primary with MSE fallback (handled automatically by `video-stream.js`) |
+| New Rust crates in Cargo.toml | Unnecessary; browser APIs + go2rtc cover all requirements | Existing axum, serde_json, tokio::fs |
 
 ---
 
-## Stack Patterns by Variant
+## go2rtc Configuration Checklist
 
-**If a chain step fails:**
-- Fail the entire chain (no partial-commit semantics)
-- Persist state 'failed' to data/chains/<chainId>.json
-- Emit chain_failed with { chainId, failedStep: stepIndex, result }
-- Do NOT auto-retry — re-run requires a new chain_request with explicit approval
+Before v16.1 implementation begins:
 
-**If the WS drops mid-chain:**
-- Chain state is persisted to disk after each completed step
-- On reconnect, ChainOrchestrator scans data/chains/ for in-progress chains
-- Caller (or DelegationHandler) emits chain_resume_needed event
-- Human decides: resume from last completed step or cancel
+- [ ] All 13 cameras added to `go2rtc.yaml` (currently only 3)
+- [ ] Stream names follow `cam_ch01` through `cam_ch13` convention
+- [ ] RTSP URLs use `subtype=1` (sub-stream) not `subtype=0`
+- [ ] `Admin@123` percent-encoded as `Admin%40123` in RTSP URLs
+- [ ] go2rtc accessible from browser at `http://192.168.31.27:1984`
+- [ ] go2rtc CORS headers allow origin from rc-sentry-ai's port (8096) — or use relative URL if proxied
 
-**If dynamic registration is requested:**
-- Always APPROVE tier — validate binary path before queuing for approval
-- Log the registration attempt to exec-audit.jsonl regardless of approval outcome
-- On approval: persist to data/dynamic-commands.json, emit 'registered' event
-- On rejection or timeout: remove from pending, log rejection
-
-**If Claude-to-Claude delegation times out:**
-- DelegationHandler.delegate() rejects the Promise with { timedOut: true, taskId }
-- Caller (James's Claude session) handles: log to audit, notify Uday via existing WhatsApp channel
-- No auto-retry — human decides next action
-
-**If shell relay args fail validation:**
-- Reject synchronously in DynamicRegistry before the request reaches ExecHandler
-- Return exec_result with exitCode: -1, stderr: "Shell relay args failed validation: <reason>"
-- Log attempt to audit trail with registrationType: 'shell_relay'
+**CORS option:** If the browser loads cameras.html from rc-sentry-ai at `:8096` but the WebRTC WS connects to go2rtc at `:1984`, this is cross-origin. go2rtc allows this by default (it serves `Access-Control-Allow-Origin: *` on its API). Verify before implementation; if CORS is restricted, add a proxy route in Axum that forwards `/go2rtc/*` to `http://127.0.0.1:1984/*`.
 
 ---
 
 ## Version Compatibility
 
-| Package / API | Version | Notes |
-|---------------|---------|-------|
-| ws | 8.19.0 | No change. New MessageType entries are payload-level, not library-level. |
-| toml | 3.0.0 | No change. Used only for racecontrol.toml config reading. |
-| node:timers/promises | stable since Node.js v16 | setTimeout as Promise. Fully stable in v22.14.0, no polyfill needed. |
-| node:fs/promises | stable since Node.js v14 | appendFile, readFile, writeFile, readdir, rename — all used. |
-| node:crypto randomUUID | stable since Node.js v15.6.0 | Already imported in james/index.js. |
-| node:events EventEmitter | stable | Already the base class for ExecHandler, MessageQueue, CommsClient, ConnectionStateMachine. |
+| Component | Compatible With | Notes |
+|-----------|-----------------|-------|
+| go2rtc `video-stream.js` | go2rtc running instance | Must match the server version — load from live instance |
+| HTML5 DnD API | Chrome 4+, Firefox 3.5+, Safari 5+ | All modern browsers; not for touch screens |
+| CSS Grid | Chrome 57+, Firefox 52+, Safari 10.1+ | All modern browsers |
+| `localStorage` | All modern browsers | 5MB quota; layout JSON is under 1KB |
+| Axum 0.7 | tower-http 0.6, tokio | Already in Cargo.toml — no change |
+| `include_str!` macro | All Rust versions | Existing pattern in cameras.html serve |
 
 ---
 
 ## Sources
 
-- Direct codebase analysis: `shared/exec-protocol.js`, `james/exec-handler.js`, `shared/protocol.js`, `shared/message-queue.js`, `shared/state.js`, `james/index.js` — HIGH confidence (code read 2026-03-22)
-- Node.js v22 LTS stdlib documentation: node:child_process, node:fs/promises, node:events, node:timers/promises, node:crypto — all stable APIs. HIGH confidence.
-- ws@8.19.0 — no breaking changes to message routing in ws@8.x series. HIGH confidence.
-- PROJECT.md v18.0 feature requirements — HIGH confidence (authoritative spec, read 2026-03-22)
+- go2rtc `www/stream.html` (GitHub source) — `<video-stream>` element, `api/ws?src=` URL format: HIGH confidence
+- go2rtc `www/video-rtc.js` (GitHub source) — `src` setter implementation, `mode` attribute, `background` property: HIGH confidence
+- DeepWiki AlexxIT/go2rtc web interface documentation — VideoStream/VideoRTC class, protocol fallback order, `/api/webrtc` WHIP endpoint: HIGH confidence
+- MDN Web Docs — HTML Drag and Drop API (`draggable`, `dragstart`, `dragover`, `drop`, `e.preventDefault()` requirement): HIGH confidence
+- MDN Web Docs — Window.localStorage, JSON.parse/stringify: HIGH confidence
+- Dahua NVR RTSP URL format (`channel=N&subtype=1`, percent-encoding) — community + Frigate docs + GitHub Discussion #14956: MEDIUM confidence (widely documented pattern)
+- Existing rc-sentry-ai codebase — `Cargo.toml`, `cameras.html`, `mjpeg.rs`, `config.rs`, `main.rs`: HIGH confidence (direct read 2026-03-22)
 
 ---
 
-*Stack research for: v18.0 Seamless Execution — dynamic execution protocol additions to comms-link*
+*Stack research for: v16.1 Camera Dashboard Pro — hybrid streaming, layout modes, drag-to-rearrange*
 *Researched: 2026-03-22 IST*

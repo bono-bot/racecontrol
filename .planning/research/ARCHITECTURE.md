@@ -1,682 +1,461 @@
 # Architecture Research
 
-**Domain:** Bidirectional AI-to-AI dynamic execution protocol — v18.0 Seamless Execution
+**Domain:** Hybrid streaming NVR dashboard — v16.1 Camera Dashboard Pro
 **Researched:** 2026-03-22
-**Confidence:** HIGH (direct codebase inspection of comms-link source, no speculation)
+**Confidence:** HIGH (all integration points verified against live code and go2rtc source)
 
 ---
 
-## Existing Architecture Baseline
-
-Before describing integration points, here is the current comms-link structure as read from source.
-
-### Transport and Connection Layer
+## System Overview
 
 ```
-James (Windows 11, .27)                         Bono (VPS, srv1422716.hstgr.cloud)
-  james/comms-client.js                           bono/comms-server.js
-    CommsClient (EventEmitter)                      createCommsServer({ port, psk })
-    - WS outbound to Bono :8765                     - WS server on :8765
-    - PSK Bearer auth                               - PSK timing-safe validation
-    - exponential backoff reconnect                 - 45s ping keepalive
-    - offline send queue (100 cap)                  - HTTP relay routes (/relay/sync, /relay/action, /relay/health)
-    - sendRaw() for AckTracker retry
+Browser (cameras.html @ :8096  OR  web dashboard @ :3200)
+  │
+  │  Snapshot poll (HTTP GET, ~1-2 fps, instant from cache)
+  ├──────────────────────────────────────────────────────────────────►
+  │                                              rc-sentry-ai :8096
+  │  ◄── JPEG bytes (SnapshotCache, no NVR wait per request)
+  │
+  │  WebRTC fullscreen (on camera click)
+  │  ws://192.168.31.27:1984/api/ws?src=<stream_name>
+  ├──────────────────────────────────────────────────────────────────►
+  │                                              go2rtc :1984
+  │  ◄── webrtc/offer → webrtc/answer → webrtc/candidate exchange
+  │      RTCPeerConnection established, H.265 video streams directly
+  │
+  │  Camera names + stream map
+  ├──────────────────────────────────────────────────────────────────►
+  │                              GET /api/v1/cameras (rc-sentry-ai)
+  │                              Returns name, nvr_channel, stream_name, display_order
+  │
+  │  Layout state (grid size + camera order)
+  └──────────────────────────────────────────────────────────────────►
+                                 localStorage (browser-side, no server round-trip)
+
+NVR 192.168.31.18 (Dahua, 13 cameras, H.265)
+  │
+  ├── RTSP ch1-ch13 ──────────────────────────────────► go2rtc :1984
+  │                                                      (needs 13 entries in go2rtc.yaml)
+  │
+  └── HTTP CGI snapshot.cgi ──────────────────────────► NvrClient (rc-sentry-ai)
+                                                         → SnapshotCache (background fetch)
 ```
 
-James connects outbound — this makes the architecture NAT-safe. All WS flows originate from James.
+### Component Responsibilities
 
-### Protocol Layer (shared/protocol.js)
-
-Every message follows a standard envelope:
-
-```
-{ v: 1, type, from, ts, id (UUID), payload: {} }
-```
-
-Current registered message types: `echo`, `echo_reply`, `heartbeat`, `heartbeat_ack`, `msg_ack`,
-`status`, `recovery`, `file_sync`, `file_ack`, `message`, `task_request`, `task_response`,
-`status_query`, `status_response`, `daily_report`, `sync_push`, `sync_pull`, `sync_action`,
-`sync_action_ack`, `exec_request`, `exec_result`, `exec_approval`.
-
-Control messages (heartbeat, echo, msg_ack) skip ACK tracking. All others go through AckTracker.
-
-### Exec Protocol Layer (shared/exec-protocol.js)
-
-The static command registry (`COMMAND_REGISTRY`) contains 13 named commands with:
-- `binary` + `args[]` — no shell strings ever
-- `tier: AUTO | NOTIFY | APPROVE`
-- `timeoutMs`, `cwd`
-
-`ExecHandler` (james/exec-handler.js, also instantiated in bono/index.js as `bonoExecHandler`):
-- Routes `exec_request` messages by tier
-- `#pendingApprovals` Map with 10-min default-deny timeout
-- Emits events: `exec_started`, `exec_completed`, `pending_approval`, `approval_timeout`
-- Injectable: `execFileFn`, `sendResultFn`, `notifyFn`, `commandRegistry`
-
-The `commandRegistry` parameter is already injectable in `ExecHandler` constructor — this is the primary extension point for dynamic registration.
-
-### Reliability Layer
-
-```
-shared/ack-tracker.js   -- AckTracker: tracks in-flight messages, 3 retries × 10s timeout
-                           DeduplicatorCache: 1000-entry LRU dedup on receiver side
-shared/message-queue.js -- MessageQueue: WAL-backed durable queue, survives crash/restart
-shared/connection-mode.js -- ConnectionMode: WS-primary / email-fallback degradation
-```
-
-### Current Message Routing (James side, james/index.js)
-
-The central `client.on('message', handler)` dispatches by `msg.type`:
-
-| Incoming type | Handler |
-|---------------|---------|
-| `msg_ack` | AckTracker.acknowledge |
-| `sync_push` | forward to rcCoreUrl/sync/push |
-| `sync_action` | forward to rcCoreUrl/sync/receive-action |
-| `sync_action_ack` | forward to rcCoreUrl/actions/{id}/ack |
-| `exec_request` | ExecHandler.handleExecRequest |
-| `exec_approval` | ExecHandler.approve/rejectCommand |
-| `task_request` | send task_response accepted + audit log |
-| `task_response` | clear pendingTasks timer |
-| `status_query` | send status_response (uptime) |
-| `exec_result` | log + failoverOrchestrator.handleExecResult |
-| `message` | audit log (INBOX.md) |
-
-### Current Message Routing (Bono side, bono/index.js wireBono)
-
-| Incoming type | Handler |
-|---------------|---------|
-| `msg_ack` | AckTracker.acknowledge |
-| `heartbeat` | HeartbeatMonitor.receivedHeartbeat |
-| `recovery` | AlertManager.handleRecovery |
-| `exec_result` | log + wss.emit('exec_result', payload) |
-| `exec_request` | bonoExecHandler.handleExecRequest |
-| `task_request` | send task_response + persist to comms.db |
-| `task_response` | clear pendingTasks timer |
-| `status_query` | send status_response |
-| `daily_report` | DailySummaryScheduler.receivePodReport |
-| `sync_push` | forward to rcCoreUrl/sync/push |
-| `sync_action_ack` | forward to rcCoreUrl/actions/{id}/ack |
-| `message` | relay to other clients + persist to comms.db |
-
-### Existing exec_result Promise Resolution (FailoverOrchestrator pattern)
-
-`james/failover-orchestrator.js` already demonstrates the exec-result-as-promise pattern:
-- `#pending` Map: `execId -> { resolve, reject, timer }`
-- `handleExecResult(payload)` called from `james/index.js` on `exec_result`
-- Resolves the promise for the matching execId
-- 30s timeout per pending exec
-
-This pattern is the foundation for execution chain orchestration.
+| Component | Responsibility | Status |
+|-----------|----------------|--------|
+| `SnapshotCache` | RwLock<HashMap> — fetches all 13 NVR channels sequentially ~200ms/cycle, serves cached JPEGs instantly | Exists — no changes needed |
+| `NvrClient` | reqwest + digest auth with nonce caching — `snapshot.cgi` and playback CGI | Exists — no changes needed |
+| `mjpeg_router` | HTTP routes: `/cameras/live`, `/api/v1/cameras`, `/api/v1/cameras/nvr/:channel/snapshot` | Exists — extend response shape only |
+| `cameras.html` | Embedded via `include_str!`, current snapshot-only grid | Exists — full rewrite in-place |
+| `go2rtc` | RTSP relay + WebRTC signaling — currently 3 cameras configured | Exists — needs ch1-ch13 added to yaml |
+| `web/src/app/cameras/page.tsx` | Next.js staff dashboard cameras page (server :3200) | Exists — full rewrite |
+| Camera display order | `display_order` field in rc-sentry-ai.toml per camera | New — add to `CameraConfig` |
+| Layout state | Grid size + drag order in user's browser | New — localStorage only |
 
 ---
 
-## System Overview: v18.0 Target State
+## WebRTC Integration: How go2rtc Works with the Browser
 
-```
-James (Windows 11, .27)                              Bono (VPS, Linux)
-+-------------------------------------------------+  +-------------------------------------------------+
-| james/index.js (message router)                 |  | bono/index.js / wireBono (message router)       |
-|                                                 |  |                                                 |
-| [NEW] DynamicCommandRegistry                    |  | [NEW] DynamicCommandRegistry (Bono-side)        |
-|   - runtime register/deregister                 |  |   - runtime register/deregister                 |
-|   - merges with static COMMAND_REGISTRY         |  |   - merges with static COMMAND_REGISTRY         |
-|                                                 |  |                                                 |
-| [EXTENDED] ExecHandler                          |  | [EXTENDED] bonoExecHandler                      |
-|   - injected registry = DynamicCommandRegistry  |  |   - injected registry = DynamicCommandRegistry  |
-|   - adds exec_result promise-tracking           |  |   - adds exec_result promise-tracking           |
-|                                                 |  |                                                 |
-| [NEW] ShellRelayHandler                         |  | [NEW] ShellRelayHandler                         |
-|   - APPROVE-tier shell execution                |  |   - APPROVE-tier shell execution (Linux)        |
-|   - sanitized environment                       |  |   - sanitized environment                       |
-|                                                 |  |                                                 |
-| [NEW] ChainOrchestrator                         |  | [NEW] ChainOrchestrator                         |
-|   - multi-step chain definition + execution     |  |   - multi-step chain definition + execution     |
-|   - step N+1 receives step N output             |  |   - step N+1 receives step N output             |
-|   - chain-level audit entry                     |  |   - chain-level audit entry                     |
-|                                                 |  |                                                 |
-| [NEW] TaskDelegator                             |  | [NEW] TaskDelegator                             |
-|   - Claude-to-Claude delegation API             |  |   - Claude-to-Claude delegation API             |
-|   - awaitable remote task results               |  |   - awaitable remote task results               |
-|                                                 |  |                                                 |
-| [EXTENDED] james/index.js                       |  | [EXTENDED] bono/index.js                        |
-|   - new message types routed                    |  |   - new message types routed                    |
-|   - exec_result forwarded to ChainOrchestrator  |  |   - exec_result forwarded to ChainOrchestrator  |
-+-------------------------------------------------+  +-------------------------------------------------+
-           |  WebSocket :8765  |
-           | (unchanged transport) |
-```
+This is the critical integration point. The go2rtc WebRTC protocol is verified against go2rtc source code (video-rtc.js, deepwiki WebRTC protocol documentation).
 
-### New Protocol Message Types
+### go2rtc WebRTC Signaling Protocol
 
-Six new types need registration in `shared/protocol.js`:
+go2rtc exposes a WebSocket at `/api/ws?src=<stream_name>` on port 1984. The browser does a standard WebRTC offer/answer exchange over this WebSocket.
 
-| Type | Direction | Purpose |
-|------|-----------|---------|
-| `cmd_register` | Bono -> James or James -> Bono | Register a new runtime command |
-| `cmd_deregister` | Bono -> James or James -> Bono | Remove a runtime command |
-| `shell_request` | Either direction | Arbitrary shell command (APPROVE tier only) |
-| `shell_result` | Either direction | Output of shell_request |
-| `chain_request` | Either direction | Multi-step execution chain definition |
-| `chain_result` | Either direction | Final aggregated chain result |
-| `delegate_request` | Either direction | Claude-to-Claude task delegation |
-| `delegate_result` | Either direction | Result of delegated Claude task |
+**Message types exchanged over the WebSocket:**
 
-`chain_request` and `chain_result` both flow through the existing `exec_request`/`exec_result` mechanism internally per step — they are a layer above it.
+| Direction | Message | Shape |
+|-----------|---------|-------|
+| Browser → go2rtc | Offer | `{ type: 'webrtc/offer', value: sdp_string }` |
+| go2rtc → Browser | Answer | `{ type: 'webrtc/answer', value: sdp_string }` |
+| Browser → go2rtc | ICE candidate | `{ type: 'webrtc/candidate', value: candidate_string }` |
+| go2rtc → Browser | ICE candidate | `{ type: 'webrtc/candidate', value: candidate_string }` |
 
----
+**Browser implementation pattern:**
 
-## Component Map: New vs Modified
+```javascript
+async function openWebRTC(streamName, videoEl) {
+  const pc = new RTCPeerConnection();
+  pc.addTransceiver('video', { direction: 'recvonly' });
 
-### New Components
+  const ws = new WebSocket(
+    `ws://192.168.31.27:1984/api/ws?src=${streamName}`
+  );
 
-#### shared/dynamic-registry.js
-
-```
-DynamicCommandRegistry
-  #static: COMMAND_REGISTRY (frozen, read-only source)
-  #dynamic: Map<string, CommandSpec>
-
-  register(name, spec)        -- validates spec shape, rejects CONTROL_TYPES conflicts
-  deregister(name)            -- only dynamic entries removable, static are permanent
-  get(name)                   -- checks dynamic first, falls back to static
-  list()                      -- merged view for introspection
-  serialize() / hydrate()     -- JSON round-trip for persistence across restarts
-```
-
-**Integration:** Replaces the direct `COMMAND_REGISTRY` import in `ExecHandler` constructor.
-`ExecHandler` already accepts `commandRegistry` as a constructor parameter — inject
-`DynamicCommandRegistry` instance. Zero changes to ExecHandler internals.
-
-**Persistence:** On registration, serialize to `./data/dynamic-registry.json`. Load at startup
-before wiring `ExecHandler`. Registration survives process restart.
-
-#### shared/shell-relay.js
-
-```
-ShellRelayHandler
-  #execFileFn                 -- injectable (same as ExecHandler)
-  #sendResultFn               -- (shellId, result) => void
-  #notifyFn                   -- APPROVE tier notification
-  #approvalTimeoutMs          -- default 600000ms (same as ExecHandler)
-  #pendingApprovals: Map
-
-  handleShellRequest(msg)     -- msg.payload: { shellId, command, args[], cwd, tier, reason }
-  approveShell(shellId)
-  rejectShell(shellId, reason)
-  get pendingApprovals()
-```
-
-**Key constraint:** `tier` in the shell_request payload MUST be `APPROVE` — any attempt to
-send a shell_request with AUTO or NOTIFY tier is rejected at the handler level with an error
-result. Shell relay is an escape hatch for one-off operations not in the static registry, and
-it is always gated by operator approval.
-
-**Integration:** Wired alongside ExecHandler in both `james/index.js` and `bono/index.js`.
-New HTTP relay routes added for shell approval: `/relay/shell/pending`,
-`/relay/shell/approve/:shellId`, `/relay/shell/reject/:shellId`.
-
-#### shared/chain-orchestrator.js
-
-```
-ChainOrchestrator
-  #execRequestFn              -- (command, args, reason) => Promise<ExecResult>
-  #shellRequestFn             -- (command, args, cwd, reason) => Promise<ShellResult>
-  #nowFn
-
-  executeChain(chain)         -- runs steps sequentially, passes output forward
-  #resolveStep(step, ctx)     -- resolves template vars in args from prior step output
-  #auditChain(chain, results) -- writes chain-level audit entry
-```
-
-**Chain definition structure:**
-
-```json
-{
-  "chainId": "uuid",
-  "name": "deploy-and-verify",
-  "steps": [
-    {
-      "stepId": "pull",
-      "type": "exec",
-      "command": "git_pull",
-      "reason": "deploy step 1"
-    },
-    {
-      "stepId": "verify",
-      "type": "exec",
-      "command": "health_check",
-      "reason": "deploy step 2",
-      "dependsOn": "pull",
-      "condition": { "exitCode": 0 }
+  pc.onicecandidate = (e) => {
+    if (e.candidate && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'webrtc/candidate',
+        value: e.candidate.candidate
+      }));
     }
-  ],
-  "onFailure": "abort"
+  };
+
+  pc.ontrack = (e) => {
+    videoEl.srcObject = e.streams[0];
+  };
+
+  ws.onopen = async () => {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
+  };
+
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'webrtc/answer') {
+      await pc.setRemoteDescription({ type: 'answer', sdp: msg.value });
+    } else if (msg.type === 'webrtc/candidate') {
+      await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' });
+    }
+  };
+
+  // Return cleanup function
+  return () => { pc.close(); ws.close(); };
 }
 ```
 
-`condition` allows step N+1 to be skipped or the chain to abort if step N's exit code or
-stdout does not match expectations. This prevents half-completed deploy chains from silently
-proceeding.
+**Teardown on fullscreen close:** call `pc.close()` and `ws.close()`. go2rtc releases the consumer slot. The RTSP session stays open (go2rtc keeps it open for future viewers).
 
-**Integration:** ChainOrchestrator wraps ExecHandler's exec-result-as-promise pattern
-(already demonstrated in FailoverOrchestrator). The `#execRequestFn` sends an `exec_request`
-and returns a promise resolved by `handleExecResult`. For cross-machine chains, the exec
-travels via WS; for local chains, it calls ExecHandler directly.
+### Stream Name Convention
 
-#### shared/task-delegator.js
+go2rtc.yaml defines stream names as keys. The browser passes this key as `src=<name>` in the WebSocket URL. Convention for v16.1: use `ch1` through `ch13` for NVR channels. The mapping from NVR channel number to go2rtc stream name must be returned by the `/api/v1/cameras` API so the browser never hardcodes it.
 
-```
-TaskDelegator
-  #sendFn                     -- client.send or ws.send
-  #pendingDelegations: Map    -- delegationId -> { resolve, reject, timer }
-  #delegationTimeoutMs        -- default 300000ms (5 min)
+### Codec: H.265 Direct Relay
 
-  delegate(payload)           -- sends delegate_request, returns Promise<DelegateResult>
-  handleDelegateResult(msg)   -- resolves pending promise by delegationId
-  handleDelegateRequest(msg)  -- executes local Claude response, sends delegate_result
-```
+The Dahua NVR streams H.265 (HEVC). go2rtc can relay H.265 directly to WebRTC without transcoding. This works on Chrome 136+, Safari 18+. Since the staff dashboard runs on a controlled LAN machine, H.265 direct relay is the correct approach — no ffmpeg transcoding needed.
 
-**Claude-to-Claude flow:**
+The existing go2rtc.yaml already uses ffmpeg transcoding to H.264 for the detection pipeline (`entrance_h264` etc.) because openh264 only decodes H.264. Those entries stay as-is. The new ch1-ch13 entries for the dashboard do NOT transcode — they relay H.265 directly.
 
-```
-James receives user question requiring Bono data
-  -> TaskDelegator.delegate({ question, context })
-  -> sends delegate_request via WS
-  -> Bono receives delegate_request
-  -> Bono runs query (exec, HTTP, DB read)
-  -> Bono sends delegate_result with { answer, data, exitCode }
-  -> James receives delegate_result
-  -> TaskDelegator resolves promise
-  -> James integrates answer into response
-```
+### CORS and LAN Access
 
-**Audit:** Every delegate_request and delegate_result is appended to INBOX.md on both sides.
-The `delegationId` links request to result in the audit log.
+go2rtc's WebSocket endpoint on port 1984 is accessible directly from the browser on LAN. No proxy through Axum is needed or desirable. go2rtc is permissive on LAN CORS by default. The `mjpeg_router` in rc-sentry-ai already has `CorsLayer` for the snapshot API — that is independent of go2rtc.
 
-**Integration:** TaskDelegator replaces the current `sendTaskRequest` + `pendingTasks` Map
-pattern in both `james/index.js` and `bono/index.js wireBono`. The existing `task_request` /
-`task_response` flow currently only ACKs receipt (no actual result payload returned).
-TaskDelegator extends this with a proper request-response pair that carries data.
+---
 
-### Modified Components (Existing Files Extended)
+## Layout State Persistence
 
-#### shared/protocol.js — ADD new message types
+### Grid Size and Camera Order: localStorage
 
-Add to `MessageType` object:
-- `cmd_register`, `cmd_deregister` — dynamic registry sync
-- `shell_request`, `shell_result` — shell relay
-- `chain_request`, `chain_result` — chain orchestration
-- `delegate_request`, `delegate_result` — Claude-to-Claude delegation
+Layout is browser-side UI state. It does not need server persistence.
 
-These are all data messages (not control) — they participate in ACK tracking automatically.
+**Storage shape:**
 
-**Backward compatibility:** All existing types unchanged. New types are additive.
+```javascript
+const LAYOUT_KEY = 'rp_camera_layout_v1';
 
-#### shared/exec-protocol.js — ADD shell_request validation
-
-Add `validateShellRequest(payload)` alongside existing `validateExecRequest`. Validates:
-- `command` is a non-empty string
-- `args` is an array
-- `tier` must be `APPROVE` (reject anything else)
-- `cwd` if present is an absolute path
-
-The static `COMMAND_REGISTRY` and `buildSafeEnv` are unchanged.
-
-#### james/exec-handler.js — NO changes needed
-
-ExecHandler already accepts `commandRegistry` as a constructor injection point. The only
-change is at instantiation time in `james/index.js` — pass `DynamicCommandRegistry` instead
-of the static `COMMAND_REGISTRY`. ExecHandler's internal `#commandRegistry` lookup already
-reads from whatever was injected.
-
-#### james/index.js — ADD routing for new message types
-
-The existing `client.on('message', handler)` block is extended with:
-
-```
-cmd_register    -> dynamicRegistry.register(payload.name, payload.spec)
-                   + persist + log
-cmd_deregister  -> dynamicRegistry.deregister(payload.name) + persist + log
-shell_request   -> shellRelayHandler.handleShellRequest(msg)
-shell_result    -> chainOrchestrator.handleShellResult(msg.payload)
-chain_request   -> chainOrchestrator.executeChain(msg.payload)
-chain_result    -> chainOrchestrator.handleChainResult(msg.payload) (for remote chains)
-delegate_request -> taskDelegator.handleDelegateRequest(msg)
-delegate_result  -> taskDelegator.handleDelegateResult(msg)
+// Stored in localStorage
+{
+  "gridSize": "2x2",            // "1x1" | "2x2" | "3x3" | "4x4"
+  "cameraOrder": [1, 3, 2, 4]  // NVR channel numbers in display order
+}
 ```
 
-Existing `exec_result` routing is extended: in addition to `failoverOrchestrator.handleExecResult`,
-also call `chainOrchestrator.handleExecResult` so chain steps waiting on exec results are resolved.
+**Why not server-side:** cameras.html and the web dashboard at :3200 are separate browser sessions, potentially used by different staff. Shared server-side layout would create coupling with no operational benefit. If shared layout is ever needed, add `POST /api/v1/cameras/layout` then — do not over-engineer now.
 
-New HTTP relay routes added to `relayServer`:
-```
-POST /relay/cmd/register       -- register a new command (JSON body: name, spec)
-POST /relay/cmd/deregister     -- remove a command (JSON body: name)
-GET  /relay/cmd/list           -- list all registered commands (static + dynamic)
-POST /relay/shell/send         -- trigger shell_request to Bono
-GET  /relay/shell/pending      -- list pending shell approvals
-POST /relay/shell/approve/:id  -- approve a pending shell
-POST /relay/shell/reject/:id   -- reject a pending shell
-POST /relay/chain/send         -- trigger chain_request to Bono
-POST /relay/delegate           -- send delegate_request to Bono
-```
+**Next.js hydration rule (mandatory — existing codebase rule):** Never initialize state from localStorage in `useState` — use `useEffect` + hydrated flag:
 
-#### bono/index.js (wireBono) — ADD routing for new message types
-
-Mirrors james/index.js additions, symmetric:
-
-```
-cmd_register    -> bonoRegistry.register(...) + persist
-cmd_deregister  -> bonoRegistry.deregister(...)
-shell_request   -> bonoShellHandler.handleShellRequest(msg)
-shell_result    -> bonoChainOrchestrator.handleShellResult(msg.payload)
-chain_request   -> bonoChainOrchestrator.executeChain(msg.payload)
-chain_result    -> bonoChainOrchestrator.handleChainResult(msg.payload)
-delegate_request -> bonoTaskDelegator.handleDelegateRequest(msg)
-delegate_result  -> bonoTaskDelegator.handleDelegateResult(msg)
+```typescript
+const [layout, setLayout] = useState<LayoutState>(DEFAULT_LAYOUT);
+const [hydrated, setHydrated] = useState(false);
+useEffect(() => {
+  const saved = localStorage.getItem(LAYOUT_KEY);
+  if (saved) setLayout(JSON.parse(saved));
+  setHydrated(true);
+}, []);
+if (!hydrated) return <CameraGridSkeleton />;
 ```
 
-Existing `exec_result` routing (currently only logs + wss.emit) extended to also call
-`bonoChainOrchestrator.handleExecResult`.
+### Camera Names and Display Order: rc-sentry-ai.toml
+
+Camera names ("Entrance", "Pod Area", "Cashier") are venue constants, not user preferences. They belong in the TOML config alongside `nvr_channel` and `stream_name`. They survive browser cache clears and are consistent across all viewers.
+
+**Add `display_order` to existing `CameraConfig`:**
+
+```toml
+[[cameras]]
+name = "Entrance"
+stream_name = "ch1"
+nvr_channel = 1
+role = "entrance"
+fps = 5
+display_order = 1     # New field — default grid position
+```
+
+The `cameras_list_handler` JSON response needs to include `nvr_channel`, `stream_name`, and `display_order`. The browser reads this on page load to build its initial grid order before checking localStorage.
+
+---
+
+## Dual Deployment Architecture
+
+### Deployment 1: cameras.html (Embedded in rc-sentry-ai)
+
+**URL:** `http://192.168.31.27:8096/cameras/live`
+
+The `cameras_page_handler` in `mjpeg.rs` serves `cameras.html` via `include_str!`. Recompile rc-sentry-ai when the HTML changes. No new Axum routes needed.
+
+**Constraints:**
+- Single HTML file, no build step. Vanilla JavaScript only — no bundler, no npm.
+- Snapshot requests go to `/api/v1/cameras/nvr/:channel/snapshot` — same origin, no CORS.
+- WebRTC signaling goes to `ws://192.168.31.27:1984/api/ws?src=ch{N}` — cross-origin from the browser's perspective, but go2rtc is permissive.
+- Camera config from `GET /api/v1/cameras` at page load — hardcoded base URL is fine (`http://192.168.31.27:8096`).
+
+### Deployment 2: Next.js Web Dashboard (Server at :3200)
+
+**URL:** `http://192.168.31.23:3200/cameras`
+
+`web/src/app/cameras/page.tsx` is a full rewrite. The existing page fetches camera list via MJPEG stream URLs — the new page uses snapshot polling + WebRTC.
+
+**Constraints:**
+- `SENTRY_BASE` (`http://192.168.31.27:8096`) must be a `NEXT_PUBLIC_` env var baked at build time, not hardcoded in source.
+- `GO2RTC_WS_BASE` (`ws://192.168.31.27:1984`) same rule.
+- WebRTC goes browser → go2rtc directly (no Next.js proxy). This is a direct WebSocket from the browser to James's machine — works on LAN.
+- Rebuild Next.js after changing env vars. Copy `.next/static` into `.next/standalone/` before deploying (mandatory standing rule).
+
+### Feature Parity
+
+| Feature | cameras.html | web/cameras/page.tsx |
+|---------|-------------|----------------------|
+| Snapshot grid (13 cameras) | Yes — vanilla JS `setInterval` | Yes — React `useEffect` + `setInterval` |
+| Layout selector (1x1/2x2/3x3/4x4) | Yes — CSS grid-template-columns | Yes — Tailwind grid-cols-N |
+| Camera names from API | Yes | Yes |
+| Drag-to-reorder | Yes — HTML5 drag events | Yes — React drag state |
+| WebRTC fullscreen | Yes — vanilla RTCPeerConnection | Yes — `useWebRTC` hook + `<video>` ref |
+| Layout persistence | localStorage | localStorage |
+| DashboardLayout chrome | No | Yes — existing wrapper |
+
+Both deployments are functionally equivalent for camera operations.
+
+---
+
+## New vs Modified Components
+
+### New Components
+
+| Component | Location | What It Does |
+|-----------|----------|-------------|
+| go2rtc yaml entries ch1-ch13 | `C:\RacingPoint\go2rtc\go2rtc.yaml` | RTSP relay for all 13 NVR channels, enabling WebRTC access |
+| WebRTC connection helper | `cameras.html` (inline JS) | Creates RTCPeerConnection, handles go2rtc WebSocket signaling, attaches stream to `<video>` |
+| Layout selector UI | `cameras.html` + `web/cameras/page.tsx` | Buttons for 1x1/2x2/3x3/4x4 — changes CSS grid layout |
+| Fullscreen WebRTC modal | Both | `<video>` overlay on camera click, RTCPeerConnection lifecycle |
+| Drag reorder | Both | Reorders NVR channel display array, persists to localStorage |
+| `useWebRTC` hook | `web/src/hooks/useWebRTC.ts` | React hook — RTCPeerConnection + go2rtc WebSocket, returns `videoRef` |
+| `CameraGridSkeleton` | `web/src/components/` | Loading skeleton for hydration gap |
+
+### Modified Components
+
+| Component | Location | What Changes |
+|-----------|----------|-------------|
+| `cameras.html` | `crates/rc-sentry-ai/cameras.html` | Full rewrite — layout controls, drag, WebRTC fullscreen replaces snapshot-only grid |
+| `web/cameras/page.tsx` | `web/src/app/cameras/page.tsx` | Full rewrite — snapshot polling, layout controls, drag, WebRTC fullscreen |
+| `CameraConfig` | `crates/rc-sentry-ai/src/config.rs` | Add `display_order: Option<u32>` field |
+| `cameras_list_handler` | `crates/rc-sentry-ai/src/mjpeg.rs` | Extend JSON response: add `nvr_channel`, `stream_name`, `display_order` |
+| `rc-sentry-ai.toml` | `C:\RacingPoint\rc-sentry-ai.toml` | Add all 13 cameras with `stream_name = "ch1"` through `"ch13"`, `display_order` |
+| `go2rtc.yaml` | `C:\RacingPoint\go2rtc\go2rtc.yaml` | Add ch1-ch13 pointing to NVR RTSP URLs |
+
+**What does NOT change:**
+- `SnapshotCache` — no modifications, works correctly as-is
+- `NvrClient` — no modifications, snapshot.cgi fetch works for all 13 channels already
+- `spawn_snapshot_fetcher` — already iterates `1..=nvr_channels`, no changes
+- `nvr_snapshot_handler` — works as-is, already serves cached JPEG by channel number
+- All Axum routing in `main.rs` — no new routes needed
 
 ---
 
 ## Data Flow
 
-### Dynamic Command Registration Flow
+### Snapshot Grid Flow (polling, all 13 cameras)
 
 ```
-Claude Code (James session)
-  -> POST /relay/cmd/register { name: "build_racecontrol", spec: { binary, args, tier, timeoutMs } }
-  -> james/index.js relayServer
-  -> dynamicRegistry.register("build_racecontrol", spec)
-  -> persist to ./data/dynamic-registry.json
-  -> optionally: client.send('cmd_register', { name, spec })
-     -> Bono receives cmd_register -> bonoRegistry.register(name, spec)
-  Response: { ok: true, name: "build_racecontrol" }
+Browser page load
+  └── GET /api/v1/cameras
+        └── cameras_list_handler → CameraConfig vec → JSON
+              Returns: [{ name, role, nvr_channel, stream_name, display_order, status }]
+              Browser builds grid in display_order, checks localStorage for drag overrides
+
+Browser setInterval (~1000ms per camera, staggered)
+  └── GET /api/v1/cameras/nvr/1/snapshot?t=<timestamp>
+        └── nvr_snapshot_handler → SnapshotCache.get(1) → JPEG bytes → img.src
+
+Background (always running in rc-sentry-ai)
+  └── spawn_snapshot_fetcher: loop ch 1..13
+        └── NvrClient.snapshot(ch) → Dahua CGI → JPEG → SnapshotCache.set(ch, bytes)
+              ~200ms between channels, all 13 updated every ~2-3 seconds
 ```
 
-The registration is local-first: the registering side can use it immediately. Syncing to the
-other side is optional and triggered by an explicit sync flag in the POST body.
-
-### Single Exec Request Flow (existing, unchanged)
+### WebRTC Fullscreen Flow (single camera, on click)
 
 ```
-Bono wants to run git_status on James:
-  wireBono.sendExecRequest(ws, { command: 'git_status', reason: '...' })
-  -> createMessage('exec_request', 'bono', { execId, command, reason, requestedBy: 'bono' })
-  -> WS to James
-  -> james/index.js: execHandler.handleExecRequest(msg)
-  -> ExecHandler: lookup in DynamicCommandRegistry (dynamic first, then static)
-  -> execFile('git', ['status'], safeEnv)
-  -> sendResultFn -> connectionMode.sendCritical('exec_result', { execId, ...result })
-  -> WS back to Bono
-  -> wireBono: log + wss.emit('exec_result', payload)
+User clicks camera tile (ch = NVR channel, name = go2rtc stream_name)
+  │
+  ├── Show fullscreen overlay (<video> element)
+  ├── new RTCPeerConnection()
+  ├── pc.addTransceiver('video', { direction: 'recvonly' })
+  ├── offer = await pc.createOffer()
+  ├── await pc.setLocalDescription(offer)
+  │
+  └── new WebSocket(`ws://192.168.31.27:1984/api/ws?src=${name}`)
+        │
+        ├── ws.onopen → ws.send({ type: 'webrtc/offer', value: offer.sdp })
+        ├── pc.onicecandidate → ws.send({ type: 'webrtc/candidate', value: c.candidate })
+        │
+        ├── ws.onmessage (answer) → pc.setRemoteDescription({ type:'answer', sdp: msg.value })
+        ├── ws.onmessage (candidate) → pc.addIceCandidate({ candidate: msg.value, sdpMid:'0' })
+        │
+        └── pc.ontrack → videoEl.srcObject = event.streams[0]
+              Video plays — sub-second latency on LAN, H.265 hardware decoded
+
+User closes fullscreen (ESC or click outside)
+  ├── pc.close()
+  └── ws.close()
 ```
 
-### Execution Chain Flow (new)
+### Layout Persistence Flow
 
 ```
-Bono wants to deploy + verify on James:
-  POST /relay/chain/send {
-    name: "deploy-and-verify",
-    steps: [
-      { stepId: "pull", type: "exec", command: "git_pull" },
-      { stepId: "install", type: "exec", command: "npm_install", dependsOn: "pull", condition: { exitCode: 0 } }
-    ]
-  }
-  -> james/index.js: ChainOrchestrator.executeChain(chain)
-  -> Step 1: sendExecRequest('git_pull') -> await execResult promise
-  -> Step 1 result: { exitCode: 0, stdout: "..." }
-  -> condition check: exitCode === 0, proceed
-  -> Step 2: sendExecRequest('npm_install') -> await execResult promise
-  -> Step 2 result: { exitCode: 0 }
-  -> ChainOrchestrator: aggregate results, write audit entry
-  -> optionally: send chain_result back to requester
-```
+User changes grid size or drags camera
+  └── localStorage.setItem('rp_camera_layout_v1', JSON.stringify({
+        gridSize: '3x3',
+        cameraOrder: [3,1,4,1,5,9,2,6,5]  // ordered NVR channel numbers
+      }))
 
-For remote chains (Bono sends chain_request to James), the chain executes on James and the
-aggregated result returns as a `chain_result` message.
-
-### Shell Relay Flow (new)
-
-```
-Bono wants to run an arbitrary command not in the registry:
-  POST /relay/shell/send {
-    command: "powershell",
-    args: ["-Command", "Get-NetAdapter"],
-    reason: "diagnose network adapter state",
-    tier: "approve"
-  }
-  -> james/index.js: client.send('shell_request', { shellId, command, args, cwd, tier, reason })
-  -> Bono receives shell_request
-  -> bonoShellHandler.handleShellRequest(msg)
-  -> tier === 'approve': queue, send WhatsApp to Uday: "Approval required: powershell Get-NetAdapter"
-  -> Uday approves via /relay/shell/approve/:shellId on Bono's relay
-  -> execFile('powershell', ['-Command', 'Get-NetAdapter'], safeEnv)
-  -> send shell_result back to James
-```
-
-### Claude-to-Claude Delegation Flow (new)
-
-```
-User asks James: "What are the latest 5 sessions on the cloud DB?"
-  James (Claude) knows this requires Bono's SQLite:
-  -> TaskDelegator.delegate({
-       question: "SELECT top 5 billing_sessions from cloud DB",
-       context: { dbPath: "/root/racecontrol/racecontrol.db" },
-       type: "db_query"
-     })
-  -> sends delegate_request via WS
-  -> Bono receives delegate_request
-  -> TaskDelegator.handleDelegateRequest: runs export_failover_sessions exec (or dynamic cmd)
-  -> sends delegate_result { delegationId, data: [...sessions], exitCode: 0 }
-  -> James TaskDelegator resolves promise
-  -> James integrates data into user response
+Page load (subsequent visit)
+  └── localStorage.getItem('rp_camera_layout_v1')
+        └── Restore gridSize → apply CSS grid-template-columns
+            Restore cameraOrder → reorder camera tiles
 ```
 
 ---
 
-## Component Boundaries and Communication
+## Architectural Patterns
 
-| Component | File | Communicates With | Data Contract |
-|-----------|------|-------------------|---------------|
-| DynamicCommandRegistry | shared/dynamic-registry.js | ExecHandler (injected), index.js (persist) | CommandSpec: { binary, args, tier, timeoutMs, cwd, description } |
-| ShellRelayHandler | shared/shell-relay.js | index.js (routing), notifyFn, execFileFn | ShellRequest: { shellId, command, args, cwd, tier, reason } |
-| ChainOrchestrator | shared/chain-orchestrator.js | ExecHandler (exec-result promises), index.js | ChainDef: { chainId, name, steps[], onFailure } |
-| TaskDelegator | shared/task-delegator.js | sendFn (WS), index.js (routing) | DelegationPayload: { delegationId, question, context, type } |
-| ExecHandler | james/exec-handler.js | DynamicCommandRegistry (injected), sendResultFn | Unchanged from v10.0 |
+### Pattern 1: Hybrid Streaming — Snapshot Grid + On-Demand WebRTC
 
-### ExecResult Promise Pattern (shared concern)
+**What:** Show all 13 cameras as JPEG snapshots for ambient monitoring. Establish WebRTC only for the actively viewed fullscreen camera.
 
-Both ChainOrchestrator and TaskDelegator need the exec-result-as-promise pattern. The cleanest
-approach is a shared `ExecResultBroker` (or inline Map in each orchestrator):
+**Why:** 13 simultaneous WebRTC connections would mean 13 concurrent peer connections, 13 DTLS handshakes, 13 ICE negotiations, and 13 hardware video decoders in the browser. On LAN this is feasible in theory but wasteful. The grid view is for ambient monitoring — 1-2 fps JPEG snapshots are sufficient. WebRTC is reserved for the moment a camera needs real-time attention.
 
-```
-ExecResultBroker
-  #pending: Map<execId, { resolve, reject, timer }>
+**Trade-offs:**
+- Grid is not real-time (1-2 fps snapshot delay). Acceptable for security monitoring.
+- WebRTC is per-demand — fast startup (~500ms on LAN), no idle resource usage.
+- If real-time grid view is ever needed (future milestone), move to WebRTC multistream per cell.
 
-  waitFor(execId, timeoutMs)  -> Promise<ExecResult>
-  settle(execId, result)      -> void  (called from index.js exec_result handler)
-```
+### Pattern 2: go2rtc Stream Name Indirection
 
-`james/index.js` and `bono/index.js` each instantiate one broker and call `broker.settle()`
-in the `exec_result` handler alongside the existing `failoverOrchestrator.handleExecResult`.
-ChainOrchestrator and TaskDelegator both reference the same broker instance.
+**What:** The browser never knows NVR IPs or credentials. It asks `/api/v1/cameras` for the go2rtc stream name, then connects to go2rtc using only that name.
 
-This replaces the duplicated `#pending` Maps in FailoverOrchestrator, ChainOrchestrator,
-and TaskDelegator — one broker serves all.
+**Why:** NVR credentials (`admin`/`Admin@123`) exist in two places: `rc-sentry-ai.toml` (for snapshot.cgi) and `go2rtc.yaml` (for RTSP relay). The browser sees neither. If NVR IP or password changes, update the config files — not the JavaScript.
+
+### Pattern 3: Single Active WebRTC Connection
+
+**What:** At most one WebRTC connection is active at a time. Opening a new fullscreen camera closes the previous connection.
+
+**Why:** Simple resource management. The cleanup path is one function. No need to track multiple concurrent ICE states. Staff will not need simultaneous multi-camera WebRTC views for v16.1.
 
 ---
 
-## Audit Trail Architecture
+## Anti-Patterns
 
-All cross-machine execution must produce an audit entry. The current INBOX.md + comms.db
-pattern is extended:
+### Anti-Pattern 1: WebRTC for All 13 Cameras Simultaneously
 
-```
-Audit entry fields:
-  timestamp (IST)
-  direction (james->bono | bono->james)
-  type (exec | shell | chain | delegation)
-  requestedBy (james | bono | operator)
-  command / chainId / delegationId
-  exitCode(s)
-  durationMs
-  tier (auto | notify | approve)
-  approved_by (for APPROVE tier: who triggered /relay/*/approve)
-```
+**What people do:** Open 13 WebRTC peer connections for a real-time grid view.
 
-James side: append to INBOX.md (existing audit file).
-Bono side: persist to comms.db via `persistToCommsDb()` (existing mechanism).
+**Why it's wrong:** 13 concurrent DTLS handshakes, 13 video decoders in the browser, 13 go2rtc consumer threads. Even if technically feasible, the startup time (all 13 negotiating simultaneously) would be poor UX. Browser hardware decoder limits apply (typically 8-16 H.265 streams).
 
-Chain audits write one entry per chain (not per step) to avoid log spam, but include step
-summaries in the `body` field.
+**Do this instead:** Snapshot polling for grid (JPEG from SnapshotCache — instant, server-cached). WebRTC only for fullscreen single camera.
 
----
+### Anti-Pattern 2: Proxying WebRTC Signaling Through Axum
 
-## Recommended Project Structure Changes
+**What people do:** Route WebRTC WebSocket messages through the Axum server at :8096 to avoid CORS.
 
-```
-comms-link/
-  shared/
-    protocol.js          -- ADD 8 new message types
-    exec-protocol.js     -- ADD validateShellRequest(), shell_request schema
-    dynamic-registry.js  -- NEW: DynamicCommandRegistry
-    shell-relay.js       -- NEW: ShellRelayHandler
-    chain-orchestrator.js-- NEW: ChainOrchestrator
-    task-delegator.js    -- NEW: TaskDelegator
-    exec-result-broker.js-- NEW: ExecResultBroker (shared promise resolver)
-    [existing unchanged]
-  james/
-    index.js             -- EXTENDED: new routing + new relay HTTP routes
-    exec-handler.js      -- NO CHANGES (registry injected)
-    [existing unchanged]
-  bono/
-    index.js             -- EXTENDED: wireBono gets new routing
-    [existing unchanged]
-  data/
-    dynamic-registry.json-- NEW: persisted runtime commands (gitignored, machine-local)
-```
+**Why it's wrong:** go2rtc is the WebRTC signaling endpoint. Proxying adds latency and complexity. go2rtc is permissive on LAN. The browser can connect to `ws://192.168.31.27:1984` directly without any proxy.
 
-Total new files: 5 in shared/. Total modified files: 3 (protocol.js, exec-protocol.js, james/index.js, bono/index.js). ExecHandler itself requires zero changes.
+**Do this instead:** Browser connects directly to go2rtc. Snapshot API uses rc-sentry-ai. Each server handles its own protocol.
+
+### Anti-Pattern 3: Storing Layout in rc-sentry-ai.toml
+
+**What people do:** Add a writable layout endpoint that updates the TOML file at runtime.
+
+**Why it's wrong:** Layout is a UI preference (per-viewer). Writing user preferences into a service config file creates runtime file mutations that conflict with the config-loaded-at-startup model. TOML is a deploy-time artifact.
+
+**Do this instead:** localStorage for grid size and drag order. TOML only for venue constants (names, NVR channels, roles).
+
+### Anti-Pattern 4: go2rtc H.264 Transcoding for Dashboard
+
+**What people do:** Add ffmpeg transcoding entries in go2rtc.yaml for the dashboard cameras (like the existing `entrance_h264` entries for detection).
+
+**Why it's wrong:** The detection pipeline needs H.264 because openh264 only decodes H.264. The browser dashboard has native H.265 hardware decoding (Chrome 136+, Safari 18+). Transcoding wastes CPU, adds latency, and reduces quality.
+
+**Do this instead:** Add ch1-ch13 entries as direct RTSP relay (`rtsp://...@192.168.31.18/...`), not `ffmpeg:...#video=h264`. The existing `entrance_h264` entries stay for the detection pipeline — they are separate streams.
 
 ---
 
-## Build Order (dependency-driven)
+## Integration Points Summary
 
-Build order must respect import dependencies. Lower numbers have no dependencies on higher numbers.
-
-```
-Phase 1: shared/protocol.js — add new types
-  Rationale: everything imports protocol.js; must be first.
-  Risk: LOW — pure additive to frozen object.
-
-Phase 2: shared/exec-result-broker.js — new standalone module
-  Rationale: no dependencies on new components; consumed by phases 4 and 5.
-  Risk: LOW — small, well-understood pattern (mirrors FailoverOrchestrator#pending).
-
-Phase 3: shared/dynamic-registry.js — new standalone module
-  Rationale: no dependencies on new components; consumed by phases 4 and 6.
-  Risk: LOW — straightforward Map + JSON persistence.
-  Dependency: exec-protocol.js (COMMAND_REGISTRY as static base).
-
-Phase 4: shared/exec-protocol.js — add validateShellRequest
-  Rationale: needed before ShellRelayHandler.
-  Risk: LOW — additive function only.
-
-Phase 5: shared/shell-relay.js — new ShellRelayHandler
-  Rationale: depends on exec-protocol.js (phase 4) + protocol.js (phase 1).
-  Risk: MEDIUM — new APPROVE-tier flow; approval routing new.
-
-Phase 6: shared/chain-orchestrator.js — new ChainOrchestrator
-  Rationale: depends on exec-result-broker.js (phase 2) + protocol.js (phase 1).
-  Risk: MEDIUM — step sequencing + template var resolution is new logic.
-
-Phase 7: shared/task-delegator.js — new TaskDelegator
-  Rationale: depends on exec-result-broker.js (phase 2) + protocol.js (phase 1).
-  Risk: LOW — promise-over-WS pattern already proven in FailoverOrchestrator.
-
-Phase 8: james/index.js — wire new components, add relay routes
-  Rationale: depends on all phases 1-7.
-  Risk: MEDIUM — large file, many new routing cases; existing routes must not regress.
-  Mitigation: add new routing blocks AFTER existing ones to avoid accidental shadowing.
-
-Phase 9: bono/index.js (wireBono) — mirror james-side wiring
-  Rationale: depends on phases 1-7 plus james/index.js being stable for reference.
-  Risk: MEDIUM — same pattern as phase 8 but Linux-side env assumptions differ.
-```
+| Integration | From | To | Protocol | Notes |
+|-------------|------|-----|----------|-------|
+| Camera config | Browser | rc-sentry-ai :8096 | HTTP GET `/api/v1/cameras` | Extend JSON to include `nvr_channel`, `stream_name`, `display_order` |
+| Snapshot | Browser | rc-sentry-ai :8096 | HTTP GET `/api/v1/cameras/nvr/:ch/snapshot` | Already exists, cache-backed, instant |
+| Dashboard page | Browser | rc-sentry-ai :8096 | HTTP GET `/cameras/live` | `include_str!` cameras.html — full rewrite |
+| WebRTC signaling | Browser | go2rtc :1984 | WebSocket `/api/ws?src=ch{N}` | go2rtc built-in — no code changes in go2rtc |
+| RTSP relay | go2rtc | NVR :18 | RTSP | go2rtc.yaml — add ch1-ch13 |
+| NVR snapshots (server) | rc-sentry-ai | NVR :18 | HTTP + Digest | NvrClient.snapshot(ch) — already works |
+| Layout state | Browser | localStorage | — | No server involvement |
 
 ---
 
-## Anti-Patterns to Avoid
+## Build Order (Phase Dependencies)
 
-### Anti-Pattern 1: Registering Commands with Shell Strings
+```
+Phase 1: go2rtc.yaml — add ch1-ch13 (no code, just config)
+  Prerequisite for: all WebRTC UI work
+  Action: Add 13 RTSP entries to go2rtc.yaml, restart go2rtc
+  Verify: open ws://192.168.31.27:1984 in browser, confirm each stream listed
 
-**What people do:** Register a dynamic command with `binary: 'bash'` and `args: ['-c', 'rm -rf /tmp && rsync ...']`.
+Phase 2: rc-sentry-ai config + API response (prerequisite for both UIs)
+  Action:
+    1. Add `display_order: Option<u32>` to CameraConfig in config.rs
+    2. Extend cameras_list_handler JSON response: add nvr_channel, stream_name, display_order
+    3. Update rc-sentry-ai.toml with all 13 cameras, stream_name = "ch1".."ch13"
+  Output: Rebuild + restart rc-sentry-ai
+  Verify: GET /api/v1/cameras returns all 13 with correct fields
 
-**Why wrong:** Shell interpretation re-opens all injection vectors the current design closes. The `shell: false` + array-args guarantee is the entire security model.
+Phase 3a: cameras.html rewrite (after Phase 1 + 2)
+  Action: Full HTML/JS rewrite of cameras.html
+    - Layout selector buttons → CSS grid-template-columns change
+    - Drag-to-reorder → HTML5 dragstart/dragover/drop
+    - localStorage save/restore for gridSize + cameraOrder
+    - WebRTC fullscreen on camera click
+  Output: Recompile rc-sentry-ai (include_str! picks up new HTML)
+  Verify: Open /cameras/live, confirm grid, layout change, WebRTC fullscreen
 
-**Do this instead:** Register granular commands — one command per binary. If a multi-step operation is needed, use a chain rather than a shell string.
+Phase 3b: web dashboard cameras page rewrite (after Phase 1 + 2, parallel with 3a)
+  Action: Full rewrite of web/src/app/cameras/page.tsx
+    - Add useWebRTC hook in web/src/hooks/useWebRTC.ts
+    - Replace MJPEG img src with snapshot polling + WebRTC fullscreen
+    - Add NEXT_PUBLIC_SENTRY_URL and NEXT_PUBLIC_GO2RTC_WS_BASE env vars
+  Output: Next.js rebuild + copy .next/static to .next/standalone/
+  Verify: Open /cameras on web dashboard, confirm identical features to cameras.html
+```
 
-### Anti-Pattern 2: Returning exec_result Payloads to Claude Without Sanitization
-
-**What people do:** Pipe raw stdout from an exec_result directly into Claude's context as "trusted data."
-
-**Why wrong:** If a compromised process writes to stdout, it could inject instructions into the AI context (prompt injection via exec output).
-
-**Do this instead:** TaskDelegator always labels delegated data as `[REMOTE DATA]` in the context. Claude Code on the receiving side treats it as untrusted user content, not trusted system prompt content.
-
-### Anti-Pattern 3: Bypassing APPROVE Tier for Shell Relay
-
-**What people do:** Add a `shell_relay_auto` option to skip approval for "trusted" one-liners.
-
-**Why wrong:** Shell relay is the only path to arbitrary execution. A single AUTO-tier shell command breaks the containment model for all dynamic commands.
-
-**Do this instead:** If a shell operation is needed frequently enough to feel tedious to approve, convert it into a named dynamic command (binary + args array) in the registry.
-
-### Anti-Pattern 4: Separate ExecResult Pending Maps per Orchestrator
-
-**What people do:** Give ChainOrchestrator its own `#pending` Map and TaskDelegator its own `#pending` Map, both listening to `exec_result`.
-
-**Why wrong:** The exec_result handler in `james/index.js` can only call one resolver. If two Maps both claim the same `execId`, only one resolves — the other hangs until timeout.
-
-**Do this instead:** One shared `ExecResultBroker` instance, all orchestrators register with it via `broker.waitFor(execId)`. The `exec_result` handler calls `broker.settle(execId, result)` exactly once.
-
-### Anti-Pattern 5: Storing Dynamic Commands Only in Memory
-
-**What people do:** Register commands at startup via startup script, skip persistence.
-
-**Why wrong:** Comms-link restarts on every deploy. Without persistence, dynamic commands disappear. The next deploy to comms-link undoes all runtime registrations silently.
-
-**Do this instead:** `DynamicCommandRegistry` serializes to `./data/dynamic-registry.json` on every mutation. `james/index.js` loads it at startup before wiring ExecHandler.
-
----
-
-## Scaling Considerations
-
-This system is single-connection (one James, one Bono) by design. Scaling concerns are
-reliability and throughput, not concurrency:
-
-| Concern | Current state | With v18.0 |
-|---------|---------------|------------|
-| Chain step failures | N/A | `onFailure: abort` prevents cascades |
-| Shell approval timeout | ExecHandler: 10 min default-deny | ShellRelayHandler: same 10 min default-deny |
-| Delegation timeout | task_request: 5 min timer (no result carried) | TaskDelegator: 5 min, rejects promise with error |
-| Dynamic registry size | Static: 13 commands | Dynamic: expected <50 commands, no scaling issue |
-| Exec concurrency | ExecHandler: unlimited concurrent | ChainOrchestrator: sequential per chain, parallel chains allowed |
+Phase 3a and 3b are independent and can proceed in parallel after Phase 2 completes.
 
 ---
 
 ## Sources
 
-- Direct inspection of `comms-link/` source (2026-03-22): comms-client.js, comms-server.js,
-  exec-handler.js, exec-protocol.js, protocol.js, message-queue.js, ack-tracker.js,
-  connection-mode.js, james/index.js, bono/index.js, failover-orchestrator.js
-- Existing FailoverOrchestrator `#pending` map as proven pattern for exec-result promises
-- PROJECT.md v18.0 Seamless Execution feature targets
+- Live code inspection: `crates/rc-sentry-ai/src/mjpeg.rs` — SnapshotCache, mjpeg_router, snapshot handler
+- Live code inspection: `crates/rc-sentry-ai/src/nvr.rs` — NvrClient, digest auth
+- Live code inspection: `crates/rc-sentry-ai/src/config.rs` — CameraConfig struct
+- Live code inspection: `crates/rc-sentry-ai/cameras.html` — existing snapshot-only dashboard
+- Live code inspection: `web/src/app/cameras/page.tsx` — existing Next.js cameras page
+- Live config: `C:\RacingPoint\go2rtc\go2rtc.yaml` — 3-stream configuration (ch1-ch13 pending)
+- go2rtc WebRTC protocol: [deepwiki.com — WebRTC Protocol](https://deepwiki.com/AlexxIT/go2rtc/3.2-webrtc-protocol) — WebSocket signaling, message types `webrtc/offer`, `webrtc/answer`, `webrtc/candidate` verified against go2rtc video-rtc.js source
+- Codec support: H.265 WebRTC relay confirmed for Chrome 136+ / Safari 18+ (MEDIUM confidence — from go2rtc documentation; browser versions on staff machines not independently verified)
 
 ---
-*Architecture research for: v18.0 Seamless Execution — comms-link bidirectional dynamic execution*
+
+*Architecture research for: v16.1 Camera Dashboard Pro — hybrid streaming NVR dashboard*
 *Researched: 2026-03-22 IST*
