@@ -70,7 +70,7 @@
 | BWDOG-04 | Phase 137 | Complete |
 | IDLE-01 | Phase 138 | Pending |
 | IDLE-02 | Phase 138 | Pending |
-| IDLE-03 | Phase 138 | Pending |
+| IDLE-03 | Phase 138 | In progress (protocol variant done; agent+server in 138-02/03) |
 | IDLE-04 | Phase 138 | Pending |
 | AIACT-01 | Phase 140 | Pending |
 | AIACT-02 | Phase 140 | Pending |

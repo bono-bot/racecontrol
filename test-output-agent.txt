@@ -1,0 +1,633 @@
+   Compiling rc-agent-crate v0.1.0 (C:\Users\bono\racingpoint\racecontrol\crates\rc-agent)
+warning: unused import: `std::os::windows::process::CommandExt`
+  --> crates\rc-agent\src\ws_handler.rs:65:17
+   |
+65 |             use std::os::windows::process::CommandExt;
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::os::windows::process::CommandExt`
+   --> crates\rc-agent\src\debug_server.rs:168:17
+    |
+168 |             use std::os::windows::process::CommandExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `balance_rupees`
+    --> crates\rc-agent\src\lock_screen.rs:1191:9
+     |
+1191 |     let balance_rupees = wallet_balance_paise as f64 / 100.0;
+     |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_balance_rupees`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:362:9
+    |
+362 |     let mut detector = DrivingDetector::new(&detector_config);
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:392:21
+    |
+392 |     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
+    |                     ----^^^^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:441:24
+    |
+441 |     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
+    |                        ----^^^^^^^^^^^^
+    |                        |
+    |                        help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:444:29
+    |
+444 |     let (ws_exec_result_tx, mut ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
+    |                             ----^^^^^^^^^^^^^^^^^
+    |                             |
+    |                             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:452:9
+    |
+452 |     let mut kiosk = KioskManager::new();
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:462:25
+    |
+462 |     let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
+    |                         ----^^^^^^^^^^^^^
+    |                         |
+    |                         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:498:9
+    |
+498 |     let mut overlay = OverlayManager::new();
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:528:30
+    |
+528 |     let (heartbeat_event_tx, mut heartbeat_event_rx) = mpsc::channel::<udp_heartbeat::HeartbeatEvent>(16);
+    |                              ----^^^^^^^^^^^^^^^^^^
+    |                              |
+    |                              help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\main.rs:761:25
+    |
+761 |         let (mut ws_tx, mut ws_rx) = ws_stream.split();
+    |                         ----^^^^^
+    |                         |
+    |                         help: remove this `mut`
+
+warning: field `conditions` is never read
+   --> crates\rc-agent\src\ac_launcher.rs:145:9
+    |
+129 | pub struct AcLaunchParams {
+    |            -------------- field in this struct
+...
+145 |     pub conditions: Option<AcConditions>,
+    |         ^^^^^^^^^^
+    |
+    = note: `AcLaunchParams` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `damage` is never read
+   --> crates\rc-agent\src\ac_launcher.rs:205:9
+    |
+203 | pub struct AcConditions {
+    |            ------------ field in this struct
+204 |     #[serde(default)]
+205 |     pub damage: u8,
+    |         ^^^^^^
+    |
+    = note: `AcConditions` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `set_transmission` is never used
+   --> crates\rc-agent\src\ac_launcher.rs:370:8
+    |
+370 | pub fn set_transmission(transmission: &str) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `cleanup_after_session` is never used
+    --> crates\rc-agent\src\ac_launcher.rs:1524:8
+     |
+1524 | pub fn cleanup_after_session() {
+     |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `sim_type` and `installed_games` are never read
+  --> crates\rc-agent\src\app_state.rs:27:16
+   |
+23 | pub struct AppState {
+   |            -------- fields in this struct
+...
+27 |     pub(crate) sim_type: SimType,
+   |                ^^^^^^^^
+28 |     pub(crate) installed_games: Vec<SimType>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `telemetry_ports`, `wheelbase_vid`, and `wheelbase_pid` are never read
+  --> crates\rc-agent\src\driving_detector.rs:15:9
+   |
+ 7 | pub struct DetectorConfig {
+   |            -------------- fields in this struct
+...
+15 |     pub telemetry_ports: Vec<u16>,
+   |         ^^^^^^^^^^^^^^^
+16 |     /// Conspit wheelbase USB Vendor ID (OpenFFBoard default: 0x1209)
+17 |     pub wheelbase_vid: u16,
+   |         ^^^^^^^^^^^^^
+18 |     /// Conspit wheelbase USB Product ID (OpenFFBoard default: 0xFFB0)
+19 |     pub wheelbase_pid: u16,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `DetectorConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `exe_path`, `sighting_count`, and `notified` are never read
+  --> crates\rc-agent\src\kiosk.rs:67:9
+   |
+66 | pub struct TempAllowEntry {
+   |            -------------- fields in this struct
+67 |     pub exe_path: String,
+   |         ^^^^^^^^
+68 |     pub added_at: Instant,
+69 |     pub sighting_count: u32,
+   |         ^^^^^^^^^^^^^^
+70 |     pub notified: bool,
+   |         ^^^^^^^^
+   |
+   = note: `TempAllowEntry` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: methods `allow_process`, `disallow_process`, `exit_debug_mode`, and `lockdown_reason` are never used
+   --> crates\rc-agent\src\kiosk.rs:480:12
+    |
+427 | impl KioskManager {
+    | ----------------- methods in this implementation
+...
+480 |     pub fn allow_process(&mut self, name: &str) {
+    |            ^^^^^^^^^^^^^
+...
+485 |     pub fn disallow_process(&mut self, name: &str) {
+    |            ^^^^^^^^^^^^^^^^
+...
+497 |     pub fn exit_debug_mode(&mut self) {
+    |            ^^^^^^^^^^^^^^^
+...
+531 |     pub fn lockdown_reason(&self) -> String {
+    |            ^^^^^^^^^^^^^^^
+
+warning: field `token_id` is never read
+  --> crates\rc-agent\src\lock_screen.rs:69:9
+   |
+68 |     QrDisplay {
+   |     --------- field in this variant
+69 |         token_id: String,
+   |         ^^^^^^^^
+   |
+   = note: `LockScreenState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `message` is never read
+   --> crates\rc-agent\src\lock_screen.rs:125:9
+    |
+124 |     ConfigError {
+    |     ----------- field in this variant
+125 |         message: String,
+    |         ^^^^^^^
+    |
+    = note: `LockScreenState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `valid` is never read
+  --> crates\rc-agent\src\overlay.rs:31:5
+   |
+26 | struct LapRecord {
+   |        --------- field in this struct
+...
+31 |     valid: bool,
+   |     ^^^^^
+   |
+   = note: `LapRecord` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `start` is never used
+   --> crates\rc-agent\src\remote_ops.rs:100:8
+    |
+100 | pub fn start(port: u16) {
+    |        ^^^^^
+
+warning: methods `sim_type` and `session_info` are never used
+  --> crates\rc-agent\src\sims\mod.rs:10:8
+   |
+ 8 | pub trait SimAdapter: Send + Sync {
+   |           ---------- methods in this trait
+ 9 |     /// The sim type this adapter handles
+10 |     fn sim_type(&self) -> SimType;
+   |        ^^^^^^^^
+...
+25 |     fn session_info(&self) -> Result<Option<SessionInfo>>;
+   |        ^^^^^^^^^^^^
+
+warning: constant `IS_IN_PIT` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:89:15
+   |
+89 |     pub const IS_IN_PIT: usize = 160;         // i32, 1 if in pit lane
+   |               ^^^^^^^^^
+
+warning: constant `NUMBER_OF_LAPS` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:91:15
+   |
+91 |     pub const NUMBER_OF_LAPS: usize = 172;    // i32, total laps in session (0 = unlimited)
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `NORMALIZED_CAR_POSITION` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:92:15
+   |
+92 |     pub const NORMALIZED_CAR_POSITION: usize = 248; // f32, 0.0-1.0 track progress
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `rc-agent-crate` (bin "rc-agent" test) generated 28 warnings (run `cargo fix --bin "rc-agent" -p rc-agent-crate --tests` to apply 10 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.55s
+     Running unittests src\main.rs (target\debug\deps\rc_agent-f552b69fc879b678.exe)
+
+running 352 tests
+test ac_launcher::tests::dialog_processes_contains_required ... ok
+test ac_launcher::tests::test_ac_launch_params_all_new_fields ... ok
+test ac_launcher::tests::test_ac_launch_params_default_session_type ... ok
+test ac_launcher::tests::test_ac_launch_params_hotlap_empty_ai ... ok
+test ac_launcher::tests::test_ai_car_slot_default_ai_level ... ok
+test ac_launcher::tests::test_ai_car_slot_deserialization ... ok
+test ac_launcher::tests::test_ai_driver_names_pool_size ... ok
+test ac_launcher::tests::test_backward_compat_no_ai_level_field ... ok
+test ac_launcher::tests::test_effective_ai_cars_inherits_session_ai_level ... ok
+test ac_launcher::tests::test_pick_ai_names_exact_count ... ok
+test ac_launcher::tests::test_pick_ai_names_zero ... ok
+test ac_launcher::tests::test_race_ini_uses_session_ai_level ... ok
+test ac_launcher::tests::test_send_ctrl_key_buffer_format ... ok
+test ac_launcher::tests::test_send_ctrl_key_vk_codes ... ok
+test ac_launcher::tests::test_send_ctrl_shift_key_buffer_format ... ok
+test ac_launcher::tests::test_tier_all_ordering ... ok
+test ac_launcher::tests::test_tier_boundaries ... ok
+test ac_launcher::tests::test_tier_display_names ... ok
+test ac_launcher::tests::test_tier_for_level_zero ... ok
+test ac_launcher::tests::test_tier_midpoints ... ok
+test ac_launcher::tests::test_tier_ranges ... ok
+test ac_launcher::tests::test_trackday_default_ai_inherits_session_ai_level ... ok
+test ac_launcher::tests::test_verify_safety_settings_passes ... ok
+test ac_launcher::tests::test_verify_safety_settings_rejects_damage ... ok
+test ac_launcher::tests::test_verify_safety_settings_rejects_grip ... ok
+test ac_launcher::tests::test_write_assists_ini_damage_always_zero ... ok
+test ac_launcher::tests::test_write_race_ini_damage_always_zero ... ok
+test ac_launcher::tests::test_write_race_ini_damage_always_zero_visual ... ok
+test ac_launcher::tests::test_write_race_ini_default_is_practice ... ok
+test ac_launcher::tests::test_write_race_ini_grip_always_100 ... ok
+test ac_launcher::tests::test_write_race_ini_has_all_required_sections ... ok
+test ac_launcher::tests::test_write_race_ini_hotlap ... ok
+test ac_launcher::tests::test_write_race_ini_multi_remote_active ... ok
+test ac_launcher::tests::test_write_race_ini_no_phantom_ai ... ok
+test ac_launcher::tests::test_write_race_ini_practice ... ok
+test ac_launcher::tests::test_write_race_ini_practice_with_aids ... ok
+test ac_launcher::tests::test_write_race_ini_race_0_ai_cars1 ... ok
+test ac_launcher::tests::test_write_race_ini_race_19_ai_max ... ok
+test ac_launcher::tests::test_write_race_ini_race_25_ai_clamped_to_19 ... ok
+test ac_launcher::tests::test_write_race_ini_race_5_ai ... ok
+test ac_launcher::tests::test_write_race_ini_race_ai_level ... ok
+test ac_launcher::tests::test_write_race_ini_race_ai_model_and_name ... ok
+test ac_launcher::tests::test_write_race_ini_race_ai_skin_empty ... ok
+test ac_launcher::tests::test_write_race_ini_race_formation_lap ... ok
+test ac_launcher::tests::test_write_race_ini_race_laps_zero ... ok
+test ac_launcher::tests::test_write_race_ini_race_starting_position ... ok
+test ac_launcher::tests::test_write_race_ini_race_type3 ... ok
+test ac_launcher::tests::test_write_race_ini_solo_cars_count ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_ai_all_have_ai1 ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_default_ai ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_explicit_ai ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_mixed_models ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_type1 ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_3_sessions ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_insufficient_time ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_race_starting_position ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_skip_practice ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_time_allocation ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_types ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_with_ai ... ok
+test ai_debugger::tests::test_auto_fix_clean_temp ... ok
+test ai_debugger::tests::test_auto_fix_close_wait ... ok
+test ai_debugger::tests::test_auto_fix_conspit_link_ignored ... ok
+test ai_debugger::tests::test_auto_fix_error_dialogs ... ok
+test ai_debugger::tests::test_auto_fix_frozen_game_dispatches ... ok
+test ai_debugger::tests::test_auto_fix_game_frozen_keyword_specific ... ok
+test ai_debugger::tests::test_auto_fix_launch_timeout_dispatches ... ok
+test ai_debugger::tests::test_auto_fix_no_match ... FAILED
+test ai_debugger::tests::test_auto_fix_relaunch_game ... ok
+test ai_debugger::tests::test_auto_fix_usb_reconnect_dispatches ... ok
+test ai_debugger::tests::test_build_prompt_includes_snapshot ... ok
+test ai_debugger::tests::test_default_model_is_racing_point_ops ... ok
+test ai_debugger::tests::test_ffb_zero_before_kill_ordering ... ok
+test ai_debugger::tests::test_fix_frozen_game_billing_gate ... ok
+test ai_debugger::tests::test_fix_frozen_game_no_billing_no_fix ... ok
+test ai_debugger::tests::test_fix_launch_timeout_kills_both_cm_names ... ok
+test ai_debugger::tests::test_fix_pattern_connection_refused_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_d3d_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_directx_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_dll_missing_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_dll_not_found_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_frame_drops_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_gpu_driver_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_low_fps_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_memory_leak_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_network_timeout_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_no_false_positive ... ok
+test ai_debugger::tests::test_fix_pattern_out_of_memory_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_shader_cache_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_steam_downloading_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_steam_update_keyword ... ok
+test ai_debugger::tests::test_fix_pattern_stuttering_keyword ... ok
+test ai_debugger::tests::test_fix_usb_reconnect_ffb_zero ... ok
+test ai_debugger::tests::test_instant_fix_prefers_highest_success_count ... ok
+test ai_debugger::tests::test_instant_fix_returns_none_on_empty_memory ... ok
+test ai_debugger::tests::test_kill_error_dialogs_extended ... ok
+test ai_debugger::tests::test_pattern_key_extracts_exit_code ... ok
+test ai_debugger::tests::test_pattern_key_large_exit_code ... ok
+test ai_debugger::tests::test_pattern_key_unknown_when_no_exit_code ... ok
+test ai_debugger::tests::test_protected_processes_list ... ok
+test ai_debugger::tests::test_record_and_instant_fix_round_trip ... ok
+test ai_debugger::tests::test_record_fix_increments_existing ... ok
+test billing_guard::tests::bill02_anomaly_fires_after_60s ... ok
+test billing_guard::tests::bill02_does_not_fire_before_threshold ... ok
+test billing_guard::tests::bill02_suppressed_when_billing_paused ... ok
+test billing_guard::tests::bill02_suppressed_when_recovery_in_progress ... ok
+test billing_guard::tests::bill03_idle_drift_fires_after_300s ... ok
+test billing_guard::tests::bill03_no_drift_when_driving_active ... ok
+test billing_guard::tests::default_orphan_threshold_is_300s ... ok
+test billing_guard::tests::idle_drift_condition_driving_inactive ... ok
+test billing_guard::tests::idle_drift_suppressed_when_recovery_in_progress ... ok
+test billing_guard::tests::idle_threshold_is_300s ... ok
+test billing_guard::tests::no_stuck_session_when_billing_inactive ... ok
+test billing_guard::tests::no_stuck_session_when_game_running ... ok
+test billing_guard::tests::orphan_condition_requires_billing_and_no_pid_and_not_paused ... ok
+test billing_guard::tests::orphan_suppressed_when_billing_paused ... ok
+test billing_guard::tests::orphan_suppressed_when_recovery_in_progress ... ok
+test billing_guard::tests::stuck_session_condition_requires_billing_and_no_pid ... ok
+test billing_guard::tests::stuck_threshold_is_60s ... ok
+test config::tests::load_config_returns_err_when_no_file_exists ... ok
+test config::tests::test_config_search_paths_includes_cwd_fallback ... ok
+test config::tests::test_config_search_paths_includes_exe_dir ... ok
+test config::tests::test_installed_games_configured_but_not_on_disk ... ok
+test config::tests::test_installed_games_empty_config_only_ac ... ok
+test config::tests::test_installed_games_exe_path_exists_on_disk ... ok
+test config::tests::test_installed_games_exe_path_not_on_disk ... ok
+test config::tests::test_is_steam_app_installed_nonexistent ... ok
+test config::tests::test_load_config_error_lists_all_searched_paths ... ok
+test config::tests::validate_config_accepts_failover_url ... ok
+test config::tests::validate_config_accepts_missing_failover_url ... ok
+test config::tests::validate_config_accepts_pod_number_1_and_8 ... ok
+test config::tests::validate_config_accepts_valid_config ... ok
+test config::tests::validate_config_accepts_wss_url ... ok
+test config::tests::validate_config_rejects_empty_pod_name ... ok
+test config::tests::validate_config_rejects_empty_url ... ok
+test config::tests::validate_config_rejects_http_url ... ok
+test config::tests::validate_config_rejects_non_ws_failover_url ... ok
+test config::tests::validate_config_rejects_pod_number_nine ... ok
+test config::tests::validate_config_rejects_pod_number_zero ... ok
+test content_scanner::tests::test_content_scanner_has_ai_false_when_empty_dir ... ok
+test content_scanner::tests::test_content_scanner_has_ai_false_when_missing ... ok
+test content_scanner::tests::test_content_scanner_has_ai_named_config ... ok
+test content_scanner::tests::test_content_scanner_has_ai_true_when_files_present ... ok
+test content_scanner::tests::test_content_scanner_pit_count_from_string ... ok
+test content_scanner::tests::test_content_scanner_pit_count_named_config_path ... ok
+test content_scanner::tests::test_content_scanner_pit_count_none_when_missing_file ... ok
+test content_scanner::tests::test_content_scanner_pit_count_none_when_no_pitboxes_field ... ok
+test content_scanner::tests::test_content_scanner_scan_ac_content_at_combines ... ok
+test content_scanner::tests::test_content_scanner_scan_cars_missing_dir_returns_empty ... ok
+test content_scanner::tests::test_content_scanner_scan_cars_returns_correct_ids ... ok
+test content_scanner::tests::test_content_scanner_scan_cars_skips_non_dirs_and_hidden ... ok
+test content_scanner::tests::test_content_scanner_scan_default_layout_track ... ok
+test content_scanner::tests::test_content_scanner_scan_multi_config_track ... ok
+test content_scanner::tests::test_content_scanner_skips_non_config_subfolders ... ok
+test driving_detector::tests::hid_active_transitions_to_active ... ok
+test driving_detector::tests::hid_disconnect_without_udp_goes_to_no_device ... ok
+test driving_detector::tests::initial_state_is_no_device ... ok
+test driving_detector::tests::input_active_detection ... ok
+test driving_detector::tests::last_udp_packet_elapsed_secs_none_before_first_packet ... ok
+test driving_detector::tests::last_udp_packet_elapsed_secs_some_after_udp_active ... ok
+test driving_detector::tests::stays_active_within_idle_threshold ... ok
+test driving_detector::tests::steering_movement_detection ... ok
+test driving_detector::tests::udp_active_transitions_to_active ... ok
+test event_loop::tests::crash_recovery_state_attempt_2_triggers_auto_end ... ok
+test event_loop::tests::crash_recovery_state_paused_waiting_relaunch_attempt_1 ... ok
+test event_loop::tests::crash_recovery_state_starts_idle ... ok
+test failure_monitor::tests::crash01_no_freeze_below_udp_threshold ... ok
+test failure_monitor::tests::crash01_no_freeze_without_game_pid ... ok
+test failure_monitor::tests::crash01_udp_silence_triggers_freeze_condition ... ok
+test failure_monitor::tests::crash02_launch_timeout_fires_after_90s ... ok
+test failure_monitor::tests::crash02_no_timeout_before_90s ... ok
+test failure_monitor::tests::crash02_no_timeout_when_game_pid_present ... ok
+test failure_monitor::tests::telem_gap_does_not_fire_below_60s_threshold ... ok
+test failure_monitor::tests::telem_gap_does_not_fire_when_billing_inactive ... ok
+test failure_monitor::tests::telem_gap_does_not_fire_when_game_pid_none ... ok
+test failure_monitor::tests::telem_gap_fired_flag_prevents_duplicate_sends ... ok
+test failure_monitor::tests::telem_gap_fires_when_billing_active_game_pid_and_60s_silence ... ok
+test failure_monitor::tests::telem_gap_flag_resets_when_udp_resumes ... ok
+test failure_monitor::tests::test_failure_monitor_state_default ... ok
+test failure_monitor::tests::test_freeze_detection_not_triggered_below_threshold ... ok
+test failure_monitor::tests::test_freeze_detection_udp_silence_threshold ... ok
+test failure_monitor::tests::test_launch_timeout_does_not_fire_if_game_pid_present ... ok
+test failure_monitor::tests::test_launch_timeout_fires_when_no_game_pid_after_90s ... ok
+test failure_monitor::tests::test_recovery_in_progress_suppresses_all_checks ... ok
+test failure_monitor::tests::test_usb_reconnect_condition_fires_when_prev_false_curr_true_billing ... ok
+test failure_monitor::tests::test_usb_reconnect_does_not_fire_when_billing_inactive ... ok
+test ffb_controller::tests::ffb_fxm_reset_clears_effects ... ok
+test ffb_controller::tests::ffb_set_gain_sends_valid_percent ... ok
+test ffb_controller::tests::ffb_set_idle_spring_sends_value ... ok
+test ffb_controller::tests::ffb_zero_force_device_absent ... ok
+test ffb_controller::tests::ffb_zero_force_hid_error ... ok
+test ffb_controller::tests::ffb_zero_force_success ... ok
+test ffb_controller::tests::ffb_zero_force_with_retry_all_attempts_fail ... ok
+test ffb_controller::tests::ffb_zero_force_with_retry_succeeds_first_attempt ... ok
+test ffb_controller::tests::test_backup_copies_valid_source ... ok
+test ffb_controller::tests::test_backup_skips_corrupt_source ... ok
+test ffb_controller::tests::test_config_file_list_complete ... ok
+test ffb_controller::tests::test_crash_count_increment ... ok
+test ffb_controller::tests::test_crash_count_starts_at_zero ... ok
+test ffb_controller::tests::test_estop_still_uses_ffbwheel_class ... ok
+test ffb_controller::tests::test_ffb_controller_is_clone ... ok
+test ffb_controller::tests::test_ffb_controller_no_device_graceful ... ok
+test ffb_controller::tests::test_fxm_reset_buffer_format ... ok
+test ffb_controller::tests::test_idlespring_buffer_format ... ok
+test ffb_controller::tests::test_idlespring_ramp_values ... ok
+test ffb_controller::tests::test_power_cap_80_percent ... ok
+test ffb_controller::tests::test_session_end_guard_flag ... ok
+test ffb_controller::tests::test_set_gain_buffer_format ... ok
+test ffb_controller::tests::test_set_gain_no_device_graceful ... ok
+test ffb_controller::tests::test_vendor_cmd_buffer_format ... ok
+test ffb_controller::tests::test_verify_corrupt_json_triggers_restore ... ok
+test ffb_controller::tests::test_verify_corrupt_no_backup_returns_false ... ok
+test ffb_controller::tests::test_verify_valid_json ... ok
+test ffb_controller::tests::test_zero_force_with_retry_no_device ... ok
+test firewall::tests::test_build_delete_args_contains_required_fields ... ok
+test firewall::tests::test_build_icmp_args_contains_required_fields ... ok
+test firewall::tests::test_build_tcp_args_contains_required_fields ... ok
+test firewall::tests::test_firewall_result_failed_is_not_configured ... ok
+test firewall::tests::test_rule_icmp_is_namespaced ... ok
+test firewall::tests::test_rule_names_are_distinct ... ok
+test firewall::tests::test_rule_tcp_is_namespaced ... ok
+test game_process::tests::test_all_game_process_names_superset ... ok
+test game_process::tests::test_game_exe_config_default_is_empty ... ok
+test game_process::tests::test_game_exe_config_f1_25_steam ... ok
+test game_process::tests::test_game_exe_config_steam_launch_requires_app_id ... ok
+test game_process::tests::test_process_names_ac_evo_primary ... ok
+test game_process::tests::test_process_names_ac_rally ... ok
+test game_process::tests::test_process_names_exhaustive ... ok
+test game_process::tests::test_process_names_f1_25 ... ok
+test game_process::tests::test_process_names_forza_horizon_5 ... ok
+test lock_screen::tests::all_states_have_centering_css ... ok
+test lock_screen::tests::health_degraded_for_config_error ... ok
+test lock_screen::tests::health_degraded_for_disconnected ... ok
+test lock_screen::tests::health_degraded_for_hidden ... ok
+test lock_screen::tests::health_degraded_for_startup_connecting ... ok
+test lock_screen::tests::health_ok_for_active_session ... ok
+test lock_screen::tests::health_ok_for_pin_entry ... ok
+test lock_screen::tests::health_ok_for_qr_display ... ok
+test lock_screen::tests::idle_pin_entry_health_ok ... ok
+test lock_screen::tests::idle_pin_entry_renders_ready_heading ... ok
+test lock_screen::tests::idle_pin_entry_state_has_empty_fields ... ok
+test lock_screen::tests::launch_splash_health_ok ... ok
+test lock_screen::tests::launch_splash_not_blanked ... ok
+test lock_screen::tests::launch_splash_not_idle_or_blanked ... ok
+test lock_screen::tests::launch_splash_renders_branded_html ... ok
+test lock_screen::tests::logo_in_launch_splash ... ok
+test lock_screen::tests::logo_in_page_shell ... ok
+test lock_screen::tests::page_shell_has_centering_css ... ok
+test lock_screen::tests::pin_row_has_centering ... ok
+test lock_screen::tests::session_summary_hides_position_when_none ... ok
+test lock_screen::tests::session_summary_hides_top_speed_when_zero ... ok
+test lock_screen::tests::session_summary_no_auto_reload ... ok
+test lock_screen::tests::session_summary_shows_race_position ... ok
+test lock_screen::tests::session_summary_shows_top_speed ... ok
+test lock_screen::tests::startup_connecting_has_reload_script ... ok
+test lock_screen::tests::startup_connecting_is_idle_or_blanked ... ok
+test lock_screen::tests::startup_connecting_renders_branded_html ... ok
+test lock_screen::tests::wait_for_self_ready_succeeds_when_port_open ... ok
+test lock_screen::tests::wait_for_self_ready_timeout ... ok
+test lock_screen::tests::wallpaper_empty_uses_default_bg ... ok
+test lock_screen::tests::wallpaper_not_on_blank_page ... ok
+test lock_screen::tests::wallpaper_url_renders_in_css ... ok
+test overlay::tests::test_30min_celebration_clears ... ok
+test overlay::tests::test_30min_celebration_trigger ... ok
+test overlay::tests::test_activate_v2_sets_waiting ... ok
+test overlay::tests::test_compute_layout ... ok
+test overlay::tests::test_format_cost ... ok
+test overlay::tests::test_format_lap_time ... ok
+test overlay::tests::test_format_sector ... ok
+test overlay::tests::test_format_timer ... ok
+test overlay::tests::test_overlay_data_taxi_meter_defaults ... ok
+test overlay::tests::test_sector_color ... ok
+test overlay::tests::test_toast_defaults_none ... ok
+test overlay::tests::test_toast_expired_is_past ... ok
+test overlay::tests::test_toast_replace_no_stacking ... ok
+test overlay::tests::test_toast_show_sets_fields ... ok
+test overlay::tests::test_update_billing_v2_paused ... ok
+test overlay::tests::test_update_billing_v2_sets_fields ... ok
+test remote_ops::tests::test_exec_429_error_message_format ... ok
+test remote_ops::tests::test_exec_invalid_command_returns_500 ... ok
+test remote_ops::tests::test_exec_nonzero_exit_returns_500 ... ok
+test remote_ops::tests::test_exec_response_always_has_success_field ... ok
+test remote_ops::tests::test_exec_success_echo ... ok
+test remote_ops::tests::test_exec_timeout_returns_500 ... ok
+test remote_ops::tests::test_health_shows_exec_slots ... ok
+test remote_ops::tests::test_normal_exec_not_intercepted_by_sentinel ... ok
+test remote_ops::tests::test_service_key_exec_correct_key_returns_200 ... ok
+test remote_ops::tests::test_service_key_exec_no_header_returns_401 ... ok
+test remote_ops::tests::test_service_key_exec_wrong_key_returns_401 ... ok
+test remote_ops::tests::test_service_key_health_no_key_returns_200 ... ok
+test remote_ops::tests::test_service_key_info_no_header_returns_401 ... ok
+test remote_ops::tests::test_service_key_permissive_mode_no_key_set ... ok
+test remote_ops::tests::test_service_key_ping_no_key_returns_200 ... ok
+test self_heal::tests::test_config_hash_deterministic ... ok
+test self_heal::tests::test_config_hash_missing_file ... ok
+test self_heal::tests::test_defender_repaired_field_exists ... ok
+test self_heal::tests::test_detect_pod_number_invalid ... ok
+test self_heal::tests::test_detect_pod_number_valid ... ok
+test self_heal::tests::test_no_repair_when_exists ... ok
+test self_heal::tests::test_repair_config_generates_valid_toml ... ok
+test self_heal::tests::test_repair_start_script_crlf ... ok
+test self_heal::tests::test_self_heal_result_default ... ok
+test self_monitor::tests::close_wait_strike_limit_is_at_least_3_and_at_most_10 ... ok
+test self_monitor::tests::close_wait_threshold_is_reasonable ... ok
+test self_monitor::tests::last_switch_guard_allows_after_60s ... ok
+test self_monitor::tests::last_switch_guard_allows_when_never_switched ... ok
+test self_monitor::tests::last_switch_guard_suppresses_within_60s ... ok
+test self_monitor::tests::restart_detected_in_response ... ok
+test self_monitor::tests::ws_dead_threshold_is_between_30s_and_5min ... ok
+test self_test::tests::test_deterministic_verdict_critical_billing_state ... ok
+test self_test::tests::test_deterministic_verdict_critical_lock_screen ... ok
+test self_test::tests::test_deterministic_verdict_critical_ws_connected ... ok
+test self_test::tests::test_deterministic_verdict_degraded_non_critical ... ok
+test self_test::tests::test_deterministic_verdict_healthy_all_pass ... ok
+test self_test::tests::test_deterministic_verdict_healthy_with_skips ... ok
+test self_test::tests::test_probe_result_serde ... ok
+test self_test::tests::test_probe_status_serde_lowercase ... ok
+test self_test::tests::test_probe_udp_port_from_netstat_output_fail ... ok
+test self_test::tests::test_probe_udp_port_from_netstat_output_pass ... ok
+test self_test::tests::test_probe_udp_port_not_matched_in_tcp_section ... ok
+test self_test::tests::test_self_test_report_serde_with_verdict_none ... ok
+test self_test::tests::test_verdict_level_serde_screaming_snake_case ... ok
+test self_test::tests::test_verdict_parse_critical ... ok
+test self_test::tests::test_verdict_parse_extracts_correlation ... ok
+test self_test::tests::test_verdict_parse_healthy ... ok
+test self_test::tests::test_verdict_parse_no_verdict_line_returns_healthy ... ok
+test sims::assetto_corsa::tests::test_ac_status_read_non_windows ... ok
+test sims::assetto_corsa::tests::test_assist_state_offsets ... ok
+test sims::assetto_corsa::tests::test_gear_conversion ... ok
+test sims::assetto_corsa::tests::test_read_assist_state_non_windows ... ok
+test sims::f1_25::tests::test_parse_f1_string ... ok
+test sims::f1_25::tests::test_parse_header_valid ... ok
+test sims::f1_25::tests::test_parse_header_wrong_format ... ok
+test sims::f1_25::tests::test_team_name_lookup ... ok
+test sims::f1_25::tests::test_track_name_lookup ... ok
+test startup_log::tests::test_detect_crash_complete ... ok
+test startup_log::tests::test_detect_crash_incomplete ... ok
+test startup_log::tests::test_detect_crash_no_file ... ok
+test startup_log::tests::test_write_phase ... ok
+test startup_log::tests::test_write_phase_appends ... ok
+test startup_log::tests::test_write_phase_truncates_on_first_call ... ok
+test startup_log::tests::test_write_phase_with_details ... ok
+test tests::crash_recovery_state_attempt_2_triggers_auto_end ... ok
+test tests::crash_recovery_state_paused_waiting_relaunch_attempt_1 ... ok
+test tests::crash_recovery_state_starts_idle ... ok
+test tests::test_reconnect_delay_cap ... ok
+test tests::test_reconnect_delay_exponential_backoff ... ok
+test tests::test_reconnect_delay_fast_retries ... ok
+test tests::ws_grace_window_boundary_exactly_30s ... ok
+test tests::ws_grace_window_expired_after_30s ... ok
+test tests::ws_grace_window_is_30_seconds ... ok
+test udp_heartbeat::tests::heartbeat_status_last_switch_ms_defaults_to_zero ... ok
+
+failures:
+
+---- ai_debugger::tests::test_auto_fix_no_match stdout ----
+
+thread 'ai_debugger::tests::test_auto_fix_no_match' (24532) panicked at crates\rc-agent\src\ai_debugger.rs:1093:9:
+Should not match any auto-fix pattern
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ai_debugger::tests::test_auto_fix_no_match
+
+test result: FAILED. 351 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.53s
+
+error: test failed, to rerun pass `-p rc-agent-crate --bin rc-agent`

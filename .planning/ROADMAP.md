@@ -2035,7 +2035,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 138-01-PLAN.md -- IdleHealthFailed protocol variant in rc-common (IDLE-03)
+- [x] 138-01-PLAN.md -- IdleHealthFailed protocol variant in rc-common (IDLE-03)
 - [ ] 138-02-PLAN.md -- Agent idle health loop: 60s interval, billing/safe-mode skip, HTTP+rect probes, self-heal, hysteresis (IDLE-01, IDLE-02, IDLE-03, IDLE-04)
 - [ ] 138-03-PLAN.md -- Server handler: IdleHealthFailed ws/mod.rs arm + FleetHealthStore fields + fleet API (IDLE-03)
 
@@ -2090,7 +2090,7 @@ Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser r
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 137. Browser Watchdog | 2/2 | Complete    | 2026-03-22 |
-| 138. Idle Health Monitor | 0/2 | Not started | - |
+| 138. Idle Health Monitor | 1/3 | In progress | - |
 | 139. Healer Edge Recovery | 0/2 | Not started | - |
 | 140. AI Action Execution Whitelist | 0/2 | Not started | - |
 | 141. WARN Log Scanner | 0/2 | Not started | - |

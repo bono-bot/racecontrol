@@ -83,7 +83,7 @@ Each task was committed atomically:
 1. **Task 1: ViolationStore + AppState pod_violations** - `d37f083` (feat)
 2. **Task 2: ProcessViolation WS handler + email escalation** - `42ebcb6` (feat)
 
-**Plan metadata:** TBD after docs commit
+**Plan metadata:** `947415f` (docs: complete plan)
 
 ## Files Created/Modified
 - `crates/racecontrol/src/fleet_health.rs` - Added ViolationStore struct + methods; FleetHealthStore gains violation_count_24h/violation_count_last_at; PodFleetStatus gains violation_count_24h/last_violation_at; fleet_health_handler reads pod_violations

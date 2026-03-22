@@ -1071,3 +1071,22 @@ decisions:
   - "Face-only staff auth (no PIN) -- cameras already at entry points"
   - "DPDP consent framework in Phase 113 -- before any face data collection"
 ---
+
+---
+gsd_state_version: 1.0
+milestone: v13.0
+milestone_name: Idle Health Monitor
+status: in_progress
+stopped_at: Completed 138-01-PLAN.md
+last_updated: "2026-03-22T04:20:00.000Z"
+current_phase: 138
+current_phase_name: idle-health-monitor
+progress:
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 1
+decisions:
+  - "138-01: IdleHealthFailed placed after PreFlightFailed for logical locality with health-check variants"
+  - "138-01: consecutive_count uses u32 (not usize) for cross-arch serde stability"
+---
