@@ -2266,11 +2266,11 @@ Deliver a complete cafe operations layer for Racing Point eSports and Cafe -- me
   3. Admin can delete a cafe item and it no longer appears anywhere
   4. Admin can toggle an item between available and unavailable, and unavailable items are hidden from customer-facing views
   5. Categories are managed as a controlled list (not free-text entry)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 149-01: TBD
-- [ ] 149-02: TBD
+- [ ] 149-01-PLAN.md -- Backend: SQLite schema (cafe_categories + cafe_items) + Rust cafe.rs CRUD module + route registration
+- [ ] 149-02-PLAN.md -- Frontend: TypeScript types + api methods + sidebar nav + /cafe admin page with side panel
 
 ### Phase 150: Menu Import
 **Goal**: Admin can populate the full cafe menu from existing PDF or spreadsheet files without manual item-by-item entry
