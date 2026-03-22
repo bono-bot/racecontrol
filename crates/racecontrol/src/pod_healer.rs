@@ -128,6 +128,9 @@ async fn heal_all_pods(state: &Arc<AppState>) {
             tracing::warn!("Pod healer: error checking pod {}: {}", pod.id, e);
         }
     }
+
+    // Phase 141: Scan server-side WARN log for surge detection
+    scan_warn_logs(state).await;
 }
 
 async fn heal_pod(
@@ -874,6 +877,105 @@ async fn is_protected_pid(state: &Arc<AppState>, pod_ip: &str, pid: u32) -> bool
 async fn has_active_billing(state: &Arc<AppState>, pod_id: &str) -> bool {
     let timers = state.billing.active_timers.read().await;
     timers.contains_key(pod_id)
+}
+
+// --- Phase 141: WARN Log Scanner ---------------------------------------------
+
+/// Constants for WARN log scanning.
+const WARN_SCAN_WINDOW_SECS: i64 = 300;   // 5-minute rolling window
+const WARN_THRESHOLD: usize = 50;          // trigger AI escalation above this
+const WARN_COOLDOWN_SECS: i64 = 600;       // 10-minute cooldown between escalations
+
+/// Scan the current racecontrol JSONL log for WARN entries in the last 5 minutes.
+///
+/// Returns (warn_count, raw_warn_lines) where raw_warn_lines are the matching log
+/// lines (used by plan 02 for deduplication). Returns (0, vec![]) on any I/O error
+/// so the healer cycle is never interrupted by log read failures.
+///
+/// No .unwrap() — all errors return the default empty result.
+pub(crate) async fn scan_warn_logs(state: &Arc<AppState>) {
+    let now = Utc::now();
+
+    // Build path: logs/racecontrol-YYYY-MM-DD.jsonl (relative to server CWD)
+    let date_str = now.format("%Y-%m-%d").to_string();
+    let log_path = format!("logs/racecontrol-{}.jsonl", date_str);
+
+    let contents = match tokio::fs::read_to_string(&log_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!("WARN scanner: could not read log {}: {}", log_path, e);
+            return;
+        }
+    };
+
+    let cutoff = now - chrono::Duration::seconds(WARN_SCAN_WINDOW_SECS);
+
+    // Count WARN lines within the rolling window
+    let warn_lines: Vec<String> = contents
+        .lines()
+        .filter(|line| {
+            // Fast pre-filter: must contain "WARN" string
+            if !line.contains("\"WARN\"") {
+                return false;
+            }
+            // Parse timestamp to check rolling window
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(ts_str) = entry.get("timestamp").and_then(|v| v.as_str()) {
+                    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                        return ts.with_timezone(&Utc) >= cutoff;
+                    }
+                }
+            }
+            false
+        })
+        .map(|s| s.to_string())
+        .collect();
+
+    let warn_count = warn_lines.len();
+
+    if warn_count == 0 {
+        tracing::debug!("WARN scanner: {} WARNs in last 5min (below threshold)", warn_count);
+        return;
+    }
+
+    tracing::info!("WARN scanner: {} WARNs in last 5min (threshold: {})", warn_count, WARN_THRESHOLD);
+
+    if warn_count <= WARN_THRESHOLD {
+        return;
+    }
+
+    // Threshold breached — check cooldown before escalating
+    {
+        let last = state.warn_scanner_last_escalated.read().await;
+        if let Some(last_time) = *last {
+            let elapsed = (now - last_time).num_seconds();
+            if elapsed < WARN_COOLDOWN_SECS {
+                tracing::debug!(
+                    "WARN scanner: threshold breached ({} WARNs) but cooldown active ({}s remaining)",
+                    warn_count,
+                    WARN_COOLDOWN_SECS - elapsed
+                );
+                return;
+            }
+        }
+    }
+
+    // Update cooldown timestamp
+    {
+        let mut last = state.warn_scanner_last_escalated.write().await;
+        *last = Some(now);
+    }
+
+    tracing::warn!(
+        "WARN scanner: ESCALATING — {} WARNs in 5min exceeds threshold of {}",
+        warn_count,
+        WARN_THRESHOLD
+    );
+
+    // Phase 141-02 will add deduplication + AI escalation here.
+    // For now, log the breach so it's visible in the activity log.
+    // Placeholder: pass warn_lines to escalate_warn_surge() in plan 02.
+    let _ = warn_lines; // plan 02 will consume this
 }
 
 /// Returns true if the pod is currently in a watchdog recovery cycle (Restarting or Verifying).
