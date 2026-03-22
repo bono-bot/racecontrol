@@ -110,3 +110,12 @@ None - no external service configuration required.
 ---
 *Phase: 149-menu-data-model-crud*
 *Completed: 2026-03-22*
+
+## Self-Check: PASSED
+
+- FOUND: web/src/app/cafe/page.tsx
+- FOUND: web/src/lib/api.ts
+- FOUND: web/src/components/Sidebar.tsx
+- FOUND commit 791380eb (Task 1)
+- FOUND commit a1edd180 (Task 2)
+- FOUND commit 7f87be82 (docs: SUMMARY + STATE + ROADMAP)
