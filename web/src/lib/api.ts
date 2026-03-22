@@ -27,6 +27,34 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   return res.json();
 }
 
+// Cafe Menu types
+export interface CafeCategory {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string | null;
+}
+
+export interface CafeItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category_id: string;
+  selling_price_paise: number;
+  cost_price_paise: number;
+  is_available: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateCafeItemRequest {
+  name: string;
+  description?: string;
+  category_id: string;
+  selling_price_paise: number;
+  cost_price_paise: number;
+}
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -234,6 +262,23 @@ export const api = {
   dismissAiSuggestion: (id: string) =>
     fetchApi<{ status?: string; error?: string }>(`/ai/suggestions/${id}/dismiss`, {
       method: "POST",
+    }),
+
+  // Cafe Menu
+  listCafeItems: () => fetchApi<{ items: CafeItem[]; total: number; page: number }>("/cafe/items"),
+  createCafeItem: (data: CreateCafeItemRequest) =>
+    fetchApi<{ id: string }>("/cafe/items", { method: "POST", body: JSON.stringify(data) }),
+  updateCafeItem: (id: string, data: Partial<CreateCafeItemRequest>) =>
+    fetchApi<CafeItem>(`/cafe/items/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCafeItem: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/cafe/items/${id}`, { method: "DELETE" }),
+  toggleCafeItem: (id: string) =>
+    fetchApi<{ id: string; is_available: boolean }>(`/cafe/items/${id}/toggle`, { method: "POST" }),
+  listCafeCategories: () => fetchApi<{ categories: CafeCategory[] }>("/cafe/categories"),
+  createCafeCategory: (name: string, sort_order?: number) =>
+    fetchApi<{ id: string; name: string }>("/cafe/categories", {
+      method: "POST",
+      body: JSON.stringify({ name, sort_order }),
     }),
 };
 
