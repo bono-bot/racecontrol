@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { KioskHeader } from "@/components/KioskHeader";
 import { PodKioskView } from "@/components/PodKioskView";
+import { SidePanel } from "@/components/SidePanel";
+import { CafeMenuPanel } from "@/components/CafeMenuPanel";
 import { api } from "@/lib/api";
 import type { KioskExperience, KioskSettings, Pod } from "@/lib/types";
 
@@ -14,6 +16,7 @@ export default function ControlPage() {
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [venueName, setVenueName] = useState("Racing Point");
   const [lockedPods, setLockedPods] = useState<Set<string>>(new Set());
+  const [showCafeMenu, setShowCafeMenu] = useState(false);
 
   const {
     connected,
@@ -167,9 +170,21 @@ export default function ControlPage() {
         >
           Unlock All
         </button>
+        <div className="flex-1" />
+        <button
+          onClick={() => setShowCafeMenu((v) => !v)}
+          className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
+            showCafeMenu
+              ? "bg-rp-red text-white border-rp-red"
+              : "bg-rp-card text-rp-grey border-rp-border hover:text-white hover:border-rp-red"
+          }`}
+        >
+          Cafe Menu
+        </button>
       </div>
 
-      <div className="flex-1 grid grid-cols-4 grid-rows-2 gap-2 p-2 min-h-0">
+      <div className="flex-1 flex min-h-0">
+        <div className="flex-1 grid grid-cols-4 grid-rows-2 gap-2 p-2 min-h-0 overflow-hidden">
         {podSlots.map((pod, i) => {
           const podNumber = i + 1;
           if (!pod) {
@@ -305,6 +320,15 @@ export default function ControlPage() {
             </div>
           );
         })}
+        </div>
+        <SidePanel
+          isOpen={showCafeMenu}
+          title="Cafe Menu"
+          subtitle="Available items and prices"
+          onClose={() => setShowCafeMenu(false)}
+        >
+          <CafeMenuPanel />
+        </SidePanel>
       </div>
     </div>
   );
