@@ -225,6 +225,19 @@ pub enum AgentMessage {
         timestamp: String,
     },
 
+    /// Phase 138: Idle health checks failed after N consecutive ticks (no billing session active).
+    /// Sent after IDLE_HEALTH_HYSTERESIS_THRESHOLD (3) consecutive failures.
+    /// Checks: lock_screen_http (port 18923) + window_rect (Edge covering >=90% screen).
+    IdleHealthFailed {
+        pod_id: String,
+        /// Names of checks that failed on the most recent tick (e.g. "lock_screen_http", "window_rect").
+        failures: Vec<String>,
+        /// How many consecutive ticks have failed (always >= 3 when this message is sent).
+        consecutive_count: u32,
+        /// ISO-8601 UTC timestamp of this failure event.
+        timestamp: String,
+    },
+
     /// Phase 101: Pod reports a process/port/autostart whitelist violation.
     /// Sent immediately on detection (report-only mode) or after enforcement action (kill mode).
     /// `consecutive_count` = 1 on first sighting, increments each scan cycle.
@@ -2356,6 +2369,27 @@ mod tests {
             assert_eq!(timestamp, "2026-03-21T10:00:00Z");
         } else {
             panic!("Wrong variant after roundtrip: expected PreFlightFailed");
+        }
+    }
+
+    #[test]
+    fn test_idle_health_failed_roundtrip() {
+        let msg = AgentMessage::IdleHealthFailed {
+            pod_id: "pod-1".to_string(),
+            failures: vec!["lock_screen_http".to_string(), "window_rect".to_string()],
+            consecutive_count: 3,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("idle_health_failed"), "serde tag must be idle_health_failed");
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::IdleHealthFailed { pod_id, failures, consecutive_count, timestamp } = parsed {
+            assert_eq!(pod_id, "pod-1");
+            assert_eq!(failures.len(), 2);
+            assert_eq!(consecutive_count, 3);
+            assert!(!timestamp.is_empty());
+        } else {
+            panic!("Wrong variant after roundtrip: expected IdleHealthFailed");
         }
     }
 
