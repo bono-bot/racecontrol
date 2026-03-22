@@ -2191,7 +2191,9 @@ Transform the basic 13-camera snapshot grid into a professional NVR dashboard �
   2. `curl -X OPTIONS http://192.168.31.27:1984/api/webrtc` returns `Access-Control-Allow-Origin: *` — CORS is verified working before any frontend code is written
   3. Snapshot polling via SnapshotCache and a simultaneous go2rtc WebRTC connection to the same channel both succeed without the NVR dropping either connection — NVR coexistence strategy is decided and tested on live hardware
   4. NVR credentials (Admin@123) do not appear in any go2rtc.yaml stream name or in any URL visible to browser JavaScript — all 13 streams are accessible by canonical name only
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 145-01-PLAN.md — Register 13 NVR channels + CORS in go2rtc, restart, verify WebRTC + snapshot coexistence
 
 ### Phase 146: Backend Config and API
 **Goal**: rc-sentry-ai serves a complete camera metadata API that both frontend targets can use, and user layout preferences persist across sessions via server-side storage
