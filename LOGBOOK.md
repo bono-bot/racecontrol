@@ -33,6 +33,10 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 23 00:00 IST | James | `ebd626d1` | 157-02: add ActivePromo type and activePromos/publicCafePromos API methods |
 | Mar 23 00:00 IST | James | `a1d05ce7` | 157-02: add promo banner and discount display to PWA and kiosk |
 | Mar 23 00:00 IST | James | `190fbfe1` | 157-02: docs — SUMMARY, STATE, ROADMAP updated (phase 157 Complete) |
+| Mar 23 00:06 IST | James | `d720761d` | 158-01: Next.js satori/resvg-wasm PNG generation route for promo/menu/new_item templates |
+| Mar 23 00:06 IST | James | `5420fcbb` | 158-01: Rust broadcast endpoint with 24h per-driver cooldown, Evolution API integration |
+| Mar 23 00:32 IST | James | `25dbdcad` | 158-02: Marketing tab — promo PNG download, daily menu PNG, WhatsApp broadcast form |
+| Mar 23 00:34 IST | James | `1c91e25a` | 158-02: docs — SUMMARY, STATE, ROADMAP updated (phase 158 Complete) |
 
 ## 2026-03-01
 
