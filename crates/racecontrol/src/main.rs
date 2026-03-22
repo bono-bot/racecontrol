@@ -18,6 +18,8 @@ use racecontrol_crate::network_source::classify_source_middleware;
 use racecontrol_crate::tls;
 use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
 use racecontrol_crate::state::AppState;
+use rc_common::protocol::DashboardEvent;
+use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
     billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
@@ -25,6 +27,70 @@ use racecontrol_crate::{
     pod_monitor, pod_reservation, process_guard, psychology, remote_terminal, scheduler,
     server_ops, wallet, udp_heartbeat, wol, ws,
 };
+
+/// Auto-seed all 8 pods into the in-memory pods map on server startup.
+/// Called immediately after AppState::new() so the kiosk is never left with
+/// an empty pod list after a server restart with a fresh DB.
+/// If pods are already populated (e.g. from a future DB-backed store), skips.
+async fn seed_pods_on_startup(state: &Arc<AppState>) {
+    // If pods already populated (future: DB-backed restore), skip
+    if !state.pods.read().await.is_empty() {
+        tracing::info!("Pods already populated, skipping auto-seed");
+        return;
+    }
+
+    // (id, number, name, ip, mac)
+    let pod_data: &[(&str, u32, &str, &str, &str)] = &[
+        ("pod_1", 1, "Pod 1", "192.168.31.89", "30:56:0F:05:45:88"),
+        ("pod_2", 2, "Pod 2", "192.168.31.33", "30:56:0F:05:46:53"),
+        ("pod_3", 3, "Pod 3", "192.168.31.28", "30:56:0F:05:44:B3"),
+        ("pod_4", 4, "Pod 4", "192.168.31.88", "30:56:0F:05:45:25"),
+        ("pod_5", 5, "Pod 5", "192.168.31.86", "30:56:0F:05:44:B7"),
+        ("pod_6", 6, "Pod 6", "192.168.31.87", "30:56:0F:05:45:6E"),
+        ("pod_7", 7, "Pod 7", "192.168.31.38", "30:56:0F:05:44:B4"),
+        ("pod_8", 8, "Pod 8", "192.168.31.91", "30:56:0F:05:46:C5"),
+    ];
+
+    let mut seeded = Vec::new();
+    {
+        let mut pods = state.pods.write().await;
+        for &(id, number, name, ip, mac) in pod_data {
+            let pod = PodInfo {
+                id: id.to_string(),
+                number,
+                name: name.to_string(),
+                ip_address: ip.to_string(),
+                mac_address: Some(mac.to_string()),
+                sim_type: SimType::AssettoCorsa,
+                status: PodStatus::Idle,
+                current_driver: None,
+                current_session_id: None,
+                last_seen: Some(chrono::Utc::now()),
+                driving_state: None,
+                billing_session_id: None,
+                game_state: None,
+                current_game: None,
+                installed_games: vec![],
+                screen_blanked: None,
+                ffb_preset: None,
+                freedom_mode: None,
+            };
+            pods.insert(id.to_string(), pod.clone());
+            seeded.push(pod);
+        }
+    }
+
+    // Broadcast individual pod updates
+    for pod in &seeded {
+        let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+    }
+
+    // Broadcast full pod list
+    let all_pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let _ = state.dashboard_tx.send(DashboardEvent::PodList(all_pods));
+
+    tracing::info!("Auto-seeded {} pods on startup", seeded.len());
+}
 
 /// Sends a test email on first boot to verify Gmail OAuth works.
 /// Uses a flag file (`./data/email_verified.flag`) to prevent repeat sends.
@@ -415,6 +481,10 @@ async fn main() -> anyhow::Result<()> {
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool, field_cipher));
+
+    // Auto-seed all 8 pods on startup so kiosk is never left with empty pod list
+    // after server restart with fresh DB (BUG-01)
+    seed_pods_on_startup(&state).await;
 
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
