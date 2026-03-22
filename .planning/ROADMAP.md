@@ -1954,7 +1954,8 @@ Plans:
 
 - [x] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04)
  (completed 2026-03-22)
-- [x] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03) (completed 2026-03-22)
+- [x] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03)
+ (completed 2026-03-22)
 
 ### Phase 135: Daemon Recovery
 **Goal**: James comms-link daemon survives crashes and reboots — auto-restarts within 30s after a crash and starts automatically on Windows boot
@@ -2031,11 +2032,12 @@ Plans:
   2. When the lock screen HTTP probe fails (port :18923 returns error), rc-agent calls close_browser + launch_browser and the lock screen is accessible again within 30 seconds -- no server action needed
   3. After 3 consecutive idle health failures without recovery, the server receives an IdleHealthFailed WebSocket message identifying the pod and failure type
   4. During an active billing session, the idle health check loop does not fire -- no interference with running games or telemetry collection
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 138-01-PLAN.md -- Idle health check loop: check_window_rect + check_lock_screen_http + self-heal (IDLE-01, IDLE-02, IDLE-04)
-- [ ] 138-02-PLAN.md -- Hysteresis counter + IdleHealthFailed protocol message + server handler (IDLE-03)
+- [ ] 138-01-PLAN.md -- IdleHealthFailed protocol variant in rc-common (IDLE-03)
+- [ ] 138-02-PLAN.md -- Agent idle health loop: 60s interval, billing/safe-mode skip, HTTP+rect probes, self-heal, hysteresis (IDLE-01, IDLE-02, IDLE-03, IDLE-04)
+- [ ] 138-03-PLAN.md -- Server handler: IdleHealthFailed ws/mod.rs arm + FleetHealthStore fields + fleet API (IDLE-03)
 
 ### Phase 139: Healer Edge Recovery
 **Goal**: The racecontrol pod healer can trigger a full Edge relaunch on any pod via a new WS protocol message -- no SSH, no exec endpoint, just the existing WebSocket connection
