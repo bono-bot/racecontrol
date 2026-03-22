@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
-import type { CafeMenuItem, Driver, CafeOrderResponse, CafeOrderItem } from "@/lib/types";
+import type { CafeMenuItem, Driver, CafeOrderResponse, CafeOrderItem, ActivePromo } from "@/lib/types";
 
 function formatPrice(paise: number): string {
   const rupees = paise / 100;
@@ -24,6 +24,23 @@ interface OrderItem {
   quantity: number;
 }
 
+function PromoBanner({ promos }: { promos: ActivePromo[] }) {
+  if (promos.length === 0) return null;
+  return (
+    <div className="bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2 mb-3 space-y-1">
+      {promos.map((promo) => (
+        <div key={promo.id} className="flex items-center gap-2">
+          <span className="text-red-400 font-bold text-xs uppercase tracking-wide">PROMO</span>
+          <span className="text-white text-sm">{promo.name}</span>
+          {promo.time_label && (
+            <span className="ml-auto text-gray-400 text-xs">{promo.time_label}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function CafeMenuPanel() {
   const [items, setItems] = useState<CafeMenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +57,7 @@ export function CafeMenuPanel() {
   const [ordering, setOrdering] = useState(false);
   const [orderResult, setOrderResult] = useState<CafeOrderResponse | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [activePromos, setActivePromos] = useState<ActivePromo[]>([]);
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +76,10 @@ export function CafeMenuPanel() {
     }).catch(() => {
       // drivers list failure is non-fatal
     });
+
+    api.publicCafePromos()
+      .then((promos) => setActivePromos(Array.isArray(promos) ? promos : []))
+      .catch(() => setActivePromos([]));
   }, []);
 
   // Close driver dropdown when clicking outside
@@ -208,6 +230,7 @@ export function CafeMenuPanel() {
     <div className="flex h-full">
       {/* LEFT — Menu (60%) */}
       <div className="flex flex-col" style={{ width: "60%" }}>
+        <PromoBanner promos={activePromos} />
         {/* Category tabs */}
         <div className="flex gap-2 px-4 py-3 overflow-x-auto border-b border-rp-border shrink-0">
           {categories.map((cat) => (
@@ -276,6 +299,12 @@ export function CafeMenuPanel() {
               <p className="text-rp-grey text-xs mt-1">Receipt #{orderResult.receipt_number}</p>
             </div>
             <div className="bg-rp-dark rounded-lg p-4 w-full text-sm">
+              {(orderResult.discount_paise ?? 0) > 0 && (
+                <div className="flex justify-between text-green-400 mb-1">
+                  <span>Promo: {orderResult.applied_promo_name}</span>
+                  <span>-{formatPrice(orderResult.discount_paise)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-rp-grey mb-1">
                 <span>Total charged</span>
                 <span className="text-white font-semibold">{formatPrice(orderResult.total_paise)}</span>

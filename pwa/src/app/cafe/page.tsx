@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { publicApi, api, getImageBaseUrl } from "@/lib/api";
-import type { CafeMenuItem, CafeOrderResponse, CafeOrderItem } from "@/lib/api";
+import type { CafeMenuItem, CafeOrderResponse, CafeOrderItem, ActivePromo } from "@/lib/api";
 
 function formatPrice(paise: number): string {
   if (paise % 100 === 0) {
@@ -145,6 +145,25 @@ function ItemCard({ item, cartQuantity, onAdd, onRemove, onUpdateQty }: ItemCard
 function SkeletonCard() {
   return (
     <div className="animate-pulse bg-rp-card rounded-xl h-48 border border-rp-border" />
+  );
+}
+
+// ─── Promo Banner ────────────────────────────────────────────────────────────
+
+function PromoBanner({ promos }: { promos: ActivePromo[] }) {
+  if (promos.length === 0) return null;
+  return (
+    <div className="bg-rp-red/10 border border-rp-red/30 rounded-xl px-4 py-3 mb-4 space-y-1">
+      {promos.map((promo) => (
+        <div key={promo.id} className="flex items-center gap-2">
+          <span className="text-rp-red font-bold text-xs uppercase tracking-wide">PROMO</span>
+          <span className="text-white text-sm font-medium">{promo.name}</span>
+          {promo.time_label && (
+            <span className="ml-auto text-rp-grey text-xs">{promo.time_label}</span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -447,7 +466,17 @@ function OrderConfirmation({ result, onOrderAnother }: OrderConfirmationProps) {
               </span>
             </div>
           ))}
-          <div className="border-t border-rp-border pt-1 flex items-center justify-between">
+          {result.discount_paise > 0 && (
+            <div className="border-t border-rp-border pt-1 flex items-center justify-between">
+              <span className="text-green-400 text-sm">
+                Promo discount ({result.applied_promo_name})
+              </span>
+              <span className="text-green-400 font-semibold text-sm">
+                -{formatPrice(result.discount_paise)}
+              </span>
+            </div>
+          )}
+          <div className={`${result.discount_paise > 0 ? "" : "border-t border-rp-border pt-1"} flex items-center justify-between`}>
             <span className="text-white font-semibold text-sm">Total Paid</span>
             <span className="text-white font-bold">{formatPrice(result.total_paise)}</span>
           </div>
@@ -483,6 +512,7 @@ export default function CafePage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [orderResult, setOrderResult] = useState<CafeOrderResponse | null>(null);
+  const [activePromos, setActivePromos] = useState<ActivePromo[]>([]);
 
   useEffect(() => {
     publicApi
@@ -496,6 +526,12 @@ export default function CafePage() {
       .finally(() => {
         setLoading(false);
       });
+  }, []);
+
+  useEffect(() => {
+    publicApi.activePromos()
+      .then((promos) => setActivePromos(Array.isArray(promos) ? promos : []))
+      .catch(() => setActivePromos([]));
   }, []);
 
   // ─── Cart helpers ──────────────────────────────────────────────────────────
@@ -578,6 +614,8 @@ export default function CafePage() {
   return (
     <div className="min-h-screen bg-rp-dark px-4 pt-6">
       <h1 className="text-2xl font-bold text-white mb-4">Cafe Menu</h1>
+
+      <PromoBanner promos={activePromos} />
 
       {/* Category filter pills */}
       {!loading && categories.length > 0 && (
