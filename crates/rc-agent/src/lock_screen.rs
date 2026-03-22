@@ -588,7 +588,10 @@ impl LockScreenManager {
         let (vx, vy, vw, vh) = get_virtual_screen_bounds();
         let window_pos = format!("--window-position={},{}", vx, vy);
         let window_size = format!("--window-size={},{}", vw, vh);
-        let use_window_sizing = vw > 2560; // Only override for multi-monitor setups
+        // Always force window sizing — Edge --kiosk doesn't reliably go fullscreen
+        // when relaunched by the browser watchdog (no user session event to trigger it).
+        // MoveWindow after 3s ensures coverage on both single and multi-monitor setups.
+        let use_window_sizing = true;
 
         for edge_path in &edge_paths {
             let mut args: Vec<&str> = vec![
