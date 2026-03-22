@@ -1,5 +1,28 @@
 ---
 gsd_state_version: 1.0
+milestone: v17.0
+milestone_name: Promotions Engine
+status: in_progress
+stopped_at: "Completed 156-01-PLAN.md"
+last_updated: "2026-03-22T13:45:00+05:30"
+current_phase: 156
+current_phase_name: Promotions Engine
+current_plan: 02
+progress:
+  [██████████] 99%
+  total_phases: 125
+  completed_phases: 94
+  total_plans: 221
+  completed_plans: 219
+  percent: 99
+decisions:
+  - "156-01: stacking_group column on cafe_promos table (not a separate table) — sufficient for Phase 157 mutual-exclusivity logic"
+  - "156-01: promo_type validated at application layer + SQLite CHECK constraint for defense-in-depth"
+  - "156-01: config stored as TEXT (JSON string) — flexible schema per promo_type without separate tables"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
