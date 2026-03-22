@@ -171,7 +171,43 @@ fn main() {
                     continue;
                 }
 
-                // Run Tier 1 fixes + restart
+                // For unknown patterns, consult Ollama BEFORE attempting restart (SENT-02)
+                if memory.instant_fix(&pattern_key).is_none() {
+                    let crash_summary = format!(
+                        "rc-agent crash\npanic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nlog_tail: {}",
+                        ctx.panic_message, ctx.exit_code, ctx.last_phase,
+                        &ctx.startup_log[..ctx.startup_log.len().min(500)]
+                    );
+                    tracing::info!(
+                        target: "crash-handler",
+                        "unknown pattern {} — querying Ollama before restart ({}s timeout)",
+                        pattern_key, OLLAMA_TIMEOUT.as_secs()
+                    );
+                    let result = query_ollama_with_timeout(crash_summary, OLLAMA_TIMEOUT);
+                    if let Some(ref r) = result {
+                        tracing::info!(
+                            target: "crash-handler",
+                            "Ollama pre-restart suggestion for {}: {} (model: {})",
+                            pattern_key, r.suggestion, r.model
+                        );
+                        // Save suggestion to pattern memory
+                        let mut mem = debug_memory::DebugMemory::load();
+                        mem.record(
+                            pattern_key.clone(),
+                            format!("ollama:{}", r.suggestion),
+                            r.suggestion.clone(),
+                        );
+                        mem.save();
+                    } else {
+                        tracing::warn!(
+                            target: "crash-handler",
+                            "Ollama timeout/unavailable for {} — proceeding with restart",
+                            pattern_key
+                        );
+                    }
+                }
+
+                // Run Tier 1 fixes + restart (always proceeds regardless of Ollama result)
                 let (results, restarted) = tier1_fixes::handle_crash(&ctx, &mut tracker);
 
                 tracing::info!(
@@ -210,32 +246,6 @@ fn main() {
                     );
                     memory.save();
                     tracing::info!(target: "crash-handler", "pattern memory updated: {} -> {}", pattern_key, fix_summary);
-                }
-
-                // Fire-and-forget Ollama query for unknown patterns (Tier 3)
-                if memory.instant_fix(&pattern_key).is_none() {
-                    let crash_summary = format!(
-                        "panic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nstartup_log_tail: {}",
-                        ctx.panic_message, ctx.exit_code, ctx.last_phase,
-                        &ctx.startup_log[..ctx.startup_log.len().min(500)]
-                    );
-                    let pk = pattern_key.clone();
-                    ollama::query_async(
-                        crash_summary,
-                        Box::new(move |result| {
-                            if let Some(r) = result {
-                                tracing::info!(
-                                    target: "crash-handler",
-                                    "ollama suggestion for {}: {} (model: {})",
-                                    pk, r.suggestion, r.model
-                                );
-                                // Save Ollama suggestion to pattern memory for next time
-                                let mut mem = debug_memory::DebugMemory::load();
-                                mem.record(pk, format!("ollama:{}", r.suggestion), r.suggestion);
-                                mem.save();
-                            }
-                        }),
-                    );
                 }
 
                 // Phase 105: Fleet reporting will be added here
@@ -553,9 +563,24 @@ fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), Box<dyn std::error:
 }
 
 const PATTERN_ESCALATION_THRESHOLD: u32 = 3;
+const OLLAMA_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 fn should_escalate_pattern(hit_count: u32) -> bool {
     hit_count >= PATTERN_ESCALATION_THRESHOLD
+}
+
+/// Wrap the fire-and-forget ollama::query_async into a bounded synchronous call.
+/// Returns the OllamaResult if Ollama responds within `timeout`, or None if it
+/// times out or is unavailable. Never blocks longer than `timeout`.
+fn query_ollama_with_timeout(
+    crash_summary: String,
+    timeout: std::time::Duration,
+) -> Option<ollama::OllamaResult> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    ollama::query_async(crash_summary, Box::new(move |result| {
+        let _ = tx.send(result);
+    }));
+    rx.recv_timeout(timeout).ok().flatten()
 }
 
 /// Build a RecoveryDecision for a crash handler outcome.
@@ -694,6 +719,40 @@ mod tests {
         let resp = http_get(port, "/nonexistent");
         assert!(resp.contains("404"), "expected HTTP 404: {resp}");
         assert!(resp.contains("not found"), "expected not found message: {resp}");
+    }
+
+    #[test]
+    fn query_ollama_timeout_respects_deadline() {
+        // A slow responder (never fires within deadline) should return None/Err
+        let (tx, rx) = std::sync::mpsc::channel::<Option<ollama::OllamaResult>>();
+        // Spawn thread that sleeps much longer than our deadline
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let _ = tx.send(None);
+        });
+        let result = rx.recv_timeout(std::time::Duration::from_millis(50));
+        // Should be Err(Timeout) because 2s > 50ms deadline
+        assert!(result.is_err(), "should timeout before slow responder");
+    }
+
+    #[test]
+    fn query_ollama_with_timeout_returns_result_when_fast() {
+        // A fast responder should be received before the timeout
+        let (tx, rx) = std::sync::mpsc::channel::<Option<ollama::OllamaResult>>();
+        std::thread::spawn(move || {
+            // Respond immediately
+            let _ = tx.send(Some(ollama::OllamaResult {
+                suggestion: "check disk space".to_string(),
+                model: "test-model".to_string(),
+            }));
+        });
+        // Use 1s timeout — more than enough for an immediate response
+        let result = rx.recv_timeout(std::time::Duration::from_secs(1));
+        assert!(result.is_ok(), "fast responder should complete before timeout");
+        let inner = result.unwrap();
+        assert!(inner.is_some(), "should have a result");
+        let r = inner.unwrap();
+        assert_eq!(r.suggestion, "check disk space");
     }
 
     #[test]
