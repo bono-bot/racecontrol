@@ -46,6 +46,9 @@ export interface CafeItem {
   created_at: string | null;
   updated_at: string | null;
   image_path: string | null;
+  is_countable: boolean;
+  stock_quantity: number;
+  low_stock_threshold: number;
 }
 
 export interface ImportColumnMapping {
@@ -87,6 +90,9 @@ export interface CreateCafeItemRequest {
   category_id: string;
   selling_price_paise: number;
   cost_price_paise: number;
+  is_countable?: boolean;
+  stock_quantity?: number;
+  low_stock_threshold?: number;
 }
 
 export const api = {
@@ -308,6 +314,11 @@ export const api = {
     fetchApi<{ ok: boolean }>(`/cafe/items/${id}`, { method: "DELETE" }),
   toggleCafeItem: (id: string) =>
     fetchApi<{ id: string; is_available: boolean }>(`/cafe/items/${id}/toggle`, { method: "POST" }),
+  restockCafeItem: (id: string, quantity: number) =>
+    fetchApi<CafeItem>(`/cafe/items/${id}/restock`, {
+      method: "POST",
+      body: JSON.stringify({ quantity }),
+    }),
   listCafeCategories: () => fetchApi<{ categories: CafeCategory[] }>("/cafe/categories"),
   createCafeCategory: (name: string, sort_order?: number) =>
     fetchApi<{ id: string; name: string }>("/cafe/categories", {
