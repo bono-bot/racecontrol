@@ -2422,7 +2422,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 |-------|----------------|--------|-----------|
 | 149. Menu Data Model & CRUD | 2/2 | Complete    | 2026-03-22 |
 | 150. Menu Import | 2/2 | Complete    | 2026-03-22 |
-| 151. Menu Display | 2/2 | Complete   | 2026-03-22 |
+| 151. Menu Display | 2/2 | Complete    | 2026-03-22 |
 | 152. Inventory Tracking | 0/0 | Not started | - |
 | 153. Inventory Alerts | 0/0 | Not started | - |
 | 154. Ordering Core | 0/0 | Not started | - |
@@ -2454,7 +2454,7 @@ Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that
 **Plans**: 2 plans
 
 Plans:
-- [ ] 159-01-PLAN.md — rc-common recovery contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger)
+- [x] 159-01-PLAN.md — rc-common recovery contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger)
 - [ ] 159-02-PLAN.md — CascadeGuard wired into AppState and pod_healer
 
 ### Phase 160: RC-Sentry AI Migration
@@ -2509,7 +2509,7 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 159. Recovery Consolidation Foundation | 0/0 | Not started | - |
+| 159. Recovery Consolidation Foundation | 1/2 | In progress | - |
 | 160. RC-Sentry AI Migration | 0/0 | Not started | - |
 | 161. Pod Monitor Merge | 0/0 | Not started | - |
 | 162. James Watchdog Migration | 0/0 | Not started | - |

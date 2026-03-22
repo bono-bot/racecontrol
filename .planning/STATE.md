@@ -4,6 +4,20 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: not_started
 stopped_at: Completed 151-02-PLAN.md
+last_updated: "2026-03-22T13:45:34.289Z"
+progress:
+  total_phases: 124
+  completed_phases: 85
+  total_plans: 205
+  completed_plans: 201
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: not_started
+stopped_at: Completed 151-02-PLAN.md
 last_updated: "2026-03-22T13:41:33.911Z"
 progress:
   total_phases: 124
@@ -16,17 +30,22 @@ progress:
 gsd_state_version: 1.0
 milestone: v17.1
 milestone_name: Watchdog-to-AI Migration
-status: not_started
-stopped_at: "Roadmap created, ready to plan Phase 159"
-last_updated: "2026-03-22T20:30:00+05:30"
+status: in_progress
+stopped_at: "Completed 159-01-PLAN.md"
+last_updated: "2026-03-22T19:15:00+05:30"
 current_phase: 159
 current_phase_name: Recovery Consolidation Foundation
+current_plan: 02
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 1
+  completed_plans: 1
+  percent: 5
+decisions:
+  - "159-01: OwnershipConflict uses plain enum + impl Display/Error (thiserror in workspace but not in rc-common deps; tracing added instead)"
+  - "159-01: RecoveryLogger.log() always returns Ok(()) — I/O errors emit tracing::warn, callers not burdened with log write failures"
+  - "159-01: ProcessOwnership::register() idempotent for same authority, Err only on different-owner conflict"
 ---
 
 ---
