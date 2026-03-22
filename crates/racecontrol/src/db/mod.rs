@@ -1432,6 +1432,17 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Add updated_at column for sync incremental change detection
+    let _ = sqlx::query("ALTER TABLE staff_members ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))")
+        .execute(pool).await;
+    // Backfill: set updated_at = created_at for existing rows
+    let _ = sqlx::query("UPDATE staff_members SET updated_at = created_at WHERE updated_at IS NULL")
+        .execute(pool).await;
+
+    // Add role column for RBAC (matches bot-side Phase 3 migration)
+    let _ = sqlx::query("ALTER TABLE staff_members ADD COLUMN role TEXT DEFAULT 'staff'")
+        .execute(pool).await;
+
     // Action queue — cloud queues actions for venue to pick up
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS action_queue (

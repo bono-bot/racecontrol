@@ -20,7 +20,7 @@ use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;
@@ -652,6 +652,31 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
             .collect();
         tracing::info!("Cloud sync push: {} debit_intents", items.len());
         payload["debit_intents"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Collect staff_members changes since last push
+    let staff = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'name', name, 'phone', phone, 'pin', pin,
+            'is_active', is_active, 'role', COALESCE(role, 'staff'),
+            'created_at', created_at, 'updated_at', updated_at,
+            'last_login_at', last_login_at
+        ) FROM staff_members
+        WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+        ORDER BY COALESCE(updated_at, created_at) ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !staff.is_empty() {
+        let items: Vec<serde_json::Value> = staff.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} staff_members", items.len());
+        payload["staff_members"] = serde_json::json!(items);
         has_data = true;
     }
 
