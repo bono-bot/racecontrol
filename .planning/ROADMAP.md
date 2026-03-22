@@ -1952,7 +1952,8 @@ Plans:
 
 ## Phases (v18.1)
 
-- [x] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04) (completed 2026-03-22)
+- [x] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04)
+ (completed 2026-03-22)
 - [ ] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03)
 
 ### Phase 135: Daemon Recovery
@@ -1979,7 +1980,10 @@ Plans:
   3. GET /relay/health returns a JSON body with connection mode (connected/disconnected) and last heartbeat timestamp
   4. POST /relay/exec/run returns HTTP 503 with a descriptive error message when the WS to Bono is disconnected — not a hang or silent failure
   5. Exec skills (comms-link skill wrappers) call /relay/health before sending and surface connection status to the caller when the relay is down
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 136-01-PLAN.md — Add chain_result WS handler to route through ExecResultBroker (CHAIN-10, CHAIN-11)
+- [ ] 136-02-PLAN.md — Enhance /relay/health response, guard /relay/exec/run, update skill (VIS-01, VIS-02, VIS-03)
 
 ## v18.1 Progress
 
