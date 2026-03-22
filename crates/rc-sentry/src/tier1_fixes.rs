@@ -20,6 +20,7 @@ const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PORT_WAIT_POLL: Duration = Duration::from_millis(500);
 const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
 const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
+const RCAGENT_SELF_RESTART_SENTINEL: &str = r"C:\RacingPoint\rcagent-restart-sentinel.txt";
 
 // ─── Escalation State ────────────────────────────────────────────────────────
 
@@ -329,6 +330,19 @@ pub fn is_maintenance_mode() -> bool {
     }
 }
 
+/// Check if an RCAGENT_SELF_RESTART sentinel is present on disk.
+/// Returns false in test cfg — same pattern as is_maintenance_mode.
+pub fn is_rcagent_self_restart() -> bool {
+    #[cfg(test)]
+    {
+        return false;
+    }
+    #[cfg(not(test))]
+    {
+        std::path::Path::new(RCAGENT_SELF_RESTART_SENTINEL).exists()
+    }
+}
+
 // ─── Crash Handler ───────────────────────────────────────────────────────────
 
 /// Run the full Tier 1 fix sequence on a crash.
@@ -351,6 +365,18 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
             "GRACEFUL_RELAUNCH sentinel found — self_monitor restart, not a crash. Skipping escalation.");
         let _ = std::fs::remove_file(GRACEFUL_RELAUNCH_SENTINEL);
     }
+
+    // Check for RCAGENT_SELF_RESTART sentinel from deploy sequence.
+    // rc-agent writes this file before relaunch_self() so rc-sentry knows this
+    // is a deploy-triggered restart, not a real crash. Consume once.
+    let rcagent_restart = is_rcagent_self_restart();
+    if rcagent_restart {
+        tracing::info!(target: LOG_TARGET,
+            "RCAGENT_SELF_RESTART sentinel found — deploy restart detected, not a crash. Skipping escalation.");
+        let _ = std::fs::remove_file(RCAGENT_SELF_RESTART_SENTINEL);
+    }
+
+    let is_graceful = graceful || rcagent_restart;
 
     // 1. Kill zombies
     let r = fix_kill_zombies();
@@ -377,8 +403,8 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
     tracing::info!(target: LOG_TARGET, "fix_shader_cache: {} ({})", r.success, r.detail);
     results.push(r);
 
-    // 6. Check escalation (skip counter for graceful self-monitor restarts)
-    if !graceful {
+    // 6. Check escalation (skip counter for graceful self-monitor restarts and deploy restarts)
+    if !is_graceful {
         let escalated = tracker.record_restart();
         if escalated {
             tracing::error!(target: LOG_TARGET,
@@ -532,5 +558,31 @@ mod tests {
     #[test]
     fn maintenance_mode_returns_false_in_test() {
         assert!(!is_maintenance_mode());
+    }
+
+    #[test]
+    fn rcagent_self_restart_returns_false_in_test() {
+        // In test cfg, is_rcagent_self_restart always returns false (sentinel file never read)
+        assert!(!is_rcagent_self_restart());
+    }
+
+    #[test]
+    fn rcagent_self_restart_sentinel_constant_value() {
+        assert_eq!(
+            RCAGENT_SELF_RESTART_SENTINEL,
+            r"C:\RacingPoint\rcagent-restart-sentinel.txt"
+        );
+    }
+
+    #[test]
+    fn handle_crash_without_sentinel_calls_record_restart() {
+        // With neither sentinel present (test cfg returns false for both),
+        // handle_crash must call record_restart, advancing backoff_index from 0 to 1.
+        let ctx = test_ctx();
+        let mut tracker = RestartTracker::new();
+        assert_eq!(tracker.backoff_index, 0);
+        let _ = handle_crash(&ctx, &mut tracker);
+        // backoff_index advances on record_restart — 0 -> 1
+        assert_eq!(tracker.backoff_index, 1, "record_restart should have been called");
     }
 }
