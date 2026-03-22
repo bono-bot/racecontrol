@@ -1,7 +1,7 @@
 # Requirements: v19.0 Cafe Inventory, Ordering & Marketing
 
 **Defined:** 2026-03-22
-**Core Value:** Customers can browse the cafe menu, place orders, and pay from their existing RP wallet — with staff always knowing what's in stock and promos driving revenue.
+**Core Value:** Customers can browse the cafe menu, place orders, and pay from their existing RP wallet -- with staff always knowing what's in stock and promos driving revenue.
 
 ## v1 Requirements
 
@@ -13,7 +13,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **MENU-02**: Admin can manually add cafe items with name, description, category, selling price, and cost price
 - [ ] **MENU-03**: Admin can edit existing cafe item details (name, description, category, prices)
 - [ ] **MENU-04**: Admin can delete cafe items
-- [ ] **MENU-05**: Admin can toggle item availability (available/unavailable — hides from POS/PWA)
+- [ ] **MENU-05**: Admin can toggle item availability (available/unavailable -- hides from POS/PWA)
 - [ ] **MENU-06**: Admin can upload item images that display in PWA and POS
 - [ ] **MENU-07**: Cafe items display in POS grouped by category with correct pricing
 - [ ] **MENU-08**: Cafe items display in PWA grouped by category with images, descriptions, and pricing
@@ -47,7 +47,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **PROMO-01**: Admin can create combo deals (bundle items at discounted price, e.g., Burger + Coke = ₹149)
 - [ ] **PROMO-02**: Admin can create happy hour time-based discounts (e.g., 20% off 3-6 PM IST)
 - [ ] **PROMO-03**: Admin can create gaming+cafe combo bundles (game session + cafe item at bundle price)
-- [ ] **PROMO-04**: Stacking rules defined — admin can configure which promos can/cannot combine
+- [ ] **PROMO-04**: Stacking rules defined -- admin can configure which promos can/cannot combine
 - [ ] **PROMO-05**: Active promos display on POS and PWA during applicable time windows
 - [ ] **PROMO-06**: Promo discounts are applied automatically at checkout when conditions are met
 
@@ -69,7 +69,7 @@ Deferred to future release. Tracked but not in current roadmap.
 ### Advanced Features (Deferred)
 
 - **ADV-01**: Loyalty points / rewards program for cafe purchases
-- **ADV-02**: Purchase order workflow (PO → receive → auto-update stock)
+- **ADV-02**: Purchase order workflow (PO -> receive -> auto-update stock)
 - **ADV-03**: Supplier management and auto-reorder when stock is low
 - **ADV-04**: Sales analytics dashboard (revenue, margins, popular items, peak hours)
 - **ADV-05**: Customer favorite items and quick-reorder
@@ -79,10 +79,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | Feature | Reason |
 |---------|--------|
 | Kitchen display / order queue system | Receipt-based fulfillment sufficient for current cafe scale |
-| Separate cafe wallet | Using existing RP wallet — one balance for gaming + cafe |
+| Separate cafe wallet | Using existing RP wallet -- one balance for gaming + cafe |
 | Online delivery / external platforms | In-store only for v1 |
-| Ingredient-level inventory tracking | Overkill for bottled drinks and simple prepared foods — track at sellable-item level |
-| Separate cafe app | PWA and POS already exist — extend them |
+| Ingredient-level inventory tracking | Overkill for bottled drinks and simple prepared foods -- track at sellable-item level |
+| Separate cafe app | PWA and POS already exist -- extend them |
 
 ## Traceability
 
@@ -90,46 +90,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MENU-01 | — | Pending |
-| MENU-02 | — | Pending |
-| MENU-03 | — | Pending |
-| MENU-04 | — | Pending |
-| MENU-05 | — | Pending |
-| MENU-06 | — | Pending |
-| MENU-07 | — | Pending |
-| MENU-08 | — | Pending |
-| INV-01 | — | Pending |
-| INV-02 | — | Pending |
-| INV-03 | — | Pending |
-| INV-04 | — | Pending |
-| INV-05 | — | Pending |
-| INV-06 | — | Pending |
-| INV-07 | — | Pending |
-| INV-08 | — | Pending |
-| INV-09 | — | Pending |
-| ORD-01 | — | Pending |
-| ORD-02 | — | Pending |
-| ORD-03 | — | Pending |
-| ORD-04 | — | Pending |
-| ORD-05 | — | Pending |
-| ORD-06 | — | Pending |
-| ORD-07 | — | Pending |
-| ORD-08 | — | Pending |
-| ORD-09 | — | Pending |
-| PROMO-01 | — | Pending |
-| PROMO-02 | — | Pending |
-| PROMO-03 | — | Pending |
-| PROMO-04 | — | Pending |
-| PROMO-05 | — | Pending |
-| PROMO-06 | — | Pending |
-| MKT-01 | — | Pending |
-| MKT-02 | — | Pending |
+| MENU-01 | Phase 150 | Pending |
+| MENU-02 | Phase 149 | Pending |
+| MENU-03 | Phase 149 | Pending |
+| MENU-04 | Phase 149 | Pending |
+| MENU-05 | Phase 149 | Pending |
+| MENU-06 | Phase 150 | Pending |
+| MENU-07 | Phase 151 | Pending |
+| MENU-08 | Phase 151 | Pending |
+| INV-01 | Phase 152 | Pending |
+| INV-02 | Phase 152 | Pending |
+| INV-03 | Phase 154 | Pending |
+| INV-04 | Phase 152 | Pending |
+| INV-05 | Phase 152 | Pending |
+| INV-06 | Phase 153 | Pending |
+| INV-07 | Phase 153 | Pending |
+| INV-08 | Phase 153 | Pending |
+| INV-09 | Phase 152 | Pending |
+| ORD-01 | Phase 154 | Pending |
+| ORD-02 | Phase 154 | Pending |
+| ORD-03 | Phase 154 | Pending |
+| ORD-04 | Phase 154 | Pending |
+| ORD-05 | Phase 155 | Pending |
+| ORD-06 | Phase 155 | Pending |
+| ORD-07 | Phase 154 | Pending |
+| ORD-08 | Phase 154 | Pending |
+| ORD-09 | Phase 155 | Pending |
+| PROMO-01 | Phase 156 | Pending |
+| PROMO-02 | Phase 156 | Pending |
+| PROMO-03 | Phase 156 | Pending |
+| PROMO-04 | Phase 156 | Pending |
+| PROMO-05 | Phase 157 | Pending |
+| PROMO-06 | Phase 157 | Pending |
+| MKT-01 | Phase 158 | Pending |
+| MKT-02 | Phase 158 | Pending |
 
 **Coverage:**
 - v1 requirements: 34 total
-- Mapped to phases: 0
-- Unmapped: 34
+- Mapped to phases: 34
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-22 after roadmap creation*
