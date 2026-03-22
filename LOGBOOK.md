@@ -614,3 +614,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 20:25 IST | James | 330aaf7b | feat(160-02): add pattern-hit escalation to rc-sentry crash handler |
 | 2026-03-22 20:25 IST | James | d07c686d | feat(160-02): pre-restart Ollama query with 8s timeout for unknown patterns |
 | 2026-03-22 20:25 IST | James | ea288a92 | docs(160-02): complete pattern escalation + pre-restart Ollama plan |
+| 2026-03-22 21:05 IST | James | 0670970e | feat(161-01): add PodRecoveryTracker with graduated offline recovery (4-step: wait/restart/AI/alert) |
+| 2026-03-22 21:05 IST | James | 1d26dd6e | docs(161-01): 161-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updated |
