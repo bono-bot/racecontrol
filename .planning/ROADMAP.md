@@ -2380,8 +2380,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 156-01: TBD
-- [ ] 156-02: TBD
+- [ ] 156-01-PLAN.md -- Backend: cafe_promos DB migration, CRUD handlers (cafe_promos.rs), admin routes
+- [ ] 156-02-PLAN.md -- Admin UI: Promos tab on /cafe page with dynamic form per type, CRUD, stacking group
 
 ### Phase 157: Promotions Integration
 **Goal**: Active promos are visible to customers and staff, and discounts apply automatically at checkout
