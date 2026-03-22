@@ -39,7 +39,7 @@
 ### Deployment
 
 - [x] **DEPL-01**: deploy-staging cleaned up (714 dirty files triaged — keep, delete, or .gitignore)
-- [ ] **DEPL-02**: Unified deploy script covers all services (racecontrol, rc-agent, kiosk, web dashboard, comms-link)
+- [x] **DEPL-02**: Unified deploy script covers all services (racecontrol, rc-agent, kiosk, web dashboard, comms-link)
 - [ ] **DEPL-03**: Deployment runbook documents step-by-step for each service with rollback procedures
 - [x] **DEPL-04**: deploy-staging committed and pushed with clean git status
 
@@ -58,8 +58,8 @@
 ### Health Monitoring
 
 - [x] **HLTH-01**: Every running service exposes a /health endpoint
-- [ ] **HLTH-02**: Central health check script polls all services and reports status
-- [ ] **HLTH-03**: Health check integrated into deploy verification (post-deploy auto-check)
+- [x] **HLTH-02**: Central health check script polls all services and reports status
+- [x] **HLTH-03**: Health check integrated into deploy verification (post-deploy auto-check)
 
 ## v2 Requirements
 
@@ -98,10 +98,10 @@ None — this milestone is stabilization, not feature work.
 | CONT-05 | Phase 173 | Complete |
 | CONT-06 | Phase 173 | Complete |
 | HLTH-01 | Phase 174 | Complete |
-| HLTH-02 | Phase 174 | Pending |
-| HLTH-03 | Phase 174 | Pending |
+| HLTH-02 | Phase 174 | Complete |
+| HLTH-03 | Phase 174 | Complete |
 | DEPL-01 | Phase 174 | Complete |
-| DEPL-02 | Phase 174 | Pending |
+| DEPL-02 | Phase 174 | Complete |
 | DEPL-03 | Phase 174 | Pending |
 | DEPL-04 | Phase 174 | Complete |
 | DEPS-01 | Phase 170 | Complete |

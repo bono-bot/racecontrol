@@ -3,21 +3,22 @@ gsd_state_version: 1.0
 milestone: v21.0
 milestone_name: Health Monitoring & Unified Deploy
 status: in_progress
-stopped_at: Completed 174-03-PLAN.md
-last_updated: "2026-03-23T10:55:00+05:30"
+stopped_at: Completed 174-04-PLAN.md
+last_updated: "2026-03-23T11:05:00+05:30"
 current_phase: 174
 current_phase_name: health-monitoring-unified-deploy
-current_plan: 03
+current_plan: 04
 progress:
   completed_phases: 100
   total_plans: 242
-  completed_plans: 238
-  percent: 98
+  completed_plans: 239
+  percent: 99
 decisions:
   - "174-02: /health route added before /relay/health so standard path matches first; /relay/health preserved for failover-orchestrator backward compat"
   - "174-02: version hardcoded as 1.0.0 in /health handler (comms-link does not inject package.json version)"
   - "174-03: gitignored ALL *.json in deploy-staging with !package.json, !package-lock.json, !chains.json exceptions — covers 548+ one-off relay payloads"
   - "174-03: added extra gitignore patterns beyond plan (*.log, *.jpg, *.png, screenshots/, kiosk-deploy/, kiosk-stage/, web-deploy/, *.spec, sshd_config, restore-db.js) discovered from actual inventory"
+  - "174-04: comms-link health check targets localhost:8766 (relay runs on James .27); deploy.sh uses schtasks for racecontrol restart (survives SSH disconnect); rc-agent excluded (pod-specific)"
 ---
 
 ---
