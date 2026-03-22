@@ -6,6 +6,25 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
+## Current Milestone: v16.1 Camera Dashboard Pro
+
+**Goal:** Transform the basic 13-camera snapshot grid into a professional NVR dashboard inspired by DMSS HD — hybrid streaming (cached snapshots for grid + WebRTC for fullscreen), configurable layouts (1/4/9/16), camera naming, drag-to-rearrange, and dual deployment (rc-sentry-ai + server web dashboard).
+
+**Target features:**
+- Hybrid streaming: snapshot grid (all 13 cameras, background-cached) + WebRTC fullscreen (single camera, sub-second latency via go2rtc)
+- Layout modes: 1x1, 2x2, 3x3, 4x4 split-screen with smooth transitions
+- Camera naming: persistent friendly names (e.g. "Pod Area", "Cashier") stored in config
+- Drag-to-rearrange: reorder cameras in the grid, persist layout
+- Click-to-fullscreen with WebRTC upgrade for smooth live video
+- Dual deploy: embedded in rc-sentry-ai (:8096) + standalone page accessible from server web dashboard
+
+**Constraints:**
+- rc-sentry-ai must be built with dynamic CRT (RUSTFLAGS="-C target-feature=-crt-static") due to ONNX Runtime
+- go2rtc needs all 13 cameras added (currently only 3)
+- WebRTC requires go2rtc's built-in WebRTC relay (no TURN server needed on LAN)
+- Camera names and layout preferences stored in rc-sentry-ai.toml or a separate JSON file
+- NVR auth: admin/Admin@123 — snapshot proxy must not expose credentials to browser
+
 ## Current Milestone: v17.0 AI Debugger Autonomy & Self-Healing
 
 **Goal:** Close 6 architectural gaps that prevented the system from self-healing when Edge died/stacked on pods. Make pre-flight continuous, add browser watchdog, give AI debugger execution capability for safe actions, and let the pod healer relaunch Edge.
