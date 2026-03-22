@@ -606,3 +606,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 19:57 IST | James | 3dba469a | feat(152-02): add inventory fields to CafeItem type and restockCafeItem API method in api.ts |
 | 2026-03-22 19:58 IST | James | a48dadc8 | feat(152-02): add inventory UI to cafe admin page — tabs, type/stock columns, restock, threshold badges |
 | 2026-03-22 20:45 IST | James | 9daf7dd4 | docs(152-02): 152-02-SUMMARY.md + STATE.md (99%) + ROADMAP.md phase 152 Complete (INV-01,02,04,05,09 done) |
+| 2026-03-22 20:13 IST | James | 1b273485 | feat(160-01): add RCAGENT_SELF_RESTART sentinel to tier1_fixes — deploy restarts never miscounted as crashes |
+| 2026-03-22 20:14 IST | James | 9a3eb2e9 | feat(160-01): wire RecoveryLogger into rc-sentry crash handler — every recovery decision logged to JSONL |
