@@ -594,3 +594,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 20:45 IST | James | adc9204b | feat(151-01): add CafeMenuItem types and publicCafeMenu API method |
 | 2026-03-22 20:47 IST | James | a4dec792 | feat(151-01): build CafeMenuPanel and integrate into POS control page |
 | 2026-03-22 20:49 IST | James | 2d60fb7c | docs(151-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 151 plan 01 complete) |
+| 2026-03-22 21:00 IST | James | 06278ab5 | feat(151-02): CafeMenuItem types, publicApi.cafeMenu(), getImageBaseUrl helper, Cafe tab in BottomNav (replaced Stats) |
+| 2026-03-22 21:02 IST | James | 501612e1 | feat(151-02): /cafe page — 2-col item cards grouped by category, filter pills, image fallback, Rs. price formatting |
+| 2026-03-22 21:05 IST | James | 9b35e3f3 | docs(151-02): 151-02-SUMMARY.md + STATE.md progress 200/205 + ROADMAP.md phase 151 Complete |
