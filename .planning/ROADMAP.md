@@ -1397,7 +1397,7 @@ Plans:
   3. Every 30 seconds while in MaintenanceRequired, the pod re-runs pre-flight silently; if all checks pass, the pod self-clears to Idle state without staff action — auto-retry loop works
   4. When racecontrol sends a ClearMaintenance message to a pod, the pod transitions from MaintenanceRequired to Idle and accepts the next BillingStarted — staff manual clear path works
   5. A GET to http://localhost:18923 returns HTTP 200 and the window rect of the lock screen Edge window is centered within 5% of the primary monitor center — display checks pass on a healthy pod
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring
 **Goal**: All remaining checks are live (billing stuck-session, disk, memory, WebSocket stability) and the pre-flight gate is wired into ws_handler.rs — every BillingStarted now triggers the complete concurrent check gate before any session state is mutated; staff alerts fire exactly once per MaintenanceRequired entry, not once per failure
@@ -1409,7 +1409,7 @@ Plans:
   3. When WebSocket has been connected for less than 10 seconds or has disconnected and reconnected within the last 10 seconds, NET-01 reports a warning but does not block the session — flap-detection logic is correct
   4. Running pre-flight 20 consecutive times on a fully healthy pod produces zero failures and zero MaintenanceRequired transitions — no false positives from probe logic
   5. When a pod is already in MaintenanceRequired and BillingStarted arrives, racecontrol does not book the pod for a new customer — the server rejects the booking before it reaches the pod, and the pod also guards the BillingStarted arm with a state check
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
 **Goal**: Staff can see at a glance which pods are in maintenance (Racing Red badge on kiosk dashboard), view failure reasons (PIN-gated), and manually clear a pod from the dashboard; maintenance pods appear as unavailable in fleet health; alert cooldown prevents notification floods
@@ -1421,7 +1421,7 @@ Plans:
   3. Clicking "Clear Maintenance" on the kiosk dashboard (with PIN) sends ClearMaintenance to the pod, the pod transitions to Idle, and the dashboard badge disappears within one polling cycle
   4. In the fleet health dashboard (/api/v1/fleet/health), a pod in MaintenanceRequired shows status "maintenance" (not "healthy" or "offline") — fleet visibility is accurate
   5. If a pod enters MaintenanceRequired repeatedly within the preflight_alert_cooldown_secs window, only one WhatsApp/email alert fires — Uday does not receive notification floods from rapid re-entry
-**Plans**: TBD
+**Plans**: 1 plan
 
 ## Progress
 
@@ -1755,7 +1755,7 @@ Plans:
   3. Customer can top up wallet via Razorpay from the cloud PWA and see updated balance after sync
   4. PWA is installable to home screen (manifest, service worker, icons all working)
   5. All existing customer API endpoints at api.racingpoint.cloud return correct synced data
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 122: Sync Hardening
 **Goal**: Cloud-local sync is financially correct, loop-free, and exposes health status for all tables needed by admin and dashboard
@@ -1784,7 +1784,7 @@ Plans:
   2. Uday can view revenue reports, booking history, and customer data from his phone
   3. Uday can configure pricing tiers, experiences, and kiosk settings remotely and changes sync to local server
   4. All existing admin API endpoints work correctly on the cloud instance with synced data
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 126: Dashboard Cloud Deploy
 **Goal**: Uday can monitor live venue operations from dashboard.racingpoint.cloud
@@ -1795,7 +1795,7 @@ Plans:
   2. Dashboard shows real-time pod status grid for all 8 pods, updated via polling
   3. Dashboard shows today's revenue, active sessions, and billing timers
   4. Dashboard shows connection status indicator reflecting cloud-to-local sync health
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 127: CI/CD Pipeline
 **Goal**: Pushing to main automatically builds and deploys all services to the VPS
@@ -1804,7 +1804,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Pushing a commit to main in GitHub triggers a GitHub Actions workflow that builds Docker images and deploys them to the VPS via SSH
   2. Failed builds do not deploy — only successful builds reach production
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 128: Health Monitoring + Alerts
 **Goal**: Container failures and resource exhaustion are detected and reported automatically via WhatsApp
@@ -1813,7 +1813,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. When a container crashes, restarts, or goes OOM, a WhatsApp alert is sent to Uday within 2 minutes
   2. Container healthchecks detect unresponsive services and trigger automatic restart
-**Plans**: TBD
+**Plans**: 1 plan
 
 ### Phase 129: Operational Hardening
 **Goal**: Production edge cases (extended outages, brute force, sync conflicts) are handled gracefully
@@ -1823,7 +1823,7 @@ Plans:
   1. During an extended internet outage, cloud bookings queue as pending_sync and local server confirms them post-reconnection without data loss
   2. Authentication endpoints (login, OTP verify, PIN entry) are rate-limited to prevent brute force attacks
   3. After connectivity is restored, pending bookings resolve within two sync cycles
-**Plans**: TBD
+**Plans**: 1 plan
 
 ## v17.0 Progress
 
@@ -2047,7 +2047,7 @@ Plans:
   1. When pod_healer detects a lock screen HTTP failure for a pod, the healer logs HealAction::RelaunchLockScreen and a ForceRelaunchBrowser message appears in the server outbound WS queue for that pod
   2. The ForceRelaunchBrowser WS message reaches the pod rc-agent and triggers close_browser + launch_browser -- the lock screen is accessible on HTTP probe within 30 seconds of the healer action
   3. RelaunchLockScreen does not conflict with an active billing session -- the healer checks billing state before dispatching (standing rule #10: recovery systems must not fight each other)
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 139-01-PLAN.md -- HealAction::RelaunchLockScreen in pod_healer.rs + ForceRelaunchBrowser in protocol.rs (HEAL-01, HEAL-02)
@@ -2062,7 +2062,7 @@ Plans:
   2. An AI response containing an action not on the whitelist (e.g. arbitrary shell command) is logged as rejected and no action is taken -- only the 5 pre-approved actions are ever executed
   3. Every executed AI action produces an activity_log entry showing the action name, source model (ollama model ID), and whether it succeeded or failed
   4. When anti-cheat safe mode is active, any AI-suggested action that kills processes is blocked and logged as blocked: safe mode active -- the protected game continues uninterrupted
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 140-01-PLAN.md -- Safe action parser in ai_debugger.rs: structured response parsing + 5-entry whitelist enum (AIACT-01, AIACT-02)
@@ -2076,7 +2076,7 @@ Plans:
   1. Every healer cycle, the WARN count for the last 5 minutes is computed from the racecontrol log and visible in healer debug logs -- the scan is observable without triggering escalation
   2. When WARN count exceeds 50 in a 5-minute window, the AI debugger receives a query with a representative log snippet -- escalation fires exactly once per threshold breach, not on every subsequent cycle
   3. When the same WARN message fires 10+ times in 5 minutes, it appears once in the AI escalation payload with a count annotation instead of 10 raw lines -- the AI receives signal, not noise
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 141-01-PLAN.md -- WARN log scanner in healer cycle: 5-min rolling window + threshold counter (WARN-01, WARN-02)
@@ -2120,11 +2120,10 @@ Fix the root cause of bugs slipping through GSD execution — 135 unit tests cau
   2. Every rule that was superseded by v18.0 or duplicated across sections is removed — rule count decreases from current baseline
   3. Every remaining rule has a one-line justification comment explaining why it exists, written so a future session can evaluate whether it is still relevant
   4. standing-rules.md and CLAUDE.md standing rules are in sync — no rule exists in one file but not the other
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 142-01-PLAN.md — Audit CLAUDE.md rules: identify categories, flag obsolete/duplicate, draft justifications (RULES-01, RULES-02, RULES-03)
-- [ ] 142-02-PLAN.md — Apply reorganization, prune, sync standing-rules.md, notify Bono via comms-link (RULES-01 through RULES-04)
+- [ ] 142-01-PLAN.md — Reorganize CLAUDE.md rules into 6 categories, prune 3 redundant rules, add justifications, sync standing-rules.md (RULES-01 through RULES-04)
 
 ### Phase 143: Integration Test Suite
 **Goal**: A single script starts real comms-link daemons on James and verifies that WS exec, chain, delegation, syntax, and contract behaviors all work end-to-end against live processes — no mocks
@@ -2136,7 +2135,7 @@ Plans:
   3. A message sent with from:james is relayed and the relay record preserves the from field exactly — no field is dropped or coerced
   4. node --check runs against all comms-link source files on both James (Windows) and verifies they would pass on Bono (Linux) — cross-platform syntax gate catches require/import mismatches before deploy
   5. Contract tests assert: chainId is passed through unmodified end-to-end, from field is preserved across all message types, MessageType enum values route to the correct handler
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 143-01-PLAN.md — Integration test scaffold: daemon start/stop harness, exec_request round-trip, from-field relay test (INTEG-01, INTEG-03)
@@ -2150,7 +2149,7 @@ Plans:
   1. Running `node test/integration.js` (or `bash test/e2e.sh`) from the comms-link repo root completes all integration tests and exits 0 on success, non-zero on failure — single-command invocation with no manual steps
   2. The GSD execute-phase verifier runs the integration test command automatically after any comms-link phase execution — the gate fires without James manually triggering it
   3. When any integration test fails, the phase cannot be marked complete in GSD — the failure is surfaced in the verifier output with the failing test name and the actual vs expected values
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 144-01-PLAN.md — Integration test entry point: single command, structured output, exit code contract (GATE-01)
