@@ -2588,7 +2588,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 173-01-PLAN.md — API boundary document (all 4 boundaries, key shapes)
+- [x] 173-01-PLAN.md — API boundary document (all 4 boundaries, key shapes)
 - [ ] 173-02-PLAN.md — shared-types package + kiosk type wiring
 - [ ] 173-03-PLAN.md — admin wiring + OpenAPI spec + Swagger UI
 - [ ] 173-04-PLAN.md — contract tests (Vitest, fixtures) + GitHub Actions CI
@@ -2626,6 +2626,6 @@ Plans:
 | 170. Repo Hygiene & Dependency Audit | 3/3 | Complete    | 2026-03-22 |
 | 171. Bug Fixes | 0/TBD | Complete    | 2026-03-22 |
 | 172. Standing Rules Sync | 3/3 | Complete    | 2026-03-22 |
-| 173. API Contracts | 0/TBD | Not started | - |
+| 173. API Contracts | 1/4 | In progress | 2026-03-23 |
 | 174. Health Monitoring & Unified Deploy | 0/TBD | Not started | - |
 | 175. E2E Validation | 0/TBD | Not started | - |

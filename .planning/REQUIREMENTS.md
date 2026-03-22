@@ -29,7 +29,7 @@
 
 ### API Contracts
 
-- [ ] **CONT-01**: All API boundaries documented (racecontrol <-> kiosk, racecontrol <-> admin, racecontrol <-> comms-link, racecontrol <-> rc-agent)
+- [x] **CONT-01**: All API boundaries documented (racecontrol <-> kiosk, racecontrol <-> admin, racecontrol <-> comms-link, racecontrol <-> rc-agent)
 - [ ] **CONT-02**: Shared TypeScript types/interfaces extracted for racecontrol <-> kiosk API communication
 - [ ] **CONT-03**: Shared TypeScript types/interfaces extracted for racecontrol <-> admin API communication
 - [ ] **CONT-04**: OpenAPI specs generated for racecontrol REST API endpoints
@@ -91,7 +91,7 @@ None — this milestone is stabilization, not feature work.
 | RULE-01 | Phase 172 | Complete |
 | RULE-02 | Phase 172 | Complete |
 | RULE-03 | Phase 172 | Complete |
-| CONT-01 | Phase 173 | Pending |
+| CONT-01 | Phase 173 | Complete |
 | CONT-02 | Phase 173 | Pending |
 | CONT-03 | Phase 173 | Pending |
 | CONT-04 | Phase 173 | Pending |

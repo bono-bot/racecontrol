@@ -1,5 +1,27 @@
 ---
 gsd_state_version: 1.0
+milestone: v21.0
+milestone_name: API Contracts & Stabilization
+status: in_progress
+stopped_at: Completed 173-01-PLAN.md
+last_updated: "2026-03-23T03:15:00+05:30"
+current_phase: 173
+current_phase_name: api-contracts
+current_plan: 01
+progress:
+  total_phases: 130
+  completed_phases: 99
+  total_plans: 234
+  completed_plans: 233
+  percent: 99
+decisions:
+  - "173-01: TypeScript-style type notation used throughout API-BOUNDARIES.md (not Rust) since all consumers are TypeScript"
+  - "173-01: comms-link relay :8766 documented as a full boundary section"
+  - "173-01: rc-agent kiosk-allowlist auth bug documented inline in API-BOUNDARIES.md"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
