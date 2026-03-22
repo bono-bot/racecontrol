@@ -38,24 +38,24 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RULES-01 | — | Pending |
-| RULES-02 | — | Pending |
-| RULES-03 | — | Pending |
-| RULES-04 | — | Pending |
-| INTEG-01 | — | Pending |
-| INTEG-02 | — | Pending |
-| INTEG-03 | — | Pending |
-| INTEG-04 | — | Pending |
-| INTEG-05 | — | Pending |
-| GATE-01 | — | Pending |
-| GATE-02 | — | Pending |
-| GATE-03 | — | Pending |
+| RULES-01 | Phase 142 | Pending |
+| RULES-02 | Phase 142 | Pending |
+| RULES-03 | Phase 142 | Pending |
+| RULES-04 | Phase 142 | Pending |
+| INTEG-01 | Phase 143 | Pending |
+| INTEG-02 | Phase 143 | Pending |
+| INTEG-03 | Phase 143 | Pending |
+| INTEG-04 | Phase 143 | Pending |
+| INTEG-05 | Phase 143 | Pending |
+| GATE-01 | Phase 144 | Pending |
+| GATE-02 | Phase 144 | Pending |
+| GATE-03 | Phase 144 | Pending |
 
 **Coverage:**
 - v18.2 requirements: 12 total
-- Mapped to phases: 0
-- Unmapped: 12
+- Mapped to phases: 12
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-22 after roadmap creation (phases 142-144 assigned)*

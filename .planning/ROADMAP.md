@@ -2094,3 +2094,74 @@ Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser r
 | 139. Healer Edge Recovery | 0/2 | Not started | - |
 | 140. AI Action Execution Whitelist | 0/2 | Not started | - |
 | 141. WARN Log Scanner | 0/2 | Not started | - |
+
+---
+
+## v18.2 Debugging & Quality Gates
+
+Fix the root cause of bugs slipping through GSD execution — 135 unit tests caught 0/8 integration bugs in v18.0. Reorganize bloated standing rules, build an integration test script that starts real daemons and verifies round-trip message flow, and wire it into GSD as a post-execution gate.
+
+> All implementation lives in `C:/Users/bono/racingpoint/comms-link` and `CLAUDE.md` standing rules.
+
+## Phases (v18.2)
+
+- [ ] **Phase 142: Rules Hygiene** - Reorganize CLAUDE.md standing rules into named categories, prune obsolete/duplicate rules, add justification comments, sync standing-rules.md (RULES-01 through RULES-04)
+- [ ] **Phase 143: Integration Test Suite** - Build comms-link integration test script: start real daemons, send WS exec/chain/delegation, verify round-trip results; cross-platform syntax check; contract tests for parameter agreements (INTEG-01 through INTEG-05)
+- [ ] **Phase 144: GSD Quality Gate** - Wire integration tests into GSD execute-phase as automatic post-execution verification; single-command invocation; failures block phase completion (GATE-01 through GATE-03)
+
+## v18.2 Phase Details
+
+### Phase 142: Rules Hygiene
+**Goal**: CLAUDE.md standing rules are organized so they are actually followed — categorized, pruned of obsolete entries, annotated with justifications, and in sync with standing-rules.md memory file
+**Depends on**: Nothing (first v18.2 phase)
+**Requirements**: RULES-01, RULES-02, RULES-03, RULES-04
+**Success Criteria** (what must be TRUE):
+  1. CLAUDE.md Standing Process Rules section has named categories (Deploy, Comms, Code Quality, Process, Debugging) and every rule falls under exactly one category
+  2. Every rule that was superseded by v18.0 or duplicated across sections is removed — rule count decreases from current baseline
+  3. Every remaining rule has a one-line justification comment explaining why it exists, written so a future session can evaluate whether it is still relevant
+  4. standing-rules.md and CLAUDE.md standing rules are in sync — no rule exists in one file but not the other
+**Plans**: TBD
+
+Plans:
+- [ ] 142-01-PLAN.md — Audit CLAUDE.md rules: identify categories, flag obsolete/duplicate, draft justifications (RULES-01, RULES-02, RULES-03)
+- [ ] 142-02-PLAN.md — Apply reorganization, prune, sync standing-rules.md, notify Bono via comms-link (RULES-01 through RULES-04)
+
+### Phase 143: Integration Test Suite
+**Goal**: A single script starts real comms-link daemons on James and verifies that WS exec, chain, delegation, syntax, and contract behaviors all work end-to-end against live processes — no mocks
+**Depends on**: Phase 142 (rules must be clean before building tests; no code dependency)
+**Requirements**: INTEG-01, INTEG-02, INTEG-03, INTEG-04, INTEG-05
+**Success Criteria** (what must be TRUE):
+  1. Running the integration test script starts a real comms-link daemon, sends an exec_request over WS, and asserts the exec_result contains correct command, stdout, exitCode, and durationMs fields
+  2. A chain_request with 2 steps completes and the chain_result carries the matching chainId plus all step outputs in the correct order
+  3. A message sent with from:james is relayed and the relay record preserves the from field exactly — no field is dropped or coerced
+  4. node --check runs against all comms-link source files on both James (Windows) and verifies they would pass on Bono (Linux) — cross-platform syntax gate catches require/import mismatches before deploy
+  5. Contract tests assert: chainId is passed through unmodified end-to-end, from field is preserved across all message types, MessageType enum values route to the correct handler
+**Plans**: TBD
+
+Plans:
+- [ ] 143-01-PLAN.md — Integration test scaffold: daemon start/stop harness, exec_request round-trip, from-field relay test (INTEG-01, INTEG-03)
+- [ ] 143-02-PLAN.md — Chain integration test + cross-platform syntax check + contract tests (INTEG-02, INTEG-04, INTEG-05)
+
+### Phase 144: GSD Quality Gate
+**Goal**: Integration tests run automatically as part of GSD phase verification — a single command invokes them and failures prevent a phase from being marked complete
+**Depends on**: Phase 143 (integration test suite must exist before it can be wired as a gate)
+**Requirements**: GATE-01, GATE-02, GATE-03
+**Success Criteria** (what must be TRUE):
+  1. Running `node test/integration.js` (or `bash test/e2e.sh`) from the comms-link repo root completes all integration tests and exits 0 on success, non-zero on failure — single-command invocation with no manual steps
+  2. The GSD execute-phase verifier runs the integration test command automatically after any comms-link phase execution — the gate fires without James manually triggering it
+  3. When any integration test fails, the phase cannot be marked complete in GSD — the failure is surfaced in the verifier output with the failing test name and the actual vs expected values
+**Plans**: TBD
+
+Plans:
+- [ ] 144-01-PLAN.md — Integration test entry point: single command, structured output, exit code contract (GATE-01)
+- [ ] 144-02-PLAN.md — Wire integration tests into GSD execute-phase verifier; failure blocks completion (GATE-02, GATE-03)
+
+## v18.2 Progress
+
+**Execution Order:** 142 -> 143 -> 144
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 142. Rules Hygiene | 0/2 | Not started | - |
+| 143. Integration Test Suite | 0/2 | Not started | - |
+| 144. GSD Quality Gate | 0/2 | Not started | - |

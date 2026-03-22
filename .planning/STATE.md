@@ -2,6 +2,27 @@
 gsd_state_version: 1.0
 milestone: v18.2
 milestone_name: Debugging & Quality Gates
+status: roadmap_ready
+stopped_at: "Roadmap created -- Phase 142 ready to plan"
+last_updated: "2026-03-22T10:00:00.000Z"
+current_phase: 142
+current_phase_name: Rules Hygiene
+progress:
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 6
+  completed_plans: 0
+  percent: 0
+decisions:
+  - "142: CLAUDE.md rules reorganized into 5 named categories before any code work"
+  - "143: Integration tests must run against real comms-link daemons, never mocks"
+  - "144: Integration test exit code directly gates GSD phase completion"
+---
+
+---
+gsd_state_version: 1.0
+milestone: v18.2
+milestone_name: Debugging & Quality Gates
 status: defining_requirements
 stopped_at: null
 last_updated: "2026-03-22T04:30:00.000Z"
