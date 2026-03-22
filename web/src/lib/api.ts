@@ -102,6 +102,78 @@ export interface LowStockItem {
   low_stock_threshold: number;
 }
 
+// ─── Cafe Promos ─────────────────────────────────────────────────────────────
+
+export type PromoType = "combo" | "happy_hour" | "gaming_bundle";
+
+// Typed config variants — avoids 'any'
+export interface ComboConfig {
+  items: Array<{ id: string; qty: number }>;
+  bundle_price_paise: number;
+}
+
+export interface HappyHourConfig {
+  discount_percent?: number;       // mutually exclusive with discount_paise
+  discount_paise?: number;
+  applies_to: "category" | "item" | "all";
+  target_ids: string[];            // category ids or item ids; empty if applies_to="all"
+}
+
+export interface GamingBundleConfig {
+  session_duration_mins: number;
+  cafe_item_ids: string[];
+  bundle_price_paise: number;
+}
+
+export type PromoConfig = ComboConfig | HappyHourConfig | GamingBundleConfig;
+
+export interface CafePromo {
+  id: string;
+  name: string;
+  promo_type: PromoType;
+  config: string;          // JSON string from backend — parse in UI with JSON.parse
+  is_active: boolean;
+  start_time: string | null;   // "HH:MM" IST for happy_hour
+  end_time: string | null;
+  stacking_group: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface CreateCafePromoRequest {
+  name: string;
+  promo_type: PromoType;
+  config: PromoConfig;
+  is_active?: boolean;
+  start_time?: string | null;
+  end_time?: string | null;
+  stacking_group?: string | null;
+}
+
+export interface UpdateCafePromoRequest {
+  name?: string;
+  config?: PromoConfig;
+  is_active?: boolean;
+  start_time?: string | null;
+  end_time?: string | null;
+  stacking_group?: string | null;
+}
+
+export const listCafePromos = () =>
+  fetchApi<CafePromo[]>("/cafe/promos");
+
+export const createCafePromo = (data: CreateCafePromoRequest) =>
+  fetchApi<CafePromo>("/cafe/promos", { method: "POST", body: JSON.stringify(data) });
+
+export const updateCafePromo = (id: string, data: UpdateCafePromoRequest) =>
+  fetchApi<CafePromo>(`/cafe/promos/${id}`, { method: "PUT", body: JSON.stringify(data) });
+
+export const deleteCafePromo = (id: string) =>
+  fetchApi<void>(`/cafe/promos/${id}`, { method: "DELETE" });
+
+export const toggleCafePromo = (id: string) =>
+  fetchApi<CafePromo>(`/cafe/promos/${id}/toggle`, { method: "POST", body: JSON.stringify({}) });
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
