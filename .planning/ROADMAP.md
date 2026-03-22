@@ -2001,7 +2001,8 @@ Plans:
 Close 6 architectural gaps that prevented the system from self-healing when Edge died or stacked on pods. Add browser watchdog, continuous idle health checks, AI debugger action execution, healer-driven Edge recovery via WS protocol, and proactive WARN log scanning.
 
 - [x] **Phase 137: Browser Watchdog** - rc-agent polls browser_process liveness every 30s, detects Edge stacking (>5 processes), and kills all before relaunch; close_browser() purges all msedge and WebView2 processes; watchdog suppressed during anti-cheat safe mode (completed 2026-03-22)
-- [x] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions (completed 2026-03-22)
+- [x] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions
+ (completed 2026-03-22)
 - [x] **Phase 139: Healer Edge Recovery** - Pod healer adds HealAction::RelaunchLockScreen for failed lock screen HTTP checks; healer sends ForceRelaunchBrowser WS message to pod; rc-agent handles ForceRelaunchBrowser via close_browser + launch_browser (completed 2026-03-22)
 - [x] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
 - [x] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation (completed 2026-03-22)
@@ -2450,11 +2451,11 @@ Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that
   2. Every restart, kill, and WoL decision is written to a recovery log (timestamp, machine, process, authority, reason) — an operator can read the log and understand why any recovery fired
   3. When 3+ recovery actions fire across any systems within 60 seconds, all automated recovery pauses and Uday receives a WhatsApp alert with the cascade summary — the system never silently spirals
   4. The anti-cascade guard distinguishes normal multi-pod recovery bursts (server downtime → all 8 pods restart) from true cascade scenarios — server-down restarts do not falsely trigger the guard
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 159-01: TBD
-- [ ] 159-02: TBD
+- [ ] 159-01-PLAN.md — rc-common recovery contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger)
+- [ ] 159-02-PLAN.md — CascadeGuard wired into AppState and pod_healer
 
 ### Phase 160: RC-Sentry AI Migration
 **Goal**: rc-sentry stops blindly restarting rc-agent and instead checks pattern memory, distinguishes graceful restarts from real crashes, escalates to Ollama for unknown patterns, and logs every decision — blind 5s health poll + restart loop replaced end-to-end
