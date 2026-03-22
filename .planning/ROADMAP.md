@@ -2234,11 +2234,9 @@ Plans:
   1. Staff can open /cameras in the web dashboard at :3200 and see the same 13-camera grid with layout controls, drag-to-rearrange, and WebRTC fullscreen — no features are missing compared to cameras.html
   2. A layout change made at :8096 (cameras.html) is reflected when /cameras at :3200 is opened — server-side camera-layout.json is the shared source of truth for both deployments
   3. Next.js hydration completes without mismatch errors — localStorage is only read inside useEffect with a hydrated flag, never in a useState initializer
-**Plans**: 3 plans
+**Plans**: 1 plan
 Plans:
-- [ ] 147-01-PLAN.md — Core HTML structure + CSS grid layout modes + status indicators + snapshot polling
-- [ ] 147-02-PLAN.md — Drag-to-rearrange + zone grouping + layout persistence
-- [ ] 147-03-PLAN.md — WebRTC fullscreen + singleton + pre-warm + loading state
+- [ ] 148-01-PLAN.md — Complete page.tsx rewrite with all 12 camera dashboard features (layouts, drag, zones, WebRTC, pre-warm)
 
 ## v16.1 Progress
 
