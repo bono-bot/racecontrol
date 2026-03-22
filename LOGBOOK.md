@@ -598,3 +598,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 21:02 IST | James | 501612e1 | feat(151-02): /cafe page — 2-col item cards grouped by category, filter pills, image fallback, Rs. price formatting |
 | 2026-03-22 21:05 IST | James | 9b35e3f3 | docs(151-02): 151-02-SUMMARY.md + STATE.md progress 200/205 + ROADMAP.md phase 151 Complete |
 | 2026-03-22 19:15 IST | James | 287591b7 | feat(159-01): add recovery authority contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger) to rc-common |
+| 2026-03-22 19:30 IST | James | 73a8c901 | feat(152-01): add inventory columns migration + CafeItem struct update (is_countable, stock_quantity, low_stock_threshold) — all SELECT/INSERT queries updated |
+| 2026-03-22 19:52 IST | James | f980d39f | feat(152-01): add restock endpoint POST /cafe/items/{id}/restock + fix test schema for inventory columns — all 15 cafe tests pass |

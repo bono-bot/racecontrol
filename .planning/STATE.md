@@ -2,14 +2,22 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: not_started
-stopped_at: Completed 151-02-PLAN.md
-last_updated: "2026-03-22T13:45:34.289Z"
+status: in_progress
+stopped_at: "Completed 152-01-PLAN.md"
+last_updated: "2026-03-22T19:52:00+05:30"
+current_phase: 152
+current_phase_name: Inventory Tracking
+current_plan: 02
 progress:
   total_phases: 124
   completed_phases: 85
-  total_plans: 205
-  completed_plans: 201
+  total_plans: 207
+  completed_plans: 202
+  percent: 98
+decisions:
+  - "152-01: is_countable defaults to false — inventory tracking is opt-in per item"
+  - "152-01: Restock returns 200+JSON error for non-countable items (not 400) to distinguish item-found-but-not-trackable"
+  - "152-01: stock_quantity = stock_quantity + ? uses atomic SQL to avoid concurrent restock race conditions"
 ---
 
 ---
