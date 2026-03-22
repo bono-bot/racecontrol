@@ -40,10 +40,21 @@ pub fn mjpeg_router(state: Arc<MjpegState>) -> axum::Router {
         .allow_headers(Any);
 
     axum::Router::new()
+        .route("/cameras", get(cameras_page_handler))
         .route("/api/v1/cameras", get(cameras_list_handler))
         .route("/api/v1/cameras/:name/stream", get(mjpeg_stream_handler))
         .with_state(state)
         .layer(cors)
+}
+
+/// GET /cameras -- serves the all-cameras dashboard page.
+async fn cameras_page_handler() -> Response {
+    const HTML: &str = include_str!("../cameras.html");
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(HTML))
+        .expect("valid response")
 }
 
 /// GET /api/v1/cameras -- returns JSON list of configured cameras with stream URLs and status.
