@@ -2410,8 +2410,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 158-01: TBD
-- [ ] 158-02: TBD
+- [ ] 158-01-PLAN.md — Backend: satori PNG generation API route (Next.js) + Rust broadcast endpoint with 24h rate limit
+- [ ] 158-02-PLAN.md — Admin UI: Marketing tab on /cafe page with Generate Graphic buttons per promo and WhatsApp broadcast form
 
 ## v19.0 Progress
 
