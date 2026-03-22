@@ -25,7 +25,23 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Incident trigger:** 2026-03-22 — Pod 6/7 had 25 stacked Edge processes (uncentered blanking), Pod 1 showed Instagram. System detected issues but couldn't self-heal.
 
-## Current Milestone: v18.1 Seamless Execution Hardening
+## Current Milestone: v18.2 Debugging & Quality Gates
+
+**Goal:** Fix the root cause of bugs slipping through GSD execution — 135 unit tests caught 0/8 integration bugs in v18.0. Reorganize bloated standing rules, build an integration test script that starts real daemons and verifies round-trip message flow, and wire it into GSD as a post-execution gate.
+
+**Target features:**
+- CLAUDE.md standing rules reorganized into categories (process, deploy, comms, code quality) with pruning of obsolete/duplicate rules
+- Comms-link integration test script: start daemon → send real WS exec/chain/delegation → verify results
+- Cross-platform syntax check (node --check on both James + Bono) as pre-deploy gate
+- Contract tests for caller/callee parameter agreements (chainId passthrough, from field, message types)
+- Wire integration tests into GSD execute-phase as automatic post-execution verification
+
+**Constraints:**
+- Integration tests must run against real comms-link daemons (not mocks)
+- Must not require manual intervention — fully automated gate
+- Rules cleanup must preserve all still-valid rules, just reorganize
+
+## Shipped Milestone: v18.1 Seamless Execution Hardening
 
 **Goal:** Fix the 3 critical reliability gaps found in v18.0 deployment: James daemon has no auto-recovery (crash/reboot = permanent relay outage), chain HTTP endpoint broken (chain_result not routed to broker), and no visibility when relay is down.
 

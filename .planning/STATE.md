@@ -1,5 +1,19 @@
 ---
 gsd_state_version: 1.0
+milestone: v18.2
+milestone_name: Debugging & Quality Gates
+status: defining_requirements
+stopped_at: null
+last_updated: "2026-03-22T04:30:00.000Z"
+progress:
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: roadmap_ready
