@@ -95,6 +95,13 @@ export interface CreateCafeItemRequest {
   low_stock_threshold?: number;
 }
 
+export interface LowStockItem {
+  id: string;
+  name: string;
+  stock_quantity: number;
+  low_stock_threshold: number;
+}
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -320,6 +327,7 @@ export const api = {
       body: JSON.stringify({ quantity }),
     }),
   listCafeCategories: () => fetchApi<{ categories: CafeCategory[] }>("/cafe/categories"),
+  listLowStockItems: () => fetchApi<{ items: LowStockItem[] }>("/cafe/items/low-stock"),
   createCafeCategory: (name: string, sort_order?: number) =>
     fetchApi<{ id: string; name: string }>("/cafe/categories", {
       method: "POST",
