@@ -2539,7 +2539,11 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
   3. Every active repo returns consistent git user.name/email and has a .gitignore that excludes build artifacts, node_modules, and secrets
   4. npm audit on all Node.js repos shows zero high/critical vulnerabilities, or each vulnerability is documented with an upgrade-or-defer decision
   5. cargo audit on all Rust crates shows zero vulnerabilities, or each is documented with an upgrade-or-defer decision
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 170-01-PLAN.md — Archive dead repos and catalogue non-git folders
+- [ ] 170-02-PLAN.md — Normalize git config and .gitignore across active repos
+- [ ] 170-03-PLAN.md — Audit npm and cargo dependencies for vulnerabilities
 
 ### Phase 171: Bug Fixes
 **Goal**: All 4 known bugs blocking daily operations are patched and deployed across all 8 pods and the server
@@ -2605,7 +2609,7 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 170. Repo Hygiene & Dependency Audit | 0/TBD | Not started | - |
+| 170. Repo Hygiene & Dependency Audit | 0/3 | Planned | - |
 | 171. Bug Fixes | 0/TBD | Not started | - |
 | 172. Standing Rules Sync | 0/TBD | Not started | - |
 | 173. API Contracts | 0/TBD | Not started | - |
