@@ -1011,7 +1011,7 @@ pub struct PlaceOrderResponse {
     pub items: Vec<OrderItemDetail>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrderItemDetail {
     pub item_id: String,
     pub name: String,
@@ -1293,6 +1293,38 @@ pub async fn place_cafe_order_inner(
         }
     }
 
+    // ── Step L: Send WhatsApp receipt (fire-and-forget) ───────────────────────
+    {
+        let state_l = state.clone();
+        let driver_id = req.driver_id.clone();
+        let receipt_number_l = receipt_number.clone();
+        let items_for_wa = order_item_details.clone();
+        let total = total_paise;
+        let balance = new_balance;
+        tokio::spawn(async move {
+            send_order_receipt_whatsapp(&state_l, &driver_id, &receipt_number_l, &items_for_wa, total, balance).await;
+        });
+    }
+
+    // ── Step M: Print thermal receipt (fire-and-forget) ──────────────────────
+    {
+        let state_m = state.clone();
+        let receipt_number_m = receipt_number.clone();
+        let items_for_print = order_item_details.clone();
+        let total = total_paise;
+        // Fetch customer name best-effort — empty string is acceptable
+        let customer_name = sqlx::query_scalar::<_, String>("SELECT COALESCE(name, '') FROM drivers WHERE id = ?")
+            .bind(&req.driver_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tokio::spawn(async move {
+            print_thermal_receipt(&state_m, &receipt_number_m, &items_for_print, total, &customer_name).await;
+        });
+    }
+
     // ── Step K: Return response ───────────────────────────────────────────────
     tracing::info!(
         "Cafe order placed: {} receipt={} driver={} total={}p",
@@ -1345,6 +1377,245 @@ pub async fn place_cafe_order_customer(
 
     req.driver_id = driver_id;
     place_cafe_order_inner(&state, req).await
+}
+
+// ─── Post-Order Side Effects ──────────────────────────────────────────────────
+
+/// Send a WhatsApp order confirmation receipt to the customer's phone.
+/// Fire-and-forget: all errors are logged as warnings, never propagated.
+async fn send_order_receipt_whatsapp(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    receipt_number: &str,
+    items: &[OrderItemDetail],
+    total_paise: i64,
+    new_balance_paise: i64,
+) {
+    let config = &state.config;
+    let db = &state.db;
+
+    if !config.alerting.enabled {
+        tracing::debug!(target: "cafe", "WA alerting disabled, skipping receipt for driver {}", driver_id);
+        return;
+    }
+
+    // Fetch driver phone
+    let phone_opt: Option<Option<String>> = sqlx::query_scalar("SELECT phone FROM drivers WHERE id = ?")
+        .bind(driver_id)
+        .fetch_optional(db)
+        .await
+        .ok();
+
+    let phone = match phone_opt.flatten() {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => {
+            tracing::warn!(target: "cafe", "No phone for driver {}, skipping WA receipt", driver_id);
+            return;
+        }
+    };
+
+    let (evo_url, evo_key, evo_instance) = match (
+        &config.auth.evolution_url,
+        &config.auth.evolution_api_key,
+        &config.auth.evolution_instance,
+    ) {
+        (Some(url), Some(key), Some(inst)) => (url, key, inst),
+        _ => {
+            tracing::warn!(target: "cafe", "Evolution API not configured, skipping WA receipt for {}", receipt_number);
+            return;
+        }
+    };
+
+    let ist = chrono::Utc::now()
+        .with_timezone(&chrono_tz::Asia::Kolkata)
+        .format("%d %b %Y %H:%M IST")
+        .to_string();
+
+    let mut items_text = String::new();
+    for item in items {
+        items_text.push_str(&format!(
+            "  {} x{}  Rs.{}\n",
+            item.name,
+            item.quantity,
+            item.line_total_paise / 100
+        ));
+    }
+
+    let message = format!(
+        "[Racing Point Cafe] Order Confirmed!\nReceipt: {}\n{}\n\n{}
+Total: Rs.{}\nBalance: Rs.{}\n\nThank you! Your order is being prepared.",
+        receipt_number,
+        ist,
+        items_text,
+        total_paise / 100,
+        new_balance_paise / 100
+    );
+
+    let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+    let body = serde_json::json!({ "number": phone, "text": message });
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(target: "cafe", "Failed to build HTTP client for WA receipt: {}", e);
+            return;
+        }
+    };
+
+    match client
+        .post(&url)
+        .header("apikey", evo_key.as_str())
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!(target: "cafe", "WA receipt sent for order {} to driver {}", receipt_number, driver_id);
+        }
+        Ok(resp) => {
+            tracing::warn!(target: "cafe", "Evolution API returned {} for WA receipt {}", resp.status(), receipt_number);
+        }
+        Err(e) => {
+            tracing::warn!(target: "cafe", "WA receipt send failed for {}: {}", receipt_number, e);
+        }
+    }
+}
+
+/// Print a thermal receipt via a Node.js script (fire-and-forget).
+/// Skipped silently if print_script_path is not configured.
+async fn print_thermal_receipt(
+    state: &Arc<AppState>,
+    receipt_number: &str,
+    items: &[OrderItemDetail],
+    total_paise: i64,
+    customer_name: &str,
+) {
+    let config = &state.config;
+    let script_path = match &config.cafe.print_script_path {
+        Some(p) => p.clone(),
+        None => {
+            tracing::debug!(target: "cafe", "Thermal print skipped: print_script_path not configured");
+            return;
+        }
+    };
+
+    let ist = chrono::Utc::now()
+        .with_timezone(&chrono_tz::Asia::Kolkata)
+        .format("%d %b %Y %H:%M IST")
+        .to_string();
+
+    let mut items_text = String::new();
+    for item in items {
+        items_text.push_str(&format!(
+            "{}\n  {} x Rs.{} = Rs.{}\n",
+            item.name,
+            item.quantity,
+            item.unit_price_paise / 100,
+            item.line_total_paise / 100
+        ));
+    }
+
+    let receipt_text = format!(
+        "================================\n    RACING POINT CAFE\n================================\nReceipt: {}\n{}\nCustomer: {}\n--------------------------------\n{}--------------------------------\nTOTAL: Rs.{}\n================================\n     Thank you!\n================================",
+        receipt_number,
+        ist,
+        customer_name,
+        items_text,
+        total_paise / 100
+    );
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::process::Command::new("node")
+            .arg(&script_path)
+            .arg(&receipt_text)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    {
+        Ok(Ok(output)) => {
+            if output.status.success() {
+                tracing::info!(target: "cafe", "Thermal receipt printed for {}", receipt_number);
+            } else {
+                tracing::warn!(
+                    target: "cafe",
+                    "Print script exited with non-zero status for {}: {}",
+                    receipt_number,
+                    output.status
+                );
+            }
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(target: "cafe", "Print script failed to launch for {}: {}", receipt_number, e);
+        }
+        Err(_) => {
+            tracing::warn!(target: "cafe", "Thermal print timed out for {}", receipt_number);
+        }
+    }
+}
+
+/// GET /customer/cafe/orders/history
+/// Returns the authenticated customer's cafe order history as JSON.
+pub async fn list_customer_orders(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let driver_id = crate::auth::verify_jwt(
+        headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .unwrap_or(""),
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": e })),
+        )
+    })?;
+
+    let rows: Vec<(String, String, String, i64, String, String)> = sqlx::query_as(
+        "SELECT id, receipt_number, items, total_paise, status, created_at
+         FROM cafe_orders
+         WHERE driver_id = ?
+         ORDER BY created_at DESC",
+    )
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::warn!(target: "cafe", "list_customer_orders DB error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to fetch orders" })),
+        )
+    })?;
+
+    let orders: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, receipt_number, items_json, total_paise, status, created_at)| {
+            let items: Vec<OrderItemDetail> = serde_json::from_str(&items_json)
+                .unwrap_or_else(|e| {
+                    tracing::warn!(target: "cafe", "Failed to parse items for order {}: {}", id, e);
+                    Vec::new()
+                });
+            serde_json::json!({
+                "id": id,
+                "receipt_number": receipt_number,
+                "items": items,
+                "total_paise": total_paise,
+                "status": status,
+                "created_at": created_at,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "orders": orders })))
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

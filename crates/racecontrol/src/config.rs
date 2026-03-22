@@ -31,6 +31,8 @@ pub struct Config {
     pub alerting: AlertingConfig,
     #[serde(default)]
     pub process_guard: ProcessGuardConfig,
+    #[serde(default)]
+    pub cafe: CafeConfig,
 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
@@ -351,6 +353,17 @@ pub struct AlertingConfig {
 
 fn default_alert_cooldown() -> u64 { 1800 }
 
+// ─── Cafe Config ─────────────────────────────────────────────────────────────
+
+/// Configuration for cafe-related features.
+#[derive(Debug, Default, Deserialize)]
+pub struct CafeConfig {
+    /// Path to the Node.js thermal receipt print script.
+    /// If None, thermal printing is silently skipped.
+    #[serde(default)]
+    pub print_script_path: Option<String>,
+}
+
 // ─── Process Guard Config ──────────────────────────────────────────────────
 
 /// A single allowed process entry in the whitelist.
@@ -540,6 +553,7 @@ impl Config {
             monitoring: MonitoringConfig::default(),
             alerting: AlertingConfig::default(),
             process_guard: ProcessGuardConfig::default(),
+            cafe: CafeConfig::default(),
         }
     }
 
