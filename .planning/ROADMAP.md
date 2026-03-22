@@ -2436,7 +2436,8 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that detects patterns, escalates intelligently, and never causes more problems than it solves. Single recovery authority per machine, no fighting between systems.
 
 - [x] **Phase 159: Recovery Consolidation Foundation** - Single recovery authority per machine, decision logging, and anti-cascade guard to prevent recovery systems fighting each other (completed 2026-03-22)
-- [x] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection (completed 2026-03-22)
+- [x] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection
+ (completed 2026-03-22)
 - [ ] **Phase 161: Pod Monitor Merge** - Merge pod_monitor into pod_healer as single recovery authority with billing-aware WoL and graduated response
 - [ ] **Phase 162: James Watchdog Migration** - Replace james_watchdog.ps1 with Rust-based AI monitor using pattern memory, graduated response, and Bono escalation
 
@@ -2481,11 +2482,11 @@ Plans:
   2. There is one code path for pod recovery (pod_healer) — the old pod_monitor restart logic is deleted and cargo grep finds no duplicate restart triggers
   3. A first pod failure waits 30 seconds before any action; second failure triggers Tier 1 fix (rc-agent service restart); third failure escalates to AI; fourth failure alerts staff — the graduated response is observable in the recovery log
   4. Staff can observe the current recovery tier for any pod from the fleet health dashboard — the dashboard shows "waiting / Tier 1 / AI escalation / staff alert" state per pod
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 161-01: TBD
-- [ ] 161-02: TBD
+- [ ] 161-01-PLAN.md — Graduated recovery tracker + billing/maintenance gate (PMON-01, PMON-03)
+- [ ] 161-02-PLAN.md — Strip restart/WoL from pod_monitor, single recovery authority (PMON-02)
 
 ### Phase 162: James Watchdog Migration
 **Goal**: james_watchdog.ps1 is replaced by a Rust binary that monitors Ollama, Claude Code, comms-link, and webterm with pattern memory and graduated response — blind 2-minute PowerShell restart loop eliminated, Bono is alerted on repeated failures instead of silent restarts continuing indefinitely
