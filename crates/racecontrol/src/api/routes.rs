@@ -94,6 +94,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/public/championships/{id}", get(public_championship_standings))
         // Cafe menu (customer-facing, no auth)
         .route("/cafe/menu", get(cafe::public_menu))
+        // Cafe promos (customer-facing, no auth — PROMO-05)
+        .route("/cafe/promos/active", get(cafe_promos::list_active_promos))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
