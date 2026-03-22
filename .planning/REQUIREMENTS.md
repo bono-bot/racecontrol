@@ -7,8 +7,8 @@
 
 ### Repo Hygiene
 
-- [ ] **REPO-01**: Dead repos (game-launcher, ac-launcher, conspit-link) are archived with README noting "Archived — code merged into racecontrol"
-- [ ] **REPO-02**: Non-git folders (bat-sandbox, computer-use, glitch-frames, marketing, serve, voice-assistant) are catalogued and archived or deleted
+- [x] **REPO-01**: Dead repos (game-launcher, ac-launcher, conspit-link) are archived with README noting "Archived — code merged into racecontrol"
+- [x] **REPO-02**: Non-git folders (bat-sandbox, computer-use, glitch-frames, marketing, serve, voice-assistant) are catalogued and archived or deleted
 - [x] **REPO-03**: All active repos have consistent git config (user.name, user.email) and .gitignore
 - [ ] **REPO-04**: Every active repo has latest code built and deployed to its target environment
 - [ ] **REPO-05**: Every deployed service verified running at runtime (API responds, UI renders) — not just compiled
@@ -79,8 +79,8 @@ None — this milestone is stabilization, not feature work.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REPO-01 | Phase 170 | Pending |
-| REPO-02 | Phase 170 | Pending |
+| REPO-01 | Phase 170 | Complete |
+| REPO-02 | Phase 170 | Complete |
 | REPO-03 | Phase 170 | Complete |
 | REPO-04 | Phase 174 | Pending |
 | REPO-05 | Phase 174 | Pending |
