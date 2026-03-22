@@ -629,29 +629,67 @@ impl LockScreenManager {
                 .spawn()
             {
                 Ok(child) => {
+                    let child_pid = child.id();
                     self.browser_process = Some(child);
                     tracing::info!(
                         target: LOG_TARGET,
-                        "Lock screen browser launched at {} using {} (virtual screen: {}x{} at {},{})",
-                        url, edge_path, vw, vh, vx, vy
+                        "Lock screen browser launched at {} using {} pid={} (virtual screen: {}x{} at {},{})",
+                        url, edge_path, child_pid, vw, vh, vx, vy
                     );
                     // Edge --kiosk ignores --window-size on some multi-monitor setups.
                     // Force the window to cover the full virtual screen after launch.
-                    if use_window_sizing {
+                    // Uses EnumWindows + GetWindowThreadProcessId to find OUR Edge window,
+                    // not FindWindowA which grabs ConspitLink WebView2 windows.
+                    {
                         let (fx, fy, fw, fh) = (vx, vy, vw, vh);
                         std::thread::spawn(move || {
                             // Wait for Edge to create its window
                             std::thread::sleep(std::time::Duration::from_secs(3));
+
                             unsafe extern "system" {
-                                fn FindWindowA(class: *const u8, title: *const u8) -> isize;
                                 fn MoveWindow(hwnd: isize, x: i32, y: i32, w: i32, h: i32, repaint: i32) -> i32;
+                                fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
+                                fn EnumWindows(callback: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
+                                fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
+                                fn GetClassNameA(hwnd: isize, buf: *mut u8, max: i32) -> i32;
+                                fn IsWindowVisible(hwnd: isize) -> i32;
                             }
-                            let hwnd = unsafe { FindWindowA(b"Chrome_WidgetWin_1\0".as_ptr(), std::ptr::null()) };
+
+                            // Collect all Chrome_WidgetWin_1 windows belonging to our Edge PID
+                            static mut FOUND_HWND: isize = 0;
+                            static mut TARGET_PID: u32 = 0;
+
+                            unsafe extern "system" fn enum_cb(hwnd: isize, _: isize) -> i32 {
+                                let mut pid: u32 = 0;
+                                GetWindowThreadProcessId(hwnd, &mut pid);
+                                if pid == TARGET_PID && IsWindowVisible(hwnd) != 0 {
+                                    let mut class_buf = [0u8; 64];
+                                    let len = GetClassNameA(hwnd, class_buf.as_mut_ptr(), 64);
+                                    if len > 0 {
+                                        let class = std::str::from_utf8_unchecked(&class_buf[..len as usize]);
+                                        if class == "Chrome_WidgetWin_1" {
+                                            FOUND_HWND = hwnd;
+                                            return 0; // stop enumerating
+                                        }
+                                    }
+                                }
+                                1 // continue
+                            }
+
+                            unsafe {
+                                TARGET_PID = child_pid;
+                                FOUND_HWND = 0;
+                                EnumWindows(enum_cb, 0);
+                            }
+
+                            let hwnd = unsafe { FOUND_HWND };
                             if hwnd != 0 {
+                                // SW_MAXIMIZE = 3 — force fullscreen in case --kiosk didn't work
+                                unsafe { ShowWindow(hwnd, 3); }
                                 let ok = unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1) };
-                                tracing::info!(target: LOG_TARGET, "MoveWindow(Edge, {},{},{},{}) = {}", fx, fy, fw, fh, ok);
+                                tracing::info!(target: LOG_TARGET, "MoveWindow(Edge pid={}, hwnd={}, {},{},{},{}) = {}", child_pid, hwnd, fx, fy, fw, fh, ok);
                             } else {
-                                tracing::warn!(target: LOG_TARGET, "Edge window not found for MoveWindow resize");
+                                tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — MoveWindow skipped", child_pid);
                             }
                         });
                     }
@@ -1101,7 +1139,13 @@ fn render_disconnected_page() -> String {
 <div class="msg">Reconnecting to Race Control...</div>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
 </div>
-<script>setTimeout(function(){location.reload()},3000)</script>"#,
+<script>
+setInterval(function(){
+    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+        if (d.status !== 'degraded') location.reload();
+    }).catch(function(){});
+}, 3000);
+</script>"#,
     )
 }
 
@@ -1119,7 +1163,13 @@ fn render_startup_connecting_page() -> String {
     100% { transform: rotate(360deg); }
 }
 </style>
-<script>setTimeout(function(){location.reload()},3000)</script>"#,
+<script>
+setInterval(function(){
+    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+        if (d.status !== 'degraded') location.reload();
+    }).catch(function(){});
+}, 3000);
+</script>"#,
     )
 }
 
@@ -1164,7 +1214,7 @@ fn render_lockdown_page(message: &str) -> String {
 <div style="margin-top:10px;font-size:0.8em;color:#333">Enter employee PIN to unlock.</div>
 </div>
 <style>@keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.6 }} }}</style>
-<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
             escaped
         ),
     )
@@ -1187,7 +1237,7 @@ fn render_maintenance_required_page(failures: &[String]) -> String {
 </ul>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">This pod will automatically recover once the issue is resolved.</div>
 </div>
-<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
             failure_items = failure_items,
         ),
     )
@@ -1394,7 +1444,7 @@ fn render_between_sessions_page(
 <p style="font-size:20px;color:#ccc;margin-top:20px">Staff will set up your next race — sit tight!</p>
 <p style="font-size:14px;color:#666;margin-top:30px">This pod will return to idle in 5 minutes if no new session is started.</p>
 </div>
-<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
         driver = html_escape(driver_name),
         current = current_split_number,
         total = total_splits,
@@ -1418,7 +1468,7 @@ fn render_assistance_page(driver_name: &str, message: &str) -> String {
 </div>
 <p style="font-size:16px;color:#999;margin-top:30px">Please wait — a team member will be with you shortly.</p>
 </div>
-<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
         driver = html_escape(driver_name),
         msg = html_escape(message),
     );
@@ -2337,8 +2387,14 @@ const BLANK_PIN_PAGE: &str = r#"<style>
     document.getElementById('clearBtn').addEventListener('click', clearAll);
     document.getElementById('bkspBtn').addEventListener('click', backspace);
 
-    // Auto-reload every 3s to pick up state changes (e.g. session start)
-    setTimeout(function(){ location.reload(); }, 3000);
+    // Smart reload — only when state changes (avoids black flash flicker)
+    setInterval(function(){
+        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+            if (d.status !== document._lastStatus) location.reload();
+            document._lastStatus = d.status;
+        }).catch(function(){});
+    }, 3000);
+    document._lastStatus = 'ok';
 })();
 </script>"#;
 
@@ -2346,7 +2402,15 @@ const QR_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
 <div class="session-info">{{TIER_NAME}} &mdash; {{MINUTES}} minutes</div>
 <div class="qr-box">{{QR_SVG}}</div>
 <div class="hint">Scan the QR code with your phone to start your session</div>
-<script>setTimeout(function(){location.reload()},5000)</script>"#;
+<script>
+setInterval(function(){
+    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+        if (d.status !== document._lastStatus) location.reload();
+        document._lastStatus = d.status;
+    }).catch(function(){});
+}, 5000);
+document._lastStatus = 'ok';
+</script>"#;
 
 const ACTIVE_SESSION_PAGE: &str = r#"<style>
 .timer-display {
@@ -2470,8 +2534,14 @@ const ACTIVE_SESSION_PAGE: &str = r#"<style>
 
     update();
     setInterval(function(){ if (rem > 0) rem--; update(); }, 1000);
-    // Reload periodically to sync with server state (session end, etc.)
-    setTimeout(function(){ location.reload(); }, 30000);
+    // Smart reload — only when state changes (session end, etc.)
+    setInterval(function(){
+        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+            if (d.status !== document._ls) location.reload();
+            document._ls = d.status;
+        }).catch(function(){});
+    }, 10000);
+    document._ls = 'ok';
 })();
 </script>"#;
 
