@@ -545,3 +545,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 10:15 IST | James | e811db7 | feat(138): add idle_health_fail_count + idle_health_failures to FleetHealthStore and PodFleetStatus |
 | 2026-03-22 10:20 IST | James | 825a0a3 | feat(138-03): handle AgentMessage::IdleHealthFailed in server WS handler |
 | 2026-03-22 10:13 IST | James | 8d545f5 | docs(142-01): reorganize standing rules into 6 categories with justifications — Deploy, Comms, Code Quality, Process, Debugging, Security |
+| 2026-03-22 10:32 IST | James | 4e446a2 | docs(142-01): complete rules hygiene plan SUMMARY STATE ROADMAP REQUIREMENTS |
