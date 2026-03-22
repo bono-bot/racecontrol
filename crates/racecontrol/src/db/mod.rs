@@ -2461,6 +2461,19 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // Phase 157: promo columns on cafe_orders
+    let _ = sqlx::query(
+        "ALTER TABLE cafe_orders ADD COLUMN applied_promo_id TEXT"
+    )
+    .execute(pool)
+    .await;
+
+    let _ = sqlx::query(
+        "ALTER TABLE cafe_orders ADD COLUMN discount_paise INTEGER NOT NULL DEFAULT 0"
+    )
+    .execute(pool)
+    .await;
+
     // cafe_promos table (Phase 156: promotions engine)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS cafe_promos (
