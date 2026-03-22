@@ -3,6 +3,20 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
+stopped_at: "Completed 155-02-PLAN.md (checkpoint: awaiting human verify)"
+last_updated: "2026-03-22T17:09:22.431Z"
+progress:
+  total_phases: 124
+  completed_phases: 93
+  total_plans: 220
+  completed_plans: 217
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
 stopped_at: "Completed 155-02-PLAN.md"
 last_updated: "2026-03-22T17:30:00+05:30"
 progress:
