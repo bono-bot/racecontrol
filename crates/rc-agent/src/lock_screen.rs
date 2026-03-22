@@ -1138,14 +1138,7 @@ fn render_disconnected_page() -> String {
 <div style="font-family:Enthocentric,sans-serif;font-size:2em;color:#E10600;margin-bottom:20px">CONNECTION LOST</div>
 <div class="msg">Reconnecting to Race Control...</div>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
-</div>
-<script>
-setInterval(function(){
-    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-        if (d.status !== 'degraded') location.reload();
-    }).catch(function(){});
-}, 3000);
-</script>"#,
+</div>"#,
     )
 }
 
@@ -1162,14 +1155,7 @@ fn render_startup_connecting_page() -> String {
     0%   { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-</style>
-<script>
-setInterval(function(){
-    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-        if (d.status !== 'degraded') location.reload();
-    }).catch(function(){});
-}, 3000);
-</script>"#,
+</style>"#,
     )
 }
 
@@ -1214,7 +1200,7 @@ fn render_lockdown_page(message: &str) -> String {
 <div style="margin-top:10px;font-size:0.8em;color:#333">Enter employee PIN to unlock.</div>
 </div>
 <style>@keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.6 }} }}</style>
-<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
+"#,
             escaped
         ),
     )
@@ -1237,7 +1223,7 @@ fn render_maintenance_required_page(failures: &[String]) -> String {
 </ul>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">This pod will automatically recover once the issue is resolved.</div>
 </div>
-<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
+"#,
             failure_items = failure_items,
         ),
     )
@@ -1246,17 +1232,7 @@ fn render_maintenance_required_page(failures: &[String]) -> String {
 fn render_idle_page(wallpaper_url: Option<&str>) -> String {
     page_shell_with_bg(
         "Racing Point",
-        r#"<div class="msg">Session not active — please see the front desk.</div>
-<script>
-(function(){
-    var tag = document.title;
-    setInterval(function(){
-        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-            if (d.status !== 'degraded') location.reload();
-        }).catch(function(){});
-    }, 5000);
-})();
-</script>"#,
+        r#"<div class="msg">Session not active — please see the front desk.</div>"#,
         wallpaper_url,
     )
 }
@@ -1444,7 +1420,7 @@ fn render_between_sessions_page(
 <p style="font-size:20px;color:#ccc;margin-top:20px">Staff will set up your next race — sit tight!</p>
 <p style="font-size:14px;color:#666;margin-top:30px">This pod will return to idle in 5 minutes if no new session is started.</p>
 </div>
-<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
+"#,
         driver = html_escape(driver_name),
         current = current_split_number,
         total = total_splits,
@@ -1468,7 +1444,7 @@ fn render_assistance_page(driver_name: &str, message: &str) -> String {
 </div>
 <p style="font-size:16px;color:#999;margin-top:30px">Please wait — a team member will be with you shortly.</p>
 </div>
-<script>setInterval(function(){{fetch('/health').then(function(r){{return r.json()}}).then(function(d){{if(d.status!==document._ls)location.reload();document._ls=d.status}}).catch(function(){{}});}},5000);document._ls='degraded';</script>"#,
+"#,
         driver = html_escape(driver_name),
         msg = html_escape(message),
     );
@@ -1677,11 +1653,11 @@ mod tests {
     }
 
     #[test]
-    fn startup_connecting_has_reload_script() {
+    fn startup_connecting_is_static_page() {
         let state = LockScreenState::StartupConnecting;
         let html = render_page_public(&state);
-        assert!(html.contains("location.reload"), "StartupConnecting must include JS reload");
-        assert!(html.contains("3000"), "StartupConnecting must reload every 3 seconds");
+        assert!(!html.contains("location.reload"), "StartupConnecting must NOT auto-reload (flicker prevention)");
+        assert!(html.contains("Starting up"), "StartupConnecting must show starting message");
     }
 
     #[test]
@@ -2387,30 +2363,13 @@ const BLANK_PIN_PAGE: &str = r#"<style>
     document.getElementById('clearBtn').addEventListener('click', clearAll);
     document.getElementById('bkspBtn').addEventListener('click', backspace);
 
-    // Smart reload — only when state changes (avoids black flash flicker)
-    setInterval(function(){
-        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-            if (d.status !== document._lastStatus) location.reload();
-            document._lastStatus = d.status;
-        }).catch(function(){});
-    }, 3000);
-    document._lastStatus = 'ok';
 })();
 </script>"#;
 
 const QR_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
 <div class="session-info">{{TIER_NAME}} &mdash; {{MINUTES}} minutes</div>
 <div class="qr-box">{{QR_SVG}}</div>
-<div class="hint">Scan the QR code with your phone to start your session</div>
-<script>
-setInterval(function(){
-    fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-        if (d.status !== document._lastStatus) location.reload();
-        document._lastStatus = d.status;
-    }).catch(function(){});
-}, 5000);
-document._lastStatus = 'ok';
-</script>"#;
+<div class="hint">Scan the QR code with your phone to start your session</div>"#;
 
 const ACTIVE_SESSION_PAGE: &str = r#"<style>
 .timer-display {
@@ -2534,14 +2493,6 @@ const ACTIVE_SESSION_PAGE: &str = r#"<style>
 
     update();
     setInterval(function(){ if (rem > 0) rem--; update(); }, 1000);
-    // Smart reload — only when state changes (session end, etc.)
-    setInterval(function(){
-        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-            if (d.status !== document._ls) location.reload();
-            document._ls = d.status;
-        }).catch(function(){});
-    }, 10000);
-    document._ls = 'ok';
 })();
 </script>"#;
 
