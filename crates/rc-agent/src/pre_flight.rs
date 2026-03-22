@@ -395,9 +395,18 @@ pub(crate) async fn check_window_rect() -> CheckResult {
         let screen_w = unsafe { GetSystemMetrics(78) }; // SM_CXVIRTUALSCREEN
         let screen_h = unsafe { GetSystemMetrics(79) }; // SM_CYVIRTUALSCREEN
 
-        // Find the Edge/Chromium window by class name
+        // Find the Edge kiosk window by class + title.
+        // Standing rule: FindWindowA with null title is fragile — ConspitLink WebView2
+        // also uses Chrome_WidgetWin_1 class. Match by title "Racing Point" to find
+        // the kiosk lock screen, not a random WebView2 widget.
         let class_name = b"Chrome_WidgetWin_1\0";
-        let hwnd = unsafe { FindWindowA(class_name.as_ptr(), std::ptr::null()) };
+        let title = b"Racing Point\0";
+        let mut hwnd = unsafe { FindWindowA(class_name.as_ptr(), title.as_ptr()) };
+
+        // Fallback: try null title if titled search fails (Edge may not have loaded yet)
+        if hwnd == 0 {
+            hwnd = unsafe { FindWindowA(class_name.as_ptr(), std::ptr::null()) };
+        }
 
         if hwnd == 0 {
             return CheckResult {
