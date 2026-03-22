@@ -619,3 +619,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 21:15 IST | James | 21c8f6f5 | feat(161-02): strip restart/WoL execution from pod_monitor — pure detector only |
 | 2026-03-22 21:15 IST | James | a97015a8 | chore(161-02): verify single-authority, update ROADMAP Phase 161 complete |
 | 2026-03-22 21:15 IST | James | 94f4732a | docs(161-02): SUMMARY + STATE + ROADMAP for 161-02 plan completion |
+| 2026-03-22 21:30 IST | James | 375f6e9d | docs(162): phase 162 plan — james watchdog migration (2 plans) |
