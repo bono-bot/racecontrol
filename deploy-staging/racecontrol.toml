@@ -38,7 +38,7 @@ theme = "dark"
 enabled = true
 claude_cli_enabled = true
 claude_cli_timeout_secs = 30
-ollama_url = "http://192.168.31.27:11434"  # James (.27) — venue Ollama
+ollama_url = "http://192.168.31.27:11434"  # James (.27) -- venue Ollama
 ollama_model = "qwen2.5:3b"
 chat_enabled = true
 proactive_analysis = true
@@ -63,9 +63,9 @@ results_channel = "race-results"
 enabled = false
 contact = "+917981264279"
 
-# ─── Gmail API (track record notifications) ──────────────────────────────────
+# --- Gmail API (track record notifications) ---
 # Set credentials in deployed config (C:\RacingPoint\racecontrol.toml on .23)
-# Do NOT commit real credentials — GitHub push protection will block.
+# Do NOT commit real credentials -- GitHub push protection will block.
 [gmail]
 enabled = false
 # client_id = "your-google-oauth-client-id"
@@ -73,16 +73,14 @@ enabled = false
 # refresh_token = "your-google-oauth-refresh-token"
 from_email = "james@racingpoint.in"
 
-# ─── Bono Relay (Tailscale mesh — Phase 27) ──────────────────────────────────
+# --- Bono Relay (Tailscale mesh -- Phase 27) ---
 # Requires Tailscale to be installed and connected on both server and Bono's VPS.
-# Set enabled = true after: (1) running scripts/deploy-tailscale.ps1, (2) confirming
-# Tailscale IPs from admin console, (3) updating webhook_url and tailscale_bind_ip below.
 [bono]
 enabled = true
 webhook_url = "http://100.70.177.44/webhooks/racecontrol"  # Bono's VPS Tailscale IP
 tailscale_bind_ip = "100.71.226.83"  # Venue server Tailscale IP (confirmed via ipconfig)
 relay_port = 8099
-# Shared secret for X-Relay-Secret header — agreed with Bono out-of-band
+# Shared secret for X-Relay-Secret header -- agreed with Bono out-of-band
 relay_secret = "85c650850520f0cabf8f99b0c3cecc3e"
 
 # --- Process Guard (report_only mode -- BUG-03) ---
