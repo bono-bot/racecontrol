@@ -1197,7 +1197,16 @@ fn render_idle_page(wallpaper_url: Option<&str>) -> String {
     page_shell_with_bg(
         "Racing Point",
         r#"<div class="msg">Session not active — please see the front desk.</div>
-<script>setTimeout(function(){location.reload()},5000)</script>"#,
+<script>
+(function(){
+    var tag = document.title;
+    setInterval(function(){
+        fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+            if (d.status !== 'degraded') location.reload();
+        }).catch(function(){});
+    }, 5000);
+})();
+</script>"#,
         wallpaper_url,
     )
 }
