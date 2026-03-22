@@ -2249,5 +2249,5 @@ Note: Phases 145 and 146 are strictly sequential infrastructure prerequisites. P
 |-------|----------------|--------|-----------|
 | 145. go2rtc Infrastructure | 1/1 | Complete   | 2026-03-22 |
 | 146. Backend Config and API | 2/2 | Complete    | 2026-03-22 |
-| 147. cameras.html Dashboard Rewrite | 3/3 | Complete   | 2026-03-22 |
+| 147. cameras.html Dashboard Rewrite | 3/3 | Complete    | 2026-03-22 |
 | 148. Web Dashboard Page | 0/? | Not started | - |
