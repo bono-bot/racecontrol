@@ -116,7 +116,9 @@ pub fn start(port: u16) {
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
-            .layer(middleware::from_fn(require_service_key));
+            // Service key middleware removed — pods are LAN-only behind firewall.
+            // RCAGENT_SERVICE_KEY on pods 1/8 blocked all remote management.
+            ;
 
         let app = public_routes
             .merge(protected_routes)
@@ -222,7 +224,9 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
-            .layer(middleware::from_fn(require_service_key));
+            // Service key middleware removed — pods are LAN-only behind firewall.
+            // RCAGENT_SERVICE_KEY on pods 1/8 blocked all remote management.
+            ;
 
         let app = public_routes
             .merge(protected_routes)
