@@ -3,10 +3,25 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
+stopped_at: Completed 173-04-PLAN.md
+last_updated: "2026-03-22T22:01:48.992Z"
+progress:
+  total_phases: 130
+  completed_phases: 100
+  total_plans: 237
+  completed_plans: 234
+  percent: 99
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
 stopped_at: Completed 173-03-PLAN.md
 last_updated: "2026-03-22T21:56:30.660Z"
 progress:
-  total_phases: 130
+  [██████████] 99%
   completed_phases: 99
   total_plans: 237
   completed_plans: 233
@@ -18,11 +33,11 @@ gsd_state_version: 1.0
 milestone: v21.0
 milestone_name: API Contracts & Stabilization
 status: in_progress
-stopped_at: Completed 173-03-PLAN.md
-last_updated: "2026-03-23T11:45:00+05:30"
+stopped_at: Completed 173-04-PLAN.md
+last_updated: "2026-03-23T09:31:00+05:30"
 current_phase: 173
 current_phase_name: api-contracts
-current_plan: 03
+current_plan: 04
 progress:
   [██████████] 98%
   completed_phases: 99
@@ -38,6 +53,8 @@ decisions:
   - "173-02: Driver.has_used_trial added to shared type (kiosk API computed field used in SetupWizard)"
   - "173-03: ActiveSession.pod_number kept as admin-specific extra field (not in shared BillingSession)"
   - "173-03: openapi.yaml placed in docs/ (canonical) and copied to web/public/api-docs/ (static serving at :3200/api-docs/)"
+  - "173-04: Vitest chosen for contract tests (native ESM, no transform config, fast cold start)"
+  - "173-04: assertX(data: unknown): asserts data is T pattern used for runtime + compile-time contract enforcement, zero any types"
 ---
 
 ---
@@ -1650,6 +1667,7 @@ Plan: 1 of 2
 | Phase 170 P03 | 8 | 2 tasks | 6 files |
 | Phase 172 P02 | 133 | 2 tasks | 3 files |
 | Phase 173 P03 | 480 | 2 tasks | 7 files |
+| Phase 173 P04 | 2 | 2 tasks | 10 files |
 
 ### Pending Todos
 
@@ -1660,8 +1678,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-22T21:56:30.642Z
-Stopped at: Completed 173-03-PLAN.md
+Last session: 2026-03-22T22:01:48.973Z
+Stopped at: Completed 173-04-PLAN.md
 Resume file: None
 
 ---

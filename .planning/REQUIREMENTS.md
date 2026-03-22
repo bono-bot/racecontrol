@@ -33,8 +33,8 @@
 - [x] **CONT-02**: Shared TypeScript types/interfaces extracted for racecontrol <-> kiosk API communication
 - [x] **CONT-03**: Shared TypeScript types/interfaces extracted for racecontrol <-> admin API communication
 - [x] **CONT-04**: OpenAPI specs generated for racecontrol REST API endpoints
-- [ ] **CONT-05**: Contract tests validate request/response shapes between services
-- [ ] **CONT-06**: CI check prevents API drift (contract test runs on PR)
+- [x] **CONT-05**: Contract tests validate request/response shapes between services
+- [x] **CONT-06**: CI check prevents API drift (contract test runs on PR)
 
 ### Deployment
 
@@ -95,8 +95,8 @@ None — this milestone is stabilization, not feature work.
 | CONT-02 | Phase 173 | Complete |
 | CONT-03 | Phase 173 | Complete |
 | CONT-04 | Phase 173 | Complete |
-| CONT-05 | Phase 173 | Pending |
-| CONT-06 | Phase 173 | Pending |
+| CONT-05 | Phase 173 | Complete |
+| CONT-06 | Phase 173 | Complete |
 | HLTH-01 | Phase 174 | Pending |
 | HLTH-02 | Phase 174 | Pending |
 | HLTH-03 | Phase 174 | Pending |
