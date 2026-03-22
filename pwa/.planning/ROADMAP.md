@@ -142,10 +142,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Pushing a commit to main in GitHub triggers a GitHub Actions workflow that builds Docker images and deploys them to the VPS via SSH
   2. Failed builds do not deploy — only successful builds reach production
-**Plans**: 2 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 08-01: TBD
+- [ ] 08-01-PLAN.md — GitHub Actions deploy workflow: SSH into VPS on push to main, pull repos, build and restart Docker services
 
 ### Phase 9: Health Monitoring + Alerts
 **Goal**: Container failures and resource exhaustion are detected and reported automatically via WhatsApp
