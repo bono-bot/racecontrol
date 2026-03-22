@@ -1,15 +1,35 @@
 ---
 gsd_state_version: 1.0
+milestone: v21.0
+milestone_name: Health Monitoring & Unified Deploy
+status: in_progress
+stopped_at: Completed 174-02-PLAN.md
+last_updated: "2026-03-23T06:35:00+05:30"
+current_phase: 174
+current_phase_name: health-monitoring-unified-deploy
+current_plan: 02
+progress:
+  completed_phases: 100
+  total_plans: 242
+  completed_plans: 237
+  percent: 98
+decisions:
+  - "174-02: /health route added before /relay/health so standard path matches first; /relay/health preserved for failover-orchestrator backward compat"
+  - "174-02: version hardcoded as 1.0.0 in /health handler (comms-link does not inject package.json version)"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 173-04-PLAN.md
-last_updated: "2026-03-22T22:05:49.867Z"
+stopped_at: Completed 174-01-PLAN.md
+last_updated: "2026-03-22T22:15:49.068Z"
 progress:
   total_phases: 130
   completed_phases: 100
-  total_plans: 237
-  completed_plans: 234
+  total_plans: 242
+  completed_plans: 236
 ---
 
 ---
@@ -1682,6 +1702,7 @@ Plan: 1 of 2
 | Phase 172 P02 | 133 | 2 tasks | 3 files |
 | Phase 173 P03 | 480 | 2 tasks | 7 files |
 | Phase 173 P04 | 2 | 2 tasks | 10 files |
+| Phase 174 P01 | 5 | 2 tasks | 2 files |
 
 ### Pending Todos
 
@@ -1692,8 +1713,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-22T22:01:48.973Z
-Stopped at: Completed 173-04-PLAN.md
+Last session: 2026-03-22T22:15:43.462Z
+Stopped at: Completed 174-01-PLAN.md
 Resume file: None
 
 ---

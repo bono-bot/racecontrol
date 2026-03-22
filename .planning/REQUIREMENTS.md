@@ -57,7 +57,7 @@
 
 ### Health Monitoring
 
-- [ ] **HLTH-01**: Every running service exposes a /health endpoint
+- [x] **HLTH-01**: Every running service exposes a /health endpoint
 - [ ] **HLTH-02**: Central health check script polls all services and reports status
 - [ ] **HLTH-03**: Health check integrated into deploy verification (post-deploy auto-check)
 
@@ -97,7 +97,7 @@ None — this milestone is stabilization, not feature work.
 | CONT-04 | Phase 173 | Complete |
 | CONT-05 | Phase 173 | Complete |
 | CONT-06 | Phase 173 | Complete |
-| HLTH-01 | Phase 174 | Pending |
+| HLTH-01 | Phase 174 | Complete |
 | HLTH-02 | Phase 174 | Pending |
 | HLTH-03 | Phase 174 | Pending |
 | DEPL-01 | Phase 174 | Pending |
