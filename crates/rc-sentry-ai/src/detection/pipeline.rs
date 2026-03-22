@@ -62,7 +62,9 @@ pub async fn run(
     let mut log_first_frame = true;
     let mut poll_count: u64 = 0;
     let mut consecutive_decode_errors: u32 = 0;
+    let mut decoder_resets: u32 = 0;
     const DECODER_RESET_THRESHOLD: u32 = 50;
+    const MAX_DECODER_RESETS: u32 = 3;
 
     loop {
         // Poll for new frame
@@ -93,6 +95,7 @@ pub async fn run(
         let decoded = match decoder.decode(&frame_data.data) {
             Ok(Some(d)) => {
                 consecutive_decode_errors = 0;
+                decoder_resets = 0;
                 if log_first_frame {
                     tracing::info!(camera = %camera_name, w = d.width, h = d.height, rgb_len = d.rgb.len(), "first successful decode");
                 }
@@ -117,9 +120,19 @@ pub async fn run(
                     );
                 }
                 if consecutive_decode_errors >= DECODER_RESET_THRESHOLD {
+                    decoder_resets += 1;
+                    if decoder_resets >= MAX_DECODER_RESETS {
+                        tracing::warn!(
+                            camera = %camera_name,
+                            resets = decoder_resets,
+                            "decoder failed after {MAX_DECODER_RESETS} resets — likely incompatible codec (H.265?), suspending detection pipeline"
+                        );
+                        return;
+                    }
                     tracing::warn!(
                         camera = %camera_name,
                         errors = consecutive_decode_errors,
+                        reset_number = decoder_resets,
                         "resetting decoder after sustained errors"
                     );
                     decoder = match super::decoder::FrameDecoder::new() {
