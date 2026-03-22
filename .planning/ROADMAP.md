@@ -2346,7 +2346,7 @@ Plans:
   5. Items with zero stock cannot be added to an order (out-of-stock blocking prevents it)
   6. Concurrent orders for the last unit of an item do not both succeed (atomic stock decrement + wallet deduction)
   7. Stock quantities auto-decrement when countable items are sold
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 154-01: TBD
@@ -2361,7 +2361,7 @@ Plans:
   1. Completing an order triggers a thermal receipt print for cafe staff to prepare the order
   2. Customer receives their order receipt via WhatsApp after order confirmation
   3. Customer can view their full cafe order history in the PWA
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 155-01: TBD
@@ -2377,7 +2377,7 @@ Plans:
   3. Admin can create a gaming+cafe combo bundle (game session + cafe item at bundle price)
   4. Admin can configure stacking rules -- which promos can combine and which are exclusive
   5. Promos activate and deactivate automatically based on their configured time windows
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 156-01: TBD
@@ -2392,7 +2392,7 @@ Plans:
   2. When a customer's cart meets promo conditions, the discount is applied automatically at checkout
   3. Applied promo is recorded with the order (traceable which discount was used)
   4. Promo pricing is calculated server-side only (not client-side)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 157-01: TBD
@@ -2407,7 +2407,7 @@ Plans:
   2. Generated graphics reflect current menu items, prices, and active promos
   3. Admin can trigger a WhatsApp broadcast of promo messages to the customer list (using a separate number from the operational bot)
   4. Generated content uses Racing Point brand identity (colors, fonts, logo)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 158-01: TBD
@@ -2497,11 +2497,11 @@ Plans:
   2. When any monitored service (Ollama, Claude Code, comms-link, webterm) fails once, the monitor waits and retries before acting — a single transient failure does not trigger an immediate restart
   3. When a monitored service fails 3+ times within a session, the Rust monitor sends a comms-link WS message to Bono with the service name, failure count, and last known error — Bono receives the alert without James or Uday needing to notice
   4. Pattern memory persists across monitor restarts (debug-memory.json on James) — known failure patterns are recognized and acted on immediately without re-learning from scratch
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 162-01: TBD
-- [ ] 162-02: TBD
+- [ ] 162-01-PLAN.md — Core james monitor binary: failure_state, bono_alert, james_monitor (JWAT-01, JWAT-02, JWAT-03)
+- [ ] 162-02-PLAN.md — Deploy binary, Task Scheduler registration, retire james_watchdog.ps1 (JWAT-01)
 
 ## v17.1 Progress
 
