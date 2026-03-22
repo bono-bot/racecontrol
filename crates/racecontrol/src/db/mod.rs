@@ -2482,15 +2482,21 @@ async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("copy personal_bests: {}", e))?;
 
-        sqlx::query("DROP TABLE personal_bests")
+        sqlx::query("DROP TABLE IF EXISTS personal_bests")
             .execute(pool)
             .await
             .map_err(|e| anyhow::anyhow!("drop personal_bests: {}", e))?;
 
-        sqlx::query("ALTER TABLE personal_bests_v2 RENAME TO personal_bests")
-            .execute(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("rename personal_bests_v2: {}", e))?;
+        // Only rename if personal_bests_v2 exists and personal_bests doesn't
+        let v2_exists: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='personal_bests_v2'"
+        ).fetch_one(pool).await.unwrap_or(0) > 0;
+        if v2_exists {
+            sqlx::query("ALTER TABLE personal_bests_v2 RENAME TO personal_bests")
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("rename personal_bests_v2: {}", e))?;
+        }
 
         tracing::info!("Phase 88: personal_bests migration complete");
     }
@@ -2531,15 +2537,20 @@ async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("copy track_records: {}", e))?;
 
-        sqlx::query("DROP TABLE track_records")
+        sqlx::query("DROP TABLE IF EXISTS track_records")
             .execute(pool)
             .await
             .map_err(|e| anyhow::anyhow!("drop track_records: {}", e))?;
 
-        sqlx::query("ALTER TABLE track_records_v2 RENAME TO track_records")
-            .execute(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("rename track_records_v2: {}", e))?;
+        let v2_exists: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='track_records_v2'"
+        ).fetch_one(pool).await.unwrap_or(0) > 0;
+        if v2_exists {
+            sqlx::query("ALTER TABLE track_records_v2 RENAME TO track_records")
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("rename track_records_v2: {}", e))?;
+        }
 
         tracing::info!("Phase 88: track_records migration complete");
     }
