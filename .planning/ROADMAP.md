@@ -2585,7 +2585,13 @@ Plans:
   4. An OpenAPI spec file exists for racecontrol REST endpoints and renders correctly in a browser (Swagger UI or equivalent)
   5. Contract tests run via npm test or cargo test and fail if a request/response shape changes without updating the contract definition
   6. A CI workflow runs contract tests on every PR and blocks merge on failure
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 173-01-PLAN.md — API boundary document (all 4 boundaries, key shapes)
+- [ ] 173-02-PLAN.md — shared-types package + kiosk type wiring
+- [ ] 173-03-PLAN.md — admin wiring + OpenAPI spec + Swagger UI
+- [ ] 173-04-PLAN.md — contract tests (Vitest, fixtures) + GitHub Actions CI
 
 ### Phase 174: Health Monitoring & Unified Deploy
 **Goal**: Every running service exposes /health, a central script polls all services and reports status, deploy-staging has a clean git status, and unified deploy scripts plus a runbook cover every service with post-deploy health verification built in
