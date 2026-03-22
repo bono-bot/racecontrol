@@ -572,3 +572,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 19:15 IST | James | 3db9adfc | docs(147-01): complete plan — checkpoint approved, user verified dashboard at /cameras/live (layout modes, tiles, status indicators) |
 | 2026-03-22 19:22 IST | James | a026a190 | feat(147-02): add drag-to-rearrange, zone grouping, collapsible headers, layout persistence to cameras.html |
 | 2026-03-22 19:23 IST | James | a22b6595 | docs(147-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-02, LYOT-03, LYOT-05 complete) |
+| 2026-03-22 13:28 IST | James | 58c624c5 | feat(147-03): implement WebRTC fullscreen with singleton pattern and go2rtc signaling (RTCPeerConnection, pre-warm, auto-hide controls) |
+| 2026-03-22 13:29 IST | James | 952febaa | docs(147-03): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (STRM-01/02/03/04, UIUX-03 complete) |
