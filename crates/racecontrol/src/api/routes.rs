@@ -163,6 +163,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/reservation", get(customer_get_reservation).delete(customer_cancel_reservation))
         .route("/customer/reservation/create", post(customer_create_reservation))
         .route("/customer/reservation/modify", put(customer_modify_reservation))
+        // Cafe ordering (customer self-service — driver_id from JWT, not body)
+        .route("/customer/cafe/orders", post(cafe::place_cafe_order_customer))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -382,6 +384,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/cafe/categories", get(cafe::list_cafe_categories).post(cafe::create_cafe_category))
         .route("/cafe/import/preview", post(cafe::import_preview))
         .route("/cafe/import/confirm", post(cafe::confirm_import))
+        .route("/cafe/orders", post(cafe::place_cafe_order))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
