@@ -77,6 +77,25 @@
 
 ## Standing Rules
 
+### Ultimate Rule
+
+**Before marking ANY milestone or phase as shipped, run all three verification layers:**
+
+```bash
+# 1. Quality Gate — automated tests (contract + integration + syntax)
+cd C:/Users/bono/racingpoint/comms-link && COMMS_PSK="..." bash test/run-all.sh
+
+# 2. E2E — live round-trip verification
+curl -s -X POST http://localhost:8766/relay/exec/run -d '{"command":"node_version"}'   # single exec
+curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[{"command":"node_version"}]}'  # chain
+curl -s http://localhost:8766/relay/health   # health + connection mode
+
+# 3. Standing Rules — check compliance (auto-push, Bono synced, watchdog running, rules categorized)
+```
+
+**All three must pass. No exceptions. No "I'll verify later."**
+_Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Every bug was caught only by manual E2E after deploy. This rule ensures automated + live + compliance verification happens BEFORE shipped._
+
 ### Deploy
 
 - **Verification sequence (NO EXCEPTIONS):** kill → delete → download → size check → start → connect. Clean old binaries before downloading; never leave stale ones. Latest build ID must match `git rev-parse --short HEAD` recorded before staging.
