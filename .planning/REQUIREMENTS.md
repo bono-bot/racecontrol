@@ -14,10 +14,10 @@
 
 ### Streaming (STRM)
 
-- [ ] **STRM-01**: User can click any camera tile to open fullscreen with live WebRTC video via go2rtc
-- [ ] **STRM-02**: Only one WebRTC connection is active at a time — previous connection is torn down on camera switch
-- [ ] **STRM-03**: Hovering a camera tile for >500ms pre-warms the WebRTC connection to reduce cold-start delay
-- [ ] **STRM-04**: Fullscreen view shows camera name, connection status indicator, and close button (click or Escape)
+- [x] **STRM-01**: User can click any camera tile to open fullscreen with live WebRTC video via go2rtc
+- [x] **STRM-02**: Only one WebRTC connection is active at a time — previous connection is torn down on camera switch
+- [x] **STRM-03**: Hovering a camera tile for >500ms pre-warms the WebRTC connection to reduce cold-start delay
+- [x] **STRM-04**: Fullscreen view shows camera name, connection status indicator, and close button (click or Escape)
 
 ### Layout (LYOT)
 
@@ -31,7 +31,7 @@
 
 - [x] **UIUX-01**: Dashboard fills entire browser viewport with no scrollbars (compact toolbar, edge-to-edge grid)
 - [x] **UIUX-02**: Each camera tile shows status indicator (green=live, red=offline, yellow=stale)
-- [ ] **UIUX-03**: Loading state shown during WebRTC connection setup (spinner or placeholder)
+- [x] **UIUX-03**: Loading state shown during WebRTC connection setup (spinner or placeholder)
 - [x] **UIUX-04**: Smooth CSS transition when switching layout modes (no DOM rebuild flash)
 - [x] **UIUX-05**: Refresh rate selector in toolbar (0.2, 0.5, 1 fps for snapshot grid)
 
@@ -68,10 +68,10 @@
 | INFRA-02 | Phase 145 | Complete |
 | INFRA-03 | Phase 146 | Complete |
 | INFRA-04 | Phase 146 | Complete |
-| STRM-01 | Phase 147 | Pending |
-| STRM-02 | Phase 147 | Pending |
-| STRM-03 | Phase 147 | Pending |
-| STRM-04 | Phase 147 | Pending |
+| STRM-01 | Phase 147 | Complete |
+| STRM-02 | Phase 147 | Complete |
+| STRM-03 | Phase 147 | Complete |
+| STRM-04 | Phase 147 | Complete |
 | LYOT-01 | Phase 147 | Complete |
 | LYOT-02 | Phase 147 | Complete |
 | LYOT-03 | Phase 147 | Complete |
@@ -79,7 +79,7 @@
 | LYOT-05 | Phase 147 | Complete |
 | UIUX-01 | Phase 147 | Complete |
 | UIUX-02 | Phase 147 | Complete |
-| UIUX-03 | Phase 147 | Pending |
+| UIUX-03 | Phase 147 | Complete |
 | UIUX-04 | Phase 147 | Complete |
 | UIUX-05 | Phase 147 | Complete |
 | DPLY-01 | Phase 147 | Complete |
