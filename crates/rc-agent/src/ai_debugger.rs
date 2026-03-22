@@ -104,6 +104,67 @@ pub struct AutoFixResult {
     pub success: bool,
 }
 
+/// Whitelist of safe AI-triggered actions.
+/// Only these 5 actions can ever be returned by parse_ai_action().
+/// Any other action name is silently rejected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiSafeAction {
+    KillEdge,
+    RelaunchLockScreen,
+    RestartRcAgent,
+    KillGame,
+    ClearTemp,
+}
+
+/// Private helper for deserializing the JSON action block embedded in AI responses.
+#[derive(Deserialize)]
+struct ActionBlock {
+    action: String,
+}
+
+/// Parse an AI-safe action from a free-text LLM response.
+///
+/// The LLM is instructed to embed a JSON object like `{"action":"kill_edge"}` anywhere
+/// in its response text. This function scans for the first `{...}` block that parses as
+/// an ActionBlock, then maps the action field to a whitelisted AiSafeAction variant.
+///
+/// Returns None if:
+/// - No parseable JSON block is found
+/// - The action name is not in the whitelist
+/// - The JSON is malformed
+///
+/// No .unwrap() — all parse errors return None.
+pub fn parse_ai_action(response: &str) -> Option<AiSafeAction> {
+    // Find all candidate JSON substrings by scanning for '{' ... '}' pairs.
+    // The LLM may embed the block anywhere in prose, so we try every candidate.
+    let bytes = response.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            // Find the matching closing brace (serde_json handles nested braces)
+            if let Some(end) = response[i..].find('}') {
+                let candidate = &response[i..=i + end];
+                if let Ok(block) = serde_json::from_str::<ActionBlock>(candidate) {
+                    let action = match block.action.as_str() {
+                        "kill_edge" => Some(AiSafeAction::KillEdge),
+                        "relaunch_lock_screen" => Some(AiSafeAction::RelaunchLockScreen),
+                        "restart_rcagent" => Some(AiSafeAction::RestartRcAgent),
+                        "kill_game" => Some(AiSafeAction::KillGame),
+                        "clear_temp" => Some(AiSafeAction::ClearTemp),
+                        _ => None, // whitelist rejection — silently ignore
+                    };
+                    if action.is_some() {
+                        return action;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 // ─── Pattern Memory ─────────────────────────────────────────────────────────
 // Stores resolved crash→fix pairs. When the same crash pattern recurs,
 // the fix is applied instantly (<100ms) without querying the AI.
@@ -470,7 +531,17 @@ fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnap
         - \"relaunch\" + \"game\" → kill stale game\n\
         - \"disk space\" or \"temp files\" → clean temp\n\n\
         Provide a concise, actionable diagnosis (under 200 words). \
-        Correlate the error logs with the crash. Use diagnostic keywords when a fix applies.",
+        Correlate the error logs with the crash. Use diagnostic keywords when a fix applies.\n\n\
+        ACTION BLOCK (optional): If and only if one of these exact actions would directly resolve the issue, \
+        append a JSON block on its own line at the end of your response. \
+        ONLY use actions from this whitelist — any other action will be ignored:\n  \
+        kill_edge — kills all msedge.exe processes\n  \
+        relaunch_lock_screen — closes and relaunches Edge kiosk\n  \
+        restart_rcagent — restarts the rc-agent service\n  \
+        kill_game — kills the current game process\n  \
+        clear_temp — clears Windows temp files\n\
+        Format: {{\"action\":\"<name>\"}}\n\
+        If no action applies, omit the JSON block entirely.",
         sim_type,
         error_context,
         snapshot.pod_id,
@@ -1594,5 +1665,63 @@ mod tests {
         let snap = default_snapshot();
         let result = try_auto_fix("unrecognized error message xyz — please investigate", &snap);
         assert!(result.is_none(), "unknown text must not match any fix pattern");
+    }
+
+    // ─── Phase 140 Plan 01: AiSafeAction whitelist tests ─────────────────────
+
+    #[test]
+    fn test_parse_ai_action_kill_edge() {
+        let response = "The msedge processes are blocking. Recommendation: apply fix.\n{\"action\":\"kill_edge\"}\nEnd of suggestion.";
+        let action = parse_ai_action(response);
+        assert_eq!(action, Some(AiSafeAction::KillEdge));
+    }
+
+    #[test]
+    fn test_parse_ai_action_relaunch_lock_screen() {
+        let response = "Lock screen needs restart. {\"action\":\"relaunch_lock_screen\"}";
+        let action = parse_ai_action(response);
+        assert_eq!(action, Some(AiSafeAction::RelaunchLockScreen));
+    }
+
+    #[test]
+    fn test_parse_ai_action_restart_rcagent() {
+        let response = "Agent state is stale. Apply: {\"action\":\"restart_rcagent\"}";
+        let action = parse_ai_action(response);
+        assert_eq!(action, Some(AiSafeAction::RestartRcAgent));
+    }
+
+    #[test]
+    fn test_parse_ai_action_kill_game() {
+        let response = "Game is frozen and unresponsive.\n{\"action\":\"kill_game\"}";
+        let action = parse_ai_action(response);
+        assert_eq!(action, Some(AiSafeAction::KillGame));
+    }
+
+    #[test]
+    fn test_parse_ai_action_clear_temp() {
+        let response = "Disk space is low. Suggested fix: {\"action\":\"clear_temp\"}";
+        let action = parse_ai_action(response);
+        assert_eq!(action, Some(AiSafeAction::ClearTemp));
+    }
+
+    #[test]
+    fn test_parse_ai_action_unknown_returns_none() {
+        let response = "This would be dangerous: {\"action\":\"rm -rf /\"}";
+        let action = parse_ai_action(response);
+        assert_eq!(action, None, "Unknown action must be rejected by whitelist");
+    }
+
+    #[test]
+    fn test_parse_ai_action_plain_text_returns_none() {
+        let response = "The game crashed due to a memory access violation. Recommend manual inspection.";
+        let action = parse_ai_action(response);
+        assert_eq!(action, None, "No JSON block must return None");
+    }
+
+    #[test]
+    fn test_parse_ai_action_malformed_json_returns_none() {
+        let response = "Apply this fix: {action: kill_edge} right now.";
+        let action = parse_ai_action(response);
+        assert_eq!(action, None, "Malformed JSON must not panic and must return None");
     }
 }
