@@ -306,12 +306,26 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Initialize camera layout state (persisted to camera-layout.json next to config)
+    let layout_file_path = {
+        let config_dir = std::path::Path::new(&config_path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(r"C:\RacingPoint"));
+        config_dir.join("camera-layout.json")
+    };
+    let layout_state = Arc::new(mjpeg::LayoutState::load(layout_file_path));
+    tracing::info!(
+        path = %layout_state.file_path.display(),
+        "camera layout state loaded"
+    );
+
     let mjpeg_state = Arc::new(mjpeg::MjpegState {
         frame_buf: frame_buf.clone(),
         cameras: config.cameras.clone(),
         service_port: config.service.port,
         nvr_channels,
         snapshot_cache,
+        layout_state,
     });
 
     // Initialize playback proxy state (if NVR enabled)
