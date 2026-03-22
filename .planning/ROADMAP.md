@@ -2050,7 +2050,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 139-01-PLAN.md -- HealAction::RelaunchLockScreen in pod_healer.rs + ForceRelaunchBrowser in protocol.rs (HEAL-01, HEAL-02)
+- [x] 139-01-PLAN.md -- HealAction::RelaunchLockScreen in pod_healer.rs + ForceRelaunchBrowser in protocol.rs (HEAL-01, HEAL-02)
 - [ ] 139-02-PLAN.md -- rc-agent ForceRelaunchBrowser WS handler + billing-state guard (HEAL-03)
 
 ### Phase 140: AI Action Execution Whitelist
@@ -2091,7 +2091,7 @@ Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser r
 |-------|----------------|--------|-----------|
 | 137. Browser Watchdog | 2/2 | Complete    | 2026-03-22 |
 | 138. Idle Health Monitor | 3/3 | Complete    | 2026-03-22 |
-| 139. Healer Edge Recovery | 0/2 | Not started | - |
+| 139. Healer Edge Recovery | 1/2 | In progress | - |
 | 140. AI Action Execution Whitelist | 0/2 | Not started | - |
 | 141. WARN Log Scanner | 0/2 | Not started | - |
 

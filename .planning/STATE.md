@@ -1,5 +1,23 @@
 ---
 gsd_state_version: 1.0
+milestone: v17.0
+milestone_name: AI Debugger Autonomy & Self-Healing
+status: in_progress
+stopped_at: Completed 139-01-PLAN.md
+last_updated: "2026-03-22T10:05:00.000Z"
+progress:
+  total_phases: 106
+  completed_phases: 74
+  total_plans: 183
+  completed_plans: 178
+decisions:
+  - "139-01: ForceRelaunchBrowser added to CoreToAgentMessage for soft WS recovery before restart"
+  - "139-01: execute_heal_action relaunch_lock_screen arm returns early (no shell exec) — WS dispatch only"
+  - "139-01: Billing guard on relaunch: has_active_billing -> warn only, never dispatch during session"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: defining_requirements
