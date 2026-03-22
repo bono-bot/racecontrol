@@ -7,8 +7,8 @@
 
 ### RC-Sentry Migration
 
-- [ ] **SENT-01**: rc-sentry checks pattern memory before restarting rc-agent — if same crash pattern seen 3+ times in 10 min, escalate to AI instead of restarting
-- [ ] **SENT-02**: rc-sentry queries Ollama for unknown crash patterns before blind restart
+- [x] **SENT-01**: rc-sentry checks pattern memory before restarting rc-agent — if same crash pattern seen 3+ times in 10 min, escalate to AI instead of restarting
+- [x] **SENT-02**: rc-sentry queries Ollama for unknown crash patterns before blind restart
 - [x] **SENT-03**: rc-sentry logs every restart decision to activity log with reason, pattern match, and outcome
 - [x] **SENT-04**: rc-sentry distinguishes graceful restart (sentinel file) from real crash — no escalation on graceful
 
@@ -50,8 +50,8 @@
 | CONS-01 | Phase 159 | Complete (159-01) |
 | CONS-02 | Phase 159 | Complete (159-01) |
 | CONS-03 | Phase 159 | Complete |
-| SENT-01 | Phase 160 | Pending |
-| SENT-02 | Phase 160 | Pending |
+| SENT-01 | Phase 160 | Complete |
+| SENT-02 | Phase 160 | Complete |
 | SENT-03 | Phase 160 | Complete |
 | SENT-04 | Phase 160 | Complete |
 | PMON-01 | Phase 161 | Pending |

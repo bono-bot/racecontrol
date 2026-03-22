@@ -2436,7 +2436,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that detects patterns, escalates intelligently, and never causes more problems than it solves. Single recovery authority per machine, no fighting between systems.
 
 - [x] **Phase 159: Recovery Consolidation Foundation** - Single recovery authority per machine, decision logging, and anti-cascade guard to prevent recovery systems fighting each other (completed 2026-03-22)
-- [ ] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection
+- [x] **Phase 160: RC-Sentry AI Migration** - Replace rc-sentry blind restart loop with pattern memory, Ollama escalation, decision logging, and graceful restart detection (completed 2026-03-22)
 - [ ] **Phase 161: Pod Monitor Merge** - Merge pod_monitor into pod_healer as single recovery authority with billing-aware WoL and graduated response
 - [ ] **Phase 162: James Watchdog Migration** - Replace james_watchdog.ps1 with Rust-based AI monitor using pattern memory, graduated response, and Bono escalation
 
@@ -2510,6 +2510,6 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 159. Recovery Consolidation Foundation | 2/2 | Complete    | 2026-03-22 |
-| 160. RC-Sentry AI Migration | 1/2 | In Progress|  |
+| 160. RC-Sentry AI Migration | 2/2 | Complete   | 2026-03-22 |
 | 161. Pod Monitor Merge | 0/0 | Not started | - |
 | 162. James Watchdog Migration | 0/0 | Not started | - |
