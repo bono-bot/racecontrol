@@ -780,6 +780,75 @@ pub async fn confirm_import(
     Ok(Json(serde_json::json!({ "imported": count })))
 }
 
+// ─── Inventory Handlers ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct RestockRequest {
+    pub quantity: i64,
+}
+
+pub async fn restock_cafe_item(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<RestockRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if req.quantity <= 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Check item exists and is_countable
+    let item_check = sqlx::query_as::<_, (String, bool)>(
+        "SELECT id, is_countable FROM cafe_items WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::warn!("restock_cafe_item fetch error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    match item_check {
+        None => return Err(StatusCode::NOT_FOUND),
+        Some((_, false)) => {
+            return Ok(Json(serde_json::json!({ "error": "item is not countable" })));
+        }
+        Some(_) => {}
+    }
+
+    sqlx::query(
+        "UPDATE cafe_items SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(req.quantity)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::warn!("restock_cafe_item update error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // Return updated item
+    let item = sqlx::query_as::<_, CafeItem>(
+        "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
+                is_available, created_at, updated_at, image_path,
+                is_countable, stock_quantity, low_stock_threshold
+         FROM cafe_items WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::warn!("restock_cafe_item fetch updated error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    match item {
+        Some(i) => Ok(Json(serde_json::json!(i))),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
 pub async fn upload_item_image(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -927,7 +996,10 @@ mod tests {
                 is_available BOOLEAN DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT,
-                image_path TEXT
+                image_path TEXT,
+                is_countable BOOLEAN DEFAULT 0,
+                stock_quantity INTEGER DEFAULT 0,
+                low_stock_threshold INTEGER DEFAULT 0
             )",
         )
         .execute(&pool)
@@ -961,7 +1033,8 @@ mod tests {
 
         let items = sqlx::query_as::<_, super::CafeItem>(
             "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
-                    is_available, created_at, updated_at, image_path
+                    is_available, created_at, updated_at, image_path,
+                    is_countable, stock_quantity, low_stock_threshold
              FROM cafe_items ORDER BY name ASC",
         )
         .fetch_all(&pool)
@@ -973,6 +1046,8 @@ mod tests {
         assert_eq!(items[0].selling_price_paise, 15000);
         assert!(items[0].is_available);
         assert!(items[0].image_path.is_none());
+        assert!(!items[0].is_countable);
+        assert_eq!(items[0].stock_quantity, 0);
     }
 
     #[tokio::test]
@@ -990,7 +1065,8 @@ mod tests {
 
         let available = sqlx::query_as::<_, super::CafeItem>(
             "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
-                    is_available, created_at, updated_at, image_path
+                    is_available, created_at, updated_at, image_path,
+                    is_countable, stock_quantity, low_stock_threshold
              FROM cafe_items WHERE is_available = 1",
         )
         .fetch_all(&pool)
@@ -1216,10 +1292,11 @@ mod tests {
         .await
         .expect("INSERT with image_path failed");
 
-        // SELECT including image_path
+        // SELECT including image_path and inventory columns
         let item = sqlx::query_as::<_, super::CafeItem>(
             "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
-                    is_available, created_at, updated_at, image_path
+                    is_available, created_at, updated_at, image_path,
+                    is_countable, stock_quantity, low_stock_threshold
              FROM cafe_items WHERE id = 'item-img'",
         )
         .fetch_one(&pool)
@@ -1227,6 +1304,8 @@ mod tests {
         .expect("SELECT with image_path failed");
 
         assert_eq!(item.image_path, Some("test-image.jpg".to_string()));
+        assert!(!item.is_countable);
+        assert_eq!(item.stock_quantity, 0);
     }
 
     #[tokio::test]

@@ -375,6 +375,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/cafe/items/{id}", put(cafe::update_cafe_item).delete(cafe::delete_cafe_item))
         .route("/cafe/items/{id}/toggle", post(cafe::toggle_cafe_item_availability))
         .route("/cafe/items/{id}/image", post(cafe::upload_item_image))
+        .route("/cafe/items/{id}/restock", post(cafe::restock_cafe_item))
         .route("/cafe/categories", get(cafe::list_cafe_categories).post(cafe::create_cafe_category))
         .route("/cafe/import/preview", post(cafe::import_preview))
         .route("/cafe/import/confirm", post(cafe::confirm_import))
