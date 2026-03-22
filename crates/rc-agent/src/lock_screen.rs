@@ -574,6 +574,19 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn launch_browser(&mut self) {
+        // If Edge is already running, don't kill+relaunch — causes visible screen
+        // flicker on triple-monitor kiosk. The HTTP server always serves current state.
+        // Browser needs a lightweight JS poll (added below) to pick up state changes.
+        let edge_running = self.browser_process.as_mut()
+            .map(|c| matches!(c.try_wait(), Ok(None)))
+            .unwrap_or(false)
+            || Self::count_edge_processes() > 0;
+
+        if edge_running {
+            tracing::debug!(target: LOG_TARGET, "launch_browser: Edge already running — skipping kill+relaunch");
+            return;
+        }
+
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
         // Try common Edge install paths, then fall back to PATH lookup
@@ -2200,6 +2213,21 @@ body {
 <div class="logo">{{RP_LOGO_SVG}}</div>
 <div class="tagline">May the Fastest Win.</div>
 {{CONTENT}}
+<script>
+(function(){
+var s=document.title;
+setInterval(function(){
+var x=new XMLHttpRequest();
+x.open('GET','/health',true);
+x.timeout=2000;
+x.onload=function(){
+try{var d=JSON.parse(x.responseText);if(d.status!==window._hs){window._hs=d.status;location.reload()}}catch(e){}
+};
+x.send();
+},10000);
+window._hs=null;
+})();
+</script>
 </body>
 </html>"#;
 
