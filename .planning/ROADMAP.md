@@ -2514,3 +2514,100 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 | 160. RC-Sentry AI Migration | 2/2 | Complete    | 2026-03-22 |
 | 161. Pod Monitor Merge | 2/2 | Complete    | 2026-03-22 |
 | 162. James Watchdog Migration | 2/2 | Complete    | 2026-03-22 |
+
+
+## v21.0 Cross-Project Sync & Stabilization
+
+**Milestone Goal:** All Racing Point repos work in sync - shared contracts, no dead code, no known bugs, unified deploy, every service verified running at runtime.
+
+- [ ] **Phase 170: Repo Hygiene & Dependency Audit** - Archive dead repos, catalogue non-git folders, normalize git config, audit npm and cargo dependencies
+- [ ] **Phase 171: Bug Fixes** - Fix all 4 known bugs blocking daily operations (pods DB desync, orphan PowerShell, process guard allowlist, Variable_dump.exe)
+- [ ] **Phase 172: Standing Rules Sync** - Propagate standing rules to all active repos, sync to Bono VPS, add automated compliance check script
+- [ ] **Phase 173: API Contracts** - Document all API boundaries, extract shared TypeScript types, generate OpenAPI specs, add contract tests and CI drift prevention
+- [ ] **Phase 174: Health Monitoring & Unified Deploy** - Add /health to all services, central health check script, clean deploy-staging, unified deploy scripts and runbook, verify all services running at runtime
+- [ ] **Phase 175: E2E Validation** - Run full 231-test suite on POS and Kiosk, cross-sync tests, triage and fix all critical failures
+
+## Phase Details
+
+### Phase 170: Repo Hygiene & Dependency Audit
+**Goal**: Dead repos are archived, non-git folders are catalogued, all active repos have consistent git config and .gitignore, all npm and cargo dependencies are audited for vulnerabilities
+**Depends on**: Nothing (first phase)
+**Requirements**: REPO-01, REPO-02, REPO-03, DEPS-01, DEPS-02, DEPS-03
+**Success Criteria** (what must be TRUE):
+  1. game-launcher, ac-launcher, and conspit-link repos show Archived status on GitHub with a README noting the merger target
+  2. Non-git folders (bat-sandbox, computer-use, glitch-frames, marketing, serve, voice-assistant) each have a documented decision: archived, deleted, or kept with written rationale
+  3. Every active repo returns consistent git user.name/email and has a .gitignore that excludes build artifacts, node_modules, and secrets
+  4. npm audit on all Node.js repos shows zero high/critical vulnerabilities, or each vulnerability is documented with an upgrade-or-defer decision
+  5. cargo audit on all Rust crates shows zero vulnerabilities, or each is documented with an upgrade-or-defer decision
+**Plans**: TBD
+
+### Phase 171: Bug Fixes
+**Goal**: All 4 known bugs blocking daily operations are patched and deployed across all 8 pods and the server
+**Depends on**: Phase 170
+**Requirements**: BUG-01, BUG-02, BUG-03, BUG-04
+**Success Criteria** (what must be TRUE):
+  1. After racecontrol server restart with an empty database, the kiosk fleet view shows all 8 pods (not "Waiting for pods") - verified live on the running server
+  2. After a pod restarts, no orphan powershell.exe processes appear in Task Manager - verified on at least 2 pods
+  3. Process guard report_only mode emits a report listing all processes seen on live pods, with the allowlist file committed to deploy-staging
+  4. After pod boot, Variable_dump.exe does not appear in Task Manager - verified on at least 2 pods
+**Plans**: TBD
+
+### Phase 172: Standing Rules Sync
+**Goal**: Relevant standing rules from racecontrol CLAUDE.md are propagated to every active repo, Bono VPS repos are updated with matching rules, and a compliance check script verifies rule presence across all repos in one command
+**Depends on**: Phase 171
+**Requirements**: RULE-01, RULE-02, RULE-03
+**Success Criteria** (what must be TRUE):
+  1. Each active repo (racingpoint-admin, comms-link, deploy-staging, kiosk) has a CLAUDE.md with the standing rules subset relevant to that repo domain
+  2. Bono VPS repos have the same standing rules applied - verified by reading a Bono repo CLAUDE.md via comms-link relay
+  3. Running the compliance check script from James prints "All repos compliant" and exits 0, or exits non-zero listing exactly which repos are missing which rule categories
+**Plans**: TBD
+
+### Phase 173: API Contracts
+**Goal**: Every API boundary is documented, shared TypeScript types are extracted for kiosk and admin API communication, OpenAPI specs are generated for racecontrol REST endpoints, contract tests break on drift, and a CI check enforces this on every PR
+**Depends on**: Phase 172
+**Requirements**: CONT-01, CONT-02, CONT-03, CONT-04, CONT-05, CONT-06
+**Success Criteria** (what must be TRUE):
+  1. A single document lists every API boundary (racecontrol<->kiosk, racecontrol<->admin, racecontrol<->comms-link, racecontrol<->rc-agent) with endpoint names, request/response shapes, and ownership
+  2. Kiosk and racecontrol share TypeScript type definitions from a common source: a type mismatch causes a TypeScript compile error, not a runtime error
+  3. Admin and racecontrol share TypeScript type definitions from a common source: same compile-time guarantee
+  4. An OpenAPI spec file exists for racecontrol REST endpoints and renders correctly in a browser (Swagger UI or equivalent)
+  5. Contract tests run via npm test or cargo test and fail if a request/response shape changes without updating the contract definition
+  6. A CI workflow runs contract tests on every PR and blocks merge on failure
+**Plans**: TBD
+
+### Phase 174: Health Monitoring & Unified Deploy
+**Goal**: Every running service exposes /health, a central script polls all services and reports status, deploy-staging has a clean git status, and unified deploy scripts plus a runbook cover every service with post-deploy health verification built in
+**Depends on**: Phase 173
+**Requirements**: HLTH-01, HLTH-02, HLTH-03, REPO-04, REPO-05, DEPL-01, DEPL-02, DEPL-03, DEPL-04
+**Success Criteria** (what must be TRUE):
+  1. Every service (racecontrol :8080, kiosk :3300, web dashboard :3200, comms-link relay :8766, rc-sentry :8096) returns HTTP 200 from /health with a JSON body containing at minimum a status field
+  2. Running check-health.sh from James prints a pass/fail line for each service and exits non-zero if any service is down
+  3. After any deploy, the health check script runs automatically and its output is visible before the deploy is marked complete
+  4. deploy-staging has zero untracked or modified files (git status clean) - all 714 previously dirty files triaged and committed, deleted, or gitignored
+  5. A single deploy script deploys each service by name and runs the health check on completion
+  6. The deployment runbook is committed to the repo with step-by-step procedures and one-command rollback instructions for each service
+**Plans**: TBD
+
+### Phase 175: E2E Validation
+**Goal**: The full 231-test E2E suite executes on both POS and Kiosk, cross-cutting sync tests verify real-time state propagation, and every test failure is fixed or documented as a known issue with root cause
+**Depends on**: Phase 174
+**Requirements**: E2E-01, E2E-02, E2E-03, E2E-04
+**Success Criteria** (what must be TRUE):
+  1. All 231 tests from E2E-TEST-SCRIPT.md execute against POS (:3200) with no tests skipped due to environment issues - a results report exists
+  2. All 231 tests from E2E-TEST-SCRIPT.md execute against Kiosk (:8000) with no tests skipped due to environment issues - a results report exists
+  3. Cross-cutting sync tests pass: a billing action on POS is reflected on Kiosk within the expected timeout, and a kiosk action is reflected on POS
+  4. Every test failure has a triage entry: "fixed in this phase" with a commit hash, or "known issue" with root cause documented and a follow-up item filed
+**Plans**: TBD
+
+## v21.0 Progress
+
+**Execution Order:** 170 -> 171 -> 172 -> 173 -> 174 -> 175
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 170. Repo Hygiene & Dependency Audit | 0/TBD | Not started | - |
+| 171. Bug Fixes | 0/TBD | Not started | - |
+| 172. Standing Rules Sync | 0/TBD | Not started | - |
+| 173. API Contracts | 0/TBD | Not started | - |
+| 174. Health Monitoring & Unified Deploy | 0/TBD | Not started | - |
+| 175. E2E Validation | 0/TBD | Not started | - |

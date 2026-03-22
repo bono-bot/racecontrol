@@ -1651,3 +1651,25 @@ blockers:
   - "WhatsApp marketing channel decision (separate number) needed before Phase 158"
   - "Countable vs uncountable item list from Uday before Phase 152 data entry"
 ---
+
+
+---
+gsd_state_version: 1.0
+milestone: v21.0
+milestone_name: Cross-Project Sync & Stabilization
+status: in_progress
+stopped_at: Roadmap created - ready to plan Phase 170
+last_updated: "2026-03-23T12:00:00+05:30"
+current_phase: 170
+current_phase_name: Repo Hygiene & Dependency Audit
+progress:
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+decisions: []
+blockers:
+  - "Phase 171 (Bug Fixes) requires pods to be online for BUG-02/BUG-04 verification"
+  - "Phase 175 (E2E) requires both POS (:3200) and Kiosk (:8000/:3300) running"
+---

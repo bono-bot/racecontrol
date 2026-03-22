@@ -79,44 +79,54 @@ None — this milestone is stabilization, not feature work.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REPO-01 | TBD | Pending |
-| REPO-02 | TBD | Pending |
-| REPO-03 | TBD | Pending |
-| REPO-04 | TBD | Pending |
-| REPO-05 | TBD | Pending |
-| BUG-01 | TBD | Pending |
-| BUG-02 | TBD | Pending |
-| BUG-03 | TBD | Pending |
-| BUG-04 | TBD | Pending |
-| E2E-01 | TBD | Pending |
-| E2E-02 | TBD | Pending |
-| E2E-03 | TBD | Pending |
-| E2E-04 | TBD | Pending |
-| CONT-01 | TBD | Pending |
-| CONT-02 | TBD | Pending |
-| CONT-03 | TBD | Pending |
-| CONT-04 | TBD | Pending |
-| CONT-05 | TBD | Pending |
-| CONT-06 | TBD | Pending |
-| DEPL-01 | TBD | Pending |
-| DEPL-02 | TBD | Pending |
-| DEPL-03 | TBD | Pending |
-| DEPL-04 | TBD | Pending |
-| RULE-01 | TBD | Pending |
-| RULE-02 | TBD | Pending |
-| RULE-03 | TBD | Pending |
-| DEPS-01 | TBD | Pending |
-| DEPS-02 | TBD | Pending |
-| DEPS-03 | TBD | Pending |
-| HLTH-01 | TBD | Pending |
-| HLTH-02 | TBD | Pending |
-| HLTH-03 | TBD | Pending |
+| REPO-01 | Phase 170 | Pending |
+| REPO-02 | Phase 170 | Pending |
+| REPO-03 | Phase 170 | Pending |
+| REPO-04 | Phase 174 | Pending |
+| REPO-05 | Phase 174 | Pending |
+| BUG-01 | Phase 171 | Pending |
+| BUG-02 | Phase 171 | Pending |
+| BUG-03 | Phase 171 | Pending |
+| BUG-04 | Phase 171 | Pending |
+| RULE-01 | Phase 172 | Pending |
+| RULE-02 | Phase 172 | Pending |
+| RULE-03 | Phase 172 | Pending |
+| CONT-01 | Phase 173 | Pending |
+| CONT-02 | Phase 173 | Pending |
+| CONT-03 | Phase 173 | Pending |
+| CONT-04 | Phase 173 | Pending |
+| CONT-05 | Phase 173 | Pending |
+| CONT-06 | Phase 173 | Pending |
+| HLTH-01 | Phase 174 | Pending |
+| HLTH-02 | Phase 174 | Pending |
+| HLTH-03 | Phase 174 | Pending |
+| DEPL-01 | Phase 174 | Pending |
+| DEPL-02 | Phase 174 | Pending |
+| DEPL-03 | Phase 174 | Pending |
+| DEPL-04 | Phase 174 | Pending |
+| DEPS-01 | Phase 170 | Pending |
+| DEPS-02 | Phase 170 | Pending |
+| DEPS-03 | Phase 170 | Pending |
+| E2E-01 | Phase 175 | Pending |
+| E2E-02 | Phase 175 | Pending |
+| E2E-03 | Phase 175 | Pending |
+| E2E-04 | Phase 175 | Pending |
 
 **Coverage:**
-- v21.0 requirements: 28 total (updated to 32 with RULE/DEPS/HLTH)
-- Mapped to phases: 0
-- Unmapped: 32
+- v21.0 requirements: 32 total
+- Mapped to phases: 32
+- Unmapped: 0
+
+| Phase | Requirements |
+|-------|-------------|
+| 170. Repo Hygiene & Dependency Audit | REPO-01, REPO-02, REPO-03, DEPS-01, DEPS-02, DEPS-03 |
+| 171. Bug Fixes | BUG-01, BUG-02, BUG-03, BUG-04 |
+| 172. Standing Rules Sync | RULE-01, RULE-02, RULE-03 |
+| 173. API Contracts | CONT-01, CONT-02, CONT-03, CONT-04, CONT-05, CONT-06 |
+| 174. Health Monitoring & Unified Deploy | HLTH-01, HLTH-02, HLTH-03, REPO-04, REPO-05, DEPL-01, DEPL-02, DEPL-03, DEPL-04 |
+| 175. E2E Validation | E2E-01, E2E-02, E2E-03, E2E-04 |
 
 ---
 *Requirements defined: 2026-03-23*
+*Phase mapping added: 2026-03-23*
 *Last updated: 2026-03-23 after initial definition*
