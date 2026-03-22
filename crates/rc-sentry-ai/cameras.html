@@ -4,45 +4,144 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Racing Point — Cameras</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
   body {
-    background: #111; color: #fff; font-family: Montserrat, sans-serif;
     display: flex; flex-direction: column;
+    background: #111; color: #fff;
+    font-family: Montserrat, sans-serif;
   }
+
+  /* ── Toolbar ────────────────────────────────────────────────── */
   .toolbar {
-    flex: 0 0 auto; padding: 6px 12px;
-    display: flex; align-items: center; gap: 12px;
-    background: #1A1A1A; border-bottom: 1px solid #333;
+    flex: 0 0 auto;
+    padding: 4px 12px;
+    display: flex; align-items: center; gap: 8px;
+    background: #1A1A1A;
+    border-bottom: 1px solid #333;
   }
-  .toolbar h1 { color: #E10600; font-size: 1rem; margin-right: auto; }
-  .toolbar span { font-size: 0.75rem; color: #999; }
-  .toolbar select {
-    background: #333; color: #fff; border: 1px solid #555; border-radius: 3px;
-    padding: 2px 6px; font-size: 0.75rem;
+  .toolbar h1 {
+    color: #E10600;
+    font-size: 0.9rem;
+    margin-right: auto;
+    font-weight: 700;
+    letter-spacing: 0.5px;
   }
-  .grid {
-    flex: 1 1 auto; overflow-y: auto;
+  #status {
+    font-size: 0.7rem;
+    color: #999;
+  }
+
+  /* ── Layout buttons ─────────────────────────────────────────── */
+  .layout-btn {
+    width: 28px; height: 28px;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ccc;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 700; font-family: monospace;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .layout-btn.active {
+    background: #E10600;
+    border-color: #E10600;
+    color: #fff;
+  }
+
+  /* ── Rate select ────────────────────────────────────────────── */
+  #rate {
+    background: #333; color: #fff;
+    border: 1px solid #555; border-radius: 3px;
+    padding: 2px 6px; font-size: 0.7rem;
+  }
+
+  /* ── Camera grid ────────────────────────────────────────────── */
+  #grid {
+    flex: 1 1 auto;
+    overflow-y: auto;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 4px; padding: 4px;
+    gap: 2px;
+    padding: 2px;
+    transition: grid-template-columns 0.3s ease;
   }
-  .cam { background: #1a1a1a; border-radius: 4px; overflow: hidden; position: relative; }
+  .grid-1x1 { grid-template-columns: 1fr; }
+  .grid-2x2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3x3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4x4 { grid-template-columns: repeat(4, 1fr); }
+
+  /* ── Camera tile ────────────────────────────────────────────── */
+  .cam {
+    background: #222;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    aspect-ratio: 16 / 9;
+  }
   .cam-label {
     position: absolute; top: 0; left: 0; right: 0;
-    padding: 3px 8px; font-size: 0.65rem; text-transform: uppercase;
-    letter-spacing: 0.5px; background: rgba(0,0,0,0.6);
+    padding: 3px 8px;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: rgba(0, 0, 0, 0.65);
     display: flex; justify-content: space-between; align-items: center;
-    pointer-events: none; z-index: 1;
+    pointer-events: none;
+    z-index: 1;
   }
-  .cam-label .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-  .dot.ok { background: #4caf50; }
-  .dot.err { background: #E10600; }
-  .cam img { width: 100%; display: block; background: #000; cursor: pointer; aspect-ratio: 16/9; object-fit: cover; }
-  .cam img.stale { opacity: 0.35; }
-  .fullscreen { position: fixed; inset: 0; z-index: 100; background: #000; display: none; cursor: pointer; }
-  .fullscreen img { width: 100%; height: 100%; object-fit: contain; }
+
+  /* ── Status dot ─────────────────────────────────────────────── */
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .dot-live    { background: #4caf50; }
+  .dot-stale   { background: #ffc107; }
+  .dot-offline { background: #E10600; }
+
+  /* ── Camera image ───────────────────────────────────────────── */
+  .cam img {
+    width: 100%; height: 100%;
+    display: block;
+    background: #000;
+    cursor: pointer;
+    object-fit: cover;
+  }
+
+  /* ── Offline state ──────────────────────────────────────────── */
+  .cam.offline { opacity: 0.4; }
+  .cam.offline .offline-text {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #E10600;
+    letter-spacing: 1px;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* ── Fullscreen overlay (placeholder for plan 03) ───────────── */
+  .fullscreen {
+    position: fixed; inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.95);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .fullscreen img {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain;
+  }
 </style>
 </head>
 <body>
@@ -50,6 +149,10 @@
 <div class="toolbar">
   <h1>RACING POINT</h1>
   <span id="status">Loading...</span>
+  <button class="layout-btn" data-mode="1x1">1</button>
+  <button class="layout-btn" data-mode="2x2">4</button>
+  <button class="layout-btn active" data-mode="3x3">9</button>
+  <button class="layout-btn" data-mode="4x4">16</button>
   <select id="rate">
     <option value="1000">1 fps</option>
     <option value="2000" selected>0.5 fps</option>
@@ -57,113 +160,256 @@
   </select>
 </div>
 
-<div class="grid" id="grid"></div>
+<div id="grid" class="grid-3x3"></div>
 
-<div class="fullscreen" id="fs">
-  <img id="fs-img">
-</div>
+<div class="fullscreen" id="fs"></div>
 
 <script>
-var CHANNELS = [
-  { ch: 1,  name: 'Entrance' },
-  { ch: 2,  name: 'Camera 2' },
-  { ch: 3,  name: 'Reception Wide' },
-  { ch: 4,  name: 'Reception' },
-  { ch: 5,  name: 'Camera 5' },
-  { ch: 6,  name: 'Camera 6' },
-  { ch: 7,  name: 'Camera 7' },
-  { ch: 8,  name: 'Camera 8' },
-  { ch: 9,  name: 'Camera 9' },
-  { ch: 10, name: 'Camera 10' },
-  { ch: 11, name: 'Camera 11' },
-  { ch: 12, name: 'Camera 12' },
-  { ch: 13, name: 'Camera 13' }
-];
+// ── State ─────────────────────────────────────────────────────────────────────
+var cameras = [];
+var tileElements = {};  // keyed by nvr_channel
+var imgElements = {};   // keyed by nvr_channel
+var dotElements = {};   // keyed by nvr_channel
+var currentMode = '3x3';
+var timer = null;
 
-var grid = document.getElementById('grid');
+var gridEl   = document.getElementById('grid');
 var statusEl = document.getElementById('status');
-var rateEl = document.getElementById('rate');
-var fsEl = document.getElementById('fs');
-var fsImg = document.getElementById('fs-img');
-var imgs = {};
+var rateEl   = document.getElementById('rate');
+var fsEl     = document.getElementById('fs');
 
-CHANNELS.forEach(function(c) {
-  var card = document.createElement('div');
-  card.className = 'cam';
+// ── Camera list fetch ─────────────────────────────────────────────────────────
+function fetchCameras() {
+  return fetch('/api/v1/cameras')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      // Sort by display_order ascending
+      cameras = data.slice().sort(function(a, b) {
+        return (a.display_order || 0) - (b.display_order || 0);
+      });
+      buildGrid();
+    })
+    .catch(function() {
+      statusEl.textContent = 'API error';
+    });
+}
 
-  var label = document.createElement('div');
-  label.className = 'cam-label';
+// ── Layout fetch ──────────────────────────────────────────────────────────────
+function fetchLayout() {
+  return fetch('/api/v1/cameras/layout')
+    .then(function(r) { return r.json(); })
+    .then(function(layout) {
+      if (layout.grid_mode) {
+        applyMode(layout.grid_mode, false /* skipSave */);
+      }
+      if (layout.camera_order && layout.camera_order.length > 0) {
+        // Reorder cameras to match saved order; unordered cameras go at end
+        var ordered = [];
+        layout.camera_order.forEach(function(ch) {
+          var cam = cameras.find(function(c) { return c.nvr_channel === ch; });
+          if (cam) ordered.push(cam);
+        });
+        cameras.forEach(function(cam) {
+          if (layout.camera_order.indexOf(cam.nvr_channel) === -1) {
+            ordered.push(cam);
+          }
+        });
+        cameras = ordered;
+        buildGrid();
+      }
+    })
+    .catch(function() {
+      // Layout fetch failed — proceed with defaults
+    });
+}
 
-  var name = document.createElement('span');
-  name.textContent = c.name + ' (Ch ' + c.ch + ')';
+// ── Build camera grid tiles ───────────────────────────────────────────────────
+function buildGrid() {
+  // Clear existing tiles and references
+  while (gridEl.firstChild) gridEl.removeChild(gridEl.firstChild);
+  tileElements = {};
+  imgElements  = {};
+  dotElements  = {};
 
-  var dot = document.createElement('span');
-  dot.className = 'dot';
-  dot.id = 'dot-' + c.ch;
+  cameras.forEach(function(camera) {
+    var ch = camera.nvr_channel;
 
-  label.appendChild(name);
-  label.appendChild(dot);
+    // Tile container
+    var tile = document.createElement('div');
+    tile.className = 'cam';
+    if (ch != null) tile.setAttribute('data-channel', ch);
+    if (camera.status === 'offline' || camera.status === 'disconnected') {
+      tile.classList.add('offline');
+    }
 
-  var img = document.createElement('img');
-  img.id = 'cam-' + c.ch;
-  img.alt = c.name;
-  img.addEventListener('click', function() { openFs(c.ch); });
+    // Label bar
+    var label = document.createElement('div');
+    label.className = 'cam-label';
 
-  card.appendChild(label);
-  card.appendChild(img);
-  grid.appendChild(card);
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = camera.display_name;
 
-  imgs[c.ch] = img;
-});
+    var dot = document.createElement('span');
+    dot.className = 'dot ' + statusToDotClass(camera.status);
 
-var ok = 0, fail = 0;
+    label.appendChild(nameSpan);
+    label.appendChild(dot);
 
-function refresh() {
-  ok = 0; fail = 0;
-  CHANNELS.forEach(function(c) {
-    var img = new Image();
-    var t = Date.now();
-    img.onload = function() {
-      imgs[c.ch].src = this.src;
-      imgs[c.ch].classList.remove('stale');
-      document.getElementById('dot-' + c.ch).className = 'dot ok';
-      ok++;
-      updateStatus();
-    };
-    img.onerror = function() {
-      imgs[c.ch].classList.add('stale');
-      document.getElementById('dot-' + c.ch).className = 'dot err';
-      fail++;
-      updateStatus();
-    };
-    img.src = '/api/v1/cameras/nvr/' + c.ch + '/snapshot?t=' + t;
+    // Camera image
+    var img = document.createElement('img');
+    img.alt = camera.display_name;
+    img.style.cursor = 'pointer';
+    if (ch != null) {
+      img.addEventListener('click', (function(cam) {
+        return function() { openFullscreen(cam); };
+      })(camera));
+    }
+
+    // Offline overlay text
+    if (camera.status === 'offline' || camera.status === 'disconnected') {
+      var offlineText = document.createElement('span');
+      offlineText.className = 'offline-text';
+      offlineText.textContent = 'OFFLINE';
+      tile.appendChild(offlineText);
+    }
+
+    tile.appendChild(label);
+    tile.appendChild(img);
+    gridEl.appendChild(tile);
+
+    if (ch != null) {
+      tileElements[ch] = tile;
+      imgElements[ch]  = img;
+      dotElements[ch]  = dot;
+    }
   });
 }
 
-function updateStatus() {
-  if (ok + fail === CHANNELS.length) {
-    statusEl.textContent = ok + '/' + CHANNELS.length + ' online';
-  }
+// ── Layout mode switching ─────────────────────────────────────────────────────
+function applyMode(mode, save) {
+  // CSS class swap only — no DOM rebuild
+  gridEl.classList.remove('grid-1x1', 'grid-2x2', 'grid-3x3', 'grid-4x4');
+  gridEl.classList.add('grid-' + mode);
+  currentMode = mode;
+
+  // Update active button
+  document.querySelectorAll('.layout-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
+  });
+
+  if (save !== false) saveLayout();
 }
 
-var timer;
+function setLayoutMode(mode) {
+  applyMode(mode, true);
+}
+
+// Layout button listeners
+document.querySelectorAll('.layout-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    setLayoutMode(btn.getAttribute('data-mode'));
+  });
+});
+
+// ── Snapshot refresh loop ─────────────────────────────────────────────────────
+function refresh() {
+  var ok = 0;
+  var fail = 0;
+  var total = 0;
+
+  cameras.forEach(function(camera) {
+    var ch = camera.nvr_channel;
+    if (ch == null) return;
+    total++;
+
+    var preload = new Image();
+    preload.onload = (function(channel) {
+      return function() {
+        imgElements[channel].src = this.src;
+        if (dotElements[channel]) {
+          dotElements[channel].className = 'dot dot-live';
+        }
+        ok++;
+        if (ok + fail === total) {
+          statusEl.textContent = ok + '/' + cameras.length + ' online';
+        }
+      };
+    })(ch);
+    preload.onerror = (function(channel) {
+      return function() {
+        if (dotElements[channel]) {
+          dotElements[channel].className = 'dot dot-offline';
+        }
+        fail++;
+        if (ok + fail === total) {
+          statusEl.textContent = ok + '/' + cameras.length + ' online';
+        }
+      };
+    })(ch);
+    preload.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + Date.now();
+  });
+
+  // Edge case: all cameras have no nvr_channel
+  if (total === 0) statusEl.textContent = '0/' + cameras.length + ' online';
+}
+
 function startLoop() {
   clearInterval(timer);
   refresh();
-  timer = setInterval(refresh, parseInt(rateEl.value));
+  timer = setInterval(refresh, parseInt(rateEl.value, 10));
 }
-rateEl.addEventListener('change', startLoop);
-startLoop();
 
-function openFs(ch) {
-  fsEl.style.display = 'block';
-  fsImg.src = imgs[ch].src;
+rateEl.addEventListener('change', startLoop);
+
+// ── Layout persistence ────────────────────────────────────────────────────────
+function saveLayout() {
+  var order = cameras
+    .map(function(c) { return c.nvr_channel; })
+    .filter(function(ch) { return ch != null; });
+
+  fetch('/api/v1/cameras/layout', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grid_mode: currentMode, camera_order: order, zone_filter: null })
+  }).catch(function() {
+    // Fire-and-forget; ignore errors silently
+  });
 }
-function closeFs() {
+
+// ── Status dot mapping ────────────────────────────────────────────────────────
+function statusToDotClass(status) {
+  if (status === 'connected')    return 'dot-live';
+  if (status === 'reconnecting') return 'dot-stale';
+  return 'dot-offline';
+}
+
+// ── Fullscreen (stub — plan 03 adds WebRTC) ───────────────────────────────────
+function openFullscreen(camera) {
+  var ch = camera.nvr_channel;
+  // Remove previous content
+  while (fsEl.firstChild) fsEl.removeChild(fsEl.firstChild);
+
+  var img = document.createElement('img');
+  img.alt = camera.display_name;
+  if (ch != null && imgElements[ch]) {
+    img.src = imgElements[ch].src;
+  }
+
+  fsEl.appendChild(img);
+  fsEl.style.display = 'flex';
+}
+
+function closeFullscreen() {
   fsEl.style.display = 'none';
 }
-fsEl.addEventListener('click', closeFs);
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeFs(); });
+
+fsEl.addEventListener('click', closeFullscreen);
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeFullscreen();
+});
+
+// ── Initialization ────────────────────────────────────────────────────────────
+fetchCameras().then(fetchLayout).then(startLoop);
 </script>
 </body>
 </html>
