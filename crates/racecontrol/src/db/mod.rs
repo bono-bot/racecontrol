@@ -2414,6 +2414,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // Idempotent migration: add image_path column (ignore error if already exists)
+    let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN image_path TEXT")
+        .execute(pool)
+        .await;
+    // Intentionally ignore error — column already exists on second run
+
     // Seed default categories (idempotent)
     for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
         let id = uuid::Uuid::new_v4().to_string();
