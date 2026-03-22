@@ -64,29 +64,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BWDOG-01 | — | Pending |
-| BWDOG-02 | — | Pending |
-| BWDOG-03 | — | Pending |
-| BWDOG-04 | — | Pending |
-| IDLE-01 | — | Pending |
-| IDLE-02 | — | Pending |
-| IDLE-03 | — | Pending |
-| IDLE-04 | — | Pending |
-| AIACT-01 | — | Pending |
-| AIACT-02 | — | Pending |
-| AIACT-03 | — | Pending |
-| AIACT-04 | — | Pending |
-| HEAL-01 | — | Pending |
-| HEAL-02 | — | Pending |
-| HEAL-03 | — | Pending |
-| WARN-01 | — | Pending |
-| WARN-02 | — | Pending |
-| WARN-03 | — | Pending |
+| BWDOG-01 | Phase 137 | Pending |
+| BWDOG-02 | Phase 137 | Pending |
+| BWDOG-03 | Phase 137 | Pending |
+| BWDOG-04 | Phase 137 | Pending |
+| IDLE-01 | Phase 138 | Pending |
+| IDLE-02 | Phase 138 | Pending |
+| IDLE-03 | Phase 138 | Pending |
+| IDLE-04 | Phase 138 | Pending |
+| AIACT-01 | Phase 140 | Pending |
+| AIACT-02 | Phase 140 | Pending |
+| AIACT-03 | Phase 140 | Pending |
+| AIACT-04 | Phase 140 | Pending |
+| HEAL-01 | Phase 139 | Pending |
+| HEAL-02 | Phase 139 | Pending |
+| HEAL-03 | Phase 139 | Pending |
+| WARN-01 | Phase 141 | Pending |
+| WARN-02 | Phase 141 | Pending |
+| WARN-03 | Phase 141 | Pending |
 
 **Coverage:**
 - v17.0 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0 (100% coverage)
 
 ---
 *Requirements defined: 2026-03-22*

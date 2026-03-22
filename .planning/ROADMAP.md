@@ -1993,3 +1993,102 @@ Plans:
 |-------|----------------|--------|-----------|
 | 135. Daemon Recovery | 2/2 | Complete    | 2026-03-22 |
 | 136. Chain Endpoint + Visibility | 0/2 | Not started | - |
+
+
+## v17.0 AI Debugger Autonomy & Self-Healing
+
+Close 6 architectural gaps that prevented the system from self-healing when Edge died or stacked on pods. Add browser watchdog, continuous idle health checks, AI debugger action execution, healer-driven Edge recovery via WS protocol, and proactive WARN log scanning.
+
+- [ ] **Phase 137: Browser Watchdog** - rc-agent polls browser_process liveness every 30s, detects Edge stacking (>5 processes), and kills all before relaunch; close_browser() purges all msedge and WebView2 processes; watchdog suppressed during anti-cheat safe mode
+- [ ] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions
+- [ ] **Phase 139: Healer Edge Recovery** - Pod healer adds HealAction::RelaunchLockScreen for failed lock screen HTTP checks; healer sends ForceRelaunchBrowser WS message to pod; rc-agent handles ForceRelaunchBrowser via close_browser + launch_browser
+- [ ] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
+- [ ] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation
+
+## v17.0 Phase Details
+
+### Phase 137: Browser Watchdog
+**Goal**: rc-agent autonomously detects and recovers from Edge liveness failures and stack buildup without any human intervention or server involvement
+**Depends on**: Phase 136 (can start in parallel -- no direct code dependency on v18.1)
+**Requirements**: BWDOG-01, BWDOG-02, BWDOG-03, BWDOG-04
+**Success Criteria** (what must be TRUE):
+  1. When msedge.exe disappears between watchdog polls (simulated by taskkill from server), rc-agent relaunches Edge within 30 seconds and the lock screen is visible again
+  2. When msedge.exe count exceeds 5 (simulated by repeated Edge launches), rc-agent kills all msedge.exe and msedgewebview2.exe processes before launching a clean Edge instance
+  3. After close_browser() executes, no msedge.exe or msedgewebview2.exe processes remain -- the spawned child reference alone is not sufficient to clear stacked browsers
+  4. When anti-cheat safe mode is active (protected game running), watchdog polling does not execute taskkill -- the game session continues uninterrupted
+**Plans**: TBD
+
+Plans:
+- [ ] 137-01-PLAN.md -- Browser watchdog loop in LockScreenManager: poll + relaunch logic (BWDOG-01, BWDOG-02)
+- [ ] 137-02-PLAN.md -- close_browser() rewrite to kill all msedge/WebView2 + safe mode gate (BWDOG-03, BWDOG-04)
+
+### Phase 138: Idle Health Monitor
+**Goal**: Pods continuously verify their own health during idle periods and self-heal display failures before they require human intervention or server escalation
+**Depends on**: Phase 137 (shares close_browser + launch_browser; watchdog must be stable first)
+**Requirements**: IDLE-01, IDLE-02, IDLE-03, IDLE-04
+**Success Criteria** (what must be TRUE):
+  1. When no billing session is active, the idle health check loop fires every 60 seconds and logs a health result -- confirmed by log inspection over a 3-minute idle window
+  2. When the lock screen HTTP probe fails (port :18923 returns error), rc-agent calls close_browser + launch_browser and the lock screen is accessible again within 30 seconds -- no server action needed
+  3. After 3 consecutive idle health failures without recovery, the server receives an IdleHealthFailed WebSocket message identifying the pod and failure type
+  4. During an active billing session, the idle health check loop does not fire -- no interference with running games or telemetry collection
+**Plans**: TBD
+
+Plans:
+- [ ] 138-01-PLAN.md -- Idle health check loop: check_window_rect + check_lock_screen_http + self-heal (IDLE-01, IDLE-02, IDLE-04)
+- [ ] 138-02-PLAN.md -- Hysteresis counter + IdleHealthFailed protocol message + server handler (IDLE-03)
+
+### Phase 139: Healer Edge Recovery
+**Goal**: The racecontrol pod healer can trigger a full Edge relaunch on any pod via a new WS protocol message -- no SSH, no exec endpoint, just the existing WebSocket connection
+**Depends on**: Phase 137 (rc-agent close_browser + launch_browser must be reliable before healer calls them)
+**Requirements**: HEAL-01, HEAL-02, HEAL-03
+**Success Criteria** (what must be TRUE):
+  1. When pod_healer detects a lock screen HTTP failure for a pod, the healer logs HealAction::RelaunchLockScreen and a ForceRelaunchBrowser message appears in the server outbound WS queue for that pod
+  2. The ForceRelaunchBrowser WS message reaches the pod rc-agent and triggers close_browser + launch_browser -- the lock screen is accessible on HTTP probe within 30 seconds of the healer action
+  3. RelaunchLockScreen does not conflict with an active billing session -- the healer checks billing state before dispatching (standing rule #10: recovery systems must not fight each other)
+**Plans**: TBD
+
+Plans:
+- [ ] 139-01-PLAN.md -- HealAction::RelaunchLockScreen in pod_healer.rs + ForceRelaunchBrowser in protocol.rs (HEAL-01, HEAL-02)
+- [ ] 139-02-PLAN.md -- rc-agent ForceRelaunchBrowser WS handler + billing-state guard (HEAL-03)
+
+### Phase 140: AI Action Execution Whitelist
+**Goal**: The AI debugger can act on its own Tier 3/4 recommendations for pre-approved safe actions rather than just logging suggestions -- with all actions audited and blocked during anti-cheat safe mode
+**Depends on**: Phase 138 (idle health infrastructure available; AI debugger already exists in ai_debugger.rs)
+**Requirements**: AIACT-01, AIACT-02, AIACT-03, AIACT-04
+**Success Criteria** (what must be TRUE):
+  1. When the AI debugger returns a Tier 3 response containing kill_edge or relaunch_lock_screen in structured format, rc-agent executes the action without any manual approval
+  2. An AI response containing an action not on the whitelist (e.g. arbitrary shell command) is logged as rejected and no action is taken -- only the 5 pre-approved actions are ever executed
+  3. Every executed AI action produces an activity_log entry showing the action name, source model (ollama model ID), and whether it succeeded or failed
+  4. When anti-cheat safe mode is active, any AI-suggested action that kills processes is blocked and logged as blocked: safe mode active -- the protected game continues uninterrupted
+**Plans**: TBD
+
+Plans:
+- [ ] 140-01-PLAN.md -- Safe action parser in ai_debugger.rs: structured response parsing + 5-entry whitelist enum (AIACT-01, AIACT-02)
+- [ ] 140-02-PLAN.md -- Action executor with activity_log writes + safe mode gate + server-side parsing (AIACT-03, AIACT-04)
+
+### Phase 141: WARN Log Scanner
+**Goal**: Racecontrol proactively detects degraded conditions by scanning its own logs for WARN accumulation and escalates to AI before a cascade becomes an incident
+**Depends on**: Phase 139 (healer infrastructure; scanner runs in the same healer cycle)
+**Requirements**: WARN-01, WARN-02, WARN-03
+**Success Criteria** (what must be TRUE):
+  1. Every healer cycle, the WARN count for the last 5 minutes is computed from the racecontrol log and visible in healer debug logs -- the scan is observable without triggering escalation
+  2. When WARN count exceeds 50 in a 5-minute window, the AI debugger receives a query with a representative log snippet -- escalation fires exactly once per threshold breach, not on every subsequent cycle
+  3. When the same WARN message fires 10+ times in 5 minutes, it appears once in the AI escalation payload with a count annotation instead of 10 raw lines -- the AI receives signal, not noise
+**Plans**: TBD
+
+Plans:
+- [ ] 141-01-PLAN.md -- WARN log scanner in healer cycle: 5-min rolling window + threshold counter (WARN-01, WARN-02)
+- [ ] 141-02-PLAN.md -- WARN deduplication + grouped escalation payload + AI query dispatch (WARN-03)
+
+## v17.0 Progress
+
+**Execution Order:** 137 -> 138 -> 139 -> 140 -> 141
+Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser reliability directly gates Phase 138 (Idle Health) and Phase 139 (Healer Recovery). Phases 140 (AI Actions) and 141 (WARN Scanner) are independent of each other but both depend on their respective foundation phases.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 137. Browser Watchdog | 0/2 | Not started | - |
+| 138. Idle Health Monitor | 0/2 | Not started | - |
+| 139. Healer Edge Recovery | 0/2 | Not started | - |
+| 140. AI Action Execution Whitelist | 0/2 | Not started | - |
+| 141. WARN Log Scanner | 0/2 | Not started | - |

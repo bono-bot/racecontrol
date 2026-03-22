@@ -2,6 +2,27 @@
 gsd_state_version: 1.0
 milestone: v17.0
 milestone_name: AI Debugger Autonomy & Self-Healing
+status: roadmap_ready
+stopped_at: "Roadmap created -- Phase 137 ready to plan"
+last_updated: "2026-03-22T09:00:00.000Z"
+current_phase: 137
+current_phase_name: Browser Watchdog
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 10
+  completed_plans: 0
+decisions:
+  - "137: Browser watchdog lives in LockScreenManager (rc-agent), not a separate binary"
+  - "139: RelaunchLockScreen must check billing_active before dispatching (standing rule #10)"
+  - "140: Whitelist-only safe actions -- no arbitrary shell execution from AI responses"
+  - "141: WARN scanner runs inside healer cycle, not a separate tokio task"
+---
+
+---
+gsd_state_version: 1.0
+milestone: v17.0
+milestone_name: AI Debugger Autonomy & Self-Healing
 status: not_started
 stopped_at: "Defining requirements"
 last_updated: "2026-03-22T08:45:00.000Z"
