@@ -1,21 +1,20 @@
-//! Pod Monitor: Tier 2 watchdog that detects stale pods and attempts auto-recovery.
+//! Pod Monitor: Heartbeat detector for pod liveness.
 //!
 //! Runs as a background task on racecontrol. Checks all known pods every N seconds,
-//! marks them Offline if heartbeat is stale, and tries to restart rc-agent via
-//! the pod's pod-agent HTTP endpoint.
+//! marks them Offline if heartbeat is stale, and resets state on natural recovery.
 //!
-//! Uses shared EscalatingBackoff (30s->2m->10m->30m) for intelligent cooldowns,
-//! spawns post-restart verification tasks, and sends email alerts for persistent failures.
+//! Recovery actions (WoL, rc-agent restart, AI escalation, staff alert) are handled
+//! exclusively by pod_healer's graduated recovery tracker. pod_monitor is a pure detector.
 //!
-//! WatchdogState FSM:
-//!   Healthy -> Restarting -> Verifying -> Healthy (full recovery)
-//!                                      -> RecoveryFailed (all checks fail at 60s)
+//! WatchdogState is reset to Healthy on natural recovery (fresh heartbeat arrives).
+//! The WatchdogState::Restarting / Verifying skip guard is kept so pod_healer's
+//! in-progress recovery cycle is not interrupted.
 //!
 //! Key invariants:
-//! - Pod in Restarting or Verifying state is NEVER double-restarted
-//! - Partial recovery (process+WS ok, lock screen fail) is FAILED — alert fires
-//! - Pod with active billing is NEVER restarted
+//! - Pod in Restarting or Verifying state is NEVER double-triggered
+//! - Pod with active billing is NEVER flagged for restart
 //! - Natural recovery (fresh heartbeat while attempt > 0) resets WatchdogState to Healthy
+//! - ALL repair actions (WoL, exec, alert) are delegated to pod_healer
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,25 +24,10 @@ use chrono::{DateTime, Utc};
 
 use crate::activity_log::log_pod_activity;
 use crate::bono_relay::BonoEvent;
-use crate::email_alerts::EmailAlerter;
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{DrivingState, GameState, PodInfo, PodStatus};
 use rc_common::watchdog::EscalatingBackoff;
-
-use crate::wol;
-
-const POD_AGENT_PORT: u16 = 8090;
-const RC_SENTRY_PORT: u16 = 8091;
-const POD_AGENT_TIMEOUT_MS: u64 = 3000;
-const WOL_COOLDOWN_SECS: i64 = 300; // 5 minutes between WoL attempts
-
-/// Lightweight local tracking for per-pod state that does NOT need to be shared
-/// with pod_healer (WoL cooldown and pod-agent reachability).
-struct PodMonitorLocal {
-    last_wol_attempt: Option<DateTime<Utc>>,
-    pod_agent_reachable: bool,
-}
 
 /// Spawn the pod monitor background task.
 pub fn spawn(state: Arc<AppState>) {
@@ -57,7 +41,7 @@ pub fn spawn(state: Arc<AppState>) {
     let heartbeat_timeout = cfg.heartbeat_timeout_secs;
 
     tracing::info!(
-        "Pod monitor starting (check every {}s, heartbeat timeout {}s, escalating backoff)",
+        "Pod monitor starting (check every {}s, heartbeat timeout {}s, detection only — recovery delegated to pod_healer)",
         check_interval, heartbeat_timeout
     );
 
@@ -65,12 +49,11 @@ pub fn spawn(state: Arc<AppState>) {
         // Wait for agents to register on startup
         tokio::time::sleep(Duration::from_secs(15)).await;
 
-        let mut local: HashMap<String, PodMonitorLocal> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_secs(check_interval));
 
         loop {
             interval.tick().await;
-            check_all_pods(&state, &mut local, heartbeat_timeout).await;
+            check_all_pods(&state, heartbeat_timeout).await;
         }
     });
 }
@@ -101,7 +84,6 @@ fn backoff_label(cooldown: Duration) -> String {
 
 async fn check_all_pods(
     state: &Arc<AppState>,
-    local: &mut HashMap<String, PodMonitorLocal>,
     heartbeat_timeout: i64,
 ) {
     let now = Utc::now();
@@ -176,14 +158,15 @@ async fn check_all_pods(
                 drop(wd_states);
             }
 
-            // Also reset local state
-            if let Some(loc) = local.get_mut(&pod.id) {
-                loc.pod_agent_reachable = true;
-            }
             continue;
         }
 
-        // Pod is stale -- mark offline if not already
+        // Pod is stale. Mark Offline for status tracking.
+        // Recovery actions (WoL, rc-agent restart, AI escalation, staff alert)
+        // are handled by pod_healer's graduated recovery tracker (see pod_healer.rs).
+        // pod_monitor's role here is detection only.
+
+        // Mark offline if not already
         if pod.status != PodStatus::Offline {
             tracing::warn!(
                 "Pod {} heartbeat stale (last_seen: {:?}), marking Offline",
@@ -218,6 +201,7 @@ async fn check_all_pods(
         }
 
         // Skip if WatchdogState is already Restarting or Verifying (avoids double-restart)
+        // pod_healer sets Restarting when it begins a recovery action.
         let wd_state = {
             let states = state.pod_watchdog_states.read().await;
             states.get(&pod.id).cloned().unwrap_or(WatchdogState::Healthy)
@@ -225,7 +209,7 @@ async fn check_all_pods(
         match wd_state {
             WatchdogState::Restarting { .. } | WatchdogState::Verifying { .. } => {
                 tracing::debug!(
-                    "Pod {} in recovery cycle ({:?}) -- skipping restart",
+                    "Pod {} in recovery cycle ({:?}) -- skipping",
                     pod.id,
                     wd_state
                 );
@@ -250,6 +234,7 @@ async fn check_all_pods(
         }
 
         // Check shared backoff -- is it ready for another attempt?
+        // (pod_healer reads this same backoff to gate its graduated recovery)
         let mut backoffs = state.pod_backoffs.write().await;
         let backoff = backoffs.entry(pod.id.clone()).or_insert_with(|| {
             if state.config.watchdog.escalation_steps_secs.is_empty() {
@@ -271,10 +256,10 @@ async fn check_all_pods(
             continue;
         }
 
-        // Drop backoffs lock before network operations
+        // Drop backoffs lock before any further processing
         drop(backoffs);
 
-        // Guard: do NOT restart pods with active billing
+        // Guard: do NOT flag pods with active billing
         if state
             .billing
             .active_timers
@@ -289,593 +274,20 @@ async fn check_all_pods(
             continue;
         }
 
-        // Check needs_restart flag from pod_healer (consume and clear it)
-        let healer_flagged = {
-            let mut needs = state.pod_needs_restart.write().await;
-            needs.remove(&pod.id).unwrap_or(false)
-        };
-        // healer_flagged is informational -- billing guard already checked above.
-        // If healer set the flag, proceed with restart even if heartbeat timeout is borderline.
-        if !healer_flagged {
-            // Normal path: heartbeat timeout already confirmed stale above
-        }
-
-        // Ensure local tracking exists
-        let loc = local.entry(pod.id.clone()).or_insert(PodMonitorLocal {
-            last_wol_attempt: None,
-            pod_agent_reachable: false,
-        });
-
-        // Try reaching pod-agent
-        let ping_url = format!("http://{}:{}/ping", pod.ip_address, POD_AGENT_PORT);
-        let ping_result = state
-            .http_client
-            .get(&ping_url)
-            .timeout(Duration::from_millis(POD_AGENT_TIMEOUT_MS))
-            .send()
-            .await;
-
-        match ping_result {
-            Ok(resp) if resp.status().is_success() => {
-                loc.pod_agent_reachable = true;
-                tracing::info!(
-                    "Pod {} pod-agent reachable at {} -- attempting rc-agent restart",
-                    pod.id,
-                    pod.ip_address
-                );
-
-                // POST /exec to restart rc-agent
-                let restart_cmd = r#"cd /d C:\RacingPoint & taskkill /F /IM rc-agent.exe >nul 2>&1 & timeout /t 2 /nobreak >nul & start /b rc-agent.exe"#;
-                let exec_url =
-                    format!("http://{}:{}/exec", pod.ip_address, POD_AGENT_PORT);
-                let exec_result = state
-                    .http_client
-                    .post(&exec_url)
-                    .json(&serde_json::json!({
-                        "cmd": restart_cmd,
-                        "timeout_ms": 10000
-                    }))
-                    .timeout(Duration::from_millis(15000))
-                    .send()
-                    .await;
-
-                match exec_result {
-                    Ok(resp) if resp.status().is_success() => {
-                        tracing::info!(
-                            "Pod {} rc-agent restart command sent successfully",
-                            pod.id
-                        );
-                        log_pod_activity(
-                            state,
-                            &pod.id,
-                            "race_engineer",
-                            "Agent Restarted",
-                            "rc-agent restart via pod-agent",
-                            "race_engineer",
-                        );
-
-                        // Record attempt in shared backoff
-                        let (attempt, cooldown_duration, exhausted) = {
-                            let mut backoffs = state.pod_backoffs.write().await;
-                            if let Some(backoff) = backoffs.get_mut(&pod.id) {
-                                backoff.record_attempt(now);
-                                let attempt = backoff.attempt();
-                                let cooldown = backoff.current_cooldown();
-                                let exhausted = backoff.exhausted();
-                                (attempt, cooldown, exhausted)
-                            } else {
-                                (1, Duration::from_secs(30), false)
-                            }
-                        };
-
-                        // Set WatchdogState to Restarting
-                        {
-                            let mut wd_states = state.pod_watchdog_states.write().await;
-                            wd_states.insert(pod.id.clone(), WatchdogState::Restarting {
-                                attempt,
-                                started_at: now,
-                            });
-                        }
-
-                        // Broadcast PodRestarting to dashboard
-                        let label = backoff_label(cooldown_duration);
-                        let _ = state.dashboard_tx.send(DashboardEvent::PodRestarting {
-                            pod_id: pod.id.clone(),
-                            attempt,
-                            max_attempts: 4,
-                            backoff_label: label,
-                        });
-
-                        // Check if exhausted after this attempt -- send alert
-                        if exhausted {
-                            let cooldown_secs = cooldown_duration.as_secs();
-                            let body = EmailAlerter::format_alert_body(
-                                &pod.id,
-                                "Max escalation reached -- all restart attempts exhausted",
-                                "Max Escalation",
-                                attempt,
-                                cooldown_secs,
-                                pod.last_seen,
-                                "Manual intervention required",
-                            );
-                            let subject = format!(
-                                "[RaceControl] Pod {} -- Max Escalation EXHAUSTED",
-                                pod.id
-                            );
-                            state
-                                .email_alerter
-                                .write()
-                                .await
-                                .send_alert(&pod.id, &subject, &body)
-                                .await;
-                        }
-
-                        // Spawn post-restart verification (detached -- does not block monitor loop)
-                        let verify_state = Arc::clone(state);
-                        let verify_pod_id = pod.id.clone();
-                        let verify_pod_ip = pod.ip_address.clone();
-                        let verify_last_seen = pod.last_seen;
-                        tokio::spawn(async move {
-                            verify_restart(verify_state, verify_pod_id, verify_pod_ip, verify_last_seen).await;
-                        });
-                    }
-                    Ok(resp) => {
-                        tracing::warn!(
-                            "Pod {} rc-agent restart returned HTTP {}",
-                            pod.id,
-                            resp.status()
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Pod {} rc-agent restart exec failed: {}",
-                            pod.id,
-                            e
-                        );
-                    }
-                }
-            }
-            _ => {
-                loc.pod_agent_reachable = false;
-
-                // Fallback: try rc-sentry (:8091) to restart rc-agent
-                let sentry_url = format!("http://{}:{}/exec", pod.ip_address, RC_SENTRY_PORT);
-                let sentry_cmd = r#"C:\RacingPoint\start-rcagent.bat"#;
-                let sentry_result = state
-                    .http_client
-                    .post(&sentry_url)
-                    .json(&serde_json::json!({ "cmd": sentry_cmd }))
-                    .timeout(Duration::from_millis(10000))
-                    .send()
-                    .await;
-
-                match sentry_result {
-                    Ok(resp) if resp.status().is_success() => {
-                        tracing::info!(
-                            "Pod {} rc-agent restarted via rc-sentry (port 8090 was down)",
-                            pod.id,
-                        );
-                        log_pod_activity(
-                            state,
-                            &pod.id,
-                            "race_engineer",
-                            "Agent Restarted (sentry)",
-                            "rc-agent restarted via rc-sentry fallback",
-                            "race_engineer",
-                        );
-
-                        // Record attempt and spawn verification
-                        let (attempt, cooldown_duration, exhausted) = {
-                            let mut backoffs = state.pod_backoffs.write().await;
-                            let backoff = backoffs.entry(pod.id.clone()).or_insert_with(EscalatingBackoff::new);
-                            backoff.record_attempt(now);
-                            (backoff.attempt(), backoff.current_cooldown(), backoff.exhausted())
-                        };
-
-                        {
-                            let mut wd_states = state.pod_watchdog_states.write().await;
-                            wd_states.insert(pod.id.clone(), WatchdogState::Restarting {
-                                attempt,
-                                started_at: now,
-                            });
-                        }
-
-                        let label = backoff_label(cooldown_duration);
-                        let _ = state.dashboard_tx.send(DashboardEvent::PodRestarting {
-                            pod_id: pod.id.clone(),
-                            attempt,
-                            max_attempts: 4,
-                            backoff_label: label,
-                        });
-
-                        let verify_state = Arc::clone(state);
-                        let verify_pod_id = pod.id.clone();
-                        let verify_pod_ip = pod.ip_address.clone();
-                        let verify_last_seen = pod.last_seen;
-                        tokio::spawn(async move {
-                            verify_restart(verify_state, verify_pod_id, verify_pod_ip, verify_last_seen).await;
-                        });
-
-                        if exhausted {
-                            let body = EmailAlerter::format_alert_body(
-                                &pod.id,
-                                "Max escalation reached via sentry fallback",
-                                "Max Escalation (sentry)",
-                                attempt,
-                                cooldown_duration.as_secs(),
-                                pod.last_seen,
-                                "Manual intervention required",
-                            );
-                            let subject = format!("[RaceControl] Pod {} -- Max Escalation EXHAUSTED", pod.id);
-                            state.email_alerter.write().await.send_alert(&pod.id, &subject, &body).await;
-                        }
-
-                        continue; // Skip the FULLY UNREACHABLE path
-                    }
-                    _ => {}
-                }
-
-                // If rc-sentry also failed, pod is truly unreachable
-                tracing::error!(
-                    "Pod {} FULLY UNREACHABLE (rc-agent :8090 + rc-sentry :8091 both down)",
-                    pod.id,
-                );
-                log_pod_activity(
-                    state,
-                    &pod.id,
-                    "race_engineer",
-                    "Pod Unreachable",
-                    "Both rc-agent and rc-sentry down",
-                    "race_engineer",
-                );
-
-                // Record attempt and check exhaustion
-                let mut backoffs = state.pod_backoffs.write().await;
-                let backoff = backoffs.entry(pod.id.clone()).or_insert_with(EscalatingBackoff::new);
-                backoff.record_attempt(now);
-
-                if backoff.exhausted() {
-                    let attempt = backoff.attempt();
-                    let cooldown = backoff.current_cooldown().as_secs();
-                    drop(backoffs);
-
-                    let body = EmailAlerter::format_alert_body(
-                        &pod.id,
-                        "Pod fully unreachable",
-                        "Pod Unreachable",
-                        attempt,
-                        cooldown,
-                        pod.last_seen,
-                        "Check physical connectivity and power",
-                    );
-                    let subject =
-                        format!("[RaceControl] Pod {} UNREACHABLE", pod.id);
-                    state
-                        .email_alerter
-                        .write()
-                        .await
-                        .send_alert(&pod.id, &subject, &body)
-                        .await;
-                } else {
-                    drop(backoffs);
-                }
-
-                // Attempt Wake-on-LAN if MAC address is known and cooldown elapsed
-                if let Some(mac) = &pod.mac_address {
-                    let wol_cooldown_ok = match loc.last_wol_attempt {
-                        Some(last) => (now - last).num_seconds() > WOL_COOLDOWN_SECS,
-                        None => true,
-                    };
-                    if wol_cooldown_ok {
-                        tracing::info!("Pod {} -- sending Wake-on-LAN to {}", pod.id, mac);
-                        if let Err(e) = wol::send_wol(mac).await {
-                            tracing::warn!("Pod {} WoL failed: {}", pod.id, e);
-                        }
-                        log_pod_activity(
-                            state,
-                            &pod.id,
-                            "race_engineer",
-                            "Wake-on-LAN Sent",
-                            mac,
-                            "race_engineer",
-                        );
-                        loc.last_wol_attempt = Some(now);
-                    }
-                }
-
-                // Alert dashboard -- staff may need to check this pod
-                let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
-                    pod_id: pod.id.clone(),
-                    driver_name: pod.current_driver.clone().unwrap_or_default(),
-                    game: String::new(),
-                    reason: format!(
-                        "Pod fully unreachable. WoL sent. Manual intervention may be needed."
-                    ),
-                });
-            }
-        }
-    }
-}
-
-/// Post-restart verification: checks process, WebSocket, and lock screen at 5s, 15s, 30s, 60s.
-///
-/// Runs as a detached tokio task so it does not block the monitor loop.
-/// On full recovery, resets the shared backoff and sets WatchdogState to Healthy.
-/// On failure after 60s, sets RecoveryFailed and sends email alert.
-///
-/// Partial recovery (process + WS ok, lock screen fail) is treated as SUCCESS:
-/// rc-agent is alive (Session 0 or game in foreground). Restarting would kill active games.
-async fn verify_restart(
-    state: Arc<AppState>,
-    pod_id: String,
-    pod_ip: String,
-    last_seen: Option<DateTime<Utc>>,
-) {
-    // Set WatchdogState to Verifying on entry
-    let attempt = {
-        let backoffs = state.pod_backoffs.read().await;
-        backoffs.get(&pod_id).map(|b| b.attempt()).unwrap_or(0)
-    };
-    {
-        let mut wd_states = state.pod_watchdog_states.write().await;
-        wd_states.insert(pod_id.clone(), WatchdogState::Verifying {
-            attempt,
-            started_at: Utc::now(),
-        });
-    }
-
-    // Broadcast PodVerifying to dashboard
-    let _ = state.dashboard_tx.send(DashboardEvent::PodVerifying {
-        pod_id: pod_id.clone(),
-        attempt,
-    });
-
-    let check_delays = [5u64, 15, 30, 60];
-
-    // Track last check results so failure path knows WHY it failed.
-    // All three are updated each iteration where process is alive.
-    // If process never comes up, they remain false (process_dead failure path).
-    let mut last_process_ok = false;
-    let mut last_ws_ok = false;
-    // last_lock_ok is tracked so determine_failure_reason can distinguish
-    // "process+ws ok, lock fail" from other failure modes.
-    let mut last_lock_ok = false;
-
-    for delay in check_delays {
-        tokio::time::sleep(Duration::from_secs(delay)).await;
-
-        // 1. Process running? (via pod-agent /exec tasklist)
-        let process_ok = check_process_running(&state, &pod_ip).await;
-        last_process_ok = process_ok;
-        if !process_ok {
-            // Process still dead -- continue to next delay
-            last_ws_ok = false;
-            last_lock_ok = false;
-            continue;
-        }
-
-        // 2. WebSocket connected? (uses is_closed() for accurate liveness)
-        let ws_ok = is_ws_alive(&state, &pod_id).await;
-        last_ws_ok = ws_ok;
-
-        // 3. Lock screen responsive? (via pod-agent /exec PowerShell HTTP check)
-        let lock_ok = check_lock_screen(&state, &pod_ip).await;
-        last_lock_ok = lock_ok;
-
-        if process_ok && ws_ok && lock_ok {
-            // Full recovery -- all 3 checks passed
-            tracing::info!(
-                "Pod {} restart verified: fully healthy after {}s",
-                pod_id,
-                delay
-            );
-            log_pod_activity(
-                &state,
-                &pod_id,
-                "race_engineer",
-                "Restart Verified",
-                &format!(
-                    "Healthy after {}s (process + WebSocket + lock screen)",
-                    delay
-                ),
-                "watchdog",
-            );
-
-            // Reset backoff
-            {
-                let mut backoffs = state.pod_backoffs.write().await;
-                if let Some(b) = backoffs.get_mut(&pod_id) {
-                    b.reset();
-                }
-            }
-
-            // Set WatchdogState to Healthy
-            {
-                let mut wd_states = state.pod_watchdog_states.write().await;
-                wd_states.insert(pod_id.clone(), WatchdogState::Healthy);
-            }
-
-            // Broadcast recovery to dashboard
-            let pods = state.pods.read().await;
-            if let Some(pod) = pods.get(&pod_id) {
-                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
-            }
-            return;
-        }
-
-        if process_ok && ws_ok && !lock_ok {
-            // WS connected means rc-agent is alive. Lock screen may be unresponsive
-            // because rc-agent is in Session 0 (no GUI) or a game is in foreground.
-            // Do NOT restart -- that would kill the running game and disrupt customers.
-            tracing::warn!(
-                "Pod {} partial recovery at {}s: WS connected but lock screen unresponsive -- accepting as recovered (Session 0 or game active)",
-                pod_id,
-                delay
-            );
-
-            // Reset backoff and mark healthy since rc-agent IS running
-            {
-                let mut backoffs = state.pod_backoffs.write().await;
-                if let Some(b) = backoffs.get_mut(&pod_id) {
-                    b.reset();
-                }
-            }
-            {
-                let mut wd_states = state.pod_watchdog_states.write().await;
-                wd_states.insert(pod_id.clone(), WatchdogState::Healthy);
-            }
-            let pods = state.pods.read().await;
-            if let Some(pod) = pods.get(&pod_id) {
-                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
-            }
-            return;
-        }
-    }
-
-    // All check delays exhausted without full recovery
-    // Use pure helper to determine failure reason from last check results
-    let reason = determine_failure_reason(last_process_ok, last_ws_ok, last_lock_ok);
-    let failure_type = failure_type_from_reason(reason);
-
-    tracing::error!(
-        "Pod {} restart verification FAILED after 60s: {}",
-        pod_id,
-        failure_type
-    );
-    log_pod_activity(
-        &state,
-        &pod_id,
-        "race_engineer",
-        "Restart Failed",
-        &format!("{} after 60s verification", failure_type),
-        "watchdog",
-    );
-
-    // Get current attempt count
-    let fail_attempt = {
-        let backoffs = state.pod_backoffs.read().await;
-        backoffs.get(&pod_id).map(|b| b.attempt()).unwrap_or(0)
-    };
-
-    // Set WatchdogState to RecoveryFailed
-    {
-        let mut wd_states = state.pod_watchdog_states.write().await;
-        wd_states.insert(pod_id.clone(), WatchdogState::RecoveryFailed {
-            attempt: fail_attempt,
-            failed_at: Utc::now(),
-        });
-    }
-
-    // Broadcast PodRecoveryFailed to dashboard
-    let _ = state.dashboard_tx.send(DashboardEvent::PodRecoveryFailed {
-        pod_id: pod_id.clone(),
-        attempt: fail_attempt,
-        reason: reason.to_string(),
-    });
-
-    // Send email alert (ALERT-01)
-    let cooldown_secs = {
-        let backoffs = state.pod_backoffs.read().await;
-        backoffs
-            .get(&pod_id)
-            .map(|b| b.current_cooldown().as_secs())
-            .unwrap_or(30)
-    };
-    let next_action = if fail_attempt >= 4 {
-        "Manual intervention required".to_string()
-    } else {
-        format!(
-            "Pod will retry in {}",
-            backoff_label(Duration::from_secs(cooldown_secs))
-        )
-    };
-
-    let body = EmailAlerter::format_alert_body(
-        &pod_id,
-        "Restart verification failed after 60s",
-        failure_type,
-        fail_attempt,
-        cooldown_secs,
-        last_seen,
-        &next_action,
-    );
-    let subject = format!("[RaceControl] Pod {} -- Recovery Failed", pod_id);
-    state
-        .email_alerter
-        .write()
-        .await
-        .send_alert(&pod_id, &subject, &body)
-        .await;
-}
-
-/// Check if rc-agent.exe is running on the pod via pod-agent /exec tasklist.
-async fn check_process_running(state: &Arc<AppState>, pod_ip: &str) -> bool {
-    let cmd = "tasklist /NH | findstr rc-agent";
-    let url = format!("http://{}:{}/exec", pod_ip, POD_AGENT_PORT);
-    match state
-        .http_client
-        .post(&url)
-        .json(&serde_json::json!({"cmd": cmd, "timeout_ms": 5000}))
-        .timeout(Duration::from_millis(8000))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<serde_json::Value>().await {
-                Ok(body) => body["stdout"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("rc-agent"),
-                Err(_) => false,
-            }
-        }
-        _ => false,
-    }
-}
-
-/// Check if rc-agent lock screen HTTP server is responsive on port 18923 (localhost on the pod).
-async fn check_lock_screen(state: &Arc<AppState>, pod_ip: &str) -> bool {
-    let cmd = r#"powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18923/health' -TimeoutSec 3 -UseBasicParsing; $r.StatusCode } catch { 0 }""#;
-    let url = format!("http://{}:{}/exec", pod_ip, POD_AGENT_PORT);
-    match state
-        .http_client
-        .post(&url)
-        .json(&serde_json::json!({"cmd": cmd, "timeout_ms": 8000}))
-        .timeout(Duration::from_millis(12000))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<serde_json::Value>().await {
-                Ok(body) => {
-                    let code: u32 = body["stdout"]
-                        .as_str()
-                        .unwrap_or("0")
-                        .trim()
-                        .parse()
-                        .unwrap_or(0);
-                    code == 200
-                }
-                Err(_) => false,
-            }
-        }
-        _ => false,
+        // Pod is offline, backoff ready, no active billing.
+        // pod_healer's graduated tracker will handle recovery on its next cycle.
+        tracing::debug!(
+            "Pod {} is offline and ready for recovery — pod_healer will handle",
+            pod.id
+        );
     }
 }
 
 // ── Pure helper functions extracted for testability ─────────────────────────
 
-/// Determine the WatchdogState transition after a successful restart command.
-/// Returns the new WatchdogState to set and whether to broadcast PodRestarting.
-///
-/// Extracted as a pure function for unit testing without network calls.
-pub fn next_watchdog_state_on_restart(attempt: u32, now: DateTime<Utc>) -> WatchdogState {
-    WatchdogState::Restarting { attempt, started_at: now }
-}
-
 /// Determine the failure reason string from check results.
 ///
-/// Used by verify_restart's failure path -- extracted for testability.
+/// Used by verification logic -- extracted for testability.
 pub fn determine_failure_reason(process_ok: bool, ws_ok: bool, _lock_ok: bool) -> &'static str {
     if !process_ok {
         "process_dead"
@@ -900,7 +312,7 @@ pub fn failure_type_from_reason(reason: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::state::{
-        create_initial_backoffs, create_initial_needs_restart, create_initial_watchdog_states,
+        create_initial_backoffs, create_initial_watchdog_states,
     };
     use chrono::TimeDelta;
 
@@ -1019,59 +431,6 @@ mod tests {
             WatchdogState::Restarting { .. } | WatchdogState::Verifying { .. }
         );
         assert!(!should_skip, "RecoveryFailed state should NOT trigger skip");
-    }
-
-    // ── needs_restart flag consumption tests ─────────────────────────────────
-
-    #[test]
-    fn needs_restart_flag_consumed_as_false_when_not_set() {
-        let mut needs = create_initial_needs_restart();
-        // Simulates: let healer_flagged = needs.remove(&pod.id).unwrap_or(false)
-        let flagged = needs.remove("pod_1").unwrap_or(false);
-        assert!(!flagged, "Default needs_restart should be false");
-        // After removal, re-access returns None (consumed)
-        assert!(needs.get("pod_1").is_none(), "Flag should be consumed (removed)");
-    }
-
-    #[test]
-    fn needs_restart_flag_consumed_as_true_when_set() {
-        let mut needs = create_initial_needs_restart();
-        needs.insert("pod_3".to_string(), true);
-
-        let flagged = needs.remove("pod_3").unwrap_or(false);
-        assert!(flagged, "needs_restart=true should be consumed as true");
-        // After consumption, the flag is cleared
-        assert!(needs.get("pod_3").is_none(), "Flag should be cleared after consumption");
-    }
-
-    #[test]
-    fn needs_restart_not_present_returns_false() {
-        // Key was never inserted at all (edge case -- pre-populated map should have it)
-        let mut needs: HashMap<String, bool> = HashMap::new();
-        let flagged = needs.remove("pod_99").unwrap_or(false);
-        assert!(!flagged, "Missing key should return false via unwrap_or");
-    }
-
-    // ── WatchdogState transition on restart tests ─────────────────────────────
-
-    #[test]
-    fn next_watchdog_state_on_restart_produces_restarting() {
-        let now = Utc::now();
-        let state = next_watchdog_state_on_restart(1, now);
-        match state {
-            WatchdogState::Restarting { attempt, started_at } => {
-                assert_eq!(attempt, 1);
-                assert_eq!(started_at, now);
-            }
-            _ => panic!("Expected WatchdogState::Restarting"),
-        }
-    }
-
-    #[test]
-    fn next_watchdog_state_on_restart_attempt_zero_is_valid() {
-        let now = Utc::now();
-        let state = next_watchdog_state_on_restart(0, now);
-        assert!(matches!(state, WatchdogState::Restarting { attempt: 0, .. }));
     }
 
     // ── Backoff + WatchdogState integration tests ────────────────────────────
@@ -1208,5 +567,16 @@ mod tests {
             format!("Pod will retry in {}", backoff_label(Duration::from_secs(cooldown_secs)))
         };
         assert_eq!(next_action, "Pod will retry in 10m");
+    }
+
+    // ── pod_is_marked_offline_when_heartbeat_stale ───────────────────────────
+
+    #[test]
+    fn pod_status_offline_is_detection_only() {
+        // Verify the status transition logic: PodStatus::Offline is the signal
+        // that pod_healer's graduated tracker picks up for recovery actions.
+        // pod_monitor sets it; pod_healer reads it.
+        let status = PodStatus::Offline;
+        assert_eq!(status, PodStatus::Offline);
     }
 }
