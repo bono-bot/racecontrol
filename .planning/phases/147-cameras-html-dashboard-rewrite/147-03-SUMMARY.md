@@ -13,7 +13,7 @@ requires:
 provides:
   - cameras.html: complete WebRTC fullscreen with singleton pattern, pre-warm, and go2rtc signaling
 affects:
-  - live verification (Task 2 checkpoint — human verify on hardware)
+  - live verification (Task 2 checkpoint — approved by user on live hardware)
 
 # Tech tracking
 tech-stack:
@@ -55,7 +55,7 @@ completed: 2026-03-22
 - **Duration:** ~3 min
 - **Started:** 2026-03-22T13:25:10+05:30
 - **Completed:** 2026-03-22T13:28:14+05:30
-- **Tasks:** 1/1 complete (Task 2 is human-verify checkpoint)
+- **Tasks:** 2/2 complete (Task 2 human-verify: approved by user on live hardware)
 - **Files modified:** 1
 
 ## Accomplishments
@@ -73,6 +73,7 @@ completed: 2026-03-22
 ## Task Commits
 
 1. **Task 1: WebRTC fullscreen with singleton pattern, pre-warm, and go2rtc signaling** - `58c624c5` (feat)
+2. **Task 2: Verify complete dashboard with WebRTC fullscreen on live hardware** - checkpoint approved by user
 
 ## Files Created/Modified
 
@@ -98,11 +99,16 @@ None — cargo check passed on first attempt. All acceptance criteria met.
 
 None.
 
+## Live Hardware Verification (Task 2)
+
+User verified at http://192.168.31.27:8096/cameras/live on live go2rtc hardware. All 13 cameras, WebRTC fullscreen, pre-warm green border, controls auto-hide, singleton switching, Escape/X/backdrop close, and 0 viewers after close — all confirmed working. Result: approved.
+
 ## Next Phase Readiness
 
-- Task 2 is a `checkpoint:human-verify` — requires hardware verification on live go2rtc at http://192.168.31.27:8096/cameras/live
-- Build and deploy rc-sentry-ai before verification: `cargo build --release --bin rc-sentry-ai`
-- Verify: WebRTC fullscreen, pre-warm green border, controls auto-hide, singleton switching, Escape/X/backdrop close, 0 viewers after close
+Phase 147 is complete. All 3 plans shipped:
+- 147-01: Layout grid (1/4/9/16 column modes, snapshot polling, status dots)
+- 147-02: Drag-to-rearrange + zone grouping + layout persistence
+- 147-03: WebRTC fullscreen via go2rtc (this plan)
 
 ---
 *Phase: 147-cameras-html-dashboard-rewrite*
