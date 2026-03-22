@@ -162,6 +162,51 @@ export interface UpdateCafePromoRequest {
 export const listCafePromos = () =>
   fetchApi<CafePromo[]>("/cafe/promos");
 
+// ─── Cafe Marketing ───────────────────────────────────────────────────────────
+
+export type PromoGraphicTemplate = "promo" | "daily_menu" | "new_item";
+
+export interface GeneratePromoGraphicParams {
+  template: PromoGraphicTemplate;
+  promo_name?: string;
+  price_label?: string;
+  time_label?: string;
+  promo_description?: string;
+}
+
+export type BroadcastResult = {
+  attempted: number;
+  sent: number;
+  skipped_cooldown: number;
+  skipped_no_phone: number;
+};
+
+// Calls Next.js API route (relative URL — no auth needed, route is server-side)
+export async function generatePromoGraphic(
+  params: GeneratePromoGraphicParams
+): Promise<Blob> {
+  const res = await fetch("/api/cafe/generate-graphic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw new Error(`Graphic generation failed: ${res.status}`);
+  }
+  return res.blob();
+}
+
+// Calls racecontrol Rust API — uses fetchApi which injects Bearer token automatically
+export async function broadcastPromo(
+  message: string,
+  promo_name?: string
+): Promise<BroadcastResult> {
+  return fetchApi<BroadcastResult>("/cafe/marketing/broadcast", {
+    method: "POST",
+    body: JSON.stringify({ message, promo_name }),
+  });
+}
+
 export const createCafePromo = (data: CreateCafePromoRequest) =>
   fetchApi<CafePromo>("/cafe/promos", { method: "POST", body: JSON.stringify(data) });
 

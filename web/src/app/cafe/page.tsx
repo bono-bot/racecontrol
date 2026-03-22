@@ -23,7 +23,10 @@ import {
   updateCafePromo,
   deleteCafePromo,
   toggleCafePromo,
+  generatePromoGraphic,
+  broadcastPromo,
 } from "@/lib/api";
+import type { BroadcastResult } from "@/lib/api";
 
 const formatRupees = (paise: number) => `\u20b9${(paise / 100).toFixed(2)}`;
 
@@ -49,7 +52,7 @@ const emptyForm: FormData = {
   low_stock_threshold: "0",
 };
 
-type ActiveTab = "items" | "inventory" | "promos";
+type ActiveTab = "items" | "inventory" | "promos" | "marketing";
 
 function getStockStatus(item: CafeItem): {
   label: string;
@@ -94,6 +97,15 @@ export default function CafePage() {
   const [selectedPromoType, setSelectedPromoType] = useState<PromoType>("combo");
   const [promoSaving, setPromoSaving] = useState(false);
 
+  // Marketing tab state
+  const [broadcastMessage, setBroadcastMessage] = useState<string>("");
+  const [broadcastPromoName, setBroadcastPromoName] = useState<string>("");
+  const [broadcastResult, setBroadcastResult] = useState<BroadcastResult | null>(null);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
+  const [broadcastLoading, setBroadcastLoading] = useState<boolean>(false);
+  const [generatingPromoId, setGeneratingPromoId] = useState<string | null>(null);
+  const [menuGraphicGenerating, setMenuGraphicGenerating] = useState<boolean>(false);
+
   // Restock inline flow state
   const [restockItemId, setRestockItemId] = useState<string | null>(null);
   const [restockQty, setRestockQty] = useState("");
@@ -129,7 +141,7 @@ export default function CafePage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== "promos") return;
+    if (activeTab !== "promos" && activeTab !== "marketing") return;
     setPromoLoading(true);
     listCafePromos()
       .then(setPromos)
@@ -438,6 +450,16 @@ export default function CafePage() {
           }`}
         >
           Promos
+        </button>
+        <button
+          onClick={() => setActiveTab("marketing")}
+          className={`px-5 py-2.5 text-sm font-semibold transition-colors ${
+            activeTab === "marketing"
+              ? "border-b-2 border-[#E10600] text-white"
+              : "text-[#5A5A5A] hover:text-neutral-300"
+          }`}
+        >
+          Marketing
         </button>
       </div>
 
@@ -1095,6 +1117,211 @@ export default function CafePage() {
               saving={promoSaving}
             />
           )}
+        </div>
+      )}
+
+      {/* ── MARKETING TAB ── */}
+      {activeTab === "marketing" && (
+        <div className="space-y-8">
+
+          {/* Section A — Promo Graphics */}
+          <div>
+            <h2 className="text-lg font-bold text-white mb-4" style={{ fontFamily: "Montserrat, sans-serif" }}>
+              Promo Graphics
+            </h2>
+            {promoLoading ? (
+              <div className="text-center py-8 text-[#5A5A5A] text-sm">Loading promos...</div>
+            ) : promos.length === 0 ? (
+              <div className="bg-[#222222] border border-[#333333] rounded-lg p-6 text-center text-neutral-400 text-sm">
+                No promos yet. Create promos in the Promos tab first.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {promos.map((promo) => (
+                  <div
+                    key={promo.id}
+                    className="bg-[#222222] border border-[#333333] rounded-lg px-4 py-3 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-white font-medium">{promo.name}</span>
+                      <span className="bg-neutral-700/40 text-neutral-400 text-xs font-semibold px-2 py-0.5 rounded capitalize">
+                        {promo.promo_type.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    <button
+                      disabled={generatingPromoId === promo.id}
+                      onClick={async () => {
+                        setGeneratingPromoId(promo.id);
+                        try {
+                          const blob = await generatePromoGraphic({
+                            template: "promo",
+                            promo_name: promo.name,
+                            price_label: promo.promo_type === "happy_hour" ? "Special Offer" : "Bundle Deal",
+                            time_label: promo.start_time ?? undefined,
+                          });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `${promo.name.replace(/\s+/g, "_")}_promo.png`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to generate graphic");
+                        } finally {
+                          setGeneratingPromoId(null);
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-[#E10600] text-white text-xs font-semibold px-3 py-1.5 rounded hover:bg-[#c40500] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {generatingPromoId === promo.id ? (
+                        <>
+                          <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        "Generate PNG"
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section B — Daily Menu Graphic */}
+          <div>
+            <h2 className="text-lg font-bold text-white mb-4" style={{ fontFamily: "Montserrat, sans-serif" }}>
+              Daily Menu Graphic
+            </h2>
+            <div className="bg-[#222222] border border-[#333333] rounded-lg px-4 py-4 flex items-center justify-between">
+              <p className="text-neutral-400 text-sm">Generate a daily menu PNG with Racing Point branding.</p>
+              <button
+                disabled={menuGraphicGenerating}
+                onClick={async () => {
+                  setMenuGraphicGenerating(true);
+                  try {
+                    const blob = await generatePromoGraphic({ template: "daily_menu" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "daily_menu.png";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : "Failed to generate menu graphic");
+                  } finally {
+                    setMenuGraphicGenerating(false);
+                  }
+                }}
+                className="flex items-center gap-2 bg-[#E10600] text-white text-xs font-semibold px-3 py-1.5 rounded hover:bg-[#c40500] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {menuGraphicGenerating ? (
+                  <>
+                    <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Generating...
+                  </>
+                ) : (
+                  "Generate Menu PNG"
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Section C — WhatsApp Broadcast */}
+          <div>
+            <h2 className="text-lg font-bold text-white mb-1" style={{ fontFamily: "Montserrat, sans-serif" }}>
+              WhatsApp Broadcast
+            </h2>
+            <p className="text-red-400 text-xs font-medium mb-4">
+              Sends to ALL customers with a phone number. 24-hour cooldown per customer.
+            </p>
+            <div className="bg-[#222222] border border-[#333333] rounded-lg p-4 space-y-4">
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">Message</label>
+                <textarea
+                  rows={4}
+                  placeholder="Enter your promo message..."
+                  value={broadcastMessage}
+                  onChange={(e) => {
+                    setBroadcastMessage(e.target.value);
+                    setBroadcastResult(null);
+                    setBroadcastError(null);
+                  }}
+                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-[#5A5A5A] focus:outline-none focus:border-[#E10600] transition-colors resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#5A5A5A] mb-1">Promo Name (optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Happy Hour Deal"
+                  value={broadcastPromoName}
+                  onChange={(e) => setBroadcastPromoName(e.target.value)}
+                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-[#5A5A5A] focus:outline-none focus:border-[#E10600] transition-colors"
+                />
+              </div>
+
+              {broadcastError && (
+                <p className="text-red-400 text-sm">{broadcastError}</p>
+              )}
+
+              {broadcastResult && (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-sm text-emerald-300">
+                  <span className="font-semibold">Sent:</span> {broadcastResult.sent}
+                  {" | "}
+                  <span className="font-semibold">Skipped (cooldown):</span> {broadcastResult.skipped_cooldown}
+                  {" | "}
+                  <span className="font-semibold">No phone:</span> {broadcastResult.skipped_no_phone}
+                  {" | "}
+                  <span className="font-semibold">Total:</span> {broadcastResult.attempted}
+                </div>
+              )}
+
+              <button
+                disabled={broadcastLoading}
+                onClick={async () => {
+                  if (!broadcastMessage.trim()) {
+                    setBroadcastError("Message cannot be empty");
+                    return;
+                  }
+                  setBroadcastLoading(true);
+                  setBroadcastError(null);
+                  setBroadcastResult(null);
+                  try {
+                    const result = await broadcastPromo(
+                      broadcastMessage,
+                      broadcastPromoName.trim() || undefined
+                    );
+                    setBroadcastResult(result);
+                  } catch (err) {
+                    setBroadcastError(err instanceof Error ? err.message : "Broadcast failed");
+                  } finally {
+                    setBroadcastLoading(false);
+                  }
+                }}
+                className="flex items-center gap-2 bg-[#E10600] text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#c40500] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {broadcastLoading ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Sending...
+                  </>
+                ) : (
+                  "Send Broadcast"
+                )}
+              </button>
+            </div>
+          </div>
+
         </div>
       )}
 
