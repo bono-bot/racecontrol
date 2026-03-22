@@ -21,6 +21,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 22:45 IST | James | `24ff9223` | 155-02: Add CafeOrderHistoryItem type and getCafeOrderHistory to api.ts |
 | Mar 22 22:45 IST | James | `00b50b93` | 155-02: Build /cafe/orders page with expand/collapse order history |
 | Mar 22 22:45 IST | James | `729787c7` | 155-02: docs — SUMMARY, STATE, ROADMAP updated |
+| Mar 22 19:15 IST | James | `a4aff594` | 156-01: DB migration — cafe_promos table + idx_cafe_promos_active |
+| Mar 22 19:15 IST | James | `8ce96368` | 156-01: cafe_promos.rs module — 5 admin CRUD endpoints, routes.rs registration |
+| Mar 22 19:15 IST | James | `504403c2` | 156-01: docs — SUMMARY, STATE, ROADMAP updated |
 
 ## 2026-03-01
 
