@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,9 +11,9 @@ use axum::routing::get;
 use axum::Json;
 use bytes::Bytes;
 use futures::stream::unfold;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::CameraConfig;
@@ -80,6 +81,51 @@ pub fn spawn_snapshot_fetcher(
     });
 }
 
+/// Layout preferences stored in camera-layout.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CameraLayout {
+    #[serde(default = "default_grid_mode")]
+    pub grid_mode: String,
+    #[serde(default)]
+    pub camera_order: Vec<u32>,
+    #[serde(default)]
+    pub zone_filter: Option<String>,
+}
+
+fn default_grid_mode() -> String {
+    "3x3".to_string()
+}
+
+impl Default for CameraLayout {
+    fn default() -> Self {
+        Self {
+            grid_mode: default_grid_mode(),
+            camera_order: Vec::new(),
+            zone_filter: None,
+        }
+    }
+}
+
+/// Shared mutable layout state backed by camera-layout.json.
+pub struct LayoutState {
+    pub layout: Mutex<CameraLayout>,
+    pub file_path: PathBuf,
+}
+
+impl LayoutState {
+    /// Load layout from file, or return defaults if file doesn't exist or is invalid.
+    pub fn load(file_path: PathBuf) -> Self {
+        let layout = match std::fs::read_to_string(&file_path) {
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            Err(_) => CameraLayout::default(),
+        };
+        Self {
+            layout: Mutex::new(layout),
+            file_path,
+        }
+    }
+}
+
 /// Shared state for MJPEG streaming endpoints.
 pub struct MjpegState {
     pub frame_buf: FrameBuffer,
@@ -87,6 +133,7 @@ pub struct MjpegState {
     pub service_port: u16,
     pub nvr_channels: u32,
     pub snapshot_cache: Arc<SnapshotCache>,
+    pub layout_state: Arc<LayoutState>,
 }
 
 #[derive(Serialize)]
@@ -115,6 +162,10 @@ pub fn mjpeg_router(state: Arc<MjpegState>) -> axum::Router {
         .route(
             "/api/v1/cameras/nvr/:channel/snapshot",
             get(nvr_snapshot_handler),
+        )
+        .route(
+            "/api/v1/cameras/layout",
+            get(layout_get_handler).put(layout_put_handler),
         )
         .with_state(state)
         .layer(cors)
@@ -321,6 +372,63 @@ async fn mjpeg_stream_handler(
         .header(header::CONNECTION, "keep-alive")
         .body(Body::from_stream(stream))
         .expect("valid response")
+}
+
+/// GET /api/v1/cameras/layout — returns current layout preferences.
+async fn layout_get_handler(State(state): State<Arc<MjpegState>>) -> Json<serde_json::Value> {
+    let layout = state.layout_state.layout.lock().await;
+    Json(json!({
+        "grid_mode": layout.grid_mode,
+        "camera_order": layout.camera_order,
+        "zone_filter": layout.zone_filter,
+    }))
+}
+
+/// PUT /api/v1/cameras/layout — saves layout preferences atomically to camera-layout.json.
+async fn layout_put_handler(
+    State(state): State<Arc<MjpegState>>,
+    Json(incoming): Json<CameraLayout>,
+) -> Response {
+    // Update in-memory state
+    {
+        let mut layout = state.layout_state.layout.lock().await;
+        *layout = incoming.clone();
+    }
+
+    // Atomic write: write to temp file, then rename
+    let tmp_path = state.layout_state.file_path.with_extension("json.tmp");
+    let json_bytes = match serde_json::to_string_pretty(&incoming) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to serialize layout");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "serialization failed"})),
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(e) = tokio::fs::write(&tmp_path, json_bytes.as_bytes()).await {
+        tracing::error!(error = %e, path = %tmp_path.display(), "failed to write temp layout file");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "failed to write layout file"})),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = tokio::fs::rename(&tmp_path, &state.layout_state.file_path).await {
+        tracing::error!(error = %e, "failed to rename temp layout file");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "failed to persist layout file"})),
+        )
+            .into_response();
+    }
+
+    tracing::info!(path = %state.layout_state.file_path.display(), "camera layout saved");
+    Json(json!({"status": "ok"})).into_response()
 }
 
 /// Encode raw RGB bytes to JPEG.
