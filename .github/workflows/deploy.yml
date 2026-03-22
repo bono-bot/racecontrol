@@ -22,12 +22,40 @@ jobs:
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
+          command_timeout: 15m
           script: |
-            cd /opt/racingpoint
-            git -C racecontrol pull origin main
-            git -C racingpoint-admin pull origin main
-            cp racecontrol/cloud/compose.yml .
-            cp racecontrol/cloud/Caddyfile .
-            docker compose build
-            docker compose up -d
-            docker compose ps
+            set -e
+
+            echo "=== Pull racecontrol ==="
+            cd /root/racingpoint/racecontrol
+            git pull origin main
+
+            echo "=== Pull racingpoint-admin ==="
+            cd /root/racingpoint/racingpoint-admin
+            git pull origin main
+
+            echo "=== Build PWA ==="
+            cd /root/racingpoint/racecontrol/pwa
+            npm ci --production=false
+            NEXT_PUBLIC_API_URL=https://api.racingpoint.cloud/api/v1 NEXT_PUBLIC_IS_CLOUD=true npm run build
+
+            echo "=== Build Admin ==="
+            cd /root/racingpoint/racingpoint-admin
+            npm ci --production=false
+            npm run build
+
+            echo "=== Build Dashboard ==="
+            cd /root/racingpoint/racecontrol/web
+            npm ci --production=false
+            NEXT_PUBLIC_API_URL=https://api.racingpoint.cloud npm run build
+
+            echo "=== Restart services ==="
+            pm2 restart racecontrol-pwa || true
+            pm2 restart racingpoint-dashboard || true
+
+            echo "=== Verify ==="
+            sleep 5
+            curl -sSo /dev/null -w "pwa: %{http_code}\n" http://localhost:3100/ || echo "pwa: failed"
+            curl -sSo /dev/null -w "admin: %{http_code}\n" http://localhost:3300/ || echo "admin: failed"
+            curl -sSo /dev/null -w "dashboard: %{http_code}\n" http://localhost:3200/ || echo "dashboard: failed"
+            echo "=== Deploy complete ==="
