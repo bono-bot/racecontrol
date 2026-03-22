@@ -3,21 +3,24 @@ gsd_state_version: 1.0
 milestone: v21.0
 milestone_name: API Contracts & Stabilization
 status: in_progress
-stopped_at: Completed 173-01-PLAN.md
-last_updated: "2026-03-23T03:15:00+05:30"
+stopped_at: Completed 173-02-PLAN.md
+last_updated: "2026-03-23T03:18:30+05:30"
 current_phase: 173
 current_phase_name: api-contracts
-current_plan: 01
+current_plan: 02
 progress:
   total_phases: 130
   completed_phases: 99
   total_plans: 234
-  completed_plans: 233
+  completed_plans: 234
   percent: 99
 decisions:
   - "173-01: TypeScript-style type notation used throughout API-BOUNDARIES.md (not Rust) since all consumers are TypeScript"
   - "173-01: comms-link relay :8766 documented as a full boundary section"
   - "173-01: rc-agent kiosk-allowlist auth bug documented inline in API-BOUNDARIES.md"
+  - "173-02: PricingTier shared type includes is_trial/is_active/sort_order (Rust fields missing from plan spec)"
+  - "173-02: Driver.created_at made optional (kiosk creates partial frontend Driver objects)"
+  - "173-02: Driver.has_used_trial added to shared type (kiosk API computed field used in SetupWizard)"
 ---
 
 ---
