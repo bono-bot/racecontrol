@@ -163,18 +163,17 @@ Plans:
 - [x] 09-02-PLAN.md — Deploy to VPS via Bono, configure cron (*/2), verify end-to-end alert delivery (completed 2026-03-22)
 
 ### Phase 10: Operational Hardening
-**Goal**: Production edge cases (extended outages, brute force, sync conflicts) are handled gracefully
+**Goal**: Verify that existing implementations satisfy production hardening requirements (rate limiting, outage resilience)
 **Depends on**: Phase 5, Phase 6
 **Requirements**: SYNC-05, API-05
 **Success Criteria** (what must be TRUE):
   1. During an extended internet outage, cloud bookings queue as pending_sync and local server confirms them post-reconnection without data loss
   2. Authentication endpoints (login, OTP verify, PIN entry) are rate-limited to prevent brute force attacks
   3. After connectivity is restored, pending bookings resolve within two sync cycles
-**Plans**: 2 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 10-01: TBD
-- [ ] 10-02: TBD
+- [ ] 10-01-PLAN.md — Verify API-05 (rate limiting) and SYNC-05 (outage resilience) against existing code, run tests, document findings
 
 ## Progress
 
@@ -192,4 +191,4 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 7. Dashboard Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 8. CI/CD Pipeline | 0/1 | Complete    | 2026-03-22 |
 | 9. Health Monitoring + Alerts | 2/2 | Complete    | 2026-03-22 |
-| 10. Operational Hardening | 0/2 | Not started | - |
+| 10. Operational Hardening | 0/1 | Not started | - |
