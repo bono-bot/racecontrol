@@ -7765,6 +7765,32 @@ async fn sync_changes(
                     result["debit_intents"] = json!(items);
                 }
             }
+            "staff_members" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'name', name, 'phone', phone, 'pin', pin,
+                        'is_active', is_active, 'role', COALESCE(role, 'staff'),
+                        'created_at', created_at, 'updated_at', updated_at,
+                        'last_login_at', last_login_at
+                    ) FROM staff_members
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["staff_members"] = json!(items);
+                }
+            }
             _ => {}
         }
     }
@@ -8284,6 +8310,35 @@ async fn sync_push(
             if r.is_ok() { total += 1; }
         }
         tracing::info!("Sync push: {} billing events", events.len());
+    }
+
+    // Upsert staff_members (venue -> cloud or cloud -> venue)
+    if let Some(staff) = body.get("staff_members").and_then(|v| v.as_array()) {
+        for s in staff {
+            let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO staff_members (id, name, phone, pin, is_active, role, created_at, updated_at, last_login_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name, phone = excluded.phone, pin = excluded.pin,
+                    is_active = excluded.is_active, role = excluded.role,
+                    updated_at = excluded.updated_at, last_login_at = excluded.last_login_at",
+            )
+            .bind(id)
+            .bind(s.get("name").and_then(|v| v.as_str()))
+            .bind(s.get("phone").and_then(|v| v.as_str()))
+            .bind(s.get("pin").and_then(|v| v.as_str()))
+            .bind(s.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(s.get("role").and_then(|v| v.as_str()).unwrap_or("staff"))
+            .bind(s.get("created_at").and_then(|v| v.as_str()))
+            .bind(s.get("updated_at").and_then(|v| v.as_str()))
+            .bind(s.get("last_login_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+        tracing::info!("Sync push: {} staff_members", staff.len());
     }
 
     // Apply venue config snapshot from James
