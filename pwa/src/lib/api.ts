@@ -133,11 +133,23 @@ export interface CafeOrderItemDetail {
   line_total_paise: number;
 }
 
+export interface ActivePromo {
+  id: string;
+  name: string;
+  promo_type: "combo" | "happy_hour" | "gaming_bundle";
+  config: Record<string, unknown>;
+  stacking_group: string | null;
+  time_label: string | null;
+}
+
 export interface CafeOrderResponse {
   order_id: string;
   receipt_number: string;
   wallet_txn_id: string;
   total_paise: number;
+  discount_paise: number;
+  applied_promo_id: string | null;
+  applied_promo_name: string | null;
   new_balance_paise: number;
   items: CafeOrderItemDetail[];
 }
@@ -1202,6 +1214,9 @@ export const publicApi = {
 
   cafeMenu: () =>
     fetch(`${API_BASE_URL}/cafe/menu`).then(r => r.json()) as Promise<CafeMenuResponse>,
+
+  activePromos: () =>
+    fetch(`${API_BASE_URL}/cafe/promos/active`).then(r => r.json()) as Promise<ActivePromo[]>,
 };
 
 export interface TerminalCommand {

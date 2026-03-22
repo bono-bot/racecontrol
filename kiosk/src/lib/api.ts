@@ -1,4 +1,6 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo } from "./types";
+
+export type { ActivePromo };
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -398,6 +400,7 @@ export const api = {
 
   // Cafe Menu (public, no auth required)
   publicCafeMenu: () => fetchApi<CafeMenuResponse>("/cafe/menu"),
+  publicCafePromos: () => fetchApi<ActivePromo[]>("/cafe/promos/active"),
 
   // Cafe Orders (staff auth required)
   placeCafeOrder: (driverId: string, items: CafeOrderItem[]) =>
