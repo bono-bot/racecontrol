@@ -283,6 +283,12 @@ var dotElements = {};   // keyed by nvr_channel
 var currentMode = '3x3';
 var timer = null;
 
+// Stream budget — max live video streams based on layout mode
+// Prevents browser GPU/memory exhaustion from too many simultaneous decoders
+var STREAM_BUDGETS = { '1x1': 1, '2x2': 4, '3x3': 9, '4x4': 13 };
+var STREAM_BUDGET = STREAM_BUDGETS[currentMode] || 9;
+var liveStreamCount = 0;
+
 // Drag and zone state
 var dragSrcChannel = null;
 var collapsedZones = {};  // { 'entrance': false, 'pods': true, ... }
@@ -651,6 +657,7 @@ function buildGrid() {
   tileElements = {};
   imgElements  = {};
   dotElements  = {};
+  liveStreamCount = 0;
 
   // Group cameras by zone
   var groups = {};
@@ -714,9 +721,13 @@ function buildGrid() {
       label.appendChild(nameSpan);
       label.appendChild(dot);
 
-      // Camera video stream (live via go2rtc MSE/WebRTC)
+      // Camera tile media — live video for budget tiles, snapshot for overflow
+      // Stream budget prevents browser resource exhaustion from too many decoders
       var vid;
-      if (ch != null && camera.status !== 'offline' && camera.status !== 'disconnected') {
+      var isLive = ch != null && camera.status !== 'offline' && camera.status !== 'disconnected';
+      var withinBudget = liveStreamCount < STREAM_BUDGET;
+
+      if (isLive && withinBudget) {
         vid = document.createElement('video-stream');
         vid.style.width = '100%';
         vid.style.display = 'block';
@@ -724,17 +735,29 @@ function buildGrid() {
         vid.style.objectFit = 'cover';
         vid.style.background = '#000';
         vid.style.cursor = 'pointer';
-        vid.setAttribute('background', 'true');
         vid.mode = 'mse,webrtc,mjpeg';
         vid.media = 'video';
         vid.src = 'http://192.168.31.27:1984/api/ws?src=ch' + ch;
         vid.addEventListener('click', (function(cam) {
           return function() { openFullscreen(cam); };
         })(camera));
+        liveStreamCount++;
       } else {
+        // Snapshot fallback for overflow or offline cameras
         vid = document.createElement('img');
         vid.alt = camera.display_name;
-        vid.style.cursor = 'default';
+        vid.style.width = '100%';
+        vid.style.display = 'block';
+        vid.style.aspectRatio = '16/9';
+        vid.style.objectFit = 'cover';
+        vid.style.background = '#000';
+        vid.style.cursor = isLive ? 'pointer' : 'default';
+        if (isLive && ch != null) {
+          vid.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + Date.now();
+          vid.addEventListener('click', (function(cam) {
+            return function() { openFullscreen(cam); };
+          })(camera));
+        }
       }
 
       // Offline overlay text
@@ -849,15 +872,21 @@ function buildGrid() {
 
 // ── Layout mode switching ─────────────────────────────────────────────────────
 function applyMode(mode, save) {
-  // CSS class swap only — no DOM rebuild
+  var oldBudget = STREAM_BUDGET;
   gridEl.classList.remove('grid-1x1', 'grid-2x2', 'grid-3x3', 'grid-4x4');
   gridEl.classList.add('grid-' + mode);
   currentMode = mode;
+  STREAM_BUDGET = STREAM_BUDGETS[mode] || 9;
 
   // Update active button
   document.querySelectorAll('.layout-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
   });
+
+  // Rebuild grid if budget changed (adds/removes live streams)
+  if (STREAM_BUDGET !== oldBudget && cameras.length > 0) {
+    buildGrid();
+  }
 
   if (save !== false) saveLayout();
 }
@@ -873,12 +902,13 @@ document.querySelectorAll('.layout-btn').forEach(function(btn) {
   });
 });
 
-// ── Status poll (lightweight — live video handles frames, this just updates status dots) ──
+// ── Status + snapshot refresh for overflow tiles ─────────────────────────────
 function refreshStatus() {
   fetch('/api/v1/cameras')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var online = 0;
+      var t = Date.now();
       data.forEach(function(cam) {
         var ch = cam.nvr_channel;
         if (ch == null) return;
@@ -886,6 +916,11 @@ function refreshStatus() {
           dotElements[ch].className = 'dot ' + statusToDotClass(cam.status);
         }
         if (cam.status === 'connected' || cam.status === 'reconnecting') online++;
+        // Refresh snapshots for overflow tiles (beyond stream budget)
+        var el = imgElements[ch];
+        if (el && el.tagName === 'IMG' && ch) {
+          el.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + t;
+        }
       });
       statusEl.textContent = online + '/' + cameras.length + ' online';
     })
@@ -895,7 +930,7 @@ function refreshStatus() {
 function startLoop() {
   clearInterval(timer);
   refreshStatus();
-  timer = setInterval(refreshStatus, 5000); // status poll every 5s (video is live)
+  timer = setInterval(refreshStatus, 3000); // status + overflow snapshots every 3s
 }
 
 rateEl.addEventListener('change', startLoop);
