@@ -1,15 +1,23 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v21.0
+milestone_name: Cross-Project Sync & Stabilization
 status: in_progress
-stopped_at: Completed 172-02-PLAN.md
-last_updated: "2026-03-22T20:46:20.921Z"
+stopped_at: Completed 172-01-PLAN.md
+last_updated: "2026-03-23T20:49:00+05:30"
+current_phase: 172
+current_phase_name: standing-rules-sync
+current_plan: 01
 progress:
   total_phases: 130
   completed_phases: 98
   total_plans: 233
-  completed_plans: 228
+  completed_plans: 229
+  percent: 98
+decisions:
+  - "172-01: people-tracker has no git remote — CLAUDE.md committed locally only, push skipped"
+  - "172-01: people-tracker uses Python rules subset (no TypeScript rules)"
+  - "172-01: racingpoint-admin gets extra rules: Next.js hydration + UI must reflect config truth"
 ---
 
 ---

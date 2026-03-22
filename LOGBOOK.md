@@ -678,3 +678,15 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 20:44 IST | James | db1e89f | feat(172-02): add standing rules compliance check script to deploy-staging |
 | 2026-03-23 20:43 IST | James | cfbf530 | docs: add standing rules CLAUDE.md to deploy-staging (subset from racecontrol canonical) |
 | 2026-03-23 20:43 IST | James | 622a223 | docs: add standing rules CLAUDE.md to pod-agent (subset from racecontrol canonical) |
+| 2026-03-23 20:44 IST | James | 36dab4f | docs: add standing rules CLAUDE.md to racingpoint-admin (Node.js/TS subset) |
+| 2026-03-23 20:44 IST | James | 61af38f | docs: add standing rules CLAUDE.md to racingpoint-api-gateway |
+| 2026-03-23 20:44 IST | James | 61d4364 | docs: add standing rules CLAUDE.md to racingpoint-discord-bot |
+| 2026-03-23 20:44 IST | James | 75bb703 | docs: add standing rules CLAUDE.md to racingpoint-google |
+| 2026-03-23 20:44 IST | James | 1ee0479 | docs: add standing rules CLAUDE.md to racingpoint-mcp-calendar |
+| 2026-03-23 20:44 IST | James | f289035 | docs: add standing rules CLAUDE.md to racingpoint-mcp-drive |
+| 2026-03-23 20:44 IST | James | 485262f | docs: add standing rules CLAUDE.md to racingpoint-mcp-gmail |
+| 2026-03-23 20:44 IST | James | 58b9b01 | docs: add standing rules CLAUDE.md to racingpoint-mcp-sheets |
+| 2026-03-23 20:44 IST | James | b29f595 | docs: add standing rules CLAUDE.md to racingpoint-whatsapp-bot |
+| 2026-03-23 20:44 IST | James | fed6a7d | docs: add standing rules CLAUDE.md to rc-ops-mcp |
+| 2026-03-23 20:44 IST | James | ea18b20 | docs: add standing rules CLAUDE.md to whatsapp-bot |
+| 2026-03-23 20:44 IST | James | 10fd1c9 | docs: add standing rules CLAUDE.md to people-tracker (local commit — no remote) |

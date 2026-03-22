@@ -2619,7 +2619,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 170. Repo Hygiene & Dependency Audit | 3/3 | Complete    | 2026-03-22 |
 | 171. Bug Fixes | 0/TBD | Complete    | 2026-03-22 |
-| 172. Standing Rules Sync | 1/3 | In Progress|  |
+| 172. Standing Rules Sync | 2/3 | In Progress|  |
 | 173. API Contracts | 0/TBD | Not started | - |
 | 174. Health Monitoring & Unified Deploy | 0/TBD | Not started | - |
 | 175. E2E Validation | 0/TBD | Not started | - |
