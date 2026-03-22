@@ -159,7 +159,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Create health-check.sh (PM2 + disk + memory monitoring, WhatsApp + comms-link alerts, 30-min cooldown) and setup-swap.sh (2GB swap)
+- [x] 09-01-PLAN.md — Create health-check.sh (PM2 + disk + memory monitoring, WhatsApp + comms-link alerts, 30-min cooldown) and setup-swap.sh (2GB swap) (completed 2026-03-22)
 - [ ] 09-02-PLAN.md — Deploy to VPS via Bono, configure cron (*/2), verify end-to-end alert delivery
 
 ### Phase 10: Operational Hardening
@@ -191,5 +191,5 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 6. Admin Panel Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 7. Dashboard Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 8. CI/CD Pipeline | 0/1 | Complete    | 2026-03-22 |
-| 9. Health Monitoring + Alerts | 0/2 | Not started | - |
+| 9. Health Monitoring + Alerts | 1/2 | In progress | - |
 | 10. Operational Hardening | 0/2 | Not started | - |
