@@ -2604,7 +2604,14 @@ Plans:
   4. deploy-staging has zero untracked or modified files (git status clean) - all 714 previously dirty files triaged and committed, deleted, or gitignored
   5. A single deploy script deploys each service by name and runs the health check on completion
   6. The deployment runbook is committed to the repo with step-by-step procedures and one-command rollback instructions for each service
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 174-01-PLAN.md — Add /health to kiosk and web dashboard Next.js apps
+- [ ] 174-02-PLAN.md — Fix comms-link relay /health, verify racecontrol + rc-sentry
+- [ ] 174-03-PLAN.md — Triage deploy-staging 719 dirty files (gitignore + commit)
+- [ ] 174-04-PLAN.md — Create check-health.sh and deploy.sh with post-deploy health check
+- [ ] 174-05-PLAN.md — Deployment runbook + REPO-04/REPO-05 live verification checkpoint
 
 ### Phase 175: E2E Validation
 **Goal**: The full 231-test E2E suite executes on both POS and Kiosk, cross-cutting sync tests verify real-time state propagation, and every test failure is fixed or documented as a known issue with root cause
