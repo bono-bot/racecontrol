@@ -540,3 +540,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 09:42 IST | James | 6ea1165 | docs(137-02): complete browser watchdog plan SUMMARY STATE ROADMAP REQUIREMENTS |
 | 2026-03-22 04:14 IST | James | 883c67c | docs(138): create phase 138 idle health monitor plans (3 plans, 2 waves) |
 | 2026-03-22 09:50 IST | James | 4448aa7 | feat(138-01): add AgentMessage::IdleHealthFailed variant to rc-common protocol |
+| 2026-03-22 04:23 IST | James | 302953c | feat(138-02): expose check_lock_screen_http and check_window_rect as pub(crate) |
+| 2026-03-22 04:23 IST | James | ecc832d | feat(138-02): add idle health monitoring loop to event_loop.rs |
