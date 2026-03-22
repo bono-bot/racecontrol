@@ -2521,7 +2521,7 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 **Milestone Goal:** All Racing Point repos work in sync - shared contracts, no dead code, no known bugs, unified deploy, every service verified running at runtime.
 
 - [x] **Phase 170: Repo Hygiene & Dependency Audit** - Archive dead repos, catalogue non-git folders, normalize git config, audit npm and cargo dependencies (completed 2026-03-22)
-- [ ] **Phase 171: Bug Fixes** - Fix all 4 known bugs blocking daily operations (pods DB desync, orphan PowerShell, process guard allowlist, Variable_dump.exe)
+- [x] **Phase 171: Bug Fixes** - Fix all 4 known bugs blocking daily operations (pods DB desync, orphan PowerShell, process guard allowlist, Variable_dump.exe) (completed 2026-03-22)
 - [ ] **Phase 172: Standing Rules Sync** - Propagate standing rules to all active repos, sync to Bono VPS, add automated compliance check script
 - [ ] **Phase 173: API Contracts** - Document all API boundaries, extract shared TypeScript types, generate OpenAPI specs, add contract tests and CI drift prevention
 - [ ] **Phase 174: Health Monitoring & Unified Deploy** - Add /health to all services, central health check script, clean deploy-staging, unified deploy scripts and runbook, verify all services running at runtime
@@ -2613,7 +2613,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 170. Repo Hygiene & Dependency Audit | 3/3 | Complete    | 2026-03-22 |
-| 171. Bug Fixes | 0/TBD | Not started | - |
+| 171. Bug Fixes | 0/TBD | Complete    | 2026-03-22 |
 | 172. Standing Rules Sync | 0/TBD | Not started | - |
 | 173. API Contracts | 0/TBD | Not started | - |
 | 174. Health Monitoring & Unified Deploy | 0/TBD | Not started | - |
