@@ -36,11 +36,11 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **ORD-02**: Staff can enter cafe orders via POS on behalf of a customer
 - [x] **ORD-03**: Order amount deducts from the existing RP customer wallet
 - [x] **ORD-04**: Each order generates a unique receipt number and transaction ID
-- [ ] **ORD-05**: Order prints a thermal receipt for cafe staff to prepare
-- [ ] **ORD-06**: Order receipt is sent to customer via WhatsApp
+- [x] **ORD-05**: Order prints a thermal receipt for cafe staff to prepare
+- [x] **ORD-06**: Order receipt is sent to customer via WhatsApp
 - [x] **ORD-07**: Items with zero stock cannot be ordered (out-of-stock blocking)
 - [x] **ORD-08**: Order deduction and stock decrement are atomic (no race conditions on concurrent orders)
-- [ ] **ORD-09**: Customer can view their cafe order history in PWA
+- [x] **ORD-09**: Customer can view their cafe order history in PWA
 
 ### Promotions & Deals
 
@@ -111,11 +111,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORD-02 | Phase 154 | Pending |
 | ORD-03 | Phase 154 | Complete |
 | ORD-04 | Phase 154 | Complete |
-| ORD-05 | Phase 155 | Pending |
-| ORD-06 | Phase 155 | Pending |
+| ORD-05 | Phase 155 | Complete |
+| ORD-06 | Phase 155 | Complete |
 | ORD-07 | Phase 154 | Complete |
 | ORD-08 | Phase 154 | Complete |
-| ORD-09 | Phase 155 | Pending |
+| ORD-09 | Phase 155 | Complete |
 | PROMO-01 | Phase 156 | Pending |
 | PROMO-02 | Phase 156 | Pending |
 | PROMO-03 | Phase 156 | Pending |

@@ -19,9 +19,9 @@ decisions:
   - "155-02: formatPrice and formatOrderDate defined locally in page.tsx — no cross-page imports, keeps pages independent"
   - "155-02: Chevron SVG inline (no icon library) per plan spec — zero extra dependencies"
 metrics:
-  duration_minutes: 12
-  completed_date: "2026-03-22T17:15:00+05:30"
-  tasks_completed: 2
+  duration_minutes: 25
+  completed_date: "2026-03-22T17:30:00+05:30"
+  tasks_completed: 3
   tasks_total: 3
   files_created: 1
   files_modified: 1
@@ -37,12 +37,9 @@ Customer-facing /cafe/orders page with skeleton loading, empty state, and expand
 |---|------|--------|-------|
 | 1 | Add CafeOrderHistoryItem type and getCafeOrderHistory to api.ts | 24ff9223 | pwa/src/lib/api.ts |
 | 2 | Build /cafe/orders page with expand/collapse order rows | 00b50b93 | pwa/src/app/cafe/orders/page.tsx |
+| 3 | Human verify — order history page and receipt dispatch | checkpoint | Approved by user |
 
-## Tasks Pending (Checkpoint)
-
-| # | Name | Status |
-|---|------|--------|
-| 3 | Human verify — order history page and receipt dispatch | Awaiting checkpoint approval |
+| 3 | Human verify — order history page and receipt dispatch | Checkpoint approved |
 
 ## Decisions Made
 
