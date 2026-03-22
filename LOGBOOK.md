@@ -27,6 +27,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 22:56 IST | James | `1826731d` | 156-02: add CafePromo types and API call functions (no any) |
 | Mar 22 22:56 IST | James | `e8d3f04a` | 156-02: Promos tab with PromoPanel component — three promo types, full CRUD |
 | Mar 22 22:56 IST | James | `5777d05a` | 156-02: docs — SUMMARY, STATE, ROADMAP updated (phase 156 Complete) |
+| Mar 22 23:30 IST | James | `f2bfaf31` | 157-01: add applied_promo_id and discount_paise columns to cafe_orders (idempotent migration) |
+| Mar 22 23:30 IST | James | `c8c8e71e` | 157-01: add list_active_promos endpoint and evaluate_promos engine |
+| Mar 22 23:30 IST | James | `b35676cc` | 157-01: wire evaluate_promos into place_cafe_order_inner |
 
 ## 2026-03-01
 

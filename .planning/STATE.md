@@ -18,22 +18,26 @@ gsd_state_version: 1.0
 milestone: v17.0
 milestone_name: Promotions Engine
 status: in_progress
-stopped_at: "Completed 156-01-PLAN.md"
-last_updated: "2026-03-22T13:45:00+05:30"
-current_phase: 156
-current_phase_name: Promotions Engine
+stopped_at: "Completed 157-01-PLAN.md"
+last_updated: "2026-03-22T23:30:00+05:30"
+current_phase: 157
+current_phase_name: Promotions Integration
 current_plan: 02
 progress:
   [██████████] 99%
   total_phases: 125
   completed_phases: 94
-  total_plans: 221
-  completed_plans: 219
+  total_plans: 222
+  completed_plans: 220
   percent: 99
 decisions:
   - "156-01: stacking_group column on cafe_promos table (not a separate table) — sufficient for Phase 157 mutual-exclusivity logic"
   - "156-01: promo_type validated at application layer + SQLite CHECK constraint for defense-in-depth"
   - "156-01: config stored as TEXT (JSON string) — flexible schema per promo_type without separate tables"
+  - "157-01: happy_hour discount applies to total_paise (not per-item) — avoids needing unit prices in evaluate_promos"
+  - "157-01: gaming_bundle display only in v1 — auto-apply needs billing session lookup in order hot path"
+  - "157-01: single largest discount wins across stacking groups in v1 — avoids unexpected over-discounting"
+  - "157-01: promo fetch failure non-fatal via unwrap_or_default — promo errors never block orders"
 ---
 
 ---

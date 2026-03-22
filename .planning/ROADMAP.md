@@ -2395,8 +2395,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 157-01: TBD
-- [ ] 157-02: TBD
+- [x] 157-01-PLAN.md — Backend: list_active_promos endpoint, evaluate_promos engine, DB migration, place_cafe_order_inner wiring
+- [ ] 157-02-PLAN.md — Frontend: promo banner display in PWA and POS, applied discount in checkout confirmation
 
 ### Phase 158: Marketing & Content
 **Goal**: Cafe promos and menu updates reach customers through auto-generated visual content and broadcast messages
@@ -2428,7 +2428,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | 154. Ordering Core | 3/3 | Complete    | 2026-03-22 |
 | 155. Receipts & Order History | 2/2 | Complete    | 2026-03-22 |
 | 156. Promotions Engine | 2/2 | Complete    | 2026-03-22 |
-| 157. Promotions Integration | 0/0 | Not started | - |
+| 157. Promotions Integration | 1/2 | In progress | - |
 | 158. Marketing & Content | 0/0 | Not started | - |
 
 ## v17.1 Watchdog-to-AI Migration
