@@ -711,3 +711,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 11:05 IST | James | 388db85 (deploy-staging) | feat(174-04): add check-health.sh — polls 5 services PASS/FAIL, exits non-zero on failure |
 | 2026-03-23 11:05 IST | James | 7676a0f (deploy-staging) | feat(174-04): add deploy.sh — unified deploy for racecontrol/kiosk/web/comms-link with post-deploy health check |
 | 2026-03-23 11:05 IST | James | 2ec55f42 | docs(174-04): complete check-health.sh and deploy.sh plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS |
+| 2026-03-23 22:19 IST | James | 15796d1a | docs(174-05): complete deployment runbook plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS |
