@@ -567,3 +567,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 18:49 IST | James | 8267f3f8 | feat(146-02): add CameraLayout, LayoutState, GET/PUT /api/v1/cameras/layout with atomic file write |
 | 2026-03-22 18:50 IST | James | 66cb98c8 | feat(146-02): wire LayoutState into MjpegState in main.rs, load from camera-layout.json at startup |
 | 2026-03-22 18:52 IST | James | 0d3db4b6 | docs(146-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-04 complete) |
+| 2026-03-22 13:18 IST | James | f44335ce | feat(147-01): rewrite cameras.html as professional NVR dashboard (CSS grid 1x1/2x2/3x3/4x4, dynamic API, status dots) |
+| 2026-03-22 13:19 IST | James | fa78d9ea | docs(147-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-01, UIUX-01/02/04/05, DPLY-01 complete) |
