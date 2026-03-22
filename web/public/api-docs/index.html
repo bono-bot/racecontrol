@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Racing Point API Docs</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      body {
+        margin: 0;
+        background: #1a1a1a;
+      }
+      .swagger-ui .topbar {
+        background-color: #1a1a1a;
+        border-bottom: 1px solid #333;
+      }
+      .swagger-ui .topbar .download-url-wrapper .select-label select {
+        color: #fff;
+        background: #222;
+        border-color: #333;
+      }
+      .swagger-ui .topbar-wrapper a span {
+        display: none;
+      }
+      .swagger-ui .topbar-wrapper::before {
+        content: "Racing Point API";
+        color: #e10600;
+        font-family: Montserrat, sans-serif;
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      SwaggerUIBundle({
+        url: '/api-docs/openapi.yaml',
+        dom_id: '#swagger-ui',
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIBundle.SwaggerUIStandalonePreset
+        ],
+        layout: 'StandaloneLayout',
+        deepLinking: true,
+        defaultModelsExpandDepth: 1,
+        defaultModelExpandDepth: 1,
+        displayRequestDuration: true,
+        filter: true,
+        tryItOutEnabled: false,
+      });
+    </script>
+  </body>
+</html>

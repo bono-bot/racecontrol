@@ -1,0 +1,1995 @@
+openapi: 3.0.3
+info:
+  title: Racing Point racecontrol API
+  version: 1.0.0
+  description: |
+    REST API for Racing Point eSports venue management system.
+    Base URL: http://192.168.31.23:8080/api/v1
+    Authentication: Staff JWT via Authorization: Bearer header (from /auth/admin-login).
+    Admin calls are proxied through racingpoint-admin at /api/rc/[...path] → http://192.168.31.23:8080/api/v1/*.
+
+servers:
+  - url: http://192.168.31.23:8080/api/v1
+    description: Local server (venue LAN)
+
+security: []
+
+tags:
+  - name: health
+    description: Server and fleet health
+  - name: auth
+    description: Authentication (admin login, PIN validation, OTP)
+  - name: pods
+    description: Pod (simulator station) management
+  - name: billing
+    description: Billing sessions and rates
+  - name: drivers
+    description: Driver profiles
+  - name: kiosk
+    description: Kiosk experiences and settings
+  - name: customer
+    description: Customer-facing endpoints (Customer JWT)
+  - name: public
+    description: Public endpoints (no auth required)
+  - name: games
+    description: Game launcher
+  - name: pricing
+    description: Pricing tiers and rules
+  - name: wallet
+    description: Driver wallet management
+  - name: staff
+    description: Staff management
+  - name: deploy
+    description: Agent rolling deploy
+  - name: fleet
+    description: Fleet health and remote exec
+
+components:
+  securitySchemes:
+    staffJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Staff JWT obtained from /auth/admin-login or /auth/kiosk/validate-pin
+    customerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Customer JWT obtained from /customer/verify-otp
+
+  schemas:
+    SimType:
+      type: string
+      enum:
+        - assetto_corsa
+        - assetto_corsa_evo
+        - assetto_corsa_rally
+        - iracing
+        - le_mans_ultimate
+        - f1_25
+        - forza
+        - forza_horizon_5
+      description: Supported simulator types
+
+    PodStatus:
+      type: string
+      enum:
+        - offline
+        - idle
+        - in_session
+        - error
+        - disabled
+
+    DrivingState:
+      type: string
+      enum:
+        - active
+        - idle
+        - no_device
+
+    GameState:
+      type: string
+      enum:
+        - idle
+        - launching
+        - loading
+        - running
+        - stopping
+        - error
+
+    BillingSessionStatus:
+      type: string
+      enum:
+        - pending
+        - active
+        - paused_idle
+        - paused_manual
+        - completed
+        - ended_early
+        - cancelled
+        - expired
+
+    Pod:
+      type: object
+      required: [id, number, name, ip_address, sim_type, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: integer
+        name:
+          type: string
+        ip_address:
+          type: string
+        mac_address:
+          type: string
+          nullable: true
+        sim_type:
+          $ref: '#/components/schemas/SimType'
+        status:
+          $ref: '#/components/schemas/PodStatus'
+        current_driver:
+          type: string
+          nullable: true
+        current_session_id:
+          type: string
+          nullable: true
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        driving_state:
+          $ref: '#/components/schemas/DrivingState'
+        billing_session_id:
+          type: string
+          nullable: true
+        game_state:
+          $ref: '#/components/schemas/GameState'
+        current_game:
+          $ref: '#/components/schemas/SimType'
+        screen_blanked:
+          type: boolean
+          nullable: true
+        ffb_preset:
+          type: string
+          nullable: true
+        freedom_mode:
+          type: boolean
+          nullable: true
+
+    PodFleetStatus:
+      type: object
+      required:
+        - pod_number
+        - ws_connected
+        - http_reachable
+        - in_maintenance
+        - maintenance_failures
+        - violation_count_24h
+        - idle_health_fail_count
+        - idle_health_failures
+      properties:
+        pod_number:
+          type: integer
+        pod_id:
+          type: string
+          format: uuid
+          nullable: true
+        ws_connected:
+          type: boolean
+        http_reachable:
+          type: boolean
+        version:
+          type: string
+          nullable: true
+        build_id:
+          type: string
+          nullable: true
+        uptime_secs:
+          type: integer
+          nullable: true
+        crash_recovery:
+          type: boolean
+          nullable: true
+        ip_address:
+          type: string
+          nullable: true
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        last_http_check:
+          type: string
+          format: date-time
+          nullable: true
+        in_maintenance:
+          type: boolean
+        maintenance_failures:
+          type: array
+          items:
+            type: string
+        violation_count_24h:
+          type: integer
+        last_violation_at:
+          type: string
+          format: date-time
+          nullable: true
+        idle_health_fail_count:
+          type: integer
+        idle_health_failures:
+          type: array
+          items:
+            type: string
+
+    FleetHealthResponse:
+      type: object
+      required: [pods, timestamp]
+      properties:
+        pods:
+          type: array
+          items:
+            $ref: '#/components/schemas/PodFleetStatus'
+        timestamp:
+          type: string
+          format: date-time
+
+    BillingSession:
+      type: object
+      required:
+        - id
+        - driver_id
+        - driver_name
+        - pod_id
+        - pricing_tier_name
+        - allocated_seconds
+        - driving_seconds
+        - remaining_seconds
+        - status
+        - driving_state
+        - split_count
+        - current_split_number
+      properties:
+        id:
+          type: string
+          format: uuid
+        driver_id:
+          type: string
+        driver_name:
+          type: string
+        pod_id:
+          type: string
+        pricing_tier_name:
+          type: string
+        allocated_seconds:
+          type: integer
+        driving_seconds:
+          type: integer
+        remaining_seconds:
+          type: integer
+        status:
+          $ref: '#/components/schemas/BillingSessionStatus'
+        driving_state:
+          $ref: '#/components/schemas/DrivingState'
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        split_count:
+          type: integer
+        split_duration_minutes:
+          type: integer
+          nullable: true
+        current_split_number:
+          type: integer
+        elapsed_seconds:
+          type: integer
+          nullable: true
+        cost_paise:
+          type: integer
+          nullable: true
+        rate_per_min_paise:
+          type: integer
+          nullable: true
+
+    PricingTier:
+      type: object
+      required: [id, name, duration_minutes, price_paise, is_trial, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        duration_minutes:
+          type: integer
+        price_paise:
+          type: integer
+          description: Price in Indian paise (100 paise = ₹1)
+        is_trial:
+          type: boolean
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+          nullable: true
+
+    Driver:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        has_used_trial:
+          type: boolean
+          nullable: true
+
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+paths:
+
+  # ─── Health & Fleet ────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [health]
+      summary: Server health check
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, build_id]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                  build_id:
+                    type: string
+
+  /fleet/health:
+    get:
+      tags: [fleet, health]
+      summary: Fleet health status for all pods
+      operationId: getFleetHealth
+      security: []
+      responses:
+        '200':
+          description: Fleet status array
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FleetHealthResponse'
+
+  # ─── Authentication ────────────────────────────────────────────────────────
+
+  /auth/admin-login:
+    post:
+      tags: [auth]
+      summary: Admin password login — returns staff JWT
+      operationId: adminLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Staff JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/validate-pin:
+    post:
+      tags: [auth]
+      summary: Kiosk PIN auth — driver PIN → kiosk session token
+      operationId: validatePin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin, pod_id]
+              properties:
+                pin:
+                  type: string
+                pod_id:
+                  type: string
+      responses:
+        '200':
+          description: Auth token and driver info
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, driver_name]
+                properties:
+                  token:
+                    type: string
+                  driver_name:
+                    type: string
+                  tier:
+                    $ref: '#/components/schemas/PricingTier'
+        '401':
+          description: Invalid PIN
+
+  /auth/kiosk/validate-pin:
+    post:
+      tags: [auth]
+      summary: Staff PIN auth for kiosk PWA
+      operationId: kioskValidatePin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin:
+                  type: string
+      responses:
+        '200':
+          description: Staff JWT for kiosk
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Invalid PIN
+
+  /customer/login:
+    post:
+      tags: [auth, customer]
+      summary: Customer phone login — sends OTP via WhatsApp
+      operationId: customerLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+
+  /customer/verify-otp:
+    post:
+      tags: [auth, customer]
+      summary: Verify OTP — returns customer JWT
+      operationId: verifyOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp]
+              properties:
+                phone:
+                  type: string
+                otp:
+                  type: string
+      responses:
+        '200':
+          description: Customer JWT and driver profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, driver]
+                properties:
+                  token:
+                    type: string
+                  driver:
+                    $ref: '#/components/schemas/Driver'
+        '401':
+          description: Invalid OTP
+
+  # ─── Pods ──────────────────────────────────────────────────────────────────
+
+  /pods:
+    get:
+      tags: [pods]
+      summary: List all pods
+      operationId: listPods
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Array of pod info
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pod'
+        '401':
+          description: Unauthorized
+    post:
+      tags: [pods]
+      summary: Create a new pod
+      operationId: createPod
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [number, name, ip_address, sim_type]
+              properties:
+                number:
+                  type: integer
+                name:
+                  type: string
+                ip_address:
+                  type: string
+                sim_type:
+                  $ref: '#/components/schemas/SimType'
+      responses:
+        '200':
+          description: Created pod
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+
+  /pods/{id}:
+    get:
+      tags: [pods]
+      summary: Get pod by ID
+      operationId: getPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pod info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '404':
+          description: Pod not found
+
+  /pods/{id}/wake:
+    post:
+      tags: [pods]
+      summary: Wake pod (WoL)
+      operationId: wakePod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wake command sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/shutdown:
+    post:
+      tags: [pods]
+      summary: Shutdown pod
+      operationId: shutdownPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Shutdown initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/restart:
+    post:
+      tags: [pods]
+      summary: Restart pod
+      operationId: restartPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restart initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/lockdown:
+    post:
+      tags: [pods]
+      summary: Put pod in maintenance/lockdown
+      operationId: lockdownPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pod locked down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+    delete:
+      tags: [pods]
+      summary: Unlock pod from maintenance
+      operationId: unlockPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pod unlocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/enable:
+    post:
+      tags: [pods]
+      summary: Enable pod
+      operationId: enablePod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pod enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/disable:
+    post:
+      tags: [pods]
+      summary: Disable pod
+      operationId: disablePod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pod disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/{id}/clear-maintenance:
+    post:
+      tags: [pods]
+      summary: Clear maintenance failures
+      operationId: clearMaintenance
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Maintenance cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/wake-all:
+    post:
+      tags: [pods]
+      summary: Wake all pods
+      operationId: wakeAllPods
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Wake sent to all pods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/shutdown-all:
+    post:
+      tags: [pods]
+      summary: Shutdown all pods
+      operationId: shutdownAllPods
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Shutdown sent to all pods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/restart-all:
+    post:
+      tags: [pods]
+      summary: Restart all pods
+      operationId: restartAllPods
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Restart sent to all pods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /pods/lockdown-all:
+    post:
+      tags: [pods]
+      summary: Lockdown all pods
+      operationId: lockdownAllPods
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: All pods locked down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  # ─── Billing ───────────────────────────────────────────────────────────────
+
+  /billing/active:
+    get:
+      tags: [billing]
+      summary: List all active billing sessions
+      operationId: getActiveSessions
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BillingSession'
+
+  /billing/start:
+    post:
+      tags: [billing]
+      summary: Start a billing session
+      operationId: startSession
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pod_id, pricing_tier_id]
+              properties:
+                driver_id:
+                  type: string
+                pod_id:
+                  type: string
+                pricing_tier_id:
+                  type: string
+      responses:
+        '200':
+          description: New billing session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSession'
+
+  /billing/{id}/stop:
+    post:
+      tags: [billing]
+      summary: Stop a billing session
+      operationId: stopSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /billing/{id}/pause:
+    post:
+      tags: [billing]
+      summary: Pause a billing session
+      operationId: pauseSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /billing/{id}/resume:
+    post:
+      tags: [billing]
+      summary: Resume a paused billing session
+      operationId: resumeSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /billing/{id}/extend:
+    post:
+      tags: [billing]
+      summary: Extend a billing session
+      operationId: extendSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [extra_seconds]
+              properties:
+                extra_seconds:
+                  type: integer
+      responses:
+        '200':
+          description: Session extended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /billing/{id}/refund:
+    post:
+      tags: [billing]
+      summary: Refund a billing session
+      operationId: refundSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                amount_paise:
+                  type: integer
+      responses:
+        '200':
+          description: Refund processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /billing/sessions:
+    get:
+      tags: [billing]
+      summary: List billing sessions (paginated, filterable)
+      operationId: listSessions
+      security:
+        - staffJWT: []
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/BillingSessionStatus'
+        - name: pod_id
+          in: query
+          schema:
+            type: string
+        - name: driver_name
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions, total]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BillingSession'
+                  total:
+                    type: integer
+
+  /billing/sessions/{id}:
+    get:
+      tags: [billing]
+      summary: Get billing session by ID
+      operationId: getSession
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSession'
+        '404':
+          description: Session not found
+
+  /billing/sessions/{id}/events:
+    get:
+      tags: [billing]
+      summary: Get billing session events/audit trail
+      operationId: getSessionEvents
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    session_id:
+                      type: string
+                    event_type:
+                      type: string
+                    timestamp:
+                      type: string
+                      format: date-time
+                    details:
+                      type: string
+                      nullable: true
+                    staff_name:
+                      type: string
+                      nullable: true
+
+  /billing/rates:
+    get:
+      tags: [billing]
+      summary: List billing rates
+      operationId: listRates
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Billing rates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PricingTier'
+    post:
+      tags: [billing]
+      summary: Create billing rate
+      operationId: createRate
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, duration_minutes, price_paise]
+              properties:
+                name:
+                  type: string
+                duration_minutes:
+                  type: integer
+                price_paise:
+                  type: integer
+      responses:
+        '200':
+          description: Created rate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingTier'
+
+  /billing/report/daily:
+    get:
+      tags: [billing]
+      summary: Daily billing report
+      operationId: getDailyReport
+      security:
+        - staffJWT: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: '2026-03-23'
+      responses:
+        '200':
+          description: Daily report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_revenue_paise:
+                    type: integer
+                  session_count:
+                    type: integer
+                  avg_duration_seconds:
+                    type: integer
+                  by_rate:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        rate_name:
+                          type: string
+                        count:
+                          type: integer
+                        revenue_paise:
+                          type: integer
+
+  # ─── Drivers ───────────────────────────────────────────────────────────────
+
+  /drivers:
+    get:
+      tags: [drivers]
+      summary: List all drivers
+      operationId: listDrivers
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Drivers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Driver'
+    post:
+      tags: [drivers]
+      summary: Create driver
+      operationId: createDriver
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Created driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+
+  /drivers/{id}:
+    get:
+      tags: [drivers]
+      summary: Get driver by ID
+      operationId: getDriver
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+
+  # ─── Pricing ───────────────────────────────────────────────────────────────
+
+  /pricing:
+    get:
+      tags: [pricing]
+      summary: List pricing tiers
+      operationId: listPricingTiers
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Pricing tiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PricingTier'
+    post:
+      tags: [pricing]
+      summary: Create pricing tier
+      operationId: createPricingTier
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, duration_minutes, price_paise]
+              properties:
+                name:
+                  type: string
+                duration_minutes:
+                  type: integer
+                price_paise:
+                  type: integer
+      responses:
+        '200':
+          description: Created tier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingTier'
+
+  /pricing/{id}:
+    put:
+      tags: [pricing]
+      summary: Update pricing tier
+      operationId: updatePricingTier
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                duration_minutes:
+                  type: integer
+                price_paise:
+                  type: integer
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated tier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingTier'
+    delete:
+      tags: [pricing]
+      summary: Delete pricing tier
+      operationId: deletePricingTier
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  # ─── Kiosk ─────────────────────────────────────────────────────────────────
+
+  /kiosk/experiences:
+    get:
+      tags: [kiosk]
+      summary: List kiosk experiences
+      operationId: listExperiences
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Kiosk experiences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    sim_type:
+                      $ref: '#/components/schemas/SimType'
+    post:
+      tags: [kiosk]
+      summary: Create kiosk experience (admin only)
+      operationId: createExperience
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, sim_type]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                sim_type:
+                  $ref: '#/components/schemas/SimType'
+      responses:
+        '200':
+          description: Created experience
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /kiosk/settings:
+    get:
+      tags: [kiosk]
+      summary: Get kiosk settings
+      operationId: getKioskSettings
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Kiosk settings
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /kiosk/pod-launch-experience:
+    post:
+      tags: [kiosk]
+      summary: Launch experience on a pod from kiosk
+      operationId: podLaunchExperience
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pod_id, experience_id, driver_id]
+              properties:
+                pod_id:
+                  type: string
+                experience_id:
+                  type: string
+                driver_id:
+                  type: string
+      responses:
+        '200':
+          description: Experience launched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /kiosk/redeem-pin:
+    post:
+      tags: [kiosk]
+      summary: Customer PIN redeem on kiosk
+      operationId: redeemPin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin:
+                  type: string
+      responses:
+        '200':
+          description: PIN redeemed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, driver_id]
+                properties:
+                  token:
+                    type: string
+                  driver_id:
+                    type: string
+
+  # ─── Games ─────────────────────────────────────────────────────────────────
+
+  /games/launch:
+    post:
+      tags: [games]
+      summary: Launch a game on a pod
+      operationId: launchGame
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pod_id, sim_type, driver_id]
+              properties:
+                pod_id:
+                  type: string
+                sim_type:
+                  $ref: '#/components/schemas/SimType'
+                driver_id:
+                  type: string
+                session_id:
+                  type: string
+      responses:
+        '200':
+          description: Game launch info
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /games/stop:
+    post:
+      tags: [games]
+      summary: Stop a game on a pod
+      operationId: stopGame
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pod_id]
+              properties:
+                pod_id:
+                  type: string
+      responses:
+        '200':
+          description: Game stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /games/active:
+    get:
+      tags: [games]
+      summary: List active game sessions
+      operationId: getActiveGames
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Active game launches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  # ─── Public ────────────────────────────────────────────────────────────────
+
+  /venue:
+    get:
+      tags: [public]
+      summary: Get venue info
+      operationId: getVenue
+      security: []
+      responses:
+        '200':
+          description: Venue info
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /public/leaderboard:
+    get:
+      tags: [public]
+      summary: Overall leaderboard
+      operationId: getLeaderboard
+      security: []
+      responses:
+        '200':
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /public/drivers/{id}:
+    get:
+      tags: [public]
+      summary: Get public driver profile
+      operationId: getPublicDriver
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Driver public profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+
+  /public/sessions/{id}:
+    get:
+      tags: [public]
+      summary: Get public session summary
+      operationId: getPublicSession
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session summary
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ─── Customer (Customer JWT) ────────────────────────────────────────────────
+
+  /customer/register:
+    post:
+      tags: [customer]
+      summary: Register a new customer
+      operationId: registerCustomer
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Registered driver with token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [driver_id, token]
+                properties:
+                  driver_id:
+                    type: string
+                  token:
+                    type: string
+
+  /customer/profile:
+    get:
+      tags: [customer]
+      summary: Get customer profile
+      operationId: getCustomerProfile
+      security:
+        - customerJWT: []
+      responses:
+        '200':
+          description: Customer profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+    put:
+      tags: [customer]
+      summary: Update customer profile
+      operationId: updateCustomerProfile
+      security:
+        - customerJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+
+  /customer/wallet:
+    get:
+      tags: [customer, wallet]
+      summary: Get customer wallet balance
+      operationId: getCustomerWallet
+      security:
+        - customerJWT: []
+      responses:
+        '200':
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance_paise:
+                    type: integer
+                  driver_id:
+                    type: string
+
+  /customer/book:
+    post:
+      tags: [customer]
+      summary: Customer self-book a session
+      operationId: customerBook
+      security:
+        - customerJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pricing_tier_id]
+              properties:
+                pricing_tier_id:
+                  type: string
+                pod_id:
+                  type: string
+      responses:
+        '200':
+          description: Auth token for kiosk entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auth_token]
+                properties:
+                  auth_token:
+                    type: string
+
+  # ─── Wallet (Staff) ─────────────────────────────────────────────────────────
+
+  /wallet/{driver_id}:
+    get:
+      tags: [wallet]
+      summary: Get driver wallet (staff)
+      operationId: getDriverWallet
+      security:
+        - staffJWT: []
+      parameters:
+        - name: driver_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /wallet/{driver_id}/topup:
+    post:
+      tags: [wallet]
+      summary: Top up driver wallet
+      operationId: topupWallet
+      security:
+        - staffJWT: []
+      parameters:
+        - name: driver_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_paise]
+              properties:
+                amount_paise:
+                  type: integer
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Updated wallet
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ─── Deploy ────────────────────────────────────────────────────────────────
+
+  /deploy/status:
+    get:
+      tags: [deploy]
+      summary: Get rolling deploy status
+      operationId: getDeployStatus
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Deploy status per pod
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    pod_id:
+                      type: string
+                    pod_number:
+                      type: integer
+                    status:
+                      type: string
+                    version:
+                      type: string
+
+  /deploy/rolling:
+    post:
+      tags: [deploy]
+      summary: Start rolling deploy to all pods
+      operationId: startRollingDeploy
+      security:
+        - staffJWT: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version:
+                  type: string
+      responses:
+        '200':
+          description: Deploy job started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+
+  /deploy/{pod_id}:
+    post:
+      tags: [deploy]
+      summary: Deploy to a single pod
+      operationId: deployToPod
+      security:
+        - staffJWT: []
+      parameters:
+        - name: pod_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version:
+                  type: string
+      responses:
+        '200':
+          description: Pod deploy status
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ─── Staff ─────────────────────────────────────────────────────────────────
+
+  /staff:
+    get:
+      tags: [staff]
+      summary: List staff members
+      operationId: listStaff
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Staff members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    role:
+                      type: string
+    post:
+      tags: [staff]
+      summary: Create staff member
+      operationId: createStaff
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role]
+              properties:
+                name:
+                  type: string
+                role:
+                  type: string
+      responses:
+        '200':
+          description: Created staff member
+          content:
+            application/json:
+              schema:
+                type: object
