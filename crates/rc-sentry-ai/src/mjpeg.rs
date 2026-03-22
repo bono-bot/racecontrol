@@ -92,7 +92,11 @@ pub struct MjpegState {
 #[derive(Serialize)]
 struct CameraInfo {
     name: String,
+    display_name: String,
+    display_order: u32,
     role: String,
+    zone: String,
+    nvr_channel: Option<u32>,
     stream_url: String,
     status: &'static str,
 }
@@ -101,7 +105,7 @@ struct CameraInfo {
 pub fn mjpeg_router(state: Arc<MjpegState>) -> axum::Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
-        .allow_methods([axum::http::Method::GET])
+        .allow_methods([axum::http::Method::GET, axum::http::Method::PUT])
         .allow_headers(Any);
 
     axum::Router::new()
@@ -180,7 +184,11 @@ async fn cameras_list_handler(State(state): State<Arc<MjpegState>>) -> Json<serd
 
         cameras.push(CameraInfo {
             name: cam.name.clone(),
+            display_name: cam.effective_display_name().to_string(),
+            display_order: cam.display_order.unwrap_or(0),
             role: cam.role.clone(),
+            zone: cam.zone.clone(),
+            nvr_channel: cam.nvr_channel,
             stream_url: format!("/api/v1/cameras/{}/stream", cam.name),
             status,
         });
