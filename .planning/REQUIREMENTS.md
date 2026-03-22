@@ -46,7 +46,7 @@
 ### Standing Rules
 
 - [x] **RULE-01**: CLAUDE.md standing rules synced to all active repos (relevant subset per repo)
-- [ ] **RULE-02**: Bono's VPS repos updated with matching standing rules
+- [x] **RULE-02**: Bono's VPS repos updated with matching standing rules
 - [x] **RULE-03**: Standing rules compliance check script (automated, runnable before any ship)
 
 ### Dependency Audit
@@ -89,7 +89,7 @@ None — this milestone is stabilization, not feature work.
 | BUG-03 | Phase 171 | Pending |
 | BUG-04 | Phase 171 | Pending |
 | RULE-01 | Phase 172 | Complete |
-| RULE-02 | Phase 172 | Pending |
+| RULE-02 | Phase 172 | Complete |
 | RULE-03 | Phase 172 | Complete |
 | CONT-01 | Phase 173 | Pending |
 | CONT-02 | Phase 173 | Pending |

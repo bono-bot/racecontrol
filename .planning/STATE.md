@@ -3,21 +3,23 @@ gsd_state_version: 1.0
 milestone: v21.0
 milestone_name: Cross-Project Sync & Stabilization
 status: in_progress
-stopped_at: Completed 172-01-PLAN.md
-last_updated: "2026-03-23T20:49:00+05:30"
+stopped_at: Completed 172-03-PLAN.md
+last_updated: "2026-03-23T02:21:00+05:30"
 current_phase: 172
 current_phase_name: standing-rules-sync
-current_plan: 01
+current_plan: 03
 progress:
   total_phases: 130
   completed_phases: 98
   total_plans: 233
-  completed_plans: 229
-  percent: 98
+  completed_plans: 232
+  percent: 99
 decisions:
   - "172-01: people-tracker has no git remote — CLAUDE.md committed locally only, push skipped"
   - "172-01: people-tracker uses Python rules subset (no TypeScript rules)"
   - "172-01: racingpoint-admin gets extra rules: Next.js hydration + UI must reflect config truth"
+  - "172-03: shell_relay not available on relay — used SSH fallback for racecontrol git pull on Bono VPS"
+  - "172-03: Compliance script passed 'All repos compliant' before user manual checkpoint verification"
 ---
 
 ---
