@@ -1347,3 +1347,22 @@ decisions:
   - "147: CSS grid class swap for layout switching — tiles never destroyed/recreated across mode changes"
   - "148: Next.js localStorage reads only inside useEffect with hydrated flag — never in useState initializer"
 ---
+
+---
+gsd_state_version: 1.0
+milestone: v19.0
+milestone_name: Cafe Inventory, Ordering & Marketing
+status: in_progress
+stopped_at: Roadmap created — no plans executed yet
+last_updated: "2026-03-22T00:00:00+05:30"
+progress:
+  total_phases: 10
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+decisions: []
+blockers:
+  - "Printer model confirmation needed before Phase 155"
+  - "WhatsApp marketing channel decision (separate number) needed before Phase 158"
+  - "Countable vs uncountable item list from Uday before Phase 152 data entry"
+---
