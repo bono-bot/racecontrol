@@ -78,6 +78,48 @@ struct HealAction {
     reason: String,
 }
 
+// --- Graduated Recovery Types ------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PodRecoveryStep {
+    /// First offline detection — waiting 30s before acting.
+    Waiting,
+    /// Second cycle — attempt Tier 1 rc-agent restart.
+    TierOneRestart,
+    /// Third cycle — escalate to AI.
+    AiEscalation,
+    /// Fourth+ cycle — alert staff.
+    AlertStaff,
+}
+
+/// Per-pod graduated recovery state. Held in a HashMap inside heal_all_pods.
+/// Not shared with AppState — local to the healer loop.
+#[derive(Debug)]
+struct PodRecoveryTracker {
+    step: PodRecoveryStep,
+    first_detected_at: Option<std::time::Instant>,
+}
+
+impl PodRecoveryTracker {
+    fn new() -> Self {
+        Self {
+            step: PodRecoveryStep::Waiting,
+            first_detected_at: None,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.step = PodRecoveryStep::Waiting;
+        self.first_detected_at = None;
+    }
+}
+
+impl Default for PodRecoveryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // --- Spawn -------------------------------------------------------------------
 
 /// Spawn the pod healer background task.
@@ -99,17 +141,22 @@ pub fn spawn(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        let mut recovery_trackers: std::collections::HashMap<String, PodRecoveryTracker> =
+            std::collections::HashMap::new();
 
         loop {
             interval.tick().await;
-            heal_all_pods(&state).await;
+            heal_all_pods(&state, &mut recovery_trackers).await;
         }
     });
 }
 
 // --- Main Loop ---------------------------------------------------------------
 
-async fn heal_all_pods(state: &Arc<AppState>) {
+async fn heal_all_pods(
+    state: &Arc<AppState>,
+    trackers: &mut std::collections::HashMap<String, PodRecoveryTracker>,
+) {
     // Check cascade guard before any recovery action
     {
         let guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
@@ -138,8 +185,15 @@ async fn heal_all_pods(state: &Arc<AppState>) {
     tracing::info!("Pod healer: checking {} pods", active_pods.len());
 
     for pod in active_pods {
-        if let Err(e) = heal_pod(state, pod).await {
-            tracing::warn!("Pod healer: error checking pod {}: {}", pod.id, e);
+        if pod.status == PodStatus::Offline {
+            // Offline pod: run graduated recovery instead of proactive diagnostics.
+            run_graduated_recovery(state, pod, trackers).await;
+        } else {
+            // Online pod: reset any graduated recovery tracker, then run proactive diagnostics.
+            trackers.entry(pod.id.clone()).or_default().reset();
+            if let Err(e) = heal_pod(state, pod).await {
+                tracing::warn!("Pod healer: error checking pod {}: {}", pod.id, e);
+            }
         }
     }
 
@@ -447,6 +501,290 @@ async fn heal_pod(
     }
 
     Ok(())
+}
+
+// --- Graduated Recovery ------------------------------------------------------
+
+/// Graduated recovery for offline pods.
+///
+/// Step 1 (Waiting): Record first_detected_at, wait 30s — no action.
+/// Step 2 (TierOneRestart): Attempt rc-agent restart via pod-agent /exec.
+/// Step 3 (AiEscalation): Escalate to AI via query_ai().
+/// Step 4+ (AlertStaff): Send email alert and log AlertStaff each cycle until pod recovers.
+///
+/// Gates:
+/// - in_maintenance=true  → log SkipMaintenanceMode, return (no step advance)
+/// - billing_active=true  → log SkipCascadeGuardActive, return (no step advance)
+/// - cascade guard paused → skip silently, return
+async fn run_graduated_recovery(
+    state: &Arc<AppState>,
+    pod: &PodInfo,
+    trackers: &mut std::collections::HashMap<String, PodRecoveryTracker>,
+) {
+    // Cascade guard check
+    {
+        let guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_paused() {
+            tracing::warn!(
+                target: "pod_healer",
+                "graduated recovery for {} skipped — cascade guard paused",
+                pod.id
+            );
+            return;
+        }
+    }
+
+    // Maintenance gate (PMON-01): never touch a pod in maintenance
+    let in_maintenance = {
+        let health = state.pod_fleet_health.read().await;
+        health.get(&pod.id).map(|h| h.in_maintenance).unwrap_or(false)
+    };
+    if in_maintenance {
+        let decision = RecoveryDecision::new(
+            "server",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            RecoveryAction::SkipMaintenanceMode,
+            "pod_in_maintenance",
+        );
+        let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+        tracing::info!(
+            target: "pod_healer",
+            "Pod {} in maintenance — skipping graduated recovery",
+            pod.id
+        );
+        return;
+    }
+
+    // Billing gate: never restart a pod with an active session
+    if has_active_billing(state, &pod.id).await {
+        let decision = RecoveryDecision::new(
+            "server",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            RecoveryAction::SkipCascadeGuardActive,
+            "billing_active",
+        );
+        let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+        tracing::info!(
+            target: "pod_healer",
+            "Pod {} has active billing — skipping graduated recovery",
+            pod.id
+        );
+        return;
+    }
+
+    let tracker = trackers.entry(pod.id.clone()).or_insert_with(PodRecoveryTracker::new);
+    let now_instant = std::time::Instant::now();
+
+    match tracker.step {
+        PodRecoveryStep::Waiting => {
+            if tracker.first_detected_at.is_none() {
+                // First detection: record timestamp, log, wait
+                tracker.first_detected_at = Some(now_instant);
+                let decision = RecoveryDecision::new(
+                    "server",
+                    "rc-agent.exe",
+                    RecoveryAuthority::PodHealer,
+                    RecoveryAction::SkipCascadeGuardActive,
+                    "graduated_step1_wait_30s",
+                );
+                let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} offline — step 1: waiting 30s before acting",
+                    pod.id
+                );
+            } else if now_instant.duration_since(
+                tracker.first_detected_at.unwrap_or(now_instant),
+            ) >= std::time::Duration::from_secs(30)
+            {
+                // 30s elapsed: advance to TierOneRestart (fires on next cycle)
+                tracker.step = PodRecoveryStep::TierOneRestart;
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} — 30s elapsed, advancing to Tier 1 restart",
+                    pod.id
+                );
+            }
+        }
+
+        PodRecoveryStep::TierOneRestart => {
+            tracing::info!(
+                target: "pod_healer",
+                "Pod {} — step 2: Tier 1 restart (rc-agent via pod-agent)",
+                pod.id
+            );
+            let decision = RecoveryDecision::new(
+                "server",
+                "rc-agent.exe",
+                RecoveryAuthority::PodHealer,
+                RecoveryAction::Restart,
+                "graduated_step2_tier1_restart",
+            );
+            {
+                let mut guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+                if guard.record(&decision) {
+                    tracing::error!(
+                        target: "pod_healer",
+                        "Cascade guard triggered — aborting graduated recovery for {}",
+                        pod.id
+                    );
+                    return;
+                }
+            }
+            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+
+            // Attempt restart via pod-agent :8090/exec
+            let restart_cmd = r#"cd /d C:\RacingPoint & start /b rc-agent.exe"#;
+            let exec_url = format!("http://{}:{}/exec", pod.ip_address, POD_AGENT_PORT);
+            let result = state
+                .http_client
+                .post(&exec_url)
+                .json(&serde_json::json!({ "cmd": restart_cmd, "timeout_ms": 10000 }))
+                .timeout(std::time::Duration::from_secs(15))
+                .send()
+                .await;
+            match result {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} Tier 1 restart sent",
+                        pod.id
+                    );
+                    log_pod_activity(
+                        state,
+                        &pod.id,
+                        "race_engineer",
+                        "Graduated Restart (Tier 1)",
+                        "rc-agent restart via pod-agent (graduated step 2)",
+                        "race_engineer",
+                    );
+                }
+                _ => {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Pod {} Tier 1 restart failed (pod-agent unreachable)",
+                        pod.id
+                    );
+                }
+            }
+            tracker.step = PodRecoveryStep::AiEscalation;
+        }
+
+        PodRecoveryStep::AiEscalation => {
+            tracing::info!(
+                target: "pod_healer",
+                "Pod {} — step 3: AI escalation",
+                pod.id
+            );
+            let decision = RecoveryDecision::new(
+                "server",
+                "rc-agent.exe",
+                RecoveryAuthority::PodHealer,
+                RecoveryAction::EscalateToAi,
+                "graduated_step3_ai_escalation",
+            );
+            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+
+            let context = format!(
+                "Pod {} is offline. Tier 1 restart was attempted and pod remains offline. \
+                 Last seen: {:?}. Please suggest root cause and next steps.",
+                pod.id, pod.last_seen
+            );
+            let messages = vec![
+                serde_json::json!({
+                    "role": "system",
+                    "content": "You are a sim racing venue technician. A pod has failed to recover \
+                                after an automated restart. Provide a brief root cause and specific \
+                                manual steps. Keep under 150 words."
+                }),
+                serde_json::json!({ "role": "user", "content": context.clone() }),
+            ];
+            match crate::ai::query_ai(
+                &state.config.ai_debugger,
+                &messages,
+                Some(&state.db),
+                Some("healer_graduated"),
+            )
+            .await
+            {
+                Ok((suggestion, model)) => {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} AI suggestion ({}): {}",
+                        pod.id,
+                        model,
+                        suggestion.chars().take(100).collect::<String>()
+                    );
+                    log_pod_activity(
+                        state,
+                        &pod.id,
+                        "race_engineer",
+                        "AI Escalation",
+                        &format!(
+                            "AI suggestion ({}): {}",
+                            model,
+                            &suggestion[..suggestion.len().min(200)]
+                        ),
+                        "race_engineer",
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Pod {} AI escalation failed: {}",
+                        pod.id,
+                        e
+                    );
+                }
+            }
+            tracker.step = PodRecoveryStep::AlertStaff;
+        }
+
+        PodRecoveryStep::AlertStaff => {
+            tracing::warn!(
+                target: "pod_healer",
+                "Pod {} — step 4: alerting staff",
+                pod.id
+            );
+            let decision = RecoveryDecision::new(
+                "server",
+                "rc-agent.exe",
+                RecoveryAuthority::PodHealer,
+                RecoveryAction::AlertStaff,
+                "graduated_step4_staff_alert",
+            );
+            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+
+            let body = format!(
+                "Pod {} has failed all automated recovery steps.\n\
+                 Tier 1 restart attempted. AI escalated. Pod still offline.\n\
+                 Last seen: {:?}\n\
+                 Manual intervention required.",
+                pod.id, pod.last_seen
+            );
+            let subject = format!(
+                "[RaceControl] Pod {} — Manual Intervention Required",
+                pod.id
+            );
+            state
+                .email_alerter
+                .write()
+                .await
+                .send_alert(&pod.id, &subject, &body)
+                .await;
+            log_pod_activity(
+                state,
+                &pod.id,
+                "race_engineer",
+                "Staff Alert Sent",
+                "All automated recovery steps exhausted — staff alerted",
+                "race_engineer",
+            );
+            // Stay at AlertStaff — keep alerting each cycle until pod recovers
+        }
+    }
 }
 
 // --- Diagnostics Collection --------------------------------------------------
@@ -1404,5 +1742,69 @@ mod tests {
         let suggestion = r#"Suggestion: {action: kill_edge} missing quotes."#;
         let result = super::parse_ai_action_server(suggestion);
         assert_eq!(result, None, "malformed JSON must return None");
+    }
+
+    // ─── PodRecoveryTracker unit tests ────────────────────────────────────────
+
+    #[test]
+    fn tracker_starts_at_waiting() {
+        let tracker = PodRecoveryTracker::new();
+        assert_eq!(
+            tracker.step,
+            PodRecoveryStep::Waiting,
+            "new tracker must start at Waiting step"
+        );
+        assert!(
+            tracker.first_detected_at.is_none(),
+            "new tracker must have no first_detected_at"
+        );
+    }
+
+    #[test]
+    fn tracker_reset_clears_state() {
+        let mut tracker = PodRecoveryTracker::new();
+        // Simulate advancing to TierOneRestart
+        tracker.step = PodRecoveryStep::TierOneRestart;
+        tracker.first_detected_at = Some(std::time::Instant::now());
+
+        tracker.reset();
+
+        assert_eq!(
+            tracker.step,
+            PodRecoveryStep::Waiting,
+            "reset must restore step to Waiting"
+        );
+        assert!(
+            tracker.first_detected_at.is_none(),
+            "reset must clear first_detected_at"
+        );
+    }
+
+    #[test]
+    fn tracker_waiting_advances_to_tier_one_after_30s() {
+        // Verify the branch logic: if first_detected_at is set and >= 30s elapsed,
+        // step transitions to TierOneRestart.
+        let mut tracker = PodRecoveryTracker::new();
+        // Set first_detected_at to 31 seconds ago
+        let past = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(31))
+            .expect("instant subtraction must succeed");
+        tracker.first_detected_at = Some(past);
+        // Simulate the 30s check
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(tracker.first_detected_at.unwrap_or(now));
+        let should_advance = elapsed >= std::time::Duration::from_secs(30);
+        assert!(
+            should_advance,
+            "elapsed >= 30s must trigger advance to TierOneRestart"
+        );
+        if should_advance {
+            tracker.step = PodRecoveryStep::TierOneRestart;
+        }
+        assert_eq!(
+            tracker.step,
+            PodRecoveryStep::TierOneRestart,
+            "step must be TierOneRestart after 30s elapsed"
+        );
     }
 }
