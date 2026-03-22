@@ -132,8 +132,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md — Config fix: add dashboard to Caddy depends_on in compose.yml
+- [ ] 07-02-PLAN.md — VPS deployment: send instructions to Bono, verify dashboard live at dashboard.racingpoint.cloud
 
 ### Phase 8: CI/CD Pipeline
 **Goal**: Pushing to main automatically builds and deploys all services to the VPS
