@@ -26,6 +26,8 @@ services:
         condition: service_healthy
       admin:
         condition: service_healthy
+      dashboard:
+        condition: service_healthy
 
   pwa:
     build:
