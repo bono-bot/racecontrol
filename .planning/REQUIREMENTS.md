@@ -26,8 +26,8 @@
 
 ### Recovery Consolidation
 
-- [ ] **CONS-01**: Single recovery authority per machine — no two systems can restart the same process
-- [ ] **CONS-02**: Recovery decision log — every restart/kill/wake decision logged with who triggered it and why
+- [x] **CONS-01**: Single recovery authority per machine — no two systems can restart the same process
+- [x] **CONS-02**: Recovery decision log — every restart/kill/wake decision logged with who triggered it and why
 - [ ] **CONS-03**: Anti-cascade guard — if 3+ recovery actions fire within 60s across different systems, pause all and alert staff
 
 ## Future Requirements
@@ -47,8 +47,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONS-01 | Phase 159 | Pending |
-| CONS-02 | Phase 159 | Pending |
+| CONS-01 | Phase 159 | Complete (159-01) |
+| CONS-02 | Phase 159 | Complete (159-01) |
 | CONS-03 | Phase 159 | Pending |
 | SENT-01 | Phase 160 | Pending |
 | SENT-02 | Phase 160 | Pending |
