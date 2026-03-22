@@ -6,7 +6,21 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
-## Current Milestone: v18.0 Seamless Execution
+## Current Milestone: v18.1 Seamless Execution Hardening
+
+**Goal:** Fix the 3 critical reliability gaps found in v18.0 deployment: James daemon has no auto-recovery (crash/reboot = permanent relay outage), chain HTTP endpoint broken (chain_result not routed to broker), and no visibility when relay is down.
+
+**Target features:**
+- James comms-link daemon auto-recovery via Task Scheduler watchdog + HKLM Run key boot start
+- Fix /relay/chain/run HTTP endpoint — route chain_result WS message through ExecResultBroker
+- Graceful degradation visibility — health probe in skills, connection status in relay responses
+
+**Constraints:**
+- All implementation in comms-link repo (C:/Users/bono/racingpoint/comms-link)
+- Must not break existing v18.0 features (135 tests must stay green)
+- James-side daemon management uses Windows Task Scheduler (not PM2 — Windows)
+
+## Shipped Milestone: v18.0 Seamless Execution
 
 **Goal:** Enable full bidirectional dynamic execution between James (on-site AI, Windows 11) and Bono (VPS AI, Linux) — when either AI needs something done on the other's machine, it delegates the task, the remote side executes, and results flow back seamlessly. Evolves the static 13-command exec registry into a dynamic, chainable execution protocol.
 
