@@ -674,3 +674,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 12:30 IST | James | 6faa7f0 | fix: update rustls-webpki to 0.103.10 (RUSTSEC-2026-0049) in pod-agent |
 | 2026-03-23 12:30 IST | James | 64748a86 | docs(170-03): npm audit results — 7 high vulns fixed across 3 repos, 6 deferred |
 | 2026-03-23 12:30 IST | James | cd81b432 | docs(170-03): complete dependency audit plan — SUMMARY/STATE/ROADMAP/REQUIREMENTS |
+| 2026-03-23 20:43 IST | James | 80db379 | docs(172-02): add categorized section headers (Comms/Code Quality/Process/Debugging) to comms-link CLAUDE.md |
+| 2026-03-23 20:44 IST | James | db1e89f | feat(172-02): add standing rules compliance check script to deploy-staging |
+| 2026-03-23 20:43 IST | James | cfbf530 | docs: add standing rules CLAUDE.md to deploy-staging (subset from racecontrol canonical) |
+| 2026-03-23 20:43 IST | James | 622a223 | docs: add standing rules CLAUDE.md to pod-agent (subset from racecontrol canonical) |
