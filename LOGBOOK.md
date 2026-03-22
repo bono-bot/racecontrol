@@ -584,3 +584,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 16:51 IST | James | eeda7207 | docs(149-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 149 plan 01 complete) |
 | 2026-03-22 17:15 IST | James | 791380eb | feat(149-02): CafeCategory, CafeItem, CreateCafeItemRequest interfaces + 7 api methods + Cafe Menu sidebar nav entry |
 | 2026-03-22 17:20 IST | James | a1edd180 | feat(149-02): /cafe admin page (407 lines) — item table + side panel CRUD + inline category creation + availability toggle |
+| 2026-03-22 17:57 IST | James | a10d2470 | feat(150-01): menu import parsing + DB migration — calamine XLSX, csv BOM-strip, validate_import_row, confirm_import_rows (transaction), image_path column, 15 tests all passing |
+| 2026-03-22 17:57 IST | James | 08322fa2 | feat(150-01): import/image Axum handlers + routes + ServeDir static mount for /static/cafe-images |
+| 2026-03-22 17:57 IST | James | b5d63ea2 | docs(150-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 150 plan 01 complete) |
