@@ -477,6 +477,11 @@ pub enum CoreToAgentMessage {
     /// Phase 97: Server clears MaintenanceRequired state on a pod (handler in Phase 98).
     ClearMaintenance,
 
+    /// Phase 139: Server instructs agent to close all Edge browser processes and relaunch
+    /// the lock screen browser. Sent by pod_healer when HTTP check fails but WS is alive.
+    /// Agent must gate this on billing_active — do NOT relaunch during an active session.
+    ForceRelaunchBrowser { pod_id: String },
+
     /// Phase 101: Server pushes an updated whitelist to all connected pods.
     /// Agent replaces its in-memory whitelist on receipt — no reconnect needed.
     UpdateProcessWhitelist {
@@ -2399,6 +2404,20 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, CoreToAgentMessage::ClearMaintenance));
+    }
+
+    #[test]
+    fn test_force_relaunch_browser_roundtrip() {
+        let msg = CoreToAgentMessage::ForceRelaunchBrowser { pod_id: "pod-1".to_string() };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("force_relaunch_browser"), "type tag must be snake_case");
+        assert!(json.contains("pod-1"), "pod_id must appear in JSON");
+        let roundtrip: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::ForceRelaunchBrowser { pod_id } = roundtrip {
+            assert_eq!(pod_id, "pod-1");
+        } else {
+            panic!("roundtrip produced wrong variant");
+        }
     }
 }
 
