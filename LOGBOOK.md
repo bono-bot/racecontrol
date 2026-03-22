@@ -557,3 +557,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 11:12 IST | James | e441394 | feat(140-02): server-side AI action logging in pod_healer.rs — parse_ai_action_server + log_pod_activity |
 | 2026-03-22 11:35 IST | James | 9f9cf94 | feat(141-01): extend AppState with warn_scanner_last_escalated cooldown field |
 | 2026-03-22 11:36 IST | James | 1859c84 | feat(141-01): implement scan_warn_logs() and wire into heal_all_pods() |
+| 2026-03-22 12:00 IST | James | 62c7443 | feat(141-02): escalate_warn_surge() — deduplication + AI escalation for WARN surge path |
