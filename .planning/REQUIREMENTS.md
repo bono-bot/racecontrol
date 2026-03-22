@@ -38,8 +38,8 @@
 ### Deployment (DPLY)
 
 - [x] **DPLY-01**: cameras.html embedded in rc-sentry-ai serves the full dashboard at /cameras/live
-- [ ] **DPLY-02**: Standalone camera dashboard page accessible from web dashboard on server .23 at /cameras
-- [ ] **DPLY-03**: Both deployments share identical feature set (layouts, WebRTC, drag-to-rearrange)
+- [x] **DPLY-02**: Standalone camera dashboard page accessible from web dashboard on server .23 at /cameras
+- [x] **DPLY-03**: Both deployments share identical feature set (layouts, WebRTC, drag-to-rearrange)
 
 ## Future Requirements
 
@@ -83,8 +83,8 @@
 | UIUX-04 | Phase 147 | Complete |
 | UIUX-05 | Phase 147 | Complete |
 | DPLY-01 | Phase 147 | Complete |
-| DPLY-02 | Phase 148 | Pending |
-| DPLY-03 | Phase 148 | Pending |
+| DPLY-02 | Phase 148 | Complete |
+| DPLY-03 | Phase 148 | Complete |
 
 **Coverage:**
 - v16.1 requirements: 21 total
