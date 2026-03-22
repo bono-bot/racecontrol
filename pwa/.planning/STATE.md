@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-03-22T02:50:12.889Z"
-last_activity: 2026-03-22 — Plan 09-01 complete (health-check.sh + setup-swap.sh created)
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-03-22T09:06:00.000Z"
+last_activity: 2026-03-22 — Plan 09-02 complete (health monitoring live on VPS, WhatsApp alerts verified)
 progress:
   total_phases: 10
   completed_phases: 8
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 9 of 10 (Health Monitoring + Alerts)
-Plan: 1 of 2 in current phase
-Status: Plan 09-01 complete, plan 09-02 next
-Last activity: 2026-03-22 — Plan 09-01 complete (health-check.sh + setup-swap.sh created)
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: Phase 09 complete, Phase 10 (Operational Hardening) next
+Last activity: 2026-03-22 — Plan 09-02 complete (health monitoring live on VPS, WhatsApp alerts verified)
 
-Progress: [████████▌░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████▌░] 85%
 | Phase 07 P02 | 5 min | 2 tasks | 1 files |
 | Phase 08 P01 | 45 min | 2 tasks | 1 files |
 | Phase 09 P01 | 2 min | 2 tasks | 2 files |
+| Phase 09 P02 | 45 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Recent decisions affecting current work:
 - [09-01]: Cooldown state stored in /tmp/rc-health-alerts/ with per-key timestamp files
 - [09-01]: Crash loop detection uses delta comparison of restart counts stored in /tmp/rc-health-state/
 - [09-01]: jq used for JSON message body escaping in WhatsApp curl calls
+- [09-02]: Deploy via Bono relay (comms-link WS message + INBOX.md) per standing rule 12 — relay preferred over SSH
+- [09-02]: comms-link path on VPS was non-critical minor issue — did not block WhatsApp alert delivery
 
 ### Pending Todos
 
@@ -132,6 +135,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T08:45:00+05:30
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-03-22T09:06:00+05:30
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
