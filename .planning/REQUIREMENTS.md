@@ -14,10 +14,10 @@
 
 ### Idle Health Monitor
 
-- [ ] **IDLE-01**: rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session is active
-- [ ] **IDLE-02**: Idle health failure triggers close_browser + launch_browser (self-heal before alerting)
+- [x] **IDLE-01**: rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session is active
+- [x] **IDLE-02**: Idle health failure triggers close_browser + launch_browser (self-heal before alerting)
 - [ ] **IDLE-03**: Idle health sends IdleHealthFailed message to server after 3 consecutive failures (hysteresis)
-- [ ] **IDLE-04**: Idle health checks are skipped during active billing sessions — no interference with running games
+- [x] **IDLE-04**: Idle health checks are skipped during active billing sessions — no interference with running games
 
 ### AI Action Execution
 
@@ -68,10 +68,10 @@
 | BWDOG-02 | Phase 137 | Complete |
 | BWDOG-03 | Phase 137 | Complete |
 | BWDOG-04 | Phase 137 | Complete |
-| IDLE-01 | Phase 138 | Pending |
-| IDLE-02 | Phase 138 | Pending |
+| IDLE-01 | Phase 138 | Complete |
+| IDLE-02 | Phase 138 | Complete |
 | IDLE-03 | Phase 138 | In progress (protocol variant done; agent+server in 138-02/03) |
-| IDLE-04 | Phase 138 | Pending |
+| IDLE-04 | Phase 138 | Complete |
 | AIACT-01 | Phase 140 | Pending |
 | AIACT-02 | Phase 140 | Pending |
 | AIACT-03 | Phase 140 | Pending |
