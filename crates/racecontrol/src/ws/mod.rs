@@ -746,10 +746,19 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let ts = violation.timestamp.clone();
                             let now = chrono::Utc::now();
 
-                            tracing::warn!(
-                                "[guard] Violation on {}: {} action={} ts={}",
-                                machine_id, name, action, ts
-                            );
+                            // Use debug for report_only violations (no action taken).
+                            // warn floods the console when whitelist isn't configured.
+                            if action == "reported" || action == "report_only" {
+                                tracing::debug!(
+                                    "[guard] Violation on {}: {} action={} ts={}",
+                                    machine_id, name, action, ts
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "[guard] Violation on {}: {} action={} ts={}",
+                                    machine_id, name, action, ts
+                                );
+                            }
 
                             // Prefer registered_pod_id (authoritative WS key); fall back to machine_id
                             let pod_key = if let Some(pod_id) = &registered_pod_id {
