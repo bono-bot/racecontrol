@@ -573,7 +573,7 @@ impl LockScreenManager {
     }
 
     #[cfg(windows)]
-    fn launch_browser(&mut self) {
+    pub fn launch_browser(&mut self) {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
         // Try common Edge install paths, then fall back to PATH lookup
@@ -663,7 +663,7 @@ impl LockScreenManager {
     }
 
     #[cfg(not(windows))]
-    fn launch_browser(&mut self) {
+    pub fn launch_browser(&mut self) {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
         // Try browsers in order: Edge, Chromium, Chrome, Firefox
@@ -687,7 +687,7 @@ impl LockScreenManager {
     }
 
     #[cfg(windows)]
-    fn close_browser(&mut self) {
+    pub fn close_browser(&mut self) {
         if let Some(ref mut child) = self.browser_process {
             let _ = child.kill();
             let _ = child.wait();
@@ -726,9 +726,48 @@ impl LockScreenManager {
     }
 
     #[cfg(not(windows))]
-    fn close_browser(&mut self) {
+    pub fn close_browser(&mut self) {
         // Kill any kiosk browser we may have spawned
         let _ = std::process::Command::new("pkill").args(["-f", &format!("127.0.0.1:{}", self.port)]).spawn();
+    }
+
+    /// Check if the browser process we spawned is still running.
+    /// Returns false if no browser was spawned or if the child process has exited.
+    #[cfg(windows)]
+    pub fn is_browser_alive(&mut self) -> bool {
+        match self.browser_process.as_mut() {
+            Some(child) => {
+                // try_wait: Ok(Some(_)) = exited, Ok(None) = still running, Err = unknown
+                match child.try_wait() {
+                    Ok(Some(_status)) => {
+                        // Process has exited — clear the handle
+                        tracing::warn!(target: LOG_TARGET, "Browser process has exited (watchdog detected)");
+                        self.browser_process = None;
+                        false
+                    }
+                    Ok(None) => true, // still running
+                    Err(e) => {
+                        tracing::warn!(target: LOG_TARGET, "Failed to check browser process status: {}", e);
+                        false
+                    }
+                }
+            }
+            None => false,
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn is_browser_alive(&mut self) -> bool {
+        false
+    }
+
+    /// Returns true when the lock screen is in a state where a browser is expected to be running.
+    /// Used by browser watchdog to skip polling when no browser should be visible.
+    /// Only Hidden means "no browser expected" — all other states (IdlePinEntry, ScreenBlanked,
+    /// ConfigError, MaintenanceRequired, etc.) require a live browser.
+    pub fn is_browser_expected(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        !matches!(*state, LockScreenState::Hidden)
     }
 
     /// Count running msedge.exe processes using tasklist.
