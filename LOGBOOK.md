@@ -667,3 +667,10 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 17:30 IST | James | 40cd39ce | docs(155-02): SUMMARY + STATE + ROADMAP — plan 155-02 complete, ORD-05/06/09 marked done |
 | 2026-03-23 12:45 IST | James | e58504cd | chore(170-01): catalogue non-git folders with disposition decisions — 7 folders, 3 archive/2 delete/2 keep |
 | 2026-03-23 12:45 IST | James | 8cb0d652 | docs(170-01): SUMMARY/STATE/ROADMAP — 3 repos archived on GitHub, REPO-01/02 complete |
+| 2026-03-23 12:30 IST | James | f11480c | fix: patch npm vulnerabilities (phase 170) — racingpoint-admin flatted DoS high fixed |
+| 2026-03-23 12:30 IST | James | 5b182ea | fix: patch npm vulnerabilities (phase 170) — racingpoint-mcp-drive hono/express-rate-limit highs fixed |
+| 2026-03-23 12:30 IST | James | 95599fc | fix: patch npm vulnerabilities (phase 170) — racingpoint-mcp-gmail hono/express-rate-limit highs fixed |
+| 2026-03-23 12:30 IST | James | ee803b83 | fix: update rustls-webpki to 0.103.10 (RUSTSEC-2026-0049) in racecontrol |
+| 2026-03-23 12:30 IST | James | 6faa7f0 | fix: update rustls-webpki to 0.103.10 (RUSTSEC-2026-0049) in pod-agent |
+| 2026-03-23 12:30 IST | James | 64748a86 | docs(170-03): npm audit results — 7 high vulns fixed across 3 repos, 6 deferred |
+| 2026-03-23 12:30 IST | James | cd81b432 | docs(170-03): complete dependency audit plan — SUMMARY/STATE/ROADMAP/REQUIREMENTS |
