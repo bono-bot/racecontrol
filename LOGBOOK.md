@@ -15,6 +15,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 22:09 IST | James | `08779e48` | 154-02: Add stock fields to CafeMenuItem and placeCafeOrder API method |
 | Mar 22 22:09 IST | James | `363c70fc` | 154-02: Add cart, checkout flow, and order submission to cafe PWA page |
 | Mar 22 22:09 IST | James | `e06327b3` | 154-02: docs — SUMMARY, STATE, ROADMAP updated (phase 154 Complete) |
+| Mar 22 22:30 IST | James | `10078e53` | 155-01: send_order_receipt_whatsapp + Step L spawn + CafeConfig in config |
+| Mar 22 22:30 IST | James | `6864c454` | 155-01: print_thermal_receipt + list_customer_orders + GET /customer/cafe/orders/history |
+| Mar 22 22:30 IST | James | `52a9f8f9` | 155-01: docs — SUMMARY, STATE, ROADMAP updated |
 
 ## 2026-03-01
 
