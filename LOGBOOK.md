@@ -582,3 +582,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 16:50 IST | James | 16ec9e6b | feat(149-01): cafe schema (cafe_categories, cafe_items tables + indexes + seeded categories), cafe.rs CRUD module (8 handlers + 5 unit tests all passing), pub mod cafe in lib.rs |
 | 2026-03-22 16:51 IST | James | aa78dc67 | feat(149-01): cafe routes registered — admin CRUD in staff_routes (JWT-protected), public menu in public_routes (no auth), release build succeeds |
 | 2026-03-22 16:51 IST | James | eeda7207 | docs(149-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 149 plan 01 complete) |
+| 2026-03-22 17:15 IST | James | 791380eb | feat(149-02): CafeCategory, CafeItem, CreateCafeItemRequest interfaces + 7 api methods + Cafe Menu sidebar nav entry |
+| 2026-03-22 17:20 IST | James | a1edd180 | feat(149-02): /cafe admin page (407 lines) — item table + side panel CRUD + inline category creation + availability toggle |
