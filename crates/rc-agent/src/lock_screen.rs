@@ -695,6 +695,13 @@ impl LockScreenManager {
         }
         self.browser_process = None;
 
+        // BWDOG-04: Skip taskkill during protected game sessions (anti-cheat safe mode).
+        // The child handle kill above always runs (it only kills our own process).
+        if self.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::info!(target: LOG_TARGET, "Safe mode active — skipping taskkill for Edge/WebView2 processes");
+            return;
+        }
+
         // Kill ALL Edge and Edge WebView2 processes aggressively via taskkill.
         // On gaming pods, there should be no user Edge sessions — only our kiosk windows.
         // This prevents the stacking bug where repeated show_blank_screen() calls
@@ -722,6 +729,40 @@ impl LockScreenManager {
     fn close_browser(&mut self) {
         // Kill any kiosk browser we may have spawned
         let _ = std::process::Command::new("pkill").args(["-f", &format!("127.0.0.1:{}", self.port)]).spawn();
+    }
+
+    /// Count running msedge.exe processes using tasklist.
+    /// Returns 0 on non-Windows or if tasklist fails.
+    /// Used by Plan 02 browser watchdog for stacking detection (BWDOG-02).
+    #[cfg(windows)]
+    pub fn count_edge_processes() -> usize {
+        #[cfg(test)]
+        { return 0; }
+
+        #[cfg(not(test))]
+        {
+            match hidden_cmd("tasklist")
+                .args(["/FI", "IMAGENAME eq msedge.exe", "/FO", "CSV", "/NH"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+            {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    // Each line with "msedge.exe" is one process
+                    stdout.lines().filter(|l| l.contains("msedge.exe")).count()
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "Failed to count Edge processes: {}", e);
+                    0
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn count_edge_processes() -> usize {
+        0
     }
 }
 
