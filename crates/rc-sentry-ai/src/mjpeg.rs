@@ -16,12 +16,15 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::config::CameraConfig;
 use crate::detection::decoder::FrameDecoder;
 use crate::frame::FrameBuffer;
+use crate::nvr::NvrClient;
 
 /// Shared state for MJPEG streaming endpoints.
 pub struct MjpegState {
     pub frame_buf: FrameBuffer,
     pub cameras: Vec<CameraConfig>,
     pub service_port: u16,
+    pub nvr: Option<NvrClient>,
+    pub nvr_channels: u32,
 }
 
 #[derive(Serialize)]
@@ -43,6 +46,10 @@ pub fn mjpeg_router(state: Arc<MjpegState>) -> axum::Router {
         .route("/cameras/live", get(cameras_page_handler))
         .route("/api/v1/cameras", get(cameras_list_handler))
         .route("/api/v1/cameras/:name/stream", get(mjpeg_stream_handler))
+        .route(
+            "/api/v1/cameras/nvr/:channel/snapshot",
+            get(nvr_snapshot_handler),
+        )
         .with_state(state)
         .layer(cors)
 }
@@ -55,6 +62,51 @@ async fn cameras_page_handler() -> Response {
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(Body::from(HTML))
         .expect("valid response")
+}
+
+/// GET /api/v1/cameras/nvr/:channel/snapshot -- proxies a JPEG snapshot from the NVR.
+///
+/// Handles digest auth transparently so the browser only needs a simple GET.
+/// Returns 503 if NVR is not configured, 502 if the NVR request fails.
+async fn nvr_snapshot_handler(
+    State(state): State<Arc<MjpegState>>,
+    Path(channel): Path<u32>,
+) -> Response {
+    let nvr = match &state.nvr {
+        Some(n) => n,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "NVR not configured"})),
+            )
+                .into_response();
+        }
+    };
+
+    if channel < 1 || channel > state.nvr_channels {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "invalid channel number"})),
+        )
+            .into_response();
+    }
+
+    match nvr.snapshot(channel).await {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "image/jpeg")
+            .header(header::CACHE_CONTROL, "no-cache, no-store")
+            .body(Body::from(bytes))
+            .expect("valid response"),
+        Err(e) => {
+            tracing::warn!(channel, error = %e, "NVR snapshot failed");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "NVR snapshot failed"})),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// GET /api/v1/cameras -- returns JSON list of configured cameras with stream URLs and status.

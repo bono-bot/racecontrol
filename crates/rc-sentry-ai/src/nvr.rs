@@ -102,6 +102,17 @@ impl NvrClient {
         Ok(response)
     }
 
+    /// Fetch a JPEG snapshot for the given NVR channel (1-indexed).
+    pub async fn snapshot(&self, channel: u32) -> anyhow::Result<bytes::Bytes> {
+        let url = format!(
+            "{}/cgi-bin/snapshot.cgi?channel={}",
+            self.base_url, channel
+        );
+        let resp = self.digest_request_raw("GET", &url).await?;
+        let bytes = resp.bytes().await?;
+        Ok(bytes)
+    }
+
     /// Perform an HTTP request with Digest authentication, returning the response body as text.
     async fn digest_request(&self, method: &str, url: &str) -> anyhow::Result<String> {
         let resp = self.digest_request_raw(method, url).await?;

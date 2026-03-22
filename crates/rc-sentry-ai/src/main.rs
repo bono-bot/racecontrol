@@ -294,11 +294,18 @@ async fn main() -> anyhow::Result<()> {
         alert_tx: alert_tx.clone(),
     });
 
-    // Initialize MJPEG streaming state
+    // Initialize MJPEG streaming state (with NVR snapshot proxy if enabled)
+    let mjpeg_nvr = if config.nvr.enabled {
+        Some(nvr::NvrClient::new(&config.nvr))
+    } else {
+        None
+    };
     let mjpeg_state = Arc::new(mjpeg::MjpegState {
         frame_buf: frame_buf.clone(),
         cameras: config.cameras.clone(),
         service_port: config.service.port,
+        nvr: mjpeg_nvr,
+        nvr_channels: 13,
     });
 
     // Initialize playback proxy state (if NVR enabled)
