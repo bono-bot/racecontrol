@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 154-02-PLAN.md
-last_updated: "2026-03-22T16:41:23.681Z"
+stopped_at: Completed 155-01-PLAN.md
+last_updated: "2026-03-22T17:01:15.938Z"
 progress:
   total_phases: 124
   completed_phases: 92
-  total_plans: 218
-  completed_plans: 215
+  total_plans: 220
+  completed_plans: 216
   percent: 99
 ---
 
@@ -1469,6 +1469,7 @@ Plan: 1 of 2
 | Phase 162 P01 | 32 | 2 tasks | 4 files |
 | Phase 154 P01 | 11 | 2 tasks | 3 files |
 | Phase 154-ordering-core P02 | 167 | 2 tasks | 2 files |
+| Phase 155-receipts-order-history P01 | 35 | 2 tasks | 3 files |
 
 ### Pending Todos
 
@@ -1479,8 +1480,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-22T16:40:21.400Z
-Stopped at: Completed 154-02-PLAN.md
+Last session: 2026-03-22T17:01:15.924Z
+Stopped at: Completed 155-01-PLAN.md
 Resume file: None
 
 ---
