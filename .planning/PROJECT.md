@@ -2,28 +2,13 @@
 
 ## Current State
 
-**Shipped:** v1.0 through v5.5 (HUD, Kiosk, Leaderboards, Self-Healing, Bot Expansion, Credits), v7.0 E2E Test Suite, v8.0 Bot Autonomy, v11.0 Agent & Sentry Hardening (2026-03-13 to 2026-03-21)
+**Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1 Camera Dashboard Pro, v18.0-v18.2 (2026-03-13 to 2026-03-22)
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
-## Current Milestone: v16.1 Camera Dashboard Pro
+## Shipped Milestone: v16.1 Camera Dashboard Pro (2026-03-22)
 
-**Goal:** Transform the basic 13-camera snapshot grid into a professional NVR dashboard inspired by DMSS HD — hybrid streaming (cached snapshots for grid + WebRTC for fullscreen), configurable layouts (1/4/9/16), camera naming, drag-to-rearrange, and dual deployment (rc-sentry-ai + server web dashboard).
-
-**Target features:**
-- Hybrid streaming: snapshot grid (all 13 cameras, background-cached) + WebRTC fullscreen (single camera, sub-second latency via go2rtc)
-- Layout modes: 1x1, 2x2, 3x3, 4x4 split-screen with smooth transitions
-- Camera naming: persistent friendly names (e.g. "Pod Area", "Cashier") stored in config
-- Drag-to-rearrange: reorder cameras in the grid, persist layout
-- Click-to-fullscreen with WebRTC upgrade for smooth live video
-- Dual deploy: embedded in rc-sentry-ai (:8096) + standalone page accessible from server web dashboard
-
-**Constraints:**
-- rc-sentry-ai must be built with dynamic CRT (RUSTFLAGS="-C target-feature=-crt-static") due to ONNX Runtime
-- go2rtc needs all 13 cameras added (currently only 3)
-- WebRTC requires go2rtc's built-in WebRTC relay (no TURN server needed on LAN)
-- Camera names and layout preferences stored in rc-sentry-ai.toml or a separate JSON file
-- NVR auth: admin/Admin@123 — snapshot proxy must not expose credentials to browser
+**Delivered:** Professional NVR camera dashboard with 13 cameras, DMSS HD-inspired UI. Hybrid streaming (cached snapshots for grid + WebRTC fullscreen via go2rtc), 4 layout modes (1×1/2×2/3×3/4×4), drag-to-rearrange, zone grouping, camera naming, layout persistence via server-side JSON, and dual deployment (rc-sentry-ai :8096 + web dashboard :3200). 936-line cameras.html + 849-line React page.tsx, 21 requirements, 4 phases, 7 plans.
 
 ## Current Milestone: v17.0 AI Debugger Autonomy & Self-Healing
 

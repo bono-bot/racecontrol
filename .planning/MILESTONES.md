@@ -1,4 +1,13 @@
 # Milestones
+## v16.1 Camera Dashboard Pro (Shipped: 2026-03-22)
+
+**Phases completed:** 87 phases, 197 plans, 37 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v11.0 Agent & Sentry Hardening (Shipped: 2026-03-21)
 
 **Phases completed:** 34 phases, 85 plans, 13 tasks
