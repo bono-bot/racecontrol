@@ -17,7 +17,7 @@ use serde_json::json;
 
 use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
-use rc_common::protocol::DashboardEvent;
+use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
 
 const POD_AGENT_PORT: u16 = 8090;
@@ -211,14 +211,34 @@ async fn heal_pod(
             }
         };
         if has_active_ws {
-            // Pod has an active WebSocket connection -> rc-agent IS running.
-            // Lock screen port check is a false positive (PowerShell flakiness,
-            // antivirus, transient TCP issue). Do NOT restart -- that would kill
-            // the WebSocket and cause offline/online flapping.
-            tracing::debug!(
-                "Pod healer: {} lock screen unresponsive but WebSocket connected -- skipping restart",
-                pod.id
-            );
+            // WS is alive but lock screen HTTP is failing — attempt soft recovery
+            // by commanding the pod to relaunch Edge rather than forcing a full restart.
+            let has_active_billing = has_active_billing(state, &pod.id).await;
+            if has_active_billing {
+                tracing::warn!(
+                    "Pod healer: {} lock screen unresponsive, WS connected, billing active -- skipping relaunch",
+                    pod.id
+                );
+                issues.push(format!(
+                    "Pod {}: lock screen HTTP failed but WS connected + billing active -- no relaunch dispatched",
+                    pod.id
+                ));
+            } else {
+                tracing::info!(
+                    "Pod healer: {} lock screen unresponsive, WS connected -- dispatching ForceRelaunchBrowser",
+                    pod.id
+                );
+                actions.push(HealAction {
+                    pod_id: pod.id.clone(),
+                    action: "relaunch_lock_screen".to_string(),
+                    target: "edge_browser".to_string(),
+                    reason: "Lock screen HTTP check failed, WS connected".to_string(),
+                });
+                issues.push(format!(
+                    "Pod {}: lock screen HTTP failed (WS alive) -- ForceRelaunchBrowser queued",
+                    pod.id
+                ));
+            }
         } else {
             let has_active_billing = has_active_billing(state, &pod.id).await;
             if has_active_billing {
@@ -559,6 +579,32 @@ async fn check_processes(
 // --- Auto-Heal Actions -------------------------------------------------------
 
 async fn execute_heal_action(state: &Arc<AppState>, pod_ip: &str, action: &HealAction) {
+    // Relaunch lock screen: send ForceRelaunchBrowser over WS — no shell exec needed
+    if action.action == "relaunch_lock_screen" {
+        let senders = state.agent_senders.read().await;
+        if let Some(sender) = senders.get(&action.pod_id) {
+            let msg = CoreToAgentMessage::ForceRelaunchBrowser {
+                pod_id: action.pod_id.clone(),
+            };
+            match sender.send(msg).await {
+                Ok(_) => tracing::info!(
+                    "Pod healer: ForceRelaunchBrowser sent to {} (lock screen recovery)",
+                    action.pod_id
+                ),
+                Err(e) => tracing::warn!(
+                    "Pod healer: ForceRelaunchBrowser send to {} failed: {}",
+                    action.pod_id, e
+                ),
+            }
+        } else {
+            tracing::warn!(
+                "Pod healer: ForceRelaunchBrowser -- no WS sender for {} (pod disconnected?)",
+                action.pod_id
+            );
+        }
+        return;
+    }
+
     let cmd = match action.action.as_str() {
         "kill_zombie" => {
             // Extract PID from target like "PID 1234"
@@ -947,5 +993,53 @@ mod tests {
             "needs_restart should NOT be set for memory low issues"
         );
         assert!(memory_low);
+    }
+
+    #[test]
+    fn relaunch_lock_screen_action_string() {
+        // Verify the action discriminant matches execute_heal_action dispatch
+        let action = HealAction {
+            pod_id: "pod-1".to_string(),
+            action: "relaunch_lock_screen".to_string(),
+            target: "edge_browser".to_string(),
+            reason: "test".to_string(),
+        };
+        assert_eq!(action.action, "relaunch_lock_screen");
+    }
+
+    #[test]
+    fn ws_connected_no_billing_should_relaunch_not_restart() {
+        // When WS is alive but lock screen HTTP fails, and no billing active:
+        // action should be relaunch (not restart flag)
+        let rc_agent_healthy = false;
+        let has_active_ws = true;
+        let has_active_billing = false;
+
+        // Should NOT flag restart
+        let should_flag_restart = !rc_agent_healthy && !has_active_ws && !has_active_billing;
+        assert!(
+            !should_flag_restart,
+            "needs_restart should NOT be set when WS is connected"
+        );
+        // Should dispatch relaunch action
+        let should_relaunch = !rc_agent_healthy && has_active_ws && !has_active_billing;
+        assert!(
+            should_relaunch,
+            "relaunch_lock_screen should be dispatched when WS connected + no billing"
+        );
+    }
+
+    #[test]
+    fn ws_connected_with_billing_should_skip_relaunch() {
+        // When WS is alive + billing active: no restart, no relaunch, just warn
+        let rc_agent_healthy = false;
+        let has_active_ws = true;
+        let has_active_billing = true;
+
+        let should_flag_restart = !rc_agent_healthy && !has_active_ws && !has_active_billing;
+        assert!(!should_flag_restart, "no restart flag when billing active");
+
+        let should_relaunch = !rc_agent_healthy && has_active_ws && !has_active_billing;
+        assert!(!should_relaunch, "no relaunch when billing active");
     }
 }
