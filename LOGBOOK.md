@@ -570,3 +570,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 13:18 IST | James | f44335ce | feat(147-01): rewrite cameras.html as professional NVR dashboard (CSS grid 1x1/2x2/3x3/4x4, dynamic API, status dots) |
 | 2026-03-22 13:19 IST | James | fa78d9ea | docs(147-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-01, UIUX-01/02/04/05, DPLY-01 complete) |
 | 2026-03-22 19:15 IST | James | 3db9adfc | docs(147-01): complete plan — checkpoint approved, user verified dashboard at /cameras/live (layout modes, tiles, status indicators) |
+| 2026-03-22 19:22 IST | James | a026a190 | feat(147-02): add drag-to-rearrange, zone grouping, collapsible headers, layout persistence to cameras.html |
+| 2026-03-22 19:23 IST | James | a22b6595 | docs(147-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (LYOT-02, LYOT-03, LYOT-05 complete) |
