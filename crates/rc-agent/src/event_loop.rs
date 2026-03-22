@@ -945,55 +945,12 @@ pub async fn run(
             }
 
             _ = conn.browser_watchdog_interval.tick() => {
-                // BWDOG DISABLED: kills+relaunches Edge every 30s causing flicker.
-                // count_edge_processes() returns 0 even when Edge is running (tasklist
-                // filter issue on pods), so the watchdog always thinks Edge is dead.
-                // Root cause needs investigation before re-enabling.
-                continue;
-
-                // BWDOG-04: skip entirely during safe mode
-                if state.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
-                    continue;
-                }
-
-                // Only check when lock screen is active (browser expected to be running)
-                if !state.lock_screen.is_browser_expected() {
-                    continue;
-                }
-
-                // BWDOG-02: check for Edge process stacking (>5 msedge.exe)
-                let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
-                if edge_count > 5 {
-                    tracing::warn!(
-                        target: LOG_TARGET,
-                        "Browser watchdog: Edge stacking detected ({} msedge.exe processes) — killing all and relaunching",
-                        edge_count
-                    );
-                    state.lock_screen.close_browser();
-                    state.lock_screen.launch_browser();
-                    continue;
-                }
-
-                // BWDOG-01: check browser child process liveness
-                if !state.lock_screen.is_browser_alive() {
-                    // Edge may be running without our child handle (launched by prior
-                    // rc-agent instance or previous watchdog cycle). If Edge processes
-                    // exist, don't kill+relaunch — that causes screen flicker every 30s.
-                    if edge_count > 0 {
-                        tracing::debug!(
-                            target: LOG_TARGET,
-                            "Browser watchdog: no child handle but {} msedge.exe running — skipping relaunch",
-                            edge_count
-                        );
-                    } else {
-                        tracing::warn!(
-                            target: LOG_TARGET,
-                            "Browser watchdog: Edge not alive (0 processes) — relaunching"
-                        );
-                        state.lock_screen.close_browser();
-                        state.lock_screen.launch_browser();
-                    }
-                }
+                // Browser watchdog REMOVED — replaced by server-side healer.
+                // The pod healer checks lock screen HTTP every 2 min and sends
+                // ForceRelaunchBrowser via WS if down (Phase 139). AI debugger
+                // escalates on repeated failures (Phase 140). This avoids the
+                // tasklist /FI bug that caused 30s flicker loops on all pods.
+                // Timer kept to avoid changing ConnectionState struct.
             }
 
             _ = conn.idle_health_interval.tick() => {

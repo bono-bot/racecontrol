@@ -834,16 +834,23 @@ impl LockScreenManager {
 
         #[cfg(not(test))]
         {
+            // NOTE: tasklist /FI "IMAGENAME eq msedge.exe" returns empty/error on pods
+            // (Windows filter syntax issue in some configurations). Use unfiltered
+            // tasklist /NH and count lines containing "msedge.exe" instead.
             match hidden_cmd("tasklist")
-                .args(["/FI", "IMAGENAME eq msedge.exe", "/FO", "CSV", "/NH"])
+                .args(["/NH"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
                 .output()
             {
                 Ok(output) => {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    // Each line with "msedge.exe" is one process
-                    stdout.lines().filter(|l| l.contains("msedge.exe")).count()
+                    stdout.lines()
+                        .filter(|l| {
+                            let lower = l.to_lowercase();
+                            lower.contains("msedge.exe") && !lower.contains("msedgewebview2")
+                        })
+                        .count()
                 }
                 Err(e) => {
                     tracing::warn!(target: LOG_TARGET, "Failed to count Edge processes: {}", e);
