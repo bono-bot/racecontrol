@@ -1,5 +1,23 @@
 ---
 gsd_state_version: 1.0
+milestone: v18.3
+milestone_name: Camera Dashboard
+status: in_progress
+stopped_at: Completed 146-01-PLAN.md
+last_updated: "2026-03-22T12:45:00+05:30"
+progress:
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 1
+decisions:
+  - "146-01: CameraConfig uses Option<String>/Option<u32> for display_name/display_order so None signals use-default to callers"
+  - "146-01: zone field uses serde default_zone() fn returning 'other' so JSON always has a string (no null in API response)"
+  - "146-01: CORS Method::PUT added preemptively for layout PUT endpoint in plan 02"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress

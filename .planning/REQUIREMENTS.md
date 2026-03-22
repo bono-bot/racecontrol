@@ -9,8 +9,8 @@
 
 - [x] **INFRA-01**: All 13 NVR cameras are registered in go2rtc with RTSP sub-stream URLs
 - [x] **INFRA-02**: go2rtc CORS is configured and verified for cross-port WebRTC access from :8096 and :3200
-- [ ] **INFRA-03**: Each camera has a configurable display_name and display_order in rc-sentry-ai.toml
-- [ ] **INFRA-04**: /api/v1/cameras returns display_name, display_order, nvr_channel, and zone for each camera
+- [x] **INFRA-03**: Each camera has a configurable display_name and display_order in rc-sentry-ai.toml
+- [x] **INFRA-04**: /api/v1/cameras returns display_name, display_order, nvr_channel, and zone for each camera
 
 ### Streaming (STRM)
 
@@ -66,8 +66,8 @@
 |-------------|-------|--------|
 | INFRA-01 | Phase 145 | Complete |
 | INFRA-02 | Phase 145 | Complete |
-| INFRA-03 | Phase 146 | Pending |
-| INFRA-04 | Phase 146 | Pending |
+| INFRA-03 | Phase 146 | Complete |
+| INFRA-04 | Phase 146 | Complete |
 | STRM-01 | Phase 147 | Pending |
 | STRM-02 | Phase 147 | Pending |
 | STRM-03 | Phase 147 | Pending |
