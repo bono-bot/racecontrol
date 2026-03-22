@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -395,6 +395,9 @@ export const api = {
     fetchApi<void>(`/config/kiosk-allowlist/${encodeURIComponent(processName)}`, {
       method: "DELETE",
     }),
+
+  // Cafe Menu (public, no auth required)
+  publicCafeMenu: () => fetchApi<CafeMenuResponse>("/cafe/menu"),
 
   // Kiosk PIN Redemption (remote booking flow)
   redeemPin: (pin: string) =>

@@ -394,6 +394,28 @@ export interface FleetHealthResponse {
   timestamp: string;
 }
 
+// ─── Cafe Menu ────────────────────────────────────────────────────────────────
+
+export interface CafeMenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category_id: string;
+  category_name: string;
+  selling_price_paise: number;
+  cost_price_paise: number;
+  is_available: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  image_path: string | null;
+}
+
+export interface CafeMenuResponse {
+  items: CafeMenuItem[];
+  total: number;
+  page: number;
+}
+
 // ─── Debug System ────────────────────────────────────────────────────────
 
 export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";
