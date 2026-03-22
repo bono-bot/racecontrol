@@ -2001,7 +2001,7 @@ Plans:
 Close 6 architectural gaps that prevented the system from self-healing when Edge died or stacked on pods. Add browser watchdog, continuous idle health checks, AI debugger action execution, healer-driven Edge recovery via WS protocol, and proactive WARN log scanning.
 
 - [x] **Phase 137: Browser Watchdog** - rc-agent polls browser_process liveness every 30s, detects Edge stacking (>5 processes), and kills all before relaunch; close_browser() purges all msedge and WebView2 processes; watchdog suppressed during anti-cheat safe mode (completed 2026-03-22)
-- [ ] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions
+- [x] **Phase 138: Idle Health Monitor** - rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session; self-heals via close_browser + launch_browser before alerting; sends IdleHealthFailed after 3 consecutive failures; skipped during active billing sessions (completed 2026-03-22)
 - [ ] **Phase 139: Healer Edge Recovery** - Pod healer adds HealAction::RelaunchLockScreen for failed lock screen HTTP checks; healer sends ForceRelaunchBrowser WS message to pod; rc-agent handles ForceRelaunchBrowser via close_browser + launch_browser
 - [ ] **Phase 140: AI Action Execution Whitelist** - AI debugger Tier 3/4 responses parsed for structured safe actions; whitelist includes kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp; actions logged to activity_log; process-kill actions blocked during safe mode
 - [ ] **Phase 141: WARN Log Scanner** - Pod healer scans racecontrol log for WARN count each cycle; threshold (>50/5min) triggers AI escalation; recurring identical WARNs grouped and deduplicated before escalation
@@ -2090,7 +2090,7 @@ Note: Phase 137 (Browser Watchdog) is the critical foundation -- close_browser r
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 137. Browser Watchdog | 2/2 | Complete    | 2026-03-22 |
-| 138. Idle Health Monitor | 2/3 | In Progress|  |
+| 138. Idle Health Monitor | 3/3 | Complete   | 2026-03-22 |
 | 139. Healer Edge Recovery | 0/2 | Not started | - |
 | 140. AI Action Execution Whitelist | 0/2 | Not started | - |
 | 141. WARN Log Scanner | 0/2 | Not started | - |

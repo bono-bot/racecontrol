@@ -1,22 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v18.2
-milestone_name: Debugging & Quality Gates
-status: roadmap_ready
-stopped_at: "Roadmap created -- Phase 142 ready to plan"
-last_updated: "2026-03-22T10:00:00.000Z"
-current_phase: 142
-current_phase_name: Rules Hygiene
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: defining_requirements
+stopped_at: Completed 138-03-PLAN.md
+last_updated: "2026-03-22T04:38:35.189Z"
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 6
-  completed_plans: 0
-  percent: 0
-decisions:
-  - "142: CLAUDE.md rules reorganized into 5 named categories before any code work"
-  - "143: Integration tests must run against real comms-link daemons, never mocks"
-  - "144: Integration test exit code directly gates GSD phase completion"
+  total_phases: 106
+  completed_phases: 72
+  total_plans: 180
+  completed_plans: 176
 ---
 
 ---
@@ -1085,8 +1078,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-22T04:24:39.887Z
-Stopped at: Completed 138-02-PLAN.md
+Last session: 2026-03-22T04:38:35.179Z
+Stopped at: Completed 138-03-PLAN.md
 Resume file: None
 
 ---

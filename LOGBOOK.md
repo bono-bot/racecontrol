@@ -542,3 +542,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 09:50 IST | James | 4448aa7 | feat(138-01): add AgentMessage::IdleHealthFailed variant to rc-common protocol |
 | 2026-03-22 04:23 IST | James | 302953c | feat(138-02): expose check_lock_screen_http and check_window_rect as pub(crate) |
 | 2026-03-22 04:23 IST | James | ecc832d | feat(138-02): add idle health monitoring loop to event_loop.rs |
+| 2026-03-22 10:15 IST | James | e811db7 | feat(138): add idle_health_fail_count + idle_health_failures to FleetHealthStore and PodFleetStatus |
+| 2026-03-22 10:20 IST | James | 825a0a3 | feat(138-03): handle AgentMessage::IdleHealthFailed in server WS handler |
