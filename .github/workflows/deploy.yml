@@ -28,10 +28,12 @@ jobs:
 
             echo "=== Pull racecontrol ==="
             cd /root/racingpoint/racecontrol
+            git stash --include-untracked -q 2>/dev/null || true
             git pull origin main
 
             echo "=== Pull racingpoint-admin ==="
             cd /root/racingpoint/racingpoint-admin
+            git stash --include-untracked -q 2>/dev/null || true
             git pull origin main
 
             echo "=== Build PWA ==="
