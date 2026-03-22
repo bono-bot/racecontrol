@@ -1,16 +1,18 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v21.0
+milestone_name: Cross-Project Sync & Stabilization
 status: in_progress
-stopped_at: Completed 158-02-PLAN.md
-last_updated: "2026-03-22T18:56:30.907Z"
+stopped_at: Defining requirements
+last_updated: "2026-03-23T12:00:00+05:30"
+current_phase: null
+current_phase_name: Not started
 progress:
-  total_phases: 124
-  completed_phases: 96
-  total_plans: 226
-  completed_plans: 223
-  percent: 99
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 ---

@@ -10,6 +10,23 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Professional NVR camera dashboard with 13 cameras, DMSS HD-inspired UI. Hybrid streaming (cached snapshots for grid + WebRTC fullscreen via go2rtc), 4 layout modes (1×1/2×2/3×3/4×4), drag-to-rearrange, zone grouping, camera naming, layout persistence via server-side JSON, and dual deployment (rc-sentry-ai :8096 + web dashboard :3200). 936-line cameras.html + 849-line React page.tsx, 21 requirements, 4 phases, 7 plans.
 
+## Current Milestone: v21.0 Cross-Project Sync & Stabilization
+
+**Goal:** Full audit of all 30 Racing Point repos — archive dead projects, fix all known bugs, define API contracts between runtime projects, extract shared types with OpenAPI specs and CI checks, run 231 E2E tests and fix failures, and unify deployment into a single coherent system.
+
+**Target features:**
+- Archive dead/merged repos (game-launcher, ac-launcher, conspit-link, non-git folders)
+- Fix all 4 known bugs: pods DB auto-seed on startup, orphan PowerShell mitigation, process guard allowlist enablement, VSD Craft Variable_dump.exe kill
+- Run full 231-test E2E script across POS + Kiosk, fix all failures found
+- Full contract layer: shared TypeScript types between racecontrol/kiosk/admin, OpenAPI specs for all APIs, contract tests that break on drift, CI checks
+- Unified deployment: clean deploy-staging (714 dirty files), unified deploy scripts for all services, deployment runbook
+
+**Constraints:**
+- Cross-repo work — touches racecontrol, kiosk, racingpoint-admin, comms-link, deploy-staging, pod-agent
+- Bug fixes require pods to be online for verification
+- E2E tests require both POS (:3200) and Kiosk (:8000/:3300) running
+- Contract tests must not break existing APIs — additive only
+
 ## Current Milestone: v17.1 Watchdog-to-AI Migration
 
 **Goal:** Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery. Watchdogs do "if dead → restart" without understanding WHY, causing infinite loops, cascading conflicts (standing rule #10), and user-facing flicker. AI recovery does: detect → pattern memory → Tier 1 fix → escalate to AI → alert staff after 3+ failures.
