@@ -3,14 +3,17 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 160-02-PLAN.md
-last_updated: "2026-03-22T14:55:24.425Z"
+stopped_at: Completed 153-02-PLAN.md
+last_updated: "2026-03-22T15:05:00+05:30"
 progress:
   total_phases: 124
   completed_phases: 88
   total_plans: 211
-  completed_plans: 207
+  completed_plans: 208
   percent: 98
+decisions:
+  - "153-02: Separate useEffect for low-stock polling (not merged into loadData) for clean separation of concerns"
+  - "153-02: Banner is best-effort — fetch failures swallowed silently, banner absent rather than error state"
 ---
 
 ---
