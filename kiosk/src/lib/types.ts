@@ -405,6 +405,9 @@ export interface CafeMenuItem {
   selling_price_paise: number;
   cost_price_paise: number;
   is_available: boolean;
+  is_countable: boolean;
+  stock_quantity: number;
+  out_of_stock: boolean;
   created_at: string | null;
   updated_at: string | null;
   image_path: string | null;
@@ -414,6 +417,28 @@ export interface CafeMenuResponse {
   items: CafeMenuItem[];
   total: number;
   page: number;
+}
+
+export interface CafeOrderItem {
+  item_id: string;
+  quantity: number;
+}
+
+export interface CafeOrderItemDetail {
+  item_id: string;
+  name: string;
+  quantity: number;
+  unit_price_paise: number;
+  line_total_paise: number;
+}
+
+export interface CafeOrderResponse {
+  order_id: string;
+  receipt_number: string;
+  wallet_txn_id: string;
+  total_paise: number;
+  new_balance_paise: number;
+  items: CafeOrderItemDetail[];
 }
 
 // ─── Debug System ────────────────────────────────────────────────────────

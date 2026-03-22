@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -398,6 +398,13 @@ export const api = {
 
   // Cafe Menu (public, no auth required)
   publicCafeMenu: () => fetchApi<CafeMenuResponse>("/cafe/menu"),
+
+  // Cafe Orders (staff auth required)
+  placeCafeOrder: (driverId: string, items: CafeOrderItem[]) =>
+    fetchApi<CafeOrderResponse | { error: string }>("/cafe/orders", {
+      method: "POST",
+      body: JSON.stringify({ driver_id: driverId, items }),
+    }),
 
   // Kiosk PIN Redemption (remote booking flow)
   redeemPin: (pin: string) =>
