@@ -9,6 +9,7 @@ import type {
   CreateCafeItemRequest,
   ImportPreview,
   ConfirmedImportRow,
+  LowStockItem,
 } from "@/lib/api";
 
 const formatRupees = (paise: number) => `\u20b9${(paise / 100).toFixed(2)}`;
@@ -84,6 +85,9 @@ export default function CafePage() {
   const [importConfirming, setImportConfirming] = useState(false);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
 
+  // Low-stock banner state
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+
   async function loadData() {
     try {
       const [itemsRes, categoriesRes] = await Promise.all([
@@ -101,6 +105,28 @@ export default function CafePage() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchLowStock() {
+      try {
+        const res = await api.listLowStockItems();
+        if (!cancelled) {
+          setLowStockItems(res.items ?? []);
+        }
+      } catch {
+        // Best-effort: banner simply doesn't show on fetch failure
+      }
+    }
+
+    fetchLowStock();
+    const interval = setInterval(fetchLowStock, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   function openAddPanel() {
@@ -321,6 +347,35 @@ export default function CafePage() {
           </button>
         </div>
       </div>
+
+      {/* Low Stock Warning Banner */}
+      {lowStockItems.length > 0 && (
+        <div
+          className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3"
+          role="alert"
+          aria-label="Low stock warning"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-red-400 font-semibold text-sm uppercase tracking-wide">
+              Low Stock Warning
+            </span>
+            <span className="text-red-400/70 text-xs">
+              ({lowStockItems.length} item{lowStockItems.length !== 1 ? "s" : ""})
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {lowStockItems.map((item) => (
+              <li key={item.id} className="text-sm text-red-300">
+                <span className="font-medium">{item.name}</span>
+                {" — "}
+                <span className="text-red-400/80">
+                  {item.stock_quantity} remaining (threshold: {item.low_stock_threshold})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="flex border-b border-[#333333] mb-6">
