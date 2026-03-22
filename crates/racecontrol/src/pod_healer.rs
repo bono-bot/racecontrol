@@ -745,12 +745,74 @@ async fn escalate_to_ai(
             // Broadcast to dashboard
             let _ = state
                 .dashboard_tx
-                .send(DashboardEvent::AiDebugSuggestion(debug_suggestion));
+                .send(DashboardEvent::AiDebugSuggestion(debug_suggestion.clone()));
+
+            // Phase 140: Parse AI suggestion for whitelisted actions and log audit trail.
+            // The server does NOT execute actions — rc-agent executes them on the pod.
+            // This logs what action the AI recommended for the server-side activity log.
+            if let Some(action_name) = parse_ai_action_server(&debug_suggestion.suggestion) {
+                let detail = format!("AI recommended action model={}", debug_suggestion.model);
+                log_pod_activity(
+                    state,
+                    &debug_suggestion.pod_id,
+                    "ai_action",
+                    action_name,
+                    &detail,
+                    "ai_debugger",
+                );
+                tracing::info!(
+                    "Pod healer: AI action parsed for {} — {} ({})",
+                    debug_suggestion.pod_id,
+                    action_name,
+                    debug_suggestion.model
+                );
+            }
         }
         Err(e) => {
             tracing::warn!("Pod healer AI escalation failed for {}: {}", pod.id, e);
         }
     }
+}
+
+// --- Phase 140-02: Server-side AI action parsing ----------------------------
+
+/// Parse a whitelisted AI action from a free-text LLM suggestion.
+///
+/// Mirrors the rc-agent parse_ai_action() logic but returns &'static str
+/// instead of the rc-agent enum type, avoiding a cross-crate dependency.
+///
+/// Returns None if no parseable JSON block with a whitelisted action is found.
+/// No .unwrap() — all parse errors return None.
+fn parse_ai_action_server(suggestion: &str) -> Option<&'static str> {
+    #[derive(serde::Deserialize)]
+    struct ActionBlock {
+        action: String,
+    }
+
+    let bytes = suggestion.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            if let Some(end) = suggestion[i..].find('}') {
+                let candidate = &suggestion[i..=i + end];
+                if let Ok(block) = serde_json::from_str::<ActionBlock>(candidate) {
+                    let action = match block.action.as_str() {
+                        "kill_edge" => Some("kill_edge"),
+                        "relaunch_lock_screen" => Some("relaunch_lock_screen"),
+                        "restart_rcagent" => Some("restart_rcagent"),
+                        "kill_game" => Some("kill_game"),
+                        "clear_temp" => Some("clear_temp"),
+                        _ => None,
+                    };
+                    if action.is_some() {
+                        return action;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 // --- Helpers -----------------------------------------------------------------
@@ -1041,5 +1103,52 @@ mod tests {
 
         let should_relaunch = !rc_agent_healthy && has_active_ws && !has_active_billing;
         assert!(!should_relaunch, "no relaunch when billing active");
+    }
+
+    // ─── Phase 140-02: parse_ai_action_server tests ───────────────────────────
+
+    #[test]
+    fn test_parse_ai_action_server_kill_edge() {
+        // Test 1: suggestion containing {"action":"kill_edge"} returns Some("kill_edge")
+        let suggestion = r#"The edge browser is causing issues. {"action":"kill_edge"} Terminate it immediately."#;
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, Some("kill_edge"), "kill_edge action must be parsed");
+    }
+
+    #[test]
+    fn test_parse_ai_action_server_no_action_returns_none() {
+        // Test 2: suggestion with no JSON action block returns None
+        let suggestion = "Reboot the pod and check network connectivity. No specific action needed.";
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, None, "no JSON block must return None");
+    }
+
+    #[test]
+    fn test_parse_ai_action_server_unknown_action_returns_none() {
+        // Test 3: parse_ai_action_server with unknown action string returns None
+        let suggestion = r#"Try this: {"action":"reboot_system"} It should fix the issue."#;
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, None, "unknown action must return None (whitelist rejection)");
+    }
+
+    #[test]
+    fn test_parse_ai_action_server_relaunch_lock_screen() {
+        let suggestion = r#"Lock screen is stuck. {"action":"relaunch_lock_screen"}"#;
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, Some("relaunch_lock_screen"));
+    }
+
+    #[test]
+    fn test_parse_ai_action_server_clear_temp() {
+        let suggestion = r#"Disk space low. {"action":"clear_temp"} This will free up space."#;
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, Some("clear_temp"));
+    }
+
+    #[test]
+    fn test_parse_ai_action_server_malformed_json_returns_none() {
+        let suggestion = r#"Suggestion: {action: kill_edge} missing quotes."#;
+        let result = super::parse_ai_action_server(suggestion);
+        assert_eq!(result, None, "malformed JSON must return None");
     }
 }
