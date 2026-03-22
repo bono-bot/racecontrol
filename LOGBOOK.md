@@ -579,3 +579,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 14:26 IST | James | 9b8df9de | docs(148-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (DPLY-02, DPLY-03 complete) |
 | 2026-03-22 19:55 IST | James | c192afd8 | docs(148-01): checkpoint approved — Task 2 human-verify complete, :3200/cameras feature parity with cameras.html confirmed, phase 148 complete |
 | 2026-03-22 08:59 IST | James | c183cfd4 | fix: deploy standing rules updated — RCAGENT_SELF_RESTART replaces taskkill chain. Pod 5 offline incident root-caused. Service key removed from pods 1/8. OpenSSH installed on all 8 pods. |
+| 2026-03-22 16:50 IST | James | 16ec9e6b | feat(149-01): cafe schema (cafe_categories, cafe_items tables + indexes + seeded categories), cafe.rs CRUD module (8 handlers + 5 unit tests all passing), pub mod cafe in lib.rs |
+| 2026-03-22 16:51 IST | James | aa78dc67 | feat(149-01): cafe routes registered — admin CRUD in staff_routes (JWT-protected), public menu in public_routes (no auth), release build succeeds |
+| 2026-03-22 16:51 IST | James | eeda7207 | docs(149-01): SUMMARY.md + STATE.md + ROADMAP.md (phase 149 plan 01 complete) |
