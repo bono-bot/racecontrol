@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@racingpoint/types": ["../packages/shared-types/src/index.ts"]
     }
   },
   "include": [

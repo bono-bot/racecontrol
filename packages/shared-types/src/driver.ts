@@ -8,5 +8,7 @@ export interface Driver {
   iracing_id?: string;
   total_laps: number;
   total_time_ms: number;
-  created_at: string;
+  created_at?: string;
+  /** Computed field returned by the kiosk API — not in Rust struct */
+  has_used_trial?: boolean;
 }

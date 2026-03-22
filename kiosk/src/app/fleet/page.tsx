@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { PodFleetStatus } from "@/lib/types";
 
-function formatUptime(secs: number | null): string {
-  if (secs === null) return "--";
+function formatUptime(secs: number | null | undefined): string {
+  if (secs == null) return "--";
   const hours = Math.floor(secs / 3600);
   const minutes = Math.floor((secs % 3600) / 60);
   return `${hours}h ${minutes}m`;

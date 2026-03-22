@@ -36,4 +36,8 @@ export interface PricingTier {
   name: string;
   duration_minutes: number;
   price_paise: number;
+  is_trial: boolean;
+  is_active: boolean;
+  /** Display ordering — returned by kiosk API, not in core Rust struct */
+  sort_order?: number;
 }

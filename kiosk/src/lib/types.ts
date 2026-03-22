@@ -1,3 +1,20 @@
+// ── Shared types from @racingpoint/types ─────────────────────────────────
+// Single source of truth — derived from Rust structs in rc-common
+import type { GameState } from '@racingpoint/types';
+export type {
+  SimType,
+  PodStatus,
+  DrivingState,
+  GameState,
+  Pod,
+  BillingSessionStatus,
+  BillingSession,
+  PricingTier,
+  Driver,
+  PodFleetStatus,
+  FleetHealthResponse,
+} from '@racingpoint/types';
+
 // ── Deploy Types ────────────────────────────────────────────────────────────
 
 export type DeployState =
@@ -25,34 +42,12 @@ export interface DeployProgressEvent {
   timestamp: string;
 }
 
-// ─── Pod Types ────────────────────────────────────────────────────────────
+// ─── Kiosk-local Pod Types ────────────────────────────────────────────────
+// Note: Pod, PodStatus, DrivingState, GameState re-exported from @racingpoint/types above
 
-export type PodStatus = "offline" | "idle" | "in_session" | "error" | "disabled";
-export type DrivingState = "active" | "idle" | "no_device";
-export type GameState = "idle" | "launching" | "loading" | "running" | "stopping" | "error";
 export type BillingStatus = "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
 export type AuthType = "pin" | "qr";
 export type AuthTokenStatus = "pending" | "consumed" | "expired" | "cancelled";
-
-export interface Pod {
-  id: string;
-  number: number;
-  name: string;
-  ip_address: string;
-  sim_type: string;
-  status: PodStatus;
-  current_driver?: string;
-  current_session_id?: string;
-  last_seen?: string;
-  driving_state?: DrivingState;
-  billing_session_id?: string;
-  game_state?: GameState;
-  current_game?: string;
-  installed_games?: string[];
-  screen_blanked?: boolean;
-  ffb_preset?: string;
-  freedom_mode?: boolean;
-}
 
 // ─── Telemetry ────────────────────────────────────────────────────────────
 
@@ -86,23 +81,7 @@ export interface Lap {
 }
 
 // ─── Billing ──────────────────────────────────────────────────────────────
-
-export interface BillingSession {
-  id: string;
-  driver_id: string;
-  driver_name: string;
-  pod_id: string;
-  pricing_tier_name: string;
-  allocated_seconds: number;
-  driving_seconds: number;
-  remaining_seconds: number;
-  status: BillingStatus;
-  driving_state: DrivingState;
-  started_at?: string;
-  split_count?: number;
-  split_duration_minutes?: number;
-  current_split_number?: number;
-}
+// BillingSession, BillingSessionStatus, PricingTier re-exported from @racingpoint/types above
 
 export interface PendingSplitContinuation {
   pod_id: string;
@@ -111,16 +90,6 @@ export interface PendingSplitContinuation {
   split_count: number;
   current_split_number: number;
   split_duration_minutes: number;
-}
-
-export interface PricingTier {
-  id: string;
-  name: string;
-  duration_minutes: number;
-  price_paise: number;
-  is_trial: boolean;
-  is_active: boolean;
-  sort_order?: number;
 }
 
 // ─── Auth Tokens ──────────────────────────────────────────────────────────
@@ -235,16 +204,7 @@ export interface KioskSettings {
 }
 
 // ─── Driver ───────────────────────────────────────────────────────────────
-
-export interface Driver {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  total_laps: number;
-  total_time_ms: number;
-  has_used_trial?: boolean;
-}
+// Driver re-exported from @racingpoint/types above (includes optional has_used_trial)
 
 // ─── Wallet ──────────────────────────────────────────────────────────────
 
@@ -371,28 +331,7 @@ export interface PodActivityEntry {
 }
 
 // ─── Fleet Health Types ──────────────────────────────────────────────────
-export interface PodFleetStatus {
-  pod_number: number;
-  pod_id: string | null;
-  ws_connected: boolean;
-  http_reachable: boolean;
-  in_maintenance: boolean;
-  maintenance_failures: string[];
-  version: string | null;
-  uptime_secs: number | null;
-  crash_recovery: boolean | null;
-  ip_address: string | null;
-  last_seen: string | null;
-  last_http_check: string | null;
-  // Phase 104: Process guard violation tracking
-  violation_count_24h: number;
-  last_violation_at: string | null;
-}
-
-export interface FleetHealthResponse {
-  pods: PodFleetStatus[];
-  timestamp: string;
-}
+// PodFleetStatus, FleetHealthResponse re-exported from @racingpoint/types above
 
 // ─── Cafe Menu ────────────────────────────────────────────────────────────────
 
