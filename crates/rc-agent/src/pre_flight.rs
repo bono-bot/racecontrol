@@ -296,7 +296,7 @@ async fn check_orphan_game(billing_active: bool, has_game_process: bool, game_pi
 /// Public entry point: probe the lock screen HTTP server on port 18923.
 ///
 /// Delegates to `check_lock_screen_http_on` for testability.
-async fn check_lock_screen_http() -> CheckResult {
+pub(crate) async fn check_lock_screen_http() -> CheckResult {
     check_lock_screen_http_on("127.0.0.1:18923").await
 }
 
@@ -381,7 +381,7 @@ async fn check_lock_screen_http_on(addr: &str) -> CheckResult {
 /// Returns Warn (not Fail) if the window is not found — it may not be launched yet.
 /// Returns Fail only if the window is found but does not cover enough of the screen.
 #[cfg(windows)]
-async fn check_window_rect() -> CheckResult {
+pub(crate) async fn check_window_rect() -> CheckResult {
     let result = spawn_blocking(|| {
         unsafe extern "system" {
             fn GetSystemMetrics(nIndex: i32) -> i32;
@@ -457,7 +457,7 @@ async fn check_window_rect() -> CheckResult {
 }
 
 #[cfg(not(windows))]
-async fn check_window_rect() -> CheckResult {
+pub(crate) async fn check_window_rect() -> CheckResult {
     CheckResult {
         name: "lock_screen_window_rect",
         status: CheckStatus::Pass,
