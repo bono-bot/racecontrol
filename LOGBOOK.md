@@ -578,3 +578,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 14:25 IST | James | a74c35c8 | feat(148-01): rewrite cameras/page.tsx — 849 lines, all 12 features (grid modes, zones, drag-drop, WebRTC fullscreen, pre-warm, snapshot polling, layout persistence) |
 | 2026-03-22 14:26 IST | James | 9b8df9de | docs(148-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (DPLY-02, DPLY-03 complete) |
 | 2026-03-22 19:55 IST | James | c192afd8 | docs(148-01): checkpoint approved — Task 2 human-verify complete, :3200/cameras feature parity with cameras.html confirmed, phase 148 complete |
+| 2026-03-22 08:59 IST | James | c183cfd4 | fix: deploy standing rules updated — RCAGENT_SELF_RESTART replaces taskkill chain. Pod 5 offline incident root-caused. Service key removed from pods 1/8. OpenSSH installed on all 8 pods. |
