@@ -1982,7 +1982,7 @@ Plans:
   5. Exec skills (comms-link skill wrappers) call /relay/health before sending and surface connection status to the caller when the relay is down
 **Plans**: 2 plans
 Plans:
-- [ ] 136-01-PLAN.md — Add chain_result WS handler to route through ExecResultBroker (CHAIN-10, CHAIN-11)
+- [x] 136-01-PLAN.md — Add chain_result WS handler to route through ExecResultBroker (CHAIN-10, CHAIN-11)
 - [ ] 136-02-PLAN.md — Enhance /relay/health response, guard /relay/exec/run, update skill (VIS-01, VIS-02, VIS-03)
 
 ## v18.1 Progress
@@ -1992,7 +1992,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 135. Daemon Recovery | 2/2 | Complete    | 2026-03-22 |
-| 136. Chain Endpoint + Visibility | 0/2 | Not started | - |
+| 136. Chain Endpoint + Visibility | 1/2 | In progress | - |
 
 
 ## v17.0 AI Debugger Autonomy & Self-Healing

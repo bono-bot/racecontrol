@@ -54,21 +54,22 @@ gsd_state_version: 1.0
 milestone: v18.1
 milestone_name: Seamless Execution Hardening
 status: in_progress
-stopped_at: "Completed 135-02-PLAN.md (checkpoint:human-verify pending)"
-last_updated: "2026-03-22T03:28:00.000Z"
-current_phase: 135
-current_phase_name: Daemon Recovery
+stopped_at: "Completed 136-01-PLAN.md"
+last_updated: "2026-03-22T04:08:00.000Z"
+current_phase: 136
+current_phase_name: Chain Endpoint + Visibility
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 decisions:
   - "135-01: /sc MINUTE /mo 2 chosen over ONLOGON+repeat — simpler and achieves same 2-min detection window"
   - "135-01: Restart via start-comms-link.bat (not node directly) to preserve all env vars and start supervisor"
   - "135-01: No -Wait on bat start since start /min backgrounds immediately"
   - "135-02: Used PowerShell schtasks fallback (no /rl HIGHEST) when Node registration failed with Access Denied"
   - "135-02: HKCU Run key was already correct from Plan 01 — no changes needed"
+  - "136-01: chain_result handler placed after delegate_result, before catch-all; execId mapped from msg.payload?.chainId"
 ---
 
 ---
