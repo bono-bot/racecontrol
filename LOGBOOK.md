@@ -616,3 +616,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 20:25 IST | James | ea288a92 | docs(160-02): complete pattern escalation + pre-restart Ollama plan |
 | 2026-03-22 21:05 IST | James | 0670970e | feat(161-01): add PodRecoveryTracker with graduated offline recovery (4-step: wait/restart/AI/alert) |
 | 2026-03-22 21:05 IST | James | 1d26dd6e | docs(161-01): 161-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updated |
+| 2026-03-22 21:15 IST | James | 21c8f6f5 | feat(161-02): strip restart/WoL execution from pod_monitor — pure detector only |
+| 2026-03-22 21:15 IST | James | a97015a8 | chore(161-02): verify single-authority, update ROADMAP Phase 161 complete |
+| 2026-03-22 21:15 IST | James | 94f4732a | docs(161-02): SUMMARY + STATE + ROADMAP for 161-02 plan completion |
