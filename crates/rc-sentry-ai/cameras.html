@@ -61,19 +61,19 @@
     padding: 2px 6px; font-size: 0.7rem;
   }
 
-  /* ── Camera grid ────────────────────────────────────────────── */
+  /* ── Camera grid — responsive 4-column for 13 cameras ──────── */
   #grid {
     flex: 1 1 auto;
     overflow-y: auto;
     display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 1fr;
     gap: 2px;
     padding: 2px;
-    transition: grid-template-columns 0.3s ease;
   }
-  .grid-1x1 { grid-template-columns: 1fr; }
-  .grid-2x2 { grid-template-columns: repeat(2, 1fr); }
-  .grid-3x3 { grid-template-columns: repeat(3, 1fr); }
-  .grid-4x4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 1200px) { #grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 800px)  { #grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 500px)  { #grid { grid-template-columns: 1fr; } }
 
   /* ── Camera tile ────────────────────────────────────────────── */
   .cam {
@@ -114,14 +114,17 @@
     cursor: pointer;
     object-fit: cover;
   }
-  /* Hide go2rtc video-stream internal controls, status, and native video controls */
+  /* Style go2rtc video-stream tiles — hide controls overlay but keep clicks working */
   .cam video-stream video {
     width: 100%; height: 100%;
     object-fit: cover;
-    pointer-events: none;
   }
   .cam video-stream video::-webkit-media-controls { display: none !important; }
   .cam video-stream video::-webkit-media-controls-enclosure { display: none !important; }
+  /* Overlay to capture clicks above video-stream (go2rtc may consume click events) */
+  .cam .click-overlay {
+    position: absolute; inset: 0; z-index: 2; cursor: pointer;
+  }
   .cam video-stream .info,
   .cam video-stream .mode,
   .cam video-stream .status {
@@ -271,10 +274,6 @@
 <div class="toolbar">
   <h1>RACING POINT</h1>
   <span id="status">Loading...</span>
-  <button class="layout-btn" data-mode="1x1">1</button>
-  <button class="layout-btn" data-mode="2x2">4</button>
-  <button class="layout-btn active" data-mode="3x3">9</button>
-  <button class="layout-btn" data-mode="4x4">16</button>
   <select id="rate">
     <option value="1000">1 fps</option>
     <option value="2000" selected>0.5 fps</option>
@@ -282,7 +281,7 @@
   </select>
 </div>
 
-<div id="grid" class="grid-3x3"></div>
+<div id="grid"></div>
 
 <div class="fullscreen" id="fs"></div>
 
@@ -292,14 +291,7 @@ var cameras = [];
 var tileElements = {};  // keyed by nvr_channel
 var imgElements = {};   // keyed by nvr_channel
 var dotElements = {};   // keyed by nvr_channel
-var currentMode = '3x3';
 var timer = null;
-
-// Stream budget — max live video streams based on layout mode
-// Prevents browser GPU/memory exhaustion from too many simultaneous decoders
-var STREAM_BUDGETS = { '1x1': 1, '2x2': 4, '3x3': 9, '4x4': 13 };
-var STREAM_BUDGET = STREAM_BUDGETS[currentMode] || 9;
-var liveStreamCount = 0;
 
 // Drag and zone state
 var dragSrcChannel = null;
@@ -356,17 +348,16 @@ var controlsHideTimer = null;
   spinner.className = 'fs-spinner';
   loading.appendChild(spinner);
 
-  // Video element
-  var video = document.createElement('video');
-  video.className = 'fs-video';
-  video.id = 'fs-video';
-  video.autoplay = true;
-  video.playsInline = true;
-  video.muted = true;
+  // Fullscreen iframe — loads go2rtc stream.html for reliable single-stream playback
+  var iframe = document.createElement('iframe');
+  iframe.className = 'fs-video';
+  iframe.id = 'fs-iframe';
+  iframe.setAttribute('allow', 'autoplay');
+  iframe.style.border = 'none';
 
   fsEl.appendChild(controls);
   fsEl.appendChild(loading);
-  fsEl.appendChild(video);
+  fsEl.appendChild(iframe);
 }());
 
 // ── teardownRtc — MUST be defined before any connection-opening code ──────────
@@ -501,12 +492,10 @@ function startControlsAutoHide() {
   }, 3000);
 }
 
-// ── openFullscreen — WebRTC fullscreen with singleton pattern ─────────────────
+// ── openFullscreen — uses go2rtc stream.html iframe for reliable playback ────
 function openFullscreen(camera) {
-  var streamName = 'ch' + camera.nvr_channel;
-
-  // Tear down any existing connection (singleton enforcement)
-  teardownRtc();
+  var ch = camera.nvr_channel;
+  if (!ch) return;
 
   // Show fullscreen overlay
   fsEl.classList.add('visible');
@@ -518,60 +507,17 @@ function openFullscreen(camera) {
   var loadingEl = document.getElementById('fs-loading');
   loadingEl.style.display = 'block';
 
-  var videoEl = document.getElementById('fs-video');
-  videoEl.srcObject = null;
+  // Load go2rtc's stream.html in iframe — handles MSE/WebRTC/MJPEG fallback
+  var iframe = document.getElementById('fs-iframe');
+  iframe.src = 'http://192.168.31.27:1984/stream.html?src=ch' + ch + '&mode=mse,webrtc,mjpeg&background=true';
 
-  // Show snapshot as background while loading (fallback if WebRTC fails)
-  if (camera.nvr_channel) {
-    videoEl.poster = '/api/v1/cameras/nvr/' + camera.nvr_channel + '/snapshot?t=' + Date.now();
-  }
+  // Monitor iframe load — hide spinner when loaded
+  iframe.onload = function() {
+    loadingEl.style.display = 'none';
+    dotEl.className = 'fs-status-dot connected';
+  };
 
-  // Check if we have a pre-warmed connection for this exact camera
-  if (preWarmChannel === camera.nvr_channel && preWarmPc && preWarmWs) {
-    activePc = preWarmPc;
-    activeWs = preWarmWs;
-    preWarmPc = null;
-    preWarmWs = null;
-    preWarmChannel = null;
-
-    // Wire up the existing pre-warmed connection for fullscreen use
-    activePc.ontrack = function(e) {
-      videoEl.srcObject = e.streams[0];
-      loadingEl.style.display = 'none';
-      dotEl.className = 'fs-status-dot connected';
-    };
-    activePc.onconnectionstatechange = function() {
-      updateFsStatus(activePc.connectionState, dotEl, loadingEl);
-    };
-
-    // If tracks already arrived during pre-warm, wire them up immediately
-    var receivers = activePc.getReceivers();
-    for (var i = 0; i < receivers.length; i++) {
-      if (receivers[i].track && receivers[i].track.kind === 'video') {
-        var stream = new MediaStream([receivers[i].track]);
-        videoEl.srcObject = stream;
-        loadingEl.style.display = 'none';
-        dotEl.className = 'fs-status-dot connected';
-        break;
-      }
-    }
-    activeCamera = camera;
-  } else {
-    // Clean up any unrelated pre-warm connection
-    teardownPreWarm();
-
-    // Create a fresh WebRTC connection
-    var conn = connectWebRTC(streamName, function(stream) {
-      videoEl.srcObject = stream;
-      loadingEl.style.display = 'none';
-      dotEl.className = 'fs-status-dot connected';
-    }, function(state) {
-      updateFsStatus(state, dotEl, loadingEl);
-    });
-    activePc = conn.pc;
-    activeWs = conn.ws;
-    activeCamera = camera;
-  }
+  activeCamera = camera;
 
   // Auto-hide controls after 3 seconds
   startControlsAutoHide();
@@ -579,16 +525,15 @@ function openFullscreen(camera) {
 
 // ── closeFullscreen ───────────────────────────────────────────────────────────
 function closeFullscreen() {
-  teardownRtc();
-  teardownPreWarm();
   fsEl.classList.remove('visible');
 
-  var videoEl = document.getElementById('fs-video');
-  videoEl.srcObject = null;
-  videoEl.poster = '';
+  // Clear iframe src to stop the stream
+  var iframe = document.getElementById('fs-iframe');
+  iframe.src = 'about:blank';
 
   document.getElementById('fs-loading').style.display = 'none';
   clearTimeout(controlsHideTimer);
+  activeCamera = null;
 
   // Remove any fallback messages
   fsEl.querySelectorAll('.fs-fallback-msg').forEach(function(m) { m.remove(); });
@@ -613,13 +558,8 @@ fsEl.addEventListener('mousemove', function() {
   }
 });
 
-// Clean up WebRTC on page leave
-window.addEventListener('beforeunload', teardownRtc);
-
-// Clean up WebRTC when tab goes hidden
-document.addEventListener('visibilitychange', function() {
-  if (document.hidden) teardownRtc();
-});
+// Clean up fullscreen on page leave
+window.addEventListener('beforeunload', closeFullscreen);
 
 // ── Camera list fetch ─────────────────────────────────────────────────────────
 function fetchCameras() {
@@ -642,9 +582,6 @@ function fetchLayout() {
   return fetch('/api/v1/cameras/layout')
     .then(function(r) { return r.json(); })
     .then(function(layout) {
-      if (layout.grid_mode) {
-        applyMode(layout.grid_mode, false /* skipSave */);
-      }
       if (layout.camera_order && layout.camera_order.length > 0) {
         // Reorder cameras to match saved order; unordered cameras go at end
         var orderMap = {};
@@ -669,7 +606,6 @@ function buildGrid() {
   tileElements = {};
   imgElements  = {};
   dotElements  = {};
-  liveStreamCount = 0;
 
   // Group cameras by zone
   var groups = {};
@@ -719,29 +655,22 @@ function buildGrid() {
       label.appendChild(nameSpan);
       label.appendChild(dot);
 
-      // Camera tile media — live video for budget tiles, snapshot for overflow
-      // Stream budget prevents browser resource exhaustion from too many decoders
+      // Camera tile media — live video via go2rtc MSE/WebRTC
       var vid;
       var isLive = ch != null && camera.status !== 'offline' && camera.status !== 'disconnected';
-      var withinBudget = liveStreamCount < STREAM_BUDGET;
 
-      if (isLive && withinBudget) {
+      if (isLive) {
         vid = document.createElement('video-stream');
         vid.style.width = '100%';
         vid.style.display = 'block';
         vid.style.aspectRatio = '16/9';
         vid.style.objectFit = 'cover';
         vid.style.background = '#000';
-        vid.style.cursor = 'pointer';
         vid.mode = 'mse,webrtc,mjpeg';
         vid.media = 'video';
+        vid.background = true;
         vid.src = 'http://192.168.31.27:1984/api/ws?src=ch' + ch;
-        vid.addEventListener('click', (function(cam) {
-          return function() { openFullscreen(cam); };
-        })(camera));
-        liveStreamCount++;
       } else {
-        // Snapshot fallback for overflow or offline cameras
         vid = document.createElement('img');
         vid.alt = camera.display_name;
         vid.style.width = '100%';
@@ -749,13 +678,17 @@ function buildGrid() {
         vid.style.aspectRatio = '16/9';
         vid.style.objectFit = 'cover';
         vid.style.background = '#000';
-        vid.style.cursor = isLive ? 'pointer' : 'default';
-        if (isLive && ch != null) {
-          vid.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + Date.now();
-          vid.addEventListener('click', (function(cam) {
-            return function() { openFullscreen(cam); };
-          })(camera));
-        }
+      }
+
+      // Transparent click overlay — captures clicks above video-stream
+      // (go2rtc's custom element may consume click events internally)
+      if (isLive && ch != null) {
+        var clickOverlay = document.createElement('div');
+        clickOverlay.className = 'click-overlay';
+        clickOverlay.addEventListener('click', (function(cam) {
+          return function() { openFullscreen(cam); };
+        })(camera));
+        tile.appendChild(clickOverlay);
       }
 
       // Offline overlay text
@@ -852,37 +785,7 @@ function buildGrid() {
     });
 }
 
-// ── Layout mode switching ─────────────────────────────────────────────────────
-function applyMode(mode, save) {
-  var oldBudget = STREAM_BUDGET;
-  gridEl.classList.remove('grid-1x1', 'grid-2x2', 'grid-3x3', 'grid-4x4');
-  gridEl.classList.add('grid-' + mode);
-  currentMode = mode;
-  STREAM_BUDGET = STREAM_BUDGETS[mode] || 9;
-
-  // Update active button
-  document.querySelectorAll('.layout-btn').forEach(function(btn) {
-    btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
-  });
-
-  // Rebuild grid if budget changed (adds/removes live streams)
-  if (STREAM_BUDGET !== oldBudget && cameras.length > 0) {
-    buildGrid();
-  }
-
-  if (save !== false) saveLayout();
-}
-
-function setLayoutMode(mode) {
-  applyMode(mode, true);
-}
-
-// Layout button listeners
-document.querySelectorAll('.layout-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    setLayoutMode(btn.getAttribute('data-mode'));
-  });
-});
+// Layout mode removed — auto-fill grid handles all viewport sizes
 
 // ── Status + snapshot refresh for overflow tiles ─────────────────────────────
 function refreshStatus() {
@@ -923,7 +826,7 @@ function saveLayout() {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      grid_mode: currentMode,
+      grid_mode: 'auto',
       camera_order: cameras.map(function(c) { return c.nvr_channel; }).filter(Boolean),
       zone_filter: null
     })
