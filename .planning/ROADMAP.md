@@ -2346,12 +2346,12 @@ Plans:
   5. Items with zero stock cannot be added to an order (out-of-stock blocking prevents it)
   6. Concurrent orders for the last unit of an item do not both succeed (atomic stock decrement + wallet deduction)
   7. Stock quantities auto-decrement when countable items are sold
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 154-01: TBD
-- [ ] 154-02: TBD
-- [ ] 154-03: TBD
+- [ ] 154-01-PLAN.md -- Backend: cafe_orders table, atomic place_order handler, receipt generation, stock info in public menu
+- [ ] 154-02-PLAN.md -- PWA: cart state, checkout flow, wallet balance display, order submission
+- [ ] 154-03-PLAN.md -- POS kiosk: order builder, customer selection, staff-assisted ordering
 
 ### Phase 155: Receipts & Order History
 **Goal**: Every order produces a physical receipt and digital record that staff and customers can reference
