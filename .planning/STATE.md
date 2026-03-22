@@ -1,5 +1,19 @@
 ---
 gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: roadmap_ready
+stopped_at: Completed 133-01-PLAN.md
+last_updated: "2026-03-22T03:43:22.676Z"
+progress:
+  total_phases: 103
+  completed_phases: 70
+  total_plans: 174
+  completed_plans: 171
+---
+
+---
+gsd_state_version: 1.0
 milestone: v17.0
 milestone_name: AI Debugger Autonomy & Self-Healing
 status: roadmap_ready

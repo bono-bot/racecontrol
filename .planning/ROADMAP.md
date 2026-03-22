@@ -1954,7 +1954,7 @@ Plans:
 
 - [x] **Phase 135: Daemon Recovery** - Task Scheduler watchdog + HKLM Run key boot start for James comms-link daemon (RECOV-01 through RECOV-04)
  (completed 2026-03-22)
-- [ ] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03)
+- [x] **Phase 136: Chain Endpoint + Visibility** - Fix /relay/chain/run 504, route chain_result through ExecResultBroker, add health probe + degradation status (CHAIN-10, CHAIN-11, VIS-01, VIS-02, VIS-03) (completed 2026-03-22)
 
 ### Phase 135: Daemon Recovery
 **Goal**: James comms-link daemon survives crashes and reboots — auto-restarts within 30s after a crash and starts automatically on Windows boot
