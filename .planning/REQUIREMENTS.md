@@ -15,10 +15,10 @@
 ### Integration Tests
 
 - [ ] **INTEG-01**: Integration test starts comms-link daemon, sends exec_request over WS, verifies exec_result with correct fields
-- [ ] **INTEG-02**: Integration test sends chain_request with 2+ steps, verifies chain_result with matching chainId and all step outputs
+- [x] **INTEG-02**: Integration test sends chain_request with 2+ steps, verifies chain_result with matching chainId and all step outputs
 - [ ] **INTEG-03**: Integration test sends message with from:james, verifies relay and persistence
-- [ ] **INTEG-04**: Cross-platform syntax check runs node --check on all source files on both James and Bono
-- [ ] **INTEG-05**: Contract tests verify chainId passthrough, from field preservation, MessageType routing
+- [x] **INTEG-04**: Cross-platform syntax check runs node --check on all source files on both James and Bono
+- [x] **INTEG-05**: Contract tests verify chainId passthrough, from field preservation, MessageType routing
 
 ### GSD Gate
 
@@ -43,10 +43,10 @@
 | RULES-03 | Phase 142 | Complete (2026-03-22) |
 | RULES-04 | Phase 142 | Complete (2026-03-22) |
 | INTEG-01 | Phase 143 | Pending |
-| INTEG-02 | Phase 143 | Pending |
+| INTEG-02 | Phase 143 | Complete |
 | INTEG-03 | Phase 143 | Pending |
-| INTEG-04 | Phase 143 | Pending |
-| INTEG-05 | Phase 143 | Pending |
+| INTEG-04 | Phase 143 | Complete |
+| INTEG-05 | Phase 143 | Complete |
 | GATE-01 | Phase 144 | Pending |
 | GATE-02 | Phase 144 | Pending |
 | GATE-03 | Phase 144 | Pending |
