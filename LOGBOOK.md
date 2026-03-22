@@ -699,3 +699,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 11:45 IST | James | f587971 | feat(173-03): wire racingpoint-admin to @racingpoint/types — tsc clean (admin repo) |
 | 2026-03-23 11:45 IST | James | 278b35ce | feat(173-03): add OpenAPI 3.0 spec (66 ops) + Swagger UI at :3200/api-docs/ |
 | 2026-03-23 11:45 IST | James | afb5851b | docs(173-03): SUMMARY, STATE, ROADMAP, CONT-03+CONT-04 requirements met |
+| 2026-03-23 12:00 IST | James | 4d9b7ac | feat(174-02): add GET /health to comms-link relay (comms-link repo) |
+| 2026-03-23 15:44 IST | James | 36425a00 | feat(174-01): add /health route to kiosk Next.js app |
+| 2026-03-23 15:44 IST | James | 88b0eb84 | feat(174-01): add /health route to web dashboard Next.js app |
+| 2026-03-23 15:44 IST | James | eb4a80ed | docs(174-01): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
