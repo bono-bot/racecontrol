@@ -165,6 +165,7 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/reservation/modify", put(customer_modify_reservation))
         // Cafe ordering (customer self-service — driver_id from JWT, not body)
         .route("/customer/cafe/orders", post(cafe::place_cafe_order_customer))
+        .route("/customer/cafe/orders/history", get(cafe::list_customer_orders))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
