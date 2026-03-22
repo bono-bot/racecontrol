@@ -160,19 +160,96 @@
   }
   .zone-cameras-hidden { display: none; }
 
-  /* ── Fullscreen overlay (placeholder for plan 03) ───────────── */
+  /* ── Pre-warm indicator on tile hover ───────────────────────── */
+  .cam.pre-warming {
+    outline: 2px solid #4caf50;
+    outline-offset: -2px;
+    animation: prewarm-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes prewarm-pulse {
+    0%, 100% { outline-color: rgba(76, 175, 80, 0.3); }
+    50%       { outline-color: rgba(76, 175, 80, 0.8); }
+  }
+
+  /* ── Fullscreen overlay ─────────────────────────────────────── */
   .fullscreen {
-    position: fixed; inset: 0;
-    z-index: 100;
-    background: rgba(0, 0, 0, 0.95);
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.95);
     display: none;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    animation: fs-fade-in 0.2s ease;
   }
-  .fullscreen img {
-    max-width: 100%; max-height: 100%;
+  .fullscreen.visible { display: flex; }
+  @keyframes fs-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .fs-controls {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    z-index: 101;
+    transition: opacity 0.3s;
+  }
+  .fs-controls.auto-hidden { opacity: 0; }
+  .fs-controls:hover { opacity: 1 !important; }
+  .fs-cam-name {
+    font-size: 0.85rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-right: auto;
+  }
+  .fs-status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+  .fs-status-dot.connecting { background: #ffc107; animation: pulse 1s infinite; }
+  .fs-status-dot.connected  { background: #4caf50; }
+  .fs-status-dot.failed     { background: #E10600; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  .fs-close-btn {
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,0.15);
+    border: none; border-radius: 50%;
+    color: #fff; font-size: 1.1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fs-close-btn:hover { background: rgba(255,255,255,0.3); }
+  .fs-video {
+    width: 100%; height: 100%;
     object-fit: contain;
+    background: #000;
+  }
+  .fs-loading {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 102;
+  }
+  .fs-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid #333;
+    border-top: 3px solid #E10600;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .fs-fallback-msg {
+    position: absolute;
+    bottom: 20%; left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.75rem; color: #999;
+    background: rgba(0,0,0,0.7);
+    padding: 6px 14px; border-radius: 4px;
+    z-index: 102;
   }
 </style>
 </head>
@@ -215,6 +292,315 @@ var gridEl   = document.getElementById('grid');
 var statusEl = document.getElementById('status');
 var rateEl   = document.getElementById('rate');
 var fsEl     = document.getElementById('fs');
+
+// ── WebRTC singleton state ────────────────────────────────────────────────────
+var GO2RTC_WS = 'ws://192.168.31.27:1984/api/ws';
+var activePc = null;        // RTCPeerConnection
+var activeWs = null;        // WebSocket to go2rtc
+var activeCamera = null;    // current fullscreen camera object
+var preWarmTimer = null;    // hover pre-warm timeout
+var preWarmPc = null;       // pre-warmed connection
+var preWarmWs = null;       // pre-warmed WebSocket
+var preWarmChannel = null;  // which channel is pre-warmed
+var controlsHideTimer = null;
+
+// ── Build fullscreen DOM (createElement — no innerHTML) ────────────────────────
+(function buildFullscreenDOM() {
+  // Controls bar
+  var controls = document.createElement('div');
+  controls.className = 'fs-controls';
+  controls.id = 'fs-controls';
+
+  var nameSpan = document.createElement('span');
+  nameSpan.className = 'fs-cam-name';
+  nameSpan.id = 'fs-name';
+
+  var statusDot = document.createElement('span');
+  statusDot.className = 'fs-status-dot connecting';
+  statusDot.id = 'fs-dot';
+
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'fs-close-btn';
+  closeBtn.id = 'fs-close';
+  closeBtn.textContent = '\u00D7';
+
+  controls.appendChild(nameSpan);
+  controls.appendChild(statusDot);
+  controls.appendChild(closeBtn);
+
+  // Loading spinner
+  var loading = document.createElement('div');
+  loading.className = 'fs-loading';
+  loading.id = 'fs-loading';
+
+  var spinner = document.createElement('div');
+  spinner.className = 'fs-spinner';
+  loading.appendChild(spinner);
+
+  // Video element
+  var video = document.createElement('video');
+  video.className = 'fs-video';
+  video.id = 'fs-video';
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = true;
+
+  fsEl.appendChild(controls);
+  fsEl.appendChild(loading);
+  fsEl.appendChild(video);
+}());
+
+// ── teardownRtc — MUST be defined before any connection-opening code ──────────
+function teardownRtc() {
+  if (activePc) {
+    activePc.ontrack = null;
+    activePc.onicecandidate = null;
+    activePc.onconnectionstatechange = null;
+    activePc.close();
+    activePc = null;
+  }
+  if (activeWs) {
+    activeWs.onmessage = null;
+    activeWs.onclose = null;
+    activeWs.close();
+    activeWs = null;
+  }
+  activeCamera = null;
+}
+
+// ── teardownPreWarm ───────────────────────────────────────────────────────────
+function teardownPreWarm() {
+  clearTimeout(preWarmTimer);
+  preWarmTimer = null;
+  if (preWarmPc) { preWarmPc.close(); preWarmPc = null; }
+  if (preWarmWs) { preWarmWs.close(); preWarmWs = null; }
+  preWarmChannel = null;
+  // Remove pre-warming visual from all tiles
+  document.querySelectorAll('.pre-warming').forEach(function(el) {
+    el.classList.remove('pre-warming');
+  });
+}
+
+// ── connectWebRTC — core go2rtc signaling function ────────────────────────────
+function connectWebRTC(streamName, onTrack, onStatus) {
+  var ws = new WebSocket(GO2RTC_WS + '?src=' + streamName);
+  var pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+
+  pc.ontrack = function(e) {
+    if (onTrack) onTrack(e.streams[0]);
+  };
+
+  pc.onicecandidate = function(e) {
+    if (e.candidate && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'webrtc/candidate',
+        value: e.candidate.toJSON()
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = function() {
+    if (onStatus) onStatus(pc.connectionState);
+  };
+
+  ws.onopen = function() {
+    pc.createOffer().then(function(offer) {
+      return pc.setLocalDescription(offer);
+    }).then(function() {
+      ws.send(JSON.stringify({
+        type: 'webrtc/offer',
+        value: pc.localDescription.sdp
+      }));
+    }).catch(function(err) {
+      console.error('WebRTC offer failed:', err);
+      if (onStatus) onStatus('failed');
+    });
+  };
+
+  ws.onmessage = function(ev) {
+    var msg = JSON.parse(ev.data);
+    if (msg.type === 'webrtc/answer') {
+      pc.setRemoteDescription(new RTCSessionDescription({
+        type: 'answer',
+        sdp: msg.value
+      })).catch(function(err) {
+        console.error('setRemoteDescription failed:', err);
+      });
+    } else if (msg.type === 'webrtc/candidate') {
+      pc.addIceCandidate(new RTCIceCandidate(msg.value)).catch(function(err) {
+        console.debug('addIceCandidate failed:', err);
+      });
+    }
+  };
+
+  ws.onerror = function() {
+    if (onStatus) onStatus('failed');
+  };
+
+  return { pc: pc, ws: ws };
+}
+
+// ── updateFsStatus ────────────────────────────────────────────────────────────
+function updateFsStatus(state, dotEl, loadingEl) {
+  if (state === 'connected') {
+    dotEl.className = 'fs-status-dot connected';
+    loadingEl.style.display = 'none';
+  } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+    dotEl.className = 'fs-status-dot failed';
+    loadingEl.style.display = 'none';
+    showFallbackMessage();
+  }
+}
+
+// ── showFallbackMessage — never show blank on WebRTC failure ──────────────────
+function showFallbackMessage() {
+  // Remove any existing fallback messages first
+  fsEl.querySelectorAll('.fs-fallback-msg').forEach(function(m) { m.remove(); });
+
+  var msg = document.createElement('div');
+  msg.className = 'fs-fallback-msg';
+  msg.textContent = 'Live unavailable \u2014 showing snapshot';
+  fsEl.appendChild(msg);
+
+  setTimeout(function() {
+    if (msg.parentNode) msg.parentNode.removeChild(msg);
+  }, 5000);
+}
+
+// ── startControlsAutoHide ─────────────────────────────────────────────────────
+function startControlsAutoHide() {
+  var controls = document.getElementById('fs-controls');
+  controls.classList.remove('auto-hidden');
+  clearTimeout(controlsHideTimer);
+  controlsHideTimer = setTimeout(function() {
+    controls.classList.add('auto-hidden');
+  }, 3000);
+}
+
+// ── openFullscreen — WebRTC fullscreen with singleton pattern ─────────────────
+function openFullscreen(camera) {
+  var streamName = 'ch' + camera.nvr_channel;
+
+  // Tear down any existing connection (singleton enforcement)
+  teardownRtc();
+
+  // Show fullscreen overlay
+  fsEl.classList.add('visible');
+  document.getElementById('fs-name').textContent = camera.display_name;
+
+  var dotEl = document.getElementById('fs-dot');
+  dotEl.className = 'fs-status-dot connecting';
+
+  var loadingEl = document.getElementById('fs-loading');
+  loadingEl.style.display = 'block';
+
+  var videoEl = document.getElementById('fs-video');
+  videoEl.srcObject = null;
+
+  // Show snapshot as background while loading (fallback if WebRTC fails)
+  if (camera.nvr_channel) {
+    videoEl.poster = '/api/v1/cameras/nvr/' + camera.nvr_channel + '/snapshot?t=' + Date.now();
+  }
+
+  // Check if we have a pre-warmed connection for this exact camera
+  if (preWarmChannel === camera.nvr_channel && preWarmPc && preWarmWs) {
+    activePc = preWarmPc;
+    activeWs = preWarmWs;
+    preWarmPc = null;
+    preWarmWs = null;
+    preWarmChannel = null;
+
+    // Wire up the existing pre-warmed connection for fullscreen use
+    activePc.ontrack = function(e) {
+      videoEl.srcObject = e.streams[0];
+      loadingEl.style.display = 'none';
+      dotEl.className = 'fs-status-dot connected';
+    };
+    activePc.onconnectionstatechange = function() {
+      updateFsStatus(activePc.connectionState, dotEl, loadingEl);
+    };
+
+    // If tracks already arrived during pre-warm, wire them up immediately
+    var receivers = activePc.getReceivers();
+    for (var i = 0; i < receivers.length; i++) {
+      if (receivers[i].track && receivers[i].track.kind === 'video') {
+        var stream = new MediaStream([receivers[i].track]);
+        videoEl.srcObject = stream;
+        loadingEl.style.display = 'none';
+        dotEl.className = 'fs-status-dot connected';
+        break;
+      }
+    }
+    activeCamera = camera;
+  } else {
+    // Clean up any unrelated pre-warm connection
+    teardownPreWarm();
+
+    // Create a fresh WebRTC connection
+    var conn = connectWebRTC(streamName, function(stream) {
+      videoEl.srcObject = stream;
+      loadingEl.style.display = 'none';
+      dotEl.className = 'fs-status-dot connected';
+    }, function(state) {
+      updateFsStatus(state, dotEl, loadingEl);
+    });
+    activePc = conn.pc;
+    activeWs = conn.ws;
+    activeCamera = camera;
+  }
+
+  // Auto-hide controls after 3 seconds
+  startControlsAutoHide();
+}
+
+// ── closeFullscreen ───────────────────────────────────────────────────────────
+function closeFullscreen() {
+  teardownRtc();
+  teardownPreWarm();
+  fsEl.classList.remove('visible');
+
+  var videoEl = document.getElementById('fs-video');
+  videoEl.srcObject = null;
+  videoEl.poster = '';
+
+  document.getElementById('fs-loading').style.display = 'none';
+  clearTimeout(controlsHideTimer);
+
+  // Remove any fallback messages
+  fsEl.querySelectorAll('.fs-fallback-msg').forEach(function(m) { m.remove(); });
+}
+
+// ── Fullscreen event listeners ────────────────────────────────────────────────
+document.getElementById('fs-close').addEventListener('click', closeFullscreen);
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeFullscreen();
+});
+
+// Backdrop click (click on fs div itself, not on controls/video)
+fsEl.addEventListener('click', function(e) {
+  if (e.target === fsEl) closeFullscreen();
+});
+
+// Mouse move in fullscreen resets controls auto-hide timer
+fsEl.addEventListener('mousemove', function() {
+  if (fsEl.classList.contains('visible')) {
+    startControlsAutoHide();
+  }
+});
+
+// Clean up WebRTC on page leave
+window.addEventListener('beforeunload', teardownRtc);
+
+// Clean up WebRTC when tab goes hidden
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) teardownRtc();
+});
 
 // ── Camera list fetch ─────────────────────────────────────────────────────────
 function fetchCameras() {
@@ -344,6 +730,32 @@ function buildGrid() {
         offlineText.textContent = 'OFFLINE';
         tile.appendChild(offlineText);
       }
+
+      // Pre-warm on hover (500ms)
+      tile.addEventListener('mouseenter', (function(cam, t) {
+        return function() {
+          if (!cam.nvr_channel) return;
+          var ch = cam.nvr_channel;
+          preWarmTimer = setTimeout(function() {
+            if (preWarmChannel === ch) return; // already pre-warming this one
+            teardownPreWarm();
+            preWarmChannel = ch;
+            t.classList.add('pre-warming');
+            var conn = connectWebRTC('ch' + ch, null, null);
+            preWarmPc = conn.pc;
+            preWarmWs = conn.ws;
+          }, 500);
+        };
+      })(camera, tile));
+
+      tile.addEventListener('mouseleave', (function(t) {
+        return function() {
+          clearTimeout(preWarmTimer);
+          preWarmTimer = null;
+          t.classList.remove('pre-warming');
+          // Keep pre-warm connection alive — don't tear it down on leave
+        };
+      })(tile));
 
       // Drag and drop event handlers
       tile.addEventListener('dragstart', function(e) {
@@ -516,31 +928,6 @@ function statusToDotClass(status) {
   if (status === 'reconnecting') return 'dot-stale';
   return 'dot-offline';
 }
-
-// ── Fullscreen (stub — plan 03 adds WebRTC) ───────────────────────────────────
-function openFullscreen(camera) {
-  var ch = camera.nvr_channel;
-  // Remove previous content
-  while (fsEl.firstChild) fsEl.removeChild(fsEl.firstChild);
-
-  var img = document.createElement('img');
-  img.alt = camera.display_name;
-  if (ch != null && imgElements[ch]) {
-    img.src = imgElements[ch].src;
-  }
-
-  fsEl.appendChild(img);
-  fsEl.style.display = 'flex';
-}
-
-function closeFullscreen() {
-  fsEl.style.display = 'none';
-}
-
-fsEl.addEventListener('click', closeFullscreen);
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeFullscreen();
-});
 
 // ── Initialization ────────────────────────────────────────────────────────────
 fetchCameras().then(fetchLayout).then(startLoop);
