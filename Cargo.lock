@@ -3530,6 +3530,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "uuid",
  "wait-timeout",
 ]
