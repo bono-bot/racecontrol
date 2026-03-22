@@ -18,6 +18,7 @@ use serde_json::json;
 use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
 
 const POD_AGENT_PORT: u16 = 8090;
@@ -109,6 +110,19 @@ pub fn spawn(state: Arc<AppState>) {
 // --- Main Loop ---------------------------------------------------------------
 
 async fn heal_all_pods(state: &Arc<AppState>) {
+    // Check cascade guard before any recovery action
+    {
+        let guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_paused() {
+            tracing::warn!(
+                target: "pod_healer",
+                "Recovery paused by cascade guard (remaining: {:?}), skipping heal cycle",
+                guard.pause_remaining()
+            );
+            return;
+        }
+    }
+
     // Snapshot connected pods
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
 
@@ -324,6 +338,42 @@ async fn heal_pod(
     // Execute auto-heal actions (if cooldown allows)
     if cooldown_ok && !actions.is_empty() {
         for action in &actions {
+            // Record this decision to the cascade guard and recovery log before executing.
+            let recovery_action = match action.action.as_str() {
+                "kill_zombie" => RecoveryAction::Kill,
+                _ => RecoveryAction::Restart,
+            };
+            let decision = RecoveryDecision::new(
+                "server",
+                &action.target,
+                RecoveryAuthority::PodHealer,
+                recovery_action,
+                &action.reason,
+            );
+            {
+                let mut guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+                let cascaded = guard.record(&decision);
+                if cascaded {
+                    tracing::error!(
+                        target: "pod_healer",
+                        "Cascade detected — aborting heal cycle for pod {}",
+                        action.pod_id
+                    );
+                    return Ok(());
+                }
+                if guard.is_paused() {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Cascade guard paused after recording action — aborting heal for pod {}",
+                        action.pod_id
+                    );
+                    return Ok(());
+                }
+            }
+            // Log to recovery JSONL
+            let logger = RecoveryLogger::new(RECOVERY_LOG_SERVER);
+            let _ = logger.log(&decision);
+
             tracing::info!(
                 "Pod healer: [{}] {} -> {} ({})",
                 action.pod_id,

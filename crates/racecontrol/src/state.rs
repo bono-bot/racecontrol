@@ -9,6 +9,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use crate::ac_camera::CameraController;
 use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
+use crate::cascade_guard::CascadeGuard;
 use crate::config::Config;
 use crate::crypto::encryption::FieldCipher;
 use crate::email_alerts::EmailAlerter;
@@ -180,6 +181,10 @@ pub struct AppState {
     /// Phase 141: Last time the WARN log scanner triggered an AI escalation.
     /// Used to enforce cooldown (10 min) between escalations while threshold stays breached.
     pub warn_scanner_last_escalated: RwLock<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Phase 159: Anti-cascade guard — counts recovery actions in 60s sliding window.
+    /// Pauses all automated recovery if 3+ different systems act within the window.
+    /// WhatsApp alert fires to Uday when threshold is crossed.
+    pub cascade_guard: std::sync::Arc<std::sync::Mutex<CascadeGuard>>,
 }
 
 impl AppState {
@@ -190,6 +195,14 @@ impl AppState {
         let email_recipient = config.watchdog.email_recipient.clone();
         let email_script_path = config.watchdog.email_script_path.clone();
         let email_enabled = config.watchdog.email_enabled;
+        // Build shared HTTP client for use in AppState and cascade_guard
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to build HTTP client");
+        // Extract alert config for cascade_guard before config is moved into the struct
+        let cascade_alert_cfg = crate::cascade_guard::CascadeAlertConfig::from_config(&config);
+        let cascade_guard_inner = CascadeGuard::new(cascade_alert_cfg, http_client.clone());
         Self {
             config,
             db,
@@ -203,10 +216,7 @@ impl AppState {
             camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
             agent_conn_ids: RwLock::new(HashMap::new()),
-            http_client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .expect("Failed to build HTTP client"),
+            http_client,
             terminal_sessions: RwLock::new(HashMap::new()),
             otp_rate_limits: Mutex::new(HashMap::new()),
             otp_failed_attempts: Mutex::new(HashMap::new()),
@@ -235,6 +245,7 @@ impl AppState {
             venue_config: RwLock::new(None),
             field_cipher,
             warn_scanner_last_escalated: RwLock::new(None),
+            cascade_guard: std::sync::Arc::new(std::sync::Mutex::new(cascade_guard_inner)),
         }
     }
 

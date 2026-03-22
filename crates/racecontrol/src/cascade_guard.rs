@@ -11,7 +11,6 @@
 //! STANDING RULE: No .unwrap() in production code.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryDecision};
@@ -26,6 +25,38 @@ const PAUSE_DURATION: Duration = Duration::from_secs(300); // 5 minutes
 /// Used for "all pods restart because server came up" scenarios.
 const SERVER_STARTUP_EXEMPT_REASON: &str = "server_startup_recovery";
 
+/// Extracted alert configuration — only the fields CascadeGuard needs.
+/// Avoids requiring Config to implement Clone.
+#[derive(Clone, Debug)]
+pub struct CascadeAlertConfig {
+    pub evolution_url: Option<String>,
+    pub evolution_api_key: Option<String>,
+    pub evolution_instance: Option<String>,
+    pub uday_phone: Option<String>,
+}
+
+impl CascadeAlertConfig {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            evolution_url: config.auth.evolution_url.clone(),
+            evolution_api_key: config.auth.evolution_api_key.clone(),
+            evolution_instance: config.auth.evolution_instance.clone(),
+            uday_phone: config.alerting.uday_phone.clone(),
+        }
+    }
+
+    /// Returns an unconfigured instance (WA alerts disabled — used in tests).
+    #[cfg(test)]
+    fn empty() -> Self {
+        Self {
+            evolution_url: None,
+            evolution_api_key: None,
+            evolution_instance: None,
+            uday_phone: None,
+        }
+    }
+}
+
 /// Lightweight record of one recovery action for cascade counting.
 struct ActionRecord {
     recorded_at: Instant,
@@ -38,18 +69,18 @@ pub struct CascadeGuard {
     window: Vec<ActionRecord>,
     /// When automated recovery is paused until (None = not paused)
     pause_until: Option<Instant>,
-    /// Shared config for WhatsApp alerting
-    config: Arc<Config>,
+    /// Alert configuration (Evolution API + Uday phone)
+    alert_config: CascadeAlertConfig,
     /// HTTP client for WhatsApp alerts
     http_client: reqwest::Client,
 }
 
 impl CascadeGuard {
-    pub fn new(config: Arc<Config>, http_client: reqwest::Client) -> Self {
+    pub fn new(alert_config: CascadeAlertConfig, http_client: reqwest::Client) -> Self {
         Self {
             window: Vec::new(),
             pause_until: None,
-            config,
+            alert_config,
             http_client,
         }
     }
@@ -114,11 +145,11 @@ impl CascadeGuard {
             // Fire WhatsApp alert in background — do not block the caller.
             // Only spawn if a Tokio runtime is active (tests may run without one).
             if tokio::runtime::Handle::try_current().is_ok() {
-                let config = Arc::clone(&self.config);
+                let alert_config = self.alert_config.clone();
                 let client = self.http_client.clone();
                 let msg = summary.clone();
                 tokio::spawn(async move {
-                    send_cascade_alert(&config, &client, &msg).await;
+                    send_cascade_alert(&alert_config, &client, &msg).await;
                 });
             }
 
@@ -160,21 +191,15 @@ impl CascadeGuard {
     pub fn record_with_ts(&mut self, decision: &RecoveryDecision, at: Instant) -> bool {
         self.record_at(decision, at)
     }
-
-    /// Test-only: override pause_until to a specific instant.
-    #[cfg(test)]
-    pub fn set_pause_until(&mut self, until: Instant) {
-        self.pause_until = Some(until);
-    }
 }
 
 /// Send WhatsApp alert for cascade detection. Best-effort — warns on failure, never panics.
-async fn send_cascade_alert(config: &Config, client: &reqwest::Client, message: &str) {
+async fn send_cascade_alert(config: &CascadeAlertConfig, client: &reqwest::Client, message: &str) {
     let (evo_url, evo_key, evo_instance, phone) = match (
-        &config.auth.evolution_url,
-        &config.auth.evolution_api_key,
-        &config.auth.evolution_instance,
-        &config.alerting.uday_phone,
+        &config.evolution_url,
+        &config.evolution_api_key,
+        &config.evolution_instance,
+        &config.uday_phone,
     ) {
         (Some(url), Some(key), Some(inst), Some(phone)) => (url, key, inst, phone),
         _ => {
@@ -206,17 +231,13 @@ mod tests {
     use super::*;
     use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision};
 
-    fn make_config() -> Arc<Config> {
-        // Minimal config with no Evolution API — WA alert is a no-op in tests
-        Arc::new(Config::default_test())
-    }
-
     fn make_client() -> reqwest::Client {
         reqwest::Client::new()
     }
 
     fn make_guard() -> CascadeGuard {
-        CascadeGuard::new(make_config(), make_client())
+        // No Evolution API configured — WA alert is a no-op in tests
+        CascadeGuard::new(CascadeAlertConfig::empty(), make_client())
     }
 
     fn decision(authority: RecoveryAuthority, reason: &str) -> RecoveryDecision {
