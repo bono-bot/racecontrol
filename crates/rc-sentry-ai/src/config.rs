@@ -42,6 +42,16 @@ pub struct CameraConfig {
     pub fps: u32,
     #[serde(default)]
     pub nvr_channel: Option<u32>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub display_order: Option<u32>,
+    #[serde(default = "default_zone")]
+    pub zone: String,
+}
+
+fn default_zone() -> String {
+    "other".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -372,5 +382,9 @@ impl Config {
 impl CameraConfig {
     pub fn relay_url(&self, rtsp_base: &str) -> String {
         format!("{rtsp_base}/{}", self.stream_name)
+    }
+
+    pub fn effective_display_name(&self) -> &str {
+        self.display_name.as_deref().unwrap_or(&self.name)
     }
 }
