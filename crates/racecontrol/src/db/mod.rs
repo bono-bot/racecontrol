@@ -2430,6 +2430,10 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN low_stock_threshold INTEGER DEFAULT 0")
         .execute(pool)
         .await;
+    // Add last_stock_alert_at to cafe_items (idempotent — ignore error if column exists)
+    let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN last_stock_alert_at TEXT")
+        .execute(pool)
+        .await;
 
     // Seed default categories (idempotent)
     for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
