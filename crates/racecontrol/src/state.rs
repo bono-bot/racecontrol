@@ -177,6 +177,9 @@ pub struct AppState {
     /// Field-level encryption cipher for PII columns (AES-256-GCM + HMAC-SHA256).
     /// Loaded from RACECONTROL_ENCRYPTION_KEY and RACECONTROL_HMAC_KEY env vars at startup.
     pub field_cipher: FieldCipher,
+    /// Phase 141: Last time the WARN log scanner triggered an AI escalation.
+    /// Used to enforce cooldown (10 min) between escalations while threshold stays breached.
+    pub warn_scanner_last_escalated: RwLock<Option<chrono::DateTime<chrono::Utc>>>,
 }
 
 impl AppState {
@@ -231,6 +234,7 @@ impl AppState {
             pod_violations: RwLock::new(HashMap::new()),
             venue_config: RwLock::new(None),
             field_cipher,
+            warn_scanner_last_escalated: RwLock::new(None),
         }
     }
 
