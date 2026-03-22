@@ -6,6 +6,25 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
+## Current Milestone: v17.0 AI Debugger Autonomy & Self-Healing
+
+**Goal:** Close 6 architectural gaps that prevented the system from self-healing when Edge died/stacked on pods. Make pre-flight continuous, add browser watchdog, give AI debugger execution capability for safe actions, and let the pod healer relaunch Edge.
+
+**Target features:**
+- Periodic idle-state health checks (Edge alive + window rect + HTTP server) every 60s when no billing session
+- Browser watchdog in LockScreenManager — poll browser_process, detect stacking (>5 Edge), auto-relaunch
+- AI debugger structured action parsing — safe-action whitelist (kill_edge, relaunch_lock_screen, restart_rcagent) for Tier 3/4 responses
+- Pod healer HealAction::RelaunchLockScreen — taskkill Edge + WS ForceRelaunchBrowser message
+- Proactive WARN log scanner in healer cycle with threshold-based AI escalation
+
+**Constraints:**
+- rc-agent changes (browser watchdog, idle health, action whitelist) require pod binary rebuild + fleet deploy
+- racecontrol changes (healer, WARN scanner) require server binary rebuild
+- Must not break existing billing, lock screen, or session management
+- AI action whitelist must be conservative — only pre-approved safe actions, never arbitrary shell
+
+**Incident trigger:** 2026-03-22 — Pod 6/7 had 25 stacked Edge processes (uncentered blanking), Pod 1 showed Instagram. System detected issues but couldn't self-heal.
+
 ## Current Milestone: v18.1 Seamless Execution Hardening
 
 **Goal:** Fix the 3 critical reliability gaps found in v18.0 deployment: James daemon has no auto-recovery (crash/reboot = permanent relay outage), chain HTTP endpoint broken (chain_result not routed to broker), and no visibility when relay is down.
