@@ -30,6 +30,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 22 23:30 IST | James | `f2bfaf31` | 157-01: add applied_promo_id and discount_paise columns to cafe_orders (idempotent migration) |
 | Mar 22 23:30 IST | James | `c8c8e71e` | 157-01: add list_active_promos endpoint and evaluate_promos engine |
 | Mar 22 23:30 IST | James | `b35676cc` | 157-01: wire evaluate_promos into place_cafe_order_inner |
+| Mar 23 00:00 IST | James | `ebd626d1` | 157-02: add ActivePromo type and activePromos/publicCafePromos API methods |
+| Mar 23 00:00 IST | James | `a1d05ce7` | 157-02: add promo banner and discount display to PWA and kiosk |
+| Mar 23 00:00 IST | James | `190fbfe1` | 157-02: docs — SUMMARY, STATE, ROADMAP updated (phase 157 Complete) |
 
 ## 2026-03-01
 
