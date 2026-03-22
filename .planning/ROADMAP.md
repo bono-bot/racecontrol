@@ -2220,7 +2220,11 @@ Plans:
   4. Clicking a camera tile opens a fullscreen view with live WebRTC video via go2rtc within a few seconds — hovering for 500ms before clicking visibly reduces the cold-start delay
   5. Closing the fullscreen view (click X or press Escape) tears down the WebRTC connection completely — verified by go2rtc /api/streams showing 0 viewers within 5 seconds
   6. Each camera tile shows a green/yellow/red status indicator and the tile's friendly display name from the API — offline cameras are visually distinct from live ones
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 147-01-PLAN.md — Core HTML structure + CSS grid layout modes + status indicators + snapshot polling
+- [ ] 147-02-PLAN.md — Drag-to-rearrange + zone grouping + layout persistence
+- [ ] 147-03-PLAN.md — WebRTC fullscreen + singleton + pre-warm + loading state
 
 ### Phase 148: Web Dashboard Page
 **Goal**: The same professional camera dashboard is accessible from the server web dashboard at :3200 with an identical feature set — staff can use either deployment interchangeably
@@ -2230,7 +2234,11 @@ Plans:
   1. Staff can open /cameras in the web dashboard at :3200 and see the same 13-camera grid with layout controls, drag-to-rearrange, and WebRTC fullscreen — no features are missing compared to cameras.html
   2. A layout change made at :8096 (cameras.html) is reflected when /cameras at :3200 is opened — server-side camera-layout.json is the shared source of truth for both deployments
   3. Next.js hydration completes without mismatch errors — localStorage is only read inside useEffect with a hydrated flag, never in a useState initializer
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 147-01-PLAN.md — Core HTML structure + CSS grid layout modes + status indicators + snapshot polling
+- [ ] 147-02-PLAN.md — Drag-to-rearrange + zone grouping + layout persistence
+- [ ] 147-03-PLAN.md — WebRTC fullscreen + singleton + pre-warm + loading state
 
 ## v16.1 Progress
 
@@ -2241,5 +2249,5 @@ Note: Phases 145 and 146 are strictly sequential infrastructure prerequisites. P
 |-------|----------------|--------|-----------|
 | 145. go2rtc Infrastructure | 1/1 | Complete   | 2026-03-22 |
 | 146. Backend Config and API | 2/2 | Complete    | 2026-03-22 |
-| 147. cameras.html Dashboard Rewrite | 0/? | Not started | - |
+| 147. cameras.html Dashboard Rewrite | 0/3 | Not started | - |
 | 148. Web Dashboard Page | 0/? | Not started | - |
