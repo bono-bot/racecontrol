@@ -690,3 +690,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 20:44 IST | James | fed6a7d | docs: add standing rules CLAUDE.md to rc-ops-mcp |
 | 2026-03-23 20:44 IST | James | ea18b20 | docs: add standing rules CLAUDE.md to whatsapp-bot |
 | 2026-03-23 20:44 IST | James | 10fd1c9 | docs: add standing rules CLAUDE.md to people-tracker (local commit — no remote) |
+| 2026-03-23 20:49 IST | James | 3c547eb2 | docs(172-01): complete standing rules sync — 14 repo CLAUDE.md files |
