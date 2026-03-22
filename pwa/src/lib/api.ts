@@ -103,12 +103,43 @@ export interface CafeMenuItem {
   created_at: string | null;
   updated_at: string | null;
   image_path: string | null;
+  // Stock fields (from Plan 01)
+  is_countable: boolean;
+  stock_quantity: number;
+  out_of_stock: boolean;
 }
 
 export interface CafeMenuResponse {
   items: CafeMenuItem[];
   total: number;
   page: number;
+}
+
+export interface CafeOrderItem {
+  item_id: string;
+  quantity: number;
+}
+
+export interface CafeOrderRequest {
+  driver_id: string;
+  items: CafeOrderItem[];
+}
+
+export interface CafeOrderItemDetail {
+  item_id: string;
+  name: string;
+  quantity: number;
+  unit_price_paise: number;
+  line_total_paise: number;
+}
+
+export interface CafeOrderResponse {
+  order_id: string;
+  receipt_number: string;
+  wallet_txn_id: string;
+  total_paise: number;
+  new_balance_paise: number;
+  items: CafeOrderItemDetail[];
 }
 
 export interface DriverProfile {
@@ -1052,6 +1083,13 @@ export const api = {
     }>("/customer/reservation", {
       method: "PUT",
       body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
+
+  // Cafe ordering
+  placeCafeOrder: (items: CafeOrderItem[]) =>
+    fetchApi<CafeOrderResponse | { error: string }>("/customer/cafe/orders", {
+      method: "POST",
+      body: JSON.stringify({ driver_id: "", items }),
     }),
 };
 
