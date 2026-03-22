@@ -32,6 +32,9 @@ pub struct CafeItem {
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub image_path: Option<String>,
+    pub is_countable: bool,
+    pub stock_quantity: i64,
+    pub low_stock_threshold: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +44,9 @@ pub struct CreateCafeItemRequest {
     pub category_id: String,
     pub selling_price_paise: i64,
     pub cost_price_paise: i64,
+    pub is_countable: Option<bool>,
+    pub stock_quantity: Option<i64>,
+    pub low_stock_threshold: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +56,9 @@ pub struct UpdateCafeItemRequest {
     pub category_id: Option<String>,
     pub selling_price_paise: Option<i64>,
     pub cost_price_paise: Option<i64>,
+    pub is_countable: Option<bool>,
+    pub stock_quantity: Option<i64>,
+    pub low_stock_threshold: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -316,8 +325,8 @@ pub async fn confirm_import_rows(
 
         let item_id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO cafe_items (id, name, description, category_id, selling_price_paise, cost_price_paise, is_available)
-             VALUES (?, ?, ?, ?, ?, ?, 1)",
+            "INSERT INTO cafe_items (id, name, description, category_id, selling_price_paise, cost_price_paise, is_available, is_countable, stock_quantity, low_stock_threshold)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, 0)",
         )
         .bind(&item_id)
         .bind(row.name.trim())
@@ -346,7 +355,8 @@ pub async fn list_cafe_items(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let items = sqlx::query_as::<_, CafeItem>(
         "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
-                is_available, created_at, updated_at, image_path
+                is_available, created_at, updated_at, image_path,
+                is_countable, stock_quantity, low_stock_threshold
          FROM cafe_items ORDER BY name ASC",
     )
     .fetch_all(&state.db)
@@ -396,8 +406,8 @@ pub async fn create_cafe_item(
 
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO cafe_items (id, name, description, category_id, selling_price_paise, cost_price_paise, is_available)
-         VALUES (?, ?, ?, ?, ?, ?, 1)",
+        "INSERT INTO cafe_items (id, name, description, category_id, selling_price_paise, cost_price_paise, is_available, is_countable, stock_quantity, low_stock_threshold)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
     )
     .bind(&id)
     .bind(req.name.trim())
@@ -405,6 +415,9 @@ pub async fn create_cafe_item(
     .bind(&req.category_id)
     .bind(req.selling_price_paise)
     .bind(req.cost_price_paise)
+    .bind(req.is_countable.unwrap_or(false))
+    .bind(req.stock_quantity.unwrap_or(0))
+    .bind(req.low_stock_threshold.unwrap_or(0))
     .execute(&state.db)
     .await
     .map_err(|e| {
@@ -457,6 +470,15 @@ pub async fn update_cafe_item(
     if req.cost_price_paise.is_some() {
         set_clauses.push("cost_price_paise = ?".to_string());
     }
+    if req.is_countable.is_some() {
+        set_clauses.push("is_countable = ?".to_string());
+    }
+    if req.stock_quantity.is_some() {
+        set_clauses.push("stock_quantity = ?".to_string());
+    }
+    if req.low_stock_threshold.is_some() {
+        set_clauses.push("low_stock_threshold = ?".to_string());
+    }
 
     let query_str = format!(
         "UPDATE cafe_items SET {} WHERE id = ?",
@@ -479,6 +501,15 @@ pub async fn update_cafe_item(
     if let Some(cost) = req.cost_price_paise {
         q = q.bind(cost);
     }
+    if let Some(countable) = req.is_countable {
+        q = q.bind(countable);
+    }
+    if let Some(qty) = req.stock_quantity {
+        q = q.bind(qty);
+    }
+    if let Some(threshold) = req.low_stock_threshold {
+        q = q.bind(threshold);
+    }
     q = q.bind(&id);
 
     q.execute(&state.db).await.map_err(|e| {
@@ -489,7 +520,8 @@ pub async fn update_cafe_item(
     // Return updated item
     let item = sqlx::query_as::<_, CafeItem>(
         "SELECT id, name, description, category_id, selling_price_paise, cost_price_paise,
-                is_available, created_at, updated_at, image_path
+                is_available, created_at, updated_at, image_path,
+                is_countable, stock_quantity, low_stock_threshold
          FROM cafe_items WHERE id = ?",
     )
     .bind(&id)

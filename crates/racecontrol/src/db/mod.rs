@@ -2420,6 +2420,17 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
     // Intentionally ignore error — column already exists on second run
 
+    // Idempotent migrations: inventory tracking columns
+    let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN is_countable BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN stock_quantity INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE cafe_items ADD COLUMN low_stock_threshold INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
     // Seed default categories (idempotent)
     for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
         let id = uuid::Uuid::new_v4().to_string();
