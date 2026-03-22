@@ -98,15 +98,19 @@ _Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Every bu
 
 ### Deploy
 
-- **Verification sequence (NO EXCEPTIONS):** kill → delete → download → size check → start → connect. Clean old binaries before downloading; never leave stale ones. Latest build ID must match `git rev-parse --short HEAD` recorded before staging.
-  _Why: Nine post-deploy failures traced to skipped steps or stale binaries overwritten by a concurrent session._
+- **Remote deploy sequence (rc-agent):** (1) `cargo build --release`, (2) copy to deploy-staging, (3) start HTTP server on :9998, (4) exec download on pod: `curl.exe -s -o C:\RacingPoint\rc-agent-new.exe http://192.168.31.27:9998/rc-agent.exe`, (5) exec `RCAGENT_SELF_RESTART` sentinel — rc-agent calls `relaunch_self()` → `start-rcagent.bat` swaps `rc-agent-new.exe` → `rc-agent.exe` and starts the new binary. (6) verify build_id on `/health`.
+  _Why: Previous deploy-update.bat used `taskkill /F` which killed the exec handler mid-command, preventing the restart from executing. `RCAGENT_SELF_RESTART` spawns the new process before exiting — reliable across all pods._
+- **NEVER use `taskkill /F /IM rc-agent.exe` followed by `start` in the same exec chain.** The taskkill kills the process serving the exec endpoint — subsequent commands in the chain may never execute. Use `RCAGENT_SELF_RESTART` sentinel instead.
+  _Why: Pod 5 went offline for 2+ minutes during v17.0 deploy because taskkill killed rc-agent before the restart command ran. rc-sentry eventually recovered it, but the gap is unacceptable._
+- **Server deploy (racecontrol):** SCP binary to server, `taskkill /F /IM racecontrol.exe`, `move /Y racecontrol-new.exe racecontrol.exe`, `schtasks /Run /TN StartRCTemp`. The scheduled task survives SSH disconnect.
+  _Why: SSH `start` command dies when SSH session closes. schtasks persists independently._
 - **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
   _Why: Pod 8 canary catches runtime failures (DLL missing, wrong CWD, config mismatch) before fleet-wide damage._
 - **Deploy staging path:** `C:\Users\bono\racingpoint\deploy-staging\`
   _Why: Consistent staging root prevents "which binary is current" confusion across sessions._
-- **Pendrive install:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod.
+- **Pendrive install:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod. For pods with RCAGENT_SERVICE_KEY blocking exec.
   _Why: Pendrive path is fixed; using ad-hoc paths leaves install.bat version drift._
 
 ### Comms
