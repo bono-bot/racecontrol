@@ -2461,6 +2461,28 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // cafe_promos table (Phase 156: promotions engine)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cafe_promos (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            promo_type TEXT NOT NULL CHECK(promo_type IN ('combo', 'happy_hour', 'gaming_bundle')),
+            config TEXT NOT NULL DEFAULT '{}',
+            is_active BOOLEAN NOT NULL DEFAULT 0,
+            start_time TEXT,
+            end_time TEXT,
+            stacking_group TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_promos_active ON cafe_promos(is_active)")
+        .execute(pool)
+        .await?;
+
     // Seed default categories (idempotent)
     for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
         let id = uuid::Uuid::new_v4().to_string();
