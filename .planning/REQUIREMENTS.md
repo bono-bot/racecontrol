@@ -1,105 +1,55 @@
-# Requirements: v18.0 Seamless Execution
+# Requirements: v18.1 Seamless Execution Hardening
 
 **Defined:** 2026-03-22
-**Core Value:** When either AI needs something done on the other's machine, it delegates the task, the remote side executes, and results flow back seamlessly — no manual relay.
+**Core Value:** The v18.0 execution relay must survive crashes, reboots, and network drops — and tell you when it can't.
 
-## v18.0 Requirements
+## v18.1 Requirements
 
-Requirements for full bidirectional dynamic execution between James and Bono.
+### Daemon Recovery
 
-### Dynamic Registry
+- [ ] **RECOV-01**: James comms-link daemon auto-restarts within 30s after a crash
+- [ ] **RECOV-02**: James comms-link daemon starts automatically on Windows boot
+- [ ] **RECOV-03**: Watchdog detects comms-link down and restarts it (james_watchdog.ps1)
+- [ ] **RECOV-04**: Bono notified via WhatsApp/email when James daemon crashes and recovers
 
-- [x] **DREG-01**: Either side can register a new command at runtime without redeploying
-- [x] **DREG-02**: Dynamic commands use a binary allowlist — only permitted binaries can be registered
-- [x] **DREG-03**: Static COMMAND_REGISTRY (20 commands) remains frozen and unmodified
-- [x] **DREG-04**: Lookup order: dynamic registry first, static registry fallback
-- [x] **DREG-05**: Dynamic commands can specify allowed env var keys merged with safeEnv at execution
-- [x] **DREG-06**: Either AI can query the other's full command registry (name, description, tier — never binary/args)
+### Chain Endpoint Fix
 
-### Shell Relay
+- [ ] **CHAIN-10**: /relay/chain/run returns chain_result synchronously (not 504 timeout)
+- [ ] **CHAIN-11**: chain_result WS messages route through ExecResultBroker.handleResult()
 
-- [x] **SHRL-01**: Either side can send arbitrary binary+args to the other for execution
-- [x] **SHRL-02**: Shell relay always uses APPROVE tier — never AUTO or NOTIFY
-- [x] **SHRL-03**: Binary must be in allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic)
-- [x] **SHRL-04**: Uday receives WhatsApp notification with full command text before approval
-- [x] **SHRL-05**: Shell relay uses same sanitized env + no-shell execution model as static commands
+### Degradation Visibility
 
-### Execution Chains
-
-- [x] **CHAIN-01**: Multi-step chains: step N+1 receives step N output, executed sequentially
-- [x] **CHAIN-02**: Chain aborts on step failure by default (exit code != 0)
-- [x] **CHAIN-03**: Per-step continue_on_error flag overrides abort behavior
-- [x] **CHAIN-04**: Structured chain_result returns all step outputs as single response
-- [x] **CHAIN-05**: Chain-level timeout caps entire chain duration regardless of step count
-- [x] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
-- [x] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
-- [x] **CHAIN-08**: Per-step retry with configurable count and backoff
-- [x] **CHAIN-09**: Chain state survives WebSocket disconnects — pause/resume across reconnects
-
-### Claude-to-Claude Delegation
-
-- [x] **DELEG-01**: James can send a chain_request to Bono; Bono executes and returns chain_result
-- [x] **DELEG-02**: Bono can send a chain_request to James; James executes and returns chain_result
-- [x] **DELEG-03**: Delegation is transparent — requesting AI integrates response without exposing relay to user
-
-### Observability
-
-- [x] **AUDIT-01**: Every remote execution logged to append-only audit file on both machines
-- [x] **AUDIT-02**: Audit entries include: timestamp, execId, command, requester, exitCode, durationMs, tier
-- [x] **AUDIT-03**: Chain executions include chainId and stepIndex in audit entries
-
-## Future Requirements (v18.1+)
-
-None — all features scoped into v18.0.
+- [ ] **VIS-01**: /relay/health returns connection mode and last heartbeat timestamp
+- [ ] **VIS-02**: /relay/exec/run returns 503 with descriptive error when WS disconnected
+- [ ] **VIS-03**: Exec skills check relay health before sending and report status
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Shell-mode execution (shell: true) | Breaks entire security model — shell injection risk. Use binary+args array instead. |
-| Shared registry across machines | Windows/Linux command mismatch. Registries stay local; use introspection to discover. |
-| Conditional chain branching (if/else) | Workflow engine scope creep. Conditional logic stays in Claude reasoning layer. |
-| Cross-session chain state across process restarts | Chains bounded by TASK_TIMEOUT_MS (5 min). Restart = failure; AI re-issues chain. |
-| Real-time chain progress streaming | chain_result already returns all steps. Complexity for marginal UX benefit. |
-| Arbitrary env passthrough from payload | Security risk. Only allowlisted env keys permitted; values from local env. |
-| AUTO/NOTIFY tier for shell relay | Shell relay must always be APPROVE. Non-negotiable security gate. |
+| PM2 on James (Windows) | Windows doesn't support PM2 well — Task Scheduler + watchdog is the established pattern |
+| node-windows service wrapper | Adds npm dependency + complexity — watchdog + Run key achieves the same with existing infra |
+| Chain retry on relay failure | Caller (Claude) can retry — relay should fail fast and report, not silently retry |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DREG-01 | Phase 130 | Complete |
-| DREG-02 | Phase 130 | Complete |
-| DREG-03 | Phase 130 | Complete |
-| DREG-04 | Phase 130 | Complete |
-| DREG-05 | Phase 130 | Complete |
-| DREG-06 | Phase 134 | Complete |
-| SHRL-01 | Phase 131 | Complete |
-| SHRL-02 | Phase 131 | Complete |
-| SHRL-03 | Phase 131 | Complete |
-| SHRL-04 | Phase 131 | Complete |
-| SHRL-05 | Phase 131 | Complete |
-| CHAIN-01 | Phase 132 | Complete |
-| CHAIN-02 | Phase 132 | Complete |
-| CHAIN-03 | Phase 132 | Complete |
-| CHAIN-04 | Phase 132 | Complete |
-| CHAIN-05 | Phase 132 | Complete |
-| CHAIN-06 | Phase 134 | Complete |
-| CHAIN-07 | Phase 134 | Complete |
-| CHAIN-08 | Phase 134 | Complete |
-| CHAIN-09 | Phase 134 | Complete |
-| DELEG-01 | Phase 133 | Complete |
-| DELEG-02 | Phase 133 | Complete |
-| DELEG-03 | Phase 133 | Complete |
-| AUDIT-01 | Phase 133 | Complete |
-| AUDIT-02 | Phase 133 | Complete |
-| AUDIT-03 | Phase 133 | Complete |
+| RECOV-01 | — | Pending |
+| RECOV-02 | — | Pending |
+| RECOV-03 | — | Pending |
+| RECOV-04 | — | Pending |
+| CHAIN-10 | — | Pending |
+| CHAIN-11 | — | Pending |
+| VIS-01 | — | Pending |
+| VIS-02 | — | Pending |
+| VIS-03 | — | Pending |
 
 **Coverage:**
-- v18.0 requirements: 26 total
-- Mapped to phases: 26
-- Unmapped: 0
+- v18.1 requirements: 9 total
+- Mapped to phases: 0
+- Unmapped: 9
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after roadmap creation (Phase 130-134 mapped)*
+*Last updated: 2026-03-22 after initial definition*
