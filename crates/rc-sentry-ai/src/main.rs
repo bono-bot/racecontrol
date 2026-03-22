@@ -294,18 +294,24 @@ async fn main() -> anyhow::Result<()> {
         alert_tx: alert_tx.clone(),
     });
 
-    // Initialize MJPEG streaming state (with NVR snapshot proxy if enabled)
-    let mjpeg_nvr = if config.nvr.enabled {
-        Some(nvr::NvrClient::new(&config.nvr))
-    } else {
-        None
-    };
+    // Initialize NVR snapshot cache + background fetcher (if NVR enabled)
+    let snapshot_cache = Arc::new(mjpeg::SnapshotCache::new());
+    let nvr_channels: u32 = 13;
+    if config.nvr.enabled {
+        let nvr_for_snapshots = Arc::new(nvr::NvrClient::new(&config.nvr));
+        mjpeg::spawn_snapshot_fetcher(
+            nvr_for_snapshots,
+            Arc::clone(&snapshot_cache),
+            nvr_channels,
+        );
+    }
+
     let mjpeg_state = Arc::new(mjpeg::MjpegState {
         frame_buf: frame_buf.clone(),
         cameras: config.cameras.clone(),
         service_port: config.service.port,
-        nvr: mjpeg_nvr,
-        nvr_channels: 13,
+        nvr_channels,
+        snapshot_cache,
     });
 
     // Initialize playback proxy state (if NVR enabled)

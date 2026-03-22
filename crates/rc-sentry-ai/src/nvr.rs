@@ -1,13 +1,24 @@
+use std::sync::Mutex;
+
 use crate::config::NvrConfig;
 use md5::{Digest, Md5};
 use reqwest::Client;
 use serde::Serialize;
+
+/// Cached digest auth credentials to avoid 401 roundtrip on every request.
+struct CachedAuth {
+    realm: String,
+    nonce: String,
+    qop: String,
+    nc: u32,
+}
 
 pub struct NvrClient {
     client: Client,
     base_url: String,
     username: String,
     password: String,
+    cached_auth: Mutex<Option<CachedAuth>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,6 +52,7 @@ impl NvrClient {
             base_url,
             username: config.username.clone(),
             password: config.password.clone(),
+            cached_auth: Mutex::new(None),
         }
     }
 
@@ -120,13 +132,77 @@ impl NvrClient {
         Ok(text)
     }
 
+    /// Build an Authorization header from cached nonce (if available), incrementing nc.
+    fn build_cached_auth_header(&self, method: &str, uri_path: &str) -> Option<String> {
+        let mut guard = self.cached_auth.lock().ok()?;
+        let cached = guard.as_mut()?;
+        cached.nc += 1;
+        let nc = format!("{:08x}", cached.nc);
+        let cnonce = format!("{:08x}", rand_cnonce());
+        Some(compute_digest_header(
+            &self.username,
+            &self.password,
+            &cached.realm,
+            &cached.nonce,
+            &cached.qop,
+            method,
+            uri_path,
+            &nc,
+            &cnonce,
+        ))
+    }
+
+    /// Save a successful digest challenge for future requests.
+    fn cache_challenge(&self, challenge: &DigestChallenge) {
+        if let Ok(mut guard) = self.cached_auth.lock() {
+            *guard = Some(CachedAuth {
+                realm: challenge.realm.clone(),
+                nonce: challenge.nonce.clone(),
+                qop: challenge.qop.clone(),
+                nc: 0,
+            });
+        }
+    }
+
+    /// Parse the URI path (with query) from a full URL string.
+    fn parse_uri_path(url: &str) -> anyhow::Result<String> {
+        let uri = url::Url::parse(url)?;
+        Ok(if let Some(q) = uri.query() {
+            format!("{}?{}", uri.path(), q)
+        } else {
+            uri.path().to_string()
+        })
+    }
+
     /// Perform an HTTP request with Digest authentication, returning the raw response.
+    ///
+    /// Uses cached nonce when available to skip the initial 401 roundtrip.
+    /// Falls back to full challenge-response if the cached nonce is stale.
     async fn digest_request_raw(
         &self,
         method: &str,
         url: &str,
     ) -> anyhow::Result<reqwest::Response> {
-        // First request: expect 401 with WWW-Authenticate header
+        let uri_path = Self::parse_uri_path(url)?;
+
+        // Try cached auth first (single roundtrip)
+        if let Some(auth_header) = self.build_cached_auth_header(method, &uri_path) {
+            let req = match method {
+                "POST" => self.client.post(url),
+                _ => self.client.get(url),
+            };
+            let resp = req.header("Authorization", auth_header).send().await?;
+
+            if resp.status().is_success() {
+                return Ok(resp);
+            }
+            // Nonce expired or stale — fall through to full challenge
+            if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
+                anyhow::bail!("NVR request failed: {} {}", resp.status(), url);
+            }
+        }
+
+        // Full challenge-response: send unauthenticated, get 401, retry
         let initial = match method {
             "POST" => self.client.post(url),
             _ => self.client.get(url),
@@ -134,7 +210,6 @@ impl NvrClient {
         let resp = initial.send().await?;
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            // Parse digest challenge from WWW-Authenticate header
             let www_auth = resp
                 .headers()
                 .get("www-authenticate")
@@ -142,16 +217,8 @@ impl NvrClient {
                 .ok_or_else(|| anyhow::anyhow!("no WWW-Authenticate header in 401 response"))?;
 
             let challenge = parse_digest_challenge(www_auth)?;
+            self.cache_challenge(&challenge);
 
-            // Parse URI path from full URL
-            let uri = url::Url::parse(url)?;
-            let uri_path = if let Some(q) = uri.query() {
-                format!("{}?{}", uri.path(), q)
-            } else {
-                uri.path().to_string()
-            };
-
-            // Compute digest response
             let nc = "00000001";
             let cnonce = format!("{:08x}", rand_cnonce());
             let auth_header = compute_digest_header(
@@ -166,7 +233,6 @@ impl NvrClient {
                 &cnonce,
             );
 
-            // Retry with Authorization header
             let retry = match method {
                 "POST" => self.client.post(url),
                 _ => self.client.get(url),
@@ -185,7 +251,6 @@ impl NvrClient {
             }
             Ok(resp)
         } else if resp.status().is_success() {
-            // Some endpoints might not require auth (unlikely but handle gracefully)
             Ok(resp)
         } else {
             anyhow::bail!("NVR request failed: {} {}", resp.status(), url);

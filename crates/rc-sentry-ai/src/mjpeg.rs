@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,7 @@ use bytes::Bytes;
 use futures::stream::unfold;
 use serde::Serialize;
 use serde_json::json;
+use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::CameraConfig;
@@ -18,13 +20,73 @@ use crate::detection::decoder::FrameDecoder;
 use crate::frame::FrameBuffer;
 use crate::nvr::NvrClient;
 
+/// Cached snapshot with timestamp for staleness detection.
+struct CachedSnapshot {
+    data: Bytes,
+    fetched_at: Instant,
+}
+
+/// Background-refreshed snapshot cache for all NVR channels.
+pub struct SnapshotCache {
+    entries: RwLock<HashMap<u32, CachedSnapshot>>,
+}
+
+impl SnapshotCache {
+    pub fn new() -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Get a cached snapshot. Returns None if no snapshot has been fetched yet.
+    pub async fn get(&self, channel: u32) -> Option<Bytes> {
+        let guard = self.entries.read().await;
+        guard.get(&channel).map(|s| s.data.clone())
+    }
+
+    /// Update the cache for a channel.
+    async fn set(&self, channel: u32, data: Bytes) {
+        let mut guard = self.entries.write().await;
+        guard.insert(channel, CachedSnapshot {
+            data,
+            fetched_at: Instant::now(),
+        });
+    }
+}
+
+/// Spawn a background task that continuously fetches snapshots from the NVR
+/// and populates the cache. Fetches sequentially to avoid overwhelming the NVR.
+pub fn spawn_snapshot_fetcher(
+    nvr: Arc<NvrClient>,
+    cache: Arc<SnapshotCache>,
+    channels: u32,
+) {
+    tokio::spawn(async move {
+        tracing::info!(channels, "NVR snapshot fetcher started");
+        loop {
+            for ch in 1..=channels {
+                match nvr.snapshot(ch).await {
+                    Ok(bytes) => {
+                        cache.set(ch, bytes).await;
+                    }
+                    Err(e) => {
+                        tracing::debug!(channel = ch, error = %e, "snapshot fetch failed");
+                    }
+                }
+            }
+            // Small pause between full cycles to avoid busy-looping
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    });
+}
+
 /// Shared state for MJPEG streaming endpoints.
 pub struct MjpegState {
     pub frame_buf: FrameBuffer,
     pub cameras: Vec<CameraConfig>,
     pub service_port: u16,
-    pub nvr: Option<NvrClient>,
     pub nvr_channels: u32,
+    pub snapshot_cache: Arc<SnapshotCache>,
 }
 
 #[derive(Serialize)]
@@ -64,25 +126,15 @@ async fn cameras_page_handler() -> Response {
         .expect("valid response")
 }
 
-/// GET /api/v1/cameras/nvr/:channel/snapshot -- proxies a JPEG snapshot from the NVR.
+/// GET /api/v1/cameras/nvr/:channel/snapshot -- serves a cached JPEG snapshot.
 ///
-/// Handles digest auth transparently so the browser only needs a simple GET.
-/// Returns 503 if NVR is not configured, 502 if the NVR request fails.
+/// Snapshots are pre-fetched by a background task, so this handler returns
+/// instantly from cache. Returns 404 for invalid channels, 503 if no snapshot
+/// has been cached yet for the requested channel.
 async fn nvr_snapshot_handler(
     State(state): State<Arc<MjpegState>>,
     Path(channel): Path<u32>,
 ) -> Response {
-    let nvr = match &state.nvr {
-        Some(n) => n,
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error": "NVR not configured"})),
-            )
-                .into_response();
-        }
-    };
-
     if channel < 1 || channel > state.nvr_channels {
         return (
             StatusCode::NOT_FOUND,
@@ -91,21 +143,18 @@ async fn nvr_snapshot_handler(
             .into_response();
     }
 
-    match nvr.snapshot(channel).await {
-        Ok(bytes) => Response::builder()
+    match state.snapshot_cache.get(channel).await {
+        Some(bytes) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/jpeg")
             .header(header::CACHE_CONTROL, "no-cache, no-store")
             .body(Body::from(bytes))
             .expect("valid response"),
-        Err(e) => {
-            tracing::warn!(channel, error = %e, "NVR snapshot failed");
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "NVR snapshot failed"})),
-            )
-                .into_response()
-        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "snapshot not yet available"})),
+        )
+            .into_response(),
     }
 }
 
