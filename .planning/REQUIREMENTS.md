@@ -31,8 +31,8 @@
 
 - [x] **CONT-01**: All API boundaries documented (racecontrol <-> kiosk, racecontrol <-> admin, racecontrol <-> comms-link, racecontrol <-> rc-agent)
 - [x] **CONT-02**: Shared TypeScript types/interfaces extracted for racecontrol <-> kiosk API communication
-- [ ] **CONT-03**: Shared TypeScript types/interfaces extracted for racecontrol <-> admin API communication
-- [ ] **CONT-04**: OpenAPI specs generated for racecontrol REST API endpoints
+- [x] **CONT-03**: Shared TypeScript types/interfaces extracted for racecontrol <-> admin API communication
+- [x] **CONT-04**: OpenAPI specs generated for racecontrol REST API endpoints
 - [ ] **CONT-05**: Contract tests validate request/response shapes between services
 - [ ] **CONT-06**: CI check prevents API drift (contract test runs on PR)
 
@@ -93,8 +93,8 @@ None — this milestone is stabilization, not feature work.
 | RULE-03 | Phase 172 | Complete |
 | CONT-01 | Phase 173 | Complete |
 | CONT-02 | Phase 173 | Complete |
-| CONT-03 | Phase 173 | Pending |
-| CONT-04 | Phase 173 | Pending |
+| CONT-03 | Phase 173 | Complete |
+| CONT-04 | Phase 173 | Complete |
 | CONT-05 | Phase 173 | Pending |
 | CONT-06 | Phase 173 | Pending |
 | HLTH-01 | Phase 174 | Pending |
