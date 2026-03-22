@@ -549,3 +549,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 10:05 IST | James | 0e704e1 | feat(139-01): add ForceRelaunchBrowser to CoreToAgentMessage |
 | 2026-03-22 10:10 IST | James | ad3aaf0 | feat(139-01): add relaunch_lock_screen HealAction and Rule 2 WS dispatch |
 | 2026-03-22 10:15 IST | James | 85a8d76 | docs(139-01): complete healer edge recovery plan 01 |
+| 2026-03-22 10:38 IST | James | 6b9cce5 | feat(139-02): add ForceRelaunchBrowser handler in ws_handler.rs — billing-gated close_browser+launch_browser |
+| 2026-03-22 10:39 IST | James | d2bffda | docs(139-02): complete ForceRelaunchBrowser agent handler plan SUMMARY STATE ROADMAP |
