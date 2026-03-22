@@ -11,6 +11,7 @@ use crate::ac_server;
 use crate::accounting;
 use crate::cafe;
 use crate::cafe_alerts;
+use crate::cafe_marketing;
 use crate::cafe_promos;
 use crate::auth;
 use crate::whatsapp_alerter;
@@ -392,6 +393,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/cafe/promos", get(cafe_promos::list_cafe_promos).post(cafe_promos::create_cafe_promo))
         .route("/cafe/promos/{id}", put(cafe_promos::update_cafe_promo).delete(cafe_promos::delete_cafe_promo))
         .route("/cafe/promos/{id}/toggle", post(cafe_promos::toggle_cafe_promo))
+        // ─── Cafe Marketing ─────────────────────────────────────────────────────
+        .route("/cafe/marketing/broadcast", post(cafe_marketing::broadcast_promo))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
