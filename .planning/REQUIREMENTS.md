@@ -51,9 +51,9 @@
 
 ### Dependency Audit
 
-- [ ] **DEPS-01**: npm audit run on all Node.js repos, security vulnerabilities patched
-- [ ] **DEPS-02**: cargo audit run on all Rust crates, vulnerabilities patched
-- [ ] **DEPS-03**: Outdated packages flagged with upgrade-or-defer decision documented
+- [x] **DEPS-01**: npm audit run on all Node.js repos, security vulnerabilities patched
+- [x] **DEPS-02**: cargo audit run on all Rust crates, vulnerabilities patched
+- [x] **DEPS-03**: Outdated packages flagged with upgrade-or-defer decision documented
 
 ### Health Monitoring
 
@@ -104,9 +104,9 @@ None — this milestone is stabilization, not feature work.
 | DEPL-02 | Phase 174 | Pending |
 | DEPL-03 | Phase 174 | Pending |
 | DEPL-04 | Phase 174 | Pending |
-| DEPS-01 | Phase 170 | Pending |
-| DEPS-02 | Phase 170 | Pending |
-| DEPS-03 | Phase 170 | Pending |
+| DEPS-01 | Phase 170 | Complete |
+| DEPS-02 | Phase 170 | Complete |
+| DEPS-03 | Phase 170 | Complete |
 | E2E-01 | Phase 175 | Pending |
 | E2E-02 | Phase 175 | Pending |
 | E2E-03 | Phase 175 | Pending |

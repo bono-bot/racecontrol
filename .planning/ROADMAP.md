@@ -2520,7 +2520,7 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 
 **Milestone Goal:** All Racing Point repos work in sync - shared contracts, no dead code, no known bugs, unified deploy, every service verified running at runtime.
 
-- [ ] **Phase 170: Repo Hygiene & Dependency Audit** - Archive dead repos, catalogue non-git folders, normalize git config, audit npm and cargo dependencies
+- [x] **Phase 170: Repo Hygiene & Dependency Audit** - Archive dead repos, catalogue non-git folders, normalize git config, audit npm and cargo dependencies (completed 2026-03-22)
 - [ ] **Phase 171: Bug Fixes** - Fix all 4 known bugs blocking daily operations (pods DB desync, orphan PowerShell, process guard allowlist, Variable_dump.exe)
 - [ ] **Phase 172: Standing Rules Sync** - Propagate standing rules to all active repos, sync to Bono VPS, add automated compliance check script
 - [ ] **Phase 173: API Contracts** - Document all API boundaries, extract shared TypeScript types, generate OpenAPI specs, add contract tests and CI drift prevention
@@ -2539,7 +2539,7 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
   3. Every active repo returns consistent git user.name/email and has a .gitignore that excludes build artifacts, node_modules, and secrets
   4. npm audit on all Node.js repos shows zero high/critical vulnerabilities, or each vulnerability is documented with an upgrade-or-defer decision
   5. cargo audit on all Rust crates shows zero vulnerabilities, or each is documented with an upgrade-or-defer decision
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 170-01-PLAN.md — Archive dead repos and catalogue non-git folders
 - [ ] 170-02-PLAN.md — Normalize git config and .gitignore across active repos
@@ -2609,7 +2609,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 170. Repo Hygiene & Dependency Audit | 2/3 | In Progress|  |
+| 170. Repo Hygiene & Dependency Audit | 3/3 | Complete   | 2026-03-22 |
 | 171. Bug Fixes | 0/TBD | Not started | - |
 | 172. Standing Rules Sync | 0/TBD | Not started | - |
 | 173. API Contracts | 0/TBD | Not started | - |
