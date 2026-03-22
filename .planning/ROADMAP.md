@@ -2273,7 +2273,7 @@ Plans:
 - [ ] 149-02-PLAN.md -- Frontend: TypeScript types + api methods + sidebar nav + /cafe admin page with side panel
 
 ### Phase 150: Menu Import
-**Goal**: Admin can populate the full cafe menu from existing PDF or spreadsheet files without manual item-by-item entry
+**Goal**: Admin can bulk-import cafe menu items from Excel/CSV spreadsheets with preview-and-confirm flow, plus upload item images
 **Depends on**: Phase 149
 **Requirements**: MENU-01, MENU-06
 **Success Criteria** (what must be TRUE):
@@ -2281,11 +2281,11 @@ Plans:
   2. Import validates each item (price > 0, name non-empty, category in known list) and flags errors for correction
   3. No items are published until admin explicitly confirms the import preview
   4. Admin can upload an image for any cafe item, and the image is stored and associated with that item
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 150-01: TBD
-- [ ] 150-02: TBD
+- [ ] 150-01-PLAN.md -- Backend: Cargo deps, DB migration, XLSX/CSV parsing, import/confirm endpoints, image upload handler, static serving
+- [ ] 150-02-PLAN.md -- Frontend: TypeScript types + API methods, import modal with preview table, image column with upload
 
 ### Phase 151: Menu Display
 **Goal**: Customers and staff can browse the complete cafe menu with correct pricing, categories, and images
