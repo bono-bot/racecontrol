@@ -56,26 +56,43 @@ impl SnapshotCache {
 }
 
 /// Spawn a background task that continuously fetches snapshots from the NVR
-/// and populates the cache. Fetches sequentially to avoid overwhelming the NVR.
+/// and populates the cache. Fetches in parallel batches of 3 to reduce cycle
+/// time from ~16s (sequential) to ~5s while respecting NVR connection limits.
 pub fn spawn_snapshot_fetcher(
     nvr: Arc<NvrClient>,
     cache: Arc<SnapshotCache>,
     channels: u32,
 ) {
+    const BATCH_SIZE: u32 = 3;
+
     tokio::spawn(async move {
-        tracing::info!(channels, "NVR snapshot fetcher started");
+        tracing::info!(channels, "NVR snapshot fetcher started (batch size {})", BATCH_SIZE);
         loop {
-            for ch in 1..=channels {
-                match nvr.snapshot(ch).await {
-                    Ok(bytes) => {
-                        cache.set(ch, bytes).await;
-                    }
-                    Err(e) => {
-                        tracing::debug!(channel = ch, error = %e, "snapshot fetch failed");
+            let mut ch = 1;
+            while ch <= channels {
+                let batch_end = (ch + BATCH_SIZE).min(channels + 1);
+                let mut handles = Vec::new();
+
+                for c in ch..batch_end {
+                    let nvr_clone = Arc::clone(&nvr);
+                    handles.push(tokio::spawn(async move {
+                        (c, nvr_clone.snapshot(c).await)
+                    }));
+                }
+
+                for handle in handles {
+                    if let Ok((c, result)) = handle.await {
+                        match result {
+                            Ok(bytes) => { cache.set(c, bytes).await; }
+                            Err(e) => {
+                                tracing::debug!(channel = c, error = %e, "snapshot fetch failed");
+                            }
+                        }
                     }
                 }
+
+                ch = batch_end;
             }
-            // Small pause between full cycles to avoid busy-looping
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     });

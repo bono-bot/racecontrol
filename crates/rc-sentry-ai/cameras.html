@@ -859,46 +859,44 @@ document.querySelectorAll('.layout-btn').forEach(function(btn) {
   });
 });
 
-// ── Snapshot refresh loop ─────────────────────────────────────────────────────
+// ── Snapshot refresh loop (staggered to avoid browser connection queue) ───────
+var BATCH_SIZE = 4; // browser allows ~6 concurrent per origin; leave headroom
+var BATCH_GAP = 80; // ms between batches
+
 function refresh() {
+  var camsWithChannel = cameras.filter(function(c) { return c.nvr_channel != null; });
+  var total = camsWithChannel.length;
+  if (total === 0) { statusEl.textContent = '0/' + cameras.length + ' online'; return; }
+
   var ok = 0;
   var fail = 0;
-  var total = 0;
+  var t = Date.now();
 
-  cameras.forEach(function(camera) {
-    var ch = camera.nvr_channel;
-    if (ch == null) return;
-    total++;
-
-    var preload = new Image();
-    preload.onload = (function(channel) {
-      return function() {
-        imgElements[channel].src = this.src;
-        if (dotElements[channel]) {
-          dotElements[channel].className = 'dot dot-live';
-        }
-        ok++;
-        if (ok + fail === total) {
-          statusEl.textContent = ok + '/' + cameras.length + ' online';
-        }
-      };
-    })(ch);
-    preload.onerror = (function(channel) {
-      return function() {
-        if (dotElements[channel]) {
-          dotElements[channel].className = 'dot dot-offline';
-        }
-        fail++;
-        if (ok + fail === total) {
-          statusEl.textContent = ok + '/' + cameras.length + ' online';
-        }
-      };
-    })(ch);
-    preload.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + Date.now();
-  });
-
-  // Edge case: all cameras have no nvr_channel
-  if (total === 0) statusEl.textContent = '0/' + cameras.length + ' online';
+  function loadBatch(startIdx) {
+    var end = Math.min(startIdx + BATCH_SIZE, total);
+    for (var i = startIdx; i < end; i++) {
+      (function(camera) {
+        var ch = camera.nvr_channel;
+        var preload = new Image();
+        preload.onload = function() {
+          if (imgElements[ch]) imgElements[ch].src = this.src;
+          if (dotElements[ch]) dotElements[ch].className = 'dot dot-live';
+          ok++;
+          if (ok + fail === total) statusEl.textContent = ok + '/' + cameras.length + ' online';
+        };
+        preload.onerror = function() {
+          if (dotElements[ch]) dotElements[ch].className = 'dot dot-offline';
+          fail++;
+          if (ok + fail === total) statusEl.textContent = ok + '/' + cameras.length + ' online';
+        };
+        preload.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + t;
+      })(camsWithChannel[i]);
+    }
+    if (end < total) {
+      setTimeout(function() { loadBatch(end); }, BATCH_GAP);
+    }
+  }
+  loadBatch(0);
 }
 
 function startLoop() {
