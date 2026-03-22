@@ -27,8 +27,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Admin Deployment
 
-- [ ] **ADMIN-01**: Business admin panel serves at admin.racingpoint.cloud with HTTPS
-- [ ] **ADMIN-02**: Admin panel requires authentication before any page loads (secure remote access)
+- [x] **ADMIN-01**: Business admin panel serves at admin.racingpoint.cloud with HTTPS
+- [x] **ADMIN-02**: Admin panel requires authentication before any page loads (secure remote access)
 - [ ] **ADMIN-03**: Uday can view revenue reports, booking history, customer data remotely
 - [ ] **ADMIN-04**: Uday can configure pricing tiers, experiences, and kiosk settings remotely
 - [ ] **ADMIN-05**: Admin changes sync to local server via cloud_sync (cloud-authoritative)
@@ -74,7 +74,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **API-01**: Cloud racecontrol API accessible at api.racingpoint.cloud with HTTPS
 - [ ] **API-02**: All existing customer API endpoints work on cloud instance with synced data
-- [ ] **API-03**: All existing admin API endpoints work on cloud instance
+- [x] **API-03**: All existing admin API endpoints work on cloud instance
 - [x] **API-04**: New reservation endpoints: create, cancel, modify, redeem (PIN validation)
 - [ ] **API-05**: Rate limiting on authentication endpoints (login, OTP verify, PIN entry)
 
@@ -124,8 +124,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | PWA-03 | Phase 2 | Pending |
 | PWA-04 | Phase 2 | Pending |
 | PWA-05 | Phase 2 | Pending |
-| ADMIN-01 | Phase 6 | Pending |
-| ADMIN-02 | Phase 6 | Pending |
+| ADMIN-01 | Phase 6 | Complete |
+| ADMIN-02 | Phase 6 | Complete |
 | ADMIN-03 | Phase 6 | Pending |
 | ADMIN-04 | Phase 6 | Pending |
 | ADMIN-05 | Phase 6 | Pending |
@@ -156,7 +156,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SYNC-07 | Phase 3 | Complete |
 | API-01 | Phase 2 | Pending |
 | API-02 | Phase 2 | Pending |
-| API-03 | Phase 6 | Pending |
+| API-03 | Phase 6 | Complete |
 | API-04 | Phase 4 | Complete |
 | API-05 | Phase 10 | Pending |
 

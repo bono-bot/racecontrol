@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-03-21T22:18:45Z"
-last_activity: 2026-03-22 — Plan 06-01 complete (admin compose.yml config fixed)
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-22T05:15:00+05:30"
+last_activity: 2026-03-22 — Plan 06-02 complete (admin panel deployed to VPS)
 progress:
   total_phases: 10
   completed_phases: 5
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 6 of 10 (Admin Panel Cloud Deploy) — IN PROGRESS
-Plan: 1 of 2 in current phase (06-01 complete)
-Status: Admin compose.yml config fixed, ready for VPS deploy (06-02)
-Last activity: 2026-03-22 — Plan 06-01 complete (admin compose.yml config fixed)
+Phase: 6 of 10 (Admin Panel Cloud Deploy) — COMPLETE
+Plan: 2 of 2 in current phase (06-02 complete)
+Status: Admin panel live at admin.racingpoint.cloud, Phase 6 complete
+Last activity: 2026-03-22 — Plan 06-02 complete (admin panel deployed to VPS)
 
 Progress: [██████████] 100%
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100%
 | Phase 02 P01 | 3 min | 2 tasks | 3 files |
 | Phase 02 P02 | 45 min | 2 tasks | 1 files |
 | Phase 06 P01 | 3 min | 1 tasks | 1 files |
+| Phase 06 P02 | 45 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,8 @@ Recent decisions affecting current work:
 - [02-02]: PWA deployment proceeds independently of API availability — PWA container + Caddy working
 - [06-01]: PORT=3300 set via environment override rather than changing Dockerfile (avoids breaking local dev)
 - [06-01]: GATEWAY_URL points to host.docker.internal:8080 same as RC_URL since gateway routes through racecontrol on cloud
+- [06-02]: Approved deploy with known issue: API proxy returns rc-core unreachable (racecontrol binary not running on VPS host, same as Phase 2)
+- [06-02]: Admin container healthy — API unavailability is infrastructure-level, not admin-specific
 
 ### Pending Todos
 
@@ -115,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T03:48:00+05:30
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-03-22T05:15:00+05:30
+Stopped at: Completed 06-02-PLAN.md — Phase 6 complete
 Resume file: None
