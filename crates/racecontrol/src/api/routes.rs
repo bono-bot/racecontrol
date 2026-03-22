@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::ac_server;
 use crate::accounting;
+use crate::cafe;
 use crate::auth;
 use crate::whatsapp_alerter;
 use crate::psychology;
@@ -89,6 +90,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/public/events/{id}/sessions", get(public_event_sessions))
         .route("/public/championships", get(public_championships_list))
         .route("/public/championships/{id}", get(public_championship_standings))
+        // Cafe menu (customer-facing, no auth)
+        .route("/cafe/menu", get(cafe::public_menu))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
@@ -367,6 +370,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/psychology/streaks/{driver_id}", get(driver_streak))
         .route("/psychology/nudge-queue", get(list_nudge_queue))
         .route("/psychology/test-nudge", post(test_nudge))
+        // ─── Cafe Menu ──────────────────────────────────────────────────────────
+        .route("/cafe/items", get(cafe::list_cafe_items).post(cafe::create_cafe_item))
+        .route("/cafe/items/{id}", put(cafe::update_cafe_item).delete(cafe::delete_cafe_item))
+        .route("/cafe/items/{id}/toggle", post(cafe::toggle_cafe_item_availability))
+        .route("/cafe/categories", get(cafe::list_cafe_categories).post(cafe::create_cafe_category))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
