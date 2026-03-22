@@ -38,10 +38,10 @@
 
 ### Deployment
 
-- [ ] **DEPL-01**: deploy-staging cleaned up (714 dirty files triaged — keep, delete, or .gitignore)
+- [x] **DEPL-01**: deploy-staging cleaned up (714 dirty files triaged — keep, delete, or .gitignore)
 - [ ] **DEPL-02**: Unified deploy script covers all services (racecontrol, rc-agent, kiosk, web dashboard, comms-link)
 - [ ] **DEPL-03**: Deployment runbook documents step-by-step for each service with rollback procedures
-- [ ] **DEPL-04**: deploy-staging committed and pushed with clean git status
+- [x] **DEPL-04**: deploy-staging committed and pushed with clean git status
 
 ### Standing Rules
 
@@ -100,10 +100,10 @@ None — this milestone is stabilization, not feature work.
 | HLTH-01 | Phase 174 | Complete |
 | HLTH-02 | Phase 174 | Pending |
 | HLTH-03 | Phase 174 | Pending |
-| DEPL-01 | Phase 174 | Pending |
+| DEPL-01 | Phase 174 | Complete |
 | DEPL-02 | Phase 174 | Pending |
 | DEPL-03 | Phase 174 | Pending |
-| DEPL-04 | Phase 174 | Pending |
+| DEPL-04 | Phase 174 | Complete |
 | DEPS-01 | Phase 170 | Complete |
 | DEPS-02 | Phase 170 | Complete |
 | DEPS-03 | Phase 170 | Complete |
