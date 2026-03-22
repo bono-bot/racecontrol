@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-03-22T01:55:19Z"
-last_activity: 2026-03-22 — Plan 07-01 complete (dashboard added to Caddy depends_on)
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-03-22T01:59:39Z"
+last_activity: 2026-03-22 — Phase 7 complete (dashboard live at dashboard.racingpoint.cloud)
 progress:
   total_phases: 10
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 15
+  completed_phases: 7
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 7: Dashboard Cloud Deploy
+**Current focus:** Phase 8: CI/CD Pipeline
 
 ## Current Position
 
-Phase: 7 of 10 (Dashboard Cloud Deploy)
-Plan: 1 of 2 in current phase (07-01 complete)
-Status: Dashboard added to Caddy depends_on, ready for VPS deploy
-Last activity: 2026-03-22 — Plan 07-01 complete (dashboard added to Caddy depends_on)
+Phase: 8 of 10 (CI/CD Pipeline)
+Plan: 1 of 1 in current phase
+Status: Phase 7 complete, moving to Phase 8
+Last activity: 2026-03-22 — Phase 7 complete (dashboard live at dashboard.racingpoint.cloud)
 
 Progress: [██████████] 100%
 
@@ -61,6 +61,7 @@ Progress: [██████████] 100%
 | Phase 06 P01 | 3 min | 1 tasks | 1 files |
 | Phase 06 P02 | 45 min | 2 tasks | 1 files |
 | Phase 07 P01 | 1 min | 1 tasks | 1 files |
+| Phase 07 P02 | 5 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Recent decisions affecting current work:
 - [06-02]: Approved deploy with known issue: API proxy returns rc-core unreachable (racecontrol binary not running on VPS host, same as Phase 2)
 - [06-02]: Admin container healthy — API unavailability is infrastructure-level, not admin-specific
 - [07-01]: No changes to dashboard service block -- API URL, port, healthcheck, memory all already correct
+- [07-02]: Same deploy pattern as Phase 2 and Phase 6: comms-link WS + INBOX.md + Bono pulls and rebuilds
+- [07-02]: 6-point automated verification checklist: DNS, HTTPS 200, HTML __next, TLS verify, PWA regression, admin regression
 
 ### Pending Todos
 
@@ -120,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T07:25:00+05:30
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-03-22T07:29:00+05:30
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None

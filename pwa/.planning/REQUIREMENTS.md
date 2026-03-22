@@ -35,11 +35,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Dashboard Deployment
 
-- [ ] **DASH-01**: Live ops dashboard serves at dashboard.racingpoint.cloud with HTTPS
-- [ ] **DASH-02**: Dashboard shows real-time pod status grid (all 8 pods) updated via polling or WebSocket
-- [ ] **DASH-03**: Dashboard shows today's revenue, active sessions, billing timers
-- [ ] **DASH-04**: Dashboard requires authentication (admin-only access)
-- [ ] **DASH-05**: Dashboard shows connection status indicator (cloud-to-local sync health)
+- [x] **DASH-01**: Live ops dashboard serves at dashboard.racingpoint.cloud with HTTPS
+- [x] **DASH-02**: Dashboard shows real-time pod status grid (all 8 pods) updated via polling or WebSocket
+- [x] **DASH-03**: Dashboard shows today's revenue, active sessions, billing timers
+- [x] **DASH-04**: Dashboard requires authentication (admin-only access)
+- [x] **DASH-05**: Dashboard shows connection status indicator (cloud-to-local sync health)
 
 ### Remote Booking
 
@@ -129,11 +129,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | ADMIN-03 | Phase 6 | Pending |
 | ADMIN-04 | Phase 6 | Pending |
 | ADMIN-05 | Phase 6 | Pending |
-| DASH-01 | Phase 7 | Pending |
-| DASH-02 | Phase 7 | Pending |
-| DASH-03 | Phase 7 | Pending |
-| DASH-04 | Phase 7 | Pending |
-| DASH-05 | Phase 7 | Pending |
+| DASH-01 | Phase 7 | Complete |
+| DASH-02 | Phase 7 | Complete |
+| DASH-03 | Phase 7 | Complete |
+| DASH-04 | Phase 7 | Complete |
+| DASH-05 | Phase 7 | Complete |
 | BOOK-01 | Phase 4 | Complete |
 | BOOK-02 | Phase 4 | Complete |
 | BOOK-03 | Phase 4 | Complete |

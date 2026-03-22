@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
 - [x] **Phase 5: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches (completed 2026-03-21)
 - [x] **Phase 6: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud (completed 2026-03-22)
-- [ ] **Phase 7: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud
+- [x] **Phase 7: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud (completed 2026-03-22)
 - [ ] **Phase 8: CI/CD Pipeline** - Automated build and deploy on push to main
 - [ ] **Phase 9: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
 - [ ] **Phase 10: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
@@ -133,7 +133,7 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md — Config fix: add dashboard to Caddy depends_on in compose.yml
-- [ ] 07-02-PLAN.md — VPS deployment: send instructions to Bono, verify dashboard live at dashboard.racingpoint.cloud
+- [x] 07-02-PLAN.md — VPS deployment: send instructions to Bono, verify dashboard live at dashboard.racingpoint.cloud
 
 ### Phase 8: CI/CD Pipeline
 **Goal**: Pushing to main automatically builds and deploys all services to the VPS
@@ -186,7 +186,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
 | 5. Kiosk PIN Launch | 0/2 | Complete    | 2026-03-21 |
 | 6. Admin Panel Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
-| 7. Dashboard Cloud Deploy | 1/2 | In progress | - |
+| 7. Dashboard Cloud Deploy | 2/2 | Complete | 2026-03-22 |
 | 8. CI/CD Pipeline | 0/1 | Not started | - |
 | 9. Health Monitoring + Alerts | 0/1 | Not started | - |
 | 10. Operational Hardening | 0/2 | Not started | - |
