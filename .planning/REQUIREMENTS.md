@@ -1,55 +1,93 @@
-# Requirements: v18.1 Seamless Execution Hardening
+# Requirements: Racing Point Operations — v17.0 AI Debugger Autonomy & Self-Healing
 
 **Defined:** 2026-03-22
-**Core Value:** The v18.0 execution relay must survive crashes, reboots, and network drops — and tell you when it can't.
+**Core Value:** Pods self-heal browser/display issues autonomously — no human intervention needed for Edge crashes, stacking, or lock screen failures.
 
-## v18.1 Requirements
+## v17.0 Requirements
 
-### Daemon Recovery
+### Browser Watchdog
 
-- [x] **RECOV-01**: James comms-link daemon auto-restarts within 30s after a crash
-- [x] **RECOV-02**: James comms-link daemon starts automatically on Windows boot
-- [x] **RECOV-03**: Watchdog detects comms-link down and restarts it (james_watchdog.ps1)
-- [x] **RECOV-04**: Bono notified via WhatsApp/email when James daemon crashes and recovers
+- [ ] **BWDOG-01**: rc-agent polls browser_process liveness every 30s and relaunches Edge if dead
+- [ ] **BWDOG-02**: rc-agent detects Edge stacking (>5 msedge.exe processes) and kills all before relaunching
+- [ ] **BWDOG-03**: close_browser() kills ALL msedge.exe and msedgewebview2.exe, not just the spawned child
+- [ ] **BWDOG-04**: Browser watchdog is suppressed during safe mode (anti-cheat active) — no taskkill while protected game is running
 
-### Chain Endpoint Fix
+### Idle Health Monitor
 
-- [ ] **CHAIN-10**: /relay/chain/run returns chain_result synchronously (not 504 timeout)
-- [ ] **CHAIN-11**: chain_result WS messages route through ExecResultBroker.handleResult()
+- [ ] **IDLE-01**: rc-agent runs check_window_rect + check_lock_screen_http every 60s when no billing session is active
+- [ ] **IDLE-02**: Idle health failure triggers close_browser + launch_browser (self-heal before alerting)
+- [ ] **IDLE-03**: Idle health sends IdleHealthFailed message to server after 3 consecutive failures (hysteresis)
+- [ ] **IDLE-04**: Idle health checks are skipped during active billing sessions — no interference with running games
 
-### Degradation Visibility
+### AI Action Execution
 
-- [ ] **VIS-01**: /relay/health returns connection mode and last heartbeat timestamp
-- [ ] **VIS-02**: /relay/exec/run returns 503 with descriptive error when WS disconnected
-- [ ] **VIS-03**: Exec skills check relay health before sending and report status
+- [ ] **AIACT-01**: AI debugger Tier 3/4 responses are parsed for structured safe actions from a whitelist
+- [ ] **AIACT-02**: Safe action whitelist includes: kill_edge, relaunch_lock_screen, restart_rcagent, kill_game, clear_temp
+- [ ] **AIACT-03**: Executed AI actions are logged to activity_log with action, source model, and outcome
+- [ ] **AIACT-04**: AI actions that kill processes are gated by safe mode check — blocked when anti-cheat active
+
+### Healer Edge Recovery
+
+- [ ] **HEAL-01**: Pod healer adds HealAction::RelaunchLockScreen when lock screen HTTP check fails
+- [ ] **HEAL-02**: RelaunchLockScreen sends ForceRelaunchBrowser WS message to pod (rc-agent handles relaunch)
+- [ ] **HEAL-03**: rc-agent handles ForceRelaunchBrowser message by calling close_browser + launch_browser
+
+### WARN Log Scanner
+
+- [ ] **WARN-01**: Pod healer scans racecontrol log for WARN count in last 5 minutes each cycle
+- [ ] **WARN-02**: WARN threshold exceeded (>50/5min) triggers AI escalation with log context
+- [ ] **WARN-03**: Recurring identical WARNs are grouped and deduplicated before AI escalation
+
+## Future Requirements
+
+### Browser Watchdog Enhancements
+
+- **BWDOG-05**: Browser watchdog reports Edge crash count to fleet health dashboard
+- **BWDOG-06**: Edge auto-update suppression verified on every watchdog cycle
+
+### AI Debugger Enhancements
+
+- **AIACT-05**: AI learns from executed action outcomes (success/failure) to improve future suggestions
+- **AIACT-06**: Dashboard shows pending AI suggestions with approve/reject for non-whitelisted actions
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| PM2 on James (Windows) | Windows doesn't support PM2 well — Task Scheduler + watchdog is the established pattern |
-| node-windows service wrapper | Adds npm dependency + complexity — watchdog + Run key achieves the same with existing infra |
-| Chain retry on relay failure | Caller (Claude) can retry — relay should fail fast and report, not silently retry |
+| Full AI shell access | Security risk — whitelist-only safe actions |
+| Auto-restart rc-agent from healer | rc-sentry already handles this — avoid recovery system fights (standing rule #10) |
+| Browser watchdog as separate binary | Belongs in rc-agent, not a new process to deploy |
+| Real-time log streaming to dashboard | Nice-to-have, not self-healing — defer to future milestone |
+| Edge browser replacement | Edge kiosk mode works — the issue was lack of monitoring, not the browser |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RECOV-01 | Phase 135 | Complete |
-| RECOV-02 | Phase 135 | Complete |
-| RECOV-03 | Phase 135 | Complete |
-| RECOV-04 | Phase 135 | Complete |
-| CHAIN-10 | Phase 136 | Pending |
-| CHAIN-11 | Phase 136 | Pending |
-| VIS-01 | Phase 136 | Pending |
-| VIS-02 | Phase 136 | Pending |
-| VIS-03 | Phase 136 | Pending |
+| BWDOG-01 | — | Pending |
+| BWDOG-02 | — | Pending |
+| BWDOG-03 | — | Pending |
+| BWDOG-04 | — | Pending |
+| IDLE-01 | — | Pending |
+| IDLE-02 | — | Pending |
+| IDLE-03 | — | Pending |
+| IDLE-04 | — | Pending |
+| AIACT-01 | — | Pending |
+| AIACT-02 | — | Pending |
+| AIACT-03 | — | Pending |
+| AIACT-04 | — | Pending |
+| HEAL-01 | — | Pending |
+| HEAL-02 | — | Pending |
+| HEAL-03 | — | Pending |
+| WARN-01 | — | Pending |
+| WARN-02 | — | Pending |
+| WARN-03 | — | Pending |
 
 **Coverage:**
-- v18.1 requirements: 9 total
-- Mapped to phases: 9
-- Unmapped: 0
+- v17.0 requirements: 18 total
+- Mapped to phases: 0
+- Unmapped: 18 ⚠️
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after roadmap creation (v18.1)*
+*Last updated: 2026-03-22 after initial definition*
