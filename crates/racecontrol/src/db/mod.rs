@@ -2435,6 +2435,32 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Cafe Orders ──────────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cafe_orders (
+            id TEXT PRIMARY KEY,
+            receipt_number TEXT NOT NULL UNIQUE,
+            driver_id TEXT NOT NULL,
+            items TEXT NOT NULL,
+            total_paise INTEGER NOT NULL,
+            wallet_txn_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_orders_driver ON cafe_orders(driver_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_orders_receipt ON cafe_orders(receipt_number)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_cafe_orders_created ON cafe_orders(created_at)")
+        .execute(pool)
+        .await?;
+
     // Seed default categories (idempotent)
     for (name, order) in [("Beverages", 1), ("Snacks", 2), ("Meals", 3)] {
         let id = uuid::Uuid::new_v4().to_string();

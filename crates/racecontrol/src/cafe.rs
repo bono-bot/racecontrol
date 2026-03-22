@@ -660,6 +660,8 @@ pub async fn public_menu(
         created_at: Option<String>,
         updated_at: Option<String>,
         image_path: Option<String>,
+        is_countable: bool,
+        stock_quantity: i64,
     }
 
     let items = sqlx::query_as::<_, MenuItem>(
@@ -667,7 +669,7 @@ pub async fn public_menu(
                 cc.name AS category_name,
                 ci.selling_price_paise, ci.cost_price_paise,
                 ci.is_available, ci.created_at, ci.updated_at,
-                ci.image_path
+                ci.image_path, ci.is_countable, ci.stock_quantity
          FROM cafe_items ci
          JOIN cafe_categories cc ON ci.category_id = cc.id
          WHERE ci.is_available = 1
@@ -680,8 +682,23 @@ pub async fn public_menu(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let total = items.len();
-    Ok(Json(serde_json::json!({ "items": items, "total": total, "page": 1 })))
+    let items_json: Vec<serde_json::Value> = items
+        .iter()
+        .map(|item| {
+            let mut val = serde_json::to_value(item).unwrap_or_default();
+            if let Some(obj) = val.as_object_mut() {
+                let out_of_stock = item.is_countable && item.stock_quantity <= 0;
+                obj.insert(
+                    "out_of_stock".to_string(),
+                    serde_json::Value::Bool(out_of_stock),
+                );
+            }
+            val
+        })
+        .collect();
+
+    let total = items_json.len();
+    Ok(Json(serde_json::json!({ "items": items_json, "total": total, "page": 1 })))
 }
 
 // ─── Import Handlers ──────────────────────────────────────────────────────────
@@ -968,6 +985,366 @@ pub async fn upload_item_image(
     Ok(Json(
         serde_json::json!({ "image_url": format!("/static/cafe-images/{}", filename) }),
     ))
+}
+
+// ─── Order Types ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PlaceOrderRequest {
+    pub driver_id: String,
+    pub items: Vec<OrderItemRequest>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrderItemRequest {
+    pub item_id: String,
+    pub quantity: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlaceOrderResponse {
+    pub order_id: String,
+    pub receipt_number: String,
+    pub wallet_txn_id: String,
+    pub total_paise: i64,
+    pub new_balance_paise: i64,
+    pub items: Vec<OrderItemDetail>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct OrderItemDetail {
+    pub item_id: String,
+    pub name: String,
+    pub quantity: i64,
+    pub unit_price_paise: i64,
+    pub line_total_paise: i64,
+}
+
+/// Internal verified item during order processing (held between transaction and wallet debit).
+#[derive(Clone)]
+struct VerifiedOrderItem {
+    item_id: String,
+    name: String,
+    quantity: i64,
+    unit_price_paise: i64,
+    is_countable: bool,
+}
+
+// ─── Order Handlers ───────────────────────────────────────────────────────────
+
+/// Core order logic shared between staff and customer routes.
+pub async fn place_cafe_order_inner(
+    state: &Arc<AppState>,
+    req: PlaceOrderRequest,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // ── Validation (before transaction) ──────────────────────────────────────
+    if req.items.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "items must not be empty" })),
+        ));
+    }
+    if req.driver_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "driver_id must not be empty" })),
+        ));
+    }
+    for item in &req.items {
+        if item.quantity < 1 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "each item quantity must be >= 1" })),
+            ));
+        }
+    }
+
+    // ── Step A: Acquire raw connection and BEGIN IMMEDIATE ────────────────────
+    let mut conn = state.db.acquire().await.map_err(|e| {
+        tracing::warn!("place_cafe_order: failed to acquire connection: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Database unavailable" })),
+        )
+    })?;
+
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| {
+            tracing::warn!("place_cafe_order: BEGIN IMMEDIATE failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Could not acquire write lock" })),
+            )
+        })?;
+
+    // ── Step B: Validate all items exist, are available, check stock ──────────
+    let mut verified_items: Vec<VerifiedOrderItem> = Vec::new();
+    for req_item in &req.items {
+        let row: Option<(String, String, i64, bool, i64, bool)> = sqlx::query_as(
+            "SELECT id, name, selling_price_paise, is_countable, stock_quantity, is_available
+             FROM cafe_items WHERE id = ?",
+        )
+        .bind(&req_item.item_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| {
+            tracing::warn!("place_cafe_order: item lookup error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error during item lookup" })),
+            )
+        })?;
+
+        match row {
+            None => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!("Item not found or unavailable: {}", req_item.item_id)
+                    })),
+                ));
+            }
+            Some((id, name, price, is_countable, stock_qty, is_available)) => {
+                if !is_available {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": format!("Item not found or unavailable: {}", name)
+                        })),
+                    ));
+                }
+                if is_countable && stock_qty < req_item.quantity {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": format!(
+                                "Out of stock: {} (available: {}, requested: {})",
+                                name, stock_qty, req_item.quantity
+                            )
+                        })),
+                    ));
+                }
+                verified_items.push(VerifiedOrderItem {
+                    item_id: id,
+                    name,
+                    quantity: req_item.quantity,
+                    unit_price_paise: price,
+                    is_countable,
+                });
+            }
+        }
+    }
+
+    // ── Step C: Calculate total and build OrderItemDetail list ────────────────
+    let mut total_paise: i64 = 0;
+    let mut order_item_details: Vec<OrderItemDetail> = Vec::new();
+    for item in &verified_items {
+        let line_total = item.unit_price_paise * item.quantity;
+        total_paise += line_total;
+        order_item_details.push(OrderItemDetail {
+            item_id: item.item_id.clone(),
+            name: item.name.clone(),
+            quantity: item.quantity,
+            unit_price_paise: item.unit_price_paise,
+            line_total_paise: line_total,
+        });
+    }
+
+    // ── Step D: Decrement stock for countable items (with race check) ─────────
+    for item in &verified_items {
+        if item.is_countable {
+            let result = sqlx::query(
+                "UPDATE cafe_items SET stock_quantity = stock_quantity - ?, updated_at = datetime('now')
+                 WHERE id = ? AND is_countable = 1 AND stock_quantity >= ?",
+            )
+            .bind(item.quantity)
+            .bind(&item.item_id)
+            .bind(item.quantity)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| {
+                tracing::warn!("place_cafe_order: stock decrement error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Stock update failed" })),
+                )
+            })?;
+
+            if result.rows_affected() == 0 {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": "Stock changed during order, please retry"
+                    })),
+                ));
+            }
+        }
+    }
+
+    // ── Step E: Generate receipt number ──────────────────────────────────────
+    let today_prefix = chrono::Utc::now().format("%Y%m%d").to_string();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM cafe_orders WHERE receipt_number LIKE ?",
+    )
+    .bind(format!("RP-{}-%%", today_prefix))
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| {
+        tracing::warn!("place_cafe_order: receipt count error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Receipt generation failed" })),
+        )
+    })?;
+
+    let receipt_number = format!("RP-{}-{:04}", today_prefix, count + 1);
+
+    // ── Step F: Generate order_id ─────────────────────────────────────────────
+    let order_id = Uuid::new_v4().to_string();
+
+    // ── Step G: COMMIT transaction (stock decremented, receipt reserved) ──────
+    sqlx::query("COMMIT")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| {
+            tracing::warn!("place_cafe_order: COMMIT failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Transaction commit failed" })),
+            )
+        })?;
+
+    // Drop raw connection — pool is available again
+    drop(conn);
+
+    // ── Step H: Wallet debit (outside raw transaction, uses pool internally) ──
+    let order_id_for_log = order_id.clone();
+    let debit_result = crate::wallet::debit(
+        state,
+        &req.driver_id,
+        total_paise,
+        "cafe_order",
+        Some(&order_id),
+        Some(&format!("Cafe order {}", receipt_number)),
+    )
+    .await;
+
+    let (new_balance, wallet_txn_id) = match debit_result {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::warn!("place_cafe_order: wallet debit failed for order {}: {}", order_id_for_log, e);
+            // Compensating stock rollback (best-effort)
+            let state_clone = state.clone();
+            let items_clone = verified_items.clone();
+            let oid = order_id_for_log.clone();
+            tokio::spawn(async move {
+                for item in &items_clone {
+                    if item.is_countable {
+                        let _ = sqlx::query(
+                            "UPDATE cafe_items SET stock_quantity = stock_quantity + ? WHERE id = ?",
+                        )
+                        .bind(item.quantity)
+                        .bind(&item.item_id)
+                        .execute(&state_clone.db)
+                        .await;
+                    }
+                }
+                tracing::warn!("Rolled back stock for failed wallet debit on order {}", oid);
+            });
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e })),
+            ));
+        }
+    };
+
+    // ── Step I: Insert order record ───────────────────────────────────────────
+    let items_json = serde_json::to_string(&order_item_details).unwrap_or_else(|_| "[]".to_string());
+    sqlx::query(
+        "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, wallet_txn_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'confirmed')",
+    )
+    .bind(&order_id)
+    .bind(&receipt_number)
+    .bind(&req.driver_id)
+    .bind(&items_json)
+    .bind(total_paise)
+    .bind(&wallet_txn_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::warn!("place_cafe_order: order insert error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to record order" })),
+        )
+    })?;
+
+    // ── Step J: Fire low-stock alerts (non-blocking) ──────────────────────────
+    for item in &verified_items {
+        if item.is_countable {
+            crate::cafe_alerts::check_low_stock_alerts(&state.db, &state.config, &item.item_id).await;
+        }
+    }
+
+    // ── Step K: Return response ───────────────────────────────────────────────
+    tracing::info!(
+        "Cafe order placed: {} receipt={} driver={} total={}p",
+        order_id,
+        receipt_number,
+        req.driver_id,
+        total_paise
+    );
+
+    Ok(Json(serde_json::to_value(PlaceOrderResponse {
+        order_id,
+        receipt_number,
+        wallet_txn_id,
+        total_paise,
+        new_balance_paise: new_balance,
+        items: order_item_details,
+    })
+    .unwrap_or_default()))
+}
+
+/// Staff endpoint — driver_id is provided in request body.
+pub async fn place_cafe_order(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PlaceOrderRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    place_cafe_order_inner(&state, req).await
+}
+
+/// Customer endpoint — driver_id is extracted from Authorization JWT (prevents spoofing).
+pub async fn place_cafe_order_customer(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(mut req): Json<PlaceOrderRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Extract driver_id from JWT — ignore any driver_id in body
+    let driver_id = crate::auth::verify_jwt(
+        headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .unwrap_or(""),
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": e })),
+        )
+    })?;
+
+    req.driver_id = driver_id;
+    place_cafe_order_inner(&state, req).await
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
