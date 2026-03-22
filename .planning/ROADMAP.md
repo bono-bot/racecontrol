@@ -2204,7 +2204,10 @@ Plans:
   2. Camera friendly names (e.g. "Pod Area", "Cashier", "Entrance") are read from rc-sentry-ai.toml and appear in the API response — stream IDs never appear as display labels
   3. `PUT /api/v1/cameras/layout` with a reorder payload writes atomically to camera-layout.json and `GET /api/v1/cameras/layout` returns the saved layout on the next page load — state survives rc-sentry-ai restart
   4. rc-sentry-ai.toml is never written to at runtime — all mutable user preferences go to camera-layout.json only
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 146-01-PLAN.md — Extend CameraConfig with display_name/display_order/zone and update /api/v1/cameras response
+- [ ] 146-02-PLAN.md — Add GET/PUT /api/v1/cameras/layout endpoints with camera-layout.json persistence
 
 ### Phase 147: cameras.html Dashboard Rewrite
 **Goal**: Staff can monitor all 13 cameras from the rc-sentry-ai embedded dashboard with professional NVR controls — layout switching, drag-to-rearrange, and instant WebRTC fullscreen
