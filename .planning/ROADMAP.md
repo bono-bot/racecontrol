@@ -2427,7 +2427,7 @@ Note: Phase 152 can start after 149 (parallel with 150/151). Phase 156 can start
 | 153. Inventory Alerts | 2/2 | Complete    | 2026-03-22 |
 | 154. Ordering Core | 3/3 | Complete    | 2026-03-22 |
 | 155. Receipts & Order History | 2/2 | Complete    | 2026-03-22 |
-| 156. Promotions Engine | 1/2 | In Progress|  |
+| 156. Promotions Engine | 2/2 | Complete   | 2026-03-22 |
 | 157. Promotions Integration | 0/0 | Not started | - |
 | 158. Marketing & Content | 0/0 | Not started | - |
 
