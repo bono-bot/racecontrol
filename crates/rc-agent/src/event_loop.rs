@@ -1020,13 +1020,13 @@ pub async fn run(
                     continue;
                 }
 
-                // IDLE-02: self-heal on failure
+                // IDLE-02: log failure but DON'T self-heal with close+relaunch.
+                // Relaunching Edge on triple-monitor kiosk causes visible flicker.
+                // The browser watchdog handles dead Edge (0 processes). Idle health
+                // only reports failures to the server via IdleHealthFailed.
                 let mut failure_names: Vec<String> = Vec::new();
                 failure_names.push("lock_screen_http".to_string());
                 tracing::warn!(target: LOG_TARGET, "Idle health: lock_screen_http failed — {}", http_result.detail);
-                tracing::warn!(target: LOG_TARGET, "Idle health: self-healing — close + relaunch browser");
-                state.lock_screen.close_browser();
-                state.lock_screen.launch_browser();
 
                 conn.idle_health_fail_count = conn.idle_health_fail_count.saturating_add(1);
 
