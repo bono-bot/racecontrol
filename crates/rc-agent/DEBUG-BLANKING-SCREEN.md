@@ -3,7 +3,7 @@
 **Date:** 2026-03-23
 **Severity:** HIGH — customers see desktop on 2 of 3 monitors
 **Affects:** Pods 5, 6, 7 confirmed. Likely all 8 pods.
-**Status:** ROOT CAUSE IDENTIFIED, needs code fix in lock_screen.rs
+**Status:** RESOLVED — commit `4044af7b`, deployed Pods 1-7 via SCP+reboot
 
 ---
 
@@ -87,12 +87,24 @@ Edge kiosk mode fights against external window resizing.
 | 5 | `--app` + `keybd_event(VK_F11)` | F11 not received in --app mode |
 | 6 | `--app` + `SetWindowPos` via PowerShell | Dark background but dialog overlay |
 
-## Untested Approaches
+## Working Fix (4044af7b)
 
-- **H6:** Normal Edge (no --kiosk/--app) + MoveWindow + F11 — manual F11 DOES span surround
-- **H7:** Native Win32 fullscreen window + WebView2 — full control, biggest change
-- **H8:** PowerShell `SendKeys('{F11}')` — targets focused app specifically
-- **H9:** Edge Group Policy kiosk — enterprise kiosk may handle surround
+**`--app=URL` + `SetWindowPos(HWND_TOPMOST, 0, -32, 7680, 1472, SWP_SHOWWINDOW)`**
+
+- `--app` mode creates chromeless window (no sidebar, tabs, address bar)
+- `SetWindowPos` with `HWND_TOPMOST` forces spanning above all other windows
+- Y offset `-32px` pushes thin --app title bar off-screen
+- Height `+32px` compensates so content covers full screen
+- Retry loop (3 attempts) handles race with ConspitLink
+- `enforce_kiosk_foreground` changed from `SW_MAXIMIZE(3)` → `SW_SHOW(5)` to avoid undoing spanning
+- Deploy MUST use SCP+reboot (not self-restart) — `close_browser()` kills Edge which collapses Surround
+
+## Previously Untested Approaches (no longer needed)
+
+- **H6:** Normal Edge + F11 — TESTED, F11 didn't reach Edge (ConspitLink focus steal), sidebar visible
+- **H7:** Native Win32 fullscreen window + WebView2 — not needed
+- **H8:** PowerShell `SendKeys('{F11}')` — not needed
+- **H9:** Edge Group Policy kiosk — not needed
 
 ## Playwright Screenshot Debug Methodology
 

@@ -36,6 +36,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 23 20:00 IST | James | `973fd8d0` | fix: lock screen --app mode instead of --kiosk for multi-monitor spanning |
 | Mar 23 20:15 IST | James | `a8b324d8` | fix: keybd_event F11 instead of PostMessage (Edge ignores posted keys) |
 | Mar 23 21:30 IST | James | `5fc80759` | docs: blanking screen investigation — 6 approaches tested, handoff doc + Playwright methodology |
+| Mar 23 22:00 IST | James | `4044af7b` | fix: lock screen spans all NVIDIA Surround monitors — SetWindowPos(HWND_TOPMOST) + Y offset. Deployed to Pods 1-7 via SCP+reboot |
 
 ## 2026-03-22
 
