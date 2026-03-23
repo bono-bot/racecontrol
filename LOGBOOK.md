@@ -9,6 +9,18 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 23 14:46 IST | James | `21be6356` | fix: /api/v1/logs filename pattern mismatch — was reading stale racecontrol.log.* instead of current racecontrol-*.jsonl |
+| Mar 23 15:00 IST | James | `d230dfcc` | docs: add cascade-update + server deploy lessons to CLAUDE.md |
+| Mar 23 15:00 IST | James | `893ec79d` | docs: expand server deploy rule to 6-step sequence with mandatory fix verification |
+| Mar 23 15:12 IST | James | `c7a3f401` | feat: upgrade watchdog to AI healer — 10 services, Ollama diagnosis, log tailing, graduated 4-step recovery |
+| Mar 23 15:20 IST | James | `c94ec0fe` | fix: correct Ollama model name in CLAUDE.md (qwen3:0.6b → qwen2.5:3b) |
+| Mar 23 15:40 IST | James | `a6894d34` | fix: rc-sentry restart_service() uses schtasks instead of PowerShell (still fails — see ba31ef4d) |
+| Mar 23 15:50 IST | James | `ba31ef4d` | debug: rc-sentry restart investigation — full handoff doc + 3 standing rules |
+| Mar 23 16:00 IST | James | `38ffe1d9` | fix: AI healer checked go2rtc on wrong host:port (.23:8096 → .27:1984) |
+| Mar 23 16:05 IST | James | `add66e97` | docs: add standing rule — verify monitoring targets against running system |
+| Mar 23 16:10 IST | James | `daaa9298` | fix: add exponential backoff to cloud sync relay push errors (315→25 per outage) |
+| Mar 23 16:15 IST | James | `5fdbd14f` | fix: add updated_at migration for ALL cloud sync tables (10 tables, not just 2) |
+| Mar 23 16:52 IST | James | `129a24f2` | fix: rc-sentry restart_service() now works — uses run_cmd_sync + verify_service_started (parallel session) |
 | Mar 23 14:46 IST | James | `21be6356` | fix: /api/v1/logs filename pattern mismatch — was reading stale racecontrol.log.* instead of current racecontrol-*.jsonl. API returned 3-day-old data (23 lines) instead of today's log (34K+ lines). Root cause: rolling appender format changed but reader not updated (cascade update violation). |
 
 ## 2026-03-22

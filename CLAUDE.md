@@ -119,6 +119,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
   _Why: Pod 8 canary catches runtime failures (DLL missing, wrong CWD, config mismatch) before fleet-wide damage._
+- **`touch build.rs` before release builds after new commits.** Cargo caches the binary if no source files changed — `build.rs` embeds `GIT_HASH` at compile time, but cargo doesn't detect new commits as a source change. After `git commit`, always `touch crates/<crate>/build.rs` before `cargo build --release` to force a fresh `GIT_HASH`. Verify with step 4 of the deploy sequence.
+  _Why: Deployed racecontrol showed build_id `daaa9298` (old) instead of `129a24f2` (current HEAD). Binary was served from a stale cargo cache. Required force-rebuild + redeploy._
 - **Smallest Reversible Fix First** — when fixing a production issue, prefer the smallest change that can be tested and rolled back. Don't rewrite Rust code when a bat file one-liner works. Don't touch self-restart logic when a boot-time cleanup suffices. Save elegant fixes for when you have a test environment.
   _Why: PowerShell memory leak fix attempt changed self_monitor.rs relaunch logic. Four iterations (cmd/c, CREATE_NO_WINDOW, exit, Environment::Exit) all broke self-restart, each time taking Pod 6 down with manual recovery. The working fix was always `taskkill /F /IM powershell.exe` in start-rcagent.bat — one line, zero risk._
 - **Have a rollback plan before deploying** — before changing critical paths (self-restart, deploy chain, process guard), prepare a one-command recovery: Tailscale SSH + schtasks to restart, or SCP the old binary back. Never deploy without knowing how to undo.
@@ -164,8 +166,12 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 
 - **Refactor Second** — characterization tests first, verify green, then refactor. No exceptions.
   _Why: Refactoring without a green test baseline turns every compile error into an unknown regression._
-- **Cross-Process Updates** — changing a feature? Update ALL: rc-agent, racecontrol, PWA, Admin, Gateway, Dashboard.
-  _Why: Single-crate updates leave other components speaking a different protocol version, causing silent data corruption._
+- **Cross-Process Updates** — changing a feature? Update ALL: rc-agent, racecontrol, PWA, Admin, Gateway, Dashboard. This means ALL ENVIRONMENTS too — venue (.23), cloud (Bono VPS), and James (.27). Deploy to one and forget the other = schema divergence.
+  _Why: Single-crate updates leave other components speaking a different protocol version. Cloud sync broke for 3+ hours because venue had new migrations but cloud DB was on an old binary with missing columns._
+- **DB migrations must cover ALL consumers.** `CREATE TABLE IF NOT EXISTS` won't alter existing tables. If a column is used in sync/query code, the migration must `ALTER TABLE ADD COLUMN` for it — even if the CREATE TABLE already includes it. Old databases won't have columns added after initial creation.
+  _Why: `updated_at` was in 10 CREATE TABLE statements but only 2 had ALTER migrations. Cloud and venue DBs created by different binary versions had different schemas. Required manual ALTER on 8 tables to fix._
+- **Review parallel session commits against standing rules before deploying.** Code from other sessions may not follow current rules (bat parentheses, missing verification, stale references). Always `git show <hash>` and check against standing rules before accepting.
+  _Why: Parallel session commit `a948569` used parentheses in bat if/else blocks — caught during standing rule review, fixed before deploy._
 - **No Fake Data** — use `TEST_ONLY`, `0000000000`, or leave empty. Never real-looking identifiers.
   _Why: Realistic-looking fake data (names, IDs, emails) has leaked into production databases twice._
 - **Prompt Quality Check** — missing clarity/specificity/actionability/scope → ask one focused question before acting.
