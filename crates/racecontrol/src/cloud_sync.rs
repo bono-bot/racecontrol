@@ -168,11 +168,17 @@ pub fn spawn(state: Arc<AppState>) {
         let mut last_http_fallback = Instant::now() - Duration::from_secs(fallback_interval_secs + 1);
 
         // Hysteresis state: track consecutive successes/failures to prevent flapping.
-        // The effective relay state only transitions after sustained signal.
         let mut effective_relay_up = false;
         let mut consecutive_up: u32 = 0;
         let mut consecutive_down: u32 = 0;
         let mut logged_state: Option<bool> = None;
+
+        // Exponential backoff for push errors — prevents 315 errors/3hrs when remote is down.
+        // Caps at 5 min. Resets on any success.
+        let mut push_fail_count: u32 = 0;
+        let mut push_backoff_until = Instant::now();
+        const PUSH_BACKOFF_BASE_SECS: u64 = 5;   // 5s, 10s, 20s, 40s, 80s, 160s, 300s cap
+        const PUSH_BACKOFF_CAP_SECS: u64 = 300;   // 5 minutes max
 
         loop {
             interval.tick().await;
@@ -210,9 +216,39 @@ pub fn spawn(state: Arc<AppState>) {
                 }
 
                 if effective_relay_up {
-                    // Relay mode: push deltas via localhost relay (2s cycle)
-                    if let Err(e) = push_via_relay(&state).await {
-                        tracing::error!("Cloud sync relay push failed: {}", e);
+                    // Relay mode: push deltas via localhost relay
+                    // Skip if in backoff period from previous failures
+                    if Instant::now() < push_backoff_until {
+                        continue;
+                    }
+                    match push_via_relay(&state).await {
+                        Ok(()) => {
+                            if push_fail_count > 0 {
+                                tracing::info!(
+                                    "Cloud sync relay push recovered after {} failures",
+                                    push_fail_count
+                                );
+                            }
+                            push_fail_count = 0;
+                        }
+                        Err(e) => {
+                            push_fail_count += 1;
+                            let backoff_secs = (PUSH_BACKOFF_BASE_SECS
+                                * 2u64.saturating_pow(push_fail_count.saturating_sub(1)))
+                            .min(PUSH_BACKOFF_CAP_SECS);
+                            push_backoff_until =
+                                Instant::now() + Duration::from_secs(backoff_secs);
+
+                            // Log every failure, but WARN after first, ERROR only on first
+                            if push_fail_count == 1 {
+                                tracing::error!("Cloud sync relay push failed: {}", e);
+                            } else {
+                                tracing::warn!(
+                                    "Cloud sync relay push failed (#{}, backoff {}s): {}",
+                                    push_fail_count, backoff_secs, e
+                                );
+                            }
+                        }
                     }
                 } else {
                     // Relay unavailable: fall back to HTTP but rate-limit to original interval
