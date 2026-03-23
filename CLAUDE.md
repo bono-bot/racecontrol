@@ -106,8 +106,15 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Previous deploy-update.bat used `taskkill /F` which killed the exec handler mid-command, preventing the restart from executing. `RCAGENT_SELF_RESTART` spawns the new process before exiting — reliable across all pods._
 - **NEVER use `taskkill /F /IM rc-agent.exe` followed by `start` in the same exec chain.** The taskkill kills the process serving the exec endpoint — subsequent commands in the chain may never execute. Use `RCAGENT_SELF_RESTART` sentinel instead.
   _Why: Pod 5 went offline for 2+ minutes during v17.0 deploy because taskkill killed rc-agent before the restart command ran. rc-sentry eventually recovered it, but the gap is unacceptable._
-- **Server deploy (racecontrol):** Download new binary FIRST (`curl.exe -o racecontrol-new.exe`), THEN `taskkill /F /IM racecontrol.exe`, THEN `move /Y racecontrol-new.exe racecontrol.exe`, THEN `schtasks /Run /TN StartRCTemp`. **NEVER combine taskkill + download in one exec chain** — racecontrol hosts the :8090 server_ops endpoint, so killing it kills the exec handler mid-download. Use SSH (`ssh ADMIN@192.168.31.23`) for the kill+swap+start steps.
-  _Why: SSH `start` command dies when SSH session closes — schtasks persists independently. Download must happen before kill because :8090 dies with racecontrol. Learned again in v23 deploy._
+- **Server deploy (racecontrol) — 6 steps, no shortcuts:**
+  1. **Record expected build_id:** `git rev-parse --short HEAD` — save BEFORE staging
+  2. **Download first (while old process still runs :8090):** `curl -s -X POST http://192.168.31.23:8090/exec -d @deploy-cmd.json` with `curl.exe -o C:\RacingPoint\racecontrol-new.exe http://192.168.31.27:9998/racecontrol.exe`
+  3. **SSH for kill+swap+start:** `ssh ADMIN@192.168.31.23` then `taskkill /F /IM racecontrol.exe && timeout /t 3 && move /Y racecontrol-new.exe racecontrol.exe && schtasks /Run /TN StartRCTemp`
+  4. **Verify build_id:** `curl -s http://192.168.31.23:8080/api/v1/health` — `build_id` must match step 1
+  5. **Verify the EXACT fix, not just health:** Test the specific endpoint/behavior that was changed. `build_id` match proves the binary deployed, NOT that the bug is fixed. Example: if you fixed `/api/v1/logs`, call `/api/v1/logs` and check the response content.
+  6. **If any step fails, stop and recover** — `schtasks /Run /TN StartRCTemp` via SSH restarts the old binary if the new one wasn't swapped in yet.
+  **NEVER combine taskkill + download in one exec chain** — racecontrol hosts :8090, killing it kills the exec handler mid-download.
+  _Why: SSH `start` dies when session closes — schtasks persists. Download must happen before kill because :8090 dies with racecontrol. Step 5 added because v23 pod healer fix was declared "done" twice based on build_id alone while the actual parse path still failed._
 - **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
