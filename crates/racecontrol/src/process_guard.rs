@@ -109,9 +109,13 @@ pub fn merge_for_machine(config: &ProcessGuardConfig, machine_id: &str) -> Optio
 const SERVER_CRITICAL_BINARIES: &[&str] = &["rc-agent.exe"];
 
 /// Returns true if `name` matches a CRITICAL binary for the server (case-insensitive).
+/// Strips .exe from both sides for comparison (sysinfo may omit the extension).
 pub(crate) fn is_server_critical(name: &str) -> bool {
     let lower = name.to_lowercase();
-    SERVER_CRITICAL_BINARIES.iter().any(|&b| b == lower)
+    let base = lower.trim_end_matches(".exe");
+    SERVER_CRITICAL_BINARIES
+        .iter()
+        .any(|&b| b == lower || b.trim_end_matches(".exe") == base)
 }
 
 /// Append a timestamped line to C:\RacingPoint\process-guard.log with 512KB rotation.
@@ -223,7 +227,13 @@ pub fn spawn_server_guard(state: std::sync::Arc<crate::state::AppState>) {
                 }
 
                 let is_critical = is_server_critical(name);
-                let in_whitelist = whitelist.processes.iter().any(|w| w == &name_lower);
+                // Match process name against allowlist — strip .exe from both sides
+                // because sysinfo may return "rc-agent" while allowlist has "rc-agent.exe"
+                let name_base = name_lower.trim_end_matches(".exe");
+                let in_whitelist = whitelist.processes.iter().any(|w| {
+                    let w_base = w.trim_end_matches(".exe");
+                    w_base == name_base || w == &name_lower
+                });
 
                 if in_whitelist && !is_critical {
                     grace_counts.remove(&name_lower);
