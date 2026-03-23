@@ -24,6 +24,32 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - E2E tests require both POS (:3200) and Kiosk (:8000/:3300) running
 - Contract tests must not break existing APIs — additive only
 
+## Current Milestone: v22.0 Feature Management & OTA Pipeline
+
+**Goal:** Full feature lifecycle management across the RaceControl stack — toggle features on/off per-pod from the admin dashboard, compile-time Cargo feature gates for major modules, server-central config push over WebSocket, and an automated OTA pipeline (build → canary → staged rollout → health check → auto-rollback) for binaries + config + frontends as atomic versioned releases. Every standing rule codified as an automated enforcement gate at every pipeline step. New standing rules created for the OTA system itself.
+
+**Target features:**
+- Runtime feature flag registry in racecontrol server with per-pod override support
+- Admin dashboard UI for toggling features per-pod, per-service with live status
+- Server-to-pod config push over existing WebSocket (no manual TOML editing)
+- Cargo feature gates for major modules (telemetry, AI debugger, process guard, camera AI) — compile-time inclusion/exclusion
+- Hot-reload for runtime config changes without binary restart where possible
+- Full OTA release pipeline: CI build → canary (Pod 8) → staged rollout → health verification → auto-rollback on failure
+- Atomic versioned releases: binaries + config + frontends bundled with manifest
+- All 41+ CLAUDE.md standing rules codified as automated checks — pipeline blocks until ALL pass at every step
+- New standing rules for: OTA pipeline safety, feature toggle rollback, config push verification, release versioning
+- Rollback system: one-command revert to previous known-good release across entire fleet
+- Components in scope: racecontrol, rc-agent, rc-sentry-ai, cloud services (API gateway, admin, bots)
+
+**Constraints:**
+- Must not reduce current deployment reliability — OTA must be at least as reliable as manual scp + restart
+- Standing rules enforcement must be fully automated — no human bypass option
+- Feature toggles must work over existing WebSocket agent connection (no new ports/protocols)
+- Config push must handle pod offline gracefully (queue + retry when pod reconnects)
+- Rollback must preserve billing session state — never lose active session data during rollback
+- Cross-process update standing rule applies: feature changes must cascade to ALL affected components
+- Static CRT constraint remains — all binaries must be self-contained
+
 ## Current Milestone: v17.1 Watchdog-to-AI Migration
 
 **Goal:** Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery. Watchdogs do "if dead → restart" without understanding WHY, causing infinite loops, cascading conflicts (standing rule #10), and user-facing flicker. AI recovery does: detect → pattern memory → Tier 1 fix → escalate to AI → alert staff after 3+ failures.

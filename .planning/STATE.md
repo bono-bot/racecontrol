@@ -1,35 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v22.0
+milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: Completed 175-01-PLAN.md
-last_updated: "2026-03-23T04:33:25.908Z"
+stopped_at: null
+last_updated: "2026-03-23T18:00:00+05:30"
+current_phase: null
+current_phase_name: null
+current_plan: null
 progress:
-  total_phases: 130
-  completed_phases: 102
-  total_plans: 244
-  completed_plans: 241
----
-
----
-gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: in_progress
-stopped_at: "Completed 175-02-PLAN.md (Tasks 1-2). Task 3 checkpoint: awaiting human test execution when server is back online."
-last_updated: "2026-03-23T09:30:00+05:30"
-current_phase: 175
-current_phase_name: e2e-validation
-current_plan: 02
-progress:
-  total_phases: 130
-  completed_phases: 101
-  total_plans: 244
-  completed_plans: 241
-decisions:
-  - "175-02: run-cross-sync.sh uses inline fleet/health fallback when check-health.sh not found at deploy-staging path"
-  - "175-02: 3.4.5 timezone check automated via Python3 JSON parse of /api/v1/sessions for +05:30 offset"
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+decisions: []
+blockers: []
 ---
 
 ---
