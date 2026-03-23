@@ -5,6 +5,12 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 ---
 
+## 2026-03-23
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| Mar 23 14:46 IST | James | `21be6356` | fix: /api/v1/logs filename pattern mismatch — was reading stale racecontrol.log.* instead of current racecontrol-*.jsonl. API returned 3-day-old data (23 lines) instead of today's log (34K+ lines). Root cause: rolling appender format changed but reader not updated (cascade update violation). |
+
 ## 2026-03-22
 
 | Timestamp | Author | Commit | Summary |
