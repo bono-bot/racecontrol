@@ -148,11 +148,13 @@ fn main() {
                     );
                 }
 
-                // Pattern escalation: skip restart if same crash seen 3+ times (SENT-01)
+                // Pattern escalation: log AI escalation but STILL restart.
+                // Stopping recovery leaves rc-agent dead permanently (Pod 6 incident).
+                // Escalation adds diagnostic value — it doesn't replace recovery.
                 if should_escalate_pattern(pattern_hit_count) {
                     tracing::error!(
                         target: "crash-handler",
-                        "PATTERN ESCALATION: {} seen {} times — skipping restart, escalating to AI",
+                        "PATTERN ESCALATION: {} seen {} times — escalating to AI, then restarting",
                         pattern_key, pattern_hit_count
                     );
                     let mut decision = build_restart_decision(
@@ -164,11 +166,11 @@ fn main() {
                     );
                     decision.action = RecoveryAction::EscalateToAi;
                     decision.reason = format!(
-                        "pattern_seen_{}x threshold:{}",
+                        "pattern_seen_{}x threshold:{} — escalated but still restarting",
                         pattern_hit_count, PATTERN_ESCALATION_THRESHOLD
                     );
                     let _ = recovery_logger.log(&decision);
-                    continue;
+                    // Don't skip restart — fall through to handle_crash below
                 }
 
                 // For unknown patterns, consult Ollama BEFORE attempting restart (SENT-02)
