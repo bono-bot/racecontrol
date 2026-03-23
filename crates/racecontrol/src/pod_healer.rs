@@ -915,10 +915,10 @@ async fn check_rc_agent_health(
     // Use curl.exe instead of PowerShell — cmd.exe strips $ variables from
     // PowerShell commands, causing $r to disappear and the check to always return 0.
     // curl.exe -s -o NUL -w %{http_code} is cmd.exe-safe (no $ variables).
-    let cmd = r#"curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:18923/ --max-time 3"#;
+    let cmd = r#"curl.exe -s -o NUL -w %{http_code} http://127.0.0.1:18923/ --max-time 3"#;
     match exec_on_pod(state, pod_ip, cmd).await {
         Ok(output) => {
-            let code: u32 = output.trim().parse().unwrap_or(0);
+            let code: u32 = output.trim().trim_matches('"').parse().unwrap_or(0);
             Ok(code == 200)
         }
         Err(_) => Ok(true), // if pod-agent exec fails, assume healthy (safe default)
