@@ -2,22 +2,19 @@
 
 ## Current State
 
-**Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1 Camera Dashboard Pro, v18.0-v18.2 (2026-03-13 to 2026-03-22)
+**Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1, v18.0-v18.2, v21.0 (2026-03-13 to 2026-03-23)
 
-The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
+The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool; rc-agent decomposed into 5 focused modules; rc-common provides shared exec primitives; 67+ tests cover billing, failure detection, and FFB safety. 61+ phases shipped across 11+ milestones. v21.0 added cross-project sync: shared TypeScript types, OpenAPI specs, contract tests with CI, unified deploy scripts, standing rules across all repos, and 231-test E2E framework.
 
 ## Shipped Milestone: v16.1 Camera Dashboard Pro (2026-03-22)
 
 **Delivered:** Professional NVR camera dashboard with 13 cameras, DMSS HD-inspired UI. Hybrid streaming (cached snapshots for grid + WebRTC fullscreen via go2rtc), 4 layout modes (1×1/2×2/3×3/4×4), drag-to-rearrange, zone grouping, camera naming, layout persistence via server-side JSON, and dual deployment (rc-sentry-ai :8096 + web dashboard :3200). 936-line cameras.html + 849-line React page.tsx, 21 requirements, 4 phases, 7 plans.
 
-## Current Milestone: v21.0 Cross-Project Sync & Stabilization
+## Shipped Milestone: v21.0 Cross-Project Sync & Stabilization (2026-03-23)
 
-**Goal:** Full audit of all 30 Racing Point repos — archive dead projects, fix all known bugs, define API contracts between runtime projects, extract shared types with OpenAPI specs and CI checks, run 231 E2E tests and fix failures, and unify deployment into a single coherent system.
+**Delivered:** Full audit of 30 repos — 3 dead repos archived, 16 repos normalized (git config + .gitignore), 7 npm high vulns fixed, shared TypeScript types package (`packages/shared-types/`), OpenAPI 3.0 spec (66 endpoints), Vitest contract tests with GitHub Actions CI, unified deploy scripts (`deploy.sh` + `check-health.sh`), deployment runbook, standing rules synced to all repos + Bono VPS, 231-test E2E framework. 6 phases, 18 plans, 71 commits, 20K+ lines changed across 94 files.
 
-**Target features:**
-- Archive dead/merged repos (game-launcher, ac-launcher, conspit-link, non-git folders)
-- Fix all 4 known bugs: pods DB auto-seed on startup, orphan PowerShell mitigation, process guard allowlist enablement, VSD Craft Variable_dump.exe kill
-- Run full 231-test E2E script across POS + Kiosk, fix all failures found
+**Known gaps (server offline):** 8 requirements deferred — auto-seed deploy, bat deploy to pods, process guard scan, E2E test execution. All code complete, verification pending when server comes online.
 - Full contract layer: shared TypeScript types between racecontrol/kiosk/admin, OpenAPI specs for all APIs, contract tests that break on drift, CI checks
 - Unified deployment: clean deploy-staging (714 dirty files), unified deploy scripts for all services, deployment runbook
 

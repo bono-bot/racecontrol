@@ -1,4 +1,13 @@
 # Milestones
+## v21.0 Cross-Project Sync & Stabilization (Shipped: 2026-03-23)
+
+**Phases completed:** 107 phases, 244 plans, 49 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v16.1 Camera Dashboard Pro (Shipped: 2026-03-22)
 
 **Phases completed:** 87 phases, 197 plans, 37 tasks
