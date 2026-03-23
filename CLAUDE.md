@@ -106,8 +106,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Previous deploy-update.bat used `taskkill /F` which killed the exec handler mid-command, preventing the restart from executing. `RCAGENT_SELF_RESTART` spawns the new process before exiting — reliable across all pods._
 - **NEVER use `taskkill /F /IM rc-agent.exe` followed by `start` in the same exec chain.** The taskkill kills the process serving the exec endpoint — subsequent commands in the chain may never execute. Use `RCAGENT_SELF_RESTART` sentinel instead.
   _Why: Pod 5 went offline for 2+ minutes during v17.0 deploy because taskkill killed rc-agent before the restart command ran. rc-sentry eventually recovered it, but the gap is unacceptable._
-- **Server deploy (racecontrol):** SCP binary to server, `taskkill /F /IM racecontrol.exe`, `move /Y racecontrol-new.exe racecontrol.exe`, `schtasks /Run /TN StartRCTemp`. The scheduled task survives SSH disconnect.
-  _Why: SSH `start` command dies when SSH session closes. schtasks persists independently._
+- **Server deploy (racecontrol):** Download new binary FIRST (`curl.exe -o racecontrol-new.exe`), THEN `taskkill /F /IM racecontrol.exe`, THEN `move /Y racecontrol-new.exe racecontrol.exe`, THEN `schtasks /Run /TN StartRCTemp`. **NEVER combine taskkill + download in one exec chain** — racecontrol hosts the :8090 server_ops endpoint, so killing it kills the exec handler mid-download. Use SSH (`ssh ADMIN@192.168.31.23`) for the kill+swap+start steps.
+  _Why: SSH `start` command dies when SSH session closes — schtasks persists independently. Download must happen before kill because :8090 dies with racecontrol. Learned again in v23 deploy._
 - **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
@@ -144,8 +144,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: BOM and parentheses in .bat files cause silent command failures on Windows; caught after multiple broken deploys._
 - **Static CRT:** `.cargo/config.toml` `+crt-static` — no vcruntime140.dll dependency on pods.
   _Why: Pod images don't ship VS redistributables; dynamic CRT causes instant crash-on-launch._
-- **Cascade updates:** When changing a process, update ALL linked references (training data, playbooks, prompts, docs, memory). Never change one place and leave stale references.
-  _Why: Stale references in playbooks or prompts cause both AIs to apply the old behavior after a fix._
+- **Cascade updates:** When changing a process, update ALL linked references (training data, playbooks, prompts, docs, memory). Never change one place and leave stale references. This includes **data formats** — if you change how a file is written (name, format, location), grep for every reader of that file and update them too.
+  _Why: Stale references in playbooks or prompts cause both AIs to apply the old behavior after a fix. v23 example: rolling appender changed from `racecontrol.log.*` to `racecontrol-*.jsonl` but the `/api/v1/logs` reader still searched for the old name — API returned 3-day-old data silently for days._
 - **Next.js hydration:** Never read `sessionStorage`/`localStorage` in `useState` initializer — use `useEffect` + hydrated flag.
   _Why: SSR reads fail server-side; hydration mismatch breaks the entire page silently._
 - **Git Bash JSON:** Write JSON payloads to a file with Write tool, then `curl -d @file`. Bash string escaping mangles backslashes.
