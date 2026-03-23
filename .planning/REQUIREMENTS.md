@@ -63,6 +63,15 @@
 - [ ] **SYNC-05**: OTA release manifest includes version compatibility matrix — which rc-agent version works with which racecontrol version, which kiosk build, which config schema
 - [ ] **SYNC-06**: Standing rules gate script (gate-check.sh) extends the v21.0 E2E test framework (run-all.sh) — not a separate test system
 
+### Cross-Milestone Integration
+
+- [ ] **XMIL-01**: v6.0 Salt Fleet Management phases 36-40 reviewed — config distribution aspects superseded by v22.0 config push are marked, Salt scope narrowed to remote exec only or deprecated
+- [ ] **XMIL-02**: v10.0 Phase 62 (Fleet Config Distribution) marked superseded by v22.0 CP-01 to CP-06 — no duplicate config push system exists
+- [ ] **XMIL-03**: v13.0 Multi-Game Launcher incomplete phases updated to use Cargo feature gates (CF-01) for game telemetry modules and feature flags (FF-01) for per-pod game enablement
+- [ ] **XMIL-04**: v15.0 Phase 111 (Code Signing + Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) — no duplicate canary infrastructure
+- [ ] **XMIL-05**: v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) — cloud and local deploy share the same pipeline architecture
+- [ ] **XMIL-06**: All future phases across all milestones include standing rules gate dependency — no phase ships without gate-check.sh
+
 ## v22.x Requirements (Deferred)
 
 ### Advanced OTA
@@ -93,12 +102,57 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmapper) | | |
+| CF-01 | Phase 176 | Pending |
+| CF-02 | Phase 176 | Pending |
+| CF-03 | Phase 176 | Pending |
+| FF-01 | Phase 177 | Pending |
+| FF-02 | Phase 177 | Pending |
+| FF-03 | Phase 177 | Pending |
+| CP-01 | Phase 177 | Pending |
+| CP-02 | Phase 177 | Pending |
+| CP-04 | Phase 177 | Pending |
+| CP-05 | Phase 177 | Pending |
+| CP-06 | Phase 177 | Pending |
+| SYNC-01 | Phase 177 | Pending |
+| FF-04 | Phase 178 | Pending |
+| FF-05 | Phase 178 | Pending |
+| FF-07 | Phase 178 | Pending |
+| FF-08 | Phase 178 | Pending |
+| CP-03 | Phase 178 | Pending |
+| SYNC-03 | Phase 178 | Pending |
+| OTA-01 | Phase 179 | Pending |
+| OTA-02 | Phase 179 | Pending |
+| OTA-03 | Phase 179 | Pending |
+| OTA-04 | Phase 179 | Pending |
+| OTA-05 | Phase 179 | Pending |
+| OTA-06 | Phase 179 | Pending |
+| OTA-07 | Phase 179 | Pending |
+| OTA-08 | Phase 179 | Pending |
+| OTA-09 | Phase 179 | Pending |
+| OTA-10 | Phase 179 | Pending |
+| SYNC-02 | Phase 179 | Pending |
+| SYNC-05 | Phase 179 | Pending |
+| FF-06 | Phase 180 | Pending |
+| SYNC-04 | Phase 180 | Pending |
+| SR-01 | Phase 181 | Pending |
+| SR-02 | Phase 181 | Pending |
+| SR-03 | Phase 181 | Pending |
+| SR-04 | Phase 181 | Pending |
+| SR-05 | Phase 181 | Pending |
+| SR-06 | Phase 181 | Pending |
+| SR-07 | Phase 181 | Pending |
+| SYNC-06 | Phase 181 | Pending |
+| XMIL-01 | Phase 182 | Pending |
+| XMIL-02 | Phase 182 | Pending |
+| XMIL-03 | Phase 182 | Pending |
+| XMIL-04 | Phase 182 | Pending |
+| XMIL-05 | Phase 182 | Pending |
+| XMIL-06 | Phase 182 | Pending |
 
 **Coverage:**
-- v22.0 requirements: 40 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 40
+- v22.0 requirements: 46 total
+- Mapped to phases: 46
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-23*

@@ -273,6 +273,7 @@ Deploy three existing web properties (customer PWA, admin panel, live dashboard)
 ## Phase Details
 
 ### Phase 36: WSL2 Infrastructure
+**NOTE (v22.0):** v6.0 Salt Fleet Management scope overlaps significantly with v22.0 — config push (CP-01-06) supersedes Salt's config distribution, OTA pipeline (OTA-01-10) supersedes Salt's deploy orchestration. Remaining Salt value: remote shell exec on pods (not covered by v22.0 WebSocket config push). Review during Phase 182 whether Salt phases 36-40 should be narrowed to remote exec only or fully deprecated in favor of v22.0.
 **Goal**: James's machine (.27) runs a reachable salt-master — WSL2 Ubuntu 24.04 with mirrored networking so pods on 192.168.31.x can reach the master directly, both firewall layers open (Windows Defender + Hyper-V), salt-api running for racecontrol server integration, and the full stack auto-starts on Windows boot
 **Depends on**: Phase 35 (v5.5 Credits UI — last completed phase)
 **Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05
@@ -679,6 +680,7 @@ Plans:
 ### Phase 62: Fleet Config Distribution
 **Goal**: Configs validated on one pod can be pushed to all 8 pods atomically via rc-agent, with drift detection
 **Depends on**: Phase 60, Phase 61
+**NOTE (v22.0):** This phase is SUPERSEDED by v22.0 Config Push (CP-01 to CP-06, Phases 177-178). v22.0 delivers WebSocket config push, offline queue, hot-reload, schema versioning, audit log, and admin validation — covering all FLEET-01 through FLEET-06 requirements plus more. Do not implement this phase independently. See Phase 182 for integration plan.
 **Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, FLEET-06
 **Success Criteria** (what must be TRUE):
   1. racecontrol can push a config update to any/all pods via WebSocket and rc-agent writes it atomically (temp file + rename)
@@ -1546,6 +1548,7 @@ Plans:
 - [ ] 110-02-PLAN.md -- UDP socket lifecycle gating to Running state (HARD-04)
 
 ### Phase 111: Code Signing + Per-Game Canary Validation
+**NOTE (v22.0):** Binary identity (SHA256 hash) and canary Pod 8 pattern are formalized in v22.0 OTA-02 and OTA-10. Code signing should integrate with the OTA release manifest (OTA-01) — signtool runs during the build step, signed hash goes into release-manifest.toml. Per-game canary validation should use the v22.0 canary wave infrastructure rather than a separate process.
 **Goal**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate and signtool is integrated into the deploy pipeline; each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active, signed binaries running, and no anti-cheat warnings logged -- billing continuity is verified throughout
 **Depends on**: Phase 107 (certificate procurement -- OV cert must be in hand), Phase 109 (safe mode), Phase 110 (telemetry gating)
 **Requirements**: HARD-02, VALID-01, VALID-02
@@ -1798,6 +1801,7 @@ Plans:
 **Plans**: 2 plans
 
 ### Phase 127: CI/CD Pipeline
+**NOTE (v22.0):** Cloud deploy should use the same OTA pipeline architecture (OTA-08 state machine, OTA-03 health gates) as local fleet deploy. The deploy state machine, health gates, and standing rules gates from v22.0 Phases 179+181 should be the foundation — extended for cloud targets (PM2 on Bono's VPS via comms-link relay) rather than building a separate CI/CD system.
 **Goal**: Pushing to main automatically builds and deploys all services to the VPS
 **Depends on**: Phase 120
 **Requirements**: INFRA-04
@@ -2640,3 +2644,120 @@ Plans:
 | 173. API Contracts | 4/4 | Complete    | 2026-03-22 |
 | 174. Health Monitoring & Unified Deploy | 5/5 | Complete    | 2026-03-22 |
 | 175. E2E Validation | 2/2 | Complete    | 2026-03-23 |
+
+---
+
+## v22.0 Feature Management & OTA Pipeline
+
+### Phases
+
+- [ ] **Phase 176: Protocol Foundation + Cargo Gates** - Lay the rc-common protocol types and Cargo feature gate policy that every downstream phase depends on
+- [ ] **Phase 177: Server-Side Registry + Config Foundation** - Build the server feature flag registry, config push channel, and REST endpoints that the admin UI and agent consumer both require
+- [ ] **Phase 178: Agent-Side Consumer** - Wire rc-agent to receive and apply flag updates, config pushes, and OTA download messages over the existing WebSocket connection
+- [ ] **Phase 179: OTA Pipeline** - Implement the full state-machine-driven release pipeline -- canary, staged rollout, session-gated binary swap, health gates, and auto-rollback
+- [ ] **Phase 180: Admin Dashboard UI** - Deliver operator-facing feature toggle and OTA release pages in the admin dashboard
+- [ ] **Phase 181: Standing Rules Gate** - Codify all 41+ standing rules as machine-enforceable checks and wire them as pipeline gates
+
+## Phase Details
+
+### Phase 176: Protocol Foundation + Cargo Gates
+**Goal**: All new WebSocket message variants, shared types, and Cargo feature gate structure exist in rc-common so every downstream phase can reference them without coordination
+**Depends on**: Nothing (first phase of this milestone)
+**Requirements**: CF-01, CF-02, CF-03
+**Success Criteria** (what must be TRUE):
+  1. rc-agent compiles with --no-default-features and with default features -- both cargo build invocations succeed in CI
+  2. The 7 new WebSocket message variants (FlagSync, ConfigPush, OtaDownload, OtaAck, ConfigAck, KillSwitch, FlagCacheSync) are present in rc-common protocol.rs and accepted by serde with unknown variants ignored
+  3. The single-binary-tier policy is documented in rc-common or CLAUDE.md -- no per-pod compile-time variant scheme exists
+  4. rc-agent Cargo.toml lists telemetry, ai-debugger, and process-guard as optional features; default features include all three
+**Plans**: TBD
+
+### Phase 177: Server-Side Registry + Config Foundation
+**Goal**: Operators can create and read feature flags and queue config pushes via REST endpoints, with all changes persisted to SQLite and an audit log recording every mutation
+**Depends on**: Phase 176
+**Requirements**: FF-01, FF-02, FF-03, CP-01, CP-02, CP-04, CP-05, CP-06, SYNC-01
+**Success Criteria** (what must be TRUE):
+  1. A named boolean flag can be created with a fleet-wide default and a per-pod override via POST /api/v1/flags -- the value persists across server restart
+  2. A config push (billing rate change, game limit, etc.) submitted via REST is queued per-pod and delivered to a connected pod within seconds; the delivery is recorded in the audit log table with timestamp, field, old value, new value, and pushed_by
+  3. A config push with an invalid value (negative billing rate, empty allowlist) is rejected at the server with HTTP 400 and a field-level error message -- the invalid value is never queued for pods
+  4. The feature flag and config push endpoints are documented in the OpenAPI spec with shared TypeScript types in packages/shared-types/ -- the contract test passes
+  5. Offline pods receive queued config pushes on reconnect via sequence-number-based ack; no push is silently lost
+**Plans**: TBD
+
+### Phase 178: Agent-Side Consumer
+**Goal**: rc-agent receives flag updates, config pushes, and OTA download messages over WebSocket, applies hot-reloadable fields without restart, persists flags for offline startup, and writes the sentinel file before any binary swap
+**Depends on**: Phase 176
+**Requirements**: FF-04, FF-05, FF-07, FF-08, CP-03, SYNC-03
+**Success Criteria** (what must be TRUE):
+  1. A flag toggle on the server propagates to all connected pods within seconds -- game launch and billing guard code reads the updated flag on the next invocation without a binary restart
+  2. After the server connection drops, rc-agent reads flags-cache.json on startup and operates with last-known flags -- no panic, no config reset, no default fallback that contradicts the last server-pushed value
+  3. Kill-switch flags (kill_*) override all other flag logic -- when a kill switch is set on the server, rc-agent halts the associated feature path on the next invocation regardless of other flag state
+  4. Hot-reloadable config fields (billing rates, game limits, process guard whitelist, debug verbosity) update in-memory without restarting rc-agent; fields excluded from hot-reload (port bindings, WS URL) are documented and never accepted as hot updates
+  5. New WS message types are added to the shared TypeScript types package and a contract test verifies the rc-common Rust types and TypeScript types agree on field names and shapes
+**Plans**: TBD
+
+### Phase 179: OTA Pipeline
+**Goal**: A new rc-agent release can be deployed to the full fleet via a state-machine-driven pipeline that gates every wave on health checks, skips pods with active billing sessions, auto-rolls back on failure, and is impossible to interrupt without a trace
+**Depends on**: Phase 177, Phase 178
+**Requirements**: OTA-01, OTA-02, OTA-03, OTA-04, OTA-05, OTA-06, OTA-07, OTA-08, OTA-09, OTA-10, SYNC-02, SYNC-05
+**Success Criteria** (what must be TRUE):
+  1. A release manifest (release-manifest.toml) exists for every deployment attempt and locks binary SHA256, config schema version, frontend build_id, git commit, and timestamp as one bundle -- no manifest means no deploy starts
+  2. Deploying a new rc-agent binary to the fleet always hits Pod 8 first; the pipeline waits for health gate pass (WS connected, HTTP reachable, SHA256 matches manifest, no error spike) before advancing to the next wave
+  3. A pod with an active billing session is skipped during its wave and retried after session end -- billing data is never lost due to a mid-session binary swap
+  4. When the health gate fails after any wave, affected pods automatically revert to rc-agent-prev.exe and restart; the previous binary is always present on the pod and is never overwritten by the swap step
+  5. The pipeline state (idle, building, staging, canary, staged-rollout, health-checking, completed, rolling-back) is persisted to deploy-state.json and survives a server restart -- an interrupted deploy can be resumed, not re-run from scratch
+  6. rc-sentry, pod_monitor, and WoL all check the ota-in-progress.flag sentinel before triggering restarts during a deploy window -- no recovery system fights the OTA restarter
+  7. Binary identity uses SHA256 content hash, not git commit hash -- a docs-only commit does not trigger a redeploy
+**Plans**: TBD
+
+### Phase 180: Admin Dashboard UI
+**Goal**: Operators can toggle feature flags per-pod or fleet-wide and trigger OTA releases from the admin dashboard, with live wave progress, pod drain status, and rollback controls visible without a terminal
+**Depends on**: Phase 177
+**Requirements**: FF-06, SYNC-04
+**Success Criteria** (what must be TRUE):
+  1. The admin dashboard has a Feature Flags page with toggle switches for every registered flag, a scope selector for fleet-wide vs per-pod override, and immediate propagation to connected pods on toggle -- no deploy or restart required
+  2. The fleet health table shows a flag divergence column -- pods whose cached flags differ from the server registry are highlighted
+  3. The admin dashboard has an OTA Releases page showing current pipeline state, wave progress, per-pod deploy status (pending, deploying, draining, complete, failed), and a one-click rollback button that triggers revert to the previous known-good release
+  4. Pods with active billing sessions show a "draining" status during OTA rather than being skipped silently -- the operator can see which pods are waiting and why
+  5. Feature flag and config push changes made via the dashboard cascade visibly to all affected components (racecontrol, rc-agent, kiosk, admin) per the cross-process update standing rule -- the dashboard reflects the post-propagation state
+**Plans**: TBD
+
+### Phase 181: Standing Rules Gate
+**Goal**: Every standing rule is classified as AUTO, HUMAN-CONFIRM, or INFORMATIONAL and the appropriate enforcement mechanism fires at every pipeline step -- no gate can be bypassed, and HUMAN-CONFIRM rules pause the pipeline with a named checklist
+**Depends on**: Phase 179
+**Requirements**: SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, SYNC-06
+**Success Criteria** (what must be TRUE):
+  1. Every standing rule in CLAUDE.md is tagged AUTO, HUMAN-CONFIRM, or INFORMATIONAL -- the classification list is committed to the repo as a reference document
+  2. The pre-deploy gate script (gate-check.sh) runs before wave 1 of every OTA and checks: cargo test green, no unwrap in diff, static CRT config present, LOGBOOK updated, bat files clean ASCII -- the pipeline blocks if any check fails
+  3. The post-deploy verification gate runs after each wave and checks: build_id matches manifest, fleet health passes, billing session roundtrip works, no error spike -- the pipeline blocks the next wave if any check fails
+  4. There is no force-continue or skip-gate command -- the only exit from a failed gate is rollback
+  5. HUMAN-CONFIRM rules cause the pipeline to pause and emit a named operator checklist; the pipeline resumes only after explicit operator confirmation of each checklist item
+  6. CLAUDE.md has a new OTA Pipeline standing rules section covering: always preserve prev binary, never deploy without manifest, billing sessions drain before swap, OTA sentinel file protocol, config push never through fleet exec endpoint -- Bono receives these rules via standing rules sync
+  7. gate-check.sh extends the v21.0 run-all.sh E2E framework as a superset -- it does not create a parallel test system
+**Plans**: TBD
+
+### Phase 182: Cross-Milestone Integration
+**Goal**: All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push — overlapping phases superseded or merged, future phases gain v22.0 as a dependency
+**Depends on**: Phase 181
+**Requirements**: XMIL-01, XMIL-02, XMIL-03, XMIL-04, XMIL-05, XMIL-06
+**Success Criteria** (what must be TRUE):
+  1. v6.0 Salt Fleet Management phases 36-40 are reviewed — fleet config distribution aspects superseded by v22.0 config push are marked, Salt scope narrowed to remote exec only (or deprecated if v22.0 covers it)
+  2. v10.0 Phase 62 (Fleet Config Distribution) is marked superseded by v22.0 CP-01 to CP-06 — no duplicate config push system exists
+  3. v13.0 Multi-Game Launcher incomplete phases (82-88) updated to use Cargo feature gates (CF-01) for game telemetry modules and feature flags (FF-01) for per-pod game enablement
+  4. v15.0 Phase 111 (Code Signing + Per-Game Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) — no duplicate canary infrastructure
+  5. v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) — cloud deploy and local deploy share the same pipeline architecture
+  6. All future phases across all milestones include a standing rules gate dependency — no phase can ship without running gate-check.sh
+**Plans**: TBD
+
+## v22.0 Progress
+
+**Execution Order:** 176 -> 177 -> 178 (parallel with 177 after 176) -> 179 -> 180 (parallel with 179 after 177) -> 181 -> 182
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 176. Protocol Foundation + Cargo Gates | 0/TBD | Not started | - |
+| 177. Server-Side Registry + Config Foundation | 0/TBD | Not started | - |
+| 178. Agent-Side Consumer | 0/TBD | Not started | - |
+| 179. OTA Pipeline | 0/TBD | Not started | - |
+| 180. Admin Dashboard UI | 0/TBD | Not started | - |
+| 181. Standing Rules Gate | 0/TBD | Not started | - |
+| 182. Cross-Milestone Integration | 0/TBD | Not started | - |

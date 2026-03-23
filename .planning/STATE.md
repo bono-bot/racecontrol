@@ -2,18 +2,23 @@
 gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
-status: in_progress
+status: roadmap_ready
 stopped_at: null
-last_updated: "2026-03-23T18:00:00+05:30"
-current_phase: null
-current_phase_name: null
+last_updated: "2026-03-23T18:30:00+05:30"
+current_phase: 176
+current_phase_name: Protocol Foundation + Cargo Gates
 current_plan: null
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-decisions: []
+  percent: 0
+decisions:
+  - "Single-binary-tier policy adopted: per-pod behavioral differences expressed via runtime flag registry, not separate Cargo builds"
+  - "Phase ordering: 176 foundation -> 177 server and 178 agent (parallel) -> 179 OTA -> 180 admin UI (parallel with 179 after 177) -> 181 gates"
+  - "OTA binary identity uses SHA256 content hash not git commit hash per research pitfall 3"
+  - "Config push must NEVER route through fleet exec endpoint -- WebSocket typed ConfigPush only"
 blockers: []
 ---
 
