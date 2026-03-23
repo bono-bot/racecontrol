@@ -287,9 +287,16 @@ pub fn restart_service() -> CrashDiagResult {
     #[cfg(not(test))]
     {
         let cfg = sentry_config::load();
-        let result = std::process::Command::new("cmd")
-            .args(["/C", "start", "", &cfg.start_script])
-            .creation_flags(0x08000000)
+        // PowerShell + DETACHED_PROCESS is the ONLY combo that reliably launches
+        // into the interactive desktop from a hidden process on Windows.
+        // cmd /C start + CREATE_NO_WINDOW silently fails (spawn Ok but child never starts).
+        let ps_cmd = format!(
+            "Start-Process '{}' -WorkingDirectory 'C:\\RacingPoint'",
+            cfg.start_script
+        );
+        let result = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
+            .creation_flags(0x0000_0008) // DETACHED_PROCESS
             .spawn();
         let success = result.is_ok();
         CrashDiagResult {

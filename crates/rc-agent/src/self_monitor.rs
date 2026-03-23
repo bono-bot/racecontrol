@@ -235,6 +235,10 @@ pub fn relaunch_self() {
         tracing::warn!(target: LOG_TARGET, "Failed to write graceful relaunch sentinel: {}", e);
     }
 
+    // PowerShell + DETACHED_PROCESS is the ONLY combo that reliably relaunches on Windows.
+    // CREATE_NO_WINDOW and cmd.exe both fail to spawn into the interactive session.
+    // Known trade-off: PowerShell stays resident (~90MB per relaunch). Mitigated by
+    // start-rcagent.bat killing orphan powershell.exe on every boot.
     let ps_cmd = concat!(
         "Start-Sleep 3; ",
         "Start-Process 'C:\\RacingPoint\\rc-agent.exe' ",

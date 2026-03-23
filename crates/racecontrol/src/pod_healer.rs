@@ -912,7 +912,10 @@ async fn check_rc_agent_health(
     state: &Arc<AppState>,
     pod_ip: &str,
 ) -> anyhow::Result<bool> {
-    let cmd = r#"powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18923/' -TimeoutSec 3 -UseBasicParsing; $r.StatusCode } catch { 0 }""#;
+    // Use curl.exe instead of PowerShell — cmd.exe strips $ variables from
+    // PowerShell commands, causing $r to disappear and the check to always return 0.
+    // curl.exe -s -o NUL -w %{http_code} is cmd.exe-safe (no $ variables).
+    let cmd = r#"curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:18923/ --max-time 3"#;
     match exec_on_pod(state, pod_ip, cmd).await {
         Ok(output) => {
             let code: u32 = output.trim().parse().unwrap_or(0);
