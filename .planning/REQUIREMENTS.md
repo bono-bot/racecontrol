@@ -22,8 +22,8 @@
 
 ### E2E Testing
 
-- [ ] **E2E-01**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on POS (:3200)
-- [ ] **E2E-02**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on Kiosk (:8000)
+- [x] **E2E-01**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on POS (:3200)
+- [x] **E2E-02**: All 231 E2E tests from E2E-TEST-SCRIPT.md executed on Kiosk (:8000)
 - [ ] **E2E-03**: Cross-cutting real-time sync tests pass (POS action reflected on Kiosk and vice versa)
 - [ ] **E2E-04**: All test failures triaged, critical failures fixed, remaining documented as known issues
 
@@ -107,8 +107,8 @@ None — this milestone is stabilization, not feature work.
 | DEPS-01 | Phase 170 | Complete |
 | DEPS-02 | Phase 170 | Complete |
 | DEPS-03 | Phase 170 | Complete |
-| E2E-01 | Phase 175 | Pending |
-| E2E-02 | Phase 175 | Pending |
+| E2E-01 | Phase 175 | Complete |
+| E2E-02 | Phase 175 | Complete |
 | E2E-03 | Phase 175 | Pending |
 | E2E-04 | Phase 175 | Pending |
 
