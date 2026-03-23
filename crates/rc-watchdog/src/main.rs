@@ -14,6 +14,8 @@ use std::ffi::OsString;
 use tracing_subscriber::prelude::*;
 use windows_service::{define_windows_service, service_dispatcher};
 
+const BUILD_ID: &str = env!("GIT_HASH");
+
 define_windows_service!(ffi_service_main, service_main);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(subscriber)
             .init();
 
+        tracing::info!("RCWatchdog service starting (build {})", BUILD_ID);
         service_dispatcher::start("RCWatchdog", ffi_service_main)?;
     } else {
         // James monitor mode: single-shot check run (Task Scheduler every 2min)
@@ -49,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(subscriber)
             .init();
 
+        tracing::info!("rc-watchdog james monitor (build {})", BUILD_ID);
         james_monitor::run_monitor();
     }
 
