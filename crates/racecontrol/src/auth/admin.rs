@@ -181,6 +181,14 @@ mod tests {
     }
 
     #[test]
+    fn verify_261121_against_stored_hash() {
+        let hash = "$argon2id$v=19$m=19456,t=2,p=1$7HM4TtJrDU5lnhCTMIiusQ$3xT9d98mexHIx+4yWJwzDEfdls72XY+wEJVmR9aHFkU";
+        let result = verify_admin_pin("261121", hash);
+        println!("verify_admin_pin(261121) = {}", result);
+        assert!(result, "PIN 261121 should match the stored hash");
+    }
+
+    #[test]
     fn hash_admin_pin_produces_different_hashes_random_salt() {
         let h1 = hash_admin_pin("1234").unwrap();
         let h2 = hash_admin_pin("1234").unwrap();
