@@ -2622,7 +2622,11 @@ Plans:
   2. All 231 tests from E2E-TEST-SCRIPT.md execute against Kiosk (:8000) with no tests skipped due to environment issues - a results report exists
   3. Cross-cutting sync tests pass: a billing action on POS is reflected on Kiosk within the expected timeout, and a kiosk action is reflected on POS
   4. Every test failure has a triage entry: "fixed in this phase" with a commit hash, or "known issue" with root cause documented and a follow-up item filed
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 175-01-PLAN.md — Build run-e2e.sh test runner + E2E-REPORT-TEMPLATE.md (E2E-01, E2E-02 framework)
+- [ ] 175-02-PLAN.md — Cross-sync test guide, triage structure, human execution checkpoint (E2E-03, E2E-04)
 
 ## v21.0 Progress
 
