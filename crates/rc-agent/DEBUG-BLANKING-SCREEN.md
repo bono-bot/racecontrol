@@ -76,8 +76,57 @@ Edge kiosk mode fights against external window resizing.
 - `crates/rc-agent/src/lock_screen.rs:931` — `enforce_kiosk_foreground()`
 - `crates/rc-agent/src/lock_screen.rs:18923` — built-in HTTP server port
 
+## Approaches Tested (2026-03-23)
+
+| # | Approach | Result |
+|---|---------|--------|
+| 1 | `--kiosk --edge-kiosk-type=fullscreen` (original) | Single monitor only |
+| 2 | `--app=URL --start-fullscreen --window-size=7680,1440` | Still single monitor |
+| 3 | `--app` + `MoveWindow(0,0,7680,1440)` after 3s | Returns OK, doesn't visually span |
+| 4 | `--app` + `PostMessage(WM_KEYDOWN, VK_F11)` | Edge ignores posted keys |
+| 5 | `--app` + `keybd_event(VK_F11)` | F11 not received in --app mode |
+| 6 | `--app` + `SetWindowPos` via PowerShell | Dark background but dialog overlay |
+
+## Untested Approaches
+
+- **H6:** Normal Edge (no --kiosk/--app) + MoveWindow + F11 — manual F11 DOES span surround
+- **H7:** Native Win32 fullscreen window + WebView2 — full control, biggest change
+- **H8:** PowerShell `SendKeys('{F11}')` — targets focused app specifically
+- **H9:** Edge Group Policy kiosk — enterprise kiosk may handle surround
+
+## Playwright Screenshot Debug Methodology
+
+Tool: `C:/Users/bono/verify-pod-screen.js`
+```bash
+node verify-pod-screen.js <pod_ip> [output_path]
+```
+Checks: lock screen HTML, popup processes, resolution, centering.
+
+**Screenshot capture + download flow:**
+1. Write `capture-screen.ps1` via rc-agent `/write`
+2. Execute via rc-agent `/exec`
+3. Write `serve-png.ps1` via `/write` (PowerShell HTTP one-shot)
+4. Execute serve, download via `curl -o`
+5. Resize via Playwright for viewing
+
+## Deploy via Tailscale (Safe Method — No Display Disruption)
+
+```bash
+# SCP binary + bat (no process kill)
+scp User@<tailscale_ip>:"C:/RacingPoint/rc-agent-new.exe" rc-agent.exe
+scp -T User@<tailscale_ip>:"C:\\RacingPoint\\start-rcagent.bat" start-rcagent.bat
+# Reboot (bat swaps binary, NVIDIA Surround restores)
+ssh User@<tailscale_ip> "shutdown /r /t 5 /f"
+```
+
+**CRITICAL: Use Write tool for bat files, not bash heredoc.** Git Bash converts `nul` → `/dev/null`.
+
 ## DO NOT
 
-- **DO NOT restart explorer.exe on pods** — breaks NVIDIA Surround
-- **DO NOT taskkill overlay processes in bulk** — may kill rc-agent
-- **DO NOT use screenshot as sole verification** — CopyFromScreen triggers taskbar show
+- **DO NOT restart explorer.exe on pods** — breaks NVIDIA Surround (1024x768)
+- **DO NOT taskkill WindowsTerminal** — hosts rc-agent/rc-sentry processes
+- **DO NOT taskkill overlay processes in bulk** — may kill rc-agent children
+- **DO NOT use screenshot as sole diagnostic** — CopyFromScreen triggers taskbar
+- **DO NOT use bash heredoc for bat files** — Git Bash converts nul→/dev/null
+- **DO NOT deploy rc-agent via exec+schtasks** — restart breaks NVIDIA Surround. Use Tailscale SCP + reboot
+- **DO NOT kill Edge processes remotely** — triggers NVIDIA Surround collapse
