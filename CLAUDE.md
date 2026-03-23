@@ -22,8 +22,8 @@
 | Pod 6 | 192.168.31.87 | 30-56-0F-05-45-6E | Tailscale: sim6 / 100.127.149.17 |
 | Pod 7 | 192.168.31.38 | 30-56-0F-05-44-B4 | Tailscale: sim7 / 100.82.196.28 |
 | Pod 8 | 192.168.31.91 | 30-56-0F-05-46-C5 | Tailscale: sim8 / 100.98.67.67 |
-| Server | 192.168.31.23 | 10-FF-E0-80-B1-A7 | Racing-Point-Server, 64GB RAM, DHCP (needs reservation) |
-| James | 192.168.31.27 | D8-BB-C1-CD-B3-CF | RTX 4070, static IP, Ollama :11434 |
+| Server | 192.168.31.23 | 10-FF-E0-80-B1-A7 | Racing-Point-Server, 64GB RAM, Tailscale: 100.125.108.37 (james@ node), Node v24.14.0 |
+| James | 192.168.31.27 | D8-BB-C1-CD-B3-CF | RTX 4070, static IP, Ollama :11434, Node v22.22.0, go2rtc :1984 |
 | POS PC | 192.168.31.20 | 10-4A-7D-5B-C4-DA | WiFi, Tailscale: pos1/100.95.211.1 |
 | Spectator | 192.168.31.200 | 00-E0-4C-77-77-DF | WiFi, DeskIn: 712 906 402 |
 | Router | 192.168.31.1 | | |
@@ -55,13 +55,20 @@
 
 | Service | Port | Location | Start |
 |---------|------|----------|-------|
-| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run) |
+| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run). Build: `129a24f2` |
+| server_ops | 8090 | Server .23 | Part of racecontrol binary |
 | kiosk | 3300 | Server .23 | Scheduled task |
 | web dashboard | 3200 | Server .23 | Scheduled task |
-| rc-agent remote_ops | 8090 | All pods | `start-rcagent.bat` (HKLM Run) |
+| rc-agent | 8090 | All pods | `start-rcagent.bat` (HKLM Run). Build: `82bea1eb` |
+| rc-sentry | 8091 | All pods | `start-rcsentry.bat` (HKLM Run). Build: `a6894d34` |
+| go2rtc | 1984 | James .27 | `go2rtc.exe` — 29 RTSP streams, API on :1984 (NOT 8096) |
+| comms-link relay | 8766 | James .27 | `start-comms-link.bat`, Task Scheduler every 2min watchdog |
+| AI healer | — | James .27 | `rc-watchdog.exe` via `CommsLink-DaemonWatchdog` task, 10 services, Ollama diagnosis |
 | webterm | 9999 | James .27 | `python C:/Users/bono/racingpoint/deploy-staging/webterm.py` |
-| Ollama | 11434 | James .27 | qwen2.5:3b — venue-only |
-| Cloud API | 443 | 72.60.101.58 | app.racingpoint.cloud (Bono's VPS) |
+| Ollama | 11434 | James .27 | qwen2.5:3b + llama3.1:8b — venue-only |
+| rc-sentry-ai | — | James .27 | Face detection on 3 cameras (cam2, cam9, entrance) |
+| Cloud racecontrol | 8080 | Bono VPS | pm2 `racecontrol`. Build: `129a24f2` |
+| Cloud comms-link | 8765 | Bono VPS | pm2 `comms-link` — WS server |
 
 ---
 
@@ -356,7 +363,10 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 ## Current Blockers
 
 - v6.0 blocked on BIOS AMD-V (SVM Mode disabled on server Ryzen 7 5800X) — does not affect v9.0
-- Gmail OAuth tokens expired — MCP Gmail needs re-authorization before Phase 52
+- ~~Gmail OAuth tokens expired~~ — RESOLVED 2026-03-22
 - Pod 6 UAC prompt (2026-03-16) — unknown install request, under investigation
 - USB mass storage lockdown pending (Group Policy)
 - Server DHCP reservation needed: MAC 10-FF-E0-80-B1-A7 → 192.168.31.23
+- Server .23 Node v24.14.0 should be downgraded to v22 LTS at next maintenance window (no runtime impact — build-only)
+- Process guard in `report_only` mode — monitor 24-48h then switch to `kill_and_report`
+- Server .23 Tailscale re-authenticated under `james@` (node `racing-point-server-1`, IP 100.125.108.37). Old `bono@` node (`racing-point-server`, 100.71.226.83) is stale — remove from Tailscale admin console
