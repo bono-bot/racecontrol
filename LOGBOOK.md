@@ -28,7 +28,14 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 23 17:35 IST | James | `97540a27` | docs: standing rule — convert timestamps before counting events |
 | Mar 23 17:45 IST | James | `c807759` | fix: comms-link health_check pointed at :8766 (James) but runs on Bono (:8765) |
 | Mar 23 18:00 IST | James | N/A | fix: Node v22.14.0 → v22.22.0 on James (match Bono LTS) |
-| Mar 23 14:46 IST | James | `21be6356` | fix: /api/v1/logs filename pattern mismatch — was reading stale racecontrol.log.* instead of current racecontrol-*.jsonl. API returned 3-day-old data (23 lines) instead of today's log (34K+ lines). Root cause: rolling appender format changed but reader not updated (cascade update violation). |
+| Mar 23 18:30 IST | James | `e7067b94` | fix: build.rs rerun-if-changed=build.rs for reliable GIT_HASH (all 3 crates) |
+| Mar 23 18:45 IST | James | `0bebb9aa` | fix: process guard .exe suffix mismatch — sysinfo returns names without .exe |
+| Mar 23 19:00 IST | James | `da649c9b` | fix: UDP heartbeat bind retries 5 times with backoff on port conflict |
+| Mar 23 19:10 IST | James | `96022f01` | feat: 20-phase operations audit protocol (AUDIT-PROTOCOL.md) |
+| Mar 23 19:30 IST | James | `03c0c57` | fix: comms-link health_check — node exec self-test (avoids event loop deadlock) |
+| Mar 23 20:00 IST | James | `973fd8d0` | fix: lock screen --app mode instead of --kiosk for multi-monitor spanning |
+| Mar 23 20:15 IST | James | `a8b324d8` | fix: keybd_event F11 instead of PostMessage (Edge ignores posted keys) |
+| Mar 23 21:30 IST | James | `5fc80759` | docs: blanking screen investigation — 6 approaches tested, handoff doc + Playwright methodology |
 
 ## 2026-03-22
 
