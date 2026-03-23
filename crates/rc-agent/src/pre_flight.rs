@@ -638,6 +638,7 @@ const POPUP_BLOCKLIST: &[&str] = &[
     "phoneexperiencehost.exe",
     "widgets.exe",
     "widgetservice.exe",
+    "gopro webcam.exe",
 ];
 
 /// Check for processes with visible windows that would overlay the blanking screen.
@@ -703,10 +704,11 @@ async fn check_popup_windows() -> CheckResult {
 
 // ─── Auto-Fix Functions ───────────────────────────────────────────────────────
 
-/// Kill all blocklisted popup-overlay processes.
+/// Kill all blocklisted popup-overlay processes by PID.
 ///
-/// Uses taskkill /F /IM for each process in POPUP_BLOCKLIST.
-/// Returns after attempting to kill all — re-check verifies success.
+/// Uses sysinfo to find PIDs, then taskkill /F /PID for each.
+/// PID-based kill avoids the cmd.exe quoting problem with process names
+/// that contain spaces (e.g. "GoPro Webcam.exe", "NVIDIA Overlay.exe").
 async fn fix_popup_windows() {
     #[cfg(test)]
     return;
@@ -714,12 +716,22 @@ async fn fix_popup_windows() {
     #[cfg(not(test))]
     {
         let _ = spawn_blocking(|| {
-            for &name in POPUP_BLOCKLIST {
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/IM", name])
-                    .output();
+            use sysinfo::{ProcessesToUpdate, System};
+
+            let mut sys = System::new();
+            sys.refresh_processes(ProcessesToUpdate::All, true);
+
+            for p in sys.processes().values() {
+                let name = p.name().to_string_lossy().to_lowercase();
+                if POPUP_BLOCKLIST.iter().any(|&blocked| name == blocked) {
+                    let pid = p.pid().as_u32();
+                    tracing::info!(target: LOG_TARGET, "Killing popup process: {} (PID {})", name, pid);
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
             }
-            // Brief sleep to let processes exit
+
             std::thread::sleep(std::time::Duration::from_millis(500));
         })
         .await;
