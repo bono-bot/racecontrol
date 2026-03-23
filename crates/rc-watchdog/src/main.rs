@@ -1,7 +1,7 @@
 //! rc-watchdog: Windows service (pod mode) + James monitor (standalone mode).
 //!
 //! With --service flag: Windows SYSTEM service monitoring rc-agent on pods.
-//! Without --service flag: James monitor mode (Task Scheduler, single-shot).
+//! Without --service flag: James monitor mode (persistent daemon, checks every 2min).
 
 mod bono_alert;
 mod failure_state;
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("RCWatchdog service starting (build {})", BUILD_ID);
         service_dispatcher::start("RCWatchdog", ffi_service_main)?;
     } else {
-        // James monitor mode: single-shot check run (Task Scheduler every 2min)
+        // James monitor mode: persistent daemon with internal 2-min loop
         let file_appender = tracing_appender::rolling::daily(
             r"C:\Users\bono\.claude",
             "rc-watchdog.log",
@@ -52,8 +52,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(subscriber)
             .init();
 
-        tracing::info!("rc-watchdog james monitor (build {})", BUILD_ID);
-        james_monitor::run_monitor();
+        tracing::info!("rc-watchdog james daemon starting (build {})", BUILD_ID);
+        loop {
+            james_monitor::run_monitor();
+            std::thread::sleep(std::time::Duration::from_secs(120));
+        }
     }
 
     Ok(())
