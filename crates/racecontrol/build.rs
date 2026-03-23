@@ -9,6 +9,15 @@ fn main() {
         .unwrap_or_else(|| "dev".to_string());
 
     println!("cargo:rustc-env=GIT_HASH={hash}");
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/refs/heads");
+
+    // Watch .git/HEAD (detects branch switches) AND the actual ref file
+    // (detects new commits on the current branch). Without the ref file,
+    // cargo caches the old GIT_HASH across commits on the same branch.
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    if let Ok(head) = std::fs::read_to_string("../../.git/HEAD") {
+        let head = head.trim();
+        if let Some(ref_path) = head.strip_prefix("ref: ") {
+            println!("cargo:rerun-if-changed=../../.git/{ref_path}");
+        }
+    }
 }
