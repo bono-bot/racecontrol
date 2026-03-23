@@ -8,8 +8,8 @@
 //!   recovered: reset count, log pattern for future memory
 //!
 //! Services monitored (9 total):
-//!   Local (.27): ollama, comms-link, webterm, claude-code, rc-sentry
-//!   Server (.23): racecontrol, kiosk, dashboard, go2rtc
+//!   Local (.27): ollama, comms-link, rc-sentry, webterm, claude-code, go2rtc
+//!   Server (.23): racecontrol, kiosk, dashboard
 //!   Network: tailscale connectivity to Bono VPS
 
 use rc_common::recovery::{
@@ -105,9 +105,9 @@ fn services() -> Vec<ServiceConfig> {
         },
         ServiceConfig {
             name: "go2rtc",
-            check: ServiceCheck::Http("http://192.168.31.23:8096/api"),
-            restart_cmd: None,
-            log_path: None,
+            check: ServiceCheck::Http("http://127.0.0.1:1984/api"),
+            restart_cmd: None, // Runs on James (.27), port 1984 — alert only
+            log_path: Some(r"C:\RacingPoint\go2rtc\go2rtc.log"),
         },
         // === Network connectivity ===
         ServiceConfig {
