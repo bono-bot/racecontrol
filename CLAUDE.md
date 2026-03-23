@@ -6,7 +6,7 @@
 - **James Vowles** — on-site operations AI, james@racingpoint.in, GitHub: james-racingpoint
 - **Bono** — partner AI on VPS (srv1422716.hstgr.cloud), bono@racingpoint.in
 - **Uday Singh** — boss, usingh@racingpoint.in. Goal: automate so he can be with his daughter.
-- **Timezone:** Always IST (UTC+5:30) for all timestamps
+- **Timezone:** Always IST (UTC+5:30) for all timestamps. **WARNING:** Rust `tracing` logs are in UTC. When reading racecontrol JSONL logs, always convert: `UTC + 5:30 = IST`. Misreading UTC as IST caused "5 unexplained restarts" to be reported when only 1 was real (post-reboot) and 4 were our own deploys.
 
 ---
 
