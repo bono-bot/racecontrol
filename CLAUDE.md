@@ -198,6 +198,13 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **cmd.exe is hostile to quoting.** Any command routed through rc-agent's `/exec` endpoint goes through `cmd /C`. Strings with spaces, `$`, `"`, or `\` WILL be mangled. Use PID-based targeting (taskkill /F /PID), write batch files to the pod, or use sysinfo/Win32 APIs in Rust — avoid cmd.exe string interpretation entirely.
   _Why: `taskkill /F /IM "GoPro Webcam.exe"` fails because CreateProcessW wraps the /C arg in outer quotes → cmd.exe sees nested quotes → parse breaks. PowerShell `$r` variable stripped by cmd.exe caused the original pod healer flicker bug._
 
+- **`.spawn().is_ok()` does NOT mean the child started.** On Windows, `spawn()` returning Ok only means CreateProcess was accepted, NOT that the target is running. Always verify the child process is alive after spawn — poll `/health`, check `tasklist`, or read a sentinel file written by the child.
+  _Why: rc-sentry's `restart_service()` returned Ok for cmd/C start, PowerShell Start-Process, AND schtasks — all three silently failed to start rc-agent. Pods stayed dead for days because "restarted=true" was logged but never verified._
+- **Non-interactive Windows context cannot launch interactive processes.** `cmd /C start`, `PowerShell Start-Process`, and `schtasks /Run` all fail when called from `std::process::Command` with `CREATE_NO_WINDOW` in a non-interactive session. The ONLY proven working path is: call through an HTTP `/exec` endpoint that uses `cmd /C` (different process creation context), or register a Windows Service with SCM.
+  _Why: rc-sentry tested 3 different launch methods — all returned success, all silently failed. The same schtasks command worked via the `/exec` HTTP endpoint but not from Rust's Command::new(). Four E2E test cycles were needed to confirm this._
+- **MAINTENANCE_MODE sentinel is a silent pod killer.** Once `C:\RacingPoint\MAINTENANCE_MODE` is written (after 3 restarts in 10 min), ALL restarts stop permanently with no timeout, no auto-clear, no alert to staff. Before any restart debugging, ALWAYS clear: `del MAINTENANCE_MODE GRACEFUL_RELAUNCH rcagent-restart-sentinel.txt`.
+  _Why: E2E test declared "restart fix doesn't work" twice before discovering MAINTENANCE_MODE was blocking all restarts from a previous crash storm._
+
 ### Debugging
 
 - **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others.
