@@ -95,6 +95,14 @@ pub async fn run(state: &AppState, ffb: &dyn FfbBackend, ws_connect_elapsed_secs
             }
             // HID: no auto-fix available (hardware)
             // Orphan game: kill IS the fix — check_orphan_game returns Pass after kill
+
+            if result.name == "popup_windows" {
+                tracing::warn!(target: LOG_TARGET, "Popup windows detected ({}), killing blocklisted processes", result.detail);
+                fix_popup_windows().await;
+                let new_result = check_popup_windows().await;
+                tracing::info!(target: LOG_TARGET, "Popup windows after auto-fix: {:?}", new_result.status);
+                *result = new_result;
+            }
         }
     }
 
@@ -122,7 +130,7 @@ async fn run_concurrent_checks(
     game_pid: Option<u32>,
     ws_connect_elapsed_secs: u64,
 ) -> Vec<CheckResult> {
-    let (hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab) = tokio::join!(
+    let (hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups) = tokio::join!(
         check_hid(ffb),
         check_conspit(),
         check_orphan_game(billing_active, has_game_process, game_pid),
@@ -132,8 +140,9 @@ async fn run_concurrent_checks(
         check_disk_space(),
         check_memory(),
         check_ws_stability(ws_connect_elapsed_secs),
+        check_popup_windows(),
     );
-    vec![hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab]
+    vec![hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups]
 }
 
 // ─── Individual Check Functions ───────────────────────────────────────────────
@@ -613,7 +622,109 @@ async fn check_ws_stability(ws_connect_elapsed_secs: u64) -> CheckResult {
     }
 }
 
+// ─── DISP-03: Popup Windows Check ─────────────────────────────────────────────
+
+/// Processes whose visible windows are known to overlay the lock/blanking screen.
+/// These must NOT have visible windows during a customer session.
+const POPUP_BLOCKLIST: &[&str] = &[
+    "m365copilot.exe",
+    "nvidia overlay.exe",
+    "amdow.exe",
+    "amdrssrcext.exe",
+    "amdrsserv.exe",
+    "windowsterminal.exe",
+    "onedrive.sync.service.exe",
+    "ccbootclient.exe",
+    "phoneexperiencehost.exe",
+    "widgets.exe",
+    "widgetservice.exe",
+];
+
+/// Check for processes with visible windows that would overlay the blanking screen.
+///
+/// Uses spawn_blocking + sysinfo to scan processes, then checks against the blocklist.
+/// Returns Warn with list of offenders (auto-fix will kill them).
+/// Returns Pass if none found.
+async fn check_popup_windows() -> CheckResult {
+    #[cfg(not(windows))]
+    return CheckResult {
+        name: "popup_windows",
+        status: CheckStatus::Pass,
+        detail: "Popup check skipped (non-Windows)".into(),
+    };
+
+    #[cfg(windows)]
+    {
+        let result = spawn_blocking(|| {
+            use sysinfo::{ProcessesToUpdate, System};
+
+            let mut sys = System::new();
+            sys.refresh_processes(ProcessesToUpdate::All, true);
+
+            let mut offenders: Vec<String> = Vec::new();
+            for p in sys.processes().values() {
+                let name = p.name().to_string_lossy().to_lowercase();
+                if POPUP_BLOCKLIST.iter().any(|&blocked| name == blocked) {
+                    offenders.push(name);
+                }
+            }
+
+            // Deduplicate (multiple instances of same process)
+            offenders.sort();
+            offenders.dedup();
+
+            if offenders.is_empty() {
+                CheckResult {
+                    name: "popup_windows",
+                    status: CheckStatus::Pass,
+                    detail: "No popup-overlay processes detected".into(),
+                }
+            } else {
+                CheckResult {
+                    name: "popup_windows",
+                    status: CheckStatus::Fail,
+                    detail: format!(
+                        "Popup-overlay processes running: {}",
+                        offenders.join(", ")
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|e| CheckResult {
+            name: "popup_windows",
+            status: CheckStatus::Warn,
+            detail: format!("spawn_blocking panicked in popup check: {}", e),
+        });
+
+        result
+    }
+}
+
 // ─── Auto-Fix Functions ───────────────────────────────────────────────────────
+
+/// Kill all blocklisted popup-overlay processes.
+///
+/// Uses taskkill /F /IM for each process in POPUP_BLOCKLIST.
+/// Returns after attempting to kill all — re-check verifies success.
+async fn fix_popup_windows() {
+    #[cfg(test)]
+    return;
+
+    #[cfg(not(test))]
+    {
+        let _ = spawn_blocking(|| {
+            for &name in POPUP_BLOCKLIST {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/IM", name])
+                    .output();
+            }
+            // Brief sleep to let processes exit
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        })
+        .await;
+    }
+}
 
 /// Attempt to restart ConspitLink.exe.
 ///
@@ -773,15 +884,14 @@ mod tests {
     // ─── Concurrent runner tests ──────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_concurrent_checks_returns_five() {
-        // Historical name kept; now expects 9 after the 99-01 expansion.
+    async fn test_concurrent_checks_returns_ten() {
         let mut mock = MockHidBackend::new();
         mock.expect_zero_force().returning(|| Ok(true));
         let results = run_concurrent_checks(&mock, false, false, None, 60).await;
         assert_eq!(
             results.len(),
-            9,
-            "run_concurrent_checks now returns 9 results (4 new checks in 99-01)"
+            10,
+            "run_concurrent_checks now returns 10 results (DISP-03 popup check added)"
         );
     }
 
@@ -874,14 +984,14 @@ mod tests {
     // ─── 9-way concurrent runner test ────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_concurrent_checks_returns_nine() {
+    async fn test_concurrent_checks_returns_ten_v2() {
         let mut mock = MockHidBackend::new();
         mock.expect_zero_force().returning(|| Ok(true));
         let results = run_concurrent_checks(&mock, false, false, None, 60).await;
         assert_eq!(
             results.len(),
-            9,
-            "run_concurrent_checks must return exactly 9 results after 4 new checks"
+            10,
+            "run_concurrent_checks must return exactly 10 results (DISP-03 popup check)"
         );
     }
 }
