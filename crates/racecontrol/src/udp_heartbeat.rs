@@ -35,7 +35,38 @@ pub fn spawn(state: Arc<AppState>) {
 }
 
 async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", HEARTBEAT_PORT)).await?;
+    // Retry bind with backoff — previous instance may still hold the port in TIME_WAIT.
+    // Without retry, a fast restart kills the entire heartbeat subsystem permanently.
+    let socket = {
+        let mut last_err = None;
+        let mut bound = None;
+        for attempt in 0..5 {
+            match UdpSocket::bind(format!("0.0.0.0:{}", HEARTBEAT_PORT)).await {
+                Ok(s) => {
+                    if attempt > 0 {
+                        tracing::info!(
+                            "UDP heartbeat bind succeeded on attempt {} after {}s",
+                            attempt + 1, attempt * 2
+                        );
+                    }
+                    bound = Some(s);
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "UDP heartbeat bind attempt {} failed (retrying in {}s): {}",
+                        attempt + 1, (attempt + 1) * 2, e
+                    );
+                    last_err = Some(e);
+                    tokio::time::sleep(std::time::Duration::from_secs((attempt + 1) * 2)).await;
+                }
+            }
+        }
+        match bound {
+            Some(s) => s,
+            None => return Err(last_err.unwrap().into()),
+        }
+    };
     tracing::info!("UDP heartbeat listener started on port {}", HEARTBEAT_PORT);
 
     let mut buf = [0u8; 64]; // Ping is 12 bytes, generous buffer
