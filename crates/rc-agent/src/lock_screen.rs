@@ -715,16 +715,21 @@ impl LockScreenManager {
                                 unsafe { SetForegroundWindow(hwnd); }
                                 std::thread::sleep(std::time::Duration::from_millis(500));
 
-                                // Step 3: Send F11 to enter browser fullscreen (spans all monitors)
-                                // WM_KEYDOWN=0x0100, WM_KEYUP=0x0101, VK_F11=0x7A
-                                unsafe {
-                                    PostMessageA(hwnd, 0x0100, 0x7A, 0); // F11 down
-                                    PostMessageA(hwnd, 0x0101, 0x7A, 0); // F11 up
+                                // Step 3: Send F11 using keybd_event (real keyboard simulation)
+                                // PostMessage F11 doesn't work — Edge ignores posted key messages.
+                                // keybd_event simulates at the OS input level, which Edge respects.
+                                unsafe extern "system" {
+                                    fn keybd_event(bvk: u8, bscan: u8, flags: u32, extra: usize);
                                 }
-                                tracing::info!(target: LOG_TARGET, "Sent F11 to Edge for browser fullscreen (spanning {}x{})", fw, fh);
+                                // VK_F11=0x7A, KEYEVENTF_KEYUP=0x0002
+                                unsafe {
+                                    keybd_event(0x7A, 0, 0, 0);          // F11 down
+                                    keybd_event(0x7A, 0, 0x0002, 0);     // F11 up
+                                }
+                                tracing::info!(target: LOG_TARGET, "Sent F11 via keybd_event for browser fullscreen (spanning {}x{})", fw, fh);
 
-                                // Step 4: Retry MoveWindow after F11 to ensure full coverage
-                                std::thread::sleep(std::time::Duration::from_secs(1));
+                                // Step 4: Wait for F11 fullscreen to take effect, then retry MoveWindow
+                                std::thread::sleep(std::time::Duration::from_secs(2));
                                 unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1); }
                             } else {
                                 tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — MoveWindow skipped", child_pid);
