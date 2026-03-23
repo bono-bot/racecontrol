@@ -274,7 +274,10 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
     }
 }
 
-/// Restart the monitored service by launching its start script.
+/// Restart the monitored service via schtasks (Windows Task Scheduler).
+/// PowerShell Start-Process and cmd /C start both silently fail from
+/// non-interactive service contexts. schtasks /Run runs in SYSTEM context
+/// and reliably launches into the interactive desktop.
 pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
@@ -287,24 +290,42 @@ pub fn restart_service() -> CrashDiagResult {
     #[cfg(not(test))]
     {
         let cfg = sentry_config::load();
-        // PowerShell + DETACHED_PROCESS is the ONLY combo that reliably launches
-        // into the interactive desktop from a hidden process on Windows.
-        // cmd /C start + CREATE_NO_WINDOW silently fails (spawn Ok but child never starts).
-        let ps_cmd = format!(
-            "Start-Process '{}' -WorkingDirectory 'C:\\RacingPoint'",
-            cfg.start_script
-        );
-        let result = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
-            .creation_flags(0x0000_0008) // DETACHED_PROCESS
-            .spawn();
-        let success = result.is_ok();
+        // Create/update the scheduled task (idempotent — /F overwrites)
+        let create = std::process::Command::new("schtasks")
+            .args([
+                "/Create", "/TN", "StartRCAgent",
+                "/TR", &cfg.start_script,
+                "/SC", "ONCE", "/ST", "00:00",
+                "/F", "/RU", "SYSTEM",
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+
+        if let Err(e) = &create {
+            tracing::error!(target: LOG_TARGET, "schtasks /Create failed: {}", e);
+            return CrashDiagResult {
+                fix_type: "restart".to_string(),
+                detail: format!("schtasks create failed: {}", e),
+                success: false,
+            };
+        }
+
+        // Run the task
+        let run = std::process::Command::new("schtasks")
+            .args(["/Run", "/TN", "StartRCAgent"])
+            .creation_flags(0x08000000)
+            .output();
+
+        let success = run.as_ref().map(|o| o.status.success()).unwrap_or(false);
         CrashDiagResult {
             fix_type: "restart".to_string(),
             detail: if success {
-                format!("{} restarted via {}", cfg.service_name, cfg.start_script)
+                format!("{} restarted via schtasks StartRCAgent", cfg.service_name)
             } else {
-                format!("Failed to start {}", cfg.start_script)
+                let stderr = run.as_ref()
+                    .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+                    .unwrap_or_default();
+                format!("schtasks /Run failed: {}", stderr)
             },
             success,
         }
