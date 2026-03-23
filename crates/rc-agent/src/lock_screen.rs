@@ -606,11 +606,15 @@ impl LockScreenManager {
         // MoveWindow after 3s ensures coverage on both single and multi-monitor setups.
         let use_window_sizing = true;
 
+        // Use --app mode instead of --kiosk for multi-monitor spanning.
+        // --kiosk fullscreens to primary monitor only, ignoring --window-size.
+        // --app creates a chromeless window that respects MoveWindow + SetWindowPos.
+        // After positioning, we send F11 for browser fullscreen spanning all monitors.
+        let app_url = format!("--app={}", url);
+
         for edge_path in &edge_paths {
             let mut args: Vec<&str> = vec![
-                "--kiosk",
-                &url,
-                "--edge-kiosk-type=fullscreen",
+                &app_url,
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-notifications",
@@ -626,12 +630,13 @@ impl LockScreenManager {
                 "--disable-translate",
                 "--disable-features=FileSystemAPI",
                 "--disable-file-system",
-                "--incognito",
+                "--inprivate",
                 "--disable-pinch",
                 "--disable-print-preview",
                 "--no-experiments",
                 "--disable-background-networking",
                 "--block-new-web-contents",
+                "--start-fullscreen",
             ];
             if use_window_sizing {
                 args.push(&window_pos);
@@ -653,6 +658,8 @@ impl LockScreenManager {
                     // Force the window to cover the full virtual screen after launch.
                     // Uses EnumWindows + GetWindowThreadProcessId to find OUR Edge window,
                     // not FindWindowA which grabs ConspitLink WebView2 windows.
+                    // Position Edge window to span all monitors, then F11 for browser fullscreen.
+                    // --app mode respects MoveWindow (unlike --kiosk which fights it).
                     {
                         let (fx, fy, fw, fh) = (vx, vy, vw, vh);
                         std::thread::spawn(move || {
@@ -662,13 +669,14 @@ impl LockScreenManager {
                             unsafe extern "system" {
                                 fn MoveWindow(hwnd: isize, x: i32, y: i32, w: i32, h: i32, repaint: i32) -> i32;
                                 fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
+                                fn SetForegroundWindow(hwnd: isize) -> i32;
                                 fn EnumWindows(callback: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
                                 fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
                                 fn GetClassNameA(hwnd: isize, buf: *mut u8, max: i32) -> i32;
                                 fn IsWindowVisible(hwnd: isize) -> i32;
+                                fn PostMessageA(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
                             }
 
-                            // Collect all Chrome_WidgetWin_1 windows belonging to our Edge PID
                             static mut FOUND_HWND: isize = 0;
                             static mut TARGET_PID: u32 = 0;
 
@@ -682,11 +690,11 @@ impl LockScreenManager {
                                         let class = std::str::from_utf8_unchecked(&class_buf[..len as usize]);
                                         if class == "Chrome_WidgetWin_1" {
                                             FOUND_HWND = hwnd;
-                                            return 0; // stop enumerating
+                                            return 0;
                                         }
                                     }
                                 }
-                                1 // continue
+                                1
                             }
 
                             unsafe {
@@ -697,10 +705,27 @@ impl LockScreenManager {
 
                             let hwnd = unsafe { FOUND_HWND };
                             if hwnd != 0 {
-                                // SW_MAXIMIZE = 3 — force fullscreen in case --kiosk didn't work
-                                unsafe { ShowWindow(hwnd, 3); }
+                                // Step 1: Position window to span all monitors
+                                unsafe { ShowWindow(hwnd, 9); } // SW_RESTORE — exit any maximized state first
+                                std::thread::sleep(std::time::Duration::from_millis(200));
                                 let ok = unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1) };
                                 tracing::info!(target: LOG_TARGET, "MoveWindow(Edge pid={}, hwnd={}, {},{},{},{}) = {}", child_pid, hwnd, fx, fy, fw, fh, ok);
+
+                                // Step 2: Bring to foreground
+                                unsafe { SetForegroundWindow(hwnd); }
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                                // Step 3: Send F11 to enter browser fullscreen (spans all monitors)
+                                // WM_KEYDOWN=0x0100, WM_KEYUP=0x0101, VK_F11=0x7A
+                                unsafe {
+                                    PostMessageA(hwnd, 0x0100, 0x7A, 0); // F11 down
+                                    PostMessageA(hwnd, 0x0101, 0x7A, 0); // F11 up
+                                }
+                                tracing::info!(target: LOG_TARGET, "Sent F11 to Edge for browser fullscreen (spanning {}x{})", fw, fh);
+
+                                // Step 4: Retry MoveWindow after F11 to ensure full coverage
+                                std::thread::sleep(std::time::Duration::from_secs(1));
+                                unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1); }
                             } else {
                                 tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — MoveWindow skipped", child_pid);
                             }
