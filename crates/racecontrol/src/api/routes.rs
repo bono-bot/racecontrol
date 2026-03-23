@@ -12776,7 +12776,7 @@ async fn get_server_logs(Query(q): Query<LogsQuery>) -> Json<Value> {
                     e.path()
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .map(|n| n.starts_with("racecontrol.log"))
+                        .map(|n| n.starts_with("racecontrol"))
                         .unwrap_or(false)
                 })
                 .collect();
