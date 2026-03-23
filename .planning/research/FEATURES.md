@@ -1,244 +1,309 @@
-# Feature Research: v16.1 Camera Dashboard Pro — Professional NVR Dashboard
+# Feature Research: v22.0 Feature Management & OTA Pipeline
 
-**Domain:** Professional NVR camera dashboard (web, venue operations, 13x Dahua cameras)
-**Researched:** 2026-03-22
-**Confidence:** HIGH (codebase audit of existing cameras/page.tsx, nvr.rs, config.rs, mjpeg.rs; competitor analysis of DMSS HD, Hik-Connect, Frigate, camera.ui, Blue Iris; go2rtc documentation)
+**Domain:** Feature flag registry, OTA update pipeline, fleet config distribution, standing rules codification
+**Researched:** 2026-03-23
+**Confidence:** HIGH (Martin Fowler feature toggles canonical reference, Memfault OTA best practices, Unleash architecture docs, OpenFeature spec, policy-as-code literature; cross-checked against existing racecontrol codebase constraints)
 
 ---
 
 ## Context: What Already Exists (Do Not Re-Build)
 
-| Already Shipped in v16.0 | Net New for v16.1 |
-|--------------------------|-------------------|
-| 13-camera snapshot grid at `/cameras/live` | Layout mode switcher (1x1, 2x2, 3x3, 4x4) |
-| Auto-refreshing snapshot cache in rc-sentry-ai | WebRTC fullscreen via go2rtc (single camera, sub-second latency) |
-| NVR digest auth proxy (`NvrClient` in nvr.rs) | Camera friendly names (display labels, not stream names) |
-| MJPEG streaming for 3 cameras (entrance, reception, reception_wide) | Drag-to-rearrange grid order with persistence |
-| Click-to-fullscreen (basic, shows cached snapshot) | Preference persistence (localStorage JSON for layout + order + names) |
-| `CameraConfig` in TOML (name, stream_name, role, fps, nvr_channel) | All 13 cameras added to go2rtc |
-| `/api/v1/cameras` endpoint returning CameraInfo[] | Fullscreen WebRTC upgrade on click |
-| Dual deployment: rc-sentry-ai (:8096) + server web dashboard | Standalone dashboard page accessible from server |
+| Already in production | What v22.0 builds on top of |
+|-----------------------|------------------------------|
+| TOML static config (racecontrol.toml, rc-agent.toml, rc-sentry-ai.toml) — requires restart on change | Runtime config push replaces manual TOML edits |
+| Manual binary deploy: scp + taskkill + restart, canary (Pod 8 first) | OTA pipeline formalizes this pattern with health gates and auto-rollback |
+| RCAGENT_SELF_RESTART sentinel for graceful pod agent restart | OTA pipeline hooks into this — no new restart mechanism needed |
+| Fleet health endpoint: GET /api/v1/fleet/health with build_id, uptime, version per pod | Health gate evaluates this endpoint post-deploy |
+| Admin dashboard (Next.js) for staff operations | Feature flag UI is a new section in this existing dashboard |
+| Existing WebSocket connection between server and each rc-agent | Config push and feature flag delivery uses this — no new transport |
+| rc-common shared types/protocol crate | Flag registry types, release manifest, config push message types go here |
+| 41+ standing rules in CLAUDE.md | Automated pipeline gates replace manual verification of each rule |
+| comms-link relay for James↔Bono AI coordination | Cloud services OTA goes through Bono; relay used for cross-machine coordination |
 
-The existing snapshot grid is the foundation. v16.1 layers professional NVR UX on top of it without replacing the snapshot cache approach (which correctly handles 13 cameras efficiently).
+---
+
+## The Three-Way Distinction (Critical)
+
+These three concepts are commonly conflated. They are not the same system and must not be collapsed into one.
+
+| Concept | What changes | Delivery | Restart required | Rollback mechanism |
+|---------|-------------|----------|------------------|--------------------|
+| **Feature flag** | Which code path is taken at runtime | WebSocket push, persisted in server DB | No | Set flag back to old value |
+| **Runtime config** | Parameters (rates, timeouts, thresholds) | WebSocket push, persisted in TOML + DB | No (hot-reload via Arc<RwLock>) | Push previous config version |
+| **OTA binary update** | The compiled binary itself | Download + sentinel restart | Yes (RCAGENT_SELF_RESTART) | Swap back previous binary file |
+
+Conflating these leads to: feature flags that require restarts (wrong), config changes that accidentally deploy new code (wrong), or OTA pipelines that try to toggle individual features (over-engineered).
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Users Expect These)
+### Table Stakes: Feature Flag System
 
-Features that any professional NVR dashboard has. Missing these makes the dashboard feel like a prototype.
+Features that any production feature flag system must have. Missing these makes the system untrustworthy for operators.
 
-| # | Feature | Why Expected | Complexity | Dependency on Existing |
-|---|---------|--------------|------------|------------------------|
-| TS-1 | **Layout mode switcher: 1x1, 2x2, 3x3, 4x4** | DMSS HD, Hik-Connect, Blue Iris all offer selectable grid layouts as the primary navigation paradigm. Staff expect to choose between overview (4x4, all cameras) and focused view (2x2, specific area). This is the first thing a user looks for on any NVR dashboard. | LOW | Grid is already CSS. Add a layout selector UI component that changes the `grid-cols-N` Tailwind class. State managed in React. |
-| TS-2 | **Camera friendly names (display labels)** | "cam_entrance_01" is unreadable on an operational dashboard. Every professional NVR (Dahua NVR OSD, Hikvision, Blue Iris) shows human-readable location names. Staff need "Entrance", "Cashier", "Pod Area 1" — not stream names. | LOW | `CameraConfig` already has `name` field. Add optional `display_name` to TOML. Fall back to `name` if not set. Frontend reads display_name from API response. No backend database change needed. |
-| TS-3 | **Click-to-fullscreen with WebRTC live video** | The existing click-to-fullscreen shows a cached snapshot — this is not fullscreen in any professional sense. DMSS HD, Hik-Connect, and Frigate all switch to a live stream when you open a camera fullscreen. Staff opening a camera in fullscreen expect real-time video, not a photo. | MEDIUM | go2rtc already running with 3 cameras. Embed `<iframe src="http://192.168.31.27:1984/stream.html?src={stream_name}&mode=webrtc">` in fullscreen modal. Must add all 13 cameras to go2rtc config. |
-| TS-4 | **Camera online/offline status indicators** | Status dots already exist in the UI but are based on snapshot fetch success — not a dedicated health check. Every professional NVR shows per-camera connectivity status. If a camera is offline, staff need to know immediately without trying to view it. | LOW | Status already in `CameraInfo.status` from backend. UI already shows colored dots. This is table stakes because it must be reliable — the dot must reflect actual camera state, not just "did the last snapshot fetch work". |
-| TS-5 | **Persistent layout preference (survives page reload)** | Hik-Connect and Blue Iris remember the last layout mode the user selected. A dashboard that resets to default every refresh forces staff to reconfigure on every load. Layout choice must persist in localStorage. | LOW | Pure frontend. `useEffect` to read/write `localStorage.setItem('rp_camera_layout', mode)`. Hydration-safe (read in useEffect, not useState initializer — per CLAUDE.md rules). |
-| TS-6 | **Loading state and error fallback per camera** | Professional NVR dashboards show a placeholder (dark tile with camera name) when a camera is loading or fails. The current UI shows nothing or blank while snapshots load. Staff need to distinguish "loading" from "offline" from "working". | LOW | Already partially implemented with `isOffline()` check. Extend to show skeleton placeholder during initial snapshot fetch and distinguish timeout/error states. |
-| TS-7 | **Camera count and status summary in header** | DMSS HD and Frigate both show "12/13 cameras online" or equivalent in the dashboard header. Staff need at-a-glance venue health without counting dots. | LOW | Compute from `cameras.filter(c => c.status === 'connected').length` on the frontend. No backend change. |
+| # | Feature | Why Expected | Complexity | Dependency |
+|---|---------|--------------|------------|------------|
+| FF-1 | **Central flag registry with named boolean flags** | Every fleet management system (Unleash, LaunchDarkly, FeatBit) has a named registry. Without a registry, flags are scattered ad-hoc strings with no single source of truth. Admin dashboard and rc-agent must both read from the same registry. | LOW | New table `feature_flags(name, enabled, pod_id_override, updated_at)` in racecontrol SQLite DB |
+| FF-2 | **Fleet-wide default + per-pod override** | A flag disabled fleet-wide must still be activatable on Pod 8 (canary) only. This is the core canary testing pattern. Without per-pod override, every flag change is fleet-wide and there is no safe testing path. | MEDIUM | Override row has `pod_id` column (NULL = all pods). rc-agent receives its own pod_id-specific flag set on connect. |
+| FF-3 | **Flag delivery over existing WebSocket (no new ports)** | Explicit constraint from milestone: feature toggles must work over existing WebSocket agent connection. This is also good engineering — one protocol, one reconnect logic, no firewall changes. | MEDIUM | New WebSocket message type `FlagSync { flags: HashMap<String, bool> }` in rc-common. Sent on connect and on change. |
+| FF-4 | **In-memory flag read on pod (no server round-trip per request)** | Flag evaluation must be synchronous in rc-agent hot paths (game launch, billing guard). A network call per flag evaluation would add latency on every game event. Cache flags locally in `AppState`, update via WS message. | LOW | `Arc<RwLock<HashMap<String, bool>>>` in rc-agent AppState. Already exists as a pattern (billing rate cache refreshes every 60s). |
+| FF-5 | **Offline pod fallback to last-known flags** | Pods must operate when server is unreachable. Last-received flags must persist in rc-agent.toml or local state file and be read on startup. Missing = pod stalls on unknown flag state at startup. | MEDIUM | Persist flags to `C:\RacingPoint\flags-cache.json` on every WS sync. Read on startup before server connects. |
+| FF-6 | **Admin UI to toggle flags per-pod or fleet-wide** | Operators must not edit the database directly to change flags. The admin dashboard already exists — add a Flags section with toggle switches and per-pod scope selector. | MEDIUM | New Next.js page section in racingpoint-admin. Calls new REST endpoints: `GET /api/v1/flags`, `POST /api/v1/flags/{name}`. |
+| FF-7 | **Flag change propagates immediately (no deploy, no restart)** | This is the entire value of feature flags. If changing a flag requires a restart, it is just a config file by another name. Propagation must be push-based over WebSocket within seconds of admin toggle. | MEDIUM | Server broadcasts `FlagSync` message to all connected pods on every flag write. |
+| FF-8 | **Kill switch capability (disable flag overrides flag hierarchy)** | Kill switches are the emergency brake. A kill switch must be evaluatable even if the normal flag evaluation path has a bug. Pattern: kill switches are checked before all other flag logic. | LOW | Convention: flags named `kill_*` always take priority. Checked first in flag evaluation logic. |
 
-### Differentiators (Competitive Advantage)
+### Table Stakes: OTA Pipeline
 
-Features that make this dashboard notably better than generic NVR UIs for the specific venue context.
+Features that any production OTA system must have. Without these, OTA is less reliable than the current manual deploy.
+
+| # | Feature | Why Expected | Complexity | Dependency |
+|---|---------|--------------|------------|------------|
+| OTA-1 | **Atomic release manifest (binaries + config + frontend as one versioned bundle)** | Deploying binary v1.2 with config expecting v1.1 fields causes runtime errors. A release manifest locks binary version + config schema version + frontend build_id into one artifact. Roll back the manifest = roll back all three. | HIGH | New `release-manifest.toml` format: `{ version, git_sha, rc_agent_binary_hash, racecontrol_binary_hash, config_schema_version, frontend_build_id, timestamp }`. Checked into `deploy-staging/` per release. |
+| OTA-2 | **Canary-first to Pod 8 (already the pattern — formalize it)** | Pod 8 canary is already the established rule in CLAUDE.md. OTA formalizes it: pipeline always deploys to Pod 8 first, waits for health gate pass before continuing. | LOW | Pipeline config: `canary_pods = [8]`, `canary_wait_secs = 60`, `canary_health_threshold = 1.0` (100% pod health required). |
+| OTA-3 | **Health gate after each pod wave (not just Pod 8)** | Staged rollout patterns (Memfault, Google Play, mobile OTA) all require success thresholds before expanding. Health gate checks: WS connected, HTTP reachable, version == expected, build_id == manifest, no error spike. | MEDIUM | `check-health.sh` already exists from v21.0. OTA pipeline calls it between waves. New: version/build_id assertion against manifest. |
+| OTA-4 | **Auto-rollback on health gate failure** | Manual rollback during an incident is slow and error-prone. If health gate fails within a configurable window, the pipeline must automatically push the previous manifest to affected pods. This is the safety net that makes OTA trustworthy. | HIGH | A/B binary slot pattern: keep `rc-agent-prev.exe` alongside `rc-agent.exe`. Rollback = swap and RCAGENT_SELF_RESTART. Rollback manifest = previous release-manifest.toml. |
+| OTA-5 | **Billing session preservation during rollback** | Explicit constraint from milestone: rollback must never lose active session data. A rollback during an active billing session must preserve the session (in-memory state or DB flush before restart). | HIGH | Drain pattern: rc-agent defers binary swap until current session ends, or checkpoints session state to DB before swapping. |
+| OTA-6 | **Staged wave rollout (canary → half fleet → full fleet)** | Rolling all 8 pods simultaneously is the current worst-case. Staged rollout lets a bad deploy affect 1 pod, not 8. Standard pattern: wave 1 = canary (Pod 8), wave 2 = 4 pods, wave 3 = remaining pods. | MEDIUM | Pipeline script drives waves. After canary passes, prompt (or auto after timeout) before wave 2. After wave 2 passes, proceed to wave 3. |
+| OTA-7 | **Previous binary preserved for one-command rollback** | If auto-rollback fails or was not triggered, operators need a manual escape hatch. `rc-agent-prev.exe` on each pod = one command to revert without re-downloading. | LOW | Already partially true (old binary remains until next deploy). Formalize: `rc-agent-prev.exe` is ALWAYS preserved, never overwritten by the swap step. |
+| OTA-8 | **Deploy state machine (not a linear bash script)** | OTA for a fleet has states: idle, building, staging, canary, staged-rollout, health-checking, completed, rolling-back. A state machine prevents partial-state bugs (half the fleet on new version, half on old, pipeline crashes). | HIGH | Rust or Node.js state machine in `deploy-staging/`. Persists state to `deploy-state.json`. Can resume interrupted deploys. |
+
+### Table Stakes: Config Push
+
+| # | Feature | Why Expected | Complexity | Dependency |
+|---|---------|--------------|------------|------------|
+| CP-1 | **Server-to-pod config push over WebSocket (no manual TOML editing)** | Editing TOML on 8 pods via scp is the status quo. Any config change to billing rates, game limits, process guard entries requires manual fleet touch. Config push is the replacement. | MEDIUM | New WS message `ConfigUpdate { version: u32, fields: HashMap<String, Value> }`. rc-agent applies to in-memory config without restart. |
+| CP-2 | **Offline queue: config updates persist until pod reconnects** | A pod that is offline when a config change is pushed must receive the change when it reconnects. Without queuing, offline pods silently diverge from the configured state. | MEDIUM | Server maintains pending config queue per pod_id. On WS reconnect, server sends all queued updates. rc-agent acks each with sequence number. |
+| CP-3 | **Hot-reload for runtime config without binary restart** | The milestone explicitly requires hot-reload where possible. Pattern: `Arc<RwLock<Config>>` in rc-agent AppState. WS handler acquires write lock, updates fields, releases. Next request reads updated value. | MEDIUM | Fields that can hot-reload: billing rates, game session limits, process guard whitelist entries, debug verbosity. Fields that cannot: port bindings, WS server address (require restart — document this explicitly). |
+| CP-4 | **Config schema version + conflict resolution** | If server pushes config v3 to a pod still running rc-agent binary v2 (which only understands config v2), unknown fields should be ignored, not cause a panic. Config version mismatch must be logged and reported to admin dashboard. | MEDIUM | `config_schema_version` field in release manifest. rc-agent only applies config fields it knows about. Unknown fields: warn + ignore. |
+| CP-5 | **Config push audit log** | Who changed what and when. Required for operational accountability. If a config change caused an incident, the audit trail shows what changed 5 minutes before. | LOW | Append-only log table `config_changes(timestamp, field, old_value, new_value, pushed_by, pods_acked)` in racecontrol DB. |
+| CP-6 | **Admin validation before push (schema check, range check)** | Wrong config pushed to pods must be caught before reaching pods. Server validates config change against schema before accepting it. Example: billing rate of 0 or negative must be rejected. | LOW | Input validation in REST endpoint handler. Return 400 with field-level error messages. Never push invalid config to pods. |
+
+### Table Stakes: Cargo Feature Gates
+
+| # | Feature | Why Expected | Complexity | Dependency |
+|---|---------|--------------|------------|------------|
+| CF-1 | **Cargo feature flags for major modules in rc-agent** | Modules like telemetry, AI debugger, process guard, and camera AI are large and optional. Compile-time gates allow building a minimal rc-agent binary for pods that don't need all features (e.g., a pod without a camera for AI). Reduces binary size and attack surface. | MEDIUM | Add `[features]` section to `crates/rc-agent/Cargo.toml`. Feature names: `telemetry`, `ai-debugger`, `process-guard`, `camera-ai`. Default features include everything needed for production. |
+| CF-2 | **Default features = production build (no manual flag selection required)** | Martin Fowler's toggle types: release toggles should be opt-in via compile flag, not require operators to remember which flags to pass. Default features = the build that goes to pods. Non-default = optional for testing. | LOW | `[features] default = ["telemetry", "process-guard"]`. AI debugger and camera AI are opt-in. |
+| CF-3 | **Feature-gated modules must compile cleanly with and without their feature** | A feature gate that causes compile errors when disabled is useless. CI must verify the non-default build compiles. | LOW | CI build matrix: `cargo build --release` (default) + `cargo build --release --no-default-features` (minimal). |
+
+### Table Stakes: Standing Rules Codification
+
+| # | Feature | Why Expected | Complexity | Dependency |
+|---|---------|--------------|------------|------------|
+| SR-1 | **All 41+ CLAUDE.md standing rules classified by enforcement type** | Rules have different enforcement strategies: some are static analysis (no unwrap in Rust), some are runtime checks (health gate passes), some are pre-deploy scripts (cargo test green). Without classification, automation is ad-hoc and incomplete. | MEDIUM | Classification schema: STATIC (linter/compiler), TEST (cargo test / npm test), DEPLOY-GATE (script check before release), RUNTIME-MONITOR (post-deploy check), CONVENTION (documented but not automated). |
+| SR-2 | **Pre-deploy gate script: runs before any binary leaves staging** | Replaces manual Ultimate Rule pre-flight. Script checks: cargo test green, no unwrap in diff, static CRT config present, LOGBOOK updated, bat files clean ASCII. Blocks deploy if any check fails. | MEDIUM | `deploy-staging/gate-check.sh`. Called before wave 1 starts. Exit code 0 = proceed, non-zero = abort. |
+| SR-3 | **Post-deploy verification gate: runs after each wave** | After pods receive new binary, automated checks verify: build_id matches manifest, health endpoints pass, billing session roundtrip works, no error spike in logs. This is the automated replacement for manual E2E. | HIGH | Extends existing `check-health.sh` with version assertions. New `e2e-quick.sh` for post-wave verification (subset of full 231-test E2E). |
+| SR-4 | **Pipeline blocks until ALL gates pass — no human bypass** | Explicit constraint from milestone. Pipeline state machine must reject manual "skip gate" commands. The only valid progressions are: gate passes naturally, or rollback is triggered. | MEDIUM | State machine has no `force_continue` transition from a failed health check state. The only exit from `health_check_failed` is `trigger_rollback`. |
+| SR-5 | **Standing rules for the OTA system itself (new rules)** | The OTA system introduces new failure modes: stuck deploy states, manifest version drift, rollback loops. New standing rules must cover: always preserve prev binary, never deploy without manifest, rollback window must be defined, billing sessions drain before swap. | LOW | New standing rules section in CLAUDE.md: `### OTA Pipeline`. Document at build time. |
+
+---
+
+## Differentiators
+
+Features that make this OTA/flag system notably better than generic solutions for this specific venue context.
 
 | # | Feature | Value Proposition | Complexity | Notes |
 |---|---------|-------------------|------------|-------|
-| D-1 | **Drag-to-rearrange camera grid order** | camera.ui offers this; DMSS HD and Hik-Connect require settings menus instead. Drag-to-rearrange lets staff organize cameras logically (entrance cameras together, pod area cameras together) without editing config files. Persisted to localStorage so order survives reload. | MEDIUM | Use `@dnd-kit/core` (lightweight, no jQuery dependency). Each camera tile is a draggable item. On drag end, update `cameraOrder` array in state and persist to `localStorage.setItem('rp_camera_order', JSON.stringify(order))`. The order array maps display positions to camera names. |
-| D-2 | **Hybrid streaming: snapshot grid + WebRTC on demand** | Frigate pioneered this pattern: show snapshots for all cameras (low bandwidth) and switch to live stream only for the selected camera (high quality). This is the right approach for 13 cameras on a LAN — streaming 13 WebRTC streams simultaneously would saturate the NVR RTSP output. Snapshot grid for overview, WebRTC only when a camera is clicked. | LOW | Architecture already correct. Grid uses cached snapshots (existing). Fullscreen modal loads go2rtc iframe (TS-3). The pattern is the differentiator — document it explicitly so it is not "fixed" to stream all cameras. |
-| D-3 | **Camera grouping by location zone** | DMSS HD organizes cameras "by room" (their terminology). For Racing Point, natural zones are: Entrance/Reception, Pod Area, Cashier/Admin, Exterior. Grouping lets staff switch between "show all" and "show pod area only" without manually navigating a layout. | MEDIUM | Add `zone` field to `CameraConfig` in TOML. Frontend groups cameras by zone in the grid header. Layout switcher can optionally filter by zone. No backend API change — zone comes through existing `/api/v1/cameras` endpoint by adding `zone` to `CameraInfo`. |
-| D-4 | **Auto-refresh rate control** | The current dashboard has a single Refresh button. DMSS HD supports configurable snapshot refresh intervals. For an operational venue dashboard, staff want fast refresh (5s) during incidents and slower refresh (30s) during normal ops. Reduce NVR load and browser tab CPU with a rate slider or preset buttons. | LOW | Frontend-only. Replace fixed interval with configurable one. Persist choice in localStorage. Presets: "5s (incident)", "15s (active)", "30s (normal)". |
-| D-5 | **Snapshot timestamp overlay on each tile** | Professional NVR dashboards show when the snapshot was last captured on each tile. This lets staff confirm the feed is live and current. Especially important when a camera appears online but the snapshot is stale. | LOW | `CameraInfo` currently lacks `last_snapshot_at`. Add this field to the backend response (track timestamp when snapshot was cached). Frontend renders "3s ago" overlay on each tile. |
-| D-6 | **Single-camera focused view (1x1 large)** | Hik-Connect supports tapping a camera to expand it to full page without leaving the dashboard context. Different from fullscreen (which opens a modal/overlay). This "featured camera" mode shows one camera large with the others in a sidebar column. | MEDIUM | Add a "feature" click action (distinct from fullscreen click). Selected camera renders in main area (3/4 width), remaining cameras in compact sidebar (1/4 width). No streaming change needed — still uses snapshots. |
+| D-1 | **Billing-aware deploy drain** | Generic OTA systems ignore application state. Draining billing sessions before binary swap ensures no customer is mid-session during a pod restart. No competitor (Memfault, Mender) does this automatically — it requires application-level hooks. | HIGH | rc-agent exposes `PendingRestartState`. When `RCAGENT_SELF_RESTART` is queued, rc-agent finishes current billing session first (max drain timeout: 15 min), then swaps. Admin dashboard shows "draining" pod status. |
+| D-2 | **Per-pod feature flag visibility in fleet health dashboard** | Standard feature flag UIs show aggregate state (flag X is on). Racing Point's admin dashboard should show per-pod flag state alongside per-pod health. Operator sees immediately if Pod 3 is running a different flag set than Pod 8. | MEDIUM | Admin dashboard fleet health table gains a "Flags" column showing flag divergence (grey = same as server, orange = drift detected). |
+| D-3 | **Config drift detection (server vs pod comparison)** | After a config push, if a pod is offline and misses the push, its config drifts from the server's intended state. Drift detection runs every 5 min and surfaces diverged pods in the admin dashboard with the specific fields that differ. | MEDIUM | rc-agent sends `ConfigChecksum(hash_of_current_config)` on every health ping. Server compares against expected config hash for that pod. Mismatch = show drift warning in dashboard. |
+| D-4 | **Atomic release rollback across binary + config + frontend** | Most OTA systems roll back the binary only. Config and frontend may still be on the new version. Rolling back the manifest reverts all three atomically — binary, config schema version, and frontend build_id — so all components stay synchronized. | HIGH | Rollback pushes previous `release-manifest.toml`. Pipeline reads it and redeploys each component from the previous version. |
+| D-5 | **Anti-cheat safe mode flag** | The v15.0 anti-cheat milestone needs a runtime flag to disable risky subsystems when EAC/iRacing AC is running. This is a perfect feature flag use case: `disable_process_guard_eac`, `disable_hooks_eac`. Without the flag system, safe mode requires a binary with different compile flags — a much heavier change. | LOW | These are the first real-world consumers of the feature flag system. They prove the system works before adding more complex flags. Document as the canonical usage example. |
 
-### Anti-Features (Do Not Build)
+---
 
-| Anti-Feature | Why Requested | Why Problematic | Alternative |
-|--------------|---------------|-----------------|-------------|
-| **Simultaneous WebRTC streams for all 13 cameras** | "Shouldn't the live view show live video for all cameras?" | The Dahua NVR supports limited simultaneous RTSP connections. 13 concurrent WebRTC streams via go2rtc saturates the NVR RTSP output, causes frame drops across all streams, and spikes browser CPU to unusable levels. Frigate explicitly avoids this with smart streaming. | Hybrid approach: cached snapshots for grid (low bandwidth, low NVR load), WebRTC only for the single camera being viewed in fullscreen. |
-| **RTSP direct browser streaming** | "Skip go2rtc, just serve RTSP in the browser" | Browsers cannot play RTSP natively. Embedding RTSP requires a VLC plugin or browser extension that is not installable on venue machines. | go2rtc already handles RTSP-to-WebRTC transcoding. Use go2rtc's iframe embed approach (TS-3). |
-| **Recording playback from NVR in the dashboard** | "Staff should be able to review footage from the dashboard" | NVR playback from browser requires either raw DAV format support (browser cannot play .dav files without codec), or re-encoding on the fly (high CPU). The NVR API for file search (`nvr.rs` `search_files()`) is already implemented but playback is a separate milestone concern. `playback/page.tsx` already exists as a placeholder. | Keep playback in the existing `/cameras/playback` page. Do not mix it into the live dashboard. |
-| **Motion detection alerts in the dashboard** | "Show a red border when motion is detected" | Motion detection from the Dahua NVR requires a separate event stream subscription (TCP push or AMQP), not available via the existing HTTP CGI interface. Implementing this would require a new persistent NVR connection and significant backend work. | The existing attendance/detection engine in rc-sentry-ai handles motion-adjacent events. Alerts are delivered via the existing alert WebSocket. Do not re-implement in the camera dashboard. |
-| **Camera PTZ controls in the dashboard** | "Add pan/tilt/zoom buttons" | None of the 13 Dahua cameras at Racing Point are PTZ cameras. Building PTZ UI for fixed cameras is waste. | No alternative needed — not applicable. |
-| **User authentication per-camera (role-based access)** | "Cashier camera should only be visible to managers" | The dashboard is an internal-LAN staff tool on the server web dashboard (port 3200). All staff who access the dashboard have full access. Adding per-camera RBAC requires auth middleware, user roles, and session management — a separate milestone. | Operate under the existing server dashboard auth model (LAN-only access = implicit trust). |
-| **Cloud-accessible camera dashboard** | "Uday wants to view cameras from his phone remotely" | Serving live camera streams through the cloud VPS introduces: (a) bandwidth costs for video, (b) latency from India to VPS and back, (c) NVR credential exposure risk if the proxy is misconfigured. | DMSS HD app on Uday's phone connects directly to the Dahua NVR via P2P cloud relay — this is the correct solution for remote access and requires zero custom code. |
+## Anti-Features
+
+Features that seem useful but create significant problems in this specific context.
+
+| # | Anti-Feature | Why Requested | Why Problematic | Correct Alternative |
+|---|-------------|---------------|-----------------|---------------------|
+| AF-1 | **A/B testing on pods (50% get feature, 50% don't)** | Classic feature flag use case. Sounds powerful. | Customer-facing A/B testing in a sim racing venue is meaningless — customers don't use the same pod twice, sample sizes are too small, and inconsistent pod behavior confuses staff ("why does Pod 3 work differently?"). | Use per-pod override for canary testing (Pod 8 only), never random-split customer traffic across pods. |
+| AF-2 | **Feature flag SDK pulled from external service (LaunchDarkly, Unleash cloud)** | Industry-standard approach. Immediate access to a full-featured UI. | Venue has unreliable internet (on-site LAN). Flag delivery over external internet = flag evaluation fails when internet is down, which is exactly when reliable operation is most needed. Also adds external dependency to a safety-critical system. | Self-hosted registry in racecontrol server (already on LAN). |
+| AF-3 | **Hot-reload of port bindings, WS server address, or DB path** | "If we're hot-reloading config, let's hot-reload everything." | These fields require OS-level resource acquisition (open sockets, file handles). Changing them at runtime without restart is fragile and can orphan connections. No production Axum/Tokio app hot-reloads these fields reliably. | Document explicitly which fields hot-reload and which require restart. Config schema marks each field as `hot_reload: true/false`. |
+| AF-4 | **Binary self-update on pods (rc-agent downloads and applies its own update)** | Simplifies deploy orchestration — no central pipeline needed. | A binary that replaces itself is inherently fragile: if the download is corrupt, the binary that runs next is corrupt. No rollback capability because the old binary was replaced. RCAGENT_SELF_RESTART already does this dangerously enough — adding download responsibility makes it worse. | Keep orchestration on the server/James side. rc-agent only executes the swap after the binary has been downloaded and verified by the pipeline. |
+| AF-5 | **"Feature flags" that actually control billing rates or session limits** | Billing rates and session limits are config values that change operationally. Using a boolean feature flag for them (flag ON = ₹900/hr, flag OFF = ₹700/hr) is a category error. | Config values have ranges, types, and validation rules. Boolean feature flags have none of these. A billing rate encoded as a flag state cannot be validated, audited, or reasoned about. | Config push system handles billing rates, session limits, game profiles. Feature flags handle only boolean enable/disable decisions. |
+| AF-6 | **Standing rules codified as runtime assertions that can fail a customer session** | "If the standing rule is violated, block the action." | Standing rules are development-time and deploy-time constraints — not runtime customer-facing guards. Making them runtime checks inside rc-agent would add overhead to every session event and could cause a customer's session to fail because of a policy violation that has nothing to do with their experience. | Enforce standing rules at CI, pre-deploy gate, and post-deploy verification only. Never at runtime in the customer-facing path. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-TS-1 (layout mode switcher)
-    └──requires──> TS-5 (layout persistence: persist the selected mode)
-    └──enables──> D-3 (zone grouping: zone filter changes the camera set shown in grid)
+[Cargo feature gates: CF-1, CF-2, CF-3]
+    — builds the binary that OTA deploys —
+    └──required for──> [OTA binary release: OTA-1]
 
-TS-3 (WebRTC fullscreen via go2rtc)
-    └──requires──> go2rtc configured with all 13 cameras (infra task, not code)
-    └──requires──> go2rtc accessible from browser at :1984
-    └──enables──> D-2 (hybrid streaming: TS-3 is the fullscreen half of the hybrid pair)
+[Feature flag registry: FF-1, FF-2]
+    └──required for──> [Flag delivery WS: FF-3]
+                           └──required for──> [In-memory flag cache: FF-4]
+                                                  └──required for──> [Offline fallback: FF-5]
 
-TS-5 (layout persistence)
-    └──required by──> TS-1 (layout mode must be persisted)
-    └──required by──> D-1 (camera order must be persisted after drag)
-    └──pattern shared with──> D-4 (refresh rate persistence uses same localStorage pattern)
+[FF-1 registry]
+    └──required for──> [Admin flag UI: FF-6]
 
-D-1 (drag-to-rearrange)
-    └──requires──> TS-5 (persist reordered camera positions)
-    └──requires──> @dnd-kit/core installed (new npm dependency)
-    └──independent from──> TS-3 (WebRTC fullscreen — drag affects grid, not fullscreen)
+[FF-3, FF-4, FF-5]
+    └──enables──> [Anti-cheat safe mode flag: D-5]
 
-TS-2 (camera friendly names)
-    └──requires──> TOML config change: add display_name field to CameraConfig
-    └──requires──> API change: include display_name in CameraInfo response
-    └──enables──> D-3 (zone grouping: zone is also a new TOML field alongside display_name)
+[Config push: CP-1]
+    └──required for──> [Offline queue: CP-2]
+                           └──required for──> [Config drift detection: D-3]
 
-D-5 (snapshot timestamp overlay)
-    └──requires──> backend change: track and expose last_snapshot_at in CameraInfo
-    └──independent from──> layout features
+[OTA-1 release manifest]
+    └──required for──> [OTA-3 health gate]
+                           └──required for──> [OTA-2 canary]
+                                                  └──required for──> [OTA-6 staged waves]
+                                                                         └──requires──> [OTA-4 auto-rollback]
+
+[OTA-4 auto-rollback]
+    └──requires──> [OTA-5 billing drain]
+    └──requires──> [OTA-7 prev binary preserved]
+
+[SR-2 pre-deploy gate]
+    └──blocks──> [OTA wave 1]
+
+[SR-3 post-deploy gate]
+    └──blocks──> [each subsequent OTA wave]
+    └──blocks──> [SR-4 pipeline no-bypass rule]
+
+[OTA-8 state machine]
+    └──orchestrates──> [SR-2, OTA-2, OTA-3, OTA-6, OTA-4]
 ```
 
 ### Dependency Notes
 
-- **go2rtc camera registration is the infrastructure gate for TS-3**: All 13 cameras must be added to go2rtc's YAML/TOML config before WebRTC fullscreen can work. This is config work, not code. The 3 existing cameras (entrance, reception, reception_wide) are already registered.
-- **TS-1, TS-5, D-1 form a cohesive "layout management" cluster**: Build them in the same phase. TS-5 (persistence) is shared infrastructure for all three.
-- **TS-2 (friendly names) and D-3 (zones) share the same TOML + API change**: If building D-3, do TS-2 in the same phase since the backend change is identical (add fields to CameraConfig, expose in CameraInfo).
-- **D-1 (drag-to-rearrange) is the only new npm dependency**: `@dnd-kit/core` is the correct library (lightweight, accessible, no jQuery). Avoid `react-beautiful-dnd` (deprecated by Atlassian) and `react-sortable-hoc` (unmaintained).
-- **WebRTC works on LAN without TURN**: go2rtc's built-in WebRTC relay handles NAT traversal within the LAN. No TURN server needed. This is confirmed by Frigate's go2rtc integration docs.
+- **Cargo feature gates must come first:** The OTA pipeline deploys binaries. Those binaries must already have the correct `[features]` sections defined before the pipeline is built. CF-1 through CF-3 are Phase 1 work.
+- **Feature flag registry before flag delivery:** The WS message type for flag sync (FF-3) must serialize from the registry (FF-1). Build the registry first, then wire the transport.
+- **Config push before drift detection:** Drift detection (D-3) compares current pod config against the server's expected config. The server can only know the "expected" config once it has a config push system (CP-1) that records what was sent.
+- **OTA health gate depends on manifest:** The health gate (OTA-3) must know what version to assert against. That information lives in the manifest (OTA-1). The manifest must be generated before any deploy wave runs.
+- **Billing drain must be solved before any pod-touching OTA deploy:** OTA-5 is a soft blocker on all pod deploys. Even if auto-rollback is not yet built, the drain signal must exist before deploying to pods that may have active sessions.
+- **Pre-deploy gate (SR-2) gates everything:** No OTA wave can start without the pre-deploy gate passing. SR-2 is the entry condition to the entire pipeline.
 
 ---
 
-## MVP Definition
+## MVP Definition for v22.0
 
-### Launch With (v16.1 core)
+### Phase 1: Foundation (Build First)
 
-The minimum that transforms the basic grid into a dashboard Uday would show off to customers.
+Minimum needed before any OTA or flag delivery can work.
 
-- [ ] **TS-1** — Layout mode switcher: 1x1, 2x2, 3x3, 4x4 toggle buttons in the header bar
-- [ ] **TS-2** — Camera friendly names: `display_name` in TOML, shown in tile header
-- [ ] **TS-3** — WebRTC fullscreen: click camera tile, modal opens with go2rtc iframe
-- [ ] **TS-5** — Persist layout choice to localStorage (survives page reload)
-- [ ] **TS-6** — Per-tile loading skeleton and offline/error state distinction
-- [ ] **TS-7** — Camera count summary in header ("12/13 online")
-- [ ] Go2rtc camera registration: all 13 cameras added to go2rtc config (infra prerequisite)
+- [ ] **Cargo feature gates in rc-agent** (CF-1, CF-2, CF-3) — binary produced by pipeline must have correct feature structure
+- [ ] **Feature flag registry in racecontrol DB** (FF-1) — named flags, fleet default, per-pod override
+- [ ] **release-manifest.toml format defined** (OTA-1) — locks binary + config + frontend together by version
+- [ ] **Pre-deploy gate script** (SR-2) — automates Ultimate Rule pre-flight
 
-### Add After Validation (v16.1.x)
+### Phase 2: Flag Delivery
 
-Once the core is working and staff are using it:
+- [ ] **Flag sync over existing WebSocket** (FF-3) — new WS message type in rc-common
+- [ ] **In-memory flag cache in rc-agent** (FF-4) — Arc<RwLock<HashMap>> in AppState
+- [ ] **Offline flag fallback** (FF-5) — persist to flags-cache.json on pod
+- [ ] **Admin UI for flag management** (FF-6, FF-7) — new section in racingpoint-admin
 
-- [ ] **D-1** — Drag-to-rearrange with localStorage persistence — trigger: staff ask why cameras are in wrong order
-- [ ] **D-4** — Refresh rate control (5s/15s/30s) — trigger: staff complain about CPU or want faster refresh during incidents
-- [ ] **D-5** — Snapshot timestamp overlay — trigger: staff unsure if snapshot is current
-- [ ] **TS-4** reliability improvement — health check separate from snapshot fetch
+### Phase 3: Config Push
 
-### Future Consideration (v16.2+)
+- [ ] **Config push over WebSocket** (CP-1) — new ConfigUpdate WS message type
+- [ ] **Offline queue for config updates** (CP-2) — server-side pending queue per pod
+- [ ] **Hot-reload in rc-agent** (CP-3) — arc/rwlock config swap, documented reload/no-reload split
+- [ ] **Config push audit log** (CP-5) — append-only DB table
 
-- [ ] **D-3** — Zone grouping — defer: requires TOML config design decision + more cameras
-- [ ] **D-6** — Single-camera featured view — defer: nice UX but grid + fullscreen covers the core need
-- [ ] NVR playback integration — separate milestone (`/cameras/playback` page already stubbed)
+### Phase 4: OTA Pipeline
+
+- [ ] **OTA state machine** (OTA-8) — orchestrates the whole pipeline
+- [ ] **Canary wave to Pod 8** (OTA-2) — formalize existing practice
+- [ ] **Health gate check** (OTA-3) — version + build_id + health assertions per wave
+- [ ] **Staged wave rollout** (OTA-6) — pod 8 → 4 pods → remaining
+- [ ] **Prev binary preservation** (OTA-7) — rc-agent-prev.exe always kept
+- [ ] **Auto-rollback on gate failure** (OTA-4) — swap to prev + RCAGENT_SELF_RESTART
+- [ ] **Billing drain before swap** (OTA-5) — PendingRestart state in rc-agent
+- [ ] **Post-deploy verification gate** (SR-3) — quick E2E after each wave
+
+### Add After Validation (v22.x)
+
+- [ ] **Config drift detection** (D-3) — configChecksum on health ping, after config push is stable
+- [ ] **Per-pod flag visibility in fleet dashboard** (D-2) — after flag system is in use for one milestone
+- [ ] **Atomic rollback: binary + config + frontend** (D-4) — after individual rollbacks are working
+- [ ] **Billing-aware drain UX in admin** (D-1) — after OTA is stable in production
+
+### Defer to v23+
+
+- [ ] **Anti-cheat safe mode flags** — depends on v15.0 AntiCheat milestone being planned
+- [ ] **Full 231-test E2E as post-wave gate** (SR-3 extended) — current quick check sufficient for v22.0; full suite adds 10+ min per wave
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | Staff Value | Implementation Cost | Priority |
-|---------|-------------|---------------------|----------|
-| TS-1 Layout switcher | HIGH — first thing staff look for | LOW — CSS grid change + React state | P1 |
-| TS-2 Friendly names | HIGH — names are unreadable now | LOW — TOML + API field addition | P1 |
-| TS-3 WebRTC fullscreen | HIGH — existing fullscreen shows a photo | MEDIUM — go2rtc config + iframe modal | P1 |
-| TS-5 Layout persistence | HIGH — resets on every reload | LOW — localStorage in useEffect | P1 |
-| TS-6 Loading/error states | MEDIUM — UX polish | LOW — React state distinction | P1 |
-| TS-7 Status summary | MEDIUM — at-a-glance health | LOW — frontend count from array | P1 |
-| Go2rtc: all 13 cameras | HIGH — prerequisite for TS-3 | LOW — config only, no code | P1 |
-| D-1 Drag-to-rearrange | MEDIUM — organization | MEDIUM — @dnd-kit dependency | P2 |
-| D-4 Refresh rate control | MEDIUM — bandwidth + CPU | LOW — frontend interval | P2 |
-| D-5 Timestamp overlay | MEDIUM — freshness confidence | LOW-MEDIUM — backend field + frontend | P2 |
-| D-2 Hybrid streaming | HIGH — architecture decision | LOW — the approach, not a feature | P1 (documented pattern) |
-| D-3 Zone grouping | LOW-MEDIUM — venue-specific | MEDIUM — TOML design + frontend | P3 |
-| D-6 Featured camera view | LOW — fullscreen covers it | MEDIUM — layout restructure | P3 |
+| Feature | Operational Value | Implementation Cost | Priority |
+|---------|------------------|---------------------|----------|
+| Cargo feature gates (CF-1–3) | HIGH — enables OTA + clean module boundaries | LOW — Cargo.toml change + cfg() attributes | P1 |
+| Flag registry + per-pod override (FF-1, FF-2) | HIGH — unblocks all flag features | LOW — DB table + Rust struct | P1 |
+| Flag WS delivery (FF-3, FF-4, FF-5) | HIGH — flags useless without delivery | MEDIUM — new WS message type | P1 |
+| Pre-deploy gate script (SR-2) | HIGH — replaces manual Ultimate Rule | MEDIUM — script aggregating existing checks | P1 |
+| Release manifest format (OTA-1) | HIGH — required for health gate | LOW — TOML format definition | P1 |
+| Config push (CP-1, CP-2, CP-3) | HIGH — eliminates manual TOML editing | MEDIUM — WS message + Arc<RwLock> | P1 |
+| OTA state machine (OTA-8) | HIGH — pipeline reliability depends on it | HIGH — state machine design + persistence | P1 |
+| Canary + health gate + staged waves (OTA-2, OTA-3, OTA-6) | HIGH — fleet safety | MEDIUM — script + existing health endpoints | P1 |
+| Auto-rollback + billing drain (OTA-4, OTA-5) | HIGH — safety net for bad deploys | HIGH — prev binary + drain state in rc-agent | P1 |
+| Admin flag UI (FF-6, FF-7) | MEDIUM — ops visibility | MEDIUM — Next.js UI + REST endpoints | P2 |
+| Post-deploy verification gate (SR-3) | HIGH — automated E2E subset | MEDIUM — extends check-health.sh | P2 |
+| Config audit log (CP-5) | MEDIUM — ops accountability | LOW — append-only DB table | P2 |
+| Config drift detection (D-3) | MEDIUM — surfaces offline divergence | MEDIUM — checksum on health ping | P2 |
+| Kill switch convention (FF-8) | LOW — covered by normal flag disable | LOW — naming convention only | P3 |
+| Per-pod flag visibility in dashboard (D-2) | LOW — nice-to-have visibility | MEDIUM — dashboard column | P3 |
+| Atomic multi-component rollback (D-4) | MEDIUM — full consistency | HIGH — coordinates three rollbacks | P3 |
 
 **Priority key:**
-- P1: Must have for v16.1 launch
-- P2: Should have, add when P1 is stable
-- P3: Nice to have, future consideration
+- P1: Required for v22.0 to deliver its stated goal
+- P2: Should have — adds reliability or visibility, add in later v22.0 phases
+- P3: Nice to have — defer to v22.x or v23+
 
 ---
 
-## Competitor Feature Analysis
+## Standing Rules Enforcement Classification
 
-| Feature | DMSS HD (Dahua) | Hik-Connect (Hikvision) | Frigate NVR | Blue Iris | Our Approach |
-|---------|-----------------|------------------------|-------------|-----------|--------------|
-| Layout modes | 1/4/9/16-split | 1/4/9/12-split, tap icon to switch | Single camera + "All Cameras" groups | 1:6, 1:9, 4-up, drag+drop | 1x1, 2x2, 3x3, 4x4 toggle buttons |
-| Camera naming | OSD from NVR config | OSD from NVR config | YAML config name field | Per-camera label in settings | `display_name` in rc-sentry-ai TOML |
-| Drag to rearrange | Yes (press+hold) | Yes (favorites group) | No (config-defined order) | Yes (drag+drop in layout) | @dnd-kit/core, localStorage |
-| Live streaming | RTSP → H264 P2P | RTSP → H264 P2P | WebRTC via go2rtc, fallback jsmpeg | H264 direct to browser | WebRTC via go2rtc on fullscreen only |
-| Fullscreen click | Opens full stream | Opens full stream | Opens full stream + detection overlay | Opens full stream | Opens go2rtc WebRTC iframe modal |
-| Snapshot grid | Not applicable (always live) | Not applicable | Smart streaming: 1fps when idle | Motion-triggered | Cached snapshots from NVR, background refresh |
-| Layout persistence | Yes (app settings) | Yes (app settings) | Yes (camera groups config) | Yes (profile save) | localStorage JSON |
-| Remote access | Dahua P2P cloud | Hikvision cloud | Tailscale/VPN required | Blue Iris cloud | Not in scope — use DMSS HD app directly |
+All 41+ standing rules must be assigned to an enforcement category. The categories and example rule mappings:
 
-**Key insight from competitor analysis:** DMSS HD and Hik-Connect target remote mobile access; their architecture is fundamentally cloud-relayed. Frigate and Blue Iris are the closer reference points — they are LAN-first dashboards like ours. Frigate's hybrid streaming (snapshot at idle, WebRTC on click) is exactly the right model for 13 cameras on a single NVR. Blue Iris's drag-to-rearrange approach is the right UX for camera order management.
+| Category | Description | When enforced | Tooling |
+|----------|-------------|---------------|---------|
+| **STATIC** | Compiler or linter catches violation at build time | Every cargo build | `cargo clippy -- -D warnings`, `tsc --noEmit`, `grep -r '\.unwrap()' src/` |
+| **TEST** | Automated test suite catches violation | Every cargo test / npm test | Existing test suite (cargo test -p rc-common etc.) |
+| **DEPLOY-GATE** | Pre-deploy script blocks pipeline on violation | Before wave 1 starts | `deploy-staging/gate-check.sh` (SR-2) |
+| **POST-WAVE** | Post-deploy verification script catches regression | After each deploy wave | `check-health.sh` + `e2e-quick.sh` (SR-3) |
+| **RUNTIME-MONITOR** | Ongoing check after deploy, alerts on violation | Continuous post-ship | Admin dashboard anomaly indicators |
+| **CONVENTION** | Human convention — documented but not automatable | Developer awareness | CLAUDE.md documentation |
 
----
+### Example Rule Classification
 
-## Technical Integration Notes
-
-### go2rtc Embed Pattern (for TS-3)
-
-go2rtc provides a built-in stream page that works as an iframe src:
-
-```
-http://192.168.31.27:1984/stream.html?src={stream_name}&mode=webrtc
-```
-
-The go2rtc JavaScript player library (`webrtc-player.js`) is also available for custom integration if the iframe approach is too restrictive. The iframe approach is simpler and correct for fullscreen modal use.
-
-go2rtc confirmed: ~0.5s latency on LAN over WebRTC. No TURN server needed for same-LAN clients.
-
-### Preference Persistence Pattern (for TS-5, D-1, D-4)
-
-Per CLAUDE.md rules: never read `localStorage` in `useState` initializer (SSR fails). Use:
-
-```typescript
-const [layout, setLayout] = useState<Layout>('3x3'); // default
-useEffect(() => {
-  const saved = localStorage.getItem('rp_camera_layout');
-  if (saved) setLayout(saved as Layout);
-}, []);
-```
-
-Single JSON blob for all preferences: `rp_camera_prefs: { layout, order, refreshRate }` to avoid fragmentation.
-
-### Snapshot Freshness (for D-5)
-
-The rc-sentry-ai snapshot cache currently does not expose `last_snapshot_at` in the `/api/v1/cameras` API response. The `CameraInfo` struct needs a new field. Backend change is small: track `Instant::now()` when a snapshot is successfully cached; serialize as ISO 8601 in the response.
+| Rule | Category | Automated check |
+|------|----------|-----------------|
+| No `.unwrap()` in production Rust | STATIC | `cargo clippy -- -D clippy::unwrap_used` |
+| No `any` in TypeScript | STATIC | `tsc --strict --noEmit` |
+| Static CRT `.cargo/config.toml` | DEPLOY-GATE | `grep crt-static .cargo/config.toml` |
+| Cargo test green before deploy | DEPLOY-GATE | `cargo test -p rc-common -p rc-agent -p racecontrol` |
+| `.bat` files clean ASCII + CRLF | DEPLOY-GATE | `file deploy-staging/*.bat | grep -v CRLF && exit 1` |
+| LOGBOOK updated after commit | DEPLOY-GATE | `git diff HEAD~1 LOGBOOK.md | grep -c '^+' must be > 0` |
+| build_id matches expected after deploy | POST-WAVE | `curl /health | jq .build_id == manifest.git_sha` |
+| Pod 8 canary before other pods | DEPLOY-GATE (pipeline enforced) | State machine enforces wave order — no bypass |
+| Rollback plan exists before deploy | DEPLOY-GATE | Manifest includes `prev_manifest_path` field — pipeline rejects if absent |
+| Cascade updates (cross-process) | CONVENTION | CLAUDE.md — not automatable |
+| RCAGENT_SELF_RESTART not combined with taskkill | CONVENTION | CLAUDE.md — not automatable |
 
 ---
 
 ## Sources
 
-- **Codebase audit (HIGH confidence):**
-  - `web/src/app/cameras/page.tsx` — existing grid UI, snapshot fetch from rc-sentry-ai :8096
-  - `crates/rc-sentry-ai/src/nvr.rs` — `NvrClient`, digest auth proxy, snapshot endpoint
-  - `crates/rc-sentry-ai/src/config.rs` — `CameraConfig` (name, stream_name, role, fps, nvr_channel), `NvrConfig`
-  - `.planning/PROJECT.md` — v16.1 target features, constraints (go2rtc relay, no TURN server, TOML config)
-
-- **Competitor analysis (MEDIUM confidence — WebSearch + WebFetch):**
-  - DMSS HD: multi-window live view, press+hold drag, 1/4/9/16 layouts — [Google Play listing](https://play.google.com/store/apps/details?id=com.mm.android.DMSSHD&hl=en), [Dahua Wiki](https://dahuawiki.com/DMSS)
-  - Hik-Connect: drag-to-rearrange in favorites, 1/4/9/12 layouts, favorites group for cross-NVR organization — [Hikvision support](https://supportusa.hikvision.com/support/solutions/articles/17000129177)
-  - Frigate NVR: smart streaming (1fps idle → WebRTC on click), camera groups, go2rtc integration — [Frigate live docs](https://docs.frigate.video/configuration/live/)
-  - Blue Iris: drag+drop layouts, 64-camera support, dark mode UI — [Blue Iris software](https://blueirissoftware.com/)
-  - camera.ui: Camview drag+drop, tile-based minimalist layout, fullscreen per tile — [GitHub](https://github.com/seydx/camera.ui)
-
-- **go2rtc integration (HIGH confidence — official repo + live docs):**
-  - WebRTC via go2rtc: ~0.5s latency LAN, no TURN needed, iframe embed via `stream.html?src=NAME&mode=webrtc` — [go2rtc GitHub](https://github.com/AlexxIT/go2rtc)
-  - Frigate's go2rtc guide confirms iframe embed pattern — [Frigate go2rtc guide](https://docs.frigate.video/guides/configuring_go2rtc/)
-
-- **Frontend patterns (HIGH confidence — CLAUDE.md rules):**
-  - localStorage hydration pattern from CLAUDE.md: useEffect + hydrated flag, never in useState initializer
-  - @dnd-kit/core recommended over react-beautiful-dnd (deprecated) and react-sortable-hoc (unmaintained)
+- [Feature Toggles (aka Feature Flags) — Martin Fowler](https://martinfowler.com/articles/feature-toggles.html) — canonical reference, toggle type taxonomy (release, ops, experiment, permission), HIGH confidence
+- [OTA Update Checklist for Embedded Devices — Memfault](https://memfault.com/blog/ota-update-checklist-for-embedded-devices/) — canary, health gates, rollback patterns, HIGH confidence
+- [11 Principles for Feature Flag Systems — Unleash](https://docs.getunleash.io/topics/feature-flags/feature-flag-best-practices) — per-device targeting, offline fallback, HIGH confidence
+- [OpenFeature Specification](https://openfeature.dev/) — standard flag evaluation API, MEDIUM confidence
+- [Cargo Features Reference](https://doc.rust-lang.org/cargo/reference/features.html) — compile-time feature gates, HIGH confidence
+- [Policy as Code in CI/CD Pipelines — Platform Engineering](https://platformengineering.org/blog/policy-as-code) — automated enforcement gates pattern, MEDIUM confidence
+- [WebSocket Reconnection: State Sync and Recovery — WebSocket.org](https://websocket.org/guides/reconnection/) — sequence number replay for offline queuing, MEDIUM confidence
+- [Tokio shared state patterns](https://tokio.rs/tokio/tutorial/shared-state) — Arc<RwLock> for hot-reload config, HIGH confidence (official docs)
+- Existing racecontrol codebase: `RCAGENT_SELF_RESTART`, `billing_guard`, `pod_healer`, `check-health.sh` — constraints derived from production code, HIGH confidence
 
 ---
 
-*Feature research for: v16.1 Camera Dashboard Pro — Professional NVR Dashboard*
-*Researched: 2026-03-22*
+*Feature research for: v22.0 Feature Management & OTA Pipeline*
+*Researched: 2026-03-23*

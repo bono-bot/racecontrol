@@ -1,208 +1,189 @@
 # Project Research Summary
 
-**Project:** v16.1 Camera Dashboard Pro
-**Domain:** Hybrid streaming NVR dashboard — WebRTC on-demand + snapshot grid, 13x Dahua cameras
-**Researched:** 2026-03-22
+**Project:** v22.0 Feature Management & OTA Pipeline
+**Domain:** Runtime feature flags, OTA binary/config delivery, server-to-pod config push, standing rules codification — additions to existing Rust/Axum + Next.js fleet ops platform
+**Researched:** 2026-03-23
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v16.1 Camera Dashboard Pro layers professional NVR UX on top of the existing v16.0 snapshot infrastructure in rc-sentry-ai. The research consistently converges on a single core pattern: a **hybrid streaming model** where all 13 cameras are displayed as JPEG snapshots in the grid (low bandwidth, low NVR load, no connection overhead) and WebRTC is established only for the single camera the user clicks into fullscreen. This pattern is validated by Frigate NVR's production architecture, proven against the Dahua NVR's connection constraints, and fits the existing SnapshotCache/NvrClient infrastructure without any new Rust crates. The key technical enabler is go2rtc's bundled `video-stream.js` custom element (`<video-stream>`), which handles the full WebRTC offer/answer/ICE exchange and protocol fallback automatically — no raw WebRTC signaling code needs to be written.
+v22.0 adds four related systems on top of an already-operational Rust/Axum + Next.js fleet: a runtime feature flag registry, a server-to-pod config push channel, an OTA binary pipeline, and automated standing rules gates. All four research files converge on the same architectural decision: build everything on top of the existing WebSocket connection between racecontrol and rc-agent, using the existing `CoreToAgentMessage` enum, `AppState` pattern, and `pending_deploys` queuing mechanism. No new ports, no new protocols, and only 3 new crates (`arc-swap`, `notify`, `self-replace`) are needed on top of the current workspace.
 
-The recommended implementation requires no new Rust crates, no npm libraries beyond the optional `@dnd-kit/core` for drag-to-reorder in the Next.js target, and no build step changes. The single embedded HTML page constraint is maintained. The go2rtc instance already running on James (.27:1984) handles RTSP-to-WebRTC relay; the main infrastructure prerequisite is adding all 13 cameras to `go2rtc.yaml` (currently only 3 are configured). Layout persistence uses localStorage for the single-browser case, but a server-side `PUT /api/cameras/layout` endpoint writing to a separate `camera-layout.json` file is required to synchronize state across the dual deployment origins (:8096 and :3200). Camera names and default display order belong in rc-sentry-ai.toml, not in localStorage.
+The critical design constraint that shapes every decision is that this is an 8-pod LAN venue where active billing sessions must never be interrupted. This rules out naive fleet-wide restarts, makes rollback a session-gated operation, and means the config push system must treat the WebSocket typed message path as the ONLY route for config data — never the fleet exec endpoint (which routes through cmd.exe and will corrupt any value containing spaces, backslashes, or dollar signs). The billing-session drain pattern, recovery system coordination sentinel, and binary content-addressed identity (SHA256 over git hash) are the three highest-priority design decisions that must be locked before any OTA pipeline code is written.
 
-The critical risks are all go2rtc integration issues that must be resolved before frontend code is written: CORS configuration uses the `origin:` key (not `cors:` — the wrong key is silently ignored), cold-start delays of 5-10 seconds require hover pre-warming, and the snapshot proxy plus WebRTC RTSP connections compete for the same Dahua NVR connection slots. The 13-simultaneous-WebRTC anti-pattern is the failure mode research flags most strongly — it overloads the NVR and browser regardless of how it is implemented, and the singleton `activePeerConnection` pattern must be enforced as an architectural constraint before any tile rendering code is written.
-
----
+The build order is firmly constrained by dependency: rc-common protocol additions first (7 new message variants), then server-side registry and agent-side consumer in parallel, then the OTA pipeline layer on top, then the admin dashboard UI, then standing rules gate wiring. The Cargo feature gate design must also be settled early because the OTA topology (how many distinct binaries the fleet supports) is set by this decision and cannot be changed after canary infrastructure is built. The clear recommendation: one production binary tier for all pods, with per-pod behavioral differences expressed through the runtime flag registry, not through separate compile-time builds.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing stack (Axum 0.7, reqwest 0.12, tokio, tower-http CORS, serde_json, `include_str!` embedded HTML, SnapshotCache) requires zero new Rust crates. The only new runtime dependency is the go2rtc-hosted JavaScript library loaded at runtime. HTML5 native drag-and-drop, CSS Grid, and localStorage are all browser-native — no bundler, no build step. The embedded HTML size budget must stay under 80KB to avoid `include_str!` compile-time regression (rust-lang/rust#65818).
+The platform is already Rust 1.93.1 / Axum 0.8 / tokio (full features) / SQLite with WAL / reqwest / sha2 + hex — all of which are directly reused. Only 3 new crates are added. `arc-swap 1.9` (workspace-wide) replaces `Arc<RwLock<Config>>` for lock-free reads in hot paths where multiple WebSocket handlers contend on config access. `notify 8.2` (racecontrol only) watches `racecontrol.toml` for local edits on the server using Windows `ReadDirectoryChangesW`. `self-replace 1.5` (rc-agent only) handles the Windows-safe binary self-swap on pods — it defers deletion of the running exe via a `.__selfdelete__.exe` mechanism that the OS allows.
 
 **Core technologies:**
-- `go2rtc video-stream.js` (loaded from :1984 at runtime): `<video-stream>` custom element handles WebRTC offer/answer/ICE + MSE/MJPEG fallback — never vendor this file; must load from the live go2rtc instance to stay in sync with server protocol
-- CSS Grid class swap: layout mode switching (1x1/2x2/3x3/4x4) via single class change on `.grid` — zero JS layout math
-- HTML5 Drag and Drop API: camera grid reorder via `draggable` + `dragstart`/`dragover`/`drop` events — `dragover` MUST call `e.preventDefault()` or the `drop` event never fires
-- `localStorage` (key: `rp_camera_layout_v1`): layout persistence for single-browser use; server-side `camera-layout.json` is the cross-origin source of truth
-- go2rtc WebSocket signaling (`/api/ws?src=<stream_name>`): WebRTC uses `webrtc/offer`, `webrtc/answer`, `webrtc/candidate` message types over WebSocket — not WHEP HTTP
-
-**Critical config requirements:** go2rtc sub-stream (`subtype=1`) must be used for all 13 NVR channels (~512Kbps vs ~4Mbps for main stream). `Admin@123` must be percent-encoded as `Admin%40123` in RTSP URLs. CORS requires `origin: "*"` under `[api]` in go2rtc.yaml — not `cors:`, which is silently ignored.
+- `arc-swap 1.9`: Lock-free config hot-swap — eliminates RwLock contention across concurrent WS handlers; 143M downloads, the standard Rust answer to this problem
+- `notify 8.2`: File watcher for server-side TOML reload — reactive, zero CPU spin, Windows ReadDirectoryChangesW backend; used by rust-analyzer and cargo-watch
+- `self-replace 1.5`: Binary self-swap on rc-agent — handles Windows running-exe constraint atomically with deferred cleanup
+- Custom `FeatureRegistry` (rc-common, ~100 lines): Per-pod override map, SQLite-backed, WebSocket-deliverable — external crates (LaunchDarkly, `features` crate) are categorically wrong for this use case
+- `tokio::sync::broadcast` (already in workspace): Config push fan-out to all 8 pod WebSocket handlers simultaneously; mpsc would require one sender per pod
+- Cargo `[features]` (builtin): Compile-time module exclusion for major optional subsystems; zero runtime cost
 
 ### Expected Features
 
-**Must have — table stakes (v16.1 core):**
-- TS-1: Layout mode switcher (1x1, 2x2, 3x3, 4x4) — the first thing any NVR user looks for
-- TS-2: Camera friendly names (`display_name` in TOML, shown in tile header — existing `name` field is a stream ID, not a human label)
-- TS-3: WebRTC fullscreen on camera click via go2rtc — existing click-to-fullscreen shows a cached snapshot, not live video
-- TS-5: Layout persistence to localStorage (survives page reload)
-- TS-6: Per-tile loading skeleton and offline/loading/error state distinction
-- TS-7: Camera count summary in header ("12/13 online")
-- Infra prerequisite: All 13 cameras registered in go2rtc.yaml before any frontend WebRTC work begins
+**Must have (table stakes):**
+- Named boolean flag registry with fleet-wide default and per-pod override — the core canary testing primitive (FF-1, FF-2)
+- Flag delivery over existing WebSocket, in-memory cache in rc-agent, offline fallback to `flags-cache.json` (FF-3, FF-4, FF-5)
+- Admin UI toggle with immediate push propagation — the entire value proposition of feature flags (FF-6, FF-7)
+- Atomic release manifest locking binary + config + frontend as one versioned bundle (OTA-1)
+- Canary-first (Pod 8), health gate after each pod wave, staged 1-then-4-then-3 rollout (OTA-2, OTA-3, OTA-6)
+- Auto-rollback on health gate failure with billing session drain before swap (OTA-4, OTA-5)
+- Deploy state machine with `deploy-state.json` persistence — a linear bash script cannot handle partial fleet state (OTA-8)
+- Config push over WebSocket, offline queue per pod, hot-reload for supported subsystems only (CP-1, CP-2, CP-3)
+- Pre-deploy gate script replacing manual Ultimate Rule pre-flight (SR-2)
+- Cargo feature gates for major rc-agent modules with single-binary-tier policy (CF-1, CF-2, CF-3)
 
-**Should have — differentiators (v16.1.x after validation):**
-- D-1: Drag-to-rearrange grid order with localStorage persistence + server sync
-- D-4: Configurable snapshot refresh rate presets (5s incident / 15s active / 30s normal)
-- D-5: Snapshot timestamp overlay per tile ("last updated 3s ago")
+**Should have (differentiators for this venue context):**
+- Billing-aware drain UX in admin dashboard showing "draining" pod status (D-1)
+- Config drift detection via configChecksum on health ping, surfacing diverged pods in dashboard (D-3)
+- Per-pod flag visibility in fleet health table as a flag divergence column (D-2)
+- Post-deploy quick E2E gate after each wave (SR-3)
+- Config push audit log append-only DB table (CP-5)
 
-**Defer to v16.2+:**
-- D-3: Camera zone grouping (requires TOML design decision, more operational data needed)
-- D-6: Single-camera featured view (fullscreen modal covers the core need)
-- NVR playback integration (`/cameras/playback` page already stubbed)
-
-**Never build (anti-features):**
-- 13 simultaneous WebRTC streams — NVR connection limit exceeded, browser GPU decoder bottlenecked
-- RTSP direct browser streaming — browsers cannot play RTSP natively
-- PTZ controls — no PTZ cameras at Racing Point
-- Cloud-accessible camera dashboard — use DMSS HD app; proxying live video through VPS adds bandwidth cost and credential risk
+**Defer to v22.x or later:**
+- Atomic multi-component rollback across binary + config + frontend simultaneously (D-4)
+- Anti-cheat safe mode flags (D-5) — depends on v15.0 AntiCheat milestone being planned
+- Full 231-test E2E as post-wave gate — current quick subset is sufficient; full suite adds 10+ min per wave
 
 ### Architecture Approach
 
-Two parallel deployment targets share the same rc-sentry-ai backend but have independent frontend implementations: `cameras.html` (embedded via `include_str!`, served at :8096, vanilla JS) and `web/src/app/cameras/page.tsx` (Next.js staff dashboard at :3200, React). Both connect to rc-sentry-ai for snapshots and camera config, and directly to go2rtc at :1984 for WebRTC signaling. Layout state (grid size + drag order) lives in localStorage as cache; `camera-layout.json` is the server-side source of truth. The SnapshotCache and NvrClient require no changes.
+All v22.0 additions layer onto the existing WebSocket gateway without introducing new transports or ports. AppState gains 3 new `RwLock` fields (`feature_flags`, `pending_config_pushes`, `ota_release_state`). SQLite gains 4 new tables (`feature_flags`, `config_push_log`, `ota_releases`, `ota_pod_status`). The rc-common protocol gains 7 new message variants on existing enums using additive `#[serde(tag = "type")]` — unknown variants are ignored by older agents, ensuring backward compatibility. The admin dashboard gains 2 new pages. All changes are additive; no existing message types, tables, or pages are modified.
+
+Config storage uses a three-tier TOML + SQLite hybrid (per-pod override wins over global override wins over static TOML). TOML remains the install-time baseline and is never hot-reloaded for port bindings, DB path, or WS URL. SQLite overlay is for operational config that staff toggle from the dashboard. If the DB is wiped, pods fall back to TOML — no brick risk.
 
 **Major components:**
-1. `go2rtc :1984` — RTSP relay + WebRTC signaling; needs ch1-ch13 added to go2rtc.yaml; no go2rtc source changes
-2. `SnapshotCache / NvrClient` (rc-sentry-ai) — unchanged; background-refreshes all 13 channels from NVR HTTP snapshot endpoint
-3. `cameras_list_handler` (mjpeg.rs) — extend JSON response to include `nvr_channel`, `stream_name`, `display_order`
-4. `CameraConfig` (config.rs) — add `display_order: Option<u32>`; TOML gets all 13 cameras with stream names
-5. `cameras.html` — full rewrite in-place: layout selector, drag-to-reorder, WebRTC fullscreen modal, localStorage persistence
-6. `web/cameras/page.tsx` — full rewrite: snapshot polling + `useWebRTC` hook + layout controls; requires `NEXT_PUBLIC_SENTRY_URL` and `NEXT_PUBLIC_GO2RTC_WS_BASE` env vars baked at build time
-7. `camera-layout.json` (new, server-side) — user preferences (camera order, display names) persisted separately from rc-sentry-ai.toml; written atomically with temp-file rename; TOML is read-only at runtime
-8. `PUT /api/cameras/layout` endpoint — cross-origin layout synchronization; localStorage is the cache, this is the source of truth
-
-**Key architectural patterns:**
-- Hybrid streaming: snapshot grid for ambient monitoring (all 13 cameras, 1-2fps JPEG); one WebRTC connection for actively viewed fullscreen camera only
-- go2rtc stream name indirection: browser uses stream names only (`ch1`–`ch13`) from API response; NVR IP and credentials never appear in JS
-- Singleton WebRTC: module-level `let activePeerConnection = null` — any new connection closes the active one first; `teardownRtc()` written before any connection-opening code
-- CSS grid class swap for layout switching: all 13 tiles persist in DOM across mode changes; show/hide with `display:none`, never destroy/recreate
+1. `feature_registry.rs` (racecontrol) — SQLite-backed flag store, per-pod/global scope, REST CRUD, WS push broadcast
+2. `ota_pipeline.rs` (racecontrol) — release manifest ingestion, session-gated canary, staged rollout, health gate, auto-rollback
+3. `config_push.rs` (racecontrol) — per-pod config queue, reconnect replay, ack tracking, version counter
+4. `standing_rules_gate.rs` (racecontrol) — executable codification of 41+ CLAUDE.md rules in 5 enforcement tiers
+5. `rc-agent/feature_flags.rs` — in-memory `Arc<RwLock<HashMap<String, Value>>>` updated via WS push
+6. `rc-agent/event_loop.rs` extensions — handlers for ConfigPush, FeatureFlagsUpdate, OtaDownload messages
+7. Admin dashboard: feature toggle page + OTA release trigger page (Next.js, REST-backed)
 
 ### Critical Pitfalls
 
-1. **go2rtc CORS blocks WebRTC signaling** — Use `origin: "*"` under `[api]` in go2rtc.yaml (not `cors:` — wrong key, silently ignored by go2rtc). Verify with `curl -X OPTIONS http://192.168.31.27:1984/api/webrtc` returning `Access-Control-Allow-Origin: *` before writing any frontend WebRTC code. go2rtc never logs rejected CORS preflight — the failure is invisible server-side.
+1. **OTA restarts an active billing session** — Add `session_state: Idle | Active | Ending` to `PodFleetStatus`. Gate ALL destructive OTA actions on `session_state == Idle`. This must be the first gate checked, not a post-launch hardening item. Do not re-queue a pod the moment its session ends — schedule for the next deployment window.
 
-2. **go2rtc cold-start delay (5-10 seconds on first viewer)** — Lazy RTSP connect triggers a fresh RTSP probe + codec negotiation per camera. Prevention: pre-warm streams on camera tile hover (send `GET /api/streams?src=ch{N}` probe before user clicks); show a loading spinner within 100ms of click; do not disable lazy loading (prevents 13 RTSP connections at go2rtc startup).
+2. **Recovery systems fight the OTA restarter** — rc-sentry, pod_monitor, self_monitor, and WoL all independently respond to "pod offline." During a 15-second binary swap they will all fire simultaneously. Write sentinel file `C:\RacingPoint\ota-in-progress.flag` before any pod deploy step. rc-sentry must check this before restarting. pod_monitor must suppress WoL when `DeployInProgress` is set in AppState. Verify `build_id` matches manifest after every deploy — if the watchdog won, the old binary is running.
 
-3. **Snapshot proxy + WebRTC RTSP competing for NVR connection slots** — SnapshotCache hits NVR HTTP snapshot.cgi; go2rtc hits NVR RTSP; Dahua NVRs count both against per-channel connection limits. Two options: (a) route snapshots through go2rtc's frame API (`GET /api/frame.jpeg?src=ch{N}`) to share one RTSP connection per camera, or (b) pause snapshot polling for the camera currently open in WebRTC fullscreen. Decision must be made in Phase 1 before snapshot cache is assumed stable during WebRTC.
+3. **git hash as binary identity triggers unnecessary redeployments** — docs-only commits advance the git hash, making all 8 pods appear outdated. Use `sha256sum rc-agent.exe | cut -c1-16` as binary identity. Store both in the manifest. Gate CI builds on path-filtered changes (`crates/rc-agent/`, `crates/rc-common/`). This failure mode is documented in CLAUDE.md but was not applied to pipeline design.
 
-4. **WebRTC peer connection not closed on fullscreen dismiss** — Removing the video element from the DOM does NOT close the `RTCPeerConnection`. Ghost connections accumulate on go2rtc and consume NVR RTSP slots. Write `teardownRtc()` (explicit `pc.close()` + stop all tracks) and call it on: fullscreen close, layout mode change, camera switch, page `beforeunload`, and `visibilitychange`. Verify via go2rtc `/api/streams` — viewer count must drop to 0 within 5 seconds of close.
+4. **Config push overwrites manual TOML emergency fixes** — During outage recovery, staff edits TOML on pods. Server comes back and silently pushes the broken server config. Track config with a monotonic version counter. If a pod's counter is greater than the server's stored version, alert instead of overwrite. Default to read-only (report drift) during the first week of operation.
 
-5. **Layout persistence diverges across dual origins** — localStorage is scoped to origin; layout changes at :8096 are invisible at :3200. Server-side `camera-layout.json` + `PUT /api/cameras/layout` is required as source of truth. localStorage is the fast-load cache only. This must be locked in the backend API phase before drag-to-reorder is built.
+5. **Cargo feature gates create per-pod binary variants** — Using compile-time flags for per-pod runtime differences forces the OTA system to track N binary variants. Policy: one production binary tier for all pods; per-pod behavioral differences go through the runtime flag registry. Document this policy before writing any feature gate code.
 
-6. **NVR credentials in frontend JS** — If the browser constructs go2rtc WebSocket URLs with RTSP credentials embedded, admin password is visible in DevTools to any LAN user. All 13 streams must be pre-configured in go2rtc.yaml with canonical names; frontend JavaScript uses only stream names. Grep the served HTML for `192.168.31.18` and `Admin%40123` — must return empty.
+6. **cmd.exe quoting corrupts config values** — 4 production incidents to date. Config push must NEVER route through the fleet exec endpoint. WebSocket typed `ConfigPush` message is the only acceptable path. Integration test with values containing spaces (`Pod 3`), backslashes (`C:\RacingPoint\`), and dollar signs before shipping.
 
-7. **TOML round-trip corruption from layout write** — The `toml` crate serializer drops all comments and reorders sections. If a runtime endpoint writes user preferences back to rc-sentry-ai.toml, git history becomes unreadable and a partial write during crash corrupts startup. User preferences go in `camera-layout.json`; TOML is read-only at runtime.
-
----
+7. **Human-observable standing rules auto-passed by health checks** — v17.0 flicker incident: four deploy rounds declared "fixed" based on health endpoint while screens flickered visibly. Classify every standing rule as AUTO, HUMAN-CONFIRM, or INFORMATIONAL before writing any automation. Visual verification rules must be HUMAN-CONFIRM — pipeline PAUSES, issues named checklist, requires explicit `CONFIRM <rule-id>`.
 
 ## Implications for Roadmap
 
-The architecture has a clear dependency chain. Phases 1-3 are sequential (each gates the next). Phases 4a and 4b are parallel — they share the same backend but have independent frontend implementations.
+Based on combined research, the build order is firmly dependency-constrained. Features and architecture research converge on the same 6-phase sequence.
 
-### Phase 1: go2rtc Infrastructure + CORS Verification
+### Phase 1: Protocol Foundation + Cargo Gates
+**Rationale:** rc-common changes block everything downstream. Cargo feature gate decisions lock in OTA topology and cannot be changed after canary infrastructure is built on top of them. Both must land before any server or agent code references new types. The standing rules classification (AUTO/HUMAN-CONFIRM/INFORMATIONAL) should also be done in this phase as a planning artifact.
+**Delivers:** 7 new WS message variants on existing enums; 4 new types in rc-common; `[features]` sections in rc-agent and rc-sentry-ai Cargo.toml; single-binary-tier policy documented
+**Addresses:** CF-1, CF-2, CF-3
+**Avoids:** Pitfall 10 (Cargo feature gate topology debt) — policy must be set here before OTA infrastructure is built on top of it
 
-**Rationale:** All frontend WebRTC work is gated on go2rtc having all 13 cameras configured, CORS working from the rc-sentry-ai origin, and the NVR coexistence strategy decided. Pitfalls 1, 3, and 6 (credential exposure) must be resolved here before a single line of frontend WebRTC code is written. This is config work only — no Rust changes.
-**Delivers:** go2rtc.yaml with ch1-ch13 RTSP entries (sub-stream, percent-encoded credentials, no H.264 transcoding); `origin: "*"` under `[api]`; verified CORS response via curl; NVR coexistence decision (snapshot-through-go2rtc vs pause-during-WebRTC) tested against live hardware; cold-start behavior observed (lazy vs eager RTSP connect tradeoff)
-**Addresses:** Pitfall 1 (CORS), Pitfall 3 (NVR connection contention), Pitfall 6 (credential exposure in JS)
-**Avoids:** Starting frontend before infrastructure is proven — CORS failure is completely invisible server-side
-**Research flag:** Standard — go2rtc yaml format is documented; CORS key confusion has a known fix; verification is manual on live hardware
+### Phase 2: Server-Side Registry + Config Foundation
+**Rationale:** REST endpoints must exist before the admin dashboard can be built or tested. Both Phase 2 (server) and Phase 3 (agent) depend on Phase 1 but not on each other — they can proceed in parallel if two developers are available; single developer should do server first to get testable endpoints.
+**Delivers:** 4 new SQLite tables; `feature_registry.rs`, `config_push.rs`, AppState extensions; REST endpoints for flags, config push, OTA releases; `notify` file watcher for `racecontrol.toml`; config version counter (monotonic integer); `registry_initialized` flag on server startup
+**Uses:** `arc-swap` (RaceControlConfig hot-swap); `notify` (TOML file watch)
+**Addresses:** FF-1, FF-2 (registry); CP-1, CP-5 (config push + audit log)
+**Avoids:** Pitfall 4 (config push overwrites manual TOML) — version counter model; Pitfall 9 (empty allowlist push during server startup) — `registry_initialized` guard
 
-### Phase 2: Backend Config + API Extension
+### Phase 3: Agent-Side Consumer
+**Rationale:** rc-agent must handle all new WS message variants before the OTA pipeline can send them. The hot-reload scope (which config fields require restart vs. are safe to hot-swap) must be documented and enforced here.
+**Delivers:** `RuntimeConfigOverlay` merge logic in `rc-agent/config.rs`; in-memory `FeatureFlagMap`; event_loop handlers for ConfigPush, FeatureFlagsUpdate, OtaDownload; `arc-swap` integration; `self-replace` OTA swap path; `flags-cache.json` offline fallback; sentinel file write before binary swap
+**Uses:** `arc-swap` (AgentConfig hot-swap); `self-replace` (Windows binary self-replacement)
+**Addresses:** FF-3, FF-4, FF-5 (flag delivery chain); CP-3 (hot-reload); OTA download handler
+**Avoids:** Pitfall 7 (cmd.exe quoting) — config data must ONLY flow via WS typed message; Pitfall 2 (recovery systems fight OTA) — sentinel file written before swap, build_id verified after
 
-**Rationale:** Both frontend targets fetch `/api/v1/cameras` on page load. The extended response shape (nvr_channel, stream_name, display_order) and the `camera-layout.json` persistence endpoint are shared prerequisites for both cameras.html and page.tsx rewrites. The config/API split decision (camera-layout.json vs TOML mutation) must be locked here to prevent Pitfall 7.
-**Delivers:** `display_order: Option<u32>` in CameraConfig; rc-sentry-ai.toml updated with all 13 cameras + stream names matching go2rtc.yaml; cameras_list_handler returning full camera info; `PUT /api/cameras/layout` endpoint writing atomically to camera-layout.json; `GET /api/cameras/layout` for initial load on page open
-**Addresses:** TS-2 (friendly names in API), TS-4 (status consistency), cross-origin layout sync (Pitfall 5), TOML integrity (Pitfall 7)
-**Avoids:** Building either frontend against a partial API response that silently returns null stream_names
-**Research flag:** Standard — Axum handler, serde_json, tokio::fs atomic write (write-to-tmp then rename) are established patterns in this codebase
+### Phase 4: OTA Pipeline
+**Rationale:** Requires Phase 2 (AppState OTA fields) and Phase 3 (OtaDownload handler in rc-agent). The state machine, session gate, recovery coordination, and rollback must be designed together — none can be "added later" without encountering a production incident first.
+**Delivers:** `ota_pipeline.rs` state machine with `deploy-state.json` persistence; session-gated canary (Pod 8 first); staged 1-then-4-then-3 waves; `DeployInProgress` AppState suppression for pod_monitor and WoL; content-addressed binary identity (SHA256); auto-rollback with session-gated per-pod sequencing; `complete_by` rollout deadline in manifest; `self-replace` + `RCAGENT_SELF_RESTART` integration; `deploy.rs` reuse for swap-script mechanism; pre-deploy gate script (SR-2) called before wave 1
+**Addresses:** OTA-1 through OTA-8; SR-2
+**Avoids:** Pitfalls 1, 2, 3, 5, 6 simultaneously — all are OTA pipeline design decisions that must be made here
 
-### Phase 3: Frontend Architecture Foundation
+### Phase 5: Admin Dashboard UI
+**Rationale:** Can begin as soon as Phase 2 REST endpoints are available. OTA trigger UI can use stub endpoints during Phase 4 development. Frontend is fully independent of Phase 3. This delivers operator visibility and control.
+**Delivers:** Feature toggle page (per-pod and fleet-wide flag toggles); OTA release trigger page with wave progress display and rollback button; standing rules gate status display; config drift indicator in fleet health table; "draining" pod status for billing-aware OTA
+**Implements:** Admin dashboard component (Next.js, REST-backed)
+**Addresses:** FF-6, FF-7 (admin UI); D-1 (drain UX); D-2 (per-pod flag visibility)
+**Avoids:** No critical pitfalls introduced — purely additive frontend work
 
-**Rationale:** Before writing any camera tile or WebRTC code in either frontend, the DOM strategy (persistent tiles, CSS class swap), singleton WebRTC pattern, and `teardownRtc()` must be defined. This phase writes the architectural contracts that Pitfalls 4 and 9 (DOM thrash) require. It applies to both frontend targets simultaneously.
-**Delivers:** DOM architecture decision locked in code comments; `teardownRtc()` written before any connection-opening code; CSS grid classes for 1x1/2x2/3x3/4x4; `activePeerConnection` singleton; HTML size budget confirmed under 80KB; localStorage schema `rp_camera_layout_v1` defined; Next.js hydration pattern confirmed (`useEffect` + hydrated flag, never `useState` initializer per CLAUDE.md)
-**Addresses:** Pitfall 4 (ghost connections), Pitfall 9 (DOM thrash on layout switch), Pitfall 5 (`include_str!` binary bloat)
-**Avoids:** The dominant failure mode — writing tile rendering before connection lifecycle management, then retrofitting teardown into complete code
-
-### Phase 4a: cameras.html Rewrite (Embedded Dashboard)
-
-**Rationale:** Parallel with 4b after Phases 1-3 complete. Vanilla JS implementation with no bundler, targeting :8096. Snapshot polling already works — this adds layout controls, drag-to-reorder, and WebRTC fullscreen.
-**Delivers:** Full cameras.html rewrite with layout selector (CSS grid class swap), drag-to-reorder (HTML5 DnD with `e.preventDefault()` on dragover), WebRTC fullscreen modal with loading spinner and teardownRtc, localStorage read/write, hover pre-warming for cold-start mitigation, server layout sync via PUT endpoint
-**Addresses:** TS-1, TS-2, TS-3, TS-5, TS-6, TS-7 from FEATURES.md; D-1 if scoped in
-**Avoids:** Pitfall 2 (cold-start) via hover pre-warm; Pitfall 4 (singleton enforcement before tile code)
-**Research flag:** Standard — HTML5 DnD and vanilla JS WebRTC pattern fully specified in ARCHITECTURE.md with working code samples
-
-### Phase 4b: Next.js Web Dashboard Rewrite (Server Dashboard)
-
-**Rationale:** Parallel with 4a. React implementation targeting :3200. Adds `useWebRTC` hook, `CameraGridSkeleton`, and Tailwind grid layout classes. Requires Next.js rebuild with `NEXT_PUBLIC_` env vars baked at build time. `.next/static` must be copied into `.next/standalone/` per standing rule before deploy.
-**Delivers:** Full web/cameras/page.tsx rewrite with `useWebRTC` hook in `web/src/hooks/useWebRTC.ts`, snapshot polling via `useEffect`, layout controls with Tailwind `grid-cols-N`, drag-to-reorder via React drag state or `@dnd-kit/core`, hydration-safe localStorage (useEffect + hydrated flag pattern), server layout sync via PUT endpoint; `CameraGridSkeleton` for hydration gap
-**Addresses:** Same feature set as Phase 4a; Next.js hydration safety (CLAUDE.md rule: never read localStorage in useState initializer)
-**Avoids:** SSR hydration mismatch; standalone deploy without static copy; hardcoded LAN IPs in source (must use NEXT_PUBLIC_ env vars)
-**Research flag:** Standard — Next.js patterns match existing codebase conventions; @dnd-kit/core is the correct library (react-beautiful-dnd deprecated by Atlassian)
+### Phase 6: Standing Rules Codification + Gate Wiring
+**Rationale:** `standing_rules_gate.rs` must wire into the OTA pipeline (Phase 4). The classification of all 41+ rules as AUTO/HUMAN-CONFIRM/INFORMATIONAL must be done before any automation is written — Pitfall 8 is triggered by mapping human-observable rules to machine checks under schedule pressure.
+**Delivers:** `standing_rules_gate.rs` with Tier A/B/C/D/E enforcement; pipeline integration at pre-canary and pre-batch checkpoints; HUMAN-CONFIRM rules as pipeline PAUSE states with named operator checklists; clippy lints in `.cargo/config.toml` (`-D clippy::unwrap_used`); `deploy-staging/gate-check.sh` shell-based checks; CLAUDE.md updated with new `### OTA Pipeline` standing rules section; auth enforcement on feature flag REST endpoints
+**Addresses:** SR-1 through SR-5; Pitfall 11 (auth-unprotected flag endpoint)
+**Avoids:** Pitfall 8 (human-observable rules auto-passed) — classification done before automation is written
 
 ### Phase Ordering Rationale
 
-- Phase 1 before all others: CORS and NVR connection strategy must be verified on real hardware before any frontend code assumes they work. The CORS failure mode is invisible server-side — go2rtc logs nothing on rejected preflight. This is the single most common reason WebRTC dashboards ship broken.
-- Phase 2 before Phases 4a/4b: Both frontends fetch `/api/v1/cameras` on page load. If stream_name is missing from the response, WebRTC fullscreen silently fails with a malformed WebSocket URL.
-- Phase 3 before Phases 4a/4b: `teardownRtc()` must be written before any connection-opening code. This is the single most important sequencing constraint from pitfalls research — retrofitting explicit connection cleanup into already-written tile rendering code is error-prone and incomplete.
-- Phase 4a and 4b are parallel: they share the Phase 1-3 backend but have independent frontend implementations. Both can proceed simultaneously once Phases 1-3 are complete.
+- Phases 1 through 3 are dependency-ordered by the rc-common protocol — any code referencing new message variants must wait for Phase 1
+- Phases 2 and 3 are parallelizable after Phase 1 — server registry and agent consumer both depend on protocol but not on each other
+- Phase 4 (OTA pipeline) cannot start until both Phase 2 (AppState OTA state fields) and Phase 3 (OtaDownload handler) are complete — the canary step sends the message and waits for the ack
+- Phase 5 (admin UI) can begin as soon as Phase 2 REST endpoints are available, independently of Phases 3 and 4
+- Phase 6 (standing rules gate) wires into Phase 4's pipeline, so it comes last; but the rule classification task should be done in Phase 1 as a planning document
 
 ### Research Flags
 
-Phases with well-documented patterns (research-phase not needed):
-- Phase 1: go2rtc yaml config format is in official docs; CORS key confusion is a known documented issue
-- Phase 2: Axum route + serde_json + tokio::fs atomic write is established in this codebase; no new patterns
-- Phase 4a: HTML5 DnD and vanilla JS WebRTC patterns are fully specified in ARCHITECTURE.md with working code samples
-- Phase 4b: Next.js patterns match existing CLAUDE.md conventions; @dnd-kit/core usage is standard
+Phases needing deeper research during planning:
+- **Phase 4 (OTA Pipeline):** The billing session drain state machine, recovery system sentinel coordination (cross-repo change touching rc-sentry), and rollback session-gated sequencing are all novel to this codebase. Recommend a planning session with `deploy.rs`, `pod_monitor`, and rc-sentry health-check code open. The `complete_by` rollout policy value requires an operator decision from Uday before it is hardcoded.
+- **Phase 6 (Standing Rules Gate):** Classifying 41+ rules requires reading each CLAUDE.md rule and making a manual AUTO/HUMAN-CONFIRM/INFORMATIONAL decision. This is a classification task that should not be rushed. Recommend a dedicated classification pass before writing `standing_rules_gate.rs`.
 
-Phases that may benefit from targeted live verification before implementation:
-- Phase 1 (NVR coexistence): The choice between routing snapshots through go2rtc's frame API vs pausing snapshot polling during WebRTC has performance implications. go2rtc's frame API has 1-2s snapshot latency (issue #1736 — keyframe wait). Test both options against the live NVR before committing. The snapshot cache currently returns cached JPEGs in milliseconds; switching to go2rtc frames adds latency unless pre-warmed.
-- Phase 4a/4b (H.265 browser decode): Chrome 136+/Safari 18+ is required for H.265 WebRTC relay without transcoding. Browser version on the staff dashboard machine (.23 or .27) has not been independently verified. If browser is older, ch1-ch13 go2rtc.yaml entries need ffmpeg H.264 transcoding — adding CPU overhead and a new entry pattern alongside the existing detection pipeline entries.
-
----
+Phases with standard patterns (can skip deeper research):
+- **Phase 1 (Protocol Foundation):** Adding enum variants with `#[serde(tag = "type")]` and Cargo feature gates are both from official documentation with established patterns in this codebase.
+- **Phase 2 (Server Registry):** SQLite schema additions and RwLock AppState extensions follow the existing `state.rs` pattern exactly. `notify` crate usage is `spawn_blocking` wrapper around `recommended_watcher`.
+- **Phase 3 (Agent Consumer):** `arc-swap.store()` and `self-replace::self_replace()` are both simple APIs. The merge logic for `RuntimeConfigOverlay` is standard serde deserialization with `#[serde(default)]`.
+- **Phase 5 (Admin UI):** Next.js pages calling REST endpoints — identical pattern to all existing admin dashboard pages.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | go2rtc source verified via GitHub + DeepWiki; HTML5 APIs per MDN; existing Cargo.toml confirmed; no new Rust crates required |
-| Features | HIGH | Codebase audit of cameras/page.tsx, nvr.rs, config.rs, mjpeg.rs; competitor analysis of DMSS HD, Hik-Connect, Frigate, Blue Iris, camera.ui |
-| Architecture | HIGH | All integration points verified against live code + go2rtc source; WebRTC protocol message types confirmed against video-rtc.js |
-| Pitfalls | HIGH (go2rtc integration), MEDIUM (WebRTC connection management), LOW (layout persistence tradeoffs) | go2rtc CORS/cold-start from go2rtc issue tracker with confirmed fixes; connection management from WebRTC post-mortems; localStorage tradeoffs from pattern inference |
+| Stack | HIGH | All 3 new crates verified on docs.rs 2026-03-23; existing workspace dependencies confirmed against live Cargo.toml |
+| Features | HIGH | Feature taxonomy from Martin Fowler canonical reference + Memfault OTA checklist; cross-checked against live codebase constraints |
+| Architecture | HIGH | All integration points verified against live source: protocol.rs, state.rs, deploy.rs, config.rs, ws/mod.rs |
+| Pitfalls | HIGH | Majority derived from live incidents documented in CLAUDE.md and PROJECT.md for this exact codebase — not theoretical |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Browser H.265 support on staff machines:** Chrome 136+/Safari 18+ required for H.265 WebRTC relay. Browser version on staff dashboard machine (.23) not independently verified. Check before Phase 4a/4b — if unsupported, add H.264 transcoding entries to go2rtc.yaml for ch1-ch13 (separate from existing `entrance_h264` detection pipeline entries).
-- **NVR per-channel connection limit (exact number):** Dahua NVR model-specific limits documented as "typically 2-4" from community sources. Test in Phase 1: connect snapshot cache + one go2rtc WebRTC stream to the same channel and confirm NVR accepts both without dropping either.
-- **go2rtc frame API snapshot latency:** Routing all snapshots through go2rtc (`/api/frame.jpeg`) eliminates NVR connection contention but adds 1-2s keyframe wait latency. If this is unacceptable, the "pause snapshot polling during WebRTC" strategy is preferred. Must be tested in Phase 1 before the snapshot pipeline is assumed stable during WebRTC sessions.
-
----
+- **Auth pattern on feature flag REST endpoints:** `POST /api/v1/flags` must require auth. The existing auth mechanism in racecontrol (session token vs. PSK vs. admin-only header) needs to be confirmed against live `api/routes.rs` before the endpoint is implemented. Address during Phase 2 planning.
+- **rc-sentry sentinel file coordination:** rc-sentry must be modified to check `C:\RacingPoint\ota-in-progress.flag` before triggering a restart. This is a cross-repo change (rc-sentry-ai repository). Confirm rc-sentry's file-read capability and health-check polling interval during Phase 4 planning — the sentinel timeout (currently assumed 60s) must exceed the actual binary swap time on the slowest pod.
+- **Rollback session wire protocol compatibility:** Pitfall 6 requires session structs to use `#[serde(default)]` on all new fields so rc-agent N-1 can receive `SessionSync` from server N without data loss. This backward-compat constraint must be applied to any session-related struct changes during Phase 3 and must be reviewed before every future session struct modification.
+- **Rollout completion policy value:** Pitfall 5 requires a `complete_by` timestamp in the manifest. The actual policy — hours vs. days, auto-complete vs. alert-and-wait — requires an explicit decision from Uday before it is hardcoded into the pipeline state machine.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- go2rtc `www/video-rtc.js` (GitHub source) — `src` setter, `mode` attribute, `background` property, WebRTC protocol message types (`webrtc/offer`, `webrtc/answer`, `webrtc/candidate`)
-- go2rtc `www/stream.html` (GitHub source) — `<video-stream>` custom element, `api/ws?src=` URL format
-- DeepWiki AlexxIT/go2rtc — WebRTC protocol documentation, VideoStream/VideoRTC class, protocol fallback order
-- MDN Web Docs — HTML Drag and Drop API (`draggable`, `dragstart`, `dragover`, `drop`, `e.preventDefault()` requirement); Window.localStorage; JSON.parse/stringify
-- Live codebase audit (2026-03-22): `mjpeg.rs`, `nvr.rs`, `config.rs`, `cameras.html`, `Cargo.toml`, `web/src/app/cameras/page.tsx`, `C:\RacingPoint\go2rtc\go2rtc.yaml`
+- docs.rs — `arc-swap` 1.9.0, `notify` 8.2.0, `self-replace` 1.5.0 (verified 2026-03-23)
+- Official Cargo Book — Features chapter (Rust documentation)
+- Tokio official docs — shared state patterns, broadcast channel
+- Live racecontrol source: `crates/rc-common/src/protocol.rs`, `crates/racecontrol/src/state.rs`, `crates/racecontrol/src/deploy.rs`, `crates/rc-agent/src/config.rs`, `crates/rc-agent/Cargo.toml`, `crates/racecontrol/src/ws/mod.rs`
+- CLAUDE.md standing rules and documented incidents (direct codebase source — same repo)
 
 ### Secondary (MEDIUM confidence)
-- go2rtc issue #1311 — `origin:` vs `cors:` CORS key confusion, confirmed fix
-- go2rtc issue #1392 — 5-10s cold start documented behavior; codec negotiation cannot be skipped
-- go2rtc issue #1736 — snapshot latency 1-2s from go2rtc due to keyframe wait
-- go2rtc issue #835 — single RTSP connection reused for multiple output clients; camera session limit still applies
-- Frigate go2rtc configuration guide — production multi-camera config patterns, iframe embed pattern
-- Home Assistant 2024.11 go2rtc integration — real-world snapshot + WebRTC coexistence patterns
-- DMSS HD (Google Play + Dahua Wiki), Hik-Connect, Blue Iris, camera.ui — competitor feature analysis
-- Dahua NVR RTSP URL format (`channel=N&subtype=1`, percent-encoding) — community + Frigate docs + GitHub Discussion #14956
-- rust-lang/rust#65818 — `include_str!` compile time regression with large files
+- Martin Fowler — Feature Toggles canonical reference (toggle type taxonomy: release, ops, experiment, permission)
+- Memfault — OTA Update Checklist for Embedded Devices (canary, health gates, rollback patterns)
+- Unleash — 11 Principles for Feature Flag Systems (per-device targeting, offline fallback)
+- WebSocket.org — reconnection state sync and recovery (sequence number replay for offline queuing)
 
 ### Tertiary (LOW confidence)
-- H.265 WebRTC support in Chrome 136+/Safari 18+ — from go2rtc documentation; browser versions on staff machines not independently verified
-- Dahua NVR connection limits "typically 2-4 per channel" — from IP Cam Talk forum; exact limit for Racing Point NVR model unverified
-- localhost vs. LAN CSS transitions performance ("lower-spec machines" threshold) — pattern inference, not benchmarked
+- OpenFeature Specification — standard flag evaluation API (referenced for evaluation API design patterns only, not adopted directly)
+- Platform Engineering — Policy as Code in CI/CD Pipelines (gate pattern reference)
 
 ---
-*Research completed: 2026-03-22 IST*
+*Research completed: 2026-03-23 IST*
 *Ready for roadmap: yes*
