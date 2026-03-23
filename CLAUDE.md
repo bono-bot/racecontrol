@@ -60,7 +60,7 @@
 | web dashboard | 3200 | Server .23 | Scheduled task |
 | rc-agent remote_ops | 8090 | All pods | `start-rcagent.bat` (HKLM Run) |
 | webterm | 9999 | James .27 | `python C:/Users/bono/racingpoint/deploy-staging/webterm.py` |
-| Ollama | 11434 | James .27 | qwen3:0.6b — venue-only |
+| Ollama | 11434 | James .27 | qwen2.5:3b — venue-only |
 | Cloud API | 443 | 72.60.101.58 | app.racingpoint.cloud (Bono's VPS) |
 
 ---
@@ -268,7 +268,7 @@ Before fixing any bug, follow this structured process. Do NOT jump from symptom 
 |------|--------|------|--------|
 | 1 | **Deterministic** | Always first | Stale sockets, game cleanup, temp files, WerFault — apply without LLM |
 | 2 | **Memory** | After Tier 1 fails | Check LOGBOOK.md + commit history for identical past incident |
-| 3 | **Local Ollama** | After Tier 2 fails | Query qwen3:0.6b at James .27:11434 |
+| 3 | **Local Ollama** | After Tier 2 fails | Query qwen2.5:3b at James .27:11434 |
 | 4 | **Cloud Claude** | Last resort | Escalate — NOT auto-triggered |
 
 The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells you HOW to reason. Use both together.
