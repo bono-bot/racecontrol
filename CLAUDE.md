@@ -170,6 +170,27 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **LOGBOOK:** After every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`.
   _Why: LOGBOOK is Tier 2 debugging — without consistent entries, memory-based debugging fails._
 
+### Testing & Verification
+
+- **Verify the EXACT behavior path, not proxies.** After deploying a fix, test the EXACT data flow that was broken: input string → transform → parse → decision → action. Health endpoints and build IDs prove the binary is running, NOT that the bug is fixed. A 2-character difference (`"` quotes on curl output) kept all 8 pods flickering through two deploy cycles because the proxy checks (health OK, build_id correct) all passed while the actual parse path failed silently.
+  _Why: Pod healer curl fix deployed twice — both times declared "fixed" based on health endpoint. The actual stdout was `"200"` (with quotes), which failed `u32::parse()` → `unwrap_or(0)` → healer still thought lock screen was down → ForceRelaunchBrowser spam continued._
+- **"Removed" means removed from EVERY machine.** When removing a process, registry key, scheduled task, or config from infrastructure, verify on EVERY target: server (.23), all 8 pods, James (.27). "Removed from server" ≠ "removed from pods."
+  _Why: CCBootClient was "removed" from server HKCU Run but was still in Pod 1's HKLM Run and still running. The removal was declared complete without checking pods._
+- **Never move on from a failed operation.** When a command fails (quoting error, permission denied, timeout), either fix it NOW with a different approach or explicitly tell the user it's unresolved. "I'll deal with it later" = "I forgot about it."
+  _Why: GoPro Webcam registry removal failed due to cmd.exe quote nesting. Moved on without resolving — it stayed in Pod 1's startup for the rest of the session._
+- **Audit what the CUSTOMER sees, not what the API returns.** Check visible window titles (`tasklist /V /FO CSV`), check what's on the physical screen, check what processes have foreground windows. API health checks and process lists are internal diagnostics — the customer experience is the screen.
+  _Why: 5 instances of M365 Copilot, NVIDIA Overlay, AMD DVR, Steam login dialog, visible cmd.exe windows — all overlaying the blanking screen on every pod. None detectable via health endpoints or fleet status._
+- **Investigate anomalies, don't dismiss them.** `violation_count_24h: 100` on all 8 pods should have been alarming. "Expected behavior" is a hypothesis, not a conclusion — verify WHY before dismissing.
+  _Why: Process guard had empty whitelist on all pods (fetched when server was down). Every process was flagged. Dismissed as "expected, report_only mode" without checking why whitelisted processes (svchost.exe) were being flagged._
+- **Fix during audit, don't just catalog.** Finding issues without fixing them creates a growing backlog. Apply the smallest reversible fix during the audit pass, then move on. Separate "investigate" from "defer" — deferred items must be explicitly communicated to the user.
+  _Why: 9+ items cataloged as "investigate later" during audit — Antamedia, Salt ports, CCBoot, OneDrive, unknown ports, scheduled tasks. Most never got investigated until the user pushed._
+- **Context switches kill open investigations.** When the user asks for something new, finish or explicitly park the current investigation with a clear status. Don't silently drop it.
+  _Why: "Preflight checks not initiated properly, pods still blinking" was reported, then "push commit" was requested. Context-switched to committing, never came back to investigate the blinking._
+- **`git log` before calling builds "old".** Different hash ≠ outdated. Always run `git log <old_hash>..<new_hash> -- <crate_path>` to check actual code changes before claiming a redeploy is needed. Docs-only commits don't change binaries.
+  _Why: All 8 pods on `82bea1eb` were called "old build" — but git log showed zero functional rc-agent code changes since that commit. Pods were on the correct build._
+- **cmd.exe is hostile to quoting.** Any command routed through rc-agent's `/exec` endpoint goes through `cmd /C`. Strings with spaces, `$`, `"`, or `\` WILL be mangled. Use PID-based targeting (taskkill /F /PID), write batch files to the pod, or use sysinfo/Win32 APIs in Rust — avoid cmd.exe string interpretation entirely.
+  _Why: `taskkill /F /IM "GoPro Webcam.exe"` fails because CreateProcessW wraps the /C arg in outer quotes → cmd.exe sees nested quotes → parse breaks. PowerShell `$r` variable stripped by cmd.exe caused the original pod healer flicker bug._
+
 ### Debugging
 
 - **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others.
