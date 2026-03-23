@@ -606,12 +606,12 @@ impl LockScreenManager {
         // MoveWindow after 3s ensures coverage on both single and multi-monitor setups.
         let use_window_sizing = true;
 
-        // Use --app mode instead of --kiosk for multi-monitor spanning.
-        // --kiosk fullscreens to primary monitor only, ignoring --window-size.
-        // --app creates a chromeless window that respects MoveWindow + SetWindowPos.
-        // After positioning, we send F11 for browser fullscreen spanning all monitors.
+        // --app mode + SetWindowPos(HWND_TOPMOST) to span all monitors.
+        // --kiosk fullscreens to primary monitor only (single-monitor).
+        // --app creates chromeless window. F11 doesn't work in --app, but
+        // SetWindowPos with HWND_TOPMOST forces spanning and stays on top.
+        // enforce_kiosk_foreground uses SW_SHOW (not SW_MAXIMIZE) to avoid undoing this.
         let app_url = format!("--app={}", url);
-
         for edge_path in &edge_paths {
             let mut args: Vec<&str> = vec![
                 &app_url,
@@ -636,7 +636,6 @@ impl LockScreenManager {
                 "--no-experiments",
                 "--disable-background-networking",
                 "--block-new-web-contents",
-                "--start-fullscreen",
             ];
             if use_window_sizing {
                 args.push(&window_pos);
@@ -654,28 +653,32 @@ impl LockScreenManager {
                         "Lock screen browser launched at {} using {} pid={} (virtual screen: {}x{} at {},{})",
                         url, edge_path, child_pid, vw, vh, vx, vy
                     );
-                    // Edge --kiosk ignores --window-size on some multi-monitor setups.
-                    // Force the window to cover the full virtual screen after launch.
-                    // Uses EnumWindows + GetWindowThreadProcessId to find OUR Edge window,
-                    // not FindWindowA which grabs ConspitLink WebView2 windows.
-                    // Position Edge window to span all monitors, then F11 for browser fullscreen.
-                    // --app mode respects MoveWindow (unlike --kiosk which fights it).
+                    // --app mode + SetWindowPos(HWND_TOPMOST) to span all monitors.
+                    // F11 doesn't work in --app mode. Instead, we use SetWindowPos
+                    // with HWND_TOPMOST to force the window to cover all monitors.
+                    // Retry loop handles race with ConspitLink and other windows.
                     {
-                        let (fx, fy, fw, fh) = (vx, vy, vw, vh);
+                        // Offset Y by -32px to push --app title bar off-screen.
+                        // Increase height by +32px so content still covers the full screen.
+                        let (fx, fy, fw, fh) = (vx, vy - 32, vw, vh + 32);
                         std::thread::spawn(move || {
                             // Wait for Edge to create its window
-                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            std::thread::sleep(std::time::Duration::from_secs(5));
 
                             unsafe extern "system" {
-                                fn MoveWindow(hwnd: isize, x: i32, y: i32, w: i32, h: i32, repaint: i32) -> i32;
                                 fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
                                 fn SetForegroundWindow(hwnd: isize) -> i32;
                                 fn EnumWindows(callback: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
                                 fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
                                 fn GetClassNameA(hwnd: isize, buf: *mut u8, max: i32) -> i32;
                                 fn IsWindowVisible(hwnd: isize) -> i32;
-                                fn PostMessageA(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
+                                fn GetWindowRect(hwnd: isize, rect: *mut [i32; 4]) -> i32;
+                                fn SetWindowPos(hwnd: isize, insert_after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
                             }
+
+                            // HWND_TOPMOST = -1, SWP_SHOWWINDOW = 0x0040
+                            const HWND_TOPMOST: isize = -1;
+                            const SWP_SHOWWINDOW: u32 = 0x0040;
 
                             static mut FOUND_HWND: isize = 0;
                             static mut TARGET_PID: u32 = 0;
@@ -704,35 +707,43 @@ impl LockScreenManager {
                             }
 
                             let hwnd = unsafe { FOUND_HWND };
-                            if hwnd != 0 {
-                                // Step 1: Position window to span all monitors
-                                unsafe { ShowWindow(hwnd, 9); } // SW_RESTORE — exit any maximized state first
-                                std::thread::sleep(std::time::Duration::from_millis(200));
-                                let ok = unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1) };
-                                tracing::info!(target: LOG_TARGET, "MoveWindow(Edge pid={}, hwnd={}, {},{},{},{}) = {}", child_pid, hwnd, fx, fy, fw, fh, ok);
+                            if hwnd == 0 {
+                                tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — SetWindowPos skipped", child_pid);
+                                return;
+                            }
 
-                                // Step 2: Bring to foreground
+                            // Retry loop: SetWindowPos(HWND_TOPMOST) to force spanning.
+                            // Up to 3 attempts — Edge may reset its window after launch.
+                            for attempt in 1..=3 {
+                                // SW_RESTORE first to exit any maximized/minimized state
+                                unsafe { ShowWindow(hwnd, 9); } // SW_RESTORE
+                                std::thread::sleep(std::time::Duration::from_millis(300));
+
+                                // SetWindowPos: HWND_TOPMOST + position/size + show
+                                let ok = unsafe {
+                                    SetWindowPos(hwnd, HWND_TOPMOST, fx, fy, fw, fh, SWP_SHOWWINDOW)
+                                };
                                 unsafe { SetForegroundWindow(hwnd); }
+
+                                // Check if Edge is now spanning the full virtual screen
                                 std::thread::sleep(std::time::Duration::from_millis(500));
+                                let mut rect = [0i32; 4]; // left, top, right, bottom
+                                unsafe { GetWindowRect(hwnd, &mut rect); }
+                                let w = rect[2] - rect[0];
+                                let h = rect[3] - rect[1];
+                                tracing::info!(target: LOG_TARGET,
+                                    "SetWindowPos attempt {}/3: ok={}, rect=({},{},{},{}) size={}x{} target={}x{}",
+                                    attempt, ok, rect[0], rect[1], rect[2], rect[3], w, h, fw, fh);
 
-                                // Step 3: Send F11 using keybd_event (real keyboard simulation)
-                                // PostMessage F11 doesn't work — Edge ignores posted key messages.
-                                // keybd_event simulates at the OS input level, which Edge respects.
-                                unsafe extern "system" {
-                                    fn keybd_event(bvk: u8, bscan: u8, flags: u32, extra: usize);
+                                // If Edge covers >=90% of the virtual screen, done
+                                if w >= (fw * 9 / 10) && h >= (fh * 9 / 10) {
+                                    tracing::info!(target: LOG_TARGET,
+                                        "SetWindowPos confirmed on attempt {} ({}x{} covers {}x{})",
+                                        attempt, w, h, fw, fh);
+                                    break;
                                 }
-                                // VK_F11=0x7A, KEYEVENTF_KEYUP=0x0002
-                                unsafe {
-                                    keybd_event(0x7A, 0, 0, 0);          // F11 down
-                                    keybd_event(0x7A, 0, 0x0002, 0);     // F11 up
-                                }
-                                tracing::info!(target: LOG_TARGET, "Sent F11 via keybd_event for browser fullscreen (spanning {}x{})", fw, fh);
 
-                                // Step 4: Wait for F11 fullscreen to take effect, then retry MoveWindow
                                 std::thread::sleep(std::time::Duration::from_secs(2));
-                                unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1); }
-                            } else {
-                                tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — MoveWindow skipped", child_pid);
                             }
                         });
                     }
@@ -968,7 +979,7 @@ pub fn enforce_kiosk_foreground() {
         Get-Process -Name msedge -ErrorAction SilentlyContinue |
             Where-Object { $_.MainWindowTitle -like '*Racing Point*' -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
             ForEach-Object {
-                [NativeFG.WinFG]::ShowWindow($_.MainWindowHandle, 3) | Out-Null  # SW_MAXIMIZE
+                [NativeFG.WinFG]::ShowWindow($_.MainWindowHandle, 5) | Out-Null  # SW_SHOW (not SW_MAXIMIZE which exits F11 fullscreen)
                 [NativeFG.WinFG]::SetForegroundWindow($_.MainWindowHandle) | Out-Null
                 Write-Output "Kiosk foreground: $($_.ProcessName) (PID $($_.Id))"
             }
