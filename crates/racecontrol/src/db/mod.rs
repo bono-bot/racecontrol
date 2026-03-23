@@ -855,16 +855,23 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    // Add updated_at to tables that lack it
-    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN updated_at TEXT")
-        .execute(pool)
-        .await;
-    let _ = sqlx::query("ALTER TABLE kiosk_experiences ADD COLUMN updated_at TEXT")
-        .execute(pool)
-        .await;
+    // Add updated_at to ALL tables used by cloud sync (idempotent — ALTER fails silently if exists).
+    // Required because CREATE TABLE IF NOT EXISTS won't modify tables created by older binaries.
+    for table in &[
+        "drivers", "wallets", "billing_sessions", "pricing_tiers",
+        "kiosk_experiences", "reservations", "debit_intents",
+        "kiosk_settings", "cafe_orders", "staff_members",
+    ] {
+        let _ = sqlx::query(&format!("ALTER TABLE {} ADD COLUMN updated_at TEXT", table))
+            .execute(pool)
+            .await;
+    }
 
-    // Backfill NULL updated_at with created_at
+    // Backfill NULL updated_at with created_at where available
     let _ = sqlx::query("UPDATE drivers SET updated_at = created_at WHERE updated_at IS NULL")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("UPDATE billing_sessions SET updated_at = created_at WHERE updated_at IS NULL")
         .execute(pool)
         .await;
     let _ = sqlx::query("UPDATE pricing_tiers SET updated_at = created_at WHERE updated_at IS NULL")
