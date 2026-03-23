@@ -275,9 +275,11 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
 }
 
 /// Restart the monitored service via schtasks (Windows Task Scheduler).
-/// PowerShell Start-Process and cmd /C start both silently fail from
-/// non-interactive service contexts. schtasks /Run runs in SYSTEM context
-/// and reliably launches into the interactive desktop.
+///
+/// CRITICAL: Direct `Command::new("schtasks")` silently fails from non-interactive
+/// contexts even with CREATE_NO_WINDOW. The ONLY proven working path is routing
+/// through `cmd.exe /C` via `run_cmd_sync()` — the same path used by the /exec
+/// endpoint. See DEBUG-RESTART-ISSUE.md for the full investigation.
 pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
@@ -290,46 +292,135 @@ pub fn restart_service() -> CrashDiagResult {
     #[cfg(not(test))]
     {
         let cfg = sentry_config::load();
-        // Create/update the scheduled task (idempotent — /F overwrites)
-        let create = std::process::Command::new("schtasks")
-            .args([
-                "/Create", "/TN", "StartRCAgent",
-                "/TR", &cfg.start_script,
-                "/SC", "ONCE", "/ST", "00:00",
-                "/F", "/RU", "SYSTEM",
-            ])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
 
-        if let Err(e) = &create {
-            tracing::error!(target: LOG_TARGET, "schtasks /Create failed: {}", e);
+        // Breadcrumb: confirm restart_service() was reached (H5 diagnostic)
+        let _ = std::fs::write(
+            r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
+            format!("restart_service entered at {:?}\n", std::time::SystemTime::now()),
+        );
+
+        // Create/update the scheduled task (idempotent — /F overwrites).
+        // Uses run_cmd_sync (cmd.exe /C) instead of direct Command::new("schtasks")
+        // because direct spawn silently fails from non-interactive context.
+        let create_cmd = format!(
+            "schtasks /Create /TN StartRCAgent /TR \"{}\" /SC ONCE /ST 00:00 /F /RU SYSTEM",
+            cfg.start_script
+        );
+        let create = rc_common::exec::run_cmd_sync(
+            &create_cmd,
+            Duration::from_secs(10),
+            4096,
+        );
+
+        if create.exit_code != 0 {
+            tracing::error!(
+                target: LOG_TARGET,
+                "schtasks /Create failed: exit={} stderr={}",
+                create.exit_code, create.stderr
+            );
             return CrashDiagResult {
                 fix_type: "restart".to_string(),
-                detail: format!("schtasks create failed: {}", e),
+                detail: format!("schtasks create failed: {}", create.stderr),
                 success: false,
             };
         }
 
-        // Run the task
-        let run = std::process::Command::new("schtasks")
-            .args(["/Run", "/TN", "StartRCAgent"])
-            .creation_flags(0x08000000)
-            .output();
+        // Run the task via cmd.exe /C (proven working path)
+        let run = rc_common::exec::run_cmd_sync(
+            "schtasks /Run /TN StartRCAgent",
+            Duration::from_secs(10),
+            4096,
+        );
 
-        let success = run.as_ref().map(|o| o.status.success()).unwrap_or(false);
+        if run.exit_code != 0 {
+            tracing::error!(
+                target: LOG_TARGET,
+                "schtasks /Run failed: exit={} stderr={}",
+                run.exit_code, run.stderr
+            );
+            return CrashDiagResult {
+                fix_type: "restart".to_string(),
+                detail: format!("schtasks /Run failed: {}", run.stderr),
+                success: false,
+            };
+        }
+
+        tracing::info!(
+            target: LOG_TARGET,
+            "schtasks /Run succeeded — verifying rc-agent starts..."
+        );
+
+        // Verify rc-agent actually started (standing rule: spawn success ≠ child alive).
+        // Poll :8090/health for up to 20s (schtasks + bat + process startup).
+        let verified = verify_service_started(&cfg.health_addr, Duration::from_secs(20));
+
+        let _ = std::fs::write(
+            r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
+            format!(
+                "restart_service: schtasks ok, verified={} at {:?}\n",
+                verified,
+                std::time::SystemTime::now()
+            ),
+        );
+
         CrashDiagResult {
             fix_type: "restart".to_string(),
-            detail: if success {
-                format!("{} restarted via schtasks StartRCAgent", cfg.service_name)
+            detail: if verified {
+                format!("{} restarted and verified via health check", cfg.service_name)
             } else {
-                let stderr = run.as_ref()
-                    .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
-                    .unwrap_or_default();
-                format!("schtasks /Run failed: {}", stderr)
+                format!(
+                    "{} schtasks /Run succeeded but health check failed after 20s",
+                    cfg.service_name
+                )
             },
-            success,
+            success: verified,
         }
     }
+}
+
+/// Poll a health endpoint until it responds with HTTP 200, or timeout.
+/// Used to verify rc-agent actually started after schtasks /Run.
+#[cfg(not(test))]
+fn verify_service_started(health_addr: &str, timeout: Duration) -> bool {
+    let start = std::time::Instant::now();
+    // Wait 5s before first poll — give the bat script time to swap binaries
+    std::thread::sleep(Duration::from_secs(5));
+
+    while start.elapsed() < timeout {
+        match std::net::TcpStream::connect_timeout(
+            &health_addr.parse().unwrap_or_else(|_| {
+                std::net::SocketAddr::from(([127, 0, 0, 1], 8090))
+            }),
+            Duration::from_secs(2),
+        ) {
+            Ok(mut stream) => {
+                use std::io::{Read, Write};
+                let req = "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+                if stream.write_all(req.as_bytes()).is_ok() {
+                    let mut buf = [0u8; 512];
+                    if let Ok(n) = stream.read(&mut buf) {
+                        let resp = String::from_utf8_lossy(&buf[..n]);
+                        if resp.contains("200") {
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                "rc-agent health verified after {:?}",
+                                start.elapsed()
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    tracing::warn!(
+        target: LOG_TARGET,
+        "rc-agent health NOT verified after {:?}",
+        start.elapsed()
+    );
+    false
 }
 
 /// Write MAINTENANCE_MODE file to prevent further restarts.
