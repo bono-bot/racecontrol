@@ -712,3 +712,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 11:05 IST | James | 7676a0f (deploy-staging) | feat(174-04): add deploy.sh — unified deploy for racecontrol/kiosk/web/comms-link with post-deploy health check |
 | 2026-03-23 11:05 IST | James | 2ec55f42 | docs(174-04): complete check-health.sh and deploy.sh plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS |
 | 2026-03-23 22:19 IST | James | 15796d1a | docs(174-05): complete deployment runbook plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS |
+| 2026-03-23 09:24 IST | James | 3afbe827 | feat(175-01): add E2E test runner script run-e2e.sh — 48 automated tests, 180+ manual_test entries, pre-flight health check, section counters, filter flags |
+| 2026-03-23 09:24 IST | James | b8908888 | feat(175-01): add E2E-REPORT-TEMPLATE.md — 24-section summary table, 230 manual checkboxes, Failures Log, Known Issues, sign-off checklist |
+| 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
