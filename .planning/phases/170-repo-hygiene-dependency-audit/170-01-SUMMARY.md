@@ -103,6 +103,16 @@ None — no external service configuration required beyond what was already set 
 - Three folders (bat-sandbox, computer-use, voice-assistant) await compression to archive before deletion.
 - Marketing folder decision deferred to Uday — note in MEMORY.md recommended.
 
+## Self-Check: PASSED
+
+- FOUND: .planning/phases/170-repo-hygiene-dependency-audit/170-NON-GIT-CATALOGUE.md
+- FOUND: .planning/phases/170-repo-hygiene-dependency-audit/170-01-SUMMARY.md
+- FOUND: game-launcher/README.md (external repo, commit 7cbc983, pushed)
+- FOUND: ac-launcher/README.md (external repo, commit ec29063, pushed)
+- FOUND: conspit-link/README.md (external repo, commit 16856f0, pushed)
+- FOUND: task commit e58504cd (non-git catalogue)
+- VERIFIED: game-launcher isArchived=true, ac-launcher isArchived=true, conspit-link isArchived=true
+
 ---
 *Phase: 170-repo-hygiene-dependency-audit*
 *Completed: 2026-03-23*

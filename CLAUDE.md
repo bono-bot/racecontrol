@@ -14,14 +14,14 @@
 
 | Device | IP | MAC | Notes |
 |--------|----|-----|-------|
-| Pod 1 | 192.168.31.89 | 30-56-0F-05-45-88 | |
-| Pod 2 | 192.168.31.33 | 30-56-0F-05-46-53 | |
-| Pod 3 | 192.168.31.28 | 30-56-0F-05-44-B3 | |
-| Pod 4 | 192.168.31.88 | 30-56-0F-05-45-25 | |
-| Pod 5 | 192.168.31.86 | 30-56-0F-05-44-B7 | |
-| Pod 6 | 192.168.31.87 | 30-56-0F-05-45-6E | |
-| Pod 7 | 192.168.31.38 | 30-56-0F-05-44-B4 | |
-| Pod 8 | 192.168.31.91 | 30-56-0F-05-46-C5 | |
+| Pod 1 | 192.168.31.89 | 30-56-0F-05-45-88 | Tailscale: sim1-1 / 100.92.122.89 |
+| Pod 2 | 192.168.31.33 | 30-56-0F-05-46-53 | Tailscale: sim2 / 100.105.93.108 |
+| Pod 3 | 192.168.31.28 | 30-56-0F-05-44-B3 | Tailscale: sim3 / 100.69.231.26 |
+| Pod 4 | 192.168.31.88 | 30-56-0F-05-45-25 | Tailscale: sim4 / 100.75.45.10 |
+| Pod 5 | 192.168.31.86 | 30-56-0F-05-44-B7 | Tailscale: sim5 / 100.110.133.87 |
+| Pod 6 | 192.168.31.87 | 30-56-0F-05-45-6E | Tailscale: sim6 / 100.127.149.17 |
+| Pod 7 | 192.168.31.38 | 30-56-0F-05-44-B4 | Tailscale: sim7 / 100.82.196.28 |
+| Pod 8 | 192.168.31.91 | 30-56-0F-05-46-C5 | Tailscale: sim8 / 100.98.67.67 |
 | Server | 192.168.31.23 | 10-FF-E0-80-B1-A7 | Racing-Point-Server, 64GB RAM, DHCP (needs reservation) |
 | James | 192.168.31.27 | D8-BB-C1-CD-B3-CF | RTX 4070, static IP, Ollama :11434 |
 | POS PC | 192.168.31.20 | 10-4A-7D-5B-C4-DA | WiFi, Tailscale: pos1/100.95.211.1 |
@@ -112,6 +112,12 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
   _Why: Pod 8 canary catches runtime failures (DLL missing, wrong CWD, config mismatch) before fleet-wide damage._
+- **Smallest Reversible Fix First** — when fixing a production issue, prefer the smallest change that can be tested and rolled back. Don't rewrite Rust code when a bat file one-liner works. Don't touch self-restart logic when a boot-time cleanup suffices. Save elegant fixes for when you have a test environment.
+  _Why: PowerShell memory leak fix attempt changed self_monitor.rs relaunch logic. Four iterations (cmd/c, CREATE_NO_WINDOW, exit, Environment::Exit) all broke self-restart, each time taking Pod 6 down with manual recovery. The working fix was always `taskkill /F /IM powershell.exe` in start-rcagent.bat — one line, zero risk._
+- **Have a rollback plan before deploying** — before changing critical paths (self-restart, deploy chain, process guard), prepare a one-command recovery: Tailscale SSH + schtasks to restart, or SCP the old binary back. Never deploy without knowing how to undo.
+  _Why: Pod 6 went down 4 times during self-restart fix attempts with no prepared recovery path. Had to discover Tailscale SSH mid-incident._
+- **Tailscale SSH fallback for pod recovery** — when rc-agent is dead and LAN exec is unavailable, SSH via Tailscale: `ssh -o StrictHostKeyChecking=no User@<tailscale_ip>`. Use `schtasks /Run /TN StartRCAgent` to restart. Pod Tailscale IPs: sim1-sim8 (run `tailscale status` to find).
+  _Why: Discovered during Pod 6 incident — only way to recover a pod when rc-agent is dead, rc-sentry doesn't restart it, and no one is physically at the venue._
 - **Deploy staging path:** `C:\Users\bono\racingpoint\deploy-staging\`
   _Why: Consistent staging root prevents "which binary is current" confusion across sessions._
 - **Pendrive install:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod. For pods with RCAGENT_SERVICE_KEY blocking exec.
@@ -157,6 +163,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Realistic-looking fake data (names, IDs, emails) has leaked into production databases twice._
 - **Prompt Quality Check** — missing clarity/specificity/actionability/scope → ask one focused question before acting.
   _Why: Acting on ambiguous prompts produces work that must be redone; one question costs less than one wrong implementation._
+- **Links and References = "Apply Now"** — when the user shares a link, article, or methodology alongside a problem, apply it to the current problem FIRST, document it SECOND. A reference shared during active work is a tool to use, not information to file.
+  _Why: User shared 4 debugging methodologies during an active crash investigation. James wrote a comparison table and updated rules instead of applying them to the open bug. Three prompts wasted before actual debugging happened._
 - **Learn From Past Fixes** — check LOGBOOK + commit history before re-investigating.
   _Why: Re-investigating solved problems wastes session time; LOGBOOK has resolved the same issue in under 2 minutes._
 - **LOGBOOK:** After every commit, append `| timestamp IST | James | hash | summary |` to `LOGBOOK.md`.
@@ -184,6 +192,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: "Phase Complete" was reported 9 times based on compilation alone — runtime failures were hidden each time._
 - **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Errors in new pipelines use `warn`/`error`, not `debug`.
   _Why: Silent task death (panic in spawned thread, channel close) went undetected for hours because no lifecycle logs existed._
+- **Cause Elimination Before Fix** — Never jump from symptom to fix. Follow the 5-step Cause Elimination Process (see Debugging Methodology section): Document symptom → List ALL hypotheses → Test & eliminate one by one → Fix confirmed cause → Verify fix works. "Found a crash dump" ≠ "found the cause."
+  _Why: Pod 6 game crash was attributed to Variable_dump.exe based on crash dumps alone without testing other hypotheses (RAM pressure, FFB driver, USB hardware). The fix was never verified because pods went offline. Correlation-based fixes leave the real cause unfixed 40% of the time._
 
 ### Security
 
@@ -194,7 +204,37 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 
 ---
 
-## 4-Tier Debug Order
+## Debugging Methodology
+
+### Cause Elimination Process (MANDATORY for all non-trivial bugs)
+
+Before fixing any bug, follow this structured process. Do NOT jump from symptom to fix.
+
+**Step 1 — Reproduce & Document Symptom**
+- What exactly happened? (user's words, screenshot, error message)
+- When? What action triggered it? What was the system state?
+
+**Step 2 — Hypothesize (list ALL possible causes)**
+- Write down every plausible cause, not just the first one found
+- Include: software, hardware, config, network, user error, interaction between systems
+- Example (Pod 6 crash): (a) Variable_dump.exe USB disruption, (b) AC FFB driver crash, (c) RAM pressure from 15 orphan PowerShell processes, (d) VSD Craft itself, (e) USB hub/cable fault
+
+**Step 3 — Test & Eliminate (one by one)**
+- For each hypothesis, define a test that would confirm or rule it out
+- Run tests in order of likelihood and ease
+- Cross off eliminated causes with evidence, not assumptions
+- "Found a crash dump" ≠ "found the cause" — correlation is not causation
+
+**Step 4 — Fix & Verify**
+- Apply the fix for the confirmed cause
+- **Reproduce the original trigger** — verify the bug is actually gone
+- Visual verification for UI/display issues (standing rule)
+- If you can't reproduce (e.g. pods offline), mark as UNVERIFIED and schedule retest
+
+**Step 5 — Log**
+- Record in LOGBOOK.md: symptom, hypotheses tested, confirmed cause, fix applied, verification result
+
+### 4-Tier Debug Order (WHERE to look)
 
 | Tier | Method | When | Action |
 |------|--------|------|--------|
@@ -202,6 +242,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 | 2 | **Memory** | After Tier 1 fails | Check LOGBOOK.md + commit history for identical past incident |
 | 3 | **Local Ollama** | After Tier 2 fails | Query qwen3:0.6b at James .27:11434 |
 | 4 | **Cloud Claude** | Last resort | Escalate — NOT auto-triggered |
+
+The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells you HOW to reason. Use both together.
 
 ---
 
