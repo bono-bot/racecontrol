@@ -172,6 +172,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: `updated_at` was in 10 CREATE TABLE statements but only 2 had ALTER migrations. Cloud and venue DBs created by different binary versions had different schemas. Required manual ALTER on 8 tables to fix._
 - **Review parallel session commits against standing rules before deploying.** Code from other sessions may not follow current rules (bat parentheses, missing verification, stale references). Always `git show <hash>` and check against standing rules before accepting.
   _Why: Parallel session commit `a948569` used parentheses in bat if/else blocks — caught during standing rule review, fixed before deploy._
+- **First-run verification after enabling any guard/filter/blocklist.** When flipping `enabled = false` to `true` on any filtering system (process guard, firewall, allowlist, rate limiter), check the FIRST scan result immediately: how many items flagged? If "everything" or "nothing" — the config is wrong. An empty allowlist + enabled guard = block everything. This is structurally incomplete — don't mark shipped.
+  _Why: Process guard was enabled with an empty allowlist. Every process was flagged — 28,749 false violations/day for 2 days. Nobody noticed because (a) the log API was broken (F12), (b) no automated monitoring existed, (c) no first-run check was done after enabling._
 - **No Fake Data** — use `TEST_ONLY`, `0000000000`, or leave empty. Never real-looking identifiers.
   _Why: Realistic-looking fake data (names, IDs, emails) has leaked into production databases twice._
 - **Prompt Quality Check** — missing clarity/specificity/actionability/scope → ask one focused question before acting.
