@@ -235,8 +235,11 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   - Hardware integrations tested with live data (cameras, GPU inference, network devices).
   - **Frontend: verify from the user's browser, not from the server.** `NEXT_PUBLIC_` env vars are baked at build time — rebuild with correct LAN IP.
   - **Frontend: standalone deploy requires `.next/static` copied into `.next/standalone/`.**
+  - **Frontend: grep ALL `NEXT_PUBLIC_` references after any env var change.** One missing var (e.g. `NEXT_PUBLIC_WS_URL`) silently falls back to `localhost` — works on the server, fails on every remote browser (POS, spectator, staff phones). After adding or modifying any `NEXT_PUBLIC_` var, run `grep -rn NEXT_PUBLIC_ src/` and verify EVERY one has a value in `.env.production.local`.
+  - **Frontend: after every dashboard rebuild/deploy, verify from a machine that is NOT the server.** SSH to POS or open from James's browser pointing at `.23:3200`. `curl` to the dashboard URL proves HTML loads, not that JavaScript/WebSocket works.
+  - `cargo check` and unit tests are necessary but NOT sufficient. They prove structure, not function.
 
-  _Why: "Phase Complete" was reported 9 times based on compilation alone — runtime failures were hidden each time._
+  _Why: "Phase Complete" was reported 9 times based on compilation alone — runtime failures were hidden each time. `NEXT_PUBLIC_WS_URL` was never set — `NEXT_PUBLIC_API_URL` was correct so REST worked, but WebSocket defaulted to `ws://localhost:8080` causing "page loads but no data" on the POS machine for every session until caught._
 - **Long-Lived Tasks Must Log Lifecycle** — Any `tokio::spawn` or `std::thread::spawn` loop must log: (a) when it starts, (b) when it processes its first item, (c) when it exits. Errors in new pipelines use `warn`/`error`, not `debug`.
   _Why: Silent task death (panic in spawned thread, channel close) went undetected for hours because no lifecycle logs existed._
 - **Cause Elimination Before Fix** — Never jump from symptom to fix. Follow the 5-step Cause Elimination Process (see Debugging Methodology section): Document symptom → List ALL hypotheses → Test & eliminate one by one → Fix confirmed cause → Verify fix works. "Found a crash dump" ≠ "found the cause."
