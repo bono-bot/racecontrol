@@ -206,6 +206,12 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: 5 instances of M365 Copilot, NVIDIA Overlay, AMD DVR, Steam login dialog, visible cmd.exe windows — all overlaying the blanking screen on every pod. None detectable via health endpoints or fleet status._
 - **Investigate anomalies, don't dismiss them.** `violation_count_24h: 100` on all 8 pods should have been alarming. "Expected behavior" is a hypothesis, not a conclusion — verify WHY before dismissing.
   _Why: Process guard had empty whitelist on all pods (fetched when server was down). Every process was flagged. Dismissed as "expected, report_only mode" without checking why whitelisted processes (svchost.exe) were being flagged._
+- **NEVER restart explorer.exe on pods with NVIDIA Surround.** Explorer restart disrupts GPU display configuration — NVIDIA Surround drops to 1024x768 single-monitor fallback. Requires full reboot to restore. This broke 3 pods during a taskbar-hide attempt.
+  _Why: `Stop-Process -Name explorer` in hide-taskbar script collapsed all triple-monitor setups from 7680x1440 to 1024x768. Required rebooting Pods 5, 6, 7 to restore._
+- **Test display changes on ONE pod before fleet-wide.** Any change affecting screen resolution, blanking, kiosk mode, or explorer should be tested on Pod 8 canary first. Display issues are visually obvious but invisible to API health checks.
+  _Why: Applied explorer restart to 3 pods simultaneously — all 3 broke. One pod test would have caught it._
+- **Screenshot verification triggers taskbar auto-hide.** PowerShell `CopyFromScreen` causes a focus change that reveals auto-hidden taskbar. Don't use screenshot artifacts to diagnose taskbar issues — ask the user to verify physically instead.
+  _Why: Taskbar was auto-hiding correctly but every screenshot showed it visible, leading to unnecessary fix attempts that broke NVIDIA Surround._
 - **Fix during audit, don't just catalog.** Finding issues without fixing them creates a growing backlog. Apply the smallest reversible fix during the audit pass, then move on. Separate "investigate" from "defer" — deferred items must be explicitly communicated to the user.
   _Why: 9+ items cataloged as "investigate later" during audit — Antamedia, Salt ports, CCBoot, OneDrive, unknown ports, scheduled tasks. Most never got investigated until the user pushed._
 - **Context switches kill open investigations.** When the user asks for something new, finish or explicitly park the current investigation with a clear status. Don't silently drop it.
