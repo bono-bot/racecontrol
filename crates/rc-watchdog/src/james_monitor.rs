@@ -1,10 +1,16 @@
-//! James monitor — checks 5 services on James (.27) each Task Scheduler run.
+//! James AI Healer — monitors all Racing Point services with intelligent recovery.
 //!
-//! Graduated response (persisted across runs via failure_state.json):
-//!   failure count 1: log warn, write RecoveryAction::Restart reason=first_failure_wait_retry
-//!   failure count 2: attempt restart (comms-link, webterm), log RecoveryAction::Restart
-//!   failure count 3+: alert Bono via comms-link WS, log RecoveryAction::AlertStaff
-//!   recovered: reset count, log RecoveryAction::Restart reason=recovered
+//! Replaces dumb watchdog with graduated AI-driven diagnosis:
+//!   failure count 1: log warn, tail service logs for WHY, wait for next cycle
+//!   failure count 2: attempt restart if available, log context
+//!   failure count 3: query Ollama for AI diagnosis based on collected symptoms
+//!   failure count 4+: alert Bono with full diagnosis + symptoms
+//!   recovered: reset count, log pattern for future memory
+//!
+//! Services monitored (9 total):
+//!   Local (.27): ollama, comms-link, webterm, claude-code, rc-sentry
+//!   Server (.23): racecontrol, kiosk, dashboard, go2rtc
+//!   Network: tailscale connectivity to Bono VPS
 
 use rc_common::recovery::{
     RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_JAMES,
@@ -15,16 +21,22 @@ use crate::failure_state::FailureState;
 
 const MACHINE: &str = "james";
 const HTTP_TIMEOUT_SECS: u64 = 3;
+const OLLAMA_URL: &str = "http://127.0.0.1:11434/api/generate";
+const OLLAMA_MODEL: &str = "qwen2.5:3b";
 
 pub struct ServiceConfig {
     pub name: &'static str,
     pub check: ServiceCheck,
     pub restart_cmd: Option<RestartCmd>,
+    /// Optional log path to tail when service is down (for WHY detection)
+    pub log_path: Option<&'static str>,
 }
 
 pub enum ServiceCheck {
     Http(&'static str),    // URL to GET
+    HttpJson(&'static str, &'static str), // URL, required JSON field (verifies content, not just 200)
     Process(&'static str), // image name substring
+    Command(&'static str, &'static [&'static str], &'static str), // exe, args, expected_substr
 }
 
 pub struct RestartCmd {
@@ -32,26 +44,30 @@ pub struct RestartCmd {
     pub args: &'static [&'static str],
 }
 
-/// Service definitions — 5 services monitored on James (.27).
+/// Service definitions — 9 services + Tailscale network check.
 fn services() -> Vec<ServiceConfig> {
     vec![
+        // === Local services (.27) ===
         ServiceConfig {
             name: "ollama",
             check: ServiceCheck::Http("http://127.0.0.1:11434"),
-            restart_cmd: None, // Ollama is a system service — alert only
+            restart_cmd: None,
+            log_path: None,
         },
         ServiceConfig {
             name: "comms-link",
-            check: ServiceCheck::Http("http://127.0.0.1:8766/relay/health"),
+            check: ServiceCheck::HttpJson("http://127.0.0.1:8766/relay/health", "connected"),
             restart_cmd: Some(RestartCmd {
                 exe: r"C:\Users\bono\racingpoint\comms-link\start-comms-link.bat",
                 args: &[],
             }),
+            log_path: Some(r"C:\Users\bono\.claude\comms-watchdog.log"),
         },
         ServiceConfig {
-            name: "kiosk",
-            check: ServiceCheck::Http("http://192.168.31.23:3300"),
-            restart_cmd: None, // Server-side — alert only
+            name: "rc-sentry",
+            check: ServiceCheck::Process("rc-sentry"),
+            restart_cmd: None,
+            log_path: Some(r"C:\RacingPoint\rc-sentry-ai.log"),
         },
         ServiceConfig {
             name: "webterm",
@@ -60,17 +76,50 @@ fn services() -> Vec<ServiceConfig> {
                 exe: r"C:\Program Files\Python311\python.exe",
                 args: &[r"C:\Users\bono\racingpoint\deploy-staging\webterm.py"],
             }),
+            log_path: None,
         },
         ServiceConfig {
             name: "claude-code",
             check: ServiceCheck::Process("claude"),
-            restart_cmd: None, // User-started — alert only
+            restart_cmd: None,
+            log_path: None,
+        },
+        // === Server services (.23) ===
+        ServiceConfig {
+            name: "racecontrol",
+            check: ServiceCheck::HttpJson("http://192.168.31.23:8080/api/v1/health", "build_id"),
+            restart_cmd: None, // Server-side — alert only, needs SSH
+            log_path: None,    // Logs are on .23, not local
+        },
+        ServiceConfig {
+            name: "kiosk",
+            check: ServiceCheck::Http("http://192.168.31.23:3300"),
+            restart_cmd: None,
+            log_path: None,
+        },
+        ServiceConfig {
+            name: "dashboard",
+            check: ServiceCheck::Http("http://192.168.31.23:3200"),
+            restart_cmd: None,
+            log_path: None,
+        },
+        ServiceConfig {
+            name: "go2rtc",
+            check: ServiceCheck::Http("http://192.168.31.23:8096/api"),
+            restart_cmd: None,
+            log_path: None,
+        },
+        // === Network connectivity ===
+        ServiceConfig {
+            name: "tailscale-bono",
+            check: ServiceCheck::Http("http://100.70.177.44:8080/api/v1/health"),
+            restart_cmd: None, // Tailscale reconnect needs admin
+            log_path: None,
         },
     ]
 }
 
 /// Check if an HTTP endpoint is reachable (non-connection-refused).
-/// Returns true on any HTTP response (even error codes), false on connection error/timeout.
 pub fn check_service_http(url: &str) -> bool {
     match reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
@@ -81,8 +130,29 @@ pub fn check_service_http(url: &str) -> bool {
     }
 }
 
+/// Check HTTP endpoint AND verify a JSON field exists in the response.
+/// Standing rule: "Verify the EXACT behavior path, not proxies."
+pub fn check_service_http_json(url: &str, required_field: &str) -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match client.get(url).send() {
+        Ok(resp) => {
+            if let Ok(text) = resp.text() {
+                text.contains(required_field)
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 /// Check if a process containing `name_fragment` is running via tasklist.
-/// Conservative: returns true if tasklist can't be run (assume running).
 pub fn check_service_process(name_fragment: &str) -> bool {
     let mut cmd = std::process::Command::new("tasklist");
     cmd.args(["/NH"]);
@@ -102,11 +172,105 @@ pub fn check_service_process(name_fragment: &str) -> bool {
     }
 }
 
-fn is_healthy(svc: &ServiceConfig) -> bool {
-    match svc.check {
-        ServiceCheck::Http(url) => check_service_http(url),
-        ServiceCheck::Process(name) => check_service_process(name),
+/// Run a command and check if stdout contains expected substring.
+pub fn check_service_command(exe: &str, args: &[&str], expected: &str) -> bool {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
     }
+    match cmd.output() {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.contains(expected)
+        }
+        Err(_) => false,
+    }
+}
+
+fn is_healthy(svc: &ServiceConfig) -> bool {
+    match &svc.check {
+        ServiceCheck::Http(url) => check_service_http(url),
+        ServiceCheck::HttpJson(url, field) => check_service_http_json(url, field),
+        ServiceCheck::Process(name) => check_service_process(name),
+        ServiceCheck::Command(exe, args, expected) => check_service_command(exe, args, expected),
+    }
+}
+
+// ─── AI Healer: Log tailing + Ollama diagnosis ─────────────────────────────
+
+/// Tail the last N lines of a log file to understand WHY a service is down.
+fn tail_log(path: &str, lines: usize) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let all_lines: Vec<&str> = content.lines().collect();
+    let start = all_lines.len().saturating_sub(lines);
+    let tail: Vec<&str> = all_lines[start..].to_vec();
+    if tail.is_empty() {
+        None
+    } else {
+        Some(tail.join("\n"))
+    }
+}
+
+/// Query Ollama for AI diagnosis of a service failure.
+/// Only called at failure count 3 — not on every check (expensive).
+fn ai_diagnose(service_name: &str, symptoms: &str) -> Option<String> {
+    let prompt = format!(
+        "You are an operations AI for Racing Point eSports. Service '{}' is DOWN.\n\
+         Symptoms:\n{}\n\n\
+         In 2-3 sentences: what is the most likely cause and what should be done to fix it? \
+         Be specific to this service.",
+        service_name, symptoms
+    );
+
+    let body = serde_json::json!({
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": false,
+        "options": { "num_predict": 150 }
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .ok()?;
+
+    let resp = client
+        .post(OLLAMA_URL)
+        .json(&body)
+        .send()
+        .ok()?;
+
+    let json: serde_json::Value = resp.json().ok()?;
+    json.get("response")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+}
+
+/// Collect symptoms for a down service: log tail + failure count + duration.
+fn collect_symptoms(svc: &ServiceConfig, state: &FailureState) -> String {
+    let count = state.count(svc.name);
+    let mut symptoms = format!("Failure count: {} (consecutive 2-min cycles)\n", count);
+
+    if let Some(log_path) = svc.log_path {
+        if let Some(tail) = tail_log(log_path, 10) {
+            symptoms.push_str(&format!("Last 10 log lines:\n{}\n", tail));
+        } else {
+            symptoms.push_str("Log file empty or missing.\n");
+        }
+    } else {
+        symptoms.push_str("No local log file available.\n");
+    }
+
+    if svc.restart_cmd.is_some() {
+        symptoms.push_str("Service has a restart command available.\n");
+    } else {
+        symptoms.push_str("Service is alert-only (no local restart).\n");
+    }
+
+    symptoms
 }
 
 fn attempt_restart(svc: &ServiceConfig) {
@@ -131,15 +295,20 @@ fn attempt_restart(svc: &ServiceConfig) {
 }
 
 /// Determine the graduated action for a given failure count.
-/// Returns (action, reason) tuple.
-/// count=1: log + wait (Restart action with first_failure reason)
-/// count=2: attempt restart (Restart action with restart_attempted reason)
-/// count>=3: alert Bono (AlertStaff)
+/// count=1: log + wait + tail logs (Restart with first_failure reason)
+/// count=2: attempt restart (Restart with restart_attempted reason)
+/// count=3: query Ollama AI for diagnosis (Diagnose action)
+/// count>=4: alert Bono with full diagnosis (AlertStaff)
 pub(crate) fn graduated_action(count: u32) -> (RecoveryAction, String) {
-    if count >= 3 {
+    if count >= 4 {
         (
             RecoveryAction::AlertStaff,
             format!("repeated_failure_count:{}", count),
+        )
+    } else if count == 3 {
+        (
+            RecoveryAction::Restart,
+            "ai_diagnosis_requested".to_string(),
         )
     } else if count == 2 {
         (
@@ -147,7 +316,6 @@ pub(crate) fn graduated_action(count: u32) -> (RecoveryAction, String) {
             "second_failure_restart_attempted".to_string(),
         )
     } else {
-        // count == 1
         (
             RecoveryAction::Restart,
             "first_failure_wait_retry".to_string(),
@@ -156,9 +324,9 @@ pub(crate) fn graduated_action(count: u32) -> (RecoveryAction, String) {
 }
 
 /// Run a single monitoring cycle — called by main() on each Task Scheduler invocation.
-/// Checks all 5 services, updates persistent failure state, logs decisions, alerts Bono on 3+.
+/// Checks all services, applies graduated AI-driven recovery.
 pub fn run_monitor() {
-    tracing::info!("james_monitor: starting check run");
+    tracing::info!("james_monitor: starting check run ({} services)", services().len());
     let logger = RecoveryLogger::new(RECOVERY_LOG_JAMES);
     let mut state = FailureState::load();
 
@@ -168,8 +336,9 @@ pub fn run_monitor() {
         if healthy {
             if state.count(svc.name) > 0 {
                 tracing::info!(
-                    "james_monitor: {} recovered — resetting failure count",
-                    svc.name
+                    "james_monitor: {} RECOVERED after {} failures",
+                    svc.name,
+                    state.count(svc.name)
                 );
                 let mut d = RecoveryDecision::new(
                     MACHINE,
@@ -194,10 +363,28 @@ pub fn run_monitor() {
             count
         );
 
+        // Step 1: Always tail logs on first failure (WHY detection)
+        let symptoms = collect_symptoms(&svc, &state);
+        if count == 1 {
+            tracing::info!("james_monitor: {} — collecting symptoms:\n{}", svc.name, symptoms);
+        }
+
         let (action, reason) = graduated_action(count);
 
-        if action == RecoveryAction::Restart && count == 2 {
+        // Step 2: Attempt restart at count 2
+        if count == 2 {
             attempt_restart(&svc);
+        }
+
+        // Step 3: AI diagnosis at count 3 (expensive — only once)
+        let mut ai_diagnosis = None;
+        if count == 3 {
+            tracing::info!("james_monitor: {} — querying Ollama for AI diagnosis", svc.name);
+            ai_diagnosis = ai_diagnose(svc.name, &symptoms);
+            match &ai_diagnosis {
+                Some(diag) => tracing::info!("james_monitor: {} AI diagnosis: {}", svc.name, diag),
+                None => tracing::warn!("james_monitor: {} AI diagnosis failed (Ollama unreachable?)", svc.name),
+            }
         }
 
         let mut d = RecoveryDecision::new(
@@ -207,13 +394,24 @@ pub fn run_monitor() {
             action.clone(),
             &reason,
         );
-        d.context = format!("failure_count:{}", count);
+        d.context = if let Some(ref diag) = ai_diagnosis {
+            format!("failure_count:{} ai_diagnosis:{}", count, diag)
+        } else {
+            format!("failure_count:{}", count)
+        };
         let _ = logger.log(&d);
 
+        // Step 4: Alert Bono at count 4+ with full context
         if matches!(action, RecoveryAction::AlertStaff) {
+            let diag_text = ai_diagnosis
+                .as_deref()
+                .unwrap_or("AI diagnosis unavailable");
             let alert_msg = format!(
-                "[WATCHDOG] {} DOWN on James (failure #{}). Check immediately.",
-                svc.name, count
+                "[AI-HEALER] {} DOWN on James (failure #{}).\nDiagnosis: {}\nSymptoms: {}",
+                svc.name,
+                count,
+                diag_text,
+                symptoms.lines().take(5).collect::<Vec<_>>().join(" | ")
             );
             if let Err(e) = alert_bono(&alert_msg) {
                 tracing::warn!("james_monitor: bono alert failed: {}", e);
@@ -284,8 +482,19 @@ mod tests {
     }
 
     #[test]
-    fn test_graduated_action_count_3_is_alert_staff() {
-        let (action, _reason) = graduated_action(3);
+    fn test_graduated_action_count_3_is_ai_diagnosis() {
+        let (action, reason) = graduated_action(3);
+        assert_eq!(action, RecoveryAction::Restart);
+        assert!(
+            reason.contains("ai_diagnosis"),
+            "count=3 should trigger AI diagnosis, got: {}",
+            reason
+        );
+    }
+
+    #[test]
+    fn test_graduated_action_count_4_is_alert_staff() {
+        let (action, _reason) = graduated_action(4);
         assert_eq!(action, RecoveryAction::AlertStaff);
     }
 
@@ -293,5 +502,17 @@ mod tests {
     fn test_graduated_action_count_10_is_alert_staff() {
         let (action, _reason) = graduated_action(10);
         assert_eq!(action, RecoveryAction::AlertStaff);
+    }
+
+    #[test]
+    fn test_tail_log_missing_file() {
+        let result = tail_log(r"C:\nonexistent\fake.log", 5);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_service_http_json_unused_port() {
+        let result = check_service_http_json("http://127.0.0.1:59997", "health");
+        assert!(!result);
     }
 }
