@@ -10,9 +10,13 @@ fn main() {
 
     println!("cargo:rustc-env=GIT_HASH={hash}");
 
-    // Watch .git/HEAD (detects branch switches) AND the actual ref file
-    // (detects new commits on the current branch). Without the ref file,
-    // cargo caches the old GIT_HASH across commits on the same branch.
+    // Force rebuild on every cargo invocation — GIT_HASH must always be fresh.
+    // Previous approach (watching .git/HEAD + ref file) was unreliable because
+    // cargo's mtime-based detection misses fast-forward pulls and parallel session
+    // commits. The cost is ~0.1s per build to re-run git rev-parse.
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=GIT_HASH_FORCE");
+    // Always rerun: write a timestamp to guarantee cargo sees a change
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     if let Ok(head) = std::fs::read_to_string("../../.git/HEAD") {
         let head = head.trim();

@@ -9,6 +9,8 @@ fn main() {
         .unwrap_or_else(|| "dev".to_string());
 
     println!("cargo:rustc-env=GIT_HASH={hash}");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=GIT_HASH_FORCE");
 
     // Watch .git/HEAD (detects branch switches) AND the actual ref file
     // (detects new commits on the current branch). Without the ref file,
