@@ -21,6 +21,13 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 23 16:10 IST | James | `daaa9298` | fix: add exponential backoff to cloud sync relay push errors (315→25 per outage) |
 | Mar 23 16:15 IST | James | `5fdbd14f` | fix: add updated_at migration for ALL cloud sync tables (10 tables, not just 2) |
 | Mar 23 16:52 IST | James | `129a24f2` | fix: rc-sentry restart_service() now works — uses run_cmd_sync + verify_service_started (parallel session) |
+| Mar 23 17:15 IST | James | `4374de17` | docs: 5 new standing rules + 12 LOGBOOK entries from audit |
+| Mar 23 17:20 IST | James | `12cc8ec0` | fix: deploy 167-entry process guard allowlist — 28K false violations/day → 0 |
+| Mar 23 17:25 IST | James | `23d8299c` | docs: standing rule — first-run verification for guards/filters |
+| Mar 23 17:30 IST | James | `bcc4f8cc` | docs: F9 resolved — UTC/IST misread, not unexplained restarts |
+| Mar 23 17:35 IST | James | `97540a27` | docs: standing rule — convert timestamps before counting events |
+| Mar 23 17:45 IST | James | `c807759` | fix: comms-link health_check pointed at :8766 (James) but runs on Bono (:8765) |
+| Mar 23 18:00 IST | James | N/A | fix: Node v22.14.0 → v22.22.0 on James (match Bono LTS) |
 | Mar 23 14:46 IST | James | `21be6356` | fix: /api/v1/logs filename pattern mismatch — was reading stale racecontrol.log.* instead of current racecontrol-*.jsonl. API returned 3-day-old data (23 lines) instead of today's log (34K+ lines). Root cause: rolling appender format changed but reader not updated (cascade update violation). |
 
 ## 2026-03-22
