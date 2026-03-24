@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig, AuthTokenInfo } from "@/lib/api";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
+const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
+const WS_TOKEN = process.env.NEXT_PUBLIC_WS_TOKEN || "";
+const WS_URL = WS_TOKEN ? `${WS_BASE}?token=${WS_TOKEN}` : WS_BASE;
 
 interface DashboardEvent {
   event: string;

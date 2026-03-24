@@ -17,11 +17,13 @@ import type {
   MultiplayerGroupStatus,
 } from "@/lib/types";
 
-const WS_URL =
+const WS_BASE =
   process.env.NEXT_PUBLIC_WS_URL ||
   (typeof window !== "undefined"
     ? `ws://${window.location.hostname}:8080/ws/dashboard`
     : "ws://localhost:8080/ws/dashboard");
+const WS_TOKEN = process.env.NEXT_PUBLIC_WS_TOKEN || "";
+const WS_URL = WS_TOKEN ? `${WS_BASE}?token=${WS_TOKEN}` : WS_BASE;
 
 interface DashboardEvent {
   event: string;
