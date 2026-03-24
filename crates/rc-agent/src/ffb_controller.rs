@@ -587,13 +587,13 @@ const INSTALL_DIR: &str = r"C:\Program Files (x86)\Conspit Link 2.0";
 const RUNTIME_DIR: &str = r"C:\RacingPoint";
 
 /// Known venue game keys in GameToBaseConfig.json.
-/// AC EVO and AC Rally keys will be confirmed from pod inspection (Phase 61).
-/// For now use the confirmed keys from ConspitLink's default config.
+/// All 4 keys confirmed from Pod 8 hardware inspection (2026-03-24).
+/// Note: AC EVO uses the uppercase-underscore key style used by ConspitLink 2.0 for newer games.
 const VENUE_GAME_KEYS: &[&str] = &[
     "Assetto Corsa",
     "F1 25",
     "Assetto Corsa Competizione",
-    // AC EVO / AC Rally keys TBD — Phase 61 pod inspection will confirm exact strings
+    "ASSETTO_CORSA_EVO", // Confirmed from Pod 8 GameToBaseConfig.json (2026-03-24)
 ];
 
 /// Result of the auto-switch config self-heal operation.
