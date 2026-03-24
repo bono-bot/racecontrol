@@ -2690,7 +2690,7 @@ Plans:
   5. Offline pods receive queued config pushes on reconnect via sequence-number-based ack; no push is silently lost
 **Plans**: 3 plans
 Plans:
-- [ ] 177-01-PLAN.md -- Feature flag registry: DB tables, AppState cache, flags.rs CRUD, broadcast, audit
+- [x] 177-01-PLAN.md -- Feature flag registry: DB tables, AppState cache, flags.rs CRUD, broadcast, audit
 - [ ] 177-02-PLAN.md -- Config push: validation, queuing, delivery, WS handlers for FlagCacheSync + ConfigAck
 - [ ] 177-03-PLAN.md -- Cross-project sync: TypeScript types, OpenAPI spec, contract tests
 
@@ -2766,7 +2766,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 176. Protocol Foundation + Cargo Gates | 3/3 | Complete    | 2026-03-24 |
-| 177. Server-Side Registry + Config Foundation | 0/TBD | Not started | - |
+| 177. Server-Side Registry + Config Foundation | 1/3 | In progress | - |
 | 178. Agent-Side Consumer | 0/TBD | Not started | - |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |

@@ -32,17 +32,17 @@ gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: "Completed 176-03-PLAN.md"
-last_updated: "2026-03-24T09:52:00+05:30"
-current_phase: 176
-current_phase_name: Protocol Foundation + Cargo Gates
-current_plan: 03
+stopped_at: "Completed 177-01-PLAN.md"
+last_updated: "2026-03-24T08:30:00+05:30"
+current_phase: 177
+current_phase_name: Server-Side Registry Config Foundation
+current_plan: 01
 progress:
-  [██████████] 100%
+  [██░░░░░░░░] 20%
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_plans: 4
+  completed_plans: 4
+  percent: 20
 decisions:
   - "Single-binary-tier policy adopted: per-pod behavioral differences expressed via runtime flag registry, not separate Cargo builds"
   - "Phase ordering: 176 foundation -> 177 server and 178 agent (parallel) -> 179 OTA -> 180 admin UI (parallel with 179 after 177) -> 181 gates"
@@ -53,6 +53,8 @@ decisions:
   - "rc-sentry added to scope -- feature gates: watchdog, tier1-fixes, ai-diagnosis. Gets flags via local config from rc-agent (no WS to server)."
   - "176-01: serde adjacently-tagged + #[serde(other)] only discards content when data is null; non-null map data with unknown type requires custom deserializer (deferred)"
   - "176-03: single-binary-tier policy documented as CLAUDE.md standing rule; --no-default-features is CI-only, never deployed to pods"
+  - "177-01: FeatureFlagRow declared in flags.rs imported into state.rs; circular module dependency within same Rust crate is valid"
+  - "177-01: FlagSync version = max(row.version) across all flags in cache; update_flag reads old state from RwLock cache for audit old_value"
 blockers: []
 ---
 
