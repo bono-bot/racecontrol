@@ -1,0 +1,646 @@
+# ─── Process Guard Allowlist ─────────────────────────────────────────────
+# Generated 2026-03-24 10:30 IST from live scan of all 8 pods
+# 122 legitimate processes, 26 suspect excluded
+# Categories: system, racecontrol, game, peripheral, monitoring, development
+
+# ═══ CORE WINDOWS (system) ═══════════════════════════════════════════════
+
+[[process_guard.allowed]]
+name = "System"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "System Idle Process"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "Secure System"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "Memory Compression"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "Registry"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "smss.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "csrss.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wininit.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "winlogon.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "services.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "lsass.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "LsaIso.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "svchost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "dwm.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "explorer.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "fontdrvhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "dasHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sihost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "taskhostw.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "RuntimeBroker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "backgroundTaskHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ShellHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ctfmon.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "dllhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "conhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "audiodg.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "spoolsv.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SearchHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SearchIndexer.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "StartMenuExperienceHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "TextInputHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "WmiPrvSE.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "WmiApSrv.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "unsecapp.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "WUDFHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "TiWorker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "TrustedInstaller.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "MoUsoCoreWorker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "AggregatorHost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "MsMpEng.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "MpDefenderCoreService.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "NisSrv.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SecurityHealthService.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SecurityHealthSystray.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "smartscreen.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sppsvc.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "OfficeClickToRun.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "armsvc.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SMSvcHost.exe"
+category = "system"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "mqsvc.exe"
+category = "system"
+machines = ["pod"]
+
+# ═══ RACING POINT (racecontrol) ══════════════════════════════════════════
+
+[[process_guard.allowed]]
+name = "rc-agent.exe"
+category = "racecontrol"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "rc-sentry.exe"
+category = "racecontrol"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "racecontrol.exe"
+category = "racecontrol"
+machines = ["server"]
+
+[[process_guard.allowed]]
+name = "ConspitLink2.0.exe"
+category = "racecontrol"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "VSD Craft.exe"
+category = "racecontrol"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "CefViewWing.exe"
+category = "racecontrol"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "msedge.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "msedgewebview2.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "node20.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "node.exe"
+category = "racecontrol"
+machines = ["all"]
+
+# ═══ GAMES (game) ════════════════════════════════════════════════════════
+
+[[process_guard.allowed]]
+name = "steam.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "steamservice.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "steamwebhelper.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "iRacingService64.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "PresentMon_x64.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "gamingservices.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "gamingservicesnet.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "GameInputRedistService.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "SGP Sync App.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "garage61-agent.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "garage61-launcher.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "PICO Connect.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "capture_server.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "ps_server.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "ps_service_launcher.exe"
+category = "game"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "parfait_crash_handler.exe"
+category = "game"
+machines = ["pod"]
+
+# ═══ HARDWARE / DRIVERS (peripheral) ════════════════════════════════════
+
+[[process_guard.allowed]]
+name = "AMDRSServ.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "AMDRSSrcExt.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "AmdPpkgSvc.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdfendrsr.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdow.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "atieclxx.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "atiesrxx.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "NVDisplay.Container.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "NVIDIA Overlay.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvcontainer.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvsphelper64.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvfvsdksvc_x64.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "nvrla.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "nvsmartmaxapp.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "nvsmartmaxapp64.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "RtkAudUService64.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "SoundKeeper64.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "MidiSrv.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "RtkBtManServ.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "Bluetooth Audio KeepAlive.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "GigabyteUpdateService.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "AorusLcdService.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "EasyTuneEngineService.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "GBT_DL_LIB.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "GCC.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "FvContainer.System.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "FvContainer.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "AppActions.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "CorsairDeviceControlService.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "logi_lamparray_service.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "RPMDaemon.exe"
+category = "peripheral"
+machines = ["pod"]
+
+[[process_guard.allowed]]
+name = "VNMConfig.exe"
+category = "peripheral"
+machines = ["pod"]
+
+# ═══ MONITORING / REMOTE (monitoring) ════════════════════════════════════
+
+[[process_guard.allowed]]
+name = "netdata.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "apps.plugin.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "go.d.plugin.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "windows-events.plugin.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tailscaled.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tailscale-ipn.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rustdesk.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sshd.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ssh-agent.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ollama.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ollama app.exe"
+category = "monitoring"
+machines = ["all"]
+
+# ═══ DEVELOPMENT / SHELL (development) ══════════════════════════════════
+
+[[process_guard.allowed]]
+name = "WindowsTerminal.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "OpenConsole.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "cmd.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "powershell.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sh.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tasklist.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "pwahelper.exe"
+category = "development"
+machines = ["all"]
