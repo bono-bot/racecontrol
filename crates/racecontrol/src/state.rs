@@ -16,10 +16,11 @@ use crate::config::Config;
 use crate::crypto::encryption::FieldCipher;
 use crate::email_alerts::EmailAlerter;
 use crate::fleet_health::{FleetHealthStore, ViolationStore};
-use crate::recovery::RecoveryEventStore;
+use crate::recovery::{RecoveryEventStore, RecoveryIntentStore};
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
+use rc_common::recovery::ProcessOwnership;
 use rc_common::types::{ContentManifest, DeployState, PodInfo};
 use rc_common::watchdog::EscalatingBackoff;
 
@@ -196,6 +197,14 @@ pub struct AppState {
     /// Phase 183: In-memory ring buffer for recovery events (COORD-04).
     /// All recovery authorities POST events here; pod_healer/rc-sentry query before acting.
     pub recovery_events: std::sync::Mutex<RecoveryEventStore>,
+    /// Phase 185: Process ownership registry (COORD-01).
+    /// Maps process names to the single recovery authority that owns them.
+    /// rc-agent.exe is owned by RcSentry; pod-level WoL actions are owned by PodHealer.
+    pub process_ownership: std::sync::Mutex<ProcessOwnership>,
+    /// Phase 185: Recovery intent store with 2-minute TTL (COORD-02).
+    /// An authority registers its intent before acting; others check before acting.
+    /// Prevents simultaneous recovery by two authorities on the same pod+process.
+    pub recovery_intents: std::sync::Mutex<RecoveryIntentStore>,
 }
 
 impl AppState {
@@ -260,6 +269,14 @@ impl AppState {
             warn_scanner_last_escalated: RwLock::new(None),
             cascade_guard: std::sync::Arc::new(std::sync::Mutex::new(cascade_guard_inner)),
             recovery_events: std::sync::Mutex::new(RecoveryEventStore::new()),
+            process_ownership: {
+                let mut ownership = ProcessOwnership::new();
+                // rc-agent.exe is owned by RcSentry (pod-side authority).
+                // PodHealer must not restart rc-agent.exe directly; it uses WoL (machine-level).
+                let _ = ownership.register("rc-agent.exe", rc_common::recovery::RecoveryAuthority::RcSentry);
+                std::sync::Mutex::new(ownership)
+            },
+            recovery_intents: std::sync::Mutex::new(RecoveryIntentStore::new()),
         }
     }
 

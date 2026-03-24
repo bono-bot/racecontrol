@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::state::AppState;
-use rc_common::recovery::RecoveryEvent;
+use rc_common::recovery::{RecoveryEvent, RecoveryIntent};
 
 const MAX_EVENTS: usize = 200;
 
@@ -54,6 +54,45 @@ impl RecoveryEventStore {
 
     pub fn len(&self) -> usize {
         self.events.len()
+    }
+}
+
+/// In-memory store for recovery intents with TTL-based deconfliction (COORD-02).
+///
+/// Before any recovery authority acts on a pod+process, it registers an intent here.
+/// Other authorities must check `has_active_intent` and back off if one is found.
+/// Intents expire automatically after 2 minutes (TTL enforced by RecoveryIntent::is_expired).
+#[derive(Debug, Default)]
+pub struct RecoveryIntentStore {
+    intents: Vec<RecoveryIntent>,
+}
+
+impl RecoveryIntentStore {
+    pub fn new() -> Self {
+        Self { intents: Vec::new() }
+    }
+
+    /// Register a new intent. Cleans up expired entries first.
+    pub fn register(&mut self, intent: RecoveryIntent) {
+        self.cleanup_expired();
+        self.intents.push(intent);
+    }
+
+    /// Returns the first active (non-expired) intent for this pod_id + process, if any.
+    pub fn has_active_intent(&self, pod_id: &str, process: &str) -> Option<&RecoveryIntent> {
+        self.intents.iter().find(|i| {
+            i.pod_id == pod_id && i.process == process && !i.is_expired()
+        })
+    }
+
+    /// Remove all expired intents. Called automatically on register.
+    pub fn cleanup_expired(&mut self) {
+        self.intents.retain(|i| !i.is_expired());
+    }
+
+    /// Number of active (non-expired) intents in the store.
+    pub fn active_len(&self) -> usize {
+        self.intents.iter().filter(|i| !i.is_expired()).count()
     }
 }
 
@@ -103,7 +142,7 @@ pub async fn get_recovery_events(
 mod tests {
     use super::*;
     use chrono::Utc;
-    use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryEvent};
+    use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryEvent, RecoveryIntent};
 
     fn make_event(pod_id: &str) -> RecoveryEvent {
         RecoveryEvent {
@@ -117,6 +156,73 @@ mod tests {
             context: String::new(),
             timestamp: Utc::now(),
         }
+    }
+
+    #[test]
+    fn test_intent_store_register_and_query() {
+        let mut store = RecoveryIntentStore::new();
+        let intent = RecoveryIntent::new(
+            "pod-3",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            "graduated_tier1_restart",
+        );
+        store.register(intent);
+        let found = store.has_active_intent("pod-3", "rc-agent.exe");
+        assert!(found.is_some(), "registered intent must be retrievable");
+        assert_eq!(found.unwrap().pod_id, "pod-3");
+        assert_eq!(found.unwrap().process, "rc-agent.exe");
+    }
+
+    #[test]
+    fn test_intent_store_expired_not_returned() {
+        let mut store = RecoveryIntentStore::new();
+        // Insert an intent with a timestamp from 3 minutes ago (past the 2-min TTL)
+        let mut old_intent = RecoveryIntent::new(
+            "pod-4",
+            "rc-agent.exe",
+            RecoveryAuthority::RcSentry,
+            "old_reason",
+        );
+        old_intent.created_at = Utc::now() - chrono::Duration::minutes(3);
+        store.intents.push(old_intent);
+        // Should not find it since it's expired
+        let found = store.has_active_intent("pod-4", "rc-agent.exe");
+        assert!(found.is_none(), "expired intent must not be returned");
+    }
+
+    #[test]
+    fn test_intent_store_different_pod_not_returned() {
+        let mut store = RecoveryIntentStore::new();
+        store.register(RecoveryIntent::new(
+            "pod-1",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            "test",
+        ));
+        let found = store.has_active_intent("pod-2", "rc-agent.exe");
+        assert!(found.is_none(), "intent for pod-1 must not match pod-2 query");
+    }
+
+    #[test]
+    fn test_intent_store_cleanup_removes_expired() {
+        let mut store = RecoveryIntentStore::new();
+        let mut old_intent = RecoveryIntent::new(
+            "pod-5",
+            "rc-agent.exe",
+            RecoveryAuthority::RcSentry,
+            "expired",
+        );
+        old_intent.created_at = Utc::now() - chrono::Duration::minutes(5);
+        store.intents.push(old_intent);
+        store.register(RecoveryIntent::new(
+            "pod-6",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            "fresh",
+        ));
+        // cleanup_expired is called internally by register; only pod-6 should remain
+        assert_eq!(store.active_len(), 1, "only 1 active (non-expired) intent should remain");
     }
 
     #[test]

@@ -237,6 +237,48 @@ impl RecoveryLogger {
     }
 }
 
+// ─── Recovery Intent (COORD-02) ──────────────────────────────────────────────
+
+/// A recovery intent registered by an authority before acting on a pod+process.
+/// Any other authority that finds an active (non-expired) intent for the same
+/// pod+process must back off for the TTL window (2 minutes).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryIntent {
+    /// Pod being recovered (e.g. "pod-3")
+    pub pod_id: String,
+    /// Process being recovered (e.g. "rc-agent.exe")
+    pub process: String,
+    /// Which recovery authority registered this intent
+    pub authority: RecoveryAuthority,
+    /// Human-readable reason for the recovery action
+    pub reason: String,
+    /// UTC timestamp when this intent was created
+    pub created_at: DateTime<Utc>,
+}
+
+impl RecoveryIntent {
+    /// Create a new RecoveryIntent stamped with the current UTC time.
+    pub fn new(
+        pod_id: impl Into<String>,
+        process: impl Into<String>,
+        authority: RecoveryAuthority,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            pod_id: pod_id.into(),
+            process: process.into(),
+            authority,
+            reason: reason.into(),
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Returns true if this intent is older than 2 minutes (120 seconds).
+    pub fn is_expired(&self) -> bool {
+        (Utc::now() - self.created_at).num_seconds() > 120
+    }
+}
+
 // ─── Recovery Event (COORD-04) ────────────────────────────────────────────────
 
 /// A recovery event reported by a pod-side recovery authority to the server.
@@ -435,6 +477,32 @@ mod tests {
         assert_eq!(restored.server_reachable, Some(false));
         assert_eq!(restored.reason, "heartbeat_timeout_60s");
         assert_eq!(restored.context, "crash_pattern_3x");
+    }
+
+    #[test]
+    fn test_recovery_intent_not_expired_when_fresh() {
+        let intent = RecoveryIntent::new(
+            "pod-1",
+            "rc-agent.exe",
+            RecoveryAuthority::PodHealer,
+            "test_reason",
+        );
+        assert!(!intent.is_expired(), "freshly created intent must not be expired");
+    }
+
+    #[test]
+    fn test_recovery_intent_fields() {
+        let intent = RecoveryIntent::new(
+            "pod-5",
+            "rc-agent.exe",
+            RecoveryAuthority::RcSentry,
+            "heartbeat_timeout",
+        );
+        assert_eq!(intent.pod_id, "pod-5");
+        assert_eq!(intent.process, "rc-agent.exe");
+        assert_eq!(intent.authority, RecoveryAuthority::RcSentry);
+        assert_eq!(intent.reason, "heartbeat_timeout");
+        assert!(!intent.created_at.timestamp().is_negative(), "created_at must be a valid UTC timestamp");
     }
 
     #[test]
