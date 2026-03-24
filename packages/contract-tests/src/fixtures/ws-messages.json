@@ -1,0 +1,35 @@
+{
+  "flag_sync": {
+    "flags": { "game_launch": true, "billing_guard": true, "kill_billing": false },
+    "version": 42
+  },
+  "config_push": {
+    "fields": { "billing_rates": { "30min": 700 }, "debug_verbosity": "info" },
+    "schema_version": 1,
+    "sequence": 100
+  },
+  "ota_download": {
+    "manifest_url": "http://192.168.31.27:9998/manifest.toml",
+    "binary_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    "version": "1.0.0"
+  },
+  "kill_switch": {
+    "flag_name": "kill_billing",
+    "active": true,
+    "reason": "Emergency maintenance"
+  },
+  "config_ack": {
+    "pod_id": "pod_1",
+    "sequence": 42,
+    "accepted": true
+  },
+  "ota_ack": {
+    "pod_id": "pod_8",
+    "version": "1.0.0",
+    "success": true
+  },
+  "flag_cache_sync": {
+    "pod_id": "pod_3",
+    "cached_version": 5
+  }
+}
