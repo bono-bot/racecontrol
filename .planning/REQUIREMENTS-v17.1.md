@@ -9,8 +9,8 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### Spawn Verification
 
-- [ ] **SPAWN-01**: rc-sentry verifies spawned processes are alive by polling /health with 10s timeout and 500ms interval before declaring restart success
-- [ ] **SPAWN-02**: Recovery events include spawn_verified field (true/false) so server knows if restarts actually worked
+- [x] **SPAWN-01**: rc-sentry verifies spawned processes are alive by polling /health with 10s timeout and 500ms interval before declaring restart success
+- [x] **SPAWN-02**: Recovery events include spawn_verified field (true/false) so server knows if restarts actually worked
 - [x] **SPAWN-03**: rc-sentry uses Session 1 spawn path (WTSQueryUserToken + CreateProcessAsUser) for GUI process launches, not std::process::Command
 
 ### Recovery Coordination
@@ -22,11 +22,11 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### Graduated Recovery
 
-- [ ] **GRAD-01**: rc-sentry handle_crash() runs Tier 1 deterministic fixes (clean sockets, kill zombies, repair config) before any restart attempt
-- [ ] **GRAD-02**: rc-sentry checks Tier 2 pattern memory (debug-memory.json) for instant replay of known fixes between Tier 1 and restart
+- [x] **GRAD-01**: rc-sentry handle_crash() runs Tier 1 deterministic fixes (clean sockets, kill zombies, repair config) before any restart attempt
+- [x] **GRAD-02**: rc-sentry checks Tier 2 pattern memory (debug-memory.json) for instant replay of known fixes between Tier 1 and restart
 - [ ] **GRAD-03**: rc-sentry queries Tier 3 Ollama (qwen2.5:3b on James .27:11434) for unknown crash patterns when Tier 1+2 fail
 - [ ] **GRAD-04**: Tier 4 escalation alerts staff via WhatsApp/fleet API after 3+ failed recovery attempts
-- [ ] **GRAD-05**: Pattern memory records include server_reachable context to distinguish server-down disconnects from real rc-agent crashes
+- [x] **GRAD-05**: Pattern memory records include server_reachable context to distinguish server-down disconnects from real rc-agent crashes
 
 ### MAINTENANCE_MODE Fix
 
@@ -67,18 +67,18 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPAWN-01 | Phase 184 | Pending |
-| SPAWN-02 | Phase 184 | Pending |
+| SPAWN-01 | Phase 184 | Complete |
+| SPAWN-02 | Phase 184 | Complete |
 | SPAWN-03 | Phase 184 | Complete |
 | COORD-01 | Phase 185 | Pending |
 | COORD-02 | Phase 185 | Pending |
 | COORD-03 | Phase 185 | Pending |
 | COORD-04 | Phase 183 | Pending |
-| GRAD-01 | Phase 184 | Pending |
-| GRAD-02 | Phase 184 | Pending |
+| GRAD-01 | Phase 184 | Complete |
+| GRAD-02 | Phase 184 | Complete |
 | GRAD-03 | Phase 184 | Pending |
 | GRAD-04 | Phase 184 | Pending |
-| GRAD-05 | Phase 184 | Pending |
+| GRAD-05 | Phase 184 | Complete |
 | MAINT-01 | Phase 186 | Pending |
 | MAINT-02 | Phase 186 | Pending |
 | MAINT-03 | Phase 186 | Pending |
