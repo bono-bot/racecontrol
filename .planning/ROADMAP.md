@@ -2727,7 +2727,10 @@ Plans:
   5. The pipeline state (idle, building, staging, canary, staged-rollout, health-checking, completed, rolling-back) is persisted to deploy-state.json and survives a server restart -- an interrupted deploy can be resumed, not re-run from scratch
   6. rc-sentry, pod_monitor, and WoL all check the ota-in-progress.flag sentinel before triggering restarts during a deploy window -- no recovery system fights the OTA restarter
   7. Binary identity uses SHA256 content hash, not git commit hash -- a docs-only commit does not trigger a redeploy
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ### Phase 180: Admin Dashboard UI
 **Goal**: Operators can toggle feature flags per-pod or fleet-wide and trigger OTA releases from the admin dashboard, with live wave progress, pod drain status, and rollback controls visible without a terminal
@@ -2739,7 +2742,10 @@ Plans:
   3. The admin dashboard has an OTA Releases page showing current pipeline state, wave progress, per-pod deploy status (pending, deploying, draining, complete, failed), and a one-click rollback button that triggers revert to the previous known-good release
   4. Pods with active billing sessions show a "draining" status during OTA rather than being skipped silently -- the operator can see which pods are waiting and why
   5. Feature flag and config push changes made via the dashboard cascade visibly to all affected components (racecontrol, rc-agent, kiosk, admin) per the cross-process update standing rule -- the dashboard reflects the post-propagation state
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ### Phase 181: Standing Rules Gate
 **Goal**: Every standing rule is classified as AUTO, HUMAN-CONFIRM, or INFORMATIONAL and the appropriate enforcement mechanism fires at every pipeline step -- no gate can be bypassed, and HUMAN-CONFIRM rules pause the pipeline with a named checklist
@@ -2753,7 +2759,10 @@ Plans:
   5. HUMAN-CONFIRM rules cause the pipeline to pause and emit a named operator checklist; the pipeline resumes only after explicit operator confirmation of each checklist item
   6. CLAUDE.md has a new OTA Pipeline standing rules section covering: always preserve prev binary, never deploy without manifest, billing sessions drain before swap, OTA sentinel file protocol, config push never through fleet exec endpoint -- Bono receives these rules via standing rules sync
   7. gate-check.sh extends the v21.0 run-all.sh E2E framework as a superset -- it does not create a parallel test system
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ### Phase 182: Cross-Milestone Integration
 **Goal**: All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push â€” overlapping phases superseded or merged, future phases gain v22.0 as a dependency
@@ -2766,7 +2775,10 @@ Plans:
   4. v15.0 Phase 111 (Code Signing + Per-Game Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) â€” no duplicate canary infrastructure
   5. v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) â€” cloud deploy and local deploy share the same pipeline architecture
   6. All future phases across all milestones include a standing rules gate dependency â€” no phase can ship without running gate-check.sh
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ## v22.0 Progress
 
@@ -2875,7 +2887,10 @@ Plans:
   2. When rc-sentry is unreachable (stopped for testing), self_monitor falls back to the PowerShell+DETACHED_PROCESS path -- rc-agent still relaunches even without sentry supervision
   3. Three-state verification passes on Pod 8: (a) sentry up + kill agent -- sentry restarts agent, no PowerShell spawned; (b) sentry down + kill agent -- PowerShell fallback relaunches agent; (c) sentry down + kill agent + restart sentry -- sentry takes over the already-running agent without double-restart
   4. The port :8090 double-bind race condition no longer occurs -- GRACEFUL_RELAUNCH sentinel prevents rc-sentry from issuing a simultaneous restart while self_monitor's PowerShell path is still starting the new process
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md â€” Sentry-aware relaunch logic + build verification
 
 ### Phase 188: James Watchdog + rc-watchdog Grace Window
 **Goal**: james_watchdog.ps1's blind 2-minute service check is replaced by a Rust-based AI watchdog using shared ollama.rs from rc-common with graduated Tier 1-4 response; rc-watchdog adds a 30-second grace window that reads sentry-restart-breadcrumb.txt before acting, plus spawn verification after session1 launch
@@ -2886,7 +2901,10 @@ Plans:
   2. A service failure on James's machine triggers graduated response: count 1 waits, count 2 restarts, count 3 queries Ollama for diagnosis, count 4+ sends WhatsApp alert to Uday -- blind immediate restart is eliminated
   3. After rc-watchdog triggers a restart, it polls the target service's health endpoint at 500ms intervals for up to 10 seconds before declaring success -- spawn_verified: true only if the health endpoint responds with HTTP 200
   4. When sentry-restart-breadcrumb.txt is less than 30 seconds old, rc-watchdog skips its restart action -- confirmed by manually touching the breadcrumb file and observing "grace window active, skipping restart" in rc-watchdog log
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ## v17.1 Progress
 
