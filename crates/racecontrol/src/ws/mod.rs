@@ -1,8 +1,9 @@
 use axum::{
     extract::{
-        State, WebSocketUpgrade,
+        Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
+    http::StatusCode,
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -39,20 +40,47 @@ use rc_common::protocol::{
 use rc_common::types::{BillingSessionStatus, GameState};
 use sqlx;
 
+/// Query parameters for WS authentication
+#[derive(serde::Deserialize, Default)]
+pub struct WsAuthParams {
+    #[serde(default)]
+    token: Option<String>,
+}
+
+/// Validate WebSocket token against terminal_secret (if configured).
+/// Returns true if: no secret configured (dev mode), or token matches.
+fn verify_ws_token(state: &AppState, token: &Option<String>) -> bool {
+    match &state.config.cloud.terminal_secret {
+        None => true, // dev mode — no auth required
+        Some(secret) if secret.is_empty() => true,
+        Some(secret) => token.as_deref() == Some(secret.as_str()),
+    }
+}
+
 /// WebSocket endpoint for pod agents
 pub async fn agent_ws(
+    Query(params): Query<WsAuthParams>,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_agent(socket, state))
+) -> Result<impl IntoResponse, StatusCode> {
+    if !verify_ws_token(&state, &params.token) {
+        tracing::warn!("WS agent connection rejected — invalid or missing token");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(ws.on_upgrade(|socket| handle_agent(socket, state)))
 }
 
 /// WebSocket endpoint for dashboard clients
 pub async fn dashboard_ws(
+    Query(params): Query<WsAuthParams>,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_dashboard(socket, state))
+) -> Result<impl IntoResponse, StatusCode> {
+    if !verify_ws_token(&state, &params.token) {
+        tracing::warn!("WS dashboard connection rejected — invalid or missing token");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(ws.on_upgrade(|socket| handle_dashboard(socket, state)))
 }
 
 async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
@@ -1247,10 +1275,15 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
 /// WebSocket endpoint for AI-to-AI messaging (Bono ↔ James)
 pub async fn ai_ws(
+    Query(params): Query<WsAuthParams>,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_ai(socket, state))
+) -> Result<impl IntoResponse, StatusCode> {
+    if !verify_ws_token(&state, &params.token) {
+        tracing::warn!("WS AI channel connection rejected — invalid or missing token");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(ws.on_upgrade(|socket| handle_ai(socket, state)))
 }
 
 async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {

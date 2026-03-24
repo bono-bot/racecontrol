@@ -898,10 +898,17 @@ async fn main() -> Result<()> {
     let mut ws_disconnected_at: Option<std::time::Instant> = None;
 
     // Phase 68: Runtime URL switching via SwitchController
+    // Append ?token=SECRET for WS authentication (H1 audit fix)
+    let ws_token_suffix = state.config.core.ws_secret.as_ref()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("?token={}", s))
+        .unwrap_or_default();
+    let authed_url = format!("{}{}", state.config.core.url, ws_token_suffix);
     let active_url: std::sync::Arc<RwLock<String>> =
-        std::sync::Arc::new(RwLock::new(state.config.core.url.clone()));
-    let primary_url: String = state.config.core.url.clone();
-    let failover_url: Option<String> = state.config.core.failover_url.clone();
+        std::sync::Arc::new(RwLock::new(authed_url));
+    let primary_url: String = format!("{}{}", state.config.core.url, ws_token_suffix);
+    let failover_url: Option<String> = state.config.core.failover_url.as_ref()
+        .map(|u| format!("{}{}", u, ws_token_suffix));
 
     // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
     #[cfg(feature = "http-client")]

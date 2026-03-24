@@ -185,6 +185,10 @@ pub struct CoreConfig {
     pub url: String,
     #[serde(default)]
     pub failover_url: Option<String>,
+    /// Shared secret for WebSocket authentication. Sent as ?token= query parameter.
+    /// Must match racecontrol's cloud.terminal_secret.
+    #[serde(default)]
+    pub ws_secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
