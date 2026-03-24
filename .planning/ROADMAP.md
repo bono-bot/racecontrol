@@ -2861,7 +2861,10 @@ Plans:
   3. When WOL_SENT sentinel is present alongside MAINTENANCE_MODE, the auto-clear fires immediately (not after 30 minutes) -- WoL from pod_healer breaks the deadlock
   4. Reading C:\RacingPoint\MAINTENANCE_MODE on a pod in maintenance shows valid JSON with reason, timestamp, restart_count, and diagnostic_context fields -- not an empty file
   5. pod_healer reads MAINTENANCE_MODE JSON via rc-sentry /files before sending WoL -- WoL is never sent to a pod in maintenance mode unless the auto-clear condition is met, eliminating the WoL-into-maintenance infinite loop
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 186-01-PLAN.md — JSON maintenance payload, 30-min auto-clear, WOL_SENT immediate clear, WhatsApp alert on activation
 
 ### Phase 187: self_monitor Coordination
 **Goal**: rc-agent's self_monitor yields to rc-sentry when sentry is reachable -- instead of spawning a PowerShell process to relaunch itself (leaking 90MB per restart), self_monitor writes GRACEFUL_RELAUNCH and exits cleanly, letting rc-sentry handle the restart through the verified Session 1 spawn path
