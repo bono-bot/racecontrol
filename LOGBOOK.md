@@ -758,3 +758,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 02:25 IST | James | 503fbe77 | fix(184-03): resolve pre-existing build errors from 184-02 (chrono dep missing, CrashHandlerResult tuple destructuring) |
 | 2026-03-25 02:30 IST | James | dd289ca2 | docs(184-03): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS-v17.1.md updated, SPAWN-03 complete |
 | 2026-03-25 03:05 IST | James | 1b305c55 | docs(184-01): graduated crash handler with 500ms spawn verify, server_reachable MAINTENANCE_MODE exclusion, recovery event POST — SPAWN-01/02, GRAD-01/02/05 complete |
+| 2026-03-25 03:07 IST | James | ad4e6d56 | feat(184-02): add Tier 3 Ollama (unknown pattern + failed spawn) + Tier 4 WhatsApp escalation (3+ consecutive failures) to graduated crash handler; 5-min cooldown; 59 tests pass |
+| 2026-03-25 03:08 IST | James | 6813127c | docs(184-02): SUMMARY.md + STATE.md + ROADMAP.md updated — GRAD-03/04 complete |
