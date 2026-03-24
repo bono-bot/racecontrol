@@ -2653,7 +2653,7 @@ Plans:
 
 - [ ] **Phase 176: Protocol Foundation + Cargo Gates** - Lay the rc-common protocol types and Cargo feature gate policy that every downstream phase depends on
 - [ ] **Phase 177: Server-Side Registry + Config Foundation** - Build the server feature flag registry, config push channel, and REST endpoints that the admin UI and agent consumer both require
-- [ ] **Phase 178: Agent-Side Consumer** - Wire rc-agent to receive and apply flag updates, config pushes, and OTA download messages over the existing WebSocket connection
+- [ ] **Phase 178: Agent & Sentry Consumer** - Wire rc-agent and rc-sentry to receive and apply flag updates, config pushes, and OTA download messages — rc-agent over WebSocket, rc-sentry via local config from rc-agent
 - [ ] **Phase 179: OTA Pipeline** - Implement the full state-machine-driven release pipeline -- canary, staged rollout, session-gated binary swap, health gates, and auto-rollback
 - [ ] **Phase 180: Admin Dashboard UI** - Deliver operator-facing feature toggle and OTA release pages in the admin dashboard
 - [ ] **Phase 181: Standing Rules Gate** - Codify all 41+ standing rules as machine-enforceable checks and wire them as pipeline gates
@@ -2663,13 +2663,20 @@ Plans:
 ### Phase 176: Protocol Foundation + Cargo Gates
 **Goal**: All new WebSocket message variants, shared types, and Cargo feature gate structure exist in rc-common so every downstream phase can reference them without coordination
 **Depends on**: Nothing (first phase of this milestone)
-**Requirements**: CF-01, CF-02, CF-03
+**Requirements**: CF-01, CF-02, CF-03, CF-04, PFC-01
 **Success Criteria** (what must be TRUE):
   1. rc-agent compiles with --no-default-features and with default features -- both cargo build invocations succeed in CI
-  2. The 7 new WebSocket message variants (FlagSync, ConfigPush, OtaDownload, OtaAck, ConfigAck, KillSwitch, FlagCacheSync) are present in rc-common protocol.rs and accepted by serde with unknown variants ignored
-  3. The single-binary-tier policy is documented in rc-common or CLAUDE.md -- no per-pod compile-time variant scheme exists
-  4. rc-agent Cargo.toml lists telemetry, ai-debugger, and process-guard as optional features; default features include all three
-**Plans**: TBD
+  2. rc-sentry compiles with --no-default-features and with default features -- both cargo build invocations succeed in CI
+  3. AgentMessage and CoreToAgentMessage enums have an Unknown catch-all variant with #[serde(other)] -- older binaries silently ignore unknown message types instead of crashing. All existing serde tests still pass.
+  4. The 7 new WebSocket message variants (FlagSync, ConfigPush, OtaDownload, OtaAck, ConfigAck, KillSwitch, FlagCacheSync) are present in rc-common protocol.rs and accepted by serde
+  5. The single-binary-tier policy is documented in rc-common or CLAUDE.md -- no per-pod compile-time variant scheme exists
+  6. rc-agent Cargo.toml lists ai-debugger and process-guard as optional features; default features include both. Telemetry excluded (too entangled with billing/game state).
+  7. rc-sentry Cargo.toml lists watchdog, tier1-fixes, and ai-diagnosis as optional features; default features include all three; bare build (--no-default-features) produces a remote-exec-only binary
+**Plans**: 3 plans
+Plans:
+- [ ] 176-01-PLAN.md — Protocol forward-compat (Unknown catch-all + 7 new WS message stubs)
+- [ ] 176-02-PLAN.md — Cargo feature gates for rc-agent and rc-sentry
+- [ ] 176-03-PLAN.md — CI minimal-build verification + single-binary-tier policy doc
 
 ### Phase 177: Server-Side Registry + Config Foundation
 **Goal**: Operators can create and read feature flags and queue config pushes via REST endpoints, with all changes persisted to SQLite and an audit log recording every mutation
@@ -2683,10 +2690,10 @@ Plans:
   5. Offline pods receive queued config pushes on reconnect via sequence-number-based ack; no push is silently lost
 **Plans**: TBD
 
-### Phase 178: Agent-Side Consumer
-**Goal**: rc-agent receives flag updates, config pushes, and OTA download messages over WebSocket, applies hot-reloadable fields without restart, persists flags for offline startup, and writes the sentinel file before any binary swap
+### Phase 178: Agent & Sentry Consumer
+**Goal**: rc-agent and rc-sentry receive flag updates, config pushes, and OTA download messages — rc-agent over WebSocket with hot-reload and offline cache, rc-sentry via local config file push from rc-agent (rc-sentry has no WS connection to server). Both write sentinel files before binary swap.
 **Depends on**: Phase 176
-**Requirements**: FF-04, FF-05, FF-07, FF-08, CP-03, SYNC-03
+**Requirements**: FF-04, FF-05, FF-07, FF-08, CP-03, SYNC-03, CF-04
 **Success Criteria** (what must be TRUE):
   1. A flag toggle on the server propagates to all connected pods within seconds -- game launch and billing guard code reads the updated flag on the next invocation without a binary restart
   2. After the server connection drops, rc-agent reads flags-cache.json on startup and operates with last-known flags -- no panic, no config reset, no default fallback that contradicts the last server-pushed value
@@ -2696,7 +2703,7 @@ Plans:
 **Plans**: TBD
 
 ### Phase 179: OTA Pipeline
-**Goal**: A new rc-agent release can be deployed to the full fleet via a state-machine-driven pipeline that gates every wave on health checks, skips pods with active billing sessions, auto-rolls back on failure, and is impossible to interrupt without a trace
+**Goal**: New rc-agent and rc-sentry releases can be deployed to the full fleet via a state-machine-driven pipeline that gates every wave on health checks, skips pods with active billing sessions, auto-rolls back on failure, and is impossible to interrupt without a trace. rc-sentry deploys independently from rc-agent (different binary, different restart sequence) but shares the same canary-first pipeline and health gate infrastructure.
 **Depends on**: Phase 177, Phase 178
 **Requirements**: OTA-01, OTA-02, OTA-03, OTA-04, OTA-05, OTA-06, OTA-07, OTA-08, OTA-09, OTA-10, SYNC-02, SYNC-05
 **Success Criteria** (what must be TRUE):
