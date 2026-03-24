@@ -2651,7 +2651,7 @@ Plans:
 
 ### Phases
 
-- [ ] **Phase 176: Protocol Foundation + Cargo Gates** - Lay the rc-common protocol types and Cargo feature gate policy that every downstream phase depends on
+- [x] **Phase 176: Protocol Foundation + Cargo Gates** - Lay the rc-common protocol types and Cargo feature gate policy that every downstream phase depends on (completed 2026-03-24)
 - [ ] **Phase 177: Server-Side Registry + Config Foundation** - Build the server feature flag registry, config push channel, and REST endpoints that the admin UI and agent consumer both require
 - [ ] **Phase 178: Agent & Sentry Consumer** - Wire rc-agent and rc-sentry to receive and apply flag updates, config pushes, and OTA download messages — rc-agent over WebSocket, rc-sentry via local config from rc-agent
 - [ ] **Phase 179: OTA Pipeline** - Implement the full state-machine-driven release pipeline -- canary, staged rollout, session-gated binary swap, health gates, and auto-rollback
@@ -2761,7 +2761,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 176. Protocol Foundation + Cargo Gates | 2/3 | In Progress|  |
+| 176. Protocol Foundation + Cargo Gates | 3/3 | Complete   | 2026-03-24 |
 | 177. Server-Side Registry + Config Foundation | 0/TBD | Not started | - |
 | 178. Agent-Side Consumer | 0/TBD | Not started | - |
 | 179. OTA Pipeline | 0/TBD | Not started | - |

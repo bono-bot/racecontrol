@@ -18,17 +18,17 @@ gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: "Completed 176-01-PLAN.md"
-last_updated: "2026-03-24T00:00:00+05:30"
+stopped_at: "Completed 176-03-PLAN.md"
+last_updated: "2026-03-24T09:52:00+05:30"
 current_phase: 176
 current_phase_name: Protocol Foundation + Cargo Gates
-current_plan: 01
+current_plan: 03
 progress:
-  [██████████] 98%
-  completed_phases: 0
+  [██████████] 100%
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 1
-  percent: 5
+  completed_plans: 3
+  percent: 100
 decisions:
   - "Single-binary-tier policy adopted: per-pod behavioral differences expressed via runtime flag registry, not separate Cargo builds"
   - "Phase ordering: 176 foundation -> 177 server and 178 agent (parallel) -> 179 OTA -> 180 admin UI (parallel with 179 after 177) -> 181 gates"
@@ -38,6 +38,7 @@ decisions:
   - "Serde #[serde(other)] catch-all added to AgentMessage + CoreToAgentMessage in Phase 176 -- must deploy updated binaries to all pods BEFORE adding new message variants (two-step deploy)"
   - "rc-sentry added to scope -- feature gates: watchdog, tier1-fixes, ai-diagnosis. Gets flags via local config from rc-agent (no WS to server)."
   - "176-01: serde adjacently-tagged + #[serde(other)] only discards content when data is null; non-null map data with unknown type requires custom deserializer (deferred)"
+  - "176-03: single-binary-tier policy documented as CLAUDE.md standing rule; --no-default-features is CI-only, never deployed to pods"
 blockers: []
 ---
 
