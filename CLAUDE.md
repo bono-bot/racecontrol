@@ -113,15 +113,17 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Previous deploy-update.bat used `taskkill /F` which killed the exec handler mid-command, preventing the restart from executing. `RCAGENT_SELF_RESTART` spawns the new process before exiting — reliable across all pods._
 - **NEVER use `taskkill /F /IM rc-agent.exe` followed by `start` in the same exec chain.** The taskkill kills the process serving the exec endpoint — subsequent commands in the chain may never execute. Use `RCAGENT_SELF_RESTART` sentinel instead.
   _Why: Pod 5 went offline for 2+ minutes during v17.0 deploy because taskkill killed rc-agent before the restart command ran. rc-sentry eventually recovered it, but the gap is unacceptable._
-- **Server deploy (racecontrol) — 6 steps, no shortcuts:**
+- **Server deploy (racecontrol) — 7 steps, no shortcuts:**
   1. **Record expected build_id:** `git rev-parse --short HEAD` — save BEFORE staging
-  2. **Download first (while old process still runs :8090):** `curl -s -X POST http://192.168.31.23:8090/exec -d @deploy-cmd.json` with `curl.exe -o C:\RacingPoint\racecontrol-new.exe http://192.168.31.27:9998/racecontrol.exe`
-  3. **SSH for kill+swap+start:** `ssh ADMIN@192.168.31.23` then `taskkill /F /IM racecontrol.exe && timeout /t 3 && move /Y racecontrol-new.exe racecontrol.exe && schtasks /Run /TN StartRCTemp`
-  4. **Verify build_id:** `curl -s http://192.168.31.23:8080/api/v1/health` — `build_id` must match step 1
-  5. **Verify the EXACT fix, not just health:** Test the specific endpoint/behavior that was changed. `build_id` match proves the binary deployed, NOT that the bug is fixed. Example: if you fixed `/api/v1/logs`, call `/api/v1/logs` and check the response content.
-  6. **If any step fails, stop and recover** — `schtasks /Run /TN StartRCTemp` via SSH restarts the old binary if the new one wasn't swapped in yet.
+  2. **Download first (while old process still runs :8090):** Write JSON to file, then `curl -s -X POST http://192.168.31.23:8090/exec -d @file.json` with `curl.exe -o C:\RacingPoint\racecontrol-new.exe http://192.168.31.27:9998/racecontrol.exe`
+  3. **SSH kill+swap:** `ssh ADMIN@100.125.108.37` (Tailscale IP) then: `taskkill /F /IM racecontrol.exe & ping -n 4 127.0.0.1 >nul & cd /d C:\RacingPoint & del racecontrol-old.exe & ren racecontrol.exe racecontrol-old.exe & ren racecontrol-new.exe racecontrol.exe`
+  4. **Start via schtasks:** `schtasks /Run /TN StartRCTemp` — this calls `start-racecontrol.bat` which kills orphan watchdogs, then runs `schtasks /Run /TN StartRCDirect` (direct racecontrol.exe launch, persists in non-interactive context).
+  5. **Verify build_id:** `curl -s http://192.168.31.23:8080/api/v1/health` — `build_id` must match step 1. If size mismatch between local and deployed, the swap failed — repeat step 3.
+  6. **Verify the EXACT fix, not just health:** Test the specific endpoint/behavior that was changed. `build_id` match proves the binary deployed, NOT that the bug is fixed.
+  7. **If any step fails, stop and recover** — SCP the binary directly: `scp racecontrol.exe ADMIN@100.125.108.37:C:/RacingPoint/racecontrol.exe` then `schtasks /Run /TN StartRCDirect`.
   **NEVER combine taskkill + download in one exec chain** — racecontrol hosts :8090, killing it kills the exec handler mid-download.
-  _Why: SSH `start` dies when session closes — schtasks persists. Download must happen before kill because :8090 dies with racecontrol. Step 5 added because v23 pod healer fix was declared "done" twice based on build_id alone while the actual parse path still failed._
+  **Server uses a PowerShell watchdog** (`start-racecontrol-watchdog.ps1`) that auto-restarts racecontrol on crash. Each `schtasks /Run /TN StartRCTemp` call starts the bat which kills existing watchdogs via WMIC before starting a new one. The watchdog has a singleton mutex (`Global\RaceControlWatchdog`) to prevent multiplication. If watchdog multiplication occurs (multiple PowerShell instances fighting over port 8080), kill ALL powershell first: `taskkill /F /IM powershell.exe`, then restart.
+  _Why: 2026-03-24 — 16 orphan watchdog PowerShell instances accumulated (~960MB RAM) from repeated schtasks calls. Each watchdog respawned racecontrol after taskkill, preventing binary swap. Fixed by adding WMIC watchdog cleanup to bat + singleton mutex to watchdog.ps1. SSH `start` command doesn't persist — use schtasks. `timeout` command fails in non-interactive SSH — use `ping -n N 127.0.0.1` for delays._
 - **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.
