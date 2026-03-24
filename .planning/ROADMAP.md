@@ -2828,7 +2828,12 @@ Plans:
   5. Recovery events with server_reachable: false are tagged inconclusive and do not count toward the MAINTENANCE_MODE threshold -- server-down disconnects never trigger pod lockout
   6. All GUI process restarts route through Session 1 spawn path (WTSQueryUserToken + CreateProcessAsUser) -- std::process::Command is never used for interactive processes on pods
   7. Pod 8 canary: kill rc-agent, observe graduated response in rc-sentry logs (Tier 0 hysteresis -> Tier 1 -> Tier 2 -> restart -> spawn verify -> recovery event posted) -- full pipeline runs end-to-end before fleet deploy
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 184-01-PLAN.md — Graduated crash handler with spawn verification, server_reachable, recovery event reporting (Tier 1+2)
+- [ ] 184-02-PLAN.md — Tier 3 Ollama diagnosis + Tier 4 WhatsApp escalation
+- [ ] 184-03-PLAN.md — Session 1 spawn path for GUI process launches
 
 ### Phase 185: pod_healer WoL Coordination
 **Goal**: pod_healer queries the recovery events API before escalating to Wake-on-LAN -- if rc-sentry already restarted the pod with spawn_verified: true within the last 60 seconds, WoL is skipped; a WOL_SENT sentinel is written via rc-sentry before sending WoL so all recovery systems see the escalation
@@ -2883,7 +2888,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 183. Recovery Events API | 1/1 | Complete    | 2026-03-24 |
-| 184. rc-sentry Crash Handler Upgrade | 0/TBD | Not started | - |
+| 184. rc-sentry Crash Handler Upgrade | 0/3 | In progress | - |
 | 185. pod_healer WoL Coordination | 0/TBD | Not started | - |
 | 186. MAINTENANCE_MODE Auto-Clear | 0/TBD | Not started | - |
 | 187. self_monitor Coordination | 0/TBD | Not started | - |
