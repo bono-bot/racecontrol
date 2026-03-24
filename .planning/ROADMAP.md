@@ -2707,7 +2707,7 @@ Plans:
   5. New WS message types are added to the shared TypeScript types package and a contract test verifies the rc-common Rust types and TypeScript types agree on field names and shapes
 **Plans**: 3 plans
 Plans:
-- [ ] 178-01-PLAN.md -- In-memory flag cache, disk persistence, WS handlers (FlagSync, KillSwitch), FlagCacheSync on reconnect
+- [x] 178-01-PLAN.md -- In-memory flag cache, disk persistence, WS handlers (FlagSync, KillSwitch), FlagCacheSync on reconnect
 - [ ] 178-02-PLAN.md -- ConfigPush hot-reload, ConfigAck flow, sentry-flags.json bridge, LaunchGame flag gate
 - [ ] 178-03-PLAN.md -- TypeScript WS message types + contract tests (SYNC-03)
 
@@ -2772,7 +2772,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 176. Protocol Foundation + Cargo Gates | 3/3 | Complete    | 2026-03-24 |
 | 177. Server-Side Registry + Config Foundation | 4/4 | Complete    | 2026-03-24 |
-| 178. Agent-Side Consumer | 1/3 | In Progress|  |
+| 178. Agent-Side Consumer | 1/3 | In Progress | 2026-03-24 |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
 | 181. Standing Rules Gate | 0/TBD | Not started | - |

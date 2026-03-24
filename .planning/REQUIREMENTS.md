@@ -10,11 +10,11 @@
 - [x] **FF-01**: Server maintains a central named boolean feature flag registry backed by SQLite with fleet-wide defaults
 - [x] **FF-02**: Operator can set per-pod flag overrides (e.g., enable AC EVO telemetry on Pod 8 only for canary testing)
 - [x] **FF-03**: Flag changes are delivered to pods over the existing WebSocket connection as typed messages — no new ports or protocols
-- [ ] **FF-04**: rc-agent caches flags in-memory (Arc<RwLock>) for synchronous reads in hot paths (game launch, billing guard) — no server round-trip per flag check
-- [ ] **FF-05**: rc-agent persists last-received flags to flags-cache.json and reads them on startup before server connects — pods operate with last-known flags when offline
+- [x] **FF-04**: rc-agent caches flags in-memory (Arc<RwLock>) for synchronous reads in hot paths (game launch, billing guard) — no server round-trip per flag check
+- [x] **FF-05**: rc-agent persists last-received flags to flags-cache.json and reads them on startup before server connects — pods operate with last-known flags when offline
 - [ ] **FF-06**: Admin dashboard has a Feature Flags section with toggle switches and per-pod scope selector
-- [ ] **FF-07**: Flag changes propagate to all connected pods within seconds of admin toggle — no deploy or restart required
-- [ ] **FF-08**: Kill switch flags (named kill_*) are evaluated before all other flag logic and take priority over normal flag hierarchy
+- [x] **FF-07**: Flag changes propagate to all connected pods within seconds of admin toggle — no deploy or restart required
+- [x] **FF-08**: Kill switch flags (named kill_*) are evaluated before all other flag logic and take priority over normal flag hierarchy
 
 ### Config Push
 
@@ -121,10 +121,10 @@
 | CP-05 | Phase 177 | Complete |
 | CP-06 | Phase 177 | Complete |
 | SYNC-01 | Phase 177 | Complete |
-| FF-04 | Phase 178 | Pending |
-| FF-05 | Phase 178 | Pending |
-| FF-07 | Phase 178 | Pending |
-| FF-08 | Phase 178 | Pending |
+| FF-04 | Phase 178 | Complete |
+| FF-05 | Phase 178 | Complete |
+| FF-07 | Phase 178 | Complete |
+| FF-08 | Phase 178 | Complete |
 | CP-03 | Phase 178 | Pending |
 | SYNC-03 | Phase 178 | Complete |
 | OTA-01 | Phase 179 | Pending |
