@@ -443,6 +443,8 @@ fn service_routes() -> Router<Arc<AppState>> {
         // Deploy audit log (Phase 177: record every deploy attempt)
         .route("/deploy-log", post(create_deploy_log))
         .route("/deploy-log", get(list_deploy_logs))
+        // App health monitor (Phase 179: current probe results for admin/kiosk/web)
+        .route("/app-health", get(get_app_health))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -16108,6 +16110,26 @@ struct DeployLogRow {
     duration_secs: Option<i64>,
     error: Option<String>,
     build_hash: Option<String>,
+}
+
+/// GET /api/v1/app-health — current health probe results for admin, kiosk, web.
+async fn get_app_health() -> Json<Value> {
+    let entries = crate::app_health_monitor::get_current_health().await;
+    let result: Vec<Value> = entries
+        .into_iter()
+        .map(|e| {
+            json!({
+                "app": e.app,
+                "status": e.status,
+                "pages_expected": e.pages_expected,
+                "pages_available": e.pages_available,
+                "last_checked": e.last_checked,
+                "response_ms": e.response_ms,
+                "error": e.error,
+            })
+        })
+        .collect();
+    Json(json!(result))
 }
 
 #[cfg(test)]
