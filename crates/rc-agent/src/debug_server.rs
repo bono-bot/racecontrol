@@ -33,7 +33,8 @@ pub fn spawn(
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
-            socket.bind(&"0.0.0.0:18924".parse::<std::net::SocketAddr>().unwrap().into())?;
+            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 18924);
+            socket.bind(&addr.into())?;
             socket.listen(128)?;
             TcpListener::from_std(std::net::TcpListener::from(socket))
         })() {
