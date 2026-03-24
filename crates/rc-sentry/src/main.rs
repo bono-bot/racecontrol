@@ -129,6 +129,12 @@ fn main() {
                 let machine = sysinfo::System::host_name().unwrap_or_else(|| "pod-unknown".to_string());
                 #[cfg(feature = "tier1-fixes")]
                 let mut tracker = tier1_fixes::RestartTracker::new();
+                // Tier 4: track consecutive spawn-verified failures for WhatsApp escalation (GRAD-04)
+                #[cfg(feature = "tier1-fixes")]
+                let mut consecutive_failures: u32 = 0;
+                // Tier 4: last escalation time — cooldown prevents alert spam (GRAD-04)
+                #[cfg(feature = "tier1-fixes")]
+                let mut last_escalation: Option<std::time::Instant> = None;
                 while let Ok(ctx) = crash_rx.recv() {
                     tracing::warn!(
                         target: "crash-handler",
@@ -157,50 +163,34 @@ fn main() {
                         result.fix_results.len(), result.restarted, result.spawn_verified, result.server_reachable
                     );
 
-                    // Pattern escalation check using hit count from pattern memory (GRAD-02)
-                    // Runs after handle_crash so result.pattern_key is available
-                    #[cfg(feature = "ai-diagnosis")]
-                    {
-                        let memory = debug_memory::DebugMemory::load();
-                        let pattern_hit_count = memory.instant_fix(&result.pattern_key)
-                            .map(|i| i.hit_count)
-                            .unwrap_or(0);
-                        // Pattern escalation: log but don't stop recovery (Pod 6 incident lesson)
-                        if should_escalate_pattern(pattern_hit_count) {
-                            tracing::error!(
-                                target: "crash-handler",
-                                "PATTERN ESCALATION: {} seen {} times — escalating to AI",
-                                result.pattern_key, pattern_hit_count
-                            );
-                            let mut escalation_decision = build_restart_decision(
-                                &machine,
-                                &result.pattern_key,
-                                false,
-                                false,
-                                pattern_hit_count,
-                            );
-                            escalation_decision.action = RecoveryAction::EscalateToAi;
-                            escalation_decision.reason = format!(
-                                "pattern_seen_{}x threshold:{} — escalated",
-                                pattern_hit_count, PATTERN_ESCALATION_THRESHOLD
-                            );
-                            let _ = recovery_logger.log(&escalation_decision);
-                        }
+                    // Update consecutive spawn-verified failure counter (GRAD-04)
+                    #[cfg(feature = "tier1-fixes")]
+                    if result.spawn_verified {
+                        consecutive_failures = 0;
+                    } else if result.restarted {
+                        consecutive_failures += 1;
+                    }
 
-                        // For unknown patterns where restart failed, consult Ollama (SENT-02)
-                        if !result.restarted && memory.instant_fix(&result.pattern_key).is_none() {
+                    // Tier 3: Ollama diagnosis for unknown patterns where spawn verification failed (GRAD-03)
+                    // Fires only when: restart was attempted but spawn_verified=false AND pattern not in Tier 2 memory
+                    #[cfg(feature = "ai-diagnosis")]
+                    if !result.spawn_verified && result.restarted {
+                        let memory = debug_memory::DebugMemory::load();
+                        if memory.instant_fix(&result.pattern_key).is_none() {
                             let crash_summary = format!(
-                                "rc-agent crash\npanic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nlog_tail: {}",
+                                "rc-agent crash on {} - restart attempted but spawn verification FAILED\n\
+                                 panic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nlog_tail: {}",
+                                tier1_fixes::get_pod_id(),
                                 ctx.panic_message, ctx.exit_code, ctx.last_phase,
                                 &ctx.startup_log[..ctx.startup_log.len().min(500)]
                             );
                             tracing::info!(
                                 target: "crash-handler",
-                                "unknown pattern {} and restart failed — querying Ollama ({}s timeout)",
+                                "TIER 3: unknown pattern {} with failed spawn — querying Ollama ({}s timeout)",
                                 result.pattern_key, OLLAMA_TIMEOUT.as_secs()
                             );
-                            let ollama_resp = query_ollama_with_timeout(crash_summary, OLLAMA_TIMEOUT);
-                            if let Some(ref r) = ollama_resp {
+                            let ollama_result = query_ollama_with_timeout(crash_summary, OLLAMA_TIMEOUT);
+                            if let Some(ref r) = ollama_result {
                                 tracing::info!(
                                     target: "crash-handler",
                                     "Ollama suggestion for {}: {} (model: {})",
@@ -221,6 +211,19 @@ fn main() {
                                 );
                             }
                         }
+                    }
+
+                    // Tier 4: WhatsApp escalation after 3+ consecutive failed spawn-verified recoveries (GRAD-04)
+                    #[cfg(feature = "tier1-fixes")]
+                    if consecutive_failures >= 3 {
+                        let last_error = ctx.panic_message.as_deref()
+                            .unwrap_or_else(|| ctx.stderr_log.lines().last().unwrap_or("unknown error"));
+                        tier1_fixes::escalate_to_whatsapp(
+                            &tier1_fixes::get_pod_id(),
+                            consecutive_failures,
+                            last_error,
+                            &mut last_escalation,
+                        );
                     }
 
                     // Log recovery decision to JSONL audit trail (SENT-03)
@@ -599,13 +602,8 @@ fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-const PATTERN_ESCALATION_THRESHOLD: u32 = 3;
 #[cfg(feature = "ai-diagnosis")]
 const OLLAMA_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
-
-fn should_escalate_pattern(hit_count: u32) -> bool {
-    hit_count >= PATTERN_ESCALATION_THRESHOLD
-}
 
 /// Wrap the fire-and-forget ollama::query_async into a bounded synchronous call.
 /// Returns the OllamaResult if Ollama responds within `timeout`, or None if it
@@ -794,18 +792,6 @@ mod tests {
         assert!(inner.is_some(), "should have a result");
         let r = inner.unwrap();
         assert_eq!(r.suggestion, "check disk space");
-    }
-
-    #[test]
-    fn should_escalate_below_threshold() {
-        assert!(!should_escalate_pattern(2));
-        assert!(!should_escalate_pattern(0));
-    }
-
-    #[test]
-    fn should_escalate_at_threshold() {
-        assert!(should_escalate_pattern(3));
-        assert!(should_escalate_pattern(10));
     }
 
     #[test]

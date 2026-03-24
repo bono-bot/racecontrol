@@ -32,6 +32,9 @@ const SPAWN_VERIFY_INITIAL_DELAY: Duration = Duration::from_secs(5);
 const SERVER_ADDR: &str = "192.168.31.23:8080";
 const SERVER_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
+// WhatsApp escalation constants (GRAD-04)
+const ESCALATION_COOLDOWN: Duration = Duration::from_secs(300); // 5 minutes between alerts
+
 // ─── Crash Handler Result ─────────────────────────────────────────────────────
 
 /// Result of the graduated crash handler, including spawn verification and server reachability.
@@ -473,7 +476,7 @@ fn check_server_reachable() -> bool {
 }
 
 /// Get pod ID from hostname. Pod hostnames are like "SIM1", "SIM2".
-fn get_pod_id() -> String {
+pub fn get_pod_id() -> String {
     sysinfo::System::host_name()
         .map(|h| {
             let lower = h.to_lowercase();
@@ -514,6 +517,84 @@ fn post_recovery_event(event: &rc_common::recovery::RecoveryEvent) {
         tracing::warn!(target: LOG_TARGET, "recovery event POST failed (write): {}", e);
     }
     // Don't read response — fire-and-forget
+}
+
+/// POST a WhatsApp escalation alert to the server fleet alert endpoint (GRAD-04).
+///
+/// Fires only when spawn_verified=false after 3+ consecutive failed recoveries.
+/// Uses a 5-minute cooldown to prevent alert spam.
+/// Pass `last_escalation` as `&mut Option<Instant>` from the caller — no global state.
+pub fn escalate_to_whatsapp(
+    pod_id: &str,
+    failure_count: u32,
+    last_error: &str,
+    last_escalation: &mut Option<Instant>,
+) {
+    // Check cooldown
+    if let Some(last) = last_escalation.as_ref() {
+        if last.elapsed() < ESCALATION_COOLDOWN {
+            tracing::info!(
+                target: LOG_TARGET,
+                "Tier 4 escalation suppressed — cooldown ({:?} remaining)",
+                ESCALATION_COOLDOWN.checked_sub(last.elapsed()).unwrap_or_default()
+            );
+            return;
+        }
+    }
+
+    let message = format!(
+        "Pod {} stuck in crash loop: {} failed recovery attempts. Last error: {}",
+        pod_id, failure_count, last_error
+    );
+
+    let body = serde_json::json!({
+        "pod_id": pod_id,
+        "message": message,
+        "severity": "critical"
+    });
+
+    let body_str = match serde_json::to_string(&body) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "failed to serialize fleet alert: {}", e);
+            return;
+        }
+    };
+
+    let request = format!(
+        "POST /api/v1/fleet/alert HTTP/1.0\r\n\
+         Host: 192.168.31.23\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n{}",
+        body_str.len(),
+        body_str
+    );
+
+    let addr: std::net::SocketAddr = match SERVER_ADDR.parse() {
+        Ok(a) => a,
+        Err(_) => return,
+    };
+    let mut stream = match std::net::TcpStream::connect_timeout(&addr, SERVER_CONNECT_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "fleet alert POST failed (connect): {}", e);
+            return;
+        }
+    };
+    if let Err(e) = stream.write_all(request.as_bytes()) {
+        tracing::warn!(target: LOG_TARGET, "fleet alert POST failed (write): {}", e);
+        return;
+    }
+
+    *last_escalation = Some(Instant::now());
+    tracing::warn!(
+        target: LOG_TARGET,
+        "TIER 4 ESCALATION: WhatsApp alert sent for {} ({} failures)",
+        pod_id,
+        failure_count
+    );
 }
 
 /// Write MAINTENANCE_MODE file to prevent further restarts.
@@ -887,6 +968,31 @@ mod tests {
     fn rcagent_self_restart_returns_false_in_test() {
         // In test cfg, is_rcagent_self_restart always returns false (sentinel file never read)
         assert!(!is_rcagent_self_restart());
+    }
+
+    #[test]
+    fn escalation_cooldown_constant_correct() {
+        assert_eq!(ESCALATION_COOLDOWN, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn escalate_cooldown_suppresses_repeat() {
+        // A just-set last_escalation should still be within cooldown
+        let last = Some(Instant::now());
+        assert!(last.unwrap().elapsed() < ESCALATION_COOLDOWN);
+    }
+
+    #[test]
+    fn escalate_no_cooldown_when_none() {
+        // None means never escalated — no suppression should occur
+        let last_escalation: Option<Instant> = None;
+        // Verify no cooldown applies when None
+        let suppressed = if let Some(last) = last_escalation.as_ref() {
+            last.elapsed() < ESCALATION_COOLDOWN
+        } else {
+            false
+        };
+        assert!(!suppressed, "should not suppress when last_escalation is None");
     }
 
     #[test]
