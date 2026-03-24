@@ -7,9 +7,9 @@
 
 ### Feature Flags
 
-- [ ] **FF-01**: Server maintains a central named boolean feature flag registry backed by SQLite with fleet-wide defaults
-- [ ] **FF-02**: Operator can set per-pod flag overrides (e.g., enable AC EVO telemetry on Pod 8 only for canary testing)
-- [ ] **FF-03**: Flag changes are delivered to pods over the existing WebSocket connection as typed messages — no new ports or protocols
+- [x] **FF-01**: Server maintains a central named boolean feature flag registry backed by SQLite with fleet-wide defaults
+- [x] **FF-02**: Operator can set per-pod flag overrides (e.g., enable AC EVO telemetry on Pod 8 only for canary testing)
+- [x] **FF-03**: Flag changes are delivered to pods over the existing WebSocket connection as typed messages — no new ports or protocols
 - [ ] **FF-04**: rc-agent caches flags in-memory (Arc<RwLock>) for synchronous reads in hot paths (game launch, billing guard) — no server round-trip per flag check
 - [ ] **FF-05**: rc-agent persists last-received flags to flags-cache.json and reads them on startup before server connects — pods operate with last-known flags when offline
 - [ ] **FF-06**: Admin dashboard has a Feature Flags section with toggle switches and per-pod scope selector
@@ -22,7 +22,7 @@
 - [x] **CP-02**: Server maintains a pending config queue per pod — offline pods receive queued updates on WebSocket reconnect with sequence-number-based ack
 - [ ] **CP-03**: rc-agent hot-reloads supported config fields (billing rates, game limits, process guard whitelist, debug verbosity) without binary restart using arc-swap — fields requiring restart (port bindings, WS URL) are documented and excluded
 - [x] **CP-04**: Config push includes schema version — rc-agent ignores unknown fields from newer schema versions and logs a warning instead of panicking
-- [ ] **CP-05**: All config changes are recorded in an append-only audit log table (timestamp, field, old_value, new_value, pushed_by, pods_acked)
+- [x] **CP-05**: All config changes are recorded in an append-only audit log table (timestamp, field, old_value, new_value, pushed_by, pods_acked)
 - [x] **CP-06**: Server validates config changes against schema before accepting — invalid values (negative billing rate, empty allowlist) return 400 with field-level errors and are never pushed to pods
 
 ### OTA Pipeline
@@ -112,13 +112,13 @@
 | CF-03 | Phase 176 | Complete |
 | CF-04 | Phase 176 | Complete |
 | PFC-01 | Phase 176 | Complete |
-| FF-01 | Phase 177 | Pending |
-| FF-02 | Phase 177 | Pending |
-| FF-03 | Phase 177 | Pending |
+| FF-01 | Phase 177 | Complete |
+| FF-02 | Phase 177 | Complete |
+| FF-03 | Phase 177 | Complete |
 | CP-01 | Phase 177 | Complete |
 | CP-02 | Phase 177 | Complete |
 | CP-04 | Phase 177 | Complete |
-| CP-05 | Phase 177 | Pending |
+| CP-05 | Phase 177 | Complete |
 | CP-06 | Phase 177 | Complete |
 | SYNC-01 | Phase 177 | Complete |
 | FF-04 | Phase 178 | Pending |
