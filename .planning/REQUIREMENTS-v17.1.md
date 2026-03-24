@@ -18,14 +18,14 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 - [ ] **COORD-01**: ProcessOwnership registry is enforced at all restart call sites in rc-sentry, self_monitor, pod_monitor, and rc-watchdog
 - [ ] **COORD-02**: Recovery intent registry (recovery-intent.json with 2-min TTL) prevents multiple authorities from restarting the same process simultaneously
 - [ ] **COORD-03**: Sentinel-based deconfliction — GRACEFUL_RELAUNCH distinguishes intentional restarts from crashes across all recovery systems
-- [ ] **COORD-04**: Server recovery events API (POST /api/v1/recovery/events + GET with pod_id/since_secs filter) provides cross-machine recovery visibility
+- [x] **COORD-04**: Server recovery events API (POST /api/v1/recovery/events + GET with pod_id/since_secs filter) provides cross-machine recovery visibility
 
 ### Graduated Recovery
 
 - [x] **GRAD-01**: rc-sentry handle_crash() runs Tier 1 deterministic fixes (clean sockets, kill zombies, repair config) before any restart attempt
 - [x] **GRAD-02**: rc-sentry checks Tier 2 pattern memory (debug-memory.json) for instant replay of known fixes between Tier 1 and restart
-- [ ] **GRAD-03**: rc-sentry queries Tier 3 Ollama (qwen2.5:3b on James .27:11434) for unknown crash patterns when Tier 1+2 fail
-- [ ] **GRAD-04**: Tier 4 escalation alerts staff via WhatsApp/fleet API after 3+ failed recovery attempts
+- [x] **GRAD-03**: rc-sentry queries Tier 3 Ollama (qwen2.5:3b on James .27:11434) for unknown crash patterns when Tier 1+2 fail
+- [x] **GRAD-04**: Tier 4 escalation alerts staff via WhatsApp/fleet API after 3+ failed recovery attempts
 - [x] **GRAD-05**: Pattern memory records include server_reachable context to distinguish server-down disconnects from real rc-agent crashes
 
 ### MAINTENANCE_MODE Fix
@@ -73,11 +73,11 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | COORD-01 | Phase 185 | Pending |
 | COORD-02 | Phase 185 | Pending |
 | COORD-03 | Phase 185 | Pending |
-| COORD-04 | Phase 183 | Pending |
+| COORD-04 | Phase 183 | Complete |
 | GRAD-01 | Phase 184 | Complete |
 | GRAD-02 | Phase 184 | Complete |
-| GRAD-03 | Phase 184 | Pending |
-| GRAD-04 | Phase 184 | Pending |
+| GRAD-03 | Phase 184 | Complete |
+| GRAD-04 | Phase 184 | Complete |
 | GRAD-05 | Phase 184 | Complete |
 | MAINT-01 | Phase 186 | Pending |
 | MAINT-02 | Phase 186 | Pending |
