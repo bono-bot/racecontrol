@@ -553,6 +553,29 @@ async fn main() -> Result<()> {
         last_launch_error.clone(),
     );
 
+    // ─── Auto-Switch Config (ConspitLink game detection) ─────────────────────
+    // Ensures Global.json at C:\RacingPoint\ with AresAutoChangeConfig=open
+    // and verifies GameToBaseConfig.json mappings. Runs BEFORE enforce_safe_state
+    // so ConspitLink starts with correct config. Non-fatal: errors logged, not propagated.
+    tokio::task::spawn_blocking(|| {
+        let result = ffb_controller::ensure_auto_switch_config();
+        if !result.errors.is_empty() {
+            tracing::warn!(
+                target: LOG_TARGET,
+                "Auto-switch config errors: {:?}",
+                result.errors
+            );
+        }
+        tracing::info!(
+            target: LOG_TARGET,
+            placed = result.global_json_placed,
+            changed = result.global_json_changed,
+            game_to_base_fixed = result.game_to_base_fixed,
+            restarted = result.conspit_restarted,
+            "Auto-switch config complete"
+        );
+    });
+
     // Delayed startup cleanup — enforce safe state to kill any orphaned games
     // from previous session/crash. Delay gives startup apps time to open.
     {
