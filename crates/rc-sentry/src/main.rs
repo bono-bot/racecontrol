@@ -24,6 +24,7 @@ mod tier1_fixes;
 mod debug_memory;
 #[cfg(feature = "ai-diagnosis")]
 mod ollama;
+mod session1_spawn;
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision};
 #[cfg(feature = "watchdog")]
