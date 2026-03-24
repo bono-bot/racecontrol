@@ -138,6 +138,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: Consistent staging root prevents "which binary is current" confusion across sessions._
 - **Pendrive install:** `D:\pod-deploy\install.bat <pod_number>` (v5) — run as admin on the pod. For pods with RCAGENT_SERVICE_KEY blocking exec.
   _Why: Pendrive path is fixed; using ad-hoc paths leaves install.bat version drift._
+- **single-binary-tier policy (v22.0):** All pods run the SAME binary compiled with default features (full build). Feature selection is done at RUNTIME via feature flags (FF-01+), NOT at compile time per pod. The `--no-default-features` build exists for CI verification and future testing scenarios only — it is NEVER deployed to production pods. Do not create per-pod Cargo feature profiles, per-pod binaries, or pod-specific compile-time feature sets.
+  _Why: Per-pod compile-time variants create a combinatorial explosion of untested binaries. 8 pods x N feature combinations = build/test/deploy nightmare. Runtime feature flags (v22.0 Phase 177+) provide the same capability with one tested binary._
 
 ### Comms
 
