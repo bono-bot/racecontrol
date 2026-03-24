@@ -416,8 +416,8 @@ async fn audit_run_key(
                 "flagged"
             }
         } else {
-            log_guard_event(&format!("AUTOSTART_FLAGGED run_key={} entry={}", key_path, entry_name));
-            "flagged"
+            log_guard_event(&format!("AUTOSTART_REPORTED run_key={} entry={}", key_path, entry_name));
+            "reported"
         };
 
         let violation = ProcessViolation {
@@ -463,15 +463,15 @@ async fn audit_startup_folder(
         if is_autostart_whitelisted(&entry_name, allowed_keys) {
             continue;
         }
-        log_guard_event(&format!("AUTOSTART_STARTUP_FLAGGED folder={} entry={}", folder_path, entry_name));
+        log_guard_event(&format!("AUTOSTART_STARTUP_REPORTED folder={} entry={}", folder_path, entry_name));
 
-        let action_taken = if violation_action == "kill_and_report" {
-            backup_autostart_entry(&entry_name, &format!("startup_folder:{}", folder_path));
-            // Note: file removal is LOG stage in Phase 103 — REMOVE requires Phase 104 staff approval
-            // For now: flag only, do not delete files from Startup folder
-            "flagged"
-        } else {
-            "flagged"
+        // Startup folder file removal requires staff approval — report only in all modes.
+        // Use "reported" so server downgrades to debug (not WARN) in report_only mode.
+        let action_taken = {
+            if violation_action == "kill_and_report" {
+                backup_autostart_entry(&entry_name, &format!("startup_folder:{}", folder_path));
+            }
+            "reported"
         };
 
         let violation = ProcessViolation {
@@ -758,9 +758,10 @@ pub(crate) async fn run_schtasks_audit(
             continue;
         }
 
+        // Use leaf of task_path as the readable name (task_name from CSV is "Next Run Time")
         log_guard_event(&format!(
-            "SCHTASK_FLAGGED path={} name={}",
-            task_path, task_name
+            "SCHTASK_REPORTED path={} leaf={}",
+            task_path, leaf
         ));
 
         let action_taken = if violation_action == "kill_and_report" {
@@ -786,13 +787,13 @@ pub(crate) async fn run_schtasks_audit(
                 "flagged"
             }
         } else {
-            "flagged"
+            "reported"
         };
 
         let violation = ProcessViolation {
             machine_id: machine_id.to_string(),
             violation_type: ViolationType::AutoStart,
-            name: task_name.clone(),
+            name: leaf.to_string(),
             exe_path: None,
             action_taken: action_taken.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),

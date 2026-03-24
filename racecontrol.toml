@@ -1,114 +1,338 @@
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
 [venue]
+
 name = "RacingPoint"
+
 location = "Bandlaguda, Hyderabad"
+
 timezone = "Asia/Kolkata"
 
 [server]
+
 host = "0.0.0.0"
+
 port = 8080
 
 [database]
+
 path = "./data/racecontrol.db"
 
 [cloud]
+
 enabled = true
+
 api_url = "http://100.70.177.44:8080/api/v1"  # Bono's VPS via Tailscale mesh (Phase 27)
+
 sync_interval_secs = 30
+
 terminal_secret = "rp-terminal-2026"
+
 terminal_pin = "261121"
+
 comms_link_url = "http://localhost:8765"
 
 [watchdog]
+
 enabled = true
+
 # check_interval_secs = 10
+
 # heartbeat_timeout_secs = 30
+
 # restart_cooldown_secs = 120
 
 [pods]
+
 count = 8
+
 discovery = true
+
 healer_enabled = true
+
 healer_interval_secs = 120
 
 [branding]
+
 primary_color = "#E10600"
+
 theme = "dark"
 
 [ai_debugger]
+
 enabled = true
+
 claude_cli_enabled = true
+
 claude_cli_timeout_secs = 30
-ollama_url = "http://192.168.31.27:11434"  # James (.27) — venue Ollama
+
+ollama_url = "http://192.168.31.27:11434"  # James (.27)  venue Ollama
+
 ollama_model = "qwen2.5:3b"
+
 chat_enabled = true
+
 proactive_analysis = true
+
 # anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
 
 [ac_server]
+
 # AC server runs on Racing-Point-Server (192.168.31.23)
+
 acserver_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa\\server\\acServer.exe"
+
 data_dir = "./data/ac_servers"
+
 # lan_ip = "192.168.1.100"  # Auto-detected if not set
 
 [auth]
+
 jwt_secret = "UKLvoxSUMRPsKckeN17vJ-ORNgkTpfVO2MvS_JA5TMo"
+admin_pin_hash = "$argon2id$v=19$m=19456,t=2,p=1$7HM4TtJrDU5lnhCTMIiusQ$3xT9d98mexHIx+4yWJwzDEfdls72XY+wEJVmR9aHFkU"
+
 evolution_url = "http://localhost:53622"
+
 evolution_api_key = "zNAKEHsXudyqL3dFngyBJAZWw9W4hWN0"
+
 evolution_instance = "Racing Point Reception"
 
 [integrations.discord]
+
 results_channel = "race-results"
 
 [integrations.whatsapp]
+
 enabled = false
+
 contact = "+917981264279"
 
-# ─── Gmail API (track record notifications) ──────────────────────────────────
+#  Gmail API (track record notifications)
+
 # Set credentials in deployed config (C:\RacingPoint\racecontrol.toml on .23)
-# Do NOT commit real credentials — GitHub push protection will block.
+
+# Do NOT commit real credentials  GitHub push protection will block.
+
 [gmail]
+
 enabled = false
+
 # client_id = "your-google-oauth-client-id"
+
 # client_secret = "your-google-oauth-client-secret"
+
 # refresh_token = "your-google-oauth-refresh-token"
+
 from_email = "james@racingpoint.in"
 
-# ─── Bono Relay (Tailscale mesh — Phase 27) ──────────────────────────────────
+#  Bono Relay (Tailscale mesh  Phase 27)
+
 # Requires Tailscale to be installed and connected on both server and Bono's VPS.
+
 # Set enabled = true after: (1) running scripts/deploy-tailscale.ps1, (2) confirming
+
 # Tailscale IPs from admin console, (3) updating webhook_url and tailscale_bind_ip below.
+
 [bono]
+
 enabled = true
+
 webhook_url = "http://100.70.177.44/webhooks/racecontrol"  # Bono's VPS Tailscale IP
+
 tailscale_bind_ip = "100.71.226.83"  # Venue server Tailscale IP (confirmed via ipconfig)
+
 relay_port = 8099
-# Shared secret for X-Relay-Secret header — agreed with Bono out-of-band
+
+# Shared secret for X-Relay-Secret header  agreed with Bono out-of-band
+
 relay_secret = "85c650850520f0cabf8f99b0c3cecc3e"
 
-# --- Process Guard (report_only mode -- BUG-03) ---
-# Scans pods for unauthorized processes. In report_only mode, violations are
-# logged but never killed. Full allowlist TBD after live pod scan.
+# --- Process Guard (report_only mode -- scanned 2026-03-23) ---
 [process_guard]
 enabled = true
-violation_action = "report_only"
 poll_interval_secs = 60
+violation_action = "report_only"
 warn_before_kill = true
 
-# Baseline allowlist -- known-good processes on pods.
-# Full list to be built from live pod scan when pods come online.
 [[process_guard.allowed]]
-name = "rc-agent.exe"
-category = "racecontrol"
-machines = ["pod"]
+name = "adobe desktop service.exe"
+category = "pod-app"
+machines = ["all"]
 
 [[process_guard.allowed]]
-name = "explorer.exe"
+name = "adobeipcbroker.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "adobeupdateservice.exe"
 category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "svchost.exe"
+name = "aggregatorhost.exe"
 category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdfendrsr.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdow.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdppkgsvc.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdrsserv.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "amdrssrcext.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "aoruslcdservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "appactions.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "applicationframehost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "apps.plugin.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "armsvc.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "atieclxx.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "atiesrxx.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "audiodg.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "backgroundtaskhost.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "bluetooth audio keepalive.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "capture_server.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ccbootclient.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ccxprocess.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "cefviewwing.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "chrome.exe"
+category = "browser"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "cmd.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "conhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "conspitlink2.0.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "copilot.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "coresync.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "corsairdevicecontrolservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "crashpad_handler.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "creative cloud helper.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "creative cloud ui helper.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "creative cloud.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "crossdeviceresume.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "crossdeviceservice.exe"
+category = "pod-app"
 machines = ["all"]
 
 [[process_guard.allowed]]
@@ -117,22 +341,27 @@ category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "wininit.exe"
+name = "ctfmon.exe"
 category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "services.exe"
+name = "dashost.exe"
 category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "lsass.exe"
-category = "system"
+name = "deskin.exe"
+category = "pod-app"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "smss.exe"
+name = "discord.exe"
+category = "communication"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "dllhost.exe"
 category = "system"
 machines = ["all"]
 
@@ -142,40 +371,709 @@ category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "winlogon.exe"
+name = "easytuneengineservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "explorer.exe"
 category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "conhost.exe"
+name = "finddevice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "fontdrvhost.exe"
 category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
-name = "RuntimeBroker.exe"
+name = "fvcontainer.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "fvcontainer.system.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gameinputredistservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gamingservices.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gamingservicesnet.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "garage61-agent.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "garage61-launcher.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gbt_dl_lib.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gcc.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gigabyteupdateservice.exe"
 category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "go.d.plugin.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "gopro webcam.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ipf_helper.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ipf_uf.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ipfsvc.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "iracingservice64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "logi_lamparray_service.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "lsaiso.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "lsass.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "m365copilot.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "memory compression"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "microsoftstartfeedprovider.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "midisrv.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "mousocoreworker.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "mpdefendercoreservice.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "mqsvc.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ms-teams.exe"
+category = "communication"
 machines = ["all"]
 
 [[process_guard.allowed]]
 name = "msedge.exe"
-category = "kiosk"
-machines = ["pod"]
+category = "browser"
+machines = ["all"]
 
 [[process_guard.allowed]]
-name = "SGP Sync App.exe"
-category = "hardware"
-machines = ["pod"]
+name = "msedgewebview2.exe"
+category = "browser"
+machines = ["all"]
 
 [[process_guard.allowed]]
-name = "VSD Craft.exe"
-category = "hardware"
-machines = ["pod"]
+name = "msmpeng.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "netdata.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nissrv.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "node.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "node20.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "notepad.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvcontainer.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvdisplay.container.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvfvsdksvc_x64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvidia overlay.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvrla.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvsmartmaxapp.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvsmartmaxapp64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "nvsphelper64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "officeclicktorun.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ollama app.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ollama.exe"
+category = "monitoring"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "onedrive.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "onedrive.sync.service.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "openconsole.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "openwith.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "parfait_crash_handler.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "phoneexperiencehost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "pico connect.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "powershell.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "presentmon_x64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ps_server.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ps_service_launcher.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "racecontrol.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rc-agent.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rc-sentry.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rc-server-sentry.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "registry"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rpmdaemon.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rtkauduservice64.exe"
+category = "audio"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rtkbtmanserv.exe"
+category = "audio"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "runtimebroker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "rustdesk.exe"
+category = "development"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "searchhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "searchindexer.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "secure system"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "securityhealthservice.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "securityhealthsystray.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "services.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sgp sync app.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sh.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "shellexperiencehost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "shellhost.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sihost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "smss.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "smsvchost.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "soundkeeper64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "spoolsv.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ssh-agent.exe"
+category = "network"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sshd.exe"
+category = "network"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "startmenuexperiencehost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "steam.exe"
+category = "game"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "steamservice.exe"
+category = "game"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "steamwebhelper.exe"
+category = "game"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "svchost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "system"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "system idle process"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "systemsettings.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tailscale-ipn.exe"
+category = "network"
+machines = ["all"]
 
 [[process_guard.allowed]]
 name = "tailscaled.exe"
 category = "network"
 machines = ["all"]
 
-# --- James machine override ---
-[process_guard.overrides.james]
-allow_extra_processes = ["ollama.exe", "cargo.exe", "rustc.exe", "node.exe", "code.exe"]
+[[process_guard.allowed]]
+name = "taskhostw.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tasklist.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "teamviewer.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "teamviewer_service.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "textinputhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tv_w32.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tv_x64.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ultraviewer_service.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "unsecapp.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "useroobebroker.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "vnmconfig.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "vsd craft.exe"
+category = "peripheral"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "whatsapp.root.exe"
+category = "communication"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "widgetboard.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "widgets.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "widgetservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "windows-events.plugin.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "windowsterminal.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wininit.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "winlogon.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wlanext.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wmiapsrv.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wmiprvse.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wmiregistrationservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wslservice.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wudfhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "curl.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "idle"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "msdtc.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "msiexec.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "ngciso.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "pwahelper.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sgrmbroker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "smartscreen.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sppsvc.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wmiadap.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "updater.exe"
+category = "system"
+machines = ["all"]
+
+[process_guard.overrides.pod]
+allow_extra_autostart = [
+  "StartRCAgent",
+  "StartRCSentry",
+  "RestartSentry",
+  "RCAgentWatchdog",
+  "RacingPointSwap",
+  "DeleteDirectoryTask",
+  "MicrosoftEdgeUpdateTaskMachineCore",
+  "MicrosoftEdgeUpdateTaskMachineUA",
+  "NVIDIA App SelfUpdate",
+  "OneDrive Reporting Task",
+  "OneDrive Standalone Update Task",
+  "OneDrive Startup Task",
+  "TailscaleInstall",
+  "TailscalePostReboot",
+  "TailscaleReinstall",
+  "TailscaleUninstall",
+  "RCAgent",
+  "RCSentry",
+  "SecurityHealthSystray",
+  "OneDrive",
+  "MicrosoftEdgeAutoLaunch",
+  # --- Added 2026-03-24: recurring violations from pods ---
+  "SecurityHealth",
+  "RtkAudUService",
+  "rustdesk tray",
+  "tailscale.lnk",
+  "Steam",
+  "conspitlink2.0.exe-quickstart",
+  "ollama",
+]

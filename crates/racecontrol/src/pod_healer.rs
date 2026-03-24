@@ -725,7 +725,7 @@ async fn run_graduated_recovery(
                         &format!(
                             "AI suggestion ({}): {}",
                             model,
-                            &suggestion[..suggestion.len().min(200)]
+                            suggestion.chars().take(200).collect::<String>()
                         ),
                         "race_engineer",
                     );
