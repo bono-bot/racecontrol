@@ -2845,7 +2845,11 @@ Plans:
   3. ProcessOwnership registry enforcement is wired at all call sites in rc-sentry, self_monitor, pod_monitor, and the WoL path -- no two recovery authorities can claim the same process simultaneously
   4. GRACEFUL_RELAUNCH sentinel reliably distinguishes intentional restarts from crashes -- a deliberate rc-agent self-restart does not trigger pod_healer WoL within the deconfliction window
   5. Recovery intent file (recovery-intent.json) is written before any restart attempt and expires after 2 minutes -- a pod that enters MAINTENANCE_MODE while a recovery intent is active does not trigger a new recovery action from a different authority
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 185-01-PLAN.md -- Recovery coordination primitives (ProcessOwnership, RecoveryIntentStore, GRACEFUL_RELAUNCH sentinel checking)
+- [ ] 185-02-PLAN.md -- Context-aware WoL (recovery event query, MAINTENANCE_MODE check, WOL_SENT sentinel)
 
 ### Phase 186: MAINTENANCE_MODE Auto-Clear
 **Goal**: MAINTENANCE_MODE stops being a silent permanent pod killer -- it now carries a JSON diagnostic payload (reason, timestamp, restart count), auto-clears after 30 minutes or when WOL_SENT sentinel exists, and sends a WhatsApp alert to staff the moment it activates on any pod
