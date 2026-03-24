@@ -245,7 +245,7 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems â€
 - [x] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage (completed 2026-03-21)
 - [x] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
  (completed 2026-03-21)
-- [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
+- [x] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts (completed 2026-03-21)
 - [x] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
  (completed 2026-03-21)
 - [x] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language (completed 2026-03-21)
@@ -659,10 +659,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. rc-agent loads the correct game preset before launching the game process (not relying solely on ConspitLink auto-detect)
   2. If an unrecognized game launches, a safe default preset is applied (conservative force, centered spring)
-**Plans**: 3 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 60-01: TBD
+- [ ] 60-01-PLAN.md -- Implement pre_load_game_preset + wire into LaunchGame handler (PROF-03, PROF-05)
 
 ### Phase 61: FFB Preset Tuning
 **Goal**: Every venue game has a tuned FFB preset that feels right on the Ares 8Nm hardware, with correct steering angles and force limits
@@ -1355,7 +1355,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 88. Leaderboard Integration | 1/2 | In Progress|  | - |
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
 | 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
-| 91. Session Experience | 1/2 | In Progress|  | - |
+| 91. Session Experience | 2/2 | Complete | 2026-03-21 |
 | 92. Retention Loops | 2/2 | Complete   | 2026-03-21 | - |
 | 93. Community & Tribal Identity | 2/2 | Complete   | 2026-03-21 | - |
 | 94. Pricing & Conversion | v14.0 | 0/? | Not started | - |
