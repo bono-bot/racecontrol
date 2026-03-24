@@ -185,6 +185,24 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     break;
                 }
 
+                // v22.0 Phase 178: Read sentry-flags.json for flag-gated watchdog behavior.
+                // Written by rc-agent on every FlagSync. Missing file = no flags = defaults apply.
+                let sentry_flags: Option<serde_json::Value> = {
+                    let path = r"C:\RacingPoint\sentry-flags.json";
+                    std::fs::read_to_string(path)
+                        .ok()
+                        .and_then(|c| serde_json::from_str(&c).ok())
+                };
+
+                // Check kill switch — if kill_watchdog_restart is set, skip restart actions this tick.
+                // Used by OTA deploys (Phase 179) to suppress watchdog interference during binary swap.
+                let restart_suppressed = sentry_flags
+                    .as_ref()
+                    .and_then(|v| v.get("kill_switches"))
+                    .and_then(|ks| ks.get("kill_watchdog_restart"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
                 let healthy = poll_health();
 
                 state = match (&state, healthy) {
@@ -220,20 +238,28 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                 };
 
                 if state == WatchdogState::Crashed {
-                    let ctx = build_crash_context();
-                    tracing::info!(
-                        target: LOG_TARGET,
-                        "crash context built: panic={:?}, exit_code={:?}, last_phase={:?}",
-                        ctx.panic_message, ctx.exit_code, ctx.last_phase
-                    );
+                    // v22.0 Phase 178: If kill_watchdog_restart is active, suppress restart.
+                    // Used by OTA deploys (Phase 179) to prevent watchdog from interfering
+                    // while a new binary is being downloaded and swapped in.
+                    if restart_suppressed {
+                        tracing::warn!(target: LOG_TARGET, "restart suppressed by kill_watchdog_restart flag — skipping crash handler this tick");
+                        state = WatchdogState::Healthy;
+                    } else {
+                        let ctx = build_crash_context();
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            "crash context built: panic={:?}, exit_code={:?}, last_phase={:?}",
+                            ctx.panic_message, ctx.exit_code, ctx.last_phase
+                        );
 
-                    if tx.send(ctx).is_err() {
-                        tracing::error!(target: LOG_TARGET, "crash channel closed — stopping watchdog");
-                        break;
+                        if tx.send(ctx).is_err() {
+                            tracing::error!(target: LOG_TARGET, "crash channel closed — stopping watchdog");
+                            break;
+                        }
+
+                        // Return to healthy — Phase 103 handles fix+restart via the channel
+                        state = WatchdogState::Healthy;
                     }
-
-                    // Return to healthy — Phase 103 handles fix+restart via the channel
-                    state = WatchdogState::Healthy;
                 }
 
                 std::thread::sleep(POLL_INTERVAL);

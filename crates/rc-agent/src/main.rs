@@ -602,6 +602,10 @@ async fn main() -> Result<()> {
     );
     tracing::info!(target: LOG_TARGET, "Failure monitor started (poll interval: 5s)");
 
+    // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
+    // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
+    let flags_arc = std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache()));
+
     // ─── Billing Guard (stuck session + idle drift detection) ────────────────
     // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
     // Derive HTTP base URL from WebSocket URL: ws://host:port/ws/agent → http://host:port/api/v1
@@ -619,6 +623,7 @@ async fn main() -> Result<()> {
         pod_id.clone(),
         core_http_base,
         config.auto_end_orphan_session_secs,
+        flags_arc.clone(),  // v22.0 Phase 178: pass feature flags for billing_guard gate
     );
     tracing::info!(target: LOG_TARGET, "Billing guard started (orphan_timeout={}s)", config.auto_end_orphan_session_secs);
 
@@ -780,7 +785,7 @@ async fn main() -> Result<()> {
         safe_mode_cooldown_timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(86400))),
         safe_mode_cooldown_armed: false,
         last_preflight_alert: None,
-        flags: std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache())),
+        flags: flags_arc,  // v22.0 Phase 178: shared with billing_guard (loaded from cache above)
         guard_whitelist,
         guard_violation_tx,
         guard_violation_rx,

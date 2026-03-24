@@ -281,6 +281,16 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
+            // v22.0 Phase 178: Feature flag gate — check if game launch is enabled
+            {
+                let flags = state.flags.read().await;
+                if !flags.flag_enabled("game_launch") {
+                    tracing::warn!(target: LOG_TARGET, "LaunchGame blocked by feature flag 'game_launch'");
+                    // Do not launch — silently ignore (server should not send LaunchGame if flag is off,
+                    // but this is a safety net)
+                    return Ok(HandleResult::Continue);
+                }
+            }
             tracing::info!(target: LOG_TARGET, "Launching game: {:?} (args: {:?})", launch_sim, launch_args);
             conn.last_launch_args_stored = launch_args.clone();
             // Track current sim_type for per-sim PlayableSignal dispatch

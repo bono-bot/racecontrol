@@ -9,13 +9,14 @@
 //! recovery_in_progress=true suppresses all anomaly sends.
 //! billing_paused=true suppresses anomaly sends and orphan auto-end (crash recovery in progress).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, RwLock};
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{DrivingState, PodFailureReason};
 use crate::failure_monitor::FailureMonitorState;
+use crate::feature_flags::FeatureFlags;
 
 const LOG_TARGET: &str = "billing";
 const POLL_INTERVAL_SECS: u64 = 5;
@@ -61,6 +62,7 @@ pub fn spawn(
     pod_id: String,
     core_base_url: String,           // HTTP base URL e.g. "http://192.168.31.23:8080/api/v1"
     orphan_end_threshold_secs: u64,  // From config.auto_end_orphan_session_secs (default 300)
+    flags: Arc<RwLock<FeatureFlags>>, // v22.0 Phase 178: feature flag access
 ) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
@@ -73,6 +75,15 @@ pub fn spawn(
 
         loop {
             interval.tick().await;
+
+            // v22.0 Phase 178: Feature flag gate — skip billing guard if disabled
+            {
+                let ff = flags.read().await;
+                if !ff.flag_enabled("billing_guard") {
+                    continue; // Skip this tick entirely — billing guard feature flag is off
+                }
+            }
+
             let state = state_rx.borrow().clone();
 
             // Global suppression: server-initiated recovery in progress
@@ -313,7 +324,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx; // keep sender alive
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         // Yield to let the spawned task start and block on interval.tick()
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -346,7 +358,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx;
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         // Let task start, record game_gone_since
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -374,7 +387,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx;
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;
@@ -400,7 +414,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx;
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;
@@ -426,7 +441,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx;
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         // Let task start, record idle_since
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -459,7 +475,8 @@ mod tests {
         let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
         let _ = state_tx;
 
-        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
+              Arc::new(RwLock::new(FeatureFlags::new())));
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;

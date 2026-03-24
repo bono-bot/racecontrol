@@ -388,6 +388,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         ("OPTIONS", _) => send_cors_preflight(&mut stream),
         ("GET", "/health") => handle_health(&mut stream),
         ("GET", "/version") => handle_version(&mut stream),
+        ("GET", "/flags") => handle_flags(&mut stream),
         ("GET", p) if p.starts_with("/files") => handle_files(&mut stream, p),
         ("GET", "/processes") => handle_processes(&mut stream),
         _ => send_response(&mut stream, 404, r#"{"error":"not found"}"#),
@@ -455,6 +456,21 @@ fn handle_health(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error
 fn handle_version(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     let resp = serde_json::json!({ "version": VERSION, "git_hash": BUILD_ID });
     send_response(stream, 200, &resp.to_string())
+}
+
+/// Read feature flags from sentry-flags.json (written by rc-agent on FlagSync).
+/// Returns None if the file doesn't exist or can't be parsed.
+/// rc-sentry has no WS connection to server — rc-agent bridges flags via this file.
+fn read_sentry_flags() -> Option<serde_json::Value> {
+    let path = r"C:\RacingPoint\sentry-flags.json";
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn handle_flags(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let flags = read_sentry_flags();
+    let body = serde_json::to_string(&flags).unwrap_or_else(|_| "null".to_string());
+    send_response(stream, 200, &body)
 }
 
 fn handle_files(
