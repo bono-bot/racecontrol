@@ -750,7 +750,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
 | 2026-03-24 00:15 IST | James | 5e609056 | feat(176-01): add Unknown catch-all + 7 new message variant stubs to protocol enums (AgentMessage, CoreToAgentMessage) |
 | 2026-03-24 00:15 IST | James | a8be649d | test(176-01): add 10 serde forward-compat + roundtrip tests, 168 total pass |
-
-| 2026-03-24 14:30 IST | James | 1fc92867 | feat(177-04): per-pod override resolution in broadcast_flag_sync + FlagCacheSync handler |
-| 2026-03-24 14:30 IST | James | 697d20be | docs(177-04): FF-01, FF-02, FF-03, CP-05 marked Complete in REQUIREMENTS.md |
-| 2026-03-24 14:30 IST | James | 5cc00ea6 | docs(177-04): plan summary, STATE.md advance to plan 04, ROADMAP.md 177 progress 4/4 |
+| 2026-03-24 11:54 IST | James | e792dd01 | feat(178-01): add feature_flags.rs — FeatureFlags struct, flag_enabled kill-switch-first, load_from_cache, apply_sync, apply_kill_switch, atomic persist_to_disk |
+| 2026-03-24 11:54 IST | James | 1b1ac809 | feat(178-01): wire feature flags into AppState + ws_handler FlagSync/KillSwitch arms + main.rs FlagCacheSync on every WS connect |
+| 2026-03-24 11:54 IST | James | cf5390a8 | docs(178-01): SUMMARY, STATE, ROADMAP, REQUIREMENTS (FF-04, FF-05, FF-07, FF-08 complete) |
