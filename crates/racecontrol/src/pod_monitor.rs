@@ -57,6 +57,28 @@ pub fn spawn(state: Arc<AppState>) {
     });
 }
 
+/// Check if a pod's WebSocket sender channel is still open (liveness check).
+#[cfg(test)]
+async fn is_ws_alive(state: &Arc<AppState>, pod_id: &str) -> bool {
+    let senders = state.agent_senders.read().await;
+    match senders.get(pod_id) {
+        Some(sender) => !sender.is_closed(),
+        None => false,
+    }
+}
+
+/// Convert a cooldown duration to a human-readable label ("30s", "2m", "10m", "30m").
+#[cfg(test)]
+fn backoff_label(cooldown: Duration) -> String {
+    let secs = cooldown.as_secs();
+    if secs < 60 {
+        format!("{}s", secs)
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else {
+        format!("{}h", secs / 3600)
+    }
+}
 
 async fn check_all_pods(
     state: &Arc<AppState>,
