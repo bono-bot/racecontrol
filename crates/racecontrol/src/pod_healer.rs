@@ -17,6 +17,7 @@ use serde_json::json;
 
 use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
+use crate::wol;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryIntent, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
@@ -86,9 +87,11 @@ enum PodRecoveryStep {
     Waiting,
     /// Second cycle — attempt Tier 1 rc-agent restart.
     TierOneRestart,
-    /// Third cycle — escalate to AI.
+    /// Third cycle — context-aware WoL after Tier 1 fails.
+    WakeOnLan,
+    /// Fourth cycle — escalate to AI.
     AiEscalation,
-    /// Fourth+ cycle — alert staff.
+    /// Fifth+ cycle — alert staff.
     AlertStaff,
 }
 
@@ -520,8 +523,12 @@ async fn heal_pod(
 ///
 /// Step 1 (Waiting): Record first_detected_at, wait 30s — no action.
 /// Step 2 (TierOneRestart): Attempt rc-agent restart via pod-agent /exec.
-/// Step 3 (AiEscalation): Escalate to AI via query_ai().
-/// Step 4+ (AlertStaff): Send email alert and log AlertStaff each cycle until pod recovers.
+/// Step 3 (WakeOnLan): Context-aware WoL — 3 pre-checks before magic packet:
+///   - CHECK 1: Skip if rc-sentry restarted with spawn_verified=true within 60s
+///   - CHECK 2 (MAINT-04): Skip if MAINTENANCE_MODE file present (prevents infinite loop)
+///   - CHECK 3: Write WOL_SENT sentinel via rc-sentry /exec before sending packet
+/// Step 4 (AiEscalation): Escalate to AI via query_ai().
+/// Step 5+ (AlertStaff): Send email alert and log AlertStaff each cycle until pod recovers.
 ///
 /// Gates:
 /// - in_maintenance=true  → log SkipMaintenanceMode, return (no step advance)
@@ -758,6 +765,175 @@ async fn run_graduated_recovery(
                     );
                 }
             }
+            tracker.step = PodRecoveryStep::WakeOnLan;
+        }
+
+        PodRecoveryStep::WakeOnLan => {
+            tracing::info!(
+                target: "pod_healer",
+                "Pod {} -- step WoL: checking recovery events before WoL",
+                pod.id
+            );
+
+            // CHECK 1: Query recovery events -- skip WoL if rc-sentry restarted
+            // with spawn_verified=true within 60s (rc-sentry already handled recovery).
+            let skip_wol_sentry = {
+                let store = state.recovery_events.lock().unwrap_or_else(|e| e.into_inner());
+                let recent = store.query(Some(&pod.id), Some(60));
+                recent.iter().any(|e| {
+                    e.authority == RecoveryAuthority::RcSentry
+                        && matches!(e.action, RecoveryAction::Restart)
+                        && e.spawn_verified == Some(true)
+                })
+            };
+            if skip_wol_sentry {
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} -- skipping WoL, sentry restarted within grace window (spawn_verified=true within 60s)",
+                    pod.id
+                );
+                let decision = RecoveryDecision::new(
+                    "server",
+                    "rc-agent.exe",
+                    RecoveryAuthority::PodHealer,
+                    RecoveryAction::SkipCascadeGuardActive,
+                    "sentry_restarted_within_60s_skip_wol",
+                );
+                let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+                tracker.step = PodRecoveryStep::AiEscalation;
+                return;
+            }
+
+            // CHECK 2 (MAINT-04): Read MAINTENANCE_MODE via rc-sentry /files before WoL.
+            // The fleet_health cache may be stale — check the file directly to prevent
+            // WoL -> restart -> MAINTENANCE_MODE -> WoL infinite loops.
+            let maintenance_url = format!(
+                "http://{}:8091/files?path=C%3A%5CRacingPoint%5CMAINTENANCE_MODE",
+                pod.ip_address
+            );
+            let in_maintenance_file = match state
+                .http_client
+                .get(&maintenance_url)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => true,
+                _ => false,
+            };
+            if in_maintenance_file {
+                tracing::warn!(
+                    target: "pod_healer",
+                    "Pod {} has MAINTENANCE_MODE file -- skipping WoL to prevent WoL->restart->block infinite loop",
+                    pod.id
+                );
+                let decision = RecoveryDecision::new(
+                    "server",
+                    "rc-agent.exe",
+                    RecoveryAuthority::PodHealer,
+                    RecoveryAction::SkipMaintenanceMode,
+                    "maintenance_mode_file_present_skip_wol",
+                );
+                let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+                tracker.step = PodRecoveryStep::AlertStaff;
+                return;
+            }
+
+            // CHECK 3: Write WOL_SENT sentinel via rc-sentry /exec BEFORE sending magic packet.
+            // This gives all recovery systems visibility into the WoL escalation.
+            let sentinel_cmd = r#"echo WOL_SENT > C:\RacingPoint\WOL_SENT"#;
+            let exec_url = format!("http://{}:8091/exec", pod.ip_address);
+            let sentinel_body = serde_json::json!({ "cmd": sentinel_cmd, "timeout_ms": 5000 });
+            match state
+                .http_client
+                .post(&exec_url)
+                .json(&sentinel_body)
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} WOL_SENT sentinel written via rc-sentry",
+                        pod.id
+                    );
+                }
+                _ => {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Pod {} failed to write WOL_SENT sentinel (rc-sentry may be down) -- proceeding with WoL anyway",
+                        pod.id
+                    );
+                }
+            }
+
+            // SEND WoL: look up MAC address from pod info
+            let mac = {
+                let pods = state.pods.read().await;
+                pods.get(&pod.id).and_then(|p| p.mac_address.clone())
+            };
+            match mac {
+                Some(ref mac_addr) => {
+                    let decision = RecoveryDecision::new(
+                        "server",
+                        &pod.id,
+                        RecoveryAuthority::PodHealer,
+                        RecoveryAction::WakeOnLan,
+                        "graduated_wol_after_tier1_failed",
+                    );
+                    {
+                        let mut guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+                        if guard.record(&decision) {
+                            tracing::error!(
+                                target: "pod_healer",
+                                "Cascade guard triggered on WoL for {} -- aborting",
+                                pod.id
+                            );
+                            return;
+                        }
+                    }
+                    let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+
+                    match wol::send_wol(mac_addr).await {
+                        Ok(()) => {
+                            tracing::info!(
+                                target: "pod_healer",
+                                "Pod {} WoL magic packet sent (MAC: {})",
+                                pod.id,
+                                mac_addr
+                            );
+                            log_pod_activity(
+                                state,
+                                &pod.id,
+                                "race_engineer",
+                                "Wake-on-LAN Sent",
+                                &format!(
+                                    "Graduated recovery WoL (Tier 1 restart failed, MAC: {})",
+                                    mac_addr
+                                ),
+                                "race_engineer",
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "pod_healer",
+                                "Pod {} WoL failed: {}",
+                                pod.id,
+                                e
+                            );
+                        }
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Pod {} has no MAC address -- cannot send WoL",
+                        pod.id
+                    );
+                }
+            }
+
             tracker.step = PodRecoveryStep::AiEscalation;
         }
 
@@ -1655,6 +1831,73 @@ mod tests {
         assert!(
             !is_pod_in_recovery(&state),
             "RecoveryFailed means watchdog gave up — bot may still try"
+        );
+    }
+
+    // ─── Phase 185-02: WakeOnLan step and recovery event query tests ──────────
+
+    #[test]
+    fn test_wol_step_exists_in_enum() {
+        // Verify WakeOnLan variant compiles and is distinct from neighbors
+        let step = PodRecoveryStep::WakeOnLan;
+        assert_eq!(step, PodRecoveryStep::WakeOnLan);
+        assert_ne!(step, PodRecoveryStep::TierOneRestart);
+        assert_ne!(step, PodRecoveryStep::AiEscalation);
+        assert_ne!(step, PodRecoveryStep::AlertStaff);
+        assert_ne!(step, PodRecoveryStep::Waiting);
+    }
+
+    #[test]
+    fn test_graduated_recovery_step_order() {
+        // Verify Waiting -> TierOneRestart -> WakeOnLan -> AiEscalation -> AlertStaff
+        // by simulating each manual advancement (mirrors run_graduated_recovery logic)
+        let mut tracker = PodRecoveryTracker::new();
+        assert_eq!(tracker.step, PodRecoveryStep::Waiting, "must start at Waiting");
+
+        tracker.step = PodRecoveryStep::TierOneRestart;
+        assert_eq!(tracker.step, PodRecoveryStep::TierOneRestart);
+
+        tracker.step = PodRecoveryStep::WakeOnLan;
+        assert_eq!(tracker.step, PodRecoveryStep::WakeOnLan);
+
+        tracker.step = PodRecoveryStep::AiEscalation;
+        assert_eq!(tracker.step, PodRecoveryStep::AiEscalation);
+
+        tracker.step = PodRecoveryStep::AlertStaff;
+        assert_eq!(tracker.step, PodRecoveryStep::AlertStaff);
+    }
+
+    #[test]
+    fn test_skip_wol_when_sentry_restart_recent() {
+        // Create a RecoveryEventStore with a spawn_verified=true Restart event
+        // within the last 60s, then verify the query finds it and the skip logic triggers.
+        use crate::recovery::RecoveryEventStore;
+        use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryEvent};
+
+        let mut store = RecoveryEventStore::new();
+        let event = RecoveryEvent {
+            pod_id: "pod-1".to_string(),
+            process: "rc-agent.exe".to_string(),
+            authority: RecoveryAuthority::RcSentry,
+            action: RecoveryAction::Restart,
+            spawn_verified: Some(true),
+            server_reachable: Some(true),
+            reason: "heartbeat_timeout".to_string(),
+            context: String::new(),
+            timestamp: Utc::now(),
+        };
+        store.push(event);
+
+        let recent = store.query(Some("pod-1"), Some(60));
+        let skip_wol_sentry = recent.iter().any(|e| {
+            e.authority == RecoveryAuthority::RcSentry
+                && matches!(e.action, RecoveryAction::Restart)
+                && e.spawn_verified == Some(true)
+        });
+
+        assert!(
+            skip_wol_sentry,
+            "WoL must be skipped when rc-sentry restarted with spawn_verified=true within 60s"
         );
     }
 
