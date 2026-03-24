@@ -11,6 +11,8 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 |-----------|--------|--------|---------|
 | Mar 25 03:48 IST | James | `5dcbfb2b` | feat(187-01): self_monitor sentry-aware relaunch — TCP :8091 check, clean exit when sentry alive, PowerShell fallback when dead |
 | Mar 25 03:48 IST | James | `6f57e3cf` | docs(187-01): SUMMARY + STATE + ROADMAP updated (phase 187 Complete) |
+| Mar 25 IST | James | `1962154d` | feat(188-01): move ollama.rs to rc-common, wire rc-sentry and james_monitor to shared module, add spawn verification |
+| Mar 25 IST | James | `7c06a364` | feat(188-01): sentry breadcrumb grace window (30s) + spawn verification (500ms/10s) in rc-watchdog service |
 
 ## 2026-03-23
 

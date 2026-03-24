@@ -2809,7 +2809,7 @@ Plans:
 - [x] **Phase 185: pod_healer WoL Coordination** - Recovery authority enforcement and context-aware Wake-on-LAN with intent checking (completed 2026-03-24)
 - [x] **Phase 186: MAINTENANCE_MODE Auto-Clear** - JSON diagnostic payload, 30-min auto-clear, WhatsApp staff alert (completed 2026-03-24)
 - [x] **Phase 187: self_monitor Coordination** - rc-agent self_monitor yields to rc-sentry, PowerShell relaunch becomes rare fallback (completed 2026-03-24)
-- [ ] **Phase 188: James Watchdog + rc-watchdog Grace Window** - James-local AI watchdog replaces james_watchdog.ps1; rc-watchdog adds grace window
+- [x] **Phase 188: James Watchdog + rc-watchdog Grace Window** - James-local AI watchdog replaces james_watchdog.ps1; rc-watchdog adds grace window (completed 2026-03-24)
 
 ## Phase Details
 
@@ -2917,4 +2917,4 @@ Plans:
 | 185. pod_healer WoL Coordination | 2/2 | Complete    | 2026-03-24 |
 | 186. MAINTENANCE_MODE Auto-Clear | 1/1 | Complete    | 2026-03-24 |
 | 187. self_monitor Coordination | 1/1 | Complete    | 2026-03-24 |
-| 188. James Watchdog + rc-watchdog Grace Window | 0/TBD | Not started | - |
+| 188. James Watchdog + rc-watchdog Grace Window | 1/1 | Complete   | 2026-03-24 |
