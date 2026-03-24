@@ -507,14 +507,39 @@ impl Config {
     }
 
     pub fn load_or_default() -> Self {
-        let paths = ["racecontrol.toml", "/etc/racecontrol/racecontrol.toml"];
-        for path in paths {
-            if let Ok(config) = Self::load(path) {
-                tracing::info!("Loaded config from {}", path);
-                return config;
+        // Build the search path list. Always try:
+        //   1. CWD-relative (for dev / explicit cd-before-launch scenarios)
+        //   2. Directory of the running executable (reliable for schtasks / HKLM Run / watchdog restarts
+        //      where CWD is not guaranteed to match the install directory)
+        //   3. /etc/racecontrol/ (Linux/VPS deployments)
+        let mut paths: Vec<String> = vec!["racecontrol.toml".to_string()];
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let exe_cfg = exe_dir.join("racecontrol.toml");
+                let exe_cfg_str = exe_cfg.to_string_lossy().into_owned();
+                // Only add if different from CWD-relative (avoid duplicate on happy path)
+                if exe_cfg_str != "racecontrol.toml" {
+                    paths.push(exe_cfg_str);
+                }
             }
         }
-        tracing::warn!("No config file found, using defaults");
+        paths.push("/etc/racecontrol/racecontrol.toml".to_string());
+
+        for path in &paths {
+            match Self::load(path) {
+                Ok(config) => {
+                    tracing::info!("Loaded config from {}", path);
+                    return config;
+                }
+                Err(e) => {
+                    // Only log as warn if the file exists but failed to parse — missing file is expected
+                    if std::path::Path::new(path.as_str()).exists() {
+                        tracing::warn!("Failed to parse config at {}: {}", path, e);
+                    }
+                }
+            }
+        }
+        tracing::warn!("No config file found in {:?}, using defaults", paths);
         Self::default_config()
     }
 

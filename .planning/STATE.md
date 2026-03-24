@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v17.1
+milestone_name: Watchdog-to-AI Migration
 status: in_progress
-stopped_at: Completed 59-04-PLAN.md
-last_updated: "2026-03-24T13:47:38.012Z"
+stopped_at: Defining requirements
+last_updated: "2026-03-25T00:00:00Z"
 progress:
-  total_phases: 137
-  completed_phases: 106
-  total_plans: 258
-  completed_plans: 255
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 ---
