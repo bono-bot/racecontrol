@@ -32,17 +32,17 @@ gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: "Completed 177-03-PLAN.md"
-last_updated: "2026-03-24T10:43:00+05:30"
+stopped_at: "Completed 177-04-PLAN.md"
+last_updated: "2026-03-24T14:30:00+05:30"
 current_phase: 177
 current_phase_name: Server-Side Registry Config Foundation
-current_plan: 03
+current_plan: 04
 progress:
-  [███░░░░░░░] 30%
+  [████░░░░░░] 40%
   completed_phases: 1
   total_plans: 4
-  completed_plans: 6
-  percent: 30
+  completed_plans: 7
+  percent: 40
 decisions:
   - "Single-binary-tier policy adopted: per-pod behavioral differences expressed via runtime flag registry, not separate Cargo builds"
   - "Phase ordering: 176 foundation -> 177 server and 178 agent (parallel) -> 179 OTA -> 180 admin UI (parallel with 179 after 177) -> 181 gates"
@@ -61,6 +61,8 @@ decisions:
   - "177-03: FeatureFlag.overrides uses Record<string,boolean> matching Rust HashMap<String,bool> -- no nested objects"
   - "177-03: ValidationErrors schema added for CP-06 validation error response shape"
   - "177-03: ConfigPush.acked_at is optional (?) in TypeScript and nullable in OpenAPI -- absent for pending/delivered entries"
+  - "177-04: per-pod override resolution done inside sender loop (not pre-built map) to avoid cloning the entire map per pod"
+  - "177-04: FF-01, FF-02, FF-03, CP-05 all marked Complete in REQUIREMENTS.md"
 blockers: []
 ---
 

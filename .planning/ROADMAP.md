@@ -2693,7 +2693,7 @@ Plans:
 - [x] 177-01-PLAN.md -- Feature flag registry: DB tables, AppState cache, flags.rs CRUD, broadcast, audit
 - [x] 177-02-PLAN.md -- Config push: validation, queuing, delivery, WS handlers for FlagCacheSync + ConfigAck
 - [x] 177-03-PLAN.md -- Cross-project sync: TypeScript types, OpenAPI spec, contract tests
-- [ ] 177-04-PLAN.md -- Gap closure: per-pod override resolution in WS broadcast + REQUIREMENTS.md update
+- [x] 177-04-PLAN.md -- Gap closure: per-pod override resolution in WS broadcast + REQUIREMENTS.md update
 
 ### Phase 178: Agent & Sentry Consumer
 **Goal**: rc-agent and rc-sentry receive flag updates, config pushes, and OTA download messages — rc-agent over WebSocket with hot-reload and offline cache, rc-sentry via local config file push from rc-agent (rc-sentry has no WS connection to server). Both write sentinel files before binary swap.
@@ -2767,7 +2767,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 176. Protocol Foundation + Cargo Gates | 3/3 | Complete    | 2026-03-24 |
-| 177. Server-Side Registry + Config Foundation | 3/3 | Complete   | 2026-03-24 |
+| 177. Server-Side Registry + Config Foundation | 4/4 | Complete   | 2026-03-24 |
 | 178. Agent-Side Consumer | 0/TBD | Not started | - |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
