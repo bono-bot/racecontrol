@@ -2262,28 +2262,15 @@ async fn send_whatsapp_receipt(state: &Arc<AppState>, session_id: &str, driver_i
 
     let first_name = driver_name.split_whitespace().next().unwrap_or("Racer");
     let balance_paise = balance.map(|b| b.0).unwrap_or(0);
+    let best_lap_ms = best_lap.map(|b| b.0);
 
-    let message = format_receipt_message(
-        first_name,
-        driving_secs,
-        cost_paise,
-        best_lap.map(|b| b.0),
-        balance_paise,
-    );
-
-    // Send via Evolution API (same pattern as OTP in auth/mod.rs)
+    // Send via Evolution API
     if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
         &state.config.auth.evolution_url,
         &state.config.auth.evolution_api_key,
         &state.config.auth.evolution_instance,
     ) {
         let wa_phone = format_wa_phone(&phone);
-
-        let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
-        let body = serde_json::json!({
-            "number": wa_phone,
-            "text": message
-        });
 
         // 5-second timeout -- receipt is best-effort, never block session end
         let client = match reqwest::Client::builder()
@@ -2297,20 +2284,116 @@ async fn send_whatsapp_receipt(state: &Arc<AppState>, session_id: &str, driver_i
             }
         };
 
-        match client.post(&url).header("apikey", evo_key).json(&body).send().await {
+        // Phase 4.1: Try PDF receipt first via sendMedia
+        let pdf_bytes = generate_receipt_pdf(
+            first_name, driving_secs, cost_paise, best_lap_ms, balance_paise, session_id,
+        );
+        let pdf_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD, &pdf_bytes,
+        );
+        let media_url = format!("{}/message/sendMedia/{}", evo_url, evo_instance);
+        let media_body = serde_json::json!({
+            "number": wa_phone,
+            "mediatype": "document",
+            "mimetype": "application/pdf",
+            "caption": format!("Racing Point - Session Receipt ({}m {}s)", driving_secs / 60, driving_secs % 60),
+            "media": format!("data:application/pdf;base64,{}", pdf_b64),
+            "fileName": format!("RacingPoint_Receipt_{}.pdf", &session_id[..std::cmp::min(8, session_id.len())]),
+        });
+
+        let sent_pdf = match client.post(&media_url).header("apikey", evo_key).json(&media_body).send().await {
             Ok(resp) if resp.status().is_success() => {
-                tracing::info!("WhatsApp receipt sent to {} for session {}", redact_phone(&wa_phone), session_id);
+                tracing::info!("WhatsApp PDF receipt sent to {} for session {}", redact_phone(&wa_phone), session_id);
+                true
             }
             Ok(resp) => {
-                tracing::warn!("Evolution API returned {} for receipt to {}", resp.status(), redact_phone(&wa_phone));
+                tracing::warn!("sendMedia returned {} for {} -- falling back to text", resp.status(), redact_phone(&wa_phone));
+                false
             }
             Err(e) => {
-                tracing::warn!("Failed to send WhatsApp receipt to {}: {}", redact_phone(&wa_phone), e);
+                tracing::warn!("sendMedia failed for {}: {} -- falling back to text", redact_phone(&wa_phone), e);
+                false
+            }
+        };
+
+        // Fallback: plain text message
+        if !sent_pdf {
+            let message = format_receipt_message(first_name, driving_secs, cost_paise, best_lap_ms, balance_paise);
+            let text_url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+            let text_body = serde_json::json!({ "number": wa_phone, "text": message });
+            match client.post(&text_url).header("apikey", evo_key).json(&text_body).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!("WhatsApp text receipt sent to {} for session {}", redact_phone(&wa_phone), session_id);
+                }
+                Ok(resp) => {
+                    tracing::warn!("sendText returned {} for receipt to {}", resp.status(), redact_phone(&wa_phone));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to send text receipt to {}: {}", redact_phone(&wa_phone), e);
+                }
             }
         }
     } else {
         tracing::debug!("Evolution API not configured -- skipping WhatsApp receipt for session {}", session_id);
     }
+}
+
+/// Generate a minimal PDF receipt (80mm thermal style) using raw PDF commands.
+/// No external crate needed — Courier + Courier-Bold are built-in PDF fonts.
+fn generate_receipt_pdf(
+    first_name: &str, driving_secs: i64, cost_paise: i64,
+    best_lap_ms: Option<i64>, balance_paise: i64, session_id: &str,
+) -> Vec<u8> {
+    let (pw, ph) = (227.0_f64, 397.0_f64); // 80mm x 140mm in points
+    let mins = driving_secs / 60;
+    let secs = driving_secs % 60;
+    let credits = cost_paise / 100;
+    let bal = balance_paise / 100;
+    let lap = match best_lap_ms {
+        Some(ms) if ms > 0 => format!("{}:{:02}.{:03}", ms/60000, (ms/1000)%60, ms%1000),
+        _ => "No valid laps".to_string(),
+    };
+    let sid = if session_id.len() >= 8 { &session_id[..8] } else { session_id };
+    let sep = "--------------------------------";
+
+    // Build content stream with text positioning
+    let mut s = String::from("BT\n");
+    let mut y = ph - 30.0;
+    let mut line = |s: &mut String, font: &str, sz: f64, txt: &str, y: &mut f64| {
+        let esc = txt.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+        s.push_str(&format!("{} {} Tf\n12 {} Td\n({}) Tj\n", font, sz, *y, esc));
+        *y -= sz + 4.0;
+    };
+    line(&mut s, "/F2", 14.0, "    RACING POINT", &mut y);
+    line(&mut s, "/F1", 10.0, "     eSports & Cafe", &mut y);
+    y -= 6.0;
+    line(&mut s, "/F1", 9.0, sep, &mut y);
+    line(&mut s, "/F1", 9.0, &format!("Session:  {}", sid), &mut y);
+    line(&mut s, "/F1", 9.0, &format!("Customer: {}", first_name), &mut y);
+    line(&mut s, "/F1", 9.0, &format!("Duration: {}m {}s", mins, secs), &mut y);
+    line(&mut s, "/F1", 9.0, &format!("Best Lap: {}", lap), &mut y);
+    line(&mut s, "/F1", 9.0, sep, &mut y);
+    line(&mut s, "/F2", 11.0, &format!("TOTAL:    {} credits", credits), &mut y);
+    line(&mut s, "/F1", 9.0, &format!("Balance:  {} credits", bal), &mut y);
+    line(&mut s, "/F1", 9.0, sep, &mut y);
+    line(&mut s, "/F1", 9.0, "  Thank you for racing!", &mut y);
+    line(&mut s, "/F1", 9.0, "     racingpoint.in", &mut y);
+    s.push_str("ET\n");
+    let slen = s.len();
+
+    let mut p = String::from("%PDF-1.4\n");
+    let o1 = p.len(); p.push_str("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    let o2 = p.len(); p.push_str("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    let o3 = p.len(); p.push_str(&format!("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n", pw, ph));
+    let o4 = p.len(); p.push_str(&format!("4 0 obj\n<< /Length {} >>\nstream\n", slen));
+    p.push_str(&s); p.push_str("endstream\nendobj\n");
+    let o5 = p.len(); p.push_str("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n");
+    let o6 = p.len(); p.push_str("6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>\nendobj\n");
+    let xr = p.len();
+    p.push_str("xref\n0 7\n0000000000 65535 f \n");
+    for o in [o1, o2, o3, o4, o5, o6] { p.push_str(&format!("{:010} 00000 n \n", o)); }
+    p.push_str(&format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n", xr));
+    p.into_bytes()
 }
 
 /// Post-session hooks: credit referral rewards, schedule review nudge.

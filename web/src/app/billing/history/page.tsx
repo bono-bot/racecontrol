@@ -2,8 +2,126 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { api } from "@/lib/api";
+import { api, fetchApi } from "@/lib/api";
+import { getToken } from "@/lib/auth";
 import type { DailyReport, BillingSessionRecord } from "@/lib/api";
+
+type RefundMethod = "wallet" | "cash" | "upi";
+
+interface RefundModalProps {
+  session: BillingSessionRecord;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function RefundModal({ session, onClose, onSuccess }: RefundModalProps) {
+  const [amount, setAmount] = useState<number>(Math.floor(session.price_paise / 100));
+  const [method, setMethod] = useState<RefundMethod>("wallet");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const maxCredits = Math.floor(session.price_paise / 100);
+
+  async function handleSubmit() {
+    if (!reason.trim()) { setError("Reason is required"); return; }
+    if (amount <= 0 || amount > maxCredits) { setError(`Amount must be 1-${maxCredits} credits`); return; }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const token = getToken();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/billing/${session.id}/refund`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            amount_paise: amount * 100,
+            method,
+            reason: reason.trim(),
+          }),
+        }
+      );
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        onSuccess();
+      }
+    } catch {
+      setError("Failed to process refund");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-[#222] border border-[#333] rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-white mb-4">Refund Session</h2>
+        <div className="text-sm text-neutral-400 mb-4">
+          <div>{session.driver_name} — {session.pricing_tier_name}</div>
+          <div>Charged: {maxCredits} credits</div>
+        </div>
+
+        <label className="block text-xs text-neutral-400 mb-1">Amount (credits)</label>
+        <input
+          type="number"
+          min={1}
+          max={maxCredits}
+          value={amount}
+          onChange={(e) => setAmount(parseInt(e.target.value) || 0)}
+          className="w-full bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-2 text-sm text-white mb-3"
+        />
+
+        <label className="block text-xs text-neutral-400 mb-1">Method</label>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {(["wallet", "cash", "upi"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMethod(m)}
+              className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
+                method === m
+                  ? "border-[#E10600] bg-[#E10600]/10 text-white"
+                  : "border-[#333] text-neutral-400 hover:border-neutral-500"
+              }`}
+            >
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-xs text-neutral-400 mb-1">Reason (required)</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Why is this refund being issued?"
+          rows={2}
+          className="w-full bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-2 text-sm text-white mb-3 resize-none"
+        />
+
+        {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#333] text-neutral-400 text-sm hover:bg-[#333]/50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex-1 px-4 py-2 rounded-lg bg-[#E10600] text-white text-sm font-medium hover:bg-[#E10600]/80 disabled:opacity-50"
+          >
+            {submitting ? "Processing..." : `Refund ${amount} cr`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
 
@@ -39,6 +157,7 @@ export default function BillingHistoryPage() {
   const [date, setDate] = useState(todayISO());
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refundSession, setRefundSession] = useState<BillingSessionRecord | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -113,6 +232,9 @@ export default function BillingHistoryPage() {
                   <th className="text-center px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                     Status
                   </th>
+                  <th className="text-center px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-rp-border/50">
@@ -151,6 +273,16 @@ export default function BillingHistoryPage() {
                         {s.status.replace(/_/g, " ")}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-center">
+                      {(s.status === "completed" || s.status === "ended_early") && (
+                        <button
+                          onClick={() => setRefundSession(s)}
+                          className="px-2 py-1 rounded text-xs bg-amber-900/40 text-amber-400 border border-amber-800 hover:bg-amber-900/60 transition-colors"
+                        >
+                          Refund
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -185,6 +317,17 @@ export default function BillingHistoryPage() {
             </div>
           )}
         </div>
+      )}
+      {refundSession && (
+        <RefundModal
+          session={refundSession}
+          onClose={() => setRefundSession(null)}
+          onSuccess={() => {
+            setRefundSession(null);
+            // Reload report
+            api.dailyBillingReport(date).then(setReport).catch(() => {});
+          }}
+        />
       )}
     </DashboardLayout>
   );
