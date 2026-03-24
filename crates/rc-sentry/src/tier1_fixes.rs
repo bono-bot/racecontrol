@@ -557,15 +557,36 @@ pub fn is_rcagent_self_restart() -> bool {
 
 // ─── Crash Handler ───────────────────────────────────────────────────────────
 
-/// Run the full Tier 1 fix sequence on a crash.
-/// Returns the list of fix results and whether rc-agent was restarted.
-pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<CrashDiagResult>, bool) {
+/// Run the graduated 4-tier crash handler.
+///
+/// Flow: Tier 1 (deterministic fixes) -> Tier 2 (pattern memory) -> server_reachable check
+///       -> escalation guard -> restart -> spawn verification -> POST recovery event.
+///
+/// Returns CrashHandlerResult with all context for the caller.
+pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> CrashHandlerResult {
     let mut results = Vec::new();
+
+    // Derive pattern key for Tier 2 lookup and recovery event (GRAD-02)
+    #[cfg(feature = "ai-diagnosis")]
+    let pattern_key = crate::debug_memory::derive_pattern_key(
+        ctx.panic_message.as_deref(),
+        ctx.exit_code,
+        ctx.last_phase.as_deref(),
+    );
+    #[cfg(not(feature = "ai-diagnosis"))]
+    let pattern_key = format!("exit:{:?}", ctx.exit_code);
 
     // Check maintenance mode
     if is_maintenance_mode() {
         tracing::warn!(target: LOG_TARGET, "MAINTENANCE_MODE active — skipping restart");
-        return (results, false);
+        let server_reachable = check_server_reachable();
+        return CrashHandlerResult {
+            fix_results: results,
+            restarted: false,
+            spawn_verified: false,
+            server_reachable,
+            pattern_key,
+        };
     }
 
     // Check for graceful relaunch sentinel from rc-agent's self_monitor.
@@ -590,6 +611,7 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
 
     let is_graceful = graceful || rcagent_restart;
 
+    // Tier 1: Run deterministic fixes (GRAD-01)
     // 1. Kill zombies
     let r = fix_kill_zombies();
     tracing::info!(target: LOG_TARGET, "fix_kill_zombies: {} ({})", r.success, r.detail);
@@ -615,37 +637,85 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
     tracing::info!(target: LOG_TARGET, "fix_shader_cache: {} ({})", r.success, r.detail);
     results.push(r);
 
-    // 6. Check escalation (skip counter for graceful self-monitor restarts and deploy restarts)
-    if !is_graceful {
-        let escalated = tracker.record_restart();
-        if escalated {
-            tracing::error!(target: LOG_TARGET,
-                "ESCALATION: {} restarts in {:?} — entering maintenance mode",
-                tracker.restart_count(), tracker.window
-            );
-            enter_maintenance_mode(&format!(
-                "{} restarts in 10 minutes. Last crash: {:?}",
-                tracker.restart_count(),
-                ctx.panic_message.as_deref().unwrap_or("unknown")
-            ));
-            return (results, false);
+    // Tier 2: Pattern memory lookup (GRAD-02) — lookup only, fix was applied by Tier 1
+    #[cfg(feature = "ai-diagnosis")]
+    {
+        let memory = crate::debug_memory::DebugMemory::load();
+        if let Some(incident) = memory.instant_fix(&pattern_key) {
+            tracing::info!(target: LOG_TARGET,
+                "TIER 2 INSTANT FIX: pattern '{}' matched fix '{}' (hit #{})",
+                pattern_key, incident.fix_type, incident.hit_count);
         }
+    }
 
-        // 7. Wait for backoff delay
-        let delay = tracker.current_delay();
-        tracing::info!(target: LOG_TARGET, "backoff delay: {:?} (restart #{})", delay, tracker.restart_count());
-        std::thread::sleep(delay);
+    // Check server reachability (GRAD-05) — must happen BEFORE escalation counter
+    let server_reachable = check_server_reachable();
+
+    // Escalation guard — skip counter for graceful restarts AND server-unreachable events (GRAD-05)
+    if !is_graceful {
+        if !server_reachable {
+            tracing::info!(target: LOG_TARGET,
+                "server unreachable — excluding from MAINTENANCE_MODE counter (GRAD-05)");
+            // Skip escalation counter — server-down disconnects never trigger pod lockout
+        } else {
+            let escalated = tracker.record_restart();
+            if escalated {
+                tracing::error!(target: LOG_TARGET,
+                    "ESCALATION: {} restarts in {:?} — entering maintenance mode",
+                    tracker.restart_count(), tracker.window
+                );
+                enter_maintenance_mode(&format!(
+                    "{} restarts in 10 minutes. Last crash: {:?}",
+                    tracker.restart_count(),
+                    ctx.panic_message.as_deref().unwrap_or("unknown")
+                ));
+                return CrashHandlerResult {
+                    fix_results: results,
+                    restarted: false,
+                    spawn_verified: false,
+                    server_reachable,
+                    pattern_key,
+                };
+            }
+
+            // Wait for backoff delay
+            let delay = tracker.current_delay();
+            tracing::info!(target: LOG_TARGET, "backoff delay: {:?} (restart #{})", delay, tracker.restart_count());
+            std::thread::sleep(delay);
+        }
     } else {
         tracing::info!(target: LOG_TARGET, "Graceful relaunch — skipping escalation counter and backoff");
     }
 
-    // 8. Restart rc-agent
+    // Restart rc-agent (SPAWN-01 — restart_service() now polls at 500ms/10s)
     let r = restart_service();
     tracing::info!(target: LOG_TARGET, "restart_service: {} ({})", r.success, r.detail);
+    // Use restart result's success field as spawn_verified (restart_service verifies via health check)
+    let spawn_verified = r.success;
     let restarted = r.success;
     results.push(r);
 
-    (results, restarted)
+    // POST recovery event to server (SPAWN-02)
+    let event = rc_common::recovery::RecoveryEvent {
+        pod_id: get_pod_id(),
+        process: sentry_config::load().process_name.clone(),
+        authority: rc_common::recovery::RecoveryAuthority::RcSentry,
+        action: rc_common::recovery::RecoveryAction::Restart,
+        spawn_verified: Some(spawn_verified),
+        server_reachable: Some(server_reachable),
+        reason: format!("crash_handler tier1+restart pattern:{}", pattern_key),
+        context: format!("fixes:{} verified:{}", results.len(), spawn_verified),
+        timestamp: chrono::Utc::now(),
+    };
+    post_recovery_event(&event);
+
+    CrashHandlerResult {
+        fix_results: results,
+        restarted,
+        spawn_verified,
+        server_reachable,
+        pattern_key,
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -753,26 +823,59 @@ mod tests {
     fn handle_crash_produces_results() {
         let ctx = test_ctx();
         let mut tracker = RestartTracker::new();
-        let (results, restarted) = handle_crash(&ctx, &mut tracker);
-        assert!(!results.is_empty());
-        assert!(restarted); // mock restart succeeds
-        assert!(results.iter().any(|r| r.fix_type == "zombie_kill"));
-        assert!(results.iter().any(|r| r.fix_type == "port_wait"));
-        assert!(results.iter().any(|r| r.fix_type == "restart"));
+        let result = handle_crash(&ctx, &mut tracker);
+        assert!(!result.fix_results.is_empty());
+        assert!(result.restarted); // mock restart succeeds
+        assert!(result.spawn_verified); // mock always returns success=true
+        assert!(result.server_reachable); // mock check_server_reachable returns true
+        assert!(result.fix_results.iter().any(|r| r.fix_type == "zombie_kill"));
+        assert!(result.fix_results.iter().any(|r| r.fix_type == "port_wait"));
+        assert!(result.fix_results.iter().any(|r| r.fix_type == "restart"));
     }
 
     #[test]
     fn handle_crash_escalates_after_threshold() {
         let ctx = test_ctx();
         let mut tracker = RestartTracker::new();
-        // First two crashes — should restart
-        let (_, restarted1) = handle_crash(&ctx, &mut tracker);
-        assert!(restarted1);
-        let (_, restarted2) = handle_crash(&ctx, &mut tracker);
-        assert!(restarted2);
+        // First two crashes — should restart (server_reachable=true in test, so counter increments)
+        let result1 = handle_crash(&ctx, &mut tracker);
+        assert!(result1.restarted);
+        let result2 = handle_crash(&ctx, &mut tracker);
+        assert!(result2.restarted);
         // Third crash — should escalate, no restart
-        let (_, restarted3) = handle_crash(&ctx, &mut tracker);
-        assert!(!restarted3);
+        let result3 = handle_crash(&ctx, &mut tracker);
+        assert!(!result3.restarted);
+    }
+
+    #[test]
+    fn handle_crash_result_has_pattern_key() {
+        let ctx = test_ctx();
+        let mut tracker = RestartTracker::new();
+        let result = handle_crash(&ctx, &mut tracker);
+        // In non-ai-diagnosis builds, pattern key is "exit:None"
+        // In ai-diagnosis builds, it's derived from crash context
+        assert!(!result.pattern_key.is_empty());
+    }
+
+    #[test]
+    fn check_server_reachable_returns_true_in_test() {
+        // Mock always returns true in test builds
+        assert!(check_server_reachable());
+    }
+
+    #[test]
+    fn get_pod_id_returns_nonempty_string() {
+        let id = get_pod_id();
+        assert!(!id.is_empty());
+        // Must start with "pod-"
+        assert!(id.starts_with("pod-"), "pod_id should start with 'pod-', got: {}", id);
+    }
+
+    #[test]
+    fn spawn_verify_constants_correct() {
+        assert_eq!(SPAWN_VERIFY_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(SPAWN_VERIFY_POLL, Duration::from_millis(500));
+        assert_eq!(SPAWN_VERIFY_INITIAL_DELAY, Duration::from_secs(5));
     }
 
     #[test]
@@ -798,6 +901,7 @@ mod tests {
     fn handle_crash_without_sentinel_calls_record_restart() {
         // With neither sentinel present (test cfg returns false for both),
         // handle_crash must call record_restart, advancing backoff_index from 0 to 1.
+        // Note: check_server_reachable() returns true in test cfg, so escalation counter IS called.
         let ctx = test_ctx();
         let mut tracker = RestartTracker::new();
         assert_eq!(tracker.backoff_index, 0);

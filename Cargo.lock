@@ -3562,6 +3562,7 @@ dependencies = [
 name = "rc-sentry"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "rc-common",
  "serde",
  "serde_json",

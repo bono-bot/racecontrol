@@ -136,111 +136,92 @@ fn main() {
                         ctx.panic_message, ctx.exit_code, ctx.last_phase
                     );
 
-                    // Derive pattern key from crash context
-                    #[cfg(feature = "ai-diagnosis")]
-                    let pattern_key = debug_memory::derive_pattern_key(
-                        ctx.panic_message.as_deref(),
-                        ctx.exit_code,
-                        ctx.last_phase.as_deref(),
-                    );
-                    #[cfg(not(feature = "ai-diagnosis"))]
-                    let pattern_key = format!(
-                        "exit:{:?}",
-                        ctx.exit_code
-                    );
-
-                    // Check pattern memory for known fix
-                    #[cfg(feature = "ai-diagnosis")]
-                    let memory = debug_memory::DebugMemory::load();
-                    #[cfg(feature = "ai-diagnosis")]
-                    let pattern_hit_count = memory.instant_fix(&pattern_key)
-                        .map(|i| i.hit_count)
-                        .unwrap_or(0);
-                    #[cfg(not(feature = "ai-diagnosis"))]
-                    let pattern_hit_count: u32 = 0;
-                    #[cfg(feature = "ai-diagnosis")]
-                    if pattern_hit_count > 0 {
-                        tracing::info!(
-                            target: "crash-handler",
-                            "INSTANT FIX from pattern memory: {} (hit #{})",
-                            memory.instant_fix(&pattern_key).map(|i| i.fix_type.as_str()).unwrap_or(""),
-                            pattern_hit_count
-                        );
-                    }
-
-                    // Pattern escalation: log AI escalation but STILL restart.
-                    // Stopping recovery leaves rc-agent dead permanently (Pod 6 incident).
-                    // Escalation adds diagnostic value — it doesn't replace recovery.
-                    if should_escalate_pattern(pattern_hit_count) {
-                        tracing::error!(
-                            target: "crash-handler",
-                            "PATTERN ESCALATION: {} seen {} times — escalating to AI, then restarting",
-                            pattern_key, pattern_hit_count
-                        );
-                        let mut decision = build_restart_decision(
-                            &machine,
-                            &pattern_key,
-                            false,
-                            false,
-                            pattern_hit_count,
-                        );
-                        decision.action = RecoveryAction::EscalateToAi;
-                        decision.reason = format!(
-                            "pattern_seen_{}x threshold:{} — escalated but still restarting",
-                            pattern_hit_count, PATTERN_ESCALATION_THRESHOLD
-                        );
-                        let _ = recovery_logger.log(&decision);
-                        // Don't skip restart — fall through to handle_crash below
-                    }
-
-                    // For unknown patterns, consult Ollama BEFORE attempting restart (SENT-02)
-                    #[cfg(feature = "ai-diagnosis")]
-                    if memory.instant_fix(&pattern_key).is_none() {
-                        let crash_summary = format!(
-                            "rc-agent crash\npanic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nlog_tail: {}",
-                            ctx.panic_message, ctx.exit_code, ctx.last_phase,
-                            &ctx.startup_log[..ctx.startup_log.len().min(500)]
-                        );
-                        tracing::info!(
-                            target: "crash-handler",
-                            "unknown pattern {} — querying Ollama before restart ({}s timeout)",
-                            pattern_key, OLLAMA_TIMEOUT.as_secs()
-                        );
-                        let result = query_ollama_with_timeout(crash_summary, OLLAMA_TIMEOUT);
-                        if let Some(ref r) = result {
-                            tracing::info!(
-                                target: "crash-handler",
-                                "Ollama pre-restart suggestion for {}: {} (model: {})",
-                                pattern_key, r.suggestion, r.model
-                            );
-                            // Save suggestion to pattern memory
-                            let mut mem = debug_memory::DebugMemory::load();
-                            mem.record(
-                                pattern_key.clone(),
-                                format!("ollama:{}", r.suggestion),
-                                r.suggestion.clone(),
-                            );
-                            mem.save();
-                        } else {
-                            tracing::warn!(
-                                target: "crash-handler",
-                                "Ollama timeout/unavailable for {} — proceeding with restart",
-                                pattern_key
-                            );
-                        }
-                    }
-
-                    // Run Tier 1 fixes + restart (always proceeds regardless of Ollama result)
+                    // Run graduated crash handler (Tier 1 + Tier 2 + spawn verify + recovery event)
+                    // handle_crash() now owns: pattern key derivation, Tier 2 lookup,
+                    // server_reachable check, escalation guard, spawn verification, and
+                    // recovery event POST (GRAD-01, GRAD-02, GRAD-05, SPAWN-01, SPAWN-02)
                     #[cfg(feature = "tier1-fixes")]
-                    let (results, restarted) = tier1_fixes::handle_crash(&ctx, &mut tracker);
+                    let result = tier1_fixes::handle_crash(&ctx, &mut tracker);
                     #[cfg(not(feature = "tier1-fixes"))]
-                    let (results, restarted): (Vec<()>, bool) = (vec![], false);
+                    let result = tier1_fixes::CrashHandlerResult {
+                        fix_results: vec![],
+                        restarted: false,
+                        spawn_verified: false,
+                        server_reachable: false,
+                        pattern_key: format!("exit:{:?}", ctx.exit_code),
+                    };
 
                     tracing::info!(
                         target: "crash-handler",
-                        "crash handled: {} fixes applied, restarted={}",
-                        results.len(), restarted
+                        "crash handled: {} fixes applied, restarted={} spawn_verified={} server_reachable={}",
+                        result.fix_results.len(), result.restarted, result.spawn_verified, result.server_reachable
                     );
+
+                    // Pattern escalation check using hit count from pattern memory (GRAD-02)
+                    // Runs after handle_crash so result.pattern_key is available
+                    #[cfg(feature = "ai-diagnosis")]
+                    {
+                        let memory = debug_memory::DebugMemory::load();
+                        let pattern_hit_count = memory.instant_fix(&result.pattern_key)
+                            .map(|i| i.hit_count)
+                            .unwrap_or(0);
+                        // Pattern escalation: log but don't stop recovery (Pod 6 incident lesson)
+                        if should_escalate_pattern(pattern_hit_count) {
+                            tracing::error!(
+                                target: "crash-handler",
+                                "PATTERN ESCALATION: {} seen {} times — escalating to AI",
+                                result.pattern_key, pattern_hit_count
+                            );
+                            let mut escalation_decision = build_restart_decision(
+                                &machine,
+                                &result.pattern_key,
+                                false,
+                                false,
+                                pattern_hit_count,
+                            );
+                            escalation_decision.action = RecoveryAction::EscalateToAi;
+                            escalation_decision.reason = format!(
+                                "pattern_seen_{}x threshold:{} — escalated",
+                                pattern_hit_count, PATTERN_ESCALATION_THRESHOLD
+                            );
+                            let _ = recovery_logger.log(&escalation_decision);
+                        }
+
+                        // For unknown patterns where restart failed, consult Ollama (SENT-02)
+                        if !result.restarted && memory.instant_fix(&result.pattern_key).is_none() {
+                            let crash_summary = format!(
+                                "rc-agent crash\npanic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nlog_tail: {}",
+                                ctx.panic_message, ctx.exit_code, ctx.last_phase,
+                                &ctx.startup_log[..ctx.startup_log.len().min(500)]
+                            );
+                            tracing::info!(
+                                target: "crash-handler",
+                                "unknown pattern {} and restart failed — querying Ollama ({}s timeout)",
+                                result.pattern_key, OLLAMA_TIMEOUT.as_secs()
+                            );
+                            let ollama_resp = query_ollama_with_timeout(crash_summary, OLLAMA_TIMEOUT);
+                            if let Some(ref r) = ollama_resp {
+                                tracing::info!(
+                                    target: "crash-handler",
+                                    "Ollama suggestion for {}: {} (model: {})",
+                                    result.pattern_key, r.suggestion, r.model
+                                );
+                                let mut mem = debug_memory::DebugMemory::load();
+                                mem.record(
+                                    result.pattern_key.clone(),
+                                    format!("ollama:{}", r.suggestion),
+                                    r.suggestion.clone(),
+                                );
+                                mem.save();
+                            } else {
+                                tracing::warn!(
+                                    target: "crash-handler",
+                                    "Ollama timeout/unavailable for {}",
+                                    result.pattern_key
+                                );
+                            }
+                        }
+                    }
 
                     // Log recovery decision to JSONL audit trail (SENT-03)
                     #[cfg(feature = "tier1-fixes")]
@@ -253,36 +234,34 @@ fn main() {
                     let maintenance = false;
                     let mut decision = build_restart_decision(
                         &machine,
-                        &pattern_key,
-                        restarted,
+                        &result.pattern_key,
+                        result.restarted,
                         maintenance,
                         tracker_count,
                     );
                     decision.context = format!(
-                        "fixes_applied:{} restarted:{}",
-                        results.len(), restarted
+                        "fixes:{} restarted:{} spawn_verified:{} server_reachable:{}",
+                        result.fix_results.len(), result.restarted, result.spawn_verified, result.server_reachable
                     );
                     let _ = recovery_logger.log(&decision);
 
                     // Record successful fix in pattern memory
                     #[cfg(all(feature = "ai-diagnosis", feature = "tier1-fixes"))]
-                    if restarted {
-                        let fix_summary: String = results.iter()
+                    if result.restarted {
+                        let fix_summary: String = result.fix_results.iter()
                             .filter(|r| r.success)
                             .map(|r| r.fix_type.as_str())
                             .collect::<Vec<_>>()
                             .join("+");
                         let mut memory = debug_memory::DebugMemory::load();
                         memory.record(
-                            pattern_key.clone(),
+                            result.pattern_key.clone(),
                             fix_summary.clone(),
-                            format!("{} fixes applied, restarted", results.len()),
+                            format!("{} fixes applied, restarted", result.fix_results.len()),
                         );
                         memory.save();
-                        tracing::info!(target: "crash-handler", "pattern memory updated: {} -> {}", pattern_key, fix_summary);
+                        tracing::info!(target: "crash-handler", "pattern memory updated: {} -> {}", result.pattern_key, fix_summary);
                     }
-
-                    // Phase 105: Fleet reporting will be added here
                 }
             })
             .expect("spawn crash handler thread");
