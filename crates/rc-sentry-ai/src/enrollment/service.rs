@@ -132,7 +132,9 @@ pub async fn process_photo(
     let rgb_bytes = img.into_raw();
 
     // Preprocess for SCRFD
-    let (tensor, det_scale) = ScrfdDetector::preprocess(&rgb_bytes, width, height);
+    let Some((tensor, det_scale)) = ScrfdDetector::preprocess(&rgb_bytes, width, height) else {
+        return Err(EnrollmentError::Internal("image preprocessing failed — invalid RGB buffer".into()));
+    };
 
     // Detect faces
     let conf = state.detection_confidence;
@@ -176,7 +178,9 @@ pub async fn process_photo(
     let enhanced = apply_clahe(&aligned);
 
     // ArcFace preprocessing
-    let tensor = arcface::preprocess(&enhanced);
+    let Some(tensor) = arcface::preprocess(&enhanced) else {
+        return Err(EnrollmentError::Internal("ArcFace preprocessing failed — aligned face has wrong dimensions".into()));
+    };
 
     // Extract embedding
     let rec = recognizer.clone_shared();

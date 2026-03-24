@@ -149,8 +149,11 @@ pub async fn run(
         };
 
         // Preprocess for SCRFD
-        let (tensor, det_scale) =
-            ScrfdDetector::preprocess(&decoded.rgb, decoded.width, decoded.height);
+        let Some((tensor, det_scale)) =
+            ScrfdDetector::preprocess(&decoded.rgb, decoded.width, decoded.height) else {
+            tracing::warn!(camera = %camera_name, "preprocess failed — skipping frame");
+            continue;
+        };
 
         // Run inference (ScrfdDetector::detect is async, uses spawn_blocking internally)
         let faces = match detector.detect(tensor, det_scale, conf_threshold).await {
@@ -236,8 +239,11 @@ pub async fn run(
                 let clahe_face = clahe::apply_clahe(&aligned);
 
                 // 4. Preprocess for ArcFace
-                let tensor =
-                    crate::recognition::arcface::preprocess(&clahe_face);
+                let Some(tensor) =
+                    crate::recognition::arcface::preprocess(&clahe_face) else {
+                    tracing::warn!(camera = %camera_name, "ArcFace preprocess failed — skipping face");
+                    continue;
+                };
 
                 // 5. Extract embedding
                 let embedding = match recognizer.extract_embedding(tensor).await {

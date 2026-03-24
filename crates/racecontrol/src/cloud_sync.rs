@@ -7,7 +7,8 @@
 //! The relay path only pushes deltas (the other side pushes to us independently via /sync/push).
 //! The HTTP fallback path does full bidirectional pull+push in a single cycle.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,11 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::state::AppState;
+
+/// Nonce replay protection: tracks seen nonces with their timestamps.
+/// Entries older than 5 minutes are purged on each check.
+static SEEN_NONCES: std::sync::LazyLock<Mutex<HashMap<String, i64>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -60,11 +66,36 @@ pub(crate) fn verify_sync_signature(
         tracing::warn!(target: "cloud_sync", "HMAC timestamp expired: {}s difference", (now - timestamp).abs());
         return false;
     }
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(&timestamp.to_be_bytes());
-    mac.update(nonce.as_bytes());
-    mac.update(body);
-    mac.verify_slice(&hex::decode(signature).unwrap_or_default()).is_ok()
+
+    // Nonce replay protection: reject if this nonce was already seen
+    if let Ok(mut seen) = SEEN_NONCES.lock() {
+        // Purge expired nonces (older than 5 minutes)
+        seen.retain(|_, ts| (now - *ts).abs() <= 300);
+
+        if seen.contains_key(nonce) {
+            tracing::warn!(target: "cloud_sync", "HMAC nonce replay detected: {}", nonce);
+            return false;
+        }
+
+        // Verify signature first, then record nonce only if signature is valid
+        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(&timestamp.to_be_bytes());
+        mac.update(nonce.as_bytes());
+        mac.update(body);
+        if mac.verify_slice(&hex::decode(signature).unwrap_or_default()).is_ok() {
+            seen.insert(nonce.to_string(), timestamp);
+            true
+        } else {
+            false
+        }
+    } else {
+        // Mutex poisoned — fall back to signature-only verification
+        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(&timestamp.to_be_bytes());
+        mac.update(nonce.as_bytes());
+        mac.update(body);
+        mac.verify_slice(&hex::decode(signature).unwrap_or_default()).is_ok()
+    }
 }
 
 /// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").

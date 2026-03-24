@@ -66,11 +66,12 @@ impl ScrfdDetector {
     /// - Zero-pads to exactly 640x640 (bottom-right)
     /// - Normalizes: `(pixel - 127.5) / 128.0`
     /// - Returns NCHW tensor `[1, 3, 640, 640]` and scale factor for coordinate recovery
-    pub fn preprocess(rgb: &[u8], width: u32, height: u32) -> (Array4<f32>, f32) {
-        let img = DynamicImage::from(
-            image::RgbImage::from_raw(width, height, rgb.to_vec())
-                .expect("RGB buffer size must match width * height * 3"),
-        );
+    pub fn preprocess(rgb: &[u8], width: u32, height: u32) -> Option<(Array4<f32>, f32)> {
+        let Some(raw_img) = image::RgbImage::from_raw(width, height, rgb.to_vec()) else {
+            tracing::warn!("SCRFD preprocess: RGB buffer size mismatch ({}x{}, got {} bytes)", width, height, rgb.len());
+            return None;
+        };
+        let img = DynamicImage::from(raw_img);
 
         // Resize maintaining aspect ratio
         let scale = 640.0_f32 / width.max(height) as f32;
@@ -93,7 +94,7 @@ impl ScrfdDetector {
             }
         }
 
-        (tensor, scale)
+        Some((tensor, scale))
     }
 
     /// Run SCRFD inference and post-process detections.

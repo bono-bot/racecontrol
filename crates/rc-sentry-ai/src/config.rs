@@ -147,7 +147,7 @@ fn default_recognition_model_path() -> String {
 }
 
 fn default_similarity_threshold() -> f32 {
-    0.45
+    0.55
 }
 
 fn default_min_face_size() -> u32 {

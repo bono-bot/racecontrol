@@ -580,7 +580,7 @@ pub async fn run(
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&pause_msg).unwrap_or_default().into())).await;
                                 }
                                 state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
-                                let last_sim = SimType::AssettoCorsa; // game_process already set to None above
+                                let last_sim = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
                                 conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
                                     attempt: 1,
                                     timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),

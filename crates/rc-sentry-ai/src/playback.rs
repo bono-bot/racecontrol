@@ -96,6 +96,20 @@ async fn stream_handler(
     State(state): State<Arc<PlaybackState>>,
     Query(params): Query<StreamParams>,
 ) -> impl IntoResponse {
+    // SSRF protection: file_path must be a valid NVR recording path.
+    // Reject path traversal (..), query injection (?), and non-NVR paths.
+    if params.file_path.contains("..")
+        || params.file_path.contains('?')
+        || params.file_path.contains('&')
+        || !params.file_path.starts_with("/mnt/")
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid file_path — must be an NVR recording path starting with /mnt/"})),
+        )
+            .into_response();
+    }
+
     let response = match state.nvr_client.stream_file(&params.file_path).await {
         Ok(resp) => resp,
         Err(e) => {

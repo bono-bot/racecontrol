@@ -11,7 +11,10 @@ pub async fn retention_purge_task(retention_days: u64, db_path: String, audit: A
     loop {
         tick.tick().await;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
-        let cutoff_str = cutoff.to_rfc3339();
+        // CRITICAL: Use SQLite-compatible format (space separator, no timezone suffix).
+        // SQLite datetime('now') produces "2026-03-24 12:00:00" — RFC3339's "T" separator
+        // causes string comparison to match ALL rows (space 0x20 < T 0x54 = delete everything).
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
 
         let db = db_path.clone();
         let cutoff_clone = cutoff_str.clone();

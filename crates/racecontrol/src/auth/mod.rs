@@ -1117,8 +1117,15 @@ pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result
         return Err("OTP has expired".to_string());
     }
 
-    // Verify OTP
-    if stored_otp != otp {
+    // Verify OTP (constant-time via hash comparison to prevent timing attacks)
+    use std::hash::{Hash, Hasher};
+    let mut h1 = std::hash::DefaultHasher::new();
+    stored_otp.hash(&mut h1);
+    let hash1 = h1.finish();
+    let mut h2 = std::hash::DefaultHasher::new();
+    otp.hash(&mut h2);
+    let hash2 = h2.finish();
+    if hash1 != hash2 || stored_otp.len() != otp.len() {
         return Err("Invalid OTP".to_string());
     }
 

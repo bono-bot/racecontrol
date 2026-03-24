@@ -7,21 +7,15 @@ use ndarray::Array4;
 /// - Normalizes: `(pixel - 127.5) / 127.5` mapping [0,255] to [-1.0, 1.0]
 ///
 /// Note: ArcFace (glintr100) uses /127.5, NOT /128.0 like SCRFD.
-pub fn preprocess(aligned_rgb: &image::RgbImage) -> Array4<f32> {
-    assert_eq!(
-        aligned_rgb.width(),
-        112,
-        "ArcFace input must be 112x112, got {}x{}",
-        aligned_rgb.width(),
-        aligned_rgb.height()
-    );
-    assert_eq!(
-        aligned_rgb.height(),
-        112,
-        "ArcFace input must be 112x112, got {}x{}",
-        aligned_rgb.width(),
-        aligned_rgb.height()
-    );
+pub fn preprocess(aligned_rgb: &image::RgbImage) -> Option<Array4<f32>> {
+    if aligned_rgb.width() != 112 || aligned_rgb.height() != 112 {
+        tracing::warn!(
+            "ArcFace input must be 112x112, got {}x{} — skipping",
+            aligned_rgb.width(),
+            aligned_rgb.height()
+        );
+        return None;
+    }
 
     let mut tensor = Array4::<f32>::zeros((1, 3, 112, 112));
     for y in 0..112u32 {
@@ -36,7 +30,7 @@ pub fn preprocess(aligned_rgb: &image::RgbImage) -> Array4<f32> {
         }
     }
 
-    tensor
+    Some(tensor)
 }
 
 // --- ONNX Runtime session wrapper ---
@@ -191,7 +185,7 @@ mod tests {
             ])
         });
 
-        let tensor = preprocess(&img);
+        let tensor = preprocess(&img).unwrap();
 
         // Verify shape is [1, 3, 112, 112]
         assert_eq!(tensor.shape(), &[1, 3, 112, 112]);
@@ -222,7 +216,7 @@ mod tests {
     fn test_preprocess_normalization_values() {
         // Create image with all pixels = 127 (should normalize to near 0)
         let img = image::RgbImage::from_pixel(112, 112, image::Rgb([127, 127, 127]));
-        let tensor = preprocess(&img);
+        let tensor = preprocess(&img).unwrap();
 
         // (127 - 127.5) / 127.5 = -0.003921...
         let expected = (127.0_f32 - 127.5) / 127.5;

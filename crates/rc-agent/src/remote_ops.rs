@@ -53,6 +53,10 @@ const DEFAULT_EXEC_TIMEOUT_MS: u64 = 10_000;
 static EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(MAX_CONCURRENT_EXECS);
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
+/// Global billing gate for deploy safety. Set by event_loop on BillingStarted/Stopped.
+/// Checked by RCAGENT_SELF_RESTART to prevent deploys during active billing sessions.
+pub static BILLING_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Middleware that adds `Connection: close` to every response.
 /// Prevents keep-alive socket accumulation (CLOSE_WAIT flood) caused by
 /// racecontrol's fleet_health polling hitting :8090 repeatedly.
@@ -499,6 +503,16 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
     // relaunch_self() calls std::process::exit(0) on success — no response will be sent.
     // If relaunch_self() returns (spawn failed), we return HTTP 500.
     if req.cmd.trim() == "RCAGENT_SELF_RESTART" {
+        // Safety gate: reject restart during active billing to avoid disrupting customer sessions
+        if BILLING_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::warn!(target: LOG_TARGET, "RCAGENT_SELF_RESTART rejected — billing session active");
+            return Err((StatusCode::CONFLICT, Json(ExecResponse {
+                success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: "Billing session active — restart deferred. Retry after session ends.".to_string(),
+            })));
+        }
         tracing::info!(target: LOG_TARGET, "RCAGENT_SELF_RESTART received — calling relaunch_self()");
         crate::self_monitor::relaunch_self();
         return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ExecResponse {

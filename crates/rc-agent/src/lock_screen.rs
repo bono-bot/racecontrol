@@ -680,19 +680,23 @@ impl LockScreenManager {
                             const HWND_TOPMOST: isize = -1;
                             const SWP_SHOWWINDOW: u32 = 0x0040;
 
-                            static mut FOUND_HWND: isize = 0;
-                            static mut TARGET_PID: u32 = 0;
+                            #[repr(C)]
+                            struct EnumCtx {
+                                target_pid: u32,
+                                found_hwnd: isize,
+                            }
 
-                            unsafe extern "system" fn enum_cb(hwnd: isize, _: isize) -> i32 {
+                            unsafe extern "system" fn enum_cb(hwnd: isize, lparam: isize) -> i32 {
+                                let ctx = unsafe { &mut *(lparam as *mut EnumCtx) };
                                 let mut pid: u32 = 0;
-                                GetWindowThreadProcessId(hwnd, &mut pid);
-                                if pid == TARGET_PID && IsWindowVisible(hwnd) != 0 {
+                                unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+                                if pid == ctx.target_pid && unsafe { IsWindowVisible(hwnd) } != 0 {
                                     let mut class_buf = [0u8; 64];
-                                    let len = GetClassNameA(hwnd, class_buf.as_mut_ptr(), 64);
+                                    let len = unsafe { GetClassNameA(hwnd, class_buf.as_mut_ptr(), 64) };
                                     if len > 0 {
-                                        let class = std::str::from_utf8_unchecked(&class_buf[..len as usize]);
+                                        let class = unsafe { std::str::from_utf8_unchecked(&class_buf[..len as usize]) };
                                         if class == "Chrome_WidgetWin_1" {
-                                            FOUND_HWND = hwnd;
+                                            ctx.found_hwnd = hwnd;
                                             return 0;
                                         }
                                     }
@@ -700,13 +704,12 @@ impl LockScreenManager {
                                 1
                             }
 
+                            let mut ctx = EnumCtx { target_pid: child_pid, found_hwnd: 0 };
                             unsafe {
-                                TARGET_PID = child_pid;
-                                FOUND_HWND = 0;
-                                EnumWindows(enum_cb, 0);
+                                EnumWindows(enum_cb, &mut ctx as *mut EnumCtx as isize);
                             }
 
-                            let hwnd = unsafe { FOUND_HWND };
+                            let hwnd = ctx.found_hwnd;
                             if hwnd == 0 {
                                 tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — SetWindowPos skipped", child_pid);
                                 return;
