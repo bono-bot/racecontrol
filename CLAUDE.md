@@ -175,6 +175,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: SSR reads fail server-side; hydration mismatch breaks the entire page silently._
 - **Git Bash JSON:** Write JSON payloads to a file with Write tool, then `curl -d @file`. Bash string escaping mangles backslashes.
   _Why: Inline JSON in Git Bash strips backslashes from Windows paths, corrupting the payload._
+- **Never pipe SSH output into config files.** Use `scp` to copy files from remote hosts, not `ssh ... "cat file" > local`. SSH banners (post-quantum warning, MOTD) go to stderr but some wrappers merge streams, silently prepending garbage to the file. If SSH piping is unavoidable, use `ssh ... 2>/dev/null "cat file"`. After any remote file copy, validate the first line: `head -1 file | grep -q '^\[' || echo "CORRUPTED"`.
+  _Why: 2026-03-24 — racecontrol.toml had 3 SSH banner lines prepended. TOML parser rejected from line 1. load_or_default() fell back to empty defaults. process_guard ran with 0 allowed entries for 2+ hours. No operator saw anything because the error was logged via tracing (not yet initialized at config-load time)._
 - **UI must reflect config truth** — no hardcoded camera lists, names, or layouts. All UI must read from API/config dynamically. If the backend config changes, the UI must update without code changes.
   _Why: v16.1 cameras dashboard was initially built with hardcoded 13-camera arrays. When cameras were added/removed from NVR config, the UI showed stale/phantom tiles. Dynamic fetch from /api/v1/cameras fixed it — this rule prevents regression._
 
