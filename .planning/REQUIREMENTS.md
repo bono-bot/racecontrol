@@ -61,7 +61,7 @@
 
 ### Cross-Project Sync (builds on v21.0)
 
-- [ ] **SYNC-01**: Feature flag and config push APIs are documented in the OpenAPI 3.0 spec (extends v21.0 Phase 173 contract) with shared TypeScript types in packages/shared-types/
+- [x] **SYNC-01**: Feature flag and config push APIs are documented in the OpenAPI 3.0 spec (extends v21.0 Phase 173 contract) with shared TypeScript types in packages/shared-types/
 - [ ] **SYNC-02**: OTA pipeline uses the unified deploy scripts (deploy.sh, check-health.sh) from v21.0 as its health gate foundation — extends, not replaces
 - [ ] **SYNC-03**: New WebSocket message types (FlagSync, ConfigPush, OtaDownload, etc.) are added to rc-common AND to the shared TypeScript types package — contract tests verify both sides match
 - [ ] **SYNC-04**: Feature flag and config push changes cascade to ALL affected components (racecontrol, rc-agent, kiosk, admin dashboard, API gateway) per the cross-process update standing rule
@@ -120,7 +120,7 @@
 | CP-04 | Phase 177 | Pending |
 | CP-05 | Phase 177 | Pending |
 | CP-06 | Phase 177 | Pending |
-| SYNC-01 | Phase 177 | Pending |
+| SYNC-01 | Phase 177 | Complete |
 | FF-04 | Phase 178 | Pending |
 | FF-05 | Phase 178 | Pending |
 | FF-07 | Phase 178 | Pending |
