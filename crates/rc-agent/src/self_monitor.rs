@@ -230,17 +230,73 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
 /// not a crash. rc-sentry checks for this and skips escalation if present.
 const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 
-/// Spawn a detached PowerShell process that waits 3s then starts a fresh rc-agent,
-/// then exit the current process. The 3s gap ensures the port :8090 and
-/// :18923 are freed before the new instance binds them.
+/// TCP port that rc-sentry listens on. Used to detect whether sentry is alive
+/// before deciding how to relaunch rc-agent.
+const SENTRY_PORT: u16 = 8091;
+
+/// Timeout for the TCP connect attempt to rc-sentry. 2 seconds is long enough
+/// to handle a briefly-busy listener, short enough not to delay relaunch.
+const SENTRY_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Check if rc-sentry is alive by attempting TCP connect to localhost:8091.
+/// Returns true if connection succeeds within 2 seconds.
+/// Uses std::net (blocking) since this runs right before process::exit anyway.
+fn check_sentry_alive() -> bool {
+    check_sentry_alive_on_port(SENTRY_PORT)
+}
+
+/// Inner helper: attempt TCP connect to 127.0.0.1:<port> with SENTRY_CHECK_TIMEOUT.
+/// Extracted so tests can inject an ephemeral port without touching SENTRY_PORT.
+fn check_sentry_alive_on_port(port: u16) -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    let addr: SocketAddr = ([127, 0, 0, 1], port).into();
+    TcpStream::connect_timeout(&addr, SENTRY_CHECK_TIMEOUT).is_ok()
+}
+
+/// Sentry-aware relaunch: prefer yielding to rc-sentry (clean exit + sentinel)
+/// over spawning a new PowerShell process (which leaks ~90MB per restart).
 ///
-/// Uses Start-Process instead of cmd `start ""` — Start-Process works reliably
-/// even when the invoking process has no attached console or interactive desktop.
+/// - Sentry alive (normal case): write GRACEFUL_RELAUNCH sentinel, exit cleanly.
+///   rc-sentry's watchdog detects the dead agent, sees the sentinel, skips
+///   escalation, and restarts rc-agent via Session 1 spawn (Phase 184).
+///   Zero PowerShell spawned.
 ///
-/// Writes a GRACEFUL_RELAUNCH sentinel so rc-sentry distinguishes this from a
-/// real crash and does not count it toward escalation / MAINTENANCE_MODE.
+/// - Sentry dead (fallback): write sentinel + spawn PowerShell+DETACHED_PROCESS.
+///   PowerShell is the only proven path for self-restart when no external
+///   supervisor exists. start-rcagent.bat kills orphan powershell.exe on next boot.
+///
+/// Writes the GRACEFUL_RELAUNCH sentinel in both paths so rc-sentry won't
+/// count it as an escalation crash if sentry comes back before the restart.
 pub fn relaunch_self() {
-    // Write sentinel BEFORE exiting so rc-sentry sees it when it detects the "crash"
+    if check_sentry_alive() {
+        // SELF-01: Sentry is alive — write sentinel and exit cleanly.
+        // rc-sentry's watchdog will detect rc-agent is dead, see the GRACEFUL_RELAUNCH
+        // sentinel, skip escalation, and restart via Session 1 spawn (no PowerShell leak).
+        tracing::info!(
+            target: LOG_TARGET,
+            "rc-sentry reachable on :{} — writing sentinel and exiting (sentry will restart us)",
+            SENTRY_PORT
+        );
+        if let Err(e) = std::fs::write(
+            GRACEFUL_RELAUNCH_SENTINEL,
+            "self_monitor relaunch — sentry will restart\n",
+        ) {
+            tracing::warn!(target: LOG_TARGET, "Failed to write graceful relaunch sentinel: {}", e);
+        }
+        log_event("RELAUNCH_VIA_SENTRY: sentinel written, exiting for sentry restart");
+        std::process::exit(0);
+    }
+
+    // SELF-02: Sentry is dead — fall back to PowerShell+DETACHED_PROCESS.
+    // This is the only proven working self-restart when no external supervisor exists.
+    tracing::warn!(
+        target: LOG_TARGET,
+        "rc-sentry unreachable on :{} — falling back to PowerShell relaunch",
+        SENTRY_PORT
+    );
+    log_event("RELAUNCH_POWERSHELL: sentry unreachable, using PowerShell fallback");
+
+    // Write sentinel BEFORE exiting so rc-sentry sees it if it comes back
     if let Err(e) = std::fs::write(GRACEFUL_RELAUNCH_SENTINEL, "self_monitor relaunch\n") {
         tracing::warn!(target: LOG_TARGET, "Failed to write graceful relaunch sentinel: {}", e);
     }
@@ -260,13 +316,16 @@ pub fn relaunch_self() {
         .spawn()
     {
         Ok(_) => {
-            tracing::info!(target: LOG_TARGET, "Relaunch scheduled (sentinel written). Exiting current process.");
+            tracing::info!(
+                target: LOG_TARGET,
+                "PowerShell relaunch scheduled (sentinel written). Exiting."
+            );
             std::process::exit(0);
         }
         Err(e) => {
             // Clean up sentinel on failure — we didn't actually relaunch
             let _ = std::fs::remove_file(GRACEFUL_RELAUNCH_SENTINEL);
-            tracing::error!(target: LOG_TARGET, "Failed to spawn relaunch: {}", e);
+            tracing::error!(target: LOG_TARGET, "Failed to spawn PowerShell relaunch: {}", e);
         }
     }
 }
@@ -274,6 +333,47 @@ pub fn relaunch_self() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- TDD RED: sentry-aware relaunch tests (Phase 187) ---
+
+    #[test]
+    fn sentry_port_constant_is_8091() {
+        assert_eq!(SENTRY_PORT, 8091);
+    }
+
+    #[test]
+    fn check_sentry_alive_returns_true_when_listener_exists() {
+        // Bind to an ephemeral port to simulate a live sentry
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // check_sentry_alive uses SENTRY_PORT, so we temporarily test via the helper directly
+        let result = check_sentry_alive_on_port(port);
+        assert!(result, "should return true when a listener exists on the port");
+    }
+
+    #[test]
+    fn check_sentry_alive_returns_false_when_no_listener() {
+        // Use a high port that should be unoccupied
+        let result = check_sentry_alive_on_port(19999);
+        assert!(!result, "should return false when no listener on port");
+    }
+
+    #[test]
+    fn check_sentry_alive_returns_within_2_seconds() {
+        use std::time::Instant;
+        let start = Instant::now();
+        // Port 19998 should be unoccupied (no listener) — tests the timeout path
+        let _ = check_sentry_alive_on_port(19998);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_secs() <= 2,
+            "check_sentry_alive should complete within 2s, took {:?}",
+            elapsed
+        );
+    }
+
+    // --- existing tests ---
 
     #[test]
     fn close_wait_threshold_is_reasonable() {
