@@ -40,10 +40,10 @@
 
 ### Cargo Feature Gates
 
-- [ ] **CF-01**: rc-agent Cargo.toml has feature flags for major optional modules (ai-debugger, process-guard) — modules can be compiled out entirely. Telemetry excluded: too deeply woven into billing/game state machine to gate.
-- [ ] **CF-02**: Default features = full production build — no manual flag selection required for standard pod deploy
+- [x] **CF-01**: rc-agent Cargo.toml has feature flags for major optional modules (ai-debugger, process-guard) — modules can be compiled out entirely. Telemetry excluded: too deeply woven into billing/game state machine to gate.
+- [x] **CF-02**: Default features = full production build — no manual flag selection required for standard pod deploy
 - [ ] **CF-03**: CI verifies both default and minimal (--no-default-features) builds compile cleanly for both rc-agent and rc-sentry
-- [ ] **CF-04**: rc-sentry Cargo.toml has feature flags for optional modules (watchdog, tier1-fixes, ai-diagnosis) — bare binary with all features off is a remote-exec-only tool on port 8091
+- [x] **CF-04**: rc-sentry Cargo.toml has feature flags for optional modules (watchdog, tier1-fixes, ai-diagnosis) — bare binary with all features off is a remote-exec-only tool on port 8091
 
 ### Protocol Forward-Compatibility
 
@@ -107,10 +107,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CF-01 | Phase 176 | Pending |
-| CF-02 | Phase 176 | Pending |
+| CF-01 | Phase 176 | Complete |
+| CF-02 | Phase 176 | Complete |
 | CF-03 | Phase 176 | Pending |
-| CF-04 | Phase 176 | Pending |
+| CF-04 | Phase 176 | Complete |
 | PFC-01 | Phase 176 | Complete |
 | FF-01 | Phase 177 | Pending |
 | FF-02 | Phase 177 | Pending |
