@@ -574,16 +574,22 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn launch_browser(&mut self) {
-        // If Edge is already running, don't kill+relaunch — causes visible screen
-        // flicker on triple-monitor kiosk. The HTTP server always serves current state.
-        // Browser needs a lightweight JS poll (added below) to pick up state changes.
-        let edge_running = self.browser_process.as_mut()
+        // Only skip relaunch if OUR tracked browser child is still alive.
+        // This avoids flicker during rapid state transitions (e.g., PIN → ActiveSession)
+        // where the same Edge window just needs to refresh from the HTTP server.
+        //
+        // Previously this also checked `count_edge_processes() > 0`, but that
+        // caused a critical bug: after close_browser() kills all Edge, Windows
+        // "Startup Boost" respawns background msedge.exe processes within seconds.
+        // On the next show_blank_screen() call, launch_browser() would see those
+        // background processes and skip launching — leaving the screen un-blanked
+        // with no browser window (the "once unblanked, won't blank again" bug).
+        let our_browser_alive = self.browser_process.as_mut()
             .map(|c| matches!(c.try_wait(), Ok(None)))
-            .unwrap_or(false)
-            || Self::count_edge_processes() > 0;
+            .unwrap_or(false);
 
-        if edge_running {
-            tracing::debug!(target: LOG_TARGET, "launch_browser: Edge already running — skipping kill+relaunch");
+        if our_browser_alive {
+            tracing::debug!(target: LOG_TARGET, "launch_browser: Our browser child still alive — skipping kill+relaunch");
             return;
         }
 
