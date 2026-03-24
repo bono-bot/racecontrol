@@ -1839,6 +1839,51 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── v22.0 Phase 177: Feature Flags Registry ─────────────────────────────
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS feature_flags (
+            name TEXT PRIMARY KEY,
+            enabled BOOLEAN NOT NULL DEFAULT 0,
+            default_value BOOLEAN NOT NULL DEFAULT 0,
+            overrides TEXT NOT NULL DEFAULT '{}',
+            version INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS config_push_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pod_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            seq_num INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            acked_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS config_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_name TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            pushed_by TEXT NOT NULL,
+            pods_acked TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Phase 12: Data Foundation ───────────────────────────────────────────
 
     // DATA-01: Covering indexes for leaderboard queries

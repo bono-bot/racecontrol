@@ -486,6 +486,9 @@ async fn main() -> anyhow::Result<()> {
     // after server restart with fresh DB (BUG-01)
     seed_pods_on_startup(&state).await;
 
+    // v22.0 Phase 177: Load feature flags into in-memory cache and initialize config_push_seq
+    state.load_feature_flags().await;
+
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
         let email_script = email_script_for_alerter;

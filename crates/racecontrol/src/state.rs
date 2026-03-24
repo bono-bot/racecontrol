@@ -1,10 +1,12 @@
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, RwLock};
+
+use crate::flags::FeatureFlagRow;
 
 use crate::ac_camera::CameraController;
 use crate::ac_server::AcServerManager;
@@ -115,6 +117,11 @@ pub struct AppState {
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
     /// Map of pod_id -> connection ID (monotonic counter) to detect stale disconnects
     pub agent_conn_ids: RwLock<HashMap<String, u64>>,
+    /// v22.0 Phase 177: In-memory feature flag cache. Populated from DB at startup.
+    pub feature_flags: RwLock<HashMap<String, FeatureFlagRow>>,
+    /// v22.0 Phase 177: Monotonic sequence counter for config push queue entries.
+    /// Initialized from MAX(seq_num) in config_push_queue + 1 on startup.
+    pub config_push_seq: AtomicU64,
     /// Shared HTTP client for outbound requests (cloud sync, etc.)
     pub http_client: reqwest::Client,
     /// Active terminal PIN sessions (token -> expiry)
@@ -216,6 +223,8 @@ impl AppState {
             camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
             agent_conn_ids: RwLock::new(HashMap::new()),
+            feature_flags: RwLock::new(HashMap::new()),
+            config_push_seq: AtomicU64::new(1),
             http_client,
             terminal_sessions: RwLock::new(HashMap::new()),
             otp_rate_limits: Mutex::new(HashMap::new()),
@@ -345,6 +354,75 @@ impl AppState {
         }
 
         pod_settings
+    }
+
+    /// v22.0 Phase 177: Load feature flags from DB into the in-memory cache.
+    /// Also initializes config_push_seq from MAX(seq_num) + 1 in config_push_queue.
+    /// Called once at startup after AppState is constructed.
+    pub async fn load_feature_flags(&self) {
+        match sqlx::query_as::<_, FeatureFlagRow>(
+            "SELECT name, enabled, default_value, overrides, version, updated_at FROM feature_flags",
+        )
+        .fetch_all(&self.db)
+        .await
+        {
+            Ok(rows) => {
+                let count = rows.len();
+                let mut cache = self.feature_flags.write().await;
+                for row in rows {
+                    cache.insert(row.name.clone(), row);
+                }
+                tracing::info!("Loaded {} feature flags into cache", count);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load feature flags from DB: {}", e);
+            }
+        }
+
+        // Initialize config_push_seq from MAX(seq_num) + 1
+        match sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT MAX(seq_num) FROM config_push_queue",
+        )
+        .fetch_one(&self.db)
+        .await
+        {
+            Ok(max_opt) => {
+                let next = (max_opt.unwrap_or(0) + 1) as u64;
+                self.config_push_seq.store(next, Ordering::Relaxed);
+                tracing::info!("Initialized config_push_seq to {}", next);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read config_push_queue max seq_num: {}", e);
+            }
+        }
+    }
+
+    /// v22.0 Phase 177: Broadcast the current feature flag state to all connected pods.
+    /// Reads the in-memory cache, builds a HashMap<name, enabled>, then sends
+    /// CoreToAgentMessage::FlagSync to every connected agent.
+    pub async fn broadcast_flag_sync(&self) {
+        use rc_common::types::FlagSyncPayload;
+
+        let (flags, version) = {
+            let cache = self.feature_flags.read().await;
+            let flags: HashMap<String, bool> = cache
+                .values()
+                .map(|r| (r.name.clone(), r.enabled))
+                .collect();
+            let version = cache.values().map(|r| r.version as u64).max().unwrap_or(0);
+            (flags, version)
+        };
+
+        let payload = FlagSyncPayload { flags, version };
+        let agent_senders = self.agent_senders.read().await;
+        for (pod_id, sender) in agent_senders.iter() {
+            if let Err(e) = sender
+                .send(rc_common::protocol::CoreToAgentMessage::FlagSync(payload.clone()))
+                .await
+            {
+                tracing::warn!("Failed to send FlagSync to pod {}: {}", pod_id, e);
+            }
+        }
     }
 
     /// Increment the API error counter for a given endpoint.
