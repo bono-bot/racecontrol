@@ -1884,6 +1884,13 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── v22.0 Phase 177-02: Add seq_num column to config_audit_log ─────────
+    // CREATE TABLE IF NOT EXISTS does not alter existing tables, so we must
+    // ALTER TABLE to add the seq_num column. Ignore if already present.
+    let _ = sqlx::query("ALTER TABLE config_audit_log ADD COLUMN seq_num INTEGER")
+        .execute(pool)
+        .await;
+
     // ─── Phase 12: Data Foundation ───────────────────────────────────────────
 
     // DATA-01: Covering indexes for leaderboard queries

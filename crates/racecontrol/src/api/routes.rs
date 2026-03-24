@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::cafe;
+use crate::config_push;
 use crate::flags;
 use crate::cafe_alerts;
 use crate::cafe_marketing;
@@ -361,6 +362,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // v22.0 Phase 177: Feature Flag Registry
         .route("/flags", get(flags::list_flags).post(flags::create_flag))
         .route("/flags/{name}", put(flags::update_flag))
+        // v22.0 Phase 177-02: Config Push
+        .route("/config/push", post(config_push::push_config))
+        .route("/config/push/queue", get(config_push::get_queue))
+        .route("/config/audit", get(config_push::get_audit_log))
         // Deploy
         .route("/deploy/status", get(deploy_status))
         .route("/deploy/rolling", post(deploy_rolling_handler))

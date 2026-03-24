@@ -26,6 +26,7 @@ pub mod db;
 pub mod email_alerts;
 pub mod error_aggregator;
 pub mod error_rate;
+pub mod config_push;
 pub mod flags;
 pub mod fleet_health;
 pub mod friends;
