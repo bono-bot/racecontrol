@@ -190,7 +190,8 @@ async fn main() -> Result<()> {
     #[cfg(windows)]
     let _mutex_guard = {
         use std::ffi::CString;
-        let name = CString::new("Global\\RacingPoint_RCAgent_SingleInstance").unwrap();
+        let name = CString::new("Global\\RacingPoint_RCAgent_SingleInstance")
+            .expect("mutex name contains no null bytes");
         let handle = unsafe {
             winapi::um::synchapi::CreateMutexA(
                 std::ptr::null_mut(),
@@ -835,6 +836,7 @@ async fn main() -> Result<()> {
                 .unwrap_or("http://127.0.0.1:8080")
                 .to_string();
             tokio::spawn(async move {
+                tracing::info!(target: "guard", "Whitelist re-fetch task started (interval=300s, url={})", refetch_http_url);
                 let client = reqwest::Client::new();
                 let url = format!("{}/api/v1/guard/whitelist/pod-{}", refetch_http_url, refetch_pod_number);
                 loop {
@@ -854,6 +856,8 @@ async fn main() -> Result<()> {
                         Err(e) => tracing::debug!(target: "guard", "Whitelist re-fetch error: {}", e),
                     }
                 }
+                #[allow(unreachable_code)]
+                tracing::error!(target: "guard", "Whitelist re-fetch task exited unexpectedly");
             });
             tracing::info!(target: LOG_TARGET, "Process guard whitelist re-fetch task spawned (interval=300s)");
         }

@@ -210,7 +210,7 @@ impl LockScreenManager {
         let port = self.port;
         let wallpaper_url = self.wallpaper_url.clone();
         tokio::spawn(async move {
-            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
             let socket = match tokio::net::TcpSocket::new_v4() {
                 Ok(s) => s,
                 Err(e) => {
@@ -1002,7 +1002,7 @@ async fn serve_lock_screen(
     wallpaper_url: Arc<Mutex<Option<String>>>,
 ) {
     // Use SO_REUSEADDR to bind even if port is in TIME_WAIT from previous Edge connections
-    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+    let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
     let socket = match tokio::net::TcpSocket::new_v4() {
         Ok(s) => s,
         Err(e) => {

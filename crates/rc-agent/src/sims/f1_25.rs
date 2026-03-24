@@ -469,7 +469,10 @@ impl SimAdapter for F125Adapter {
         // Collect packets first to avoid borrow conflict
         let mut packets: Vec<Vec<u8>> = Vec::new();
         {
-            let socket = self.socket.as_ref().unwrap();
+            let socket = match self.socket.as_ref() {
+                Some(s) => s,
+                None => anyhow::bail!("Socket not bound despite prior check"),
+            };
             let mut buf = [0u8; 2048];
             loop {
                 match socket.recv_from(&mut buf) {

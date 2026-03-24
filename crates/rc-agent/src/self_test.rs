@@ -98,10 +98,13 @@ async fn probe_tcp_port(name: &str, addr: &str) -> ProbeResult {
     let addr2 = addr.clone();
     let name = name.to_string();
     let result = spawn_blocking(move || {
-        std::net::TcpStream::connect_timeout(
-            &addr.parse().unwrap(),
-            Duration::from_secs(1),
-        )
+        match addr.parse::<std::net::SocketAddr>() {
+            Ok(socket_addr) => std::net::TcpStream::connect_timeout(
+                &socket_addr,
+                Duration::from_secs(1),
+            ),
+            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e)),
+        }
     })
     .await;
 

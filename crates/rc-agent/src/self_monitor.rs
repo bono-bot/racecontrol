@@ -34,6 +34,7 @@ const MAX_LOG_BYTES: u64 = 512 * 1024;    // rotate at 512KB
 /// Spawn the self-monitor background task.
 pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
     tokio::spawn(async move {
+        tracing::info!(target: LOG_TARGET, "Self-monitor task started (check interval: {}s)", CHECK_INTERVAL_SECS);
         // Give rc-agent 60s to fully start before first check
         tokio::time::sleep(Duration::from_secs(60)).await;
 

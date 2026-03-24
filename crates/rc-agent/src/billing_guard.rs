@@ -65,6 +65,7 @@ pub fn spawn(
     flags: Arc<RwLock<FeatureFlags>>, // v22.0 Phase 178: feature flag access
 ) {
     tokio::spawn(async move {
+        tracing::info!(target: LOG_TARGET, "Billing guard task started (poll interval: {}s, orphan_threshold: {}s)", POLL_INTERVAL_SECS, orphan_end_threshold_secs);
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         // Task-local debounce state (same pattern as launch_timeout_fired in failure_monitor)
         let mut stuck_fired = false;

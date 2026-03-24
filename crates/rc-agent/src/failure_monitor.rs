@@ -207,13 +207,12 @@ pub fn spawn(
             }
 
             // CRASH-01: Game freeze — game running + UDP silent 30s + low CPU + hung window
-            if state.game_pid.is_some() {
+            if let Some(game_pid) = state.game_pid {
                 let udp_silent = state.last_udp_secs_ago
                     .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
                     .unwrap_or(false);
 
                 if udp_silent && status.game_running.load(Ordering::Relaxed) {
-                    let game_pid = state.game_pid.unwrap();
                     // Check CPU + IsHungAppWindow only when UDP silence threshold already met
                     // (avoids expensive EnumWindows on every 5s tick)
                     let hung = tokio::task::spawn_blocking(move || {

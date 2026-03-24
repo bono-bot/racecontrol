@@ -66,10 +66,10 @@ pub struct AiDebuggerConfig {
 }
 
 fn default_ollama_url() -> String {
-    "http://localhost:11434".to_string()
+    "http://192.168.31.27:11434".to_string()
 }
 fn default_ollama_model() -> String {
-    "rc-bot".to_string()
+    "qwen2.5:3b".to_string()
 }
 fn default_openrouter_model() -> String {
     "openrouter/auto".to_string()
@@ -1319,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_default_model_is_racing_point_ops() {
-        assert_eq!(default_ollama_model(), "rc-bot");
+        assert_eq!(default_ollama_model(), "qwen2.5:3b");
     }
 
     #[test]

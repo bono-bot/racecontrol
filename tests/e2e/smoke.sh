@@ -76,26 +76,26 @@ echo "--- Public Endpoints ---"
 check_json "/public/leaderboard" "200" "Public leaderboard"
 check_json "/public/time-trial" "200" "Public time trials"
 
-# ─── Pod Management ─────────────────────────────────────────────────────────
+# ─── Pod Management (auth-protected) ─────────────────────────────────────────
 echo ""
-echo "--- Pod Management ---"
-check_json "/pods" "200" "Pod list"
+echo "--- Pod Management (auth required) ---"
+check "/pods" "401" "Pod list (requires auth → 401)"
 
-# ─── Billing (read-only) ────────────────────────────────────────────────────
+# ─── Billing (auth-protected) ────────────────────────────────────────────────
 echo ""
-echo "--- Billing ---"
-check_json "/billing/sessions/active" "200" "Active billing sessions"
-check_json "/pricing" "200" "Pricing tiers"
+echo "--- Billing (auth required) ---"
+check "/billing/sessions/active" "401" "Active billing sessions (requires auth → 401)"
+check "/pricing" "401" "Pricing tiers (requires auth → 401)"
 
 # ─── Customer ───────────────────────────────────────────────────────────────
 echo ""
 echo "--- Customer ---"
 check_json "/customer/packages" "200" "Customer packages"
 
-# ─── Kiosk ───────────────────────────────────────────────────────────────────
+# ─── Kiosk (auth-protected) ───────────────────────────────────────────────────
 echo ""
-echo "--- Kiosk ---"
-check_json "/kiosk/experiences" "200" "Kiosk experiences"
+echo "--- Kiosk (auth required) ---"
+check "/kiosk/experiences" "401" "Kiosk experiences (requires auth → 401)"
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 summary_exit

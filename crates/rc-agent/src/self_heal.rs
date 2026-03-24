@@ -29,12 +29,12 @@ const START_SCRIPT_CONTENT: &str = "@echo off\r\n\
     netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
     taskkill /F /IM rc-agent.exe 1>nul 2>nul\r\n\
     timeout /t 3 /nobreak 1>nul\r\n\
-    if exist rc-agent-new.exe (\r\n\
-        del /Q rc-agent.exe 1>nul 2>nul\r\n\
-        timeout /t 1 /nobreak 1>nul\r\n\
-        if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
-        move rc-agent-new.exe rc-agent.exe 1>nul\r\n\
-    )\r\n\
+    if not exist rc-agent-new.exe goto :start_agent\r\n\
+    del /Q rc-agent.exe 1>nul 2>nul\r\n\
+    timeout /t 1 /nobreak 1>nul\r\n\
+    if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
+    move rc-agent-new.exe rc-agent.exe 1>nul\r\n\
+    :start_agent\r\n\
     start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
 
 /// Result of the self-heal check-and-repair cycle.
