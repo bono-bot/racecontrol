@@ -964,12 +964,19 @@ pub async fn run(
             }
 
             _ = conn.browser_watchdog_interval.tick() => {
-                // Browser watchdog REMOVED — replaced by server-side healer.
-                // The pod healer checks lock screen HTTP every 2 min and sends
-                // ForceRelaunchBrowser via WS if down (Phase 139). AI debugger
-                // escalates on repeated failures (Phase 140). This avoids the
-                // tasklist /FI bug that caused 30s flicker loops on all pods.
-                // Timer kept to avoid changing ConnectionState struct.
+                // BWDOG-05: Lightweight browser liveness check (30s interval).
+                // Does NOT kill+relaunch (that caused 30s flicker loops — Phase 139).
+                // Only relaunches when browser is expected but zero msedge.exe running.
+                // Catches: Edge crash, Edge not installed at boot, fresh install needing
+                // reboot, spawn() succeeding but process exiting immediately.
+                if state.lock_screen.is_browser_expected() {
+                    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+                    if edge_count == 0 && !state.lock_screen.is_browser_alive() {
+                        tracing::warn!(target: LOG_TARGET,
+                            "BWDOG-05: Browser expected but 0 msedge.exe running — relaunching");
+                        state.lock_screen.launch_browser();
+                    }
+                }
             }
 
             _ = conn.idle_health_interval.tick() => {

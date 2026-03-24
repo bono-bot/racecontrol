@@ -139,9 +139,13 @@ async fn serve_status(
         None => String::new(),
     };
 
+    // BWDOG-05: Include Edge process count so server-side healer can detect
+    // "state says blanked but no browser running" without trusting state alone.
+    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+
     let body = format!(
-        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","debug_server":"ok"{}}}"#,
-        pod_name, pod_number, state_name, launch_err_json
+        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","edge_process_count":{},"debug_server":"ok"{}}}"#,
+        pod_name, pod_number, state_name, edge_count, launch_err_json
     );
 
     let resp = format!(

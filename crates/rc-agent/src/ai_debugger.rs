@@ -634,6 +634,16 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
         return Some(fix_network_adapter_reset(snapshot));
     }
 
+    // Pattern 15 (DISP-04): Blanking screen / lock screen browser dead
+    // Detects: Edge not running when lock screen state expects it.
+    // Fix: relaunch browser (same as BWDOG-05 but triggered by AI pattern match).
+    if lower.contains("blanking screen") || lower.contains("lock screen")
+        || lower.contains("no edge") || lower.contains("browser dead")
+        || lower.contains("browser not running") || lower.contains("display blank")
+    {
+        return Some(fix_browser_dead(snapshot));
+    }
+
     None
 }
 
@@ -1115,6 +1125,44 @@ fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
                 if success { "OK" } else { "failed" }
             ),
             success,
+        }
+    }
+}
+
+// Pattern 15 (DISP-04): Browser dead — lock screen expects browser but Edge not running
+fn fix_browser_dead(snapshot: &PodStateSnapshot) -> AutoFixResult {
+    #[cfg(test)]
+    {
+        return AutoFixResult {
+            fix_type: "browser_relaunch".to_string(),
+            detail: "Relaunched Edge lock screen browser (DISP-04)".to_string(),
+            success: true,
+        };
+    }
+    #[cfg(not(test))]
+    {
+        let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+        if edge_count > 0 {
+            return AutoFixResult {
+                fix_type: "browser_relaunch".to_string(),
+                detail: format!("Edge already running ({} processes) — no action", edge_count),
+                success: true,
+            };
+        }
+        // Kill any stale msedge/webview2 first
+        let _ = hidden_cmd("taskkill")
+            .args(["/IM", "msedge.exe", "/F"])
+            .output();
+        let _ = hidden_cmd("taskkill")
+            .args(["/IM", "msedgewebview2.exe", "/F"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        // The actual browser relaunch happens via the BWDOG-05 watchdog on next 30s tick.
+        // We just clear the stale state here so the watchdog sees 0 Edge and relaunches.
+        AutoFixResult {
+            fix_type: "browser_relaunch".to_string(),
+            detail: "Cleared stale Edge processes — BWDOG-05 will relaunch on next tick".to_string(),
+            success: true,
         }
     }
 }

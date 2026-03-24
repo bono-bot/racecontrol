@@ -130,7 +130,7 @@ async fn run_concurrent_checks(
     game_pid: Option<u32>,
     ws_connect_elapsed_secs: u64,
 ) -> Vec<CheckResult> {
-    let (hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups) = tokio::join!(
+    let (hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups, browser) = tokio::join!(
         check_hid(ffb),
         check_conspit(),
         check_orphan_game(billing_active, has_game_process, game_pid),
@@ -141,8 +141,9 @@ async fn run_concurrent_checks(
         check_memory(),
         check_ws_stability(ws_connect_elapsed_secs),
         check_popup_windows(),
+        check_browser_alive(),
     );
-    vec![hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups]
+    vec![hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab, popups, browser]
 }
 
 // ─── Individual Check Functions ───────────────────────────────────────────────
@@ -702,6 +703,28 @@ async fn check_popup_windows() -> CheckResult {
     }
 }
 
+// ─── DISP-04: Browser Liveness Check ─────────────────────────────────────────
+
+/// Verify Edge browser is running when the lock screen state expects it.
+/// Catches: Edge not installed, fresh install needing reboot, spawn() silently failing,
+/// Edge crashing after launch. Works with BWDOG-05 (event loop watchdog).
+async fn check_browser_alive() -> CheckResult {
+    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+    if edge_count > 0 {
+        CheckResult {
+            name: "browser_alive",
+            status: CheckStatus::Pass,
+            detail: format!("{} msedge.exe processes running", edge_count),
+        }
+    } else {
+        CheckResult {
+            name: "browser_alive",
+            status: CheckStatus::Fail,
+            detail: "0 msedge.exe processes — lock screen browser not running (DISP-04)".into(),
+        }
+    }
+}
+
 // ─── Auto-Fix Functions ───────────────────────────────────────────────────────
 
 /// Kill all blocklisted popup-overlay processes by PID.
@@ -902,8 +925,8 @@ mod tests {
         let results = run_concurrent_checks(&mock, false, false, None, 60).await;
         assert_eq!(
             results.len(),
-            10,
-            "run_concurrent_checks now returns 10 results (DISP-03 popup check added)"
+            11,
+            "run_concurrent_checks returns 11 results (DISP-04 browser alive added)"
         );
     }
 
@@ -1002,8 +1025,8 @@ mod tests {
         let results = run_concurrent_checks(&mock, false, false, None, 60).await;
         assert_eq!(
             results.len(),
-            10,
-            "run_concurrent_checks must return exactly 10 results (DISP-03 popup check)"
+            11,
+            "run_concurrent_checks returns 11 results (DISP-04 browser alive added)"
         );
     }
 }
