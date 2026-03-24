@@ -194,11 +194,10 @@ fn kill_process_by_pid(pid: u32) -> anyhow::Result<()> {
 pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
     let cars_str = config.cars.join(";");
 
-    let track_value = if config.min_csp_version > 0 {
-        format!("csp/{}/../{}", config.min_csp_version, config.track)
-    } else {
-        config.track.clone()
-    };
+    // Use plain track name for server_cfg.ini — the vanilla Kunos acServer.exe
+    // doesn't support CSP virtual paths (csp/VERSION/../TRACK). CSP version
+    // enforcement is handled client-side by Content Manager, not server-side.
+    let track_value = config.track.clone();
 
     let mut ini = format!(
         "[SERVER]\n\
