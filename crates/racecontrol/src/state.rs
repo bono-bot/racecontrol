@@ -16,6 +16,7 @@ use crate::config::Config;
 use crate::crypto::encryption::FieldCipher;
 use crate::email_alerts::EmailAlerter;
 use crate::fleet_health::{FleetHealthStore, ViolationStore};
+use crate::recovery::RecoveryEventStore;
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
@@ -192,6 +193,9 @@ pub struct AppState {
     /// Pauses all automated recovery if 3+ different systems act within the window.
     /// WhatsApp alert fires to Uday when threshold is crossed.
     pub cascade_guard: std::sync::Arc<std::sync::Mutex<CascadeGuard>>,
+    /// Phase 183: In-memory ring buffer for recovery events (COORD-04).
+    /// All recovery authorities POST events here; pod_healer/rc-sentry query before acting.
+    pub recovery_events: std::sync::Mutex<RecoveryEventStore>,
 }
 
 impl AppState {
@@ -255,6 +259,7 @@ impl AppState {
             field_cipher,
             warn_scanner_last_escalated: RwLock::new(None),
             cascade_guard: std::sync::Arc::new(std::sync::Mutex::new(cascade_guard_inner)),
+            recovery_events: std::sync::Mutex::new(RecoveryEventStore::new()),
         }
     }
 

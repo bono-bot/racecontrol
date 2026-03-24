@@ -237,6 +237,34 @@ impl RecoveryLogger {
     }
 }
 
+// ─── Recovery Event (COORD-04) ────────────────────────────────────────────────
+
+/// A recovery event reported by a pod-side recovery authority to the server.
+/// Used for cross-machine recovery visibility (COORD-04).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryEvent {
+    /// Pod identifier (e.g. "pod-1", "pod-8")
+    pub pod_id: String,
+    /// Process that was recovered (e.g. "rc-agent.exe")
+    pub process: String,
+    /// Which recovery system reported this
+    pub authority: RecoveryAuthority,
+    /// What action was taken
+    pub action: RecoveryAction,
+    /// Whether the spawned process was verified alive after restart
+    pub spawn_verified: Option<bool>,
+    /// Whether the racecontrol server was reachable at time of recovery
+    pub server_reachable: Option<bool>,
+    /// Human-readable reason
+    pub reason: String,
+    /// Optional context (crash pattern, error message, etc.)
+    #[serde(default)]
+    pub context: String,
+    /// UTC timestamp -- set by server on receipt if not provided
+    #[serde(default = "Utc::now")]
+    pub timestamp: DateTime<Utc>,
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -372,6 +400,41 @@ mod tests {
 
         // Clean up
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_recovery_event_serde_roundtrip() {
+        use chrono::Utc;
+        let event = RecoveryEvent {
+            pod_id: "pod-8".to_string(),
+            process: "rc-agent.exe".to_string(),
+            authority: RecoveryAuthority::RcSentry,
+            action: RecoveryAction::Restart,
+            spawn_verified: Some(true),
+            server_reachable: Some(false),
+            reason: "heartbeat_timeout_60s".to_string(),
+            context: "crash_pattern_3x".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        // Verify all fields present
+        assert!(json.contains("\"pod_id\""), "pod_id missing");
+        assert!(json.contains("\"process\""), "process missing");
+        assert!(json.contains("\"authority\""), "authority missing");
+        assert!(json.contains("\"action\""), "action missing");
+        assert!(json.contains("\"spawn_verified\""), "spawn_verified missing");
+        assert!(json.contains("\"server_reachable\""), "server_reachable missing");
+        assert!(json.contains("\"reason\""), "reason missing");
+        assert!(json.contains("\"context\""), "context missing");
+        assert!(json.contains("\"timestamp\""), "timestamp missing");
+        // Roundtrip
+        let restored: RecoveryEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.pod_id, "pod-8");
+        assert_eq!(restored.process, "rc-agent.exe");
+        assert_eq!(restored.spawn_verified, Some(true));
+        assert_eq!(restored.server_reachable, Some(false));
+        assert_eq!(restored.reason, "heartbeat_timeout_60s");
+        assert_eq!(restored.context, "crash_pattern_3x");
     }
 
     #[test]

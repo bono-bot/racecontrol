@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use crate::ac_server;
 use crate::accounting;
+use crate::fleet_alert;
+use crate::recovery;
 use crate::cafe;
 use crate::config_push;
 use crate::flags;
@@ -102,6 +104,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/cafe/promos/active", get(cafe_promos::list_active_promos))
         // Kiosk allowlist — read-only is public so rc-agent can fetch without auth
         .route("/config/kiosk-allowlist", get(list_kiosk_allowlist))
+        // Recovery events API (COORD-04) -- public for rc-sentry cross-machine visibility
+        .route("/recovery/events", post(recovery::post_recovery_event))
+        .route("/recovery/events", get(recovery::get_recovery_events))
+        // Fleet alert API -- Tier 4 WhatsApp escalation (GRAD-04 prerequisite)
+        .route("/fleet/alert", post(fleet_alert::post_fleet_alert))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
