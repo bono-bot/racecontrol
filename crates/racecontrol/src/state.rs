@@ -398,26 +398,28 @@ impl AppState {
     }
 
     /// v22.0 Phase 177: Broadcast the current feature flag state to all connected pods.
-    /// Reads the in-memory cache, builds a HashMap<name, enabled>, then sends
-    /// CoreToAgentMessage::FlagSync to every connected agent.
+    /// Reads the in-memory cache, resolves per-pod overrides, then sends
+    /// CoreToAgentMessage::FlagSync to every connected agent with its own resolved values.
     pub async fn broadcast_flag_sync(&self) {
         use rc_common::types::FlagSyncPayload;
 
-        let (flags, version) = {
-            let cache = self.feature_flags.read().await;
-            let flags: HashMap<String, bool> = cache
-                .values()
-                .map(|r| (r.name.clone(), r.enabled))
-                .collect();
-            let version = cache.values().map(|r| r.version as u64).max().unwrap_or(0);
-            (flags, version)
-        };
-
-        let payload = FlagSyncPayload { flags, version };
+        let cache = self.feature_flags.read().await;
+        let version = cache.values().map(|r| r.version as u64).max().unwrap_or(0);
         let agent_senders = self.agent_senders.read().await;
         for (pod_id, sender) in agent_senders.iter() {
+            let flags: HashMap<String, bool> = cache
+                .values()
+                .map(|row| {
+                    let effective = serde_json::from_str::<HashMap<String, bool>>(&row.overrides)
+                        .ok()
+                        .and_then(|ovr| ovr.get(pod_id).copied())
+                        .unwrap_or(row.enabled);
+                    (row.name.clone(), effective)
+                })
+                .collect();
+            let payload = FlagSyncPayload { flags, version };
             if let Err(e) = sender
-                .send(rc_common::protocol::CoreToAgentMessage::FlagSync(payload.clone()))
+                .send(rc_common::protocol::CoreToAgentMessage::FlagSync(payload))
                 .await
             {
                 tracing::warn!("Failed to send FlagSync to pod {}: {}", pod_id, e);

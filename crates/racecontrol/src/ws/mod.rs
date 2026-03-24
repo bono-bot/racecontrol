@@ -829,12 +829,19 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 let flags = state.feature_flags.read().await;
                                 flags.values().map(|f| f.version).max().unwrap_or(0)
                             };
-                            // If pod is stale, send full flag state
+                            // If pod is stale, send full flag state with per-pod override resolution
                             if payload.cached_version < max_version as u64 {
                                 let flags = state.feature_flags.read().await;
+                                let pod_id = &payload.pod_id;
                                 let flag_map: std::collections::HashMap<String, bool> = flags
                                     .iter()
-                                    .map(|(name, row)| (name.clone(), row.enabled))
+                                    .map(|(name, row)| {
+                                        let effective = serde_json::from_str::<std::collections::HashMap<String, bool>>(&row.overrides)
+                                            .ok()
+                                            .and_then(|ovr| ovr.get(pod_id).copied())
+                                            .unwrap_or(row.enabled);
+                                        (name.clone(), effective)
+                                    })
                                     .collect();
                                 let sync_payload = rc_common::types::FlagSyncPayload {
                                     flags: flag_map,
