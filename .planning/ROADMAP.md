@@ -1113,7 +1113,7 @@ Plans:
 **Goal:** Every rc-agent tracing call carries a structured target: label and build_id propagates via root span — enabling per-module RUST_LOG filtering and binary-traceable log lines
 **Requirements**: LOG-01 (build_id root span), LOG-02 (module target labels), LOG-03 (strip bracket prefixes), LOG-04 (full test suite green)
 **Depends on:** Phase 105
-**Plans:** 4/4 plans complete
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 106-01-PLAN.md — build_id root span + main.rs migration (66 calls)
@@ -1324,7 +1324,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 57. Session-End Safety | 2/3 | Complete    | 2026-03-20 | - |
 | 58. ConspitLink Process Hardening | 1/2 | In Progress|  | - |
 | 59. Auto-Switch Configuration | 4/4 | Complete    | 2026-03-24 | - |
-| 60. Pre-Launch Profile Loading | v10.0 | 0/? | Not started | - |
+| 60. Pre-Launch Profile Loading | 1/1 | Complete   | 2026-03-24 | - |
 | 61. FFB Preset Tuning | v10.0 | 0/? | Not started | - |
 | 62. Fleet Config Distribution | v10.0 | 0/? | Not started | - |
 | 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
