@@ -43,8 +43,8 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### Self-Monitor Coordination
 
-- [ ] **SELF-01**: rc-agent self_monitor checks rc-sentry availability (TCP :8091) before relaunch — if sentry alive, writes sentinel and exits instead of PowerShell relaunch
-- [ ] **SELF-02**: PowerShell relaunch path becomes rare fallback only when rc-sentry is dead
+- [x] **SELF-01**: rc-agent self_monitor checks rc-sentry availability (TCP :8091) before relaunch — if sentry alive, writes sentinel and exits instead of PowerShell relaunch
+- [x] **SELF-02**: PowerShell relaunch path becomes rare fallback only when rc-sentry is dead
 
 ## Future Requirements
 
@@ -86,8 +86,8 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | JAMES-01 | Phase 188 | Pending |
 | JAMES-02 | Phase 188 | Pending |
 | JAMES-03 | Phase 188 | Pending |
-| SELF-01 | Phase 187 | Pending |
-| SELF-02 | Phase 187 | Pending |
+| SELF-01 | Phase 187 | Complete |
+| SELF-02 | Phase 187 | Complete |
 
 **Coverage:**
 - v17.1 requirements: 21 total
