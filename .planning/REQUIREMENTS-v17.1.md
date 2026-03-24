@@ -15,9 +15,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### Recovery Coordination
 
-- [ ] **COORD-01**: ProcessOwnership registry is enforced at all restart call sites in rc-sentry, self_monitor, pod_monitor, and rc-watchdog
-- [ ] **COORD-02**: Recovery intent registry (recovery-intent.json with 2-min TTL) prevents multiple authorities from restarting the same process simultaneously
-- [ ] **COORD-03**: Sentinel-based deconfliction — GRACEFUL_RELAUNCH distinguishes intentional restarts from crashes across all recovery systems
+- [x] **COORD-01**: ProcessOwnership registry is enforced at all restart call sites in rc-sentry, self_monitor, pod_monitor, and rc-watchdog
+- [x] **COORD-02**: Recovery intent registry (recovery-intent.json with 2-min TTL) prevents multiple authorities from restarting the same process simultaneously
+- [x] **COORD-03**: Sentinel-based deconfliction — GRACEFUL_RELAUNCH distinguishes intentional restarts from crashes across all recovery systems
 - [x] **COORD-04**: Server recovery events API (POST /api/v1/recovery/events + GET with pod_id/since_secs filter) provides cross-machine recovery visibility
 
 ### Graduated Recovery
@@ -33,7 +33,7 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 - [ ] **MAINT-01**: MAINTENANCE_MODE auto-clears after 30 minutes instead of blocking permanently
 - [ ] **MAINT-02**: MAINTENANCE_MODE file carries JSON with diagnostic reason, timestamp, and restart count
 - [ ] **MAINT-03**: Staff receives WhatsApp alert when MAINTENANCE_MODE activates on any pod
-- [ ] **MAINT-04**: pod_healer reads MAINTENANCE_MODE via rc-sentry /files before sending Wake-on-LAN, preventing WoL→restart→block infinite loop
+- [x] **MAINT-04**: pod_healer reads MAINTENANCE_MODE via rc-sentry /files before sending Wake-on-LAN, preventing WoL→restart→block infinite loop
 
 ### James Watchdog
 
@@ -70,9 +70,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | SPAWN-01 | Phase 184 | Complete |
 | SPAWN-02 | Phase 184 | Complete |
 | SPAWN-03 | Phase 184 | Complete |
-| COORD-01 | Phase 185 | Pending |
-| COORD-02 | Phase 185 | Pending |
-| COORD-03 | Phase 185 | Pending |
+| COORD-01 | Phase 185 | Complete |
+| COORD-02 | Phase 185 | Complete |
+| COORD-03 | Phase 185 | Complete |
 | COORD-04 | Phase 183 | Complete |
 | GRAD-01 | Phase 184 | Complete |
 | GRAD-02 | Phase 184 | Complete |
@@ -82,7 +82,7 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | MAINT-01 | Phase 186 | Pending |
 | MAINT-02 | Phase 186 | Pending |
 | MAINT-03 | Phase 186 | Pending |
-| MAINT-04 | Phase 185 | Pending |
+| MAINT-04 | Phase 185 | Complete |
 | JAMES-01 | Phase 188 | Pending |
 | JAMES-02 | Phase 188 | Pending |
 | JAMES-03 | Phase 188 | Pending |
