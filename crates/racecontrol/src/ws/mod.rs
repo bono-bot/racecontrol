@@ -37,6 +37,7 @@ use rc_common::protocol::{
     AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
 use rc_common::types::{BillingSessionStatus, GameState};
+use sqlx;
 
 /// WebSocket endpoint for pod agents
 pub async fn agent_ws(
@@ -816,6 +817,102 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 let store = fleet.entry(pod_id.clone()).or_default();
                                 store.idle_health_fail_count = *consecutive_count;
                                 store.idle_health_failures = failures.clone();
+                            }
+                        }
+                        AgentMessage::FlagCacheSync(payload) => {
+                            tracing::info!(
+                                "Pod {} requests flag sync (cached_version={})",
+                                payload.pod_id, payload.cached_version
+                            );
+                            // Get current max flag version from state.feature_flags cache
+                            let max_version = {
+                                let flags = state.feature_flags.read().await;
+                                flags.values().map(|f| f.version).max().unwrap_or(0)
+                            };
+                            // If pod is stale, send full flag state
+                            if payload.cached_version < max_version as u64 {
+                                let flags = state.feature_flags.read().await;
+                                let flag_map: std::collections::HashMap<String, bool> = flags
+                                    .iter()
+                                    .map(|(name, row)| (name.clone(), row.enabled))
+                                    .collect();
+                                let sync_payload = rc_common::types::FlagSyncPayload {
+                                    flags: flag_map,
+                                    version: max_version as u64,
+                                };
+                                let _ = cmd_tx
+                                    .send(CoreToAgentMessage::FlagSync(sync_payload))
+                                    .await;
+                            }
+                            // Replay pending config pushes for this pod.
+                            // IMPORTANT: Do NOT pass payload.cached_version as a sequence filter.
+                            // cached_version is a FLAG version counter — it has nothing to do with
+                            // config push sequences. replay_pending_config_pushes uses
+                            // status != 'acked' as the filter instead.
+                            crate::config_push::replay_pending_config_pushes(
+                                &state,
+                                &payload.pod_id,
+                                &cmd_tx,
+                            )
+                            .await;
+                        }
+                        AgentMessage::ConfigAck(payload) => {
+                            tracing::info!(
+                                "Pod {} acked config push seq={} accepted={}",
+                                payload.pod_id, payload.sequence, payload.accepted
+                            );
+                            // Update config_push_queue: mark acked
+                            let ack_result = sqlx::query(
+                                "UPDATE config_push_queue SET status = 'acked', acked_at = datetime('now') \
+                                 WHERE pod_id = ? AND seq_num = ?",
+                            )
+                            .bind(&payload.pod_id)
+                            .bind(payload.sequence as i64)
+                            .execute(&state.db)
+                            .await;
+                            if let Err(e) = ack_result {
+                                tracing::warn!(
+                                    "Failed to update config_push_queue ack for pod {} seq {}: {}",
+                                    payload.pod_id, payload.sequence, e
+                                );
+                            }
+                            // Update config_audit_log pods_acked — find by seq_num (deterministic lookup).
+                            // IMPORTANT: Do NOT use ORDER BY id DESC LIMIT 1 — non-deterministic under
+                            // concurrent pushes. The seq_num column was added specifically for this lookup.
+                            let audit_lookup = sqlx::query_scalar::<_, i64>(
+                                "SELECT id FROM config_audit_log WHERE entity_type = 'config' AND seq_num = ?",
+                            )
+                            .bind(payload.sequence as i64)
+                            .fetch_optional(&state.db)
+                            .await;
+                            if let Ok(Some(audit_id)) = audit_lookup {
+                                let current_acked: String = sqlx::query_scalar(
+                                    "SELECT pods_acked FROM config_audit_log WHERE id = ?",
+                                )
+                                .bind(audit_id)
+                                .fetch_one(&state.db)
+                                .await
+                                .unwrap_or_else(|_| "[]".to_string());
+                                let mut acked: Vec<String> =
+                                    serde_json::from_str(&current_acked).unwrap_or_default();
+                                if !acked.contains(&payload.pod_id) {
+                                    acked.push(payload.pod_id.clone());
+                                }
+                                let _ = sqlx::query(
+                                    "UPDATE config_audit_log SET pods_acked = ? WHERE id = ?",
+                                )
+                                .bind(
+                                    serde_json::to_string(&acked)
+                                        .unwrap_or_else(|_| "[]".to_string()),
+                                )
+                                .bind(audit_id)
+                                .execute(&state.db)
+                                .await;
+                            } else {
+                                tracing::warn!(
+                                    "No audit log entry found for config push seq={}",
+                                    payload.sequence
+                                );
                             }
                         }
                         _ => { /* catch-all for future protocol additions */ }
