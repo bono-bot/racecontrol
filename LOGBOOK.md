@@ -757,3 +757,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 02:15 IST | James | 885dfe3d | feat(184-03): wire Session 1 spawn into restart_service() as primary path (SPAWN-03); schtasks as fallback |
 | 2026-03-25 02:25 IST | James | 503fbe77 | fix(184-03): resolve pre-existing build errors from 184-02 (chrono dep missing, CrashHandlerResult tuple destructuring) |
 | 2026-03-25 02:30 IST | James | dd289ca2 | docs(184-03): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS-v17.1.md updated, SPAWN-03 complete |
+| 2026-03-25 03:05 IST | James | 1b305c55 | docs(184-01): graduated crash handler with 500ms spawn verify, server_reachable MAINTENANCE_MODE exclusion, recovery event POST — SPAWN-01/02, GRAD-01/02/05 complete |
