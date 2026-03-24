@@ -825,6 +825,13 @@ pub async fn classify_process(
     process_name: &str,
     exe_path: &str,
 ) -> ProcessVerdict {
+    // When ai-debugger (Ollama/reqwest) is unavailable, default to Ask (safest: no auto-kill)
+    let _ = (ollama_url, ollama_model, process_name, exe_path);
+    #[cfg(not(feature = "ai-debugger"))]
+    return ProcessVerdict::Ask;
+
+    #[cfg(feature = "ai-debugger")]
+    {
     let prompt = format!(
         "You are a Windows process security classifier for a sim racing venue kiosk. \
         Classify this process: name='{}', path='{}'. \
@@ -890,6 +897,7 @@ pub async fn classify_process(
             ProcessVerdict::Ask // Default to ASK on failure — never auto-kill
         }
     }
+    } // end #[cfg(feature = "ai-debugger")]
 }
 
 // ─── Windows-specific implementations ──────────────────────────────────────

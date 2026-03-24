@@ -39,8 +39,8 @@ hidapi = "2"
 # Process monitoring (cross-platform)
 sysinfo = "0.33"
 
-# HTTP client for AI debugger
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP client for AI debugger (optional — only needed when ai-debugger feature is enabled)
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 # Remote ops HTTP server (merged pod-agent)
 axum = "0.8"
@@ -57,15 +57,21 @@ dirs-next = "2"
 # Random selection for AI driver name pool
 rand = "0.8"
 
-# Startup folder scanning for process guard
-walkdir = "2"
+# Startup folder scanning for process guard (optional — only needed when process-guard feature is enabled)
+walkdir = { version = "2", optional = true }
 
 # Windows process management
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
 
 [features]
+default = ["ai-debugger", "process-guard", "keyboard-hook", "http-client"]
+ai-debugger = ["dep:reqwest"]
+process-guard = ["dep:walkdir"]
 keyboard-hook = []
+# http-client enables reqwest for core networking (allowlist polling, billing, kiosk classify)
+# Separate from ai-debugger so the two can be enabled independently in future
+http-client = ["dep:reqwest"]
 
 [dev-dependencies]
 tempfile = "3"

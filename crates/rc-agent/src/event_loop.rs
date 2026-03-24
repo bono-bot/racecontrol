@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::ac_launcher;
+#[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::PodStateSnapshot;
 use crate::app_state::AppState;
 use crate::ffb_controller;
@@ -147,7 +148,10 @@ pub async fn run(
     primary_url: &str,
     failover_url: &Option<String>,
     active_url: &std::sync::Arc<tokio::sync::RwLock<String>>,
+    #[cfg(feature = "http-client")]
     split_brain_probe: &reqwest::Client,
+    #[cfg(not(feature = "http-client"))]
+    split_brain_probe: &(),
 ) -> anyhow::Result<()> {
     let mut conn = ConnectionState::new();
 
@@ -492,6 +496,8 @@ pub async fn run(
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
 
+                            #[cfg(feature = "ai-debugger")]
+                            {
                             tracing::info!(target: LOG_TARGET, "AI debugger enabled={}, url={}, model={}",
                                 state.config.ai_debugger.enabled, state.config.ai_debugger.ollama_url, state.config.ai_debugger.ollama_model);
                             // ─── Safe Mode: Ollama suppression (SAFE-05) ─────────────
@@ -525,6 +531,7 @@ pub async fn run(
                                         state.ai_result_tx.clone(),
                                     ));
                                 }
+                            }
                             }
 
                             // ─── Safe Mode: start cooldown on protected game exit (SAFE-03) ──
@@ -691,6 +698,8 @@ pub async fn run(
             }
 
             Some(mut suggestion) = state.ai_result_rx.recv() => {
+                let _ = &suggestion; // suppress unused warning when ai-debugger is off
+                #[cfg(feature = "ai-debugger")] {
                 tracing::info!(target: LOG_TARGET, "Received AI suggestion for {}", suggestion.pod_id);
                 let fix_snapshot = PodStateSnapshot {
                     pod_id: state.pod_id.clone(),
@@ -780,6 +789,7 @@ pub async fn run(
                     Ok(_) => tracing::info!(target: LOG_TARGET, "AiDebugResult sent successfully"),
                     Err(e) => tracing::error!(target: LOG_TARGET, "Failed to send AiDebugResult: {}", e),
                 }
+                } // end #[cfg(feature = "ai-debugger")]
             }
 
             _ = conn.kiosk_interval.tick() => {
@@ -861,8 +871,14 @@ pub async fn run(
 
                     if let Ok(classifications) = enforce_handle.await {
                         for classification in classifications {
+                            #[cfg(feature = "ai-debugger")]
                             let ollama_url = state.config.ai_debugger.ollama_url.clone();
+                            #[cfg(not(feature = "ai-debugger"))]
+                            let ollama_url = String::new();
+                            #[cfg(feature = "ai-debugger")]
                             let ollama_model = state.config.ai_debugger.ollama_model.clone();
+                            #[cfg(not(feature = "ai-debugger"))]
+                            let ollama_model = String::new();
                             let pod_id_c = state.pod_id.clone();
                             let kiosk_msg_tx_c = state.ws_exec_result_tx.clone();
                             tokio::spawn(async move {
@@ -1387,6 +1403,7 @@ pub(crate) fn shm_connect_allowed(game_running_since: Option<std::time::Instant>
 ///
 /// All system commands (taskkill, cmd, process::exit) are gated behind
 /// #[cfg(not(test))] — safe to call in unit tests.
+#[cfg(feature = "ai-debugger")]
 pub(crate) fn execute_ai_action(
     action: &crate::ai_debugger::AiSafeAction,
     safe_mode: bool,
@@ -1541,11 +1558,13 @@ mod tests {
 
     // ─── Phase 140-02: execute_ai_action tests ────────────────────────────────
 
+    #[cfg(feature = "ai-debugger")]
     fn make_lock_screen() -> crate::lock_screen::LockScreenManager {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         crate::lock_screen::LockScreenManager::new(tx)
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_kill_edge_safe_mode_false_ok() {
         // Test 1: KillEdge with safe_mode=false → Ok (system cmd gated by #[cfg(not(test))])
@@ -1559,6 +1578,7 @@ mod tests {
         assert_eq!(result.unwrap(), "kill_edge executed");
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_kill_game_safe_mode_true_blocked() {
         // Test 2: KillGame with safe_mode=true → blocked
@@ -1572,6 +1592,7 @@ mod tests {
         assert_eq!(result.unwrap_err(), "blocked: safe mode active");
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_kill_edge_safe_mode_true_blocked() {
         // Test 3: KillEdge with safe_mode=true → blocked
@@ -1585,6 +1606,7 @@ mod tests {
         assert_eq!(result.unwrap_err(), "blocked: safe mode active");
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_restart_rcagent_safe_mode_true_blocked() {
         // Test 4: RestartRcAgent with safe_mode=true → blocked
@@ -1598,6 +1620,7 @@ mod tests {
         assert_eq!(result.unwrap_err(), "blocked: safe mode active");
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_relaunch_lock_screen_safe_mode_true_allowed() {
         // Test 5: RelaunchLockScreen with safe_mode=true → allowed (non-destructive)
@@ -1611,6 +1634,7 @@ mod tests {
         assert_eq!(result.unwrap(), "relaunch_lock_screen executed");
     }
 
+    #[cfg(feature = "ai-debugger")]
     #[test]
     fn test_execute_ai_action_clear_temp_safe_mode_true_allowed() {
         // Test 6: ClearTemp with safe_mode=true → allowed (non-destructive)

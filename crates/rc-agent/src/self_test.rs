@@ -67,8 +67,10 @@ const LOG_TARGET: &str = "self-test";
 
 // ─── Shared HTTP client for Ollama probes ────────────────────────────────────
 
+#[cfg(feature = "ai-debugger")]
 static SELF_TEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+#[cfg(feature = "ai-debugger")]
 fn self_test_client() -> &'static reqwest::Client {
     SELF_TEST_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -219,6 +221,7 @@ async fn probe_hid() -> ProbeResult {
 }
 
 /// Probe 12: Ollama reachable and rp-debug model available.
+#[cfg(feature = "ai-debugger")]
 async fn probe_ollama(ollama_url: &str) -> ProbeResult {
     let url = format!("{}/api/tags", ollama_url);
     match self_test_client().get(&url).send().await {
@@ -583,6 +586,25 @@ pub async fn run_all_probes(
     let ollama_url = ollama_url.to_string();
     let status2 = status.clone();
 
+    // Compute the ollama probe future before tokio::join! so the macro always sees a fixed
+    // number of arguments (22) regardless of which features are enabled.
+    #[cfg(feature = "ai-debugger")]
+    let ollama_fut = {
+        let u = ollama_url.clone();
+        timed_probe("ollama", move || {
+            let u2 = u.clone();
+            async move { probe_ollama(&u2).await }
+        })
+    };
+    #[cfg(not(feature = "ai-debugger"))]
+    let ollama_fut = timed_probe("ollama", || async {
+        ProbeResult {
+            name: "ollama".to_string(),
+            status: ProbeStatus::Skip,
+            detail: "ai-debugger feature disabled".to_string(),
+        }
+    });
+
     let (
         r_ws,
         r_lock_screen,
@@ -618,7 +640,7 @@ pub async fn run_all_probes(
         timed_probe("udp_port_iRacing", || probe_udp_port(6789)),
         timed_probe("udp_port_LMU", || probe_udp_port(5555)),
         timed_probe("hid_wheelbase", || probe_hid()),
-        timed_probe("ollama", { let u = ollama_url.clone(); move || { let u2 = u.clone(); async move { probe_ollama(&u2).await } } }),
+        ollama_fut,
         timed_probe("close_wait", || probe_close_wait()),
         timed_probe("single_instance", || probe_single_instance()),
         timed_probe("disk_space", || probe_disk()),
@@ -668,8 +690,10 @@ pub async fn run_all_probes(
 // ─── LLM Verdict ─────────────────────────────────────────────────────────────
 
 /// Shared reqwest client for LLM verdict queries.
+#[cfg(feature = "ai-debugger")]
 static VERDICT_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+#[cfg(feature = "ai-debugger")]
 fn verdict_client() -> &'static reqwest::Client {
     VERDICT_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -680,6 +704,7 @@ fn verdict_client() -> &'static reqwest::Client {
 }
 
 /// Query local Ollama for a verdict response.
+#[cfg(feature = "ai-debugger")]
 async fn query_ollama_for_verdict(url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     #[derive(Deserialize)]
     struct OllamaResp {
@@ -700,6 +725,7 @@ async fn query_ollama_for_verdict(url: &str, model: &str, prompt: &str) -> anyho
 }
 
 /// Get LLM verdict from Ollama. Falls back to deterministic verdict on failure.
+#[cfg(feature = "ai-debugger")]
 pub async fn get_llm_verdict(
     ollama_url: &str,
     ollama_model: &str,

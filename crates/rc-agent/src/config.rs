@@ -3,7 +3,19 @@ use serde::Deserialize;
 
 const LOG_TARGET: &str = "config";
 
+#[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::AiDebuggerConfig;
+
+#[cfg(not(feature = "ai-debugger"))]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct AiDebuggerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub ollama_url: String,
+    #[serde(default)]
+    pub ollama_model: String,
+}
 use crate::game_process::GameExeConfig;
 use rc_common::types::SimType;
 

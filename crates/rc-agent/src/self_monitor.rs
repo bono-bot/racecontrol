@@ -17,7 +17,10 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
+#[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::AiDebuggerConfig;
+#[cfg(not(feature = "ai-debugger"))]
+use crate::config::AiDebuggerConfig;
 use crate::udp_heartbeat::HeartbeatStatus;
 
 const LOG_TARGET: &str = "self-monitor";
@@ -116,6 +119,8 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             }
 
             // CLOSE_WAIT flood (early strikes) — consult Ollama for nuanced diagnosis.
+            #[cfg(feature = "ai-debugger")]
+            {
             if !config.enabled {
                 tracing::info!(target: LOG_TARGET, "AI disabled — skipping CLOSE_WAIT analysis");
                 log_event(&format!("SKIP: AI disabled, close_wait={}", close_wait));
@@ -141,6 +146,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
                     tracing::warn!(target: LOG_TARGET, "Ollama unavailable ({}) — waiting for strike limit", e);
                 }
             }
+            } // end #[cfg(feature = "ai-debugger")]
         }
     });
 }
@@ -185,8 +191,10 @@ fn count_close_wait_on_8090() -> usize {
 
 /// Shared reqwest client for Ollama queries — initialized once, reused forever.
 /// Avoids per-call client construction overhead and connection pool thrashing.
+#[cfg(feature = "ai-debugger")]
 static OLLAMA_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+#[cfg(feature = "ai-debugger")]
 fn ollama_client() -> &'static reqwest::Client {
     OLLAMA_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -197,6 +205,7 @@ fn ollama_client() -> &'static reqwest::Client {
 }
 
 /// Query local Ollama for a short health decision. 30s timeout.
+#[cfg(feature = "ai-debugger")]
 async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     #[derive(Deserialize)]
     struct OllamaResp {

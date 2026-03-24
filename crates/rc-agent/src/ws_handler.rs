@@ -7,6 +7,7 @@ use tokio::sync::{RwLock, Semaphore};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::ac_launcher;
+#[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::PodStateSnapshot;
 use crate::app_state::AppState;
 use crate::ffb_controller;
@@ -123,7 +124,10 @@ pub async fn handle_ws_message(
     primary_url: &str,
     failover_url: &Option<String>,
     active_url: &Arc<RwLock<String>>,
+    #[cfg(feature = "http-client")]
     split_brain_probe: &reqwest::Client,
+    #[cfg(not(feature = "http-client"))]
+    split_brain_probe: &(),
 ) -> Result<HandleResult> {
     let core_msg = match serde_json::from_str::<CoreToAgentMessage>(text) {
         Ok(m) => m,
@@ -379,6 +383,7 @@ pub async fn handle_ws_message(
                         if let Some(ref cm_err) = result.cm_error {
                             tracing::error!(target: LOG_TARGET, "CM failure on {}: {}", pod_id_clone, cm_err);
                             if let Ok(mut err_slot) = state.last_launch_error.lock() { *err_slot = Some(cm_err.clone()); }
+                            #[cfg(feature = "ai-debugger")]
                             if state.config.ai_debugger.enabled {
                                 let err_ctx = format!(
                                     "Content Manager multiplayer launch failed on pod {}. {}. Fell back to direct acs.exe launch.",
@@ -421,6 +426,7 @@ pub async fn handle_ws_message(
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                        #[cfg(feature = "ai-debugger")]
                         if state.config.ai_debugger.enabled {
                             let err_ctx = format!("AC launch completely failed on pod {}: {}", pod_id_clone, e);
                             let snapshot = PodStateSnapshot {
@@ -879,13 +885,23 @@ pub async fn handle_ws_message(
         CoreToAgentMessage::RunSelfTest { request_id } => {
             tracing::info!(target: LOG_TARGET, "RunSelfTest request_id={}", request_id);
             let status_clone = state.heartbeat_status.clone();
+            #[cfg(feature = "ai-debugger")]
             let ollama_url = state.config.ai_debugger.ollama_url.clone();
+            #[cfg(not(feature = "ai-debugger"))]
+            let ollama_url = String::new();
+            #[cfg(feature = "ai-debugger")]
             let ollama_model = state.config.ai_debugger.ollama_model.clone();
+            #[cfg(not(feature = "ai-debugger"))]
+            let ollama_model = String::new();
             let result_tx = state.ws_exec_result_tx.clone();
             let pod_id_clone = state.pod_id.clone();
             tokio::spawn(async move {
                 let mut report = self_test::run_all_probes(status_clone, &ollama_url).await;
+                #[cfg(feature = "ai-debugger")]
                 let verdict = self_test::get_llm_verdict(&ollama_url, &ollama_model, &report.probes).await;
+                #[cfg(not(feature = "ai-debugger"))]
+                let verdict = self_test::deterministic_verdict(&report.probes);
+                let _ = (&ollama_model, &ollama_url); // suppress unused warnings when ai-debugger off
                 report.verdict = Some(verdict);
                 let report_json = serde_json::to_value(&report).unwrap_or_default();
                 let msg = AgentMessage::SelfTestResult {
@@ -908,6 +924,7 @@ pub async fn handle_ws_message(
                 );
             } else {
                 // Phase 69: Split-brain guard -- verify .23 is actually unreachable before switching
+                #[cfg(feature = "http-client")]
                 let server_reachable = match split_brain_probe
                     .get("http://192.168.31.23:8090/ping")
                     .send()
@@ -916,6 +933,9 @@ pub async fn handle_ws_message(
                     Ok(resp) if resp.status().is_success() => true,
                     _ => false,
                 };
+                // When http-client (reqwest) is not available, skip split-brain guard
+                #[cfg(not(feature = "http-client"))]
+                let server_reachable = false;
 
                 if server_reachable {
                     tracing::warn!(

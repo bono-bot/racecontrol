@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, watch};
 
+#[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::{PodStateSnapshot, try_auto_fix};
 use crate::udp_heartbeat::HeartbeatStatus;
 use rc_common::protocol::AgentMessage;
@@ -135,12 +136,15 @@ pub fn spawn(
             // USB-01: Detect reconnect (billing active) — fire FFB reset fix
             if !prev_hid_connected && state.hid_connected && state.billing_active {
                 tracing::info!(target: LOG_TARGET, "Wheelbase USB reconnect detected — firing FFB reset");
-                let synthetic = "Wheelbase usb reset required — HID reconnected VID:0x1209 PID:0xFFB0";
-                let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
-                let synthetic_owned = synthetic.to_string();
-                let _ = tokio::task::spawn_blocking(move || {
-                    try_auto_fix(&synthetic_owned, &snap)
-                }).await;
+                #[cfg(feature = "ai-debugger")]
+                {
+                    let synthetic = "Wheelbase usb reset required — HID reconnected VID:0x1209 PID:0xFFB0";
+                    let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
+                    let synthetic_owned = synthetic.to_string();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        try_auto_fix(&synthetic_owned, &snap)
+                    }).await;
+                }
             }
 
             prev_hid_connected = state.hid_connected;
@@ -190,12 +194,15 @@ pub fn spawn(
                         launched_at.elapsed().as_secs()
                     );
                     launch_timeout_fired = true; // suppress duplicate fires for this launch attempt
-                    let synthetic = "launch timeout — Content Manager hang kill cm process";
-                    let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
-                    let synthetic_owned = synthetic.to_string();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        try_auto_fix(&synthetic_owned, &snap)
-                    }).await;
+                    #[cfg(feature = "ai-debugger")]
+                    {
+                        let synthetic = "launch timeout — Content Manager hang kill cm process";
+                        let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
+                        let synthetic_owned = synthetic.to_string();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            try_auto_fix(&synthetic_owned, &snap)
+                        }).await;
+                    }
                 }
             }
 
@@ -220,12 +227,15 @@ pub fn spawn(
                             game_pid,
                             state.last_udp_secs_ago.unwrap_or(0)
                         );
-                        let synthetic = "Game frozen — IsHungAppWindow true + UDP silent 30s relaunch acs.exe";
-                        let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
-                        let synthetic_owned = synthetic.to_string();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            try_auto_fix(&synthetic_owned, &snap)
-                        }).await;
+                        #[cfg(feature = "ai-debugger")]
+                        {
+                            let synthetic = "Game frozen — IsHungAppWindow true + UDP silent 30s relaunch acs.exe";
+                            let snap = build_snapshot(&state, &status, pod_id.clone(), pod_number);
+                            let synthetic_owned = synthetic.to_string();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                try_auto_fix(&synthetic_owned, &snap)
+                            }).await;
+                        }
                     }
                 }
             }
@@ -234,6 +244,7 @@ pub fn spawn(
 }
 
 /// Build a PodStateSnapshot from the current FailureMonitorState + HeartbeatStatus.
+#[cfg(feature = "ai-debugger")]
 fn build_snapshot(
     state: &FailureMonitorState,
     status: &Arc<HeartbeatStatus>,

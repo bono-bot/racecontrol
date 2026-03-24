@@ -22,8 +22,10 @@ const POLL_INTERVAL_SECS: u64 = 5;
 const STUCK_SESSION_THRESHOLD_SECS: u64 = 60;
 const IDLE_DRIFT_THRESHOLD_SECS: u64 = 300;
 
+#[cfg(feature = "http-client")]
 static ORPHAN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+#[cfg(feature = "http-client")]
 fn orphan_client() -> &'static reqwest::Client {
     ORPHAN_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -34,6 +36,8 @@ fn orphan_client() -> &'static reqwest::Client {
 }
 
 async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &str) -> bool {
+    #[cfg(feature = "http-client")]
+    {
     let client = orphan_client();
     let url = format!("{}/billing/session/{}/end?reason={}", core_base_url, session_id, end_reason);
     match client.post(&url).send().await {
@@ -42,6 +46,12 @@ async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &
             tracing::warn!(target: LOG_TARGET, "orphan end HTTP failed: {}", e);
             false
         }
+    }
+    }
+    #[cfg(not(feature = "http-client"))]
+    {
+        let _ = (core_base_url, session_id, end_reason);
+        false
     }
 }
 

@@ -1,4 +1,5 @@
 mod ac_launcher;
+#[cfg(feature = "ai-debugger")]
 mod ai_debugger;
 mod app_state;
 mod billing_guard;
@@ -19,6 +20,7 @@ mod pre_flight;
 mod remote_ops;
 mod safe_mode;
 mod self_heal;
+#[cfg(feature = "process-guard")]
 mod process_guard;
 mod self_monitor;
 mod self_test;
@@ -62,6 +64,7 @@ const BUILD_ID: &str = env!("GIT_HASH");
 
 /// Fetch the staff-managed allowlist from racecontrol (GET /api/v1/config/kiosk-allowlist).
 /// Returns a list of lowercase process names on success, or an error if unreachable.
+#[cfg(feature = "http-client")]
 async fn fetch_server_allowlist(client: &reqwest::Client, base_url: &str) -> anyhow::Result<Vec<String>> {
     let resp = client
         .get(&format!("{}/api/v1/config/kiosk-allowlist", base_url))
@@ -85,6 +88,7 @@ async fn fetch_server_allowlist(client: &reqwest::Client, base_url: &str) -> any
 /// First tick fires immediately (at startup) so kiosk enforcement on first scan
 /// already includes staff-added entries. Fetch failures are WARN-level and non-fatal —
 /// the hardcoded ALLOWED_PROCESSES baseline continues enforcing.
+#[cfg(feature = "http-client")]
 async fn allowlist_poll_loop(core_http_url: String, client: reqwest::Client) {
     let mut interval = tokio::time::interval(Duration::from_secs(kiosk::ALLOWLIST_REFRESH_SECS));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -620,6 +624,7 @@ async fn main() -> Result<()> {
     // Derive HTTP base URL from WebSocket URL: ws://host:port/path → http://host:port
     // First poll fires immediately (interval first tick) so kiosk enforcement on first
     // scan already includes staff-added entries. Non-fatal on fetch failure.
+    #[cfg(feature = "http-client")]
     {
         let core_http_url = config.core.url
             .replace("ws://", "http://")
@@ -684,7 +689,10 @@ async fn main() -> Result<()> {
     // ─── Process Guard: fetch whitelist from server ──────────────────────────
     // Fetch merged whitelist for this pod. Falls back to empty whitelist (report_only) if server
     // is unreachable at startup — guard will still scan but log only.
+    // Requires both process-guard feature (for the guard task) AND ai-debugger (for reqwest).
     let fetched_whitelist = {
+        #[cfg(all(feature = "process-guard", feature = "http-client"))]
+        {
         let http_url = config.core.url
             .replace("ws://", "http://")
             .replace("wss://", "https://")
@@ -720,6 +728,9 @@ async fn main() -> Result<()> {
                 rc_common::types::MachineWhitelist::default()
             }
         }
+        }
+        #[cfg(not(all(feature = "process-guard", feature = "http-client")))]
+        rc_common::types::MachineWhitelist::default()
     };
 
     // ─── Bundle pre-loop state into AppState ────────────────────────────────
@@ -788,14 +799,17 @@ async fn main() -> Result<()> {
     state.lock_screen.wire_safe_mode(std::sync::Arc::clone(&state.safe_mode_active));
 
     // ─── Process Guard: spawn background task ───────────────────────────────
-    process_guard::spawn(
-        state.config.process_guard.clone(),
-        state.guard_whitelist.clone(),
-        state.guard_violation_tx.clone(),
-        state.pod_id.clone(),
-        std::sync::Arc::clone(&state.safe_mode_active),  // safe mode flag
-    );
-    tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
+    #[cfg(feature = "process-guard")]
+    {
+        process_guard::spawn(
+            state.config.process_guard.clone(),
+            state.guard_whitelist.clone(),
+            state.guard_violation_tx.clone(),
+            state.pod_id.clone(),
+            std::sync::Arc::clone(&state.safe_mode_active),  // safe mode flag
+        );
+        tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
+    }
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
@@ -815,10 +829,13 @@ async fn main() -> Result<()> {
     let failover_url: Option<String> = state.config.core.failover_url.clone();
 
     // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
+    #[cfg(feature = "http-client")]
     let split_brain_probe = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .unwrap_or_default();
+    #[cfg(not(feature = "http-client"))]
+    let split_brain_probe = ();
 
     loop {
         // Reset startup report flag on each reconnection — so racecontrol always gets
