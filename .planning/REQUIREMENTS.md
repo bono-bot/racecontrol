@@ -18,12 +18,12 @@
 
 ### Config Push
 
-- [ ] **CP-01**: Server pushes config changes (billing rates, game limits, process guard entries, debug verbosity) to pods over WebSocket as typed ConfigPush messages — never through fleet exec endpoint
-- [ ] **CP-02**: Server maintains a pending config queue per pod — offline pods receive queued updates on WebSocket reconnect with sequence-number-based ack
+- [x] **CP-01**: Server pushes config changes (billing rates, game limits, process guard entries, debug verbosity) to pods over WebSocket as typed ConfigPush messages — never through fleet exec endpoint
+- [x] **CP-02**: Server maintains a pending config queue per pod — offline pods receive queued updates on WebSocket reconnect with sequence-number-based ack
 - [ ] **CP-03**: rc-agent hot-reloads supported config fields (billing rates, game limits, process guard whitelist, debug verbosity) without binary restart using arc-swap — fields requiring restart (port bindings, WS URL) are documented and excluded
-- [ ] **CP-04**: Config push includes schema version — rc-agent ignores unknown fields from newer schema versions and logs a warning instead of panicking
+- [x] **CP-04**: Config push includes schema version — rc-agent ignores unknown fields from newer schema versions and logs a warning instead of panicking
 - [ ] **CP-05**: All config changes are recorded in an append-only audit log table (timestamp, field, old_value, new_value, pushed_by, pods_acked)
-- [ ] **CP-06**: Server validates config changes against schema before accepting — invalid values (negative billing rate, empty allowlist) return 400 with field-level errors and are never pushed to pods
+- [x] **CP-06**: Server validates config changes against schema before accepting — invalid values (negative billing rate, empty allowlist) return 400 with field-level errors and are never pushed to pods
 
 ### OTA Pipeline
 
@@ -115,11 +115,11 @@
 | FF-01 | Phase 177 | Pending |
 | FF-02 | Phase 177 | Pending |
 | FF-03 | Phase 177 | Pending |
-| CP-01 | Phase 177 | Pending |
-| CP-02 | Phase 177 | Pending |
-| CP-04 | Phase 177 | Pending |
+| CP-01 | Phase 177 | Complete |
+| CP-02 | Phase 177 | Complete |
+| CP-04 | Phase 177 | Complete |
 | CP-05 | Phase 177 | Pending |
-| CP-06 | Phase 177 | Pending |
+| CP-06 | Phase 177 | Complete |
 | SYNC-01 | Phase 177 | Complete |
 | FF-04 | Phase 178 | Pending |
 | FF-05 | Phase 178 | Pending |
