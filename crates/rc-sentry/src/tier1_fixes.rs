@@ -10,6 +10,7 @@
 use rc_common::types::CrashDiagResult;
 use super::watchdog::CrashContext;
 use crate::sentry_config;
+use std::io::Write;
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -21,6 +22,26 @@ const PORT_WAIT_POLL: Duration = Duration::from_millis(500);
 const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
 const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 const RCAGENT_SELF_RESTART_SENTINEL: &str = r"C:\RacingPoint\rcagent-restart-sentinel.txt";
+
+// Spawn verification constants (SPAWN-01)
+const SPAWN_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
+const SPAWN_VERIFY_POLL: Duration = Duration::from_millis(500);
+const SPAWN_VERIFY_INITIAL_DELAY: Duration = Duration::from_secs(5);
+
+// Server reachability constants (GRAD-05)
+const SERVER_ADDR: &str = "192.168.31.23:8080";
+const SERVER_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+// ─── Crash Handler Result ─────────────────────────────────────────────────────
+
+/// Result of the graduated crash handler, including spawn verification and server reachability.
+pub struct CrashHandlerResult {
+    pub fix_results: Vec<CrashDiagResult>,
+    pub restarted: bool,
+    pub spawn_verified: bool,
+    pub server_reachable: bool,
+    pub pattern_key: String,
+}
 
 // ─── Escalation State ────────────────────────────────────────────────────────
 
@@ -274,12 +295,15 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
     }
 }
 
-/// Restart the monitored service via schtasks (Windows Task Scheduler).
+/// Restart the monitored service via Session 1 spawn (primary) or schtasks (fallback).
 ///
-/// CRITICAL: Direct `Command::new("schtasks")` silently fails from non-interactive
-/// contexts even with CREATE_NO_WINDOW. The ONLY proven working path is routing
-/// through `cmd.exe /C` via `run_cmd_sync()` — the same path used by the /exec
-/// endpoint. See DEBUG-RESTART-ISSUE.md for the full investigation.
+/// Primary path (SPAWN-03): WTSQueryUserToken + CreateProcessAsUser launches rc-agent
+/// directly in the interactive desktop session. This is required because rc-sentry runs
+/// as SYSTEM (Session 0) and std::process::Command targets Session 0 where GUI windows
+/// cannot be displayed.
+///
+/// Fallback: schtasks via run_cmd_sync (cmd.exe /C) if no active console session exists
+/// (e.g., before user login at boot).
 pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
@@ -299,65 +323,74 @@ pub fn restart_service() -> CrashDiagResult {
             format!("restart_service entered at {:?}\n", std::time::SystemTime::now()),
         );
 
-        // Create/update the scheduled task (idempotent — /F overwrites).
-        // Uses run_cmd_sync (cmd.exe /C) instead of direct Command::new("schtasks")
-        // because direct spawn silently fails from non-interactive context.
-        let create_cmd = format!(
-            "schtasks /Create /TN StartRCAgent /TR \"{}\" /SC ONCE /ST 00:00 /F /RU SYSTEM",
-            cfg.start_script
-        );
-        let create = rc_common::exec::run_cmd_sync(
-            &create_cmd,
-            Duration::from_secs(10),
-            4096,
-        );
-
-        if create.exit_code != 0 {
-            tracing::error!(
-                target: LOG_TARGET,
-                "schtasks /Create failed: exit={} stderr={}",
-                create.exit_code, create.stderr
-            );
-            return CrashDiagResult {
-                fix_type: "restart".to_string(),
-                detail: format!("schtasks create failed: {}", create.stderr),
-                success: false,
-            };
+        // Primary path: Session 1 spawn (SPAWN-03)
+        // Uses WTSQueryUserToken + CreateProcessAsUser to launch in interactive desktop.
+        // Falls back to schtasks if no active console session (e.g., before user login).
+        let bat_path = std::path::Path::new(&cfg.start_script);
+        match crate::session1_spawn::spawn_in_session1(bat_path) {
+            Ok(()) => {
+                tracing::info!(target: LOG_TARGET,
+                    "Session 1 spawn succeeded — verifying {} starts...",
+                    cfg.service_name
+                );
+            }
+            Err(reason) => {
+                tracing::warn!(target: LOG_TARGET,
+                    "Session 1 spawn failed: {} — falling back to schtasks",
+                    reason
+                );
+                // Fall through to schtasks path
+                let create_cmd = format!(
+                    "schtasks /Create /TN StartRCAgent /TR \"{}\" /SC ONCE /ST 00:00 /F /RU SYSTEM",
+                    cfg.start_script
+                );
+                let create = rc_common::exec::run_cmd_sync(
+                    &create_cmd,
+                    Duration::from_secs(10),
+                    4096,
+                );
+                if create.exit_code != 0 {
+                    tracing::error!(target: LOG_TARGET,
+                        "schtasks /Create failed: exit={} stderr={}",
+                        create.exit_code, create.stderr
+                    );
+                    return CrashDiagResult {
+                        fix_type: "restart".to_string(),
+                        detail: format!("both Session 1 spawn and schtasks create failed: {}", create.stderr),
+                        success: false,
+                    };
+                }
+                let run = rc_common::exec::run_cmd_sync(
+                    "schtasks /Run /TN StartRCAgent",
+                    Duration::from_secs(10),
+                    4096,
+                );
+                if run.exit_code != 0 {
+                    tracing::error!(target: LOG_TARGET,
+                        "schtasks /Run failed: exit={} stderr={}",
+                        run.exit_code, run.stderr
+                    );
+                    return CrashDiagResult {
+                        fix_type: "restart".to_string(),
+                        detail: format!("Session 1 failed ({}), schtasks /Run also failed: {}", reason, run.stderr),
+                        success: false,
+                    };
+                }
+                tracing::info!(target: LOG_TARGET,
+                    "schtasks /Run succeeded (fallback) — verifying {} starts...",
+                    cfg.service_name
+                );
+            }
         }
 
-        // Run the task via cmd.exe /C (proven working path)
-        let run = rc_common::exec::run_cmd_sync(
-            "schtasks /Run /TN StartRCAgent",
-            Duration::from_secs(10),
-            4096,
-        );
-
-        if run.exit_code != 0 {
-            tracing::error!(
-                target: LOG_TARGET,
-                "schtasks /Run failed: exit={} stderr={}",
-                run.exit_code, run.stderr
-            );
-            return CrashDiagResult {
-                fix_type: "restart".to_string(),
-                detail: format!("schtasks /Run failed: {}", run.stderr),
-                success: false,
-            };
-        }
-
-        tracing::info!(
-            target: LOG_TARGET,
-            "schtasks /Run succeeded — verifying rc-agent starts..."
-        );
-
-        // Verify rc-agent actually started (standing rule: spawn success ≠ child alive).
-        // Poll :8090/health for up to 20s (schtasks + bat + process startup).
-        let verified = verify_service_started(&cfg.health_addr, Duration::from_secs(20));
+        // Verify rc-agent actually started (standing rule: spawn success != child alive).
+        // Poll :8090/health at SPAWN_VERIFY_POLL intervals for SPAWN_VERIFY_TIMEOUT (SPAWN-01).
+        let verified = verify_service_started(&cfg.health_addr, SPAWN_VERIFY_TIMEOUT);
 
         let _ = std::fs::write(
             r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
             format!(
-                "restart_service: schtasks ok, verified={} at {:?}\n",
+                "restart_service: spawn ok, verified={} at {:?}\n",
                 verified,
                 std::time::SystemTime::now()
             ),
@@ -366,11 +399,11 @@ pub fn restart_service() -> CrashDiagResult {
         CrashDiagResult {
             fix_type: "restart".to_string(),
             detail: if verified {
-                format!("{} restarted and verified via health check", cfg.service_name)
+                format!("{} restarted (Session 1) and verified via health check", cfg.service_name)
             } else {
                 format!(
-                    "{} schtasks /Run succeeded but health check failed after 20s",
-                    cfg.service_name
+                    "{} restart attempted but health check failed after {}s",
+                    cfg.service_name, SPAWN_VERIFY_TIMEOUT.as_secs()
                 )
             },
             success: verified,
@@ -380,13 +413,14 @@ pub fn restart_service() -> CrashDiagResult {
 
 /// Poll a health endpoint until it responds with HTTP 200, or timeout.
 /// Used to verify rc-agent actually started after schtasks /Run.
+/// Polls at SPAWN_VERIFY_POLL (500ms) intervals for SPAWN_VERIFY_TIMEOUT (10s) (SPAWN-01).
 #[cfg(not(test))]
-fn verify_service_started(health_addr: &str, timeout: Duration) -> bool {
+fn verify_service_started(health_addr: &str, _timeout: Duration) -> bool {
     let start = std::time::Instant::now();
-    // Wait 5s before first poll — give the bat script time to swap binaries
-    std::thread::sleep(Duration::from_secs(5));
+    // Wait initial delay — give the bat script time to swap binaries
+    std::thread::sleep(SPAWN_VERIFY_INITIAL_DELAY);
 
-    while start.elapsed() < timeout {
+    while start.elapsed() < SPAWN_VERIFY_TIMEOUT {
         match std::net::TcpStream::connect_timeout(
             &health_addr.parse().unwrap_or_else(|_| {
                 std::net::SocketAddr::from(([127, 0, 0, 1], 8090))
@@ -413,7 +447,7 @@ fn verify_service_started(health_addr: &str, timeout: Duration) -> bool {
             }
             Err(_) => {}
         }
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(SPAWN_VERIFY_POLL);
     }
     tracing::warn!(
         target: LOG_TARGET,
@@ -421,6 +455,65 @@ fn verify_service_started(health_addr: &str, timeout: Duration) -> bool {
         start.elapsed()
     );
     false
+}
+
+/// Check if the racecontrol server at SERVER_ADDR is reachable via TCP (GRAD-05).
+#[cfg(not(test))]
+fn check_server_reachable() -> bool {
+    let addr: std::net::SocketAddr = match SERVER_ADDR.parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    std::net::TcpStream::connect_timeout(&addr, SERVER_CONNECT_TIMEOUT).is_ok()
+}
+
+#[cfg(test)]
+fn check_server_reachable() -> bool {
+    true // mock in tests
+}
+
+/// Get pod ID from hostname. Pod hostnames are like "SIM1", "SIM2".
+fn get_pod_id() -> String {
+    sysinfo::System::host_name()
+        .map(|h| {
+            let lower = h.to_lowercase();
+            if let Some(n) = lower.strip_prefix("sim") {
+                format!("pod-{}", n)
+            } else {
+                format!("pod-{}", lower)
+            }
+        })
+        .unwrap_or_else(|| "pod-unknown".to_string())
+}
+
+/// POST a recovery event to the server. Fire-and-forget — logs warn on failure, never panics.
+fn post_recovery_event(event: &rc_common::recovery::RecoveryEvent) {
+    let body = match serde_json::to_string(event) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "failed to serialize recovery event: {}", e);
+            return;
+        }
+    };
+    let request = format!(
+        "POST /api/v1/recovery/events HTTP/1.0\r\nHost: 192.168.31.23\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(), body
+    );
+    let addr: std::net::SocketAddr = match SERVER_ADDR.parse() {
+        Ok(a) => a,
+        Err(_) => return,
+    };
+    let mut stream = match std::net::TcpStream::connect_timeout(&addr, SERVER_CONNECT_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "recovery event POST failed (connect): {}", e);
+            return;
+        }
+    };
+    if let Err(e) = stream.write_all(request.as_bytes()) {
+        tracing::warn!(target: LOG_TARGET, "recovery event POST failed (write): {}", e);
+    }
+    // Don't read response — fire-and-forget
 }
 
 /// Write MAINTENANCE_MODE file to prevent further restarts.
@@ -610,6 +703,14 @@ mod tests {
 
     #[test]
     fn restart_service_returns_mock() {
+        let r = restart_service();
+        assert_eq!(r.fix_type, "restart");
+        assert!(r.success);
+    }
+
+    /// SPAWN-03: mock path verifies Session 1 spawn wiring does not break the test mock.
+    #[test]
+    fn restart_service_mock_succeeds() {
         let r = restart_service();
         assert_eq!(r.fix_type, "restart");
         assert!(r.success);
