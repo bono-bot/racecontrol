@@ -1,619 +1,632 @@
 # Architecture Research
 
-**Domain:** Feature flag registry, OTA pipeline, and config push for RaceControl fleet
-**Researched:** 2026-03-23
-**Confidence:** HIGH (all integration points verified against live source code)
+**Domain:** AI-driven recovery integration into rc-sentry / rc-agent / racecontrol
+**Researched:** 2026-03-25
+**Confidence:** HIGH — based on direct code analysis of all affected crates
+
+---
+
+## Current State Inventory
+
+Before defining the target architecture, the existing recovery actors must be fully mapped. The
+codebase already has significant structure that v17.1 must extend, not replace.
+
+### Existing Recovery Actors (as of 2026-03-25)
+
+| Actor | Binary | Location | Scope | Mechanism |
+|-------|--------|----------|-------|-----------|
+| `rc-sentry watchdog` | `rc-sentry.exe` | Pod :8091 | rc-agent health | 5s HTTP poll, 3-poll hysteresis FSM, `CrashContext` build |
+| `rc-sentry tier1_fixes` | `rc-sentry.exe` | Pod :8091 | rc-agent crash | kill zombies, port wait, CLOSE_WAIT clean, config repair, restart via schtasks |
+| `rc-sentry debug_memory` | `rc-sentry.exe` | Pod :8091 | crash pattern replay | `debug-memory-sentry.json`, `derive_pattern_key`, instant fix lookup |
+| `rc-agent self_monitor` | `rc-agent.exe` | Pod :8090 | self-recovery | 60s check, CLOSE_WAIT threshold, WS dead 5min, PowerShell+DETACHED_PROCESS relaunch |
+| `pod_monitor` | `racecontrol.exe` | Server :8080 | heartbeat detection | pure detector, flags `PodStatus::Offline`, delegates ALL repair to pod_healer |
+| `pod_healer` | `racecontrol.exe` | Server :8080 | graduated recovery | `PodRecoveryTracker` (Waiting→TierOneRestart→AiEscalation→AlertStaff), cascadeGuard |
+| `cascade_guard` | `racecontrol.exe` | Server :8080 | anti-cascade | 60s window, 3 cross-authority actions = 5min pause + WhatsApp alert |
+| `rc-watchdog service` | `rc-watchdog.exe` | Pod SYSTEM | rc-agent process | Windows Service, tasklist poll every 5s, session1 spawn on miss |
+| `james_monitor` | `rc-watchdog.exe` | James :27 | James-side services | 10 services (ollama, comms-link, go2rtc, racecontrol, kiosk, dashboard...), 4-step graduated AI recovery |
+| `RecoveryAuthority` | `rc-common` | shared lib | ownership registry | `ProcessOwnership` map: RcSentry, PodHealer, JamesMonitor registered as exclusive owners |
+
+### Ownership Already Defined in rc-common
+
+`rc_common::recovery::RecoveryAuthority` establishes three registered authorities. The
+`ProcessOwnership` registry prevents double-registration with `OwnershipConflict`. The
+`RecoveryDecision` / `RecoveryLogger` JSONL pipeline logs every action to
+`C:\RacingPoint\recovery-log.jsonl` (pods/server) or `C:\Users\bono\racingpoint\recovery-log.jsonl`
+(James).
+
+This means the coordination scaffolding already exists at the type level. v17.1 fills in behavior,
+not new infrastructure.
+
+---
+
+## The Conflict Map
+
+Before defining the target architecture, the exact conflicts must be named.
+
+```
+Per-pod: Three actors compete for rc-agent.exe recovery authority
+
+  rc-sentry watchdog    rc-agent self_monitor    rc-watchdog service
+  (external, :8091)     (internal task,          (SYSTEM svc,
+  15s hysteresis +      60s check, WS dead)      tasklist 5s poll,
+  tier1 + schtasks                               session1 spawn)
+       |                        |                        |
+       +------------------------+------------------------+
+                                |
+                    All three can restart rc-agent
+                    independently, with no coordination.
+                    Race condition: two processes try to
+                    bind port 8090 simultaneously.
+
+Server side: Two actors compete for pod restart decisions
+
+  pod_monitor (detector)  ------>  pod_healer (PodRecoveryTracker)
+  (heartbeat timeout,              Waiting -> TierOneRestart ->
+  marks pod Offline)               AiEscalation -> AlertStaff
+                                          |
+                                    cascade_guard
+                                    (multi-authority detection
+                                    -- but pod_healer never
+                                    knows about rc-sentry's
+                                    actions on the same pod)
+
+WoL gap: pod_healer cannot distinguish crash vs deliberate shutdown
+
+  Pod offline (MAINTENANCE_MODE active)
+    -> pod_healer -> WoL
+    -> rc-agent starts
+    -> rc-sentry sees MAINTENANCE_MODE -> skips restart
+    -> pod stays dead
+    -> pod_healer fires WoL again
+    -> infinite loop
+```
 
 ---
 
 ## System Overview
 
-The v22.0 additions layer onto the existing WebSocket gateway without introducing new transports. The
-feature registry lives in racecontrol SQLite, config push uses the existing `CoreToAgentMessage` channel,
-and the OTA pipeline wraps the existing `deploy.rs` swap-script mechanism with canary gating and
-automated rollback. No new ports or protocols are required.
+### Target Architecture: Single Authority Per Machine
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          Admin Dashboard (Next.js :3200)                      │
-│   Feature toggle UI  │  OTA release trigger  │  Standing-rule gate display   │
-└────────────┬─────────────────────┬────────────────────────┬───────────────────┘
-             │ REST                │ REST                   │ REST
-             ▼                    ▼                        ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                    racecontrol server (Rust/Axum :8080)                       │
-│                                                                               │
-│  ┌─────────────────────┐   ┌──────────────────────┐   ┌───────────────────┐  │
-│  │  feature_registry   │   │   ota_pipeline        │   │  standing_rules   │  │
-│  │  (SQLite-backed)    │   │   (wraps deploy.rs)   │   │  (enforcement     │  │
-│  │  per-pod overrides  │   │   manifest + canary   │   │  gate module)     │  │
-│  └──────────┬──────────┘   └──────────┬───────────┘   └────────┬──────────┘  │
-│             │                         │                         │             │
-│  ┌──────────▼─────────────────────────▼─────────────────────────▼──────────┐  │
-│  │                         AppState (Arc<AppState>)                         │  │
-│  │  agent_senders RwLock<HashMap<pod_id, mpsc::Sender<CoreToAgentMessage>>> │  │
-│  │  feature_flags RwLock<HashMap<(scope, key), FlagValue>>    (NEW)         │  │
-│  │  pending_config_pushes RwLock<HashMap<pod_id, ConfigBundle>> (NEW)       │  │
-│  │  ota_release_state RwLock<Option<OtaReleaseState>>          (NEW)        │  │
-│  └──────────────────────────────────────┬───────────────────────────────────┘  │
-│                                         │  existing mpsc channel                │
-│                           CoreToAgentMessage enum                               │
-└─────────────────────────────────────────┬────────────────────────────────────┘
-                                          │  WebSocket (existing :8080/ws/agent)
-                    ┌─────────────────────┴─────────────────────┐
-                    ▼                                           ▼
-         ┌──────────────────────┐                   ┌──────────────────────┐
-         │  rc-agent (pod 1-7)  │                   │  rc-agent (pod 8     │
-         │  ConfigApplied ack   │                   │  canary — first      │
-         │  feature_flags map   │                   │  to receive OTA)     │
-         │  hot-reload handler  │                   └──────────────────────┘
-         └──────────────────────┘
-
-         ┌──────────────────────────────────────────────┐
-         │  rc-sentry-ai (James .27 :8096)              │
-         │  Receives OTA binary push via HTTP (existing) │
-         │  Feature flags via new REST endpoint          │
-         └──────────────────────────────────────────────┘
++-------------------------------------------------------------------+
+|  JAMES (.27)                                                      |
+|  james_monitor (rc-watchdog james mode)                           |
+|  Authority: JamesMonitor over ollama, comms-link, go2rtc,        |
+|             webterm, racecontrol, kiosk, dashboard, tailscale    |
+|  NOT an authority over pod internals (that is RcSentry's domain) |
++-------------------------------------------------------------------+
+         | monitors racecontrol health via HTTP
+         v
++-------------------------------------------------------------------+
+|  SERVER (.23) -- racecontrol.exe                                  |
+|  pod_monitor: detector only, no actions                           |
+|  pod_healer:  PodHealer authority -- server-level recovery ONLY   |
+|  cascade_guard: cross-authority anti-cascade                      |
+|  Recovery log: C:\RacingPoint\recovery-log.jsonl                  |
++----------------------+--------------------------------------------+
+                       | WS + HTTP
+       +---------------+----------------+
+       v                                v
++------------------+         +------------------+
+|  POD N (.xx)     |   ...   |  POD 8 (.91)     |
+|                  |         |  (canary)        |
+|  rc-sentry       |         |  rc-sentry       |
+|  :8091           |         |  :8091           |
+|  RcSentry        |         |  RcSentry        |
+|  AUTHORITY       |         |  AUTHORITY       |
+|                  |         |                  |
+|  rc-agent        |         |  rc-agent        |
+|  self_monitor    |         |  self_monitor    |
+|  yields to       |         |  yields to       |
+|  RcSentry        |         |  RcSentry        |
+|  :8090           |         |  :8090           |
+|                  |         |                  |
+|  rc-watchdog     |         |  rc-watchdog     |
+|  SYSTEM svc      |         |  SYSTEM svc      |
+|  last-resort     |         |  last-resort     |
+|  only            |         |  only            |
++------------------+         +------------------+
 ```
 
 ---
 
 ## Component Responsibilities
 
-| Component | Responsibility | New vs Modified |
-|-----------|---------------|----------------|
-| `feature_registry.rs` (racecontrol) | SQLite-backed flag store, per-pod/global scope, REST CRUD API | NEW |
-| `ota_pipeline.rs` (racecontrol) | Release manifest, canary gate, staged rollout, health check, auto-rollback | NEW (wraps deploy.rs) |
-| `standing_rules_gate.rs` (racecontrol) | Codify 41+ CLAUDE.md rules as executable checks, block pipeline on failure | NEW |
-| `config_push.rs` (racecontrol) | Queue config bundles per pod, push on WS connect, retry on reconnect | NEW |
-| `AppState` (racecontrol/state.rs) | Gains 3 new RwLock fields for flags, pending pushes, OTA state | MODIFIED |
-| `CoreToAgentMessage` (rc-common/protocol.rs) | Add ConfigPush, FeatureFlagsUpdate, OtaDownload variants | MODIFIED |
-| `AgentMessage` (rc-common/protocol.rs) | Add ConfigAck, FeatureFlagsAck, OtaDownloadComplete variants | MODIFIED |
-| `rc-agent/event_loop.rs` | Handle new server messages, apply config hot-reload, download+self-swap OTA | MODIFIED |
-| `rc-agent/config.rs` | Separate static config (TOML) from runtime config (pushed overlay) | MODIFIED |
-| Admin dashboard (Next.js) | Feature toggle UI, OTA release trigger page, standing-rule status display | MODIFIED |
+### After v17.1
+
+| Component | Responsibility | Does NOT Do |
+|-----------|----------------|-------------|
+| `rc-sentry watchdog` | Single recovery authority for rc-agent on the pod. Detects crash via HTTP poll (15s hysteresis). Applies Tier 1 fixes. Checks pattern memory. Queries Ollama if pattern unknown. Restarts via schtasks. Reports to server. | Process inspection (anti-cheat). WoL. Server-level restart. James-side services. |
+| `rc-agent self_monitor` | Detects WS-dead / CLOSE_WAIT floods as signals to report to rc-sentry. Writes GRACEFUL_RELAUNCH sentinel before self-restart. Does NOT restart independently after rc-sentry is running. | Acting as recovery authority. Triggering independent restarts (conflicts with rc-sentry). |
+| `rc-watchdog.exe (pod mode)` | Last-resort only: catches rc-agent crash if rc-sentry itself has died. Wraps restart in grace window so rc-sentry can run first. Reports crash count to server. | First-responder restarts. AI diagnosis. Pattern memory. Tier 1 fixes. |
+| `pod_monitor` | Pure detector. Marks pods Offline on heartbeat timeout. Delegates all repair to pod_healer. | Any restart or WoL decisions. |
+| `pod_healer` | Server-level graduated recovery: WoL if pod OS offline, alert staff after N attempts. Receives rc-sentry recovery events via server API to distinguish "rc-agent crashed but pod is alive" from "entire pod is offline". | rc-agent-level restarts (that is rc-sentry's job). Tier 1 fixes on pods (rc-sentry is closer). |
+| `cascade_guard` | Detects multi-authority conflict (RcSentry + PodHealer both firing in 60s window). Pauses recovery + alerts Uday. | Deciding who is right in a conflict. |
+| `james_monitor` | Monitors James-local and server-level services. Graduated AI recovery for its owned services. | Pod internals. rc-agent restart. |
 
 ---
 
-## New WebSocket Message Variants
+## The Core Design Decisions
 
-These are the only protocol changes needed. All existing messages are untouched (additive-only).
+### Decision 1: rc-sentry is the single recovery authority per pod
 
-### `CoreToAgentMessage` additions (server → pod)
+**Rationale:** rc-sentry is the external survivor -- it outlives rc-agent crashes by design. It
+already has the full recovery pipeline: watchdog FSM -> tier1_fixes -> debug_memory -> ollama ->
+restart_service (verified via health poll).
 
-```rust
-/// Push a runtime config overlay to a pod. Agent merges over static TOML.
-/// On reconnect, server replays the latest bundle from pending_config_pushes.
-ConfigPush {
-    push_id: String,        // UUID for dedup + ack matching
-    config_json: String,    // serialized RuntimeConfigOverlay
-    force_reload: bool,     // true = reload modules that support hot-reload
-},
+The `self_monitor` inside rc-agent has a fundamental flaw: it dies with the patient. Its only
+remaining role is to write the `GRACEFUL_RELAUNCH` sentinel (already done) and to detect CLOSE_WAIT
+floods as an early warning signal. It should NOT act as a restart authority.
 
-/// Push current feature flag state to a pod.
-/// Sent on connect (full snapshot) and on any flag change (delta).
-FeatureFlagsUpdate {
-    flags: HashMap<String, serde_json::Value>,  // key -> value
-    is_snapshot: bool,      // true = replace all, false = merge delta
-},
+**Enforcement:** `self_monitor.rs relaunch_self()` must be gated: only trigger if rc-sentry is
+unreachable (`:8091` health check fails). If rc-sentry is up, self_monitor writes a sentinel and
+does NOT relaunch -- it trusts rc-sentry to observe the crash and restart cleanly.
 
-/// Instruct pod to download new binary and self-swap.
-/// Extends existing deploy.rs pattern — same HTTP staging server.
-OtaDownload {
-    release_id: String,
-    binary_url: String,     // http://192.168.31.27:9998/rc-agent.exe
-    expected_sha256: String,
-    manifest_url: String,   // for frontend bundles
-    rollback_on_failure: bool,
-},
-```
+### Decision 2: rc-watchdog.exe pod service becomes last-resort fallback
 
-### `AgentMessage` additions (pod → server)
+**Current problem:** rc-watchdog polls via `tasklist` every 5s and restarts via
+`session::spawn_in_session1()`. This is blind -- it does not know if rc-sentry already fired, does
+not write any sentinel, does not check MAINTENANCE_MODE. It will fight rc-sentry.
 
-```rust
-/// Acknowledgment that pod applied a config push.
-ConfigAck {
-    pod_id: String,
-    push_id: String,
-    success: bool,
-    modules_reloaded: Vec<String>,  // which subsystems hot-reloaded
-    error: Option<String>,
-},
+**Target behavior:** rc-watchdog pod service adds a 30s grace window after any
+`C:\RacingPoint\sentry-restart-breadcrumb.txt` write. If rc-sentry has acted in the last 30s,
+rc-watchdog skips its restart. It becomes the backstop: if rc-sentry itself crashes (extremely
+rare), rc-watchdog picks up.
 
-/// Acknowledgment that pod applied feature flag update.
-FeatureFlagsAck {
-    pod_id: String,
-    flags_hash: String,     // hash of applied flags for drift detection
-},
+### Decision 3: pod_healer must know when rc-sentry has handled a crash
 
-/// OTA binary download completed — pod is running new binary.
-OtaComplete {
-    pod_id: String,
-    release_id: String,
-    new_version: String,
-    new_build_id: String,
-},
+**Current problem:** pod_healer's `PodRecoveryTracker` operates on `PodStatus::Offline` only. It
+does not know that rc-sentry already restarted rc-agent at the process level. If rc-agent crashes
+and restarts in 20s, pod_healer may still fire WoL (30s Waiting -> TierOneRestart).
 
-/// OTA failed — pod rolled back to previous binary.
-OtaRolledBack {
-    pod_id: String,
-    release_id: String,
-    reason: String,
-    rolled_back_to: String, // previous build_id
-},
-```
+**Target behavior:** rc-sentry reports successful restarts to the server's recovery API endpoint.
+pod_healer checks this log before escalating. If rc-sentry already restarted rc-agent within the
+last 60s, pod_healer skips WoL and TierOneRestart (the restart already happened at the right tier).
+
+### Decision 4: MAINTENANCE_MODE must have an auto-clear path
+
+**Current problem:** `enter_maintenance_mode()` writes `C:\RacingPoint\MAINTENANCE_MODE` and nothing
+clears it automatically. pod_healer's WoL revives the pod -> rc-agent tries to start -> rc-sentry
+sees MAINTENANCE_MODE -> skips restart -> pod stays dead permanently until manual intervention.
+
+**Target behavior:** rc-sentry checks MAINTENANCE_MODE age at every crash event. If it is older than
+30 minutes AND the pod has received a WoL (server writes `C:\RacingPoint\WOL_SENT` via rc-sentry
+exec before sending WoL), MAINTENANCE_MODE is cleared and recovery is allowed once more.
+
+### Decision 5: spawn success verification is mandatory everywhere
+
+**Current problem (known):** `Command::spawn().is_ok()` is a lie on Windows non-interactive
+contexts. rc-sentry's `restart_service()` already implements the correct pattern: `schtasks /Run`
+via `run_cmd_sync()` (cmd.exe /C), then polls `:8090/health` for 20s to verify.
+
+**This pattern must not regress.** Any new restart path -- in rc-watchdog, self_monitor, or
+pod_healer -- must include a health poll verification step. A restart that returns `success: true`
+without a health poll is a known-false positive.
 
 ---
 
-## Data Flow Diagrams
+## Data Flow: Recovery Pipeline
 
-### Config Push Flow
-
-```
-Admin edits config value in dashboard
-    │
-    ▼ POST /api/v1/config/push  {pod_id: "all" | "pod_3", key, value}
-racecontrol → config_push.rs
-    │
-    ├── Write to SQLite config_overrides table (persistent)
-    │
-    ├── Update AppState::pending_config_pushes (in-memory)
-    │
-    ├── For each connected pod in scope:
-    │       agent_senders[pod_id].send(CoreToAgentMessage::ConfigPush{...})
-    │
-    ▼ WebSocket frame arrives at rc-agent
-rc-agent event_loop.rs
-    │
-    ├── Deserialize RuntimeConfigOverlay
-    ├── Merge over static TOML config (overlay wins, never replaces)
-    ├── Hot-reload supported modules: process_guard, preflight, kiosk
-    ├── Non-hot-reload modules: restart flagged, applied at next rc-agent start
-    │
-    ▼ AgentMessage::ConfigAck sent back
-racecontrol ws/mod.rs
-    │
-    └── Update pod config_push_state → broadcast DashboardEvent::ConfigPushAck
-```
-
-### Feature Flag Push Flow
+### Happy path: rc-agent crashes, rc-sentry handles it
 
 ```
-Admin toggles flag in dashboard (e.g. telemetry=false for pod_3)
-    │
-    ▼ POST /api/v1/features/{flag_key}  {scope: "pod", pod_id: "pod_3", value: false}
-racecontrol → feature_registry.rs
-    │
-    ├── Upsert SQLite features table (flag_key, scope, pod_id, value, updated_at)
-    │
-    ├── Recompute effective flag map for affected pods
-    │   (pod-level override wins over global default)
-    │
-    ├── Send delta to connected pod:
-    │       CoreToAgentMessage::FeatureFlagsUpdate{flags: {"telemetry": false}, is_snapshot: false}
-    │
-    ▼ rc-agent applies delta
-    │
-    ├── Updates in-memory FeatureFlagMap (Arc<RwLock<HashMap<String, Value>>>)
-    ├── Modules poll flag map at natural check points — no hot-reload plumbing needed
-    │
-    ▼ AgentMessage::FeatureFlagsAck sent back
-    │
-    └── Server records ack in per-pod flag_ack table for drift detection
+rc-agent crash
+    |
+    v  (5s x 3 polls = 15s hysteresis)
+rc-sentry watchdog FSM: Healthy -> Suspect(1) -> Suspect(2) -> Crashed
+    |
+    v
+build_crash_context() -- reads startup_log + stderr_log
+    |
+    +-> GRACEFUL_RELAUNCH sentinel? -> skip escalation counter, clear, restart
+    |
+    +-> RCAGENT_SELF_RESTART sentinel? -> skip escalation counter, clear, restart
+    |
+    +-> MAINTENANCE_MODE? -> check age:
+    |       age < 30min: skip restart (still in cool-down)
+    |       age > 30min AND WOL_SENT file exists: clear both, allow restart
+    |
+    +-> debug_memory.instant_fix(pattern_key) hit? -> apply known Tier 1 fix, skip Ollama
+    |
+    +-> Tier 1 fixes: kill_zombies -> wait_for_port -> close_wait -> config_repair -> shader_cache
+    |
+    +-> Ollama query (James :11434) if pattern unknown -> get RESTART/DIAGNOSE/BLOCK decision
+    |
+    v
+restart_service() via schtasks run_cmd_sync -> poll :8090/health 20s to verify
+    |
+    +-> verified: record in debug_memory, POST to /api/v1/recovery/events, reset tracker
+    +-> not verified: increment tracker -> escalate after 3 failures -> MAINTENANCE_MODE
 ```
 
-### OTA Release Flow
+### Conflict path: rc-agent graceful self-restart (self_monitor)
 
 ```
-CI build produces: rc-agent.exe + racecontrol.exe + frontend bundles
-    │
-    ├── Compute SHA256 for each artifact
-    ├── Write release manifest JSON: {release_id, version, artifacts, sha256s}
-    ├── Stage on deploy-staging HTTP server (:9998)
-    │
-    ▼ POST /api/v1/ota/release  {manifest_url, notes}    (admin trigger)
-racecontrol → ota_pipeline.rs
-    │
-    ├── [GATE] standing_rules_gate.rs — run all 41+ rule checks
-    │   Block if any check fails → return 422 with failing rules
-    │
-    ├── [GATE] verify binary size >= 5MB (reuse deploy.rs validate_binary_size)
-    │
-    ├── [CANARY] Send OtaDownload to Pod 8 only
-    │   Wait up to 120s for OtaComplete ack
-    │   Run health verification: WS connected + /health build_id matches
-    │
-    │   ┌─ health OK ──► [STAGED ROLLOUT]
-    │   │
-    │   └─ health fail → send OtaRolledBack trigger → wait rollback ack → abort release
-    │
-    ├── [STAGED ROLLOUT] Send OtaDownload to remaining pods in batches of 2
-    │   Each batch: wait OtaComplete acks → verify health → proceed or rollback
-    │   Session-aware: if pod has active billing, queue OtaDownload in pending_deploys
-    │   (existing AppState::pending_deploys pattern — already handles this)
-    │
-    ├── Persist release record to SQLite releases table on completion
-    │
-    └── Broadcast DashboardEvent::OtaReleaseComplete → admin sees live status
+self_monitor detects: WS dead 5min OR CLOSE_WAIT flood >= 5 strikes
+    |
+    +-> rc-sentry reachable (:8091/health)?
+    |       YES -> write GRACEFUL_RELAUNCH sentinel, log event, exit rc-agent
+    |              rc-sentry observes health drop, sees sentinel, restarts cleanly
+    |       NO  -> rc-sentry is down, self_monitor acts as fallback:
+    |              PowerShell+DETACHED_PROCESS (existing path, unchanged)
+    |
+    v
+rc-sentry watchdog sees health drop -> reads GRACEFUL_RELAUNCH sentinel
+    -> skips escalation counter, clears sentinel, restarts rc-agent
+    -> reports to server: action=restart reason=graceful_relaunch authority=rc_sentry
+```
+
+### Conflict path: pod_healer vs rc-sentry
+
+```
+rc-agent crash on pod-N:
+  t=0s:  rc-sentry detects crash (15s hysteresis)
+  t=15s: rc-sentry fires tier1 -> restarts rc-agent -> health verified at t=35s
+  t=35s: rc-sentry POSTs to /api/v1/recovery/events:
+         {pod_id, authority=rc_sentry, action=restart, verified=true, ts}
+
+pod_healer cycle runs every 120s:
+  If pod_healer sees pod-N Offline at t=90s:
+    Check recovery events for pod-N in last 60s
+    -> rc_sentry restarted at t=35s (55s ago, verified=true)
+    -> pod is likely recovering -- skip WoL, reset PodRecoveryTracker to Waiting
+    -> next cycle: pod should be back online, reset tracker fully
+
+  If pod_healer sees pod-N STILL Offline at t=210s (3min after rc-sentry action):
+    Check recovery events: last rc-sentry action at t=35s (175s ago)
+    -> rc-sentry attempted and failed (pod offline > 3min since restart)
+    -> pod_healer escalates to WoL (entire pod OS may be down, not just rc-agent)
+```
+
+### Conflict path: cascade_guard intervention
+
+```
+rc-sentry fires on pod-2, pod-3, pod-5 in the same 60s window:
+  cascade_guard sees 3 RcSentry actions
+  -> same authority burst (all RcSentry) -> NOT a multi-authority cascade
+  -> server_startup_recovery exemption: if pods reconnecting after server restart -> no alert
+
+rc-sentry fires on pod-2 + pod_healer fires WoL on pod-2 in same 60s:
+  cascade_guard sees RcSentry + PodHealer on same pod
+  -> TWO different authorities acting on same target
+  -> THIS is a cascade -> pause 5min + WhatsApp alert to Uday
 ```
 
 ---
 
-## Config Storage Strategy: SQLite + TOML Hybrid
+## New vs Modified Components
 
-The existing architecture uses static TOML at startup with no persistence layer for overrides. v22.0
-adds a runtime overlay tier in SQLite without removing TOML.
+### Modified components (no new files unless listed in New section)
+
+| Component | File | Change | Scope |
+|-----------|------|--------|-------|
+| `rc-sentry/watchdog.rs` | existing | No functional change -- FSM is correct. | NONE |
+| `rc-sentry/tier1_fixes.rs` | existing | Add MAINTENANCE_MODE auto-clear logic (age check + WOL_SENT sentinel). | Small |
+| `rc-agent/self_monitor.rs` | existing | Gate `relaunch_self()` behind rc-sentry availability check (`:8091/health`). If sentry is up, write sentinel and exit -- do not spawn PowerShell. | Medium |
+| `rc-watchdog/service.rs` | existing | Add grace window: read `sentry-restart-breadcrumb.txt` modified time; skip if < 30s old. Also add health poll after spawn. | Small |
+| `racecontrol/pod_healer.rs` | existing | Before WoL, query recovery events API for pod. Skip WoL if rc-sentry restarted recently (< 60s, verified=true). Write WOL_SENT sentinel via rc-sentry /exec before WoL. | Medium |
+| `racecontrol/cascade_guard.rs` | existing | Already handles same-authority bursts correctly per code review. | NONE |
+
+### New components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Recovery events API | `racecontrol/api/recovery.rs` | `POST /api/v1/recovery/events` -- rc-sentry reports restart actions to server. `GET /api/v1/recovery/events?pod_id=N&since_secs=60` -- pod_healer queries before WoL. |
+| Recovery events store | `racecontrol/state.rs` (extension) | `recovery_events: Arc<RwLock<VecDeque<RecoveryEvent>>>` with 200-item cap. In-memory only -- no DB. |
+
+---
+
+## Recommended Project Structure
+
+No new crates required. All changes go into existing files, plus one new API file.
 
 ```
-Priority (highest wins):
-  3. Per-pod runtime override  ← config_overrides table, pod_id="pod_3"
-  2. Global runtime override   ← config_overrides table, pod_id="*"
-  1. Static TOML               ← C:\RacingPoint\rc-agent.toml (never hot-reloaded)
-```
-
-**Rationale:** TOML remains the install-time baseline. SQLite overrides are additive. If the database
-is wiped, pods fall back to TOML — no brick risk. The distinction maps cleanly to operational roles:
-TOML is for deploy-time config (server IP, pod number, certs), SQLite overlay is for operational config
-(flags, thresholds, timeouts) that staff toggle from the dashboard.
-
-### New SQLite Tables
-
-```sql
--- Feature flag registry
-CREATE TABLE IF NOT EXISTS feature_flags (
-    flag_key     TEXT NOT NULL,
-    scope        TEXT NOT NULL CHECK(scope IN ('global', 'pod', 'service')),
-    target_id    TEXT NOT NULL DEFAULT '*',  -- pod_id or service_name, '*' = global
-    value        TEXT NOT NULL,              -- JSON-encoded value
-    updated_at   TEXT NOT NULL,
-    updated_by   TEXT NOT NULL DEFAULT 'admin',
-    PRIMARY KEY (flag_key, scope, target_id)
-);
-
--- Config push log (audit + replay on reconnect)
-CREATE TABLE IF NOT EXISTS config_push_log (
-    push_id      TEXT PRIMARY KEY,
-    pod_id       TEXT NOT NULL,
-    config_json  TEXT NOT NULL,
-    pushed_at    TEXT NOT NULL,
-    acked_at     TEXT,
-    ack_success  INTEGER,
-    error        TEXT
-);
-
--- OTA release registry
-CREATE TABLE IF NOT EXISTS ota_releases (
-    release_id   TEXT PRIMARY KEY,
-    version      TEXT NOT NULL,
-    manifest_url TEXT NOT NULL,
-    notes        TEXT,
-    state        TEXT NOT NULL CHECK(state IN ('pending','canary','rolling','complete','rolled_back','failed')),
-    created_at   TEXT NOT NULL,
-    completed_at TEXT
-);
-
--- Per-pod OTA deployment status
-CREATE TABLE IF NOT EXISTS ota_pod_status (
-    release_id   TEXT NOT NULL,
-    pod_id       TEXT NOT NULL,
-    state        TEXT NOT NULL CHECK(state IN ('pending','downloading','complete','rolled_back','failed')),
-    build_id     TEXT,
-    updated_at   TEXT NOT NULL,
-    PRIMARY KEY (release_id, pod_id)
-);
+crates/
++-- rc-common/src/
+|   +-- recovery.rs             # No changes -- types are sufficient
+|
++-- rc-sentry/src/
+|   +-- watchdog.rs             # No change -- FSM is correct
+|   +-- tier1_fixes.rs          # + MAINTENANCE_MODE auto-clear (age check + WOL_SENT file)
+|   +-- debug_memory.rs         # No change -- pattern memory is complete
+|   +-- main.rs                 # Add: POST recovery event to server after successful restart
+|
++-- rc-agent/src/
+|   +-- self_monitor.rs         # Gate relaunch_self() behind rc-sentry availability check
+|
++-- rc-watchdog/src/
+|   +-- service.rs              # + sentry breadcrumb grace window + health poll after spawn
+|
++-- racecontrol/src/
+    +-- api/
+    |   +-- recovery.rs         # NEW: POST + GET /api/v1/recovery/events
+    +-- state.rs                # + recovery_events VecDeque in AppState
+    +-- pod_healer.rs           # + query recovery events before WoL, write WOL_SENT sentinel
 ```
 
 ---
 
-## Cargo Feature Gates (compile-time)
+## Architectural Patterns
 
-The existing rc-agent has one feature flag: `keyboard-hook = []`. v22.0 adds major-module gates.
+### Pattern 1: Sentinel File Coordination
 
-```toml
-# crates/rc-agent/Cargo.toml [features]
-default = ["telemetry", "process-guard", "pre-flight"]
+**What:** A zero-size or small text file at a well-known path signals state between processes that
+cannot share memory. rc-sentry and rc-agent already use this for `GRACEFUL_RELAUNCH`,
+`RCAGENT_SELF_RESTART`, `MAINTENANCE_MODE`, `sentry-restart-breadcrumb.txt`.
 
-telemetry    = []   # UDP telemetry readers (AC, F1 25, iRacing, etc.)
-process-guard = []  # Process whitelist enforcement daemon
-pre-flight   = []   # Pre-session hardware checks
-ai-debugger  = []   # Local Ollama crash analysis
-keyboard-hook = []  # (existing) Low-level keyboard hook
-```
+**When to use:** Any cross-process state signal that must survive a process crash (cannot use IPC).
 
-```toml
-# crates/rc-sentry-ai/Cargo.toml [features]
-default = ["camera-ai"]
+**Trade-offs:** Race conditions possible if two processes check and write simultaneously. Mitigated
+by: single writer per sentinel, consumer clears after reading (consuming semantics), atomic write
+(tmp+rename for JSON files).
 
-camera-ai    = []   # YOLOv8 face detection / people tracking
-```
+**For v17.1:**
+- `WOL_SENT` sentinel: written by racecontrol (via rc-sentry /exec) to pod before WoL send. Allows
+  tier1_fixes to detect WoL and auto-clear MAINTENANCE_MODE.
+- `SENTRY_PRESENT` sentinel: not needed -- self_monitor uses HTTP health check instead (more reliable).
 
-**Gating pattern in source:**
-```rust
-#[cfg(feature = "telemetry")]
-mod udp_heartbeat;
-#[cfg(feature = "telemetry")]
-mod sims;
-```
+### Pattern 2: Authority-Scoped Recovery with JSONL Audit Log
 
-These gates enable building a stripped binary for test/canary scenarios and will serve as the
-compile-time anchor for the runtime feature flag system — a runtime flag can only affect a module
-that was compiled in.
+**What:** `RecoveryDecision` written to JSONL on every action (restart, skip, alert). Single
+canonical log per machine. Already mandatory via `RecoveryLogger`.
 
----
+**For v17.1:** rc-sentry must call `RecoveryLogger` after every restart attempt (success or
+failure). pod_healer reads server-side recovery events (in-memory VecDeque, fed from API endpoint)
+before escalating.
 
-## Hot-Reload Scope
+### Pattern 3: Graduated Response with Pattern Memory
 
-Not all config changes can be applied without a restart. The distinction matters for deployment safety.
+**What:** First try instant fix from memory. Then Tier 1 deterministic. Then AI escalation. Then
+staff alert. Each step escalates only if the previous failed.
 
-| Config Area | Hot-Reload | Mechanism | Notes |
-|-------------|-----------|-----------|-------|
-| Feature flags (all) | YES | In-memory map polled at subsystem check points | No restart needed |
-| process_guard.enabled / scan_interval | YES | ProcessGuard reads config on each scan tick | Module loops naturally |
-| preflight.enabled | YES | PreFlight reads config before each BillingStarted | Event-driven |
-| kiosk.enabled | YES | Kiosk checks on each lock screen render | |
-| pod.server_url (WebSocket target) | YES | Existing SwitchController message handles this | v10.0 feature |
-| ai_debugger.ollama_url / enabled | YES | AiDebugger reads config per query | |
-| pod.pod_id / pod_number | NO | Baked into startup registration | Requires restart |
-| telemetry_ports | NO | UDP sockets bound at startup | Requires restart |
-| games.* exe paths | NO | Used at game launch time; safe to push but only active on next launch | |
-| wheelbase.* | NO | HID device opened at startup | Requires restart |
+This pattern already exists in both james_monitor (4 steps) and rc-sentry (3 steps). v17.1 connects
+them via the recovery events API so the server knows what pod-level recovery has already occurred.
+
+### Pattern 4: Verified Restart (spawn success != child alive)
+
+**What:** After every restart call, poll the target's health endpoint for up to 20s. Only report
+`success: true` after receiving HTTP 200. Already implemented in `tier1_fixes::restart_service()`.
+
+**For v17.1:** rc-watchdog pod service must adopt the same pattern -- currently it fires
+`spawn_in_session1()` without verifying. Add poll after spawn.
 
 ---
 
-## Standing Rules Gate: Codification Approach
+## Data Flow: Recovery Events API
 
-The 41+ CLAUDE.md rules are categorized into 5 enforcement tiers for the gate module.
+### POST /api/v1/recovery/events (called by rc-sentry after restart)
 
-```
-Tier A — BLOCK release (hard fail, pipeline stops):
-  - Binary size >= 5MB (deploy.rs already has this)
-  - SHA256 match between manifest and downloaded artifact
-  - No active billing sessions on canary pod at OTA start
-  - Rollback binary (rc-agent-prev.exe) present on pod before swap
-  - Config validation at startup passes on canary pod
-
-Tier B — BLOCK release (process rules):
-  - Auto-push: git push completed before release tagged
-  - Bono synced: INBOX.md entry + WS send both completed
-  - Cascade update: all linked references updated when protocol changes
-  - No .unwrap() in new Rust code (cargo clippy --deny warnings)
-
-Tier C — WARN only (degrade gracefully, don't block):
-  - Health endpoint returns correct build_id after deploy
-  - LOGBOOK.md entry appended after deploy
-  - Standing rules CLAUDE.md updated if new rules added
-
-Tier D — AUDIT only (logged, not blocking):
-  - Deploy sequence used correct 6-step server deploy order
-  - Taskkill not combined with download in same exec chain
-
-Tier E — RUNTIME enforcement (per-operation, not per-release):
-  - Session billing preserved across OTA (queue if billing active)
-  - Recovery systems cannot fight each other (cascade_guard checks)
-  - No .unwrap() — enforced by clippy in CI, not by gate module
+```json
+{
+  "pod_id": "pod-3",
+  "authority": "rc_sentry",
+  "action": "restart",
+  "reason": "health_poll_failed_3x",
+  "context": "panic:overflow exit:101",
+  "verified": true,
+  "timestamp": "2026-03-25T10:30:00Z"
+}
 ```
 
-Gate implementation: `standing_rules_gate.rs` exports a single async fn `run_gate(release: &OtaRelease, state: &AppState) -> Result<(), Vec<RuleViolation>>`. The pipeline calls it before canary, before each batch, and before marking complete.
+Server: push to recovery_events VecDeque (cap 200), retain last 24h.
+Auth: None required -- internal LAN only (same as rc-sentry /exec).
+Non-blocking send: if server is unreachable, log warn and continue.
 
----
+### GET /api/v1/recovery/events?pod_id=pod-3&since_secs=60 (called by pod_healer)
 
-## Recommended Project File Structure
-
-```
-crates/racecontrol/src/
-├── feature_registry.rs   # NEW — SQLite-backed flag store, REST CRUD, push logic
-├── ota_pipeline.rs       # NEW — manifest ingestion, canary, staged rollout, rollback
-├── standing_rules_gate.rs # NEW — codified 41+ rule checks as executable assertions
-├── config_push.rs        # NEW — overlay queue, reconnect replay, ack tracking
-├── deploy.rs             # MODIFIED — OtaDownload now delegates here for swap script
-├── state.rs              # MODIFIED — 3 new RwLock fields
-├── api/
-│   └── routes.rs         # MODIFIED — new /features, /ota, /config/push routes
-
-crates/rc-common/src/
-├── protocol.rs           # MODIFIED — 7 new message variants (additive)
-├── types.rs              # MODIFIED — OtaReleaseState, FeatureFlagMap types
-
-crates/rc-agent/src/
-├── config.rs             # MODIFIED — RuntimeConfigOverlay + merge logic
-├── event_loop.rs         # MODIFIED — handle ConfigPush, FeatureFlagsUpdate, OtaDownload
-├── feature_flags.rs      # NEW — in-memory FeatureFlagMap with Arc<RwLock>
-
-crates/rc-agent/Cargo.toml  # MODIFIED — telemetry/process-guard/pre-flight feature gates
-crates/rc-sentry-ai/Cargo.toml # MODIFIED — camera-ai feature gate
+```json
+[
+  {
+    "pod_id": "pod-3",
+    "authority": "rc_sentry",
+    "action": "restart",
+    "verified": true,
+    "age_secs": 35
+  }
+]
 ```
 
----
-
-## Integration Points: What Changes vs What Stays the Same
-
-### Stays the Same (no changes)
-
-| Item | Why Unchanged |
-|------|--------------|
-| WebSocket transport (:8080/ws/agent) | New messages ride existing connection |
-| `AgentMessage`/`CoreToAgentMessage` serde format | Additive variants with `#[serde(tag = "type")]` — unknown variants ignored by older agents |
-| deploy.rs swap-script mechanism | OTA pipeline reuses it; no changes to `SWAP_SCRIPT_CONTENT` |
-| `AppState::agent_senders` map | Config push and feature flag push both use existing `agent_senders[pod_id].send()` |
-| `AppState::pending_deploys` | OTA pipeline reuses session-aware queuing that already exists |
-| TOML config files | Runtime overlay is additive; TOML remains the baseline |
-| Pod 8 canary pattern | OTA pipeline formalizes what is already an informal convention |
-| Static CRT constraint | All new Rust code compiles under existing `.cargo/config.toml` |
-
-### Changes (additive only, no breaking changes)
-
-| Item | Change |
-|------|--------|
-| `rc-common/protocol.rs` | +7 message variants on existing enums |
-| `rc-common/types.rs` | +4 new types (OtaReleaseState, FeatureFlagMap, RuntimeConfigOverlay, RuleViolation) |
-| `AppState` | +3 RwLock fields appended to struct |
-| `rc-agent/config.rs` | +RuntimeConfigOverlay merged at runtime; static AgentConfig untouched |
-| SQLite schema | +4 new tables; all existing tables untouched |
-| Admin dashboard | +2 new pages; existing pages untouched |
-
----
-
-## Offline Pod Handling
-
-Config push and feature flag updates must handle the 8-pod fleet where pods can be offline (maintenance,
-power-off, network drop). The existing `AppState::pending_deploys` pattern is the proven model.
-
-```
-Pod is offline when push is triggered:
-  └── pending_config_pushes[pod_id] = latest ConfigBundle   (overwrites stale)
-  └── pending_feature_flags[pod_id] = latest FlagSnapshot   (overwrites stale)
-
-Pod reconnects (ws/mod.rs handles AgentMessage::Register):
-  └── ws handler checks pending_config_pushes[pod_id]
-  └── if present → send CoreToAgentMessage::ConfigPush immediately after Registered ack
-  └── same for FeatureFlagsUpdate (send full snapshot, is_snapshot=true)
-  └── clear pending entries after ack received
-```
-
-This is the same pattern as `pending_deploys`. The reconnect handler in `ws/mod.rs` already handles
-`Register` → `Registered` → immediate command sequence. The new push logic slots into the same spot.
+pod_healer logic:
+- Any event with `verified=true` AND `age_secs < 60`: skip WoL, wait next cycle.
+- Any event with `verified=false` AND `age_secs < 120`: rc-sentry tried and failed, WoL appropriate.
+- No events: pod_healer acts normally (WoL at step 2 of PodRecoveryTracker).
 
 ---
 
 ## Build Order
 
-Dependencies between components determine build order. Changes to `rc-common` block agent and server.
-Admin dashboard is fully independent (uses REST, not WS).
+The build order is driven by two constraints: shared infrastructure precedes consumers, and the
+recovery events API must be deployed to the server before rc-sentry starts reporting to it.
 
-```
-Phase 1: Protocol Foundation (rc-common)
-  - Add 7 new protocol message variants
-  - Add 4 new types
-  BLOCKS: everything else that touches protocol
-  RISK: any protocol change requires rebuilding rc-agent + racecontrol
+### Phase 1 -- racecontrol: Recovery Events API
 
-Phase 2: Server-Side Registry (racecontrol)
-  - SQLite schema (4 tables)
-  - feature_registry.rs
-  - config_push.rs
-  - state.rs AppState additions
-  - REST endpoints (/features, /config/push)
-  DEPENDS ON: Phase 1
-  UNBLOCKS: admin dashboard can now be built and tested
+Add `api/recovery.rs` with `POST /api/v1/recovery/events` and `GET /api/v1/recovery/events`.
+Add `recovery_events: Arc<RwLock<VecDeque<RecoveryEvent>>>` to `AppState`.
+Register routes in `main.rs`.
 
-Phase 3: Agent-Side Consumer (rc-agent)
-  - RuntimeConfigOverlay in config.rs
-  - feature_flags.rs in-memory map
-  - event_loop.rs message handlers
-  - Cargo.toml feature gates
-  DEPENDS ON: Phase 1
-  PARALLEL WITH: Phase 2 (both depend on Phase 1, not on each other)
+**Crate:** `racecontrol`
+**Deploy:** Server rebuild + deploy. This must land BEFORE Phase 2.
+**Verification:** `curl -X POST http://192.168.31.23:8080/api/v1/recovery/events -d '{"pod_id":"pod-8","authority":"rc_sentry","action":"restart","reason":"test","verified":true}'` returns 200.
 
-Phase 4: OTA Pipeline (racecontrol)
-  - ota_pipeline.rs
-  - standing_rules_gate.rs
-  - deploy.rs integration
-  - ota_releases / ota_pod_status tables
-  DEPENDS ON: Phase 2 (needs AppState OTA state fields)
-  DEPENDS ON: Phase 3 (OtaDownload handler must exist in rc-agent before pipeline sends it)
-  NOTE: Phase 3 and Phase 4 are sequential here — canary requires agent to handle OtaDownload
+### Phase 2 -- rc-sentry: Report to recovery events API
 
-Phase 5: Admin Dashboard UI
-  - Feature toggle page
-  - OTA release trigger page
-  - Standing rules status display
-  DEPENDS ON: Phase 2 REST endpoints (can be built in parallel once API contract is set)
-  DEPENDS ON: Phase 4 for OTA trigger UI (can mock with stub endpoints during development)
+After `restart_service()` returns (success or failure), POST to the recovery events endpoint.
+Non-blocking: `run_cmd_sync` with 3s timeout. Server unreachable -> log warn, continue.
+Also: read GRACEFUL_RELAUNCH and RCAGENT_SELF_RESTART sentinels correctly (already done).
 
-Phase 6: Standing Rules Codification (standing_rules_gate.rs)
-  - Codify Tier A/B rules as executable checks
-  - Wire gate into ota_pipeline.rs pre-canary and pre-batch checks
-  DEPENDS ON: Phase 4 (pipeline must exist to wire gate into)
-  NOTE: Tier C/D/E rules do not block pipeline — can be added incrementally after ship
-```
+**Crate:** `rc-sentry`
+**Deploy:** Pod rebuild + fleet deploy. Start from Pod 8 canary.
+**Verification:** Kill rc-agent on Pod 8 manually. Confirm event appears in `GET /api/v1/recovery/events?pod_id=pod-8&since_secs=60`.
 
-**Parallel opportunity:** Phase 2 (server registry) and Phase 3 (agent consumer) can both proceed
-after Phase 1 lands. A two-developer team can split here. Single developer should do Phase 2 first
-to get testable REST endpoints before touching the agent.
+### Phase 3 -- racecontrol: pod_healer WoL coordination
+
+Modify `run_graduated_recovery()` in `pod_healer.rs`:
+- Before WoL: query recovery events API for the pod.
+- If rc-sentry restarted within 60s with `verified=true`: skip WoL, stay in Waiting step.
+- Before WoL send: write `WOL_SENT` to pod via rc-sentry `/exec` (`echo WOL_SENT > C:\RacingPoint\WOL_SENT`).
+
+**Crate:** `racecontrol`
+**Deploy:** Server rebuild + deploy.
+**Verification:** Kill rc-agent on Pod 8. Observe: rc-sentry restarts within 20s. pod_healer skips WoL. Check `recovery-log.jsonl` on pod and server.
+
+### Phase 4 -- rc-sentry: MAINTENANCE_MODE auto-clear
+
+In `tier1_fixes::handle_crash()`, when MAINTENANCE_MODE is active: check file age via
+`std::fs::metadata(MAINTENANCE_FILE).modified()`. If older than 30min AND
+`C:\RacingPoint\WOL_SENT` exists: delete both sentinel files and proceed with restart.
+
+This ends the WoL infinite loop by giving MAINTENANCE_MODE a 30-minute TTL post-WoL.
+
+**Crate:** `rc-sentry`
+**Deploy:** Pod rebuild + fleet deploy (can batch with Phase 2 if timing allows).
+**Verification:** Simulate MAINTENANCE_MODE scenario: write the file, age it, write WOL_SENT, trigger crash. Confirm MAINTENANCE_MODE is cleared and restart proceeds.
+
+### Phase 5 -- rc-agent: self_monitor coordination
+
+Modify `self_monitor.rs relaunch_self()`:
+1. Try TCP connect to `:8091` with 2s timeout.
+2. If rc-sentry responds: write `GRACEFUL_RELAUNCH` sentinel, log event, call `std::process::exit(0)`.
+   Do NOT spawn PowerShell. rc-sentry will pick up the crash within 15s.
+3. If rc-sentry NOT reachable: fall through to existing PowerShell+DETACHED_PROCESS path.
+   This is the fallback for when rc-sentry itself has crashed.
+
+**Crate:** `rc-agent`
+**Deploy:** Pod rebuild + fleet deploy.
+**Verification on Pod 8:**
+1. Kill rc-sentry (confirm sentry is down).
+2. Kill rc-agent (WS dead simulation). Observe self_monitor fires PowerShell path.
+3. Restart rc-sentry.
+4. Kill rc-agent again. Observe self_monitor uses sentinel path (no PowerShell spawn, sentry handles restart within 15s).
+
+### Phase 6 -- rc-watchdog: sentry breadcrumb grace window
+
+Modify `service.rs` poll loop:
+1. After detecting rc-agent absent: read `C:\RacingPoint\sentry-restart-breadcrumb.txt` modified time.
+2. If modified within last 30s: skip restart attempt, log "grace window active", wait one cycle.
+3. After `spawn_in_session1()` succeeds: add health poll -- connect to `:8090/health` for up to 15s.
+   If no response, log warn. If response: log verified.
+
+**Crate:** `rc-watchdog`
+**Deploy:** Pod binary + Windows Service update (requires service stop/start).
+**Verification:** Confirm rc-watchdog does not fire within 30s of a rc-sentry restart attempt.
+
+---
+
+## Integration Points with Existing Crates
+
+| Point | Consumer | Provider | Interface |
+|-------|----------|----------|-----------|
+| Recovery events write | rc-sentry (after restart) | racecontrol REST | `POST /api/v1/recovery/events` (JSON, no auth) |
+| Recovery events read | pod_healer (before WoL) | racecontrol state | In-process: `state.recovery_events.read().await` |
+| WOL_SENT sentinel write | pod_healer (via rc-sentry exec) | tier1_fixes (reads) | File: `C:\RacingPoint\WOL_SENT` |
+| GRACEFUL_RELAUNCH sentinel | self_monitor (writes) | tier1_fixes (reads + clears) | File: `C:\RacingPoint\GRACEFUL_RELAUNCH` -- already working |
+| sentry breadcrumb | tier1_fixes (writes) | rc-watchdog (reads) | File: `C:\RacingPoint\sentry-restart-breadcrumb.txt` -- already written |
+| Ollama (Tier 3 AI) | rc-sentry ollama.rs | James .27 :11434 | HTTP POST `/api/generate` -- already wired |
+| Pattern memory | rc-sentry debug_memory.rs | rc-sentry itself | `C:\RacingPoint\debug-memory-sentry.json` -- already working |
+| Recovery JSONL audit | All authorities | RecoveryLogger | Append-only JSONL -- already wired for all 3 authorities |
+| cascade_guard | pod_healer | racecontrol AppState | In-process `state.cascade_guard` -- unchanged |
+
+---
+
+## Windows Process Management: Known Constraints
+
+These are production-proven constraints from the codebase. Any code that launches processes must
+respect all of them.
+
+| Constraint | Impact | Resolution |
+|------------|--------|------------|
+| `spawn().is_ok()` != child alive | Silent false restarts | Always poll health endpoint after spawn (20s) |
+| Non-interactive context blocks Session 1 launch | `schtasks /Run` via direct `Command::new` silently fails | Route through `run_cmd_sync()` (cmd.exe /C) -- proven working path |
+| MAINTENANCE_MODE has no TTL | Permanent pod death after 3 crashes in 10min | Phase 4: add 30min auto-clear on WoL detection |
+| DETACHED_PROCESS leaks PowerShell (~90MB/restart) | RAM creep on self_monitor restarts | Phase 5: self_monitor defers to rc-sentry, PowerShell path becomes rare fallback |
+| `tasklist /FI "IMAGENAME"` returns empty on filter miss | False "process dead" detection | Prefer TCP health connect over process name scan |
+| Windows holds .exe file lock while running | `move /Y` fails on live binary | Rename trick: ren old.exe -> old-bak.exe, ren new.exe -> old.exe, then kill+start |
+| `schtasks /Run` fails from SYSTEM context (non-interactive) | rc-watchdog service cannot restart rc-agent directly | `run_cmd_sync()` routes through cmd.exe which has different creation context |
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: New Port for Config Push
+### Anti-Pattern 1: Self-Monitor Acting as Recovery Authority
 
-**What people do:** Add a separate HTTP endpoint on rc-agent (:8091) for config push, parallel to WebSocket.
+**What people do:** `self_monitor.rs` calls `relaunch_self()` unconditionally whenever WS is dead or
+CLOSE_WAIT floods.
 
-**Why it's wrong:** Firewall rules are tight on pods. Adding a new port requires updating HKCU firewall rules
-on all 8 pods across all 8 machines. More failure surface. Standing rule DEPLOY-01 (config validation at
-startup) would need to cover two transports.
+**Why it's wrong:** self_monitor is inside the patient (rc-agent). If rc-sentry is also watching,
+both systems independently decide to restart rc-agent at different offsets. rc-sentry's schtasks
+path waits 5s for port to clear; self_monitor's PowerShell waits 3s. Both fire, both try to bind
+:8090, one fails silently, pod stays dead even though both watchdogs logged "success".
 
-**Do this instead:** Ride the existing WebSocket agent connection. `CoreToAgentMessage::ConfigPush` reaches
-the agent on the same connection that already carries Exec, LaunchGame, etc. No new ports, no new firewall
-rules.
+**Do this instead:** self_monitor checks rc-sentry health first (TCP to :8091, 2s timeout). If
+sentry is alive, write GRACEFUL_RELAUNCH and exit. Let sentry own the restart.
 
-### Anti-Pattern 2: Hot-Reload Everything
+### Anti-Pattern 2: WoL Without MAINTENANCE_MODE Check
 
-**What people do:** Implement hot-reload for all config changes, including pod_id, UDP socket bindings,
-and HID device handles.
+**What people do:** pod_healer sends WoL when pod appears offline, regardless of why.
 
-**Why it's wrong:** UDP sockets and HID handles are bound at startup and are not safely reacquirable
-without a restart. Attempting mid-session hot-reload of these causes CLOSE_WAIT leaks (the exact leak
-already diagnosed and fixed in v8.0) and HID descriptor mismatches.
+**Why it's wrong:** A pod in MAINTENANCE_MODE went offline intentionally (3+ crashes in 10min). WoL
+revives it. rc-agent starts. rc-sentry sees MAINTENANCE_MODE -> skips restart. Pod goes offline
+again immediately. WoL fires again. Infinite loop until manual intervention.
 
-**Do this instead:** Only hot-reload subsystems that poll config at natural check points (process_guard
-scan tick, preflight BillingStarted event, kiosk lock screen render). Flag everything else as
-`requires_restart: true` in the ConfigAck response. The agent applies the value but does not act
-on it until the next startup.
+**Do this instead:** Before WoL, query rc-sentry `/files` endpoint to check if MAINTENANCE_MODE
+exists. If it does and is recent (< 30min), skip WoL and alert staff instead. Write WOL_SENT first
+if WoL is appropriate (allows tier1_fixes to auto-clear on the other side).
 
-### Anti-Pattern 3: Feature Flags Replace Cargo Features
+### Anti-Pattern 3: Tasklist-Based Process Detection as Primary Signal
 
-**What people do:** Use runtime feature flags as a substitute for compile-time Cargo feature gates,
-keeping all code compiled in and just toggling it at runtime.
+**What people do:** rc-watchdog uses `tasklist /FI "IMAGENAME eq rc-agent.exe"` as the only signal
+for crash detection.
 
-**Why it's wrong:** Binary size on pods matters (static CRT + all features = large exe). Modules like
-`ai-debugger` pull in reqwest + serde_json + tokio for Ollama calls. Compiling them into a stripped
-"kiosk-only" build when they are never used is wasteful. More importantly, compile-time exclusion
-prevents entire classes of runtime failure in those paths.
+**Why it's wrong:** `tasklist /FI` returns empty output (not error) when the filter matches nothing
+on some Windows configurations. The conservative fallback (`assume_running=true` on error) is
+correct but the filter-miss case is the same as "process absent" -- indistinguishable.
 
-**Do this instead:** Use Cargo feature gates for major modules (whether the code ships at all).
-Use runtime flags for operational control within compiled-in modules (whether a compiled-in module
-is active on a specific pod). Both layers have a role; they are not interchangeable.
+**Do this instead:** Prefer HTTP health poll (`/health` endpoint, TCP connect to :8090) as the
+ground truth. tasklist is a secondary signal only. The health endpoint is exactly what rc-sentry
+watchdog uses and it works reliably.
 
-### Anti-Pattern 4: Blocking OTA on Active Sessions Without Queuing
+### Anti-Pattern 4: Non-Interactive Spawn Without Verification
 
-**What people do:** Abort OTA for pods with active billing sessions, requiring manual retry later.
+**What people do:** `Command::new("schtasks").args(["/Run", ...]).spawn()` returns Ok -- code
+assumes child started.
 
-**Why it's wrong:** Racing Point operates continuous sessions. Pods are in session most of the day.
-An OTA that skips in-session pods leaves a split-version fleet indefinitely.
+**Why it's wrong:** On Windows, `spawn()` returning Ok means `CreateProcess` was accepted, not that
+the child executed successfully. In non-interactive contexts (SYSTEM service, rc-sentry without
+attached console), `schtasks /Run` and `PowerShell Start-Process` silently fail to launch into
+Session 1. This is documented in CLAUDE.md standing rules and confirmed by rc-sentry's
+DEBUG-RESTART-ISSUE investigation.
 
-**Do this instead:** Reuse `AppState::pending_deploys` — this mechanism already exists and already
-handles deferred deploy on session-end. The OTA pipeline registers the OtaDownload message in
-`pending_deploys`, and the existing session-end handler dispatches it automatically.
+**Do this instead:** Use `run_cmd_sync("schtasks /Run /TN StartRCAgent", ...)` (routes through
+`cmd.exe /C`), then poll the health endpoint for 20s before declaring success. This is the proven
+working pattern already in `tier1_fixes::restart_service()`.
 
----
+### Anti-Pattern 5: Uncoordinated Parallel Recovery (Standing Rule 10 Violation)
 
-## Scalability Considerations
+**What people do:** Add a new watchdog or health check without checking what else is watching the
+same process.
 
-This is an 8-pod local fleet. The architecture choices reflect that scale.
+**Why it's wrong:** Every new recovery actor watching rc-agent adds another independent restart
+source. Three actors with different delays and different methods create a race that none of them
+can win cleanly. The port :8090 cannot be bound by two processes simultaneously.
 
-| Concern | At 8 pods (current) | If fleet grows to 50+ pods |
-|---------|---------------------|---------------------------|
-| Config push fan-out | Sequential send to all connected agents is fine | Batch sends, add per-pod send queue |
-| Feature flag storage | SQLite with per-pod rows is fine | SQLite remains fine up to ~500 pods |
-| OTA canary → staged | 1 canary + 7 sequential is fine | Need batch size as % of fleet, parallel batches |
-| Standing rules gate | All checks are local (no network) — sub-100ms | Remains fast; only audit trail needs pagination |
-| Reconnect replay | Full snapshot push on reconnect is fine | Same; snapshot is small (flags + config overlay) |
+**Do this instead:** Before adding any restart logic, check `RecoveryAuthority` ownership map. If
+a process is already owned by an authority, new code must either coordinate via sentinel files or
+the recovery events API, or act only as a last-resort fallback that yields to the primary owner.
 
 ---
 
 ## Sources
 
-- Verified against live source: `crates/rc-common/src/protocol.rs` (AgentMessage, CoreToAgentMessage enums)
-- Verified against live source: `crates/racecontrol/src/state.rs` (AppState struct, existing pending_deploys pattern)
-- Verified against live source: `crates/racecontrol/src/deploy.rs` (swap-script mechanism, validate_binary_size, rollback script)
-- Verified against live source: `crates/rc-agent/src/config.rs` (AgentConfig struct, existing runtime flag: ac_evo_telemetry_enabled)
-- Verified against live source: `crates/rc-agent/Cargo.toml` (existing keyboard-hook feature gate)
-- Verified against live source: `crates/racecontrol/src/ws/mod.rs` (agent_senders channel, Register → Registered → immediate command pattern)
-- Standing rules source: `CLAUDE.md` (41+ rules, 7 categories)
-- Architecture constraint: PROJECT.md v22.0 milestone spec
+- Direct code analysis: `crates/rc-sentry/src/{watchdog.rs, tier1_fixes.rs, debug_memory.rs, main.rs}` (2026-03-25)
+- Direct code analysis: `crates/rc-agent/src/self_monitor.rs` (2026-03-25)
+- Direct code analysis: `crates/racecontrol/src/{pod_healer.rs, pod_monitor.rs, cascade_guard.rs, wol.rs}` (2026-03-25)
+- Direct code analysis: `crates/rc-watchdog/src/{main.rs, service.rs, james_monitor.rs}` (2026-03-25)
+- Direct code analysis: `crates/rc-common/src/recovery.rs` (2026-03-25)
+- `.planning/PROJECT.md` -- v17.1 milestone context, incident history, known constraints
+- `CLAUDE.md` standing rules -- `.spawn().is_ok()` warning, MAINTENANCE_MODE silent killer,
+  non-interactive context limits, DETACHED_PROCESS PowerShell leak, cascade guard rule (#10)
 
 ---
 
-*Architecture research for: v22.0 Feature Management & OTA Pipeline*
-*Researched: 2026-03-23*
+*Architecture research for: v17.1 Watchdog-to-AI Migration*
+*Researched: 2026-03-25*
