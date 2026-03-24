@@ -734,11 +734,12 @@ pub struct AiDebugSuggestion {
 /// Deploy lifecycle state for a single pod.
 /// Tracks progress through the kill->verify->download->start->verify sequence.
 /// Used by the deploy executor (racecontrol) and displayed in the kiosk dashboard.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "state", content = "detail")]
 #[serde(rename_all = "snake_case")]
 pub enum DeployState {
     /// No deploy in progress
+    #[default]
     Idle,
     /// Sending taskkill to rc-agent.exe
     Killing,
@@ -766,11 +767,6 @@ pub enum DeployState {
     RollingBack,
 }
 
-impl Default for DeployState {
-    fn default() -> Self {
-        DeployState::Idle
-    }
-}
 
 impl DeployState {
     /// Returns true if a deploy is actively in progress (not idle, complete, failed, or waiting).

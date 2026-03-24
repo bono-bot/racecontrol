@@ -13,6 +13,12 @@ pub struct EscalatingBackoff {
     steps: Vec<Duration>,
 }
 
+impl Default for EscalatingBackoff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EscalatingBackoff {
     /// Default escalation steps: 30s, 2m, 10m, 30m.
     const DEFAULT_STEPS: &[u64] = &[30, 120, 600, 1800];
