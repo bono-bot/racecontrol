@@ -7,6 +7,7 @@
 //! This module is write-only. HID input reading lives in `driving_detector.rs`.
 
 use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+use rc_common::types::SimType;
 
 const LOG_TARGET: &str = "ffb";
 
@@ -595,6 +596,122 @@ const VENUE_GAME_KEYS: &[&str] = &[
     "Assetto Corsa Competizione",
     "ASSETTO_CORSA_EVO", // Confirmed from Pod 8 GameToBaseConfig.json (2026-03-24)
 ];
+
+// ─── Phase 60: Pre-Launch Profile Loading ─────────────────────────────────
+
+/// Map a SimType to the corresponding ConspitLink game key.
+/// Returns None for unrecognized games (no ConspitLink preset available).
+fn sim_type_to_game_key(sim_type: SimType) -> Option<&'static str> {
+    match sim_type {
+        SimType::AssettoCorsa => Some("Assetto Corsa"),
+        SimType::AssettoCorsaRally => Some("Assetto Corsa"), // shares AC physics engine
+        SimType::F125 => Some("F1 25"),
+        SimType::AssettoCorsaEvo => Some("ASSETTO_CORSA_EVO"),
+        _ => None, // IRacing, LeMansUltimate, Forza, ForzaHorizon5
+    }
+}
+
+/// Write `LastUsedPreset` to Global.json in the runtime directory.
+/// Does NOT restart ConspitLink — caller handles that.
+fn force_preset_via_global_json(game_key: &str, runtime_dir: Option<&std::path::Path>) -> Result<(), String> {
+    let base = runtime_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(RUNTIME_DIR));
+    let global_path = base.join("Global.json");
+
+    let content = std::fs::read_to_string(&global_path)
+        .map_err(|e| format!("Failed to read Global.json at {}: {}", global_path.display(), e))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse Global.json: {}", e))?;
+
+    json["LastUsedPreset"] = serde_json::Value::String(game_key.to_string());
+
+    let output = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize Global.json: {}", e))?;
+    std::fs::write(&global_path, output)
+        .map_err(|e| format!("Failed to write Global.json: {}", e))?;
+
+    tracing::info!(target: LOG_TARGET_CFG, "Forced LastUsedPreset to '{}' in {}", game_key, global_path.display());
+    Ok(())
+}
+
+/// Apply safe fallback for unrecognized games: 50% power cap + gentle centering spring.
+/// HID failures are non-fatal (no device on dev machine is expected).
+fn apply_unrecognized_game_fallback(sim_type: SimType) -> Result<(), String> {
+    tracing::warn!(
+        target: LOG_TARGET,
+        "Unrecognized game {:?} -- applying safe fallback: 50% power cap + idlespring centering",
+        sim_type
+    );
+
+    let ffb = FfbController::new(0x1209, 0xFFB0);
+    if let Err(e) = ffb.set_gain(50) {
+        tracing::debug!(target: LOG_TARGET, "Safe fallback set_gain failed (expected on dev): {}", e);
+    }
+    if let Err(e) = ffb.set_idle_spring(500) {
+        tracing::debug!(target: LOG_TARGET, "Safe fallback set_idle_spring failed (expected on dev): {}", e);
+    }
+
+    Ok(())
+}
+
+/// Wait for ConspitLink auto-detect or force preset if CL wasn't running.
+/// - If CL was running: trust Phase 59 auto-detect, wait 3s grace period
+/// - If CL was NOT running: start CL, force preset via Global.json, restart CL
+fn wait_for_cl_or_force_preset(game_key: &str, runtime_dir: Option<&std::path::Path>) -> Result<(), String> {
+    // Guard: don't fight with safe_session_end()
+    for _ in 0..6 {
+        if !SESSION_END_IN_PROGRESS.load(Ordering::Acquire) {
+            break;
+        }
+        tracing::debug!(target: LOG_TARGET_CFG, "SESSION_END_IN_PROGRESS — waiting 500ms before pre-load");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    if SESSION_END_IN_PROGRESS.load(Ordering::Acquire) {
+        return Err("SESSION_END_IN_PROGRESS still active after 3s — skipping pre-load".to_string());
+    }
+
+    let cl_was_running = crate::ac_launcher::is_process_running("ConspitLink2.0.exe");
+
+    if cl_was_running {
+        // Trust Phase 59 auto-detect. Wait 3s grace period.
+        tracing::info!(target: LOG_TARGET_CFG, "ConspitLink running — trusting auto-detect for '{}'", game_key);
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        return Ok(());
+    }
+
+    // CL was NOT running — force preset
+    tracing::info!(target: LOG_TARGET_CFG, "ConspitLink not running — forcing preset '{}'", game_key);
+    crate::ac_launcher::ensure_conspit_link_running();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    force_preset_via_global_json(game_key, runtime_dir)?;
+
+    #[cfg(windows)]
+    {
+        restart_conspit_link_hardened(false);
+    }
+
+    Ok(())
+}
+
+/// Pre-load the correct FFB preset before game launch.
+/// - Recognized games: force ConspitLink preset (if CL wasn't running)
+/// - Unrecognized games: apply safe 50% power cap + gentle centering
+///
+/// Designed to be called from `spawn_blocking` in the LaunchGame handler.
+/// Failures are non-fatal — caller must handle errors gracefully.
+pub fn pre_load_game_preset(sim_type: SimType, runtime_dir: Option<&std::path::Path>) -> Result<(), String> {
+    match sim_type_to_game_key(sim_type) {
+        Some(key) => {
+            tracing::info!(target: LOG_TARGET_CFG, "Pre-loading preset for {:?} (key: '{}')", sim_type, key);
+            wait_for_cl_or_force_preset(key, runtime_dir)
+        }
+        None => apply_unrecognized_game_fallback(sim_type),
+    }
+}
 
 /// Result of the auto-switch config self-heal operation.
 pub struct AutoSwitchConfigResult {
@@ -1640,5 +1757,119 @@ mod tests {
         assert!(result.global_json_placed, "global_json_placed must be true after dir creation");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ─── Pre-Launch Profile Loading Tests (Phase 60) ─────────────────────────
+
+    #[test]
+    fn test_sim_type_to_game_key_recognized() {
+        assert_eq!(sim_type_to_game_key(SimType::AssettoCorsa), Some("Assetto Corsa"));
+        assert_eq!(sim_type_to_game_key(SimType::F125), Some("F1 25"));
+        assert_eq!(sim_type_to_game_key(SimType::AssettoCorsaEvo), Some("ASSETTO_CORSA_EVO"));
+    }
+
+    #[test]
+    fn test_sim_type_to_game_key_unrecognized() {
+        assert_eq!(sim_type_to_game_key(SimType::Forza), None);
+        assert_eq!(sim_type_to_game_key(SimType::ForzaHorizon5), None);
+        assert_eq!(sim_type_to_game_key(SimType::IRacing), None);
+        assert_eq!(sim_type_to_game_key(SimType::LeMansUltimate), None);
+    }
+
+    #[test]
+    fn test_sim_type_to_game_key_rally() {
+        // AssettoCorsaRally shares AC physics engine — maps to "Assetto Corsa"
+        assert_eq!(sim_type_to_game_key(SimType::AssettoCorsaRally), Some("Assetto Corsa"));
+    }
+
+    #[test]
+    fn test_pre_load_recognized_game_writes_last_used_preset() {
+        let dir = std::env::temp_dir().join("pre_load_test_recognized");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Seed Global.json with a different preset
+        let global = serde_json::json!({
+            "AresAutoChangeConfig": "open",
+            "LastUsedPreset": "F1 25"
+        });
+        std::fs::write(
+            dir.join("Global.json"),
+            serde_json::to_string_pretty(&global).unwrap(),
+        ).unwrap();
+
+        // Force preset for Assetto Corsa
+        let result = force_preset_via_global_json("Assetto Corsa", Some(&dir));
+        assert!(result.is_ok(), "force_preset_via_global_json should succeed: {:?}", result);
+
+        let updated: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("Global.json")).unwrap()
+        ).unwrap();
+        assert_eq!(
+            updated["LastUsedPreset"], "Assetto Corsa",
+            "LastUsedPreset must be updated to 'Assetto Corsa'"
+        );
+        assert_eq!(
+            updated["AresAutoChangeConfig"], "open",
+            "AresAutoChangeConfig must be preserved"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_pre_load_unrecognized_game_does_not_write_global_json() {
+        let dir = std::env::temp_dir().join("pre_load_test_unrecognized");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let global = serde_json::json!({
+            "AresAutoChangeConfig": "open"
+        });
+        let original = serde_json::to_string_pretty(&global).unwrap();
+        std::fs::write(dir.join("Global.json"), &original).unwrap();
+
+        // pre_load_game_preset for Forza should NOT touch Global.json
+        let result = pre_load_game_preset(SimType::Forza, Some(&dir));
+        assert!(result.is_ok(), "pre_load_game_preset should succeed for unrecognized");
+
+        let after = std::fs::read_to_string(dir.join("Global.json")).unwrap();
+        assert_eq!(after, original, "Global.json must be unchanged for unrecognized games");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_force_preset_via_global_json_writes_correctly() {
+        let dir = std::env::temp_dir().join("pre_load_test_force_write");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let global = serde_json::json!({ "AresAutoChangeConfig": "open" });
+        std::fs::write(
+            dir.join("Global.json"),
+            serde_json::to_string_pretty(&global).unwrap(),
+        ).unwrap();
+
+        let result = force_preset_via_global_json("F1 25", Some(&dir));
+        assert!(result.is_ok());
+
+        let updated: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("Global.json")).unwrap()
+        ).unwrap();
+        assert_eq!(updated["LastUsedPreset"], "F1 25");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_force_preset_via_global_json_missing_file() {
+        let dir = std::env::temp_dir().join("pre_load_test_missing_file");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // No Global.json created
+
+        let result = force_preset_via_global_json("F1 25", Some(&dir));
+        assert!(result.is_err(), "Should return Err when Global.json is missing");
     }
 }
