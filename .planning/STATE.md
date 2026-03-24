@@ -2,23 +2,27 @@
 gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
-status: roadmap_ready
-stopped_at: null
-last_updated: "2026-03-23T18:30:00+05:30"
+status: in_progress
+stopped_at: "Completed 176-01-PLAN.md"
+last_updated: "2026-03-24T00:00:00+05:30"
 current_phase: 176
 current_phase_name: Protocol Foundation + Cargo Gates
-current_plan: null
+current_plan: 01
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 5
 decisions:
   - "Single-binary-tier policy adopted: per-pod behavioral differences expressed via runtime flag registry, not separate Cargo builds"
   - "Phase ordering: 176 foundation -> 177 server and 178 agent (parallel) -> 179 OTA -> 180 admin UI (parallel with 179 after 177) -> 181 gates"
   - "OTA binary identity uses SHA256 content hash not git commit hash per research pitfall 3"
   - "Config push must NEVER route through fleet exec endpoint -- WebSocket typed ConfigPush only"
+  - "Telemetry excluded from Cargo feature gates -- too entangled with billing/game state (SimAdapter trait, event loop 100ms tick, AC billing bypass). Runtime flag only."
+  - "Serde #[serde(other)] catch-all added to AgentMessage + CoreToAgentMessage in Phase 176 -- must deploy updated binaries to all pods BEFORE adding new message variants (two-step deploy)"
+  - "rc-sentry added to scope -- feature gates: watchdog, tier1-fixes, ai-diagnosis. Gets flags via local config from rc-agent (no WS to server)."
+  - "176-01: serde adjacently-tagged + #[serde(other)] only discards content when data is null; non-null map data with unknown type requires custom deserializer (deferred)"
 blockers: []
 ---
 

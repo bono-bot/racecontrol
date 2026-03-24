@@ -748,3 +748,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 09:24 IST | James | 3afbe827 | feat(175-01): add E2E test runner script run-e2e.sh — 48 automated tests, 180+ manual_test entries, pre-flight health check, section counters, filter flags |
 | 2026-03-23 09:24 IST | James | b8908888 | feat(175-01): add E2E-REPORT-TEMPLATE.md — 24-section summary table, 230 manual checkboxes, Failures Log, Known Issues, sign-off checklist |
 | 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
+| 2026-03-24 00:15 IST | James | 5e609056 | feat(176-01): add Unknown catch-all + 7 new message variant stubs to protocol enums (AgentMessage, CoreToAgentMessage) |
+| 2026-03-24 00:15 IST | James | a8be649d | test(176-01): add 10 serde forward-compat + roundtrip tests, 168 total pass |

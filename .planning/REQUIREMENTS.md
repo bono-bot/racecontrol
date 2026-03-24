@@ -40,9 +40,14 @@
 
 ### Cargo Feature Gates
 
-- [ ] **CF-01**: rc-agent Cargo.toml has feature flags for major optional modules (telemetry, ai-debugger, process-guard) — modules can be compiled out entirely
+- [ ] **CF-01**: rc-agent Cargo.toml has feature flags for major optional modules (ai-debugger, process-guard) — modules can be compiled out entirely. Telemetry excluded: too deeply woven into billing/game state machine to gate.
 - [ ] **CF-02**: Default features = full production build — no manual flag selection required for standard pod deploy
-- [ ] **CF-03**: CI verifies both default and minimal (--no-default-features) builds compile cleanly
+- [ ] **CF-03**: CI verifies both default and minimal (--no-default-features) builds compile cleanly for both rc-agent and rc-sentry
+- [ ] **CF-04**: rc-sentry Cargo.toml has feature flags for optional modules (watchdog, tier1-fixes, ai-diagnosis) — bare binary with all features off is a remote-exec-only tool on port 8091
+
+### Protocol Forward-Compatibility
+
+- [x] **PFC-01**: AgentMessage and CoreToAgentMessage enums have an Unknown catch-all variant with #[serde(other)] — older binaries silently ignore new message types instead of crashing on deserialization. Must be deployed to all pods BEFORE any new message variants are added.
 
 ### Standing Rules Codification
 
@@ -105,6 +110,8 @@
 | CF-01 | Phase 176 | Pending |
 | CF-02 | Phase 176 | Pending |
 | CF-03 | Phase 176 | Pending |
+| CF-04 | Phase 176 | Pending |
+| PFC-01 | Phase 176 | Complete |
 | FF-01 | Phase 177 | Pending |
 | FF-02 | Phase 177 | Pending |
 | FF-03 | Phase 177 | Pending |
@@ -150,10 +157,10 @@
 | XMIL-06 | Phase 182 | Pending |
 
 **Coverage:**
-- v22.0 requirements: 46 total
-- Mapped to phases: 46
+- v22.0 requirements: 48 total
+- Mapped to phases: 48
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-23*
-*Last updated: 2026-03-23 after research synthesis*
+*Last updated: 2026-03-24 after adding rc-sentry Cargo feature gates (CF-04)*
