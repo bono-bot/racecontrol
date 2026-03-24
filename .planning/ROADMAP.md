@@ -2688,11 +2688,12 @@ Plans:
   3. A config push with an invalid value (negative billing rate, empty allowlist) is rejected at the server with HTTP 400 and a field-level error message -- the invalid value is never queued for pods
   4. The feature flag and config push endpoints are documented in the OpenAPI spec with shared TypeScript types in packages/shared-types/ -- the contract test passes
   5. Offline pods receive queued config pushes on reconnect via sequence-number-based ack; no push is silently lost
-**Plans**: 3 plans
+**Plans**: 4 plans
 Plans:
 - [x] 177-01-PLAN.md -- Feature flag registry: DB tables, AppState cache, flags.rs CRUD, broadcast, audit
-- [ ] 177-02-PLAN.md -- Config push: validation, queuing, delivery, WS handlers for FlagCacheSync + ConfigAck
+- [x] 177-02-PLAN.md -- Config push: validation, queuing, delivery, WS handlers for FlagCacheSync + ConfigAck
 - [x] 177-03-PLAN.md -- Cross-project sync: TypeScript types, OpenAPI spec, contract tests
+- [ ] 177-04-PLAN.md -- Gap closure: per-pod override resolution in WS broadcast + REQUIREMENTS.md update
 
 ### Phase 178: Agent & Sentry Consumer
 **Goal**: rc-agent and rc-sentry receive flag updates, config pushes, and OTA download messages — rc-agent over WebSocket with hot-reload and offline cache, rc-sentry via local config file push from rc-agent (rc-sentry has no WS connection to server). Both write sentinel files before binary swap.
