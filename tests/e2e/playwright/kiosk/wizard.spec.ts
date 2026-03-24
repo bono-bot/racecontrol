@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/cleanup';
+import { setupApiMocks } from '../fixtures/api-mocks';
 
 // ---- Shared error capture ----
 
@@ -7,6 +8,8 @@ let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
   page.on('pageerror', (err) => jsErrors.push(err.message));
+  // Enable API mocks so wizard tests work without a live backend
+  await setupApiMocks(page);
 });
 
 test.afterEach(async ({ page }, testInfo) => {

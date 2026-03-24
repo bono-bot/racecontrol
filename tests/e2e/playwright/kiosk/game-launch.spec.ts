@@ -1,10 +1,12 @@
 import { test, expect } from '../fixtures/cleanup';
+import { setupApiMocks } from '../fixtures/api-mocks';
 
 // ---- JS error capture ----
 let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
   page.on('pageerror', (err) => jsErrors.push(err.message));
+  await setupApiMocks(page);
 });
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {

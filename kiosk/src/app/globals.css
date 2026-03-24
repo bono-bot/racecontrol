@@ -21,7 +21,7 @@
   --color-rp-green: #16a34a;
   --color-rp-yellow: #ca8a04;
   --font-sans: 'Montserrat', sans-serif;
-  --font-display: var(--font-display, 'Space Grotesk', sans-serif);
+  --font-display: var(--font-display, 'Orbitron', sans-serif);
   --font-mono: var(--font-mono-jb, 'JetBrains Mono', monospace);
 }
 
