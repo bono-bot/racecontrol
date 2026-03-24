@@ -131,7 +131,7 @@ export default function CustomerLanding() {
     setPin("");
   }
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     if (pin.length !== 4 || !selectedPodId) return;
     touch();
     setPinStep("validating");
@@ -155,15 +155,14 @@ export default function CustomerLanding() {
       setErrorMsg("Network error — please try again");
       setPinStep("error");
     }
-  }
+  }, [pin, selectedPodId, touch]);
 
   // Auto-submit when 4 digits entered
   useEffect(() => {
     if (pin.length === 4 && pinStep === "numpad") {
       handleSubmit();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin]);
+  }, [pin, pinStep, handleSubmit]);
 
   // ─── Pod sorting ──────────────────────────────────────────────────────
 

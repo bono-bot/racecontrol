@@ -1,4 +1,4 @@
-name: E2E Tests (Kiosk)
+name: Kiosk Tests
 
 on:
   push:
@@ -17,10 +17,39 @@ on:
       - 'playwright.config.ts'
 
 jobs:
+  unit-tests:
+    name: Kiosk Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: kiosk/package-lock.json
+
+      - name: Install shared-types
+        run: npm install
+        working-directory: packages/shared-types
+
+      - name: Install kiosk dependencies
+        run: npm install
+        working-directory: kiosk
+
+      - name: Run unit tests
+        run: npm test
+        working-directory: kiosk
+
   e2e-kiosk:
     name: Kiosk E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: unit-tests
 
     steps:
       - name: Checkout repository

@@ -97,6 +97,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/cafe/menu", get(cafe::public_menu))
         // Cafe promos (customer-facing, no auth — PROMO-05)
         .route("/cafe/promos/active", get(cafe_promos::list_active_promos))
+        // Kiosk allowlist — read-only is public so rc-agent can fetch without auth
+        .route("/config/kiosk-allowlist", get(list_kiosk_allowlist))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
@@ -306,7 +308,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", put(update_kiosk_settings))
         // Config
-        .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
+        // GET moved to public_routes (rc-agent fetches without auth)
+        .route("/config/kiosk-allowlist", post(add_kiosk_allowlist_entry))
         .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
         // POS
         .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 
@@ -29,7 +29,7 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
     setPin("");
   }
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     if (pin.length !== 4) return;
     setStep("validating");
     setErrorMsg("");
@@ -49,15 +49,14 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
       setErrorMsg("Network error - please try again");
       setStep("error");
     }
-  }
+  }, [pin, onAuthenticated]);
 
   // Auto-submit when 4 digits entered
   useEffect(() => {
     if (pin.length === 4 && step === "pin_entry") {
       handleSubmit();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin]);
+  }, [pin, step, handleSubmit]);
 
   // Auto-reset error state after 10 seconds
   useEffect(() => {

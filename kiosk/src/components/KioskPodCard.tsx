@@ -658,6 +658,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
 function TransmissionToggle({ podId }: { podId: string }) {
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [busy, setBusy] = useState(false);
+  const { toastError } = useToast();
 
   const toggle = async () => {
     const next = mode === "auto" ? "manual" : "auto";
@@ -666,7 +667,7 @@ function TransmissionToggle({ podId }: { podId: string }) {
       await api.setTransmission(podId, next);
       setMode(next);
     } catch (err) {
-      console.warn("Transmission toggle failed:", err);
+      toastError(`Transmission toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };
@@ -692,6 +693,7 @@ const FFB_LABELS: Record<string, string> = { light: "FFB Lo", medium: "FFB Mid",
 function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: string }) {
   const [preset, setPreset] = useState<string>(currentPreset || "medium");
   const [busy, setBusy] = useState(false);
+  const { toastError } = useToast();
 
   // Sync with pod heartbeat state
   useEffect(() => {
@@ -706,7 +708,7 @@ function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: st
       await api.setFfb(podId, next);
       setPreset(next);
     } catch (err) {
-      console.warn("FFB toggle failed:", err);
+      toastError(`FFB toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };
@@ -731,6 +733,7 @@ function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: st
 function UnrestrictButton({ podId }: { podId: string }) {
   const [unrestricted, setUnrestricted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const { toastError } = useToast();
 
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -744,7 +747,7 @@ function UnrestrictButton({ podId }: { podId: string }) {
         setUnrestricted(next);
       }
     } catch (err) {
-      console.error(`Failed to ${action}:`, err);
+      toastError(`Failed to ${action}: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };
@@ -774,6 +777,7 @@ function UnrestrictButton({ podId }: { podId: string }) {
 function FreedomModeButton({ podId, freedomMode }: { podId: string; freedomMode?: boolean }) {
   const [active, setActive] = useState(freedomMode ?? false);
   const [busy, setBusy] = useState(false);
+  const { toastError } = useToast();
 
   useEffect(() => {
     if (freedomMode !== undefined) setActive(freedomMode);
@@ -790,7 +794,7 @@ function FreedomModeButton({ podId, freedomMode }: { podId: string; freedomMode?
         setActive(next);
       }
     } catch (err) {
-      console.error("Freedom mode toggle failed:", err);
+      toastError(`Freedom mode toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };
@@ -820,6 +824,7 @@ function FreedomModeButton({ podId, freedomMode }: { podId: string; freedomMode?
 function BlankScreenButton({ podId, screenBlanked }: { podId: string; screenBlanked?: boolean }) {
   const [blanked, setBlanked] = useState(screenBlanked ?? false);
   const [busy, setBusy] = useState(false);
+  const { toastError } = useToast();
 
   // Sync with pod heartbeat state
   useEffect(() => {
@@ -836,7 +841,7 @@ function BlankScreenButton({ podId, screenBlanked }: { podId: string; screenBlan
         setBlanked(next);
       }
     } catch (err) {
-      console.error(`Screen ${next ? "blank" : "unblank"} failed:`, err);
+      toastError(`Screen ${next ? "blank" : "unblank"} failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };

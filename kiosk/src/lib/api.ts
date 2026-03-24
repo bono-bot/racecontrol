@@ -8,19 +8,38 @@ const API_BASE =
     ? `${window.location.protocol}//${window.location.host}`
     : "http://localhost:8080");
 
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 500;
+
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window !== "undefined" ? sessionStorage.getItem("kiosk_staff_token") : null;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers,
-    ...options,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1${path}`, {
+        headers,
+        ...options,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+      }
+      return res.json();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Only retry on network errors (TypeError from fetch), not HTTP errors (4xx/5xx)
+      const isNetworkError = err instanceof TypeError;
+      if (!isNetworkError || attempt >= MAX_RETRIES) break;
+      // Exponential backoff: 500ms, 1000ms
+      await new Promise((r) => setTimeout(r, RETRY_BASE_MS * Math.pow(2, attempt)));
+    }
   }
-  return res.json();
+
+  throw lastError!;
 }
 
 export const api = {

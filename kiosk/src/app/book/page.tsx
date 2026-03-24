@@ -191,7 +191,7 @@ function BookingPageInner() {
     setLoading(false);
   }
 
-  async function handleVerifyOtp() {
+  const handleVerifyOtp = useCallback(async () => {
     if (otp.length !== 4) return;
     setLoading(true);
     setErrorMsg("");
@@ -218,15 +218,14 @@ function BookingPageInner() {
       setOtp("");
     }
     setLoading(false);
-  }
+  }, [otp, phone, wizard]);
 
   // Auto-submit OTP when 4 digits entered
   useEffect(() => {
     if (otp.length === 4 && phase === "otp") {
       handleVerifyOtp();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otp]);
+  }, [otp, phase, handleVerifyOtp]);
 
   // ─── Wizard step handlers ─────────────────────────────────────────────
 

@@ -35,7 +35,7 @@ const CATEGORY_DOT: Record<string, string> = {
 function formatTime(isoStr: string): string {
   try {
     const d = new Date(isoStr);
-    return d.toLocaleTimeString("en-IN", { hour12: false });
+    return d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
   } catch {
     return "--:--:--";
   }

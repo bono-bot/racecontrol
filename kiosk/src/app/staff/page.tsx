@@ -113,8 +113,9 @@ export default function StaffTerminal() {
             return next;
           });
         }
-      } catch {
-        // ignore fetch errors
+      } catch (err) {
+        // Wallet balance is supplementary — poll retries every 15s
+        console.warn("Wallet fetch failed:", err);
       }
     }
   }, [billingTimers]);

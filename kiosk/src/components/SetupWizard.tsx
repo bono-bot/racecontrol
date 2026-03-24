@@ -95,6 +95,7 @@ export function SetupWizard({
     : [];
 
   // Fetch wallet balances for search results
+  const filteredDriverIds = useMemo(() => filteredDrivers.map((d) => d.id).join(","), [filteredDrivers]);
   useEffect(() => {
     for (const d of filteredDrivers) {
       if (!walletCache.has(d.id)) {
@@ -105,8 +106,7 @@ export function SetupWizard({
         }).catch(() => {});
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredDrivers.map((d) => d.id).join(",")]);
+  }, [filteredDriverIds, filteredDrivers, walletCache]);
 
   // Filtered tracks
   const filteredTracks = useMemo(() => {

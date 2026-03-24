@@ -322,8 +322,11 @@ export function useKioskSocket() {
 
     socket.onclose = () => {
       console.log("[Kiosk] Disconnected, retrying in 3s...");
-      // Debounce UI update -- only show disconnected after 15s of confirmed absence
-      // This prevents false "Disconnected" flashes during game launch CPU spikes
+      // Two-phase UI debounce:
+      // 1. After 5s: show "Reconnecting..." (soft indicator, no alarm)
+      // 2. After 15s: show "Disconnected" (hard indicator, something is wrong)
+      // This prevents false flashes during game launch CPU spikes while still
+      // giving staff timely feedback if the connection is actually lost.
       if (disconnectTimerRef.current === null) {
         disconnectTimerRef.current = setTimeout(() => {
           setConnected(false);
