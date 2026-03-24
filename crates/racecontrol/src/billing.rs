@@ -756,6 +756,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>, Option<String>)> = Vec::new();
     let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
+    let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
 
     // Read pod statuses for offline detection
     let pods = state.pods.read().await;
@@ -848,9 +849,22 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
                 continue; // Skip normal tick
             } else {
-                // All 3 pauses used — billing continues even while offline
+                // All 3 pauses used and pod still offline — auto-end after 5 min grace
+                // to prevent charging customers for time they can't use (H11 audit fix)
+                if let Some(offline_since) = timer.offline_since {
+                    let offline_secs = (Utc::now() - offline_since).num_seconds();
+                    if offline_secs > 300 {
+                        tracing::warn!(
+                            "Pod {} offline {}s with all pauses exhausted — auto-ending session {}",
+                            pod_id, offline_secs, timer.session_id
+                        );
+                        sessions_to_auto_end.push((pod_id.clone(), timer.session_id.clone(),
+                            format!("Pod offline {}s, all 3 disconnect-pauses exhausted", offline_secs)));
+                        continue;
+                    }
+                }
                 tracing::warn!(
-                    "Pod {} offline but session {} has used all 3 pauses — billing continues",
+                    "Pod {} offline but session {} has used all 3 pauses — billing continues (grace period)",
                     pod_id, timer.session_id
                 );
             }
@@ -1229,6 +1243,54 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     driving_seconds,
                 })
                 .await;
+        }
+
+        let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
+            billing_session_id: session_id,
+            pod_id,
+            remaining_seconds: 0,
+        });
+    }
+
+    // ─── H11: Auto-end sessions where pod is offline with all pauses exhausted ────
+    for (pod_id, session_id, reason) in sessions_to_auto_end {
+        tracing::warn!("Auto-ending session {} on pod {} — {}", session_id, pod_id, reason);
+        log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended (Offline)",
+            &reason, "race_engineer");
+
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET status = 'ended_early', ended_at = datetime('now'),
+             notes = ? WHERE id = ?",
+        )
+        .bind(&reason)
+        .bind(&session_id)
+        .execute(&state.db)
+        .await;
+
+        let _ = sqlx::query(
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
+             VALUES (?, ?, 'offline_auto_ended', 0, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&session_id)
+        .bind(format!("{{\"reason\":\"{}\"}}", reason.replace('"', "\\\"" )))
+        .execute(&state.db)
+        .await;
+
+        // Remove the timer
+        {
+            let mut timers = state.billing.active_timers.write().await;
+            timers.remove(&pod_id);
+        }
+
+        // Reset pod state
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&pod_id) {
+                pod.billing_session_id = None;
+                pod.current_driver = None;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
         }
 
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {

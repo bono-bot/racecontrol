@@ -10,6 +10,69 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
 
+// ---- Admin login lockout ----------------------------------------------------
+
+/// Tracks failed admin login attempts. After MAX_FAILED_ATTEMPTS failures within
+/// the LOCKOUT_WINDOW, the source is locked out for LOCKOUT_DURATION.
+const MAX_FAILED_ATTEMPTS: usize = 5;
+const LOCKOUT_WINDOW_SECS: u64 = 300;  // 5 minutes
+const LOCKOUT_DURATION_SECS: u64 = 900; // 15 minutes
+
+struct LockoutState {
+    attempts: Vec<std::time::Instant>,
+    locked_until: Option<std::time::Instant>,
+}
+
+static ADMIN_LOCKOUT: std::sync::LazyLock<std::sync::Mutex<LockoutState>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(LockoutState {
+            attempts: Vec::new(),
+            locked_until: None,
+        })
+    });
+
+fn check_lockout() -> Result<(), std::time::Duration> {
+    let mut state = ADMIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+
+    // Check if currently locked out
+    if let Some(until) = state.locked_until {
+        if now < until {
+            return Err(until - now);
+        }
+        // Lockout expired — clear
+        state.locked_until = None;
+        state.attempts.clear();
+    }
+    Ok(())
+}
+
+fn record_failed_attempt() {
+    let mut state = ADMIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    let window = std::time::Duration::from_secs(LOCKOUT_WINDOW_SECS);
+
+    // Prune old attempts outside the window
+    state.attempts.retain(|t| now.duration_since(*t) < window);
+    state.attempts.push(now);
+
+    if state.attempts.len() >= MAX_FAILED_ATTEMPTS {
+        state.locked_until = Some(now + std::time::Duration::from_secs(LOCKOUT_DURATION_SECS));
+        state.attempts.clear();
+        tracing::warn!(
+            "admin_login: LOCKOUT activated — {} failed attempts in {}s, locked for {}s",
+            MAX_FAILED_ATTEMPTS, LOCKOUT_WINDOW_SECS, LOCKOUT_DURATION_SECS
+        );
+    }
+}
+
+fn clear_lockout_on_success() {
+    if let Ok(mut state) = ADMIN_LOCKOUT.lock() {
+        state.attempts.clear();
+        state.locked_until = None;
+    }
+}
+
 // ---- Request / Response types ------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +129,12 @@ pub async fn admin_login(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AdminLoginRequest>,
 ) -> impl IntoResponse {
+    // Check lockout before processing
+    if let Err(remaining) = check_lockout() {
+        tracing::warn!("admin_login: locked out for {}s more", remaining.as_secs());
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
     // Check if admin_pin_hash is configured
     let hash = match &state.config.auth.admin_pin_hash {
         Some(h) => h.clone(),
@@ -83,9 +152,11 @@ pub async fn admin_login(
         .unwrap_or(false);
 
     if !valid {
+        record_failed_attempt();
         tracing::warn!("admin_login: invalid PIN attempt");
         return Err(StatusCode::UNAUTHORIZED);
     }
+    clear_lockout_on_success();
 
     // Generate 12-hour staff JWT
     let secret = &state.config.auth.jwt_secret;

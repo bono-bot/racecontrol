@@ -362,6 +362,7 @@ mod tests {
             core: CoreConfig {
                 url: "ws://192.168.31.23:8080/ws/agent".to_string(),
                 failover_url: None,
+                ws_secret: None,
             },
             wheelbase: WheelbaseConfig::default(),
             telemetry_ports: TelemetryPortsConfig::default(),

@@ -429,6 +429,9 @@ pub struct KioskManager {
     active: Arc<AtomicBool>,
     debug_mode: bool,
     freedom_mode: bool,
+    /// KI-02: Freedom mode auto-timeout (30 minutes). Prevents staff from
+    /// accidentally leaving a pod unrestricted for the next customer.
+    freedom_mode_since: Option<std::time::Instant>,
     pub lockdown: Arc<AtomicBool>,
     pub lockdown_reason: Arc<Mutex<String>>,
     allowed_extra: HashSet<String>,
@@ -450,6 +453,7 @@ impl KioskManager {
             active: Arc::new(AtomicBool::new(false)),
             debug_mode: false,
             freedom_mode: false,
+            freedom_mode_since: None,
             lockdown: Arc::new(AtomicBool::new(false)),
             lockdown_reason: Arc::new(Mutex::new(String::new())),
             allowed_extra: HashSet::new(),
@@ -536,20 +540,34 @@ impl KioskManager {
     }
 
     /// Enter freedom mode — allows everything, unblanks screen, but monitors all processes.
+    /// Auto-expires after 30 minutes (KI-02 audit fix).
     pub fn enter_freedom_mode(&mut self) {
         self.freedom_mode = true;
+        self.freedom_mode_since = Some(std::time::Instant::now());
         self.deactivate();
-        tracing::info!(target: LOG_TARGET, "Kiosk: FREEDOM MODE — all apps allowed, monitoring active");
+        tracing::info!(target: LOG_TARGET, "Kiosk: FREEDOM MODE — all apps allowed, monitoring active (30min timeout)");
     }
 
     /// Exit freedom mode — re-engages kiosk restrictions.
     pub fn exit_freedom_mode(&mut self) {
         self.freedom_mode = false;
+        self.freedom_mode_since = None;
         tracing::info!(target: LOG_TARGET, "Kiosk: exiting freedom mode");
     }
 
-    /// Check if in freedom mode
-    pub fn is_freedom_mode(&self) -> bool {
+    /// Check if in freedom mode. Auto-expires after 30 minutes.
+    pub fn is_freedom_mode(&mut self) -> bool {
+        if self.freedom_mode {
+            if let Some(since) = self.freedom_mode_since {
+                if since.elapsed() > std::time::Duration::from_secs(1800) {
+                    tracing::warn!(target: LOG_TARGET,
+                        "Kiosk: freedom mode auto-expired after 30 minutes (KI-02 safety timeout)");
+                    self.freedom_mode = false;
+                    self.freedom_mode_since = None;
+                    return false;
+                }
+            }
+        }
         self.freedom_mode
     }
 
