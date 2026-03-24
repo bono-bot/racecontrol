@@ -20,6 +20,14 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Grace window after a restart: skip polling during this period to avoid double-restart.
 const RESTART_GRACE_SECS: u64 = 15;
 
+/// Path where rc-sentry writes a breadcrumb when it restarts rc-agent.
+/// rc-watchdog reads this to avoid double-restarting.
+const SENTRY_BREADCRUMB_PATH: &str = r"C:\RacingPoint\sentry-restart-breadcrumb.txt";
+
+/// Grace window for sentry breadcrumb: if rc-sentry restarted rc-agent within this many seconds,
+/// rc-watchdog defers and skips its own restart attempt.
+const SENTRY_GRACE_SECS: u64 = 30;
+
 /// Default racecontrol URL if not found in config.
 const DEFAULT_CORE_URL: &str = "http://192.168.31.23:8080";
 
@@ -40,6 +48,23 @@ pub fn restart_grace_active(last_restart: Option<Instant>, grace_secs: u64) -> b
     match last_restart {
         None => false,
         Some(t) => t.elapsed() < Duration::from_secs(grace_secs),
+    }
+}
+
+/// Check if rc-sentry recently restarted rc-agent (breadcrumb file modified within grace_secs).
+/// Returns true if rc-watchdog should defer to rc-sentry and skip its own restart.
+pub fn sentry_breadcrumb_active(breadcrumb_path: &str, grace_secs: u64) -> bool {
+    let metadata = match std::fs::metadata(breadcrumb_path) {
+        Ok(m) => m,
+        Err(_) => return false, // No breadcrumb = no grace
+    };
+    let modified = match metadata.modified() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    match modified.elapsed() {
+        Ok(elapsed) => elapsed < Duration::from_secs(grace_secs),
+        Err(_) => false, // Clock went backwards — don't block
     }
 }
 
@@ -156,9 +181,16 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
             continue;
         }
 
-        // Check restart grace window (prevents double-restart)
+        // Check restart grace window (prevents double-restart after our own last restart)
         if restart_grace_active(last_restart_at, RESTART_GRACE_SECS) {
             tracing::debug!("Restart grace window active, skipping this cycle");
+            std::thread::sleep(POLL_INTERVAL);
+            continue;
+        }
+
+        // Check if rc-sentry recently handled this restart (COORD deconfliction)
+        if sentry_breadcrumb_active(SENTRY_BREADCRUMB_PATH, SENTRY_GRACE_SECS) {
+            tracing::info!("grace window active: sentry-restart-breadcrumb.txt is recent, skipping restart");
             std::thread::sleep(POLL_INTERVAL);
             continue;
         }
@@ -174,6 +206,23 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
                     "rc-agent restart initiated (count: {})",
                     restart_count
                 );
+
+                // Verify rc-agent actually started (SPAWN-01 pattern: 500ms poll for 10s)
+                let verified = {
+                    let max_wait = Duration::from_secs(10);
+                    let poll_interval_ms = Duration::from_millis(500);
+                    let start = Instant::now();
+                    let mut alive = false;
+                    while start.elapsed() < max_wait {
+                        std::thread::sleep(poll_interval_ms);
+                        if is_rc_agent_running() {
+                            alive = true;
+                            break;
+                        }
+                    }
+                    alive
+                };
+                tracing::info!("rc-agent spawn_verified={} (count: {})", verified, restart_count);
 
                 // Fire-and-forget crash report
                 let report = WatchdogCrashReport {
@@ -274,5 +323,38 @@ mod tests {
         let now = Instant::now();
         // With a very large grace window, it should be active
         assert!(restart_grace_active(Some(now), 3600));
+    }
+
+    // ── sentry_breadcrumb_active tests ──────────────────────────────────
+
+    #[test]
+    fn test_sentry_breadcrumb_active_no_file() {
+        // Missing file means no grace window
+        let result = sentry_breadcrumb_active(r"C:\nonexistent\fake-breadcrumb-9999.txt", 30);
+        assert!(!result, "missing file should return false");
+    }
+
+    #[test]
+    fn test_sentry_breadcrumb_active_fresh_file() {
+        // Create a temp file — just written, should be within grace window
+        let path = std::env::temp_dir().join("rc-watchdog-test-breadcrumb.txt");
+        std::fs::write(&path, "test breadcrumb").expect("write test file");
+        let path_str = path.to_str().expect("path to str");
+        let result = sentry_breadcrumb_active(path_str, 30);
+        let _ = std::fs::remove_file(&path);
+        assert!(result, "freshly written file should be within 30s grace window");
+    }
+
+    #[test]
+    fn test_sentry_breadcrumb_active_stale_file() {
+        // Create a temp file — use grace_secs=0 so any elapsed time = stale
+        let path = std::env::temp_dir().join("rc-watchdog-test-stale-breadcrumb.txt");
+        std::fs::write(&path, "test breadcrumb").expect("write test file");
+        // Sleep 1ms to ensure some elapsed time
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let path_str = path.to_str().expect("path to str");
+        let result = sentry_breadcrumb_active(path_str, 0);
+        let _ = std::fs::remove_file(&path);
+        assert!(!result, "grace_secs=0 means file is always stale");
     }
 }
