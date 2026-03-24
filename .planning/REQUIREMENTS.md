@@ -20,7 +20,7 @@
 
 - [x] **CP-01**: Server pushes config changes (billing rates, game limits, process guard entries, debug verbosity) to pods over WebSocket as typed ConfigPush messages — never through fleet exec endpoint
 - [x] **CP-02**: Server maintains a pending config queue per pod — offline pods receive queued updates on WebSocket reconnect with sequence-number-based ack
-- [ ] **CP-03**: rc-agent hot-reloads supported config fields (billing rates, game limits, process guard whitelist, debug verbosity) without binary restart using arc-swap — fields requiring restart (port bindings, WS URL) are documented and excluded
+- [x] **CP-03**: rc-agent hot-reloads supported config fields (billing rates, game limits, process guard whitelist, debug verbosity) without binary restart using arc-swap — fields requiring restart (port bindings, WS URL) are documented and excluded
 - [x] **CP-04**: Config push includes schema version — rc-agent ignores unknown fields from newer schema versions and logs a warning instead of panicking
 - [x] **CP-05**: All config changes are recorded in an append-only audit log table (timestamp, field, old_value, new_value, pushed_by, pods_acked)
 - [x] **CP-06**: Server validates config changes against schema before accepting — invalid values (negative billing rate, empty allowlist) return 400 with field-level errors and are never pushed to pods
@@ -125,7 +125,7 @@
 | FF-05 | Phase 178 | Complete |
 | FF-07 | Phase 178 | Complete |
 | FF-08 | Phase 178 | Complete |
-| CP-03 | Phase 178 | Pending |
+| CP-03 | Phase 178 | Complete |
 | SYNC-03 | Phase 178 | Complete |
 | OTA-01 | Phase 179 | Pending |
 | OTA-02 | Phase 179 | Pending |
