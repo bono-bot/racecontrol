@@ -2893,7 +2893,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 183. Recovery Events API | 1/1 | Complete    | 2026-03-24 |
 | 184. rc-sentry Crash Handler Upgrade | 3/3 | Complete    | 2026-03-24 |
-| 185. pod_healer WoL Coordination | 0/TBD | Not started | - |
+| 185. pod_healer WoL Coordination | 1/2 | In Progress|  |
 | 186. MAINTENANCE_MODE Auto-Clear | 0/TBD | Not started | - |
 | 187. self_monitor Coordination | 0/TBD | Not started | - |
 | 188. James Watchdog + rc-watchdog Grace Window | 0/TBD | Not started | - |
