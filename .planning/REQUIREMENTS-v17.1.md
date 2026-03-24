@@ -37,9 +37,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### James Watchdog
 
-- [ ] **JAMES-01**: james_watchdog.ps1 replaced with Rust-based AI debugger using shared ollama.rs from rc-common
-- [ ] **JAMES-02**: James watchdog uses graduated response: count 1 wait → count 2 restart → count 3 AI diagnosis → count 4+ alert
-- [ ] **JAMES-03**: James watchdog monitors all local services (comms-link, go2rtc, rc-sentry-ai, Ollama) with health-poll verification
+- [x] **JAMES-01**: james_watchdog.ps1 replaced with Rust-based AI debugger using shared ollama.rs from rc-common
+- [x] **JAMES-02**: James watchdog uses graduated response: count 1 wait → count 2 restart → count 3 AI diagnosis → count 4+ alert
+- [x] **JAMES-03**: James watchdog monitors all local services (comms-link, go2rtc, rc-sentry-ai, Ollama) with health-poll verification
 
 ### Self-Monitor Coordination
 
@@ -83,9 +83,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | MAINT-02 | Phase 186 | Complete |
 | MAINT-03 | Phase 186 | Complete |
 | MAINT-04 | Phase 185 | Complete |
-| JAMES-01 | Phase 188 | Pending |
-| JAMES-02 | Phase 188 | Pending |
-| JAMES-03 | Phase 188 | Pending |
+| JAMES-01 | Phase 188 | Complete |
+| JAMES-02 | Phase 188 | Complete |
+| JAMES-03 | Phase 188 | Complete |
 | SELF-01 | Phase 187 | Complete |
 | SELF-02 | Phase 187 | Complete |
 
