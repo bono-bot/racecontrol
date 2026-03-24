@@ -644,10 +644,11 @@ Plans:
   1. Global.json exists at C:\RacingPoint\ on every pod (the runtime read path ConspitLink actually uses)
   2. GameToBaseConfig.json mappings point to Racing Point venue presets for all 4 active games
   3. Launching AC, F1 25, ACC/AC EVO, or AC Rally causes ConspitLink to auto-load the matching preset
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 59-01: TBD
+- [ ] 59-01-PLAN.md — Implement ensure_auto_switch_config + unit tests + main.rs wiring
+- [ ] 59-02-PLAN.md — Deploy to Pod 8 canary + human verification
 
 ### Phase 60: Pre-Launch Profile Loading
 **Goal**: rc-agent ensures the correct preset is loaded BEFORE the game starts, with a safe fallback if the game is unrecognized
