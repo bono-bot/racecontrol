@@ -489,8 +489,24 @@ pub async fn start_ac_server(
             acserver_path
         );
     }
+    // CWD must be the acServer's own directory (where content/ lives), NOT the session
+    // directory. The vanilla Kunos acServer reads tracks/cars from content/ relative to CWD.
+    // Copy our generated configs into acServer's cfg/ directory before starting.
+    let acserver_dir = Path::new(acserver_path).parent()
+        .unwrap_or_else(|| Path::new("."));
+    let acserver_cfg_dir = acserver_dir.join("cfg");
+    std::fs::create_dir_all(&acserver_cfg_dir)?;
+    std::fs::copy(cfg_dir.join("server_cfg.ini"), acserver_cfg_dir.join("server_cfg.ini"))?;
+    std::fs::copy(cfg_dir.join("entry_list.ini"), acserver_cfg_dir.join("entry_list.ini"))?;
+    if cfg_dir.join("csp_extra_options.ini").exists() {
+        let _ = std::fs::copy(cfg_dir.join("csp_extra_options.ini"), acserver_cfg_dir.join("csp_extra_options.ini"));
+    }
+    // extra_cfg.yml goes in server root (AssettoServer reads from CWD root)
+    if server_dir.join("extra_cfg.yml").exists() {
+        let _ = std::fs::copy(server_dir.join("extra_cfg.yml"), acserver_dir.join("extra_cfg.yml"));
+    }
     let child = std::process::Command::new(acserver_path)
-        .current_dir(&server_dir)
+        .current_dir(acserver_dir)
         .spawn()?;
     let pid = child.id();
     let (child, pid) = (Some(child), Some(pid));
@@ -1278,7 +1294,14 @@ pub async fn collect_results(
         }
     };
 
-    let results = parse_ac_results(&server_dir);
+    // Check session dir first, then acServer's own dir (CWD changed to acServer dir in v24)
+    let mut results = parse_ac_results(&server_dir);
+    if results.is_empty() {
+        let acserver_dir = Path::new(&state.config.ac_server.acserver_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        results = parse_ac_results(acserver_dir);
+    }
     if results.is_empty() {
         tracing::info!("No results to collect for AC session {}", session_id);
         return Ok(vec![]);

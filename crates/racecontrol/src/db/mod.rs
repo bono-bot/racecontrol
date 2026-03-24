@@ -895,6 +895,11 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── pricing_tier_id for kiosk experiences (links experience → billing tier) ──
+    let _ = sqlx::query("ALTER TABLE kiosk_experiences ADD COLUMN pricing_tier_id TEXT DEFAULT ''")
+        .execute(pool)
+        .await;
+
     // ─── Customer display ID ────────────────────────────────────────────────
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN customer_id TEXT")
         .execute(pool)

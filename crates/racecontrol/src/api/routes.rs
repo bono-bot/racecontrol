@@ -2645,6 +2645,25 @@ async fn start_billing(
                 record_coupon_redemption(&state, cid, driver_id, &id, applied_discount_paise).await;
             }
 
+            // Audit trail for discount with staff_id (POS-05)
+            if applied_discount_paise > 0 {
+                accounting::log_audit(
+                    &state,
+                    "billing_sessions",
+                    &id,
+                    "discount",
+                    None,
+                    Some(&serde_json::json!({
+                        "discount_paise": applied_discount_paise,
+                        "original_price_paise": original_price_paise,
+                        "reason": applied_discount_reason,
+                        "coupon_id": applied_coupon_id,
+                    }).to_string()),
+                    body.get("staff_id").and_then(|v| v.as_str()),
+                )
+                .await;
+            }
+
             Json(json!({
                 "ok": true,
                 "billing_session_id": id,
@@ -3176,8 +3195,12 @@ struct BillingRefundRequest {
 async fn refund_billing_session(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
     Json(req): Json<BillingRefundRequest>,
 ) -> Json<Value> {
+    // Extract staff_id from JWT (POS-05: audit trail with staff_id)
+    let staff_id = claims.map(|c| c.0.sub.clone());
+
     // Validate method
     if !["wallet", "cash", "upi"].contains(&req.method.as_str()) {
         return Json(json!({ "error": "method must be wallet, cash, or upi" }));
@@ -3269,21 +3292,50 @@ async fn refund_billing_session(
     .bind(&req.method)
     .bind(&req.reason)
     .bind(req.notes.as_deref())
-    .bind(None::<String>) // staff_id — could be passed from frontend later
+    .bind(staff_id.as_deref()) // staff_id from JWT (POS-05)
     .bind(wallet_txn_id.as_deref())
     .execute(&state.db)
     .await;
 
     match result {
-        Ok(_) => Json(json!({
-            "status": "ok",
-            "refund_id": refund_id,
-            "amount_paise": req.amount_paise,
-            "method": req.method,
-            "driver_name": driver_name,
-            "total_refunded_paise": already_refunded + req.amount_paise,
-            "max_refundable_paise": max_refundable,
-        })),
+        Ok(_) => {
+            // Audit trail with staff_id from JWT (POS-05)
+            accounting::log_audit(
+                &state,
+                "refunds",
+                &refund_id,
+                "create",
+                None,
+                Some(&serde_json::json!({
+                    "billing_session_id": session_id,
+                    "driver_id": driver_id,
+                    "amount_paise": req.amount_paise,
+                    "method": req.method,
+                    "reason": req.reason,
+                }).to_string()),
+                staff_id.as_deref(),
+            )
+            .await;
+
+            // Update refund_paise on billing_sessions for cloud sync
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET refund_paise = COALESCE(refund_paise, 0) + ? WHERE id = ?",
+            )
+            .bind(req.amount_paise)
+            .bind(&session_id)
+            .execute(&state.db)
+            .await;
+
+            Json(json!({
+                "status": "ok",
+                "refund_id": refund_id,
+                "amount_paise": req.amount_paise,
+                "method": req.method,
+                "driver_name": driver_name,
+                "total_refunded_paise": already_refunded + req.amount_paise,
+                "max_refundable_paise": max_refundable,
+            }))
+        }
         Err(e) => Json(json!({ "error": format!("Failed to record refund: {}", e) })),
     }
 }
@@ -6968,8 +7020,8 @@ async fn customer_continue_session(
 // ─── Kiosk ──────────────────────────────────────────────────────────────────
 
 async fn list_kiosk_experiences(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, Option<String>, i64, i64)>(
-        "SELECT id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, Option<String>, i64, i64, Option<String>)>(
+        "SELECT id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active, pricing_tier_id
          FROM kiosk_experiences WHERE is_active = 1 ORDER BY sort_order ASC",
     )
     .fetch_all(&state.db)
@@ -6986,6 +7038,7 @@ async fn list_kiosk_experiences(State(state): State<Arc<AppState>>) -> Json<Valu
                         "duration_minutes": e.6, "start_type": e.7,
                         "ac_preset_id": e.8, "sort_order": e.9,
                         "is_active": e.10 != 0,
+                        "pricing_tier_id": e.11,
                     })
                 })
                 .collect();
@@ -7105,6 +7158,10 @@ async fn update_kiosk_experience(
     if let Some(v) = body.get("is_active").and_then(|v| v.as_bool()) {
         updates.push("is_active = ?");
         binds.push(if v { "1".to_string() } else { "0".to_string() });
+    }
+    if let Some(v) = body.get("pricing_tier_id").and_then(|v| v.as_str()) {
+        updates.push("pricing_tier_id = ?");
+        binds.push(v.to_string());
     }
 
     if updates.is_empty() {
@@ -7802,7 +7859,7 @@ async fn sync_changes(
                         'car', car, 'car_class', car_class,
                         'duration_minutes', duration_minutes, 'start_type', start_type,
                         'ac_preset_id', ac_preset_id, 'sort_order', sort_order,
-                        'is_active', is_active,
+                        'is_active', is_active, 'pricing_tier_id', pricing_tier_id,
                         'created_at', created_at, 'updated_at', updated_at
                     ) FROM kiosk_experiences
                     WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
