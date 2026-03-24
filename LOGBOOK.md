@@ -5,6 +5,13 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 ---
 
+## 2026-03-25
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| Mar 25 03:48 IST | James | `5dcbfb2b` | feat(187-01): self_monitor sentry-aware relaunch — TCP :8091 check, clean exit when sentry alive, PowerShell fallback when dead |
+| Mar 25 03:48 IST | James | `6f57e3cf` | docs(187-01): SUMMARY + STATE + ROADMAP updated (phase 187 Complete) |
+
 ## 2026-03-23
 
 | Timestamp | Author | Commit | Summary |
