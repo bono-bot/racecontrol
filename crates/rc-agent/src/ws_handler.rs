@@ -308,6 +308,21 @@ pub async fn handle_ws_message(
                 state.safe_mode_cooldown_armed = false;
             }
 
+            // ─── Phase 60: Pre-launch FFB preset loading ──────────────────────
+            // Ensure correct wheelbase preset BEFORE game process spawns.
+            // Non-fatal: errors are logged, game launch proceeds regardless.
+            {
+                let pre_load_sim = launch_sim;
+                let pre_load_result = tokio::task::spawn_blocking(move || {
+                    crate::ffb_controller::pre_load_game_preset(pre_load_sim, None)
+                }).await;
+                match pre_load_result {
+                    Ok(Ok(())) => tracing::info!(target: LOG_TARGET, "pre_load_game_preset: ok for {:?}", launch_sim),
+                    Ok(Err(e)) => tracing::warn!(target: LOG_TARGET, "pre_load_game_preset failed (non-fatal): {}", e),
+                    Err(e) => tracing::warn!(target: LOG_TARGET, "pre_load_game_preset panicked (non-fatal): {}", e),
+                }
+            }
+
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
 
