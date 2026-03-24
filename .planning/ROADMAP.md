@@ -2904,7 +2904,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
+- [ ] 188-01-PLAN.md — Shared ollama.rs, spawn verification, sentry breadcrumb grace window
 
 ## v17.1 Progress
 
