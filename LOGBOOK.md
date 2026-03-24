@@ -753,3 +753,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 00:14 IST | James | edcec395 | fix: recurring WARN/ERROR audit — 4 code fixes (process guard report_only action, schtask violation name, pod_healer UTF-8 slice, server guard downgrade) + 177-entry allowlist sync |
 | 2026-03-25 00:17 IST | James | aee91e05 | fix: racecontrol config loading — try exe-dir (C:\RacingPoint) as CWD fallback; log TOML parse errors explicitly |
 | 2026-03-25 00:32 IST | James | 8874aa91 | fix: remove SSH banner corruption from racecontrol.toml — caused TOML parse failure, process_guard loaded as default (enabled=false, 0 allowed) |
+| 2026-03-25 02:08 IST | James | 1e1ffbb2 | feat(184-03): add session1_spawn.rs — WTSQueryUserToken+CreateProcessAsUser for Session 0->1 bridge, pure std no anyhow |
+| 2026-03-25 02:15 IST | James | 885dfe3d | feat(184-03): wire Session 1 spawn into restart_service() as primary path (SPAWN-03); schtasks as fallback |
+| 2026-03-25 02:25 IST | James | 503fbe77 | fix(184-03): resolve pre-existing build errors from 184-02 (chrono dep missing, CrashHandlerResult tuple destructuring) |
+| 2026-03-25 02:30 IST | James | dd289ca2 | docs(184-03): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS-v17.1.md updated, SPAWN-03 complete |
