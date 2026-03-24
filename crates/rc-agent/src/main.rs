@@ -817,6 +817,46 @@ async fn main() -> Result<()> {
             std::sync::Arc::clone(&state.safe_mode_active),  // safe mode flag
         );
         tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
+
+        // ─── Process Guard: periodic whitelist re-fetch (every 5 min) ───────
+        // Pods fetch the allowlist once at boot. If the server was down at boot,
+        // they get MachineWhitelist::default() (empty) and flag every process.
+        // This task re-fetches every 5 minutes so pods self-heal without manual
+        // rc-agent restart.
+        #[cfg(feature = "http-client")]
+        {
+            let refetch_whitelist = state.guard_whitelist.clone();
+            let refetch_pod_number = state.config.pod.number;
+            let refetch_http_url = state.config.core.url
+                .replace("ws://", "http://")
+                .replace("wss://", "https://")
+                .split("/ws")
+                .next()
+                .unwrap_or("http://127.0.0.1:8080")
+                .to_string();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let url = format!("{}/api/v1/guard/whitelist/pod-{}", refetch_http_url, refetch_pod_number);
+                loop {
+                    tokio::time::sleep(Duration::from_secs(300)).await; // 5 minutes
+                    match client.get(&url).timeout(Duration::from_secs(10)).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            match resp.json::<rc_common::types::MachineWhitelist>().await {
+                                Ok(wl) => {
+                                    let count = wl.processes.len();
+                                    *refetch_whitelist.write().await = wl;
+                                    tracing::info!(target: "guard", "Whitelist re-fetched ({} processes)", count);
+                                }
+                                Err(e) => tracing::debug!(target: "guard", "Whitelist re-fetch parse error: {}", e),
+                            }
+                        }
+                        Ok(resp) => tracing::debug!(target: "guard", "Whitelist re-fetch HTTP {}", resp.status()),
+                        Err(e) => tracing::debug!(target: "guard", "Whitelist re-fetch error: {}", e),
+                    }
+                }
+            });
+            tracing::info!(target: LOG_TARGET, "Process guard whitelist re-fetch task spawned (interval=300s)");
+        }
     }
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────

@@ -750,6 +750,3 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
 | 2026-03-24 00:15 IST | James | 5e609056 | feat(176-01): add Unknown catch-all + 7 new message variant stubs to protocol enums (AgentMessage, CoreToAgentMessage) |
 | 2026-03-24 00:15 IST | James | a8be649d | test(176-01): add 10 serde forward-compat + roundtrip tests, 168 total pass |
-| 2026-03-24 17:34 IST | James | 7a6ef5bf | feat(178-02): ConfigPush handler, ConfigAck flow, sentry-flags bridge — write_sentry_flags() + pending_acks event loop drain |
-| 2026-03-24 17:34 IST | James | 1cdfcd47 | feat(178-02): sentry-flags reader + /flags endpoint in rc-sentry; LaunchGame + billing_guard feature flag gates |
-| 2026-03-24 17:34 IST | James | 75ae4eb7 | docs(178-02): plan complete — SUMMARY, STATE, ROADMAP updated; CP-03 marked done |

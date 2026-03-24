@@ -55,12 +55,12 @@
 
 | Service | Port | Location | Start |
 |---------|------|----------|-------|
-| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run). Build: `129a24f2` |
+| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run). Build: `0c0c8134` |
 | server_ops | 8090 | Server .23 | Part of racecontrol binary |
 | kiosk | 3300 | Server .23 | Scheduled task |
 | web dashboard | 3200 | Server .23 | Scheduled task |
-| rc-agent | 8090 | All pods | `start-rcagent.bat` (HKLM Run). Build: `82bea1eb` |
-| rc-sentry | 8091 | All pods | `start-rcsentry.bat` (HKLM Run). Build: `a6894d34` |
+| rc-agent | 8090 | All pods | `start-rcagent.bat` (HKLM Run). Build: `0c0c8134` |
+| rc-sentry | 8091 | All pods | `start-rcsentry.bat` (HKLM Run). Build: `0c0c8134` |
 | go2rtc | 1984 | James .27 | `go2rtc.exe` — 29 RTSP streams, API on :1984 (NOT 8096) |
 | comms-link relay | 8766 | James .27 | `start-comms-link.bat`, Task Scheduler every 2min watchdog |
 | AI healer | — | James .27 | `rc-watchdog.exe` via `CommsLink-DaemonWatchdog` task, 10 services, Ollama diagnosis |

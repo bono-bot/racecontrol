@@ -332,6 +332,12 @@ pub(crate) async fn run_autostart_audit(
     let violation_action = wl.violation_action.clone();
     drop(wl);
 
+    // Skip audit if allowlist is empty — empty means "not configured yet", not "block all"
+    if allowed_keys.is_empty() {
+        tracing::debug!(target: LOG_TARGET, "autostart audit skipped — autostart_keys empty (not configured)");
+        return;
+    }
+
     // Audit HKCU Run
     audit_run_key(
         r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -499,9 +505,11 @@ pub(crate) fn parse_run_key_entries(stdout: &str) -> Vec<String> {
 }
 
 /// Case-insensitive check if an autostart entry name is in the whitelist.
+/// Supports both exact match and prefix match (for tasks with GUID suffixes
+/// like "MicrosoftEdgeUpdateTaskMachineCore{A052F23E-...}").
 pub(crate) fn is_autostart_whitelisted(name: &str, allowed: &[String]) -> bool {
     let lower = name.to_lowercase();
-    allowed.iter().any(|a| a == &lower)
+    allowed.iter().any(|a| a == &lower || lower.starts_with(a))
 }
 
 /// Parse `netstat -ano` stdout into a list of (port, pid) tuples.
@@ -556,6 +564,12 @@ pub(crate) async fn run_port_audit(
         let wl = whitelist.read().await;
         (wl.ports.clone(), wl.violation_action.clone())
     };
+
+    // Skip audit if port allowlist is empty — empty means "not configured yet", not "block all"
+    if allowed_ports.is_empty() {
+        tracing::debug!(target: LOG_TARGET, "port audit skipped — ports empty (not configured)");
+        return;
+    }
 
     // Shell-out netstat in spawn_blocking to avoid blocking the async runtime
     let output = tokio::task::spawn_blocking(|| {
@@ -705,6 +719,12 @@ pub(crate) async fn run_schtasks_audit(
         (keys, wl.violation_action.clone())
     };
 
+    // Skip audit if autostart_keys is empty — empty means "not configured yet", not "block all"
+    if allowed_keys.is_empty() {
+        tracing::debug!(target: LOG_TARGET, "schtasks audit skipped — autostart_keys empty (not configured)");
+        return;
+    }
+
     // Shell-out schtasks in spawn_blocking
     let output = tokio::task::spawn_blocking(|| {
         #[cfg(windows)]
@@ -729,8 +749,12 @@ pub(crate) async fn run_schtasks_audit(
         if task_path.starts_with("\\Microsoft\\") {
             continue;
         }
-        // Skip whitelisted task names
-        if is_autostart_whitelisted(&task_name, &allowed_keys) {
+        // Skip whitelisted tasks — check both path and path's leaf name
+        // (task_name from CSV is actually "Next Run Time", not a meaningful name)
+        let leaf = task_path.rsplit('\\').next().unwrap_or(&task_path);
+        if is_autostart_whitelisted(&task_path, &allowed_keys)
+            || is_autostart_whitelisted(leaf, &allowed_keys)
+        {
             continue;
         }
 
