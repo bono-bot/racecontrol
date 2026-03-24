@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch, RwLock};
 use crate::safe_mode;
 use crate::config::AgentConfig;
+use crate::feature_flags::FeatureFlags;
 use rc_common::types::MachineWhitelist;
 use crate::driving_detector::{DetectorSignal, DrivingDetector};
 use crate::ffb_controller::FfbController;
@@ -43,6 +44,9 @@ pub struct AppState {
     pub(crate) ai_result_tx: mpsc::Sender<AiDebugSuggestion>,
     pub(crate) ws_exec_result_rx: mpsc::Receiver<AgentMessage>,
     pub(crate) ws_exec_result_tx: mpsc::Sender<AgentMessage>,
+    /// v22.0 Phase 178: In-memory feature flags — loaded from disk cache on startup,
+    /// updated via FlagSync / KillSwitch WS messages, persisted on every update.
+    pub(crate) flags: Arc<RwLock<FeatureFlags>>,
     /// Process guard shared whitelist — fetched on WS connect, read each scan cycle.
     /// Defaults to MachineWhitelist::default() (report_only, empty lists) until fetched.
     pub(crate) guard_whitelist: Arc<RwLock<MachineWhitelist>>,

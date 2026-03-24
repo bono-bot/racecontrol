@@ -40,6 +40,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use app_state::AppState;
+use feature_flags::FeatureFlags;
 use config::{load_config, detect_installed_games};
 use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
@@ -779,6 +780,7 @@ async fn main() -> Result<()> {
         safe_mode_cooldown_timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(86400))),
         safe_mode_cooldown_armed: false,
         last_preflight_alert: None,
+        flags: std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache())),
         guard_whitelist,
         guard_violation_tx,
         guard_violation_rx,
@@ -919,6 +921,23 @@ async fn main() -> Result<()> {
             startup_log::write_phase("websocket", &format!("connected pod={}", state.config.pod.number));
             startup_log::write_phase("complete", "");
             startup_complete_logged = true;
+        }
+
+        // v22.0 Phase 178: Request flag sync from server with our cached version.
+        // Sent on every WS connect so server can send a delta (or full sync if version=0).
+        {
+            let flags = state.flags.read().await;
+            let sync_msg = AgentMessage::FlagCacheSync(rc_common::types::FlagCacheSyncPayload {
+                pod_id: state.pod_id.clone(),
+                cached_version: flags.cached_version(),
+            });
+            if let Ok(json) = serde_json::to_string(&sync_msg) {
+                if ws_tx.send(Message::Text(json.into())).await.is_ok() {
+                    tracing::info!(target: LOG_TARGET, "Sent FlagCacheSync (cached_version={})", flags.cached_version());
+                } else {
+                    tracing::warn!(target: LOG_TARGET, "Failed to send FlagCacheSync");
+                }
+            }
         }
 
         // Send startup report once per process lifetime (HEAL-02)

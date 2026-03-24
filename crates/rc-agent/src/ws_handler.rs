@@ -978,6 +978,21 @@ pub async fn handle_ws_message(
             tracing::info!(target: LOG_TARGET, "Process guard: whitelist updated via WS push ({} processes)", wl.processes.len());
         }
 
+        // v22.0 Phase 178: Feature flag sync from server
+        CoreToAgentMessage::FlagSync(payload) => {
+            let mut flags = state.flags.write().await;
+            let count = payload.flags.len();
+            flags.apply_sync(&payload);
+            tracing::info!(target: LOG_TARGET, "Feature flags synced: {} flags, version {}", count, payload.version);
+        }
+
+        // v22.0 Phase 178: Kill switch from server — emergency halt capability
+        CoreToAgentMessage::KillSwitch(payload) => {
+            let mut flags = state.flags.write().await;
+            tracing::warn!(target: LOG_TARGET, "Kill switch: {} = {} (reason: {:?})", payload.flag_name, payload.active, payload.reason);
+            flags.apply_kill_switch(&payload);
+        }
+
         CoreToAgentMessage::ForceRelaunchBrowser { pod_id: _ } => {
             // Phase 139: Server-initiated lock screen recovery.
             // Guard: never relaunch during an active billing session (standing rule #10).
