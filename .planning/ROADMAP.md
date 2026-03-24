@@ -2705,7 +2705,11 @@ Plans:
   3. Kill-switch flags (kill_*) override all other flag logic -- when a kill switch is set on the server, rc-agent halts the associated feature path on the next invocation regardless of other flag state
   4. Hot-reloadable config fields (billing rates, game limits, process guard whitelist, debug verbosity) update in-memory without restarting rc-agent; fields excluded from hot-reload (port bindings, WS URL) are documented and never accepted as hot updates
   5. New WS message types are added to the shared TypeScript types package and a contract test verifies the rc-common Rust types and TypeScript types agree on field names and shapes
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 178-01-PLAN.md -- In-memory flag cache, disk persistence, WS handlers (FlagSync, KillSwitch), FlagCacheSync on reconnect
+- [ ] 178-02-PLAN.md -- ConfigPush hot-reload, ConfigAck flow, sentry-flags.json bridge, LaunchGame flag gate
+- [ ] 178-03-PLAN.md -- TypeScript WS message types + contract tests (SYNC-03)
 
 ### Phase 179: OTA Pipeline
 **Goal**: New rc-agent and rc-sentry releases can be deployed to the full fleet via a state-machine-driven pipeline that gates every wave on health checks, skips pods with active billing sessions, auto-rolls back on failure, and is impossible to interrupt without a trace. rc-sentry deploys independently from rc-agent (different binary, different restart sequence) but shares the same canary-first pipeline and health gate infrastructure.
