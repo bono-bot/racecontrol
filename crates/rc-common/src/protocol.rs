@@ -2539,4 +2539,160 @@ mod process_guard_protocol_tests {
         let msg: CoreToAgentMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(msg, CoreToAgentMessage::ClearMaintenance));
     }
+
+    // ── Phase 176 Plan 01: Forward-compatibility + new variant tests ──────────
+
+    #[test]
+    fn test_agent_message_unknown_variant_forward_compat() {
+        // Simulate a message type that doesn't exist yet
+        let json = r#"{"type":"totally_unknown_type","data":null}"#;
+        let parsed: AgentMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(parsed, AgentMessage::Unknown));
+    }
+
+    #[test]
+    fn test_core_to_agent_unknown_variant_forward_compat() {
+        let json = r#"{"type":"totally_unknown_type","data":null}"#;
+        let parsed: CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(parsed, CoreToAgentMessage::Unknown));
+    }
+
+    #[test]
+    fn test_agent_message_unknown_with_null_data() {
+        // Unknown type with null data payload should deserialize to Unknown.
+        // Note: serde adjacently-tagged (#[serde(tag, content)]) + #[serde(other)] discards
+        // content only when data is null. Non-null data with unknown type is not supported by
+        // serde without a custom deserializer — forward-compat protocol requires data:null for
+        // sentinel/notification-style future messages.
+        let json = r#"{"type":"future_feature_xyz","data":null}"#;
+        let parsed: AgentMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(parsed, AgentMessage::Unknown));
+    }
+
+    #[test]
+    fn test_flag_sync_roundtrip() {
+        use std::collections::HashMap;
+        let mut flags = HashMap::new();
+        flags.insert("ai-debugger".to_string(), true);
+        flags.insert("process-guard".to_string(), false);
+        let msg = CoreToAgentMessage::FlagSync(FlagSyncPayload { flags: flags.clone(), version: 42 });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("flag_sync"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::FlagSync(payload) = parsed {
+            assert_eq!(payload.flags.len(), 2);
+            assert_eq!(payload.version, 42);
+        } else {
+            panic!("Expected FlagSync variant");
+        }
+    }
+
+    #[test]
+    fn test_config_push_roundtrip() {
+        use std::collections::HashMap;
+        let mut fields = HashMap::new();
+        fields.insert("billing_rate".to_string(), serde_json::json!(900));
+        let msg = CoreToAgentMessage::ConfigPush(ConfigPushPayload {
+            fields,
+            schema_version: 1,
+            sequence: 100,
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("config_push"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::ConfigPush(payload) = parsed {
+            assert_eq!(payload.schema_version, 1);
+            assert_eq!(payload.sequence, 100);
+        } else {
+            panic!("Expected ConfigPush variant");
+        }
+    }
+
+    #[test]
+    fn test_ota_download_roundtrip() {
+        let msg = CoreToAgentMessage::OtaDownload(OtaDownloadPayload {
+            manifest_url: "http://192.168.31.27:9998/manifest.toml".to_string(),
+            binary_sha256: "abcdef1234567890".to_string(),
+            version: "1.0.0".to_string(),
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ota_download"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::OtaDownload(payload) = parsed {
+            assert_eq!(payload.binary_sha256, "abcdef1234567890");
+        } else {
+            panic!("Expected OtaDownload variant");
+        }
+    }
+
+    #[test]
+    fn test_kill_switch_roundtrip() {
+        let msg = CoreToAgentMessage::KillSwitch(KillSwitchPayload {
+            flag_name: "kill_billing".to_string(),
+            active: true,
+            reason: Some("Emergency maintenance".to_string()),
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("kill_switch"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::KillSwitch(payload) = parsed {
+            assert_eq!(payload.flag_name, "kill_billing");
+            assert!(payload.active);
+        } else {
+            panic!("Expected KillSwitch variant");
+        }
+    }
+
+    #[test]
+    fn test_ota_ack_roundtrip() {
+        let msg = AgentMessage::OtaAck(OtaAckPayload {
+            pod_id: "pod_8".to_string(),
+            version: "1.0.0".to_string(),
+            success: true,
+            error: None,
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ota_ack"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::OtaAck(payload) = parsed {
+            assert_eq!(payload.pod_id, "pod_8");
+            assert!(payload.success);
+        } else {
+            panic!("Expected OtaAck variant");
+        }
+    }
+
+    #[test]
+    fn test_config_ack_roundtrip() {
+        let msg = AgentMessage::ConfigAck(ConfigAckPayload {
+            pod_id: "pod_1".to_string(),
+            sequence: 42,
+            accepted: true,
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("config_ack"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ConfigAck(payload) = parsed {
+            assert_eq!(payload.sequence, 42);
+        } else {
+            panic!("Expected ConfigAck variant");
+        }
+    }
+
+    #[test]
+    fn test_flag_cache_sync_roundtrip() {
+        let msg = AgentMessage::FlagCacheSync(FlagCacheSyncPayload {
+            pod_id: "pod_3".to_string(),
+            cached_version: 5,
+        });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("flag_cache_sync"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::FlagCacheSync(payload) = parsed {
+            assert_eq!(payload.pod_id, "pod_3");
+            assert_eq!(payload.cached_version, 5);
+        } else {
+            panic!("Expected FlagCacheSync variant");
+        }
+    }
 }
