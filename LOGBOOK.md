@@ -750,3 +750,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
 | 2026-03-24 00:15 IST | James | 5e609056 | feat(176-01): add Unknown catch-all + 7 new message variant stubs to protocol enums (AgentMessage, CoreToAgentMessage) |
 | 2026-03-24 00:15 IST | James | a8be649d | test(176-01): add 10 serde forward-compat + roundtrip tests, 168 total pass |
+| 2026-03-24 18:34 IST | James | fde3cd87 | feat(59-01): ensure_auto_switch_config() in ffb_controller.rs — places Global.json at C:\RacingPoint\ with AresAutoChangeConfig=open, verifies GameToBaseConfig.json, 9 unit tests |
+| 2026-03-24 18:34 IST | James | 9540c91b | feat(59-01): wire ensure_auto_switch_config() into main.rs startup before enforce_safe_state |
+| 2026-03-24 18:34 IST | James | 44fb7b71 | docs(59-01): plan complete — 59-01-SUMMARY.md, STATE.md, ROADMAP.md updated |
