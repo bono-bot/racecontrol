@@ -2730,7 +2730,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [ ] 187-01-PLAN.md ï¿½ Sentry-aware relaunch logic + build verification
 
 ### Phase 180: Admin Dashboard UI
 **Goal**: Operators can toggle feature flags per-pod or fleet-wide and trigger OTA releases from the admin dashboard, with live wave progress, pod drain status, and rollback controls visible without a terminal
@@ -2745,7 +2745,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [ ] 187-01-PLAN.md ï¿½ Sentry-aware relaunch logic + build verification
 
 ### Phase 181: Standing Rules Gate
 **Goal**: Every standing rule is classified as AUTO, HUMAN-CONFIRM, or INFORMATIONAL and the appropriate enforcement mechanism fires at every pipeline step -- no gate can be bypassed, and HUMAN-CONFIRM rules pause the pipeline with a named checklist
@@ -2762,7 +2762,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [ ] 187-01-PLAN.md ï¿½ Sentry-aware relaunch logic + build verification
 
 ### Phase 182: Cross-Milestone Integration
 **Goal**: All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push â€” overlapping phases superseded or merged, future phases gain v22.0 as a dependency
@@ -2778,7 +2778,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [ ] 187-01-PLAN.md ï¿½ Sentry-aware relaunch logic + build verification
 
 ## v22.0 Progress
 
@@ -2808,7 +2808,7 @@ Plans:
 - [x] **Phase 184: rc-sentry Crash Handler Upgrade** - Spawn verification, graduated Tier 1-4 recovery, pattern memory wired into crash handler (completed 2026-03-24)
 - [x] **Phase 185: pod_healer WoL Coordination** - Recovery authority enforcement and context-aware Wake-on-LAN with intent checking (completed 2026-03-24)
 - [x] **Phase 186: MAINTENANCE_MODE Auto-Clear** - JSON diagnostic payload, 30-min auto-clear, WhatsApp staff alert (completed 2026-03-24)
-- [ ] **Phase 187: self_monitor Coordination** - rc-agent self_monitor yields to rc-sentry, PowerShell relaunch becomes rare fallback
+- [x] **Phase 187: self_monitor Coordination** - rc-agent self_monitor yields to rc-sentry, PowerShell relaunch becomes rare fallback (completed 2026-03-24)
 - [ ] **Phase 188: James Watchdog + rc-watchdog Grace Window** - James-local AI watchdog replaces james_watchdog.ps1; rc-watchdog adds grace window
 
 ## Phase Details
@@ -2904,7 +2904,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [ ] 187-01-PLAN.md ï¿½ Sentry-aware relaunch logic + build verification
 
 ## v17.1 Progress
 
@@ -2916,5 +2916,5 @@ Plans:
 | 184. rc-sentry Crash Handler Upgrade | 3/3 | Complete    | 2026-03-24 |
 | 185. pod_healer WoL Coordination | 2/2 | Complete    | 2026-03-24 |
 | 186. MAINTENANCE_MODE Auto-Clear | 1/1 | Complete    | 2026-03-24 |
-| 187. self_monitor Coordination | 0/TBD | Not started | - |
+| 187. self_monitor Coordination | 1/1 | Complete   | 2026-03-24 |
 | 188. James Watchdog + rc-watchdog Grace Window | 0/TBD | Not started | - |
