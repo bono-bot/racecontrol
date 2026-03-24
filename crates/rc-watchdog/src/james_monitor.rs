@@ -64,9 +64,12 @@ fn services() -> Vec<ServiceConfig> {
             log_path: Some(r"C:\Users\bono\.claude\comms-watchdog.log"),
         },
         ServiceConfig {
-            name: "rc-sentry",
-            check: ServiceCheck::Process("rc-sentry"),
-            restart_cmd: None,
+            name: "rc-sentry-ai",
+            check: ServiceCheck::HttpJson("http://127.0.0.1:8096/health", "cameras"),
+            restart_cmd: Some(RestartCmd {
+                exe: r"C:\RacingPoint\watchdog-rcsentry-ai.bat",
+                args: &[],
+            }),
             log_path: Some(r"C:\RacingPoint\rc-sentry-ai.log"),
         },
         ServiceConfig {
