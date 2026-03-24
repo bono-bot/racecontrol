@@ -5,6 +5,8 @@ use crate::types::{
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, ContentManifest, DeployState, DrivingState,
     GameLaunchInfo, GroupSessionInfo, Leaderboard, LapData, MachineWhitelist, PodActivityEntry,
     PodInfo, PodFailureReason, ProcessViolation, SessionInfo, SimType, TelemetryFrame,
+    FlagSyncPayload, ConfigPushPayload, OtaDownloadPayload, OtaAckPayload, ConfigAckPayload,
+    KillSwitchPayload, FlagCacheSyncPayload,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -268,6 +270,20 @@ pub enum AgentMessage {
         /// Detected game executables currently running
         games_detected: Vec<String>,
     },
+
+    /// v22.0: Agent acknowledges OTA download completion or failure
+    OtaAck(OtaAckPayload),
+
+    /// v22.0: Agent acknowledges config push receipt
+    ConfigAck(ConfigAckPayload),
+
+    /// v22.0: Agent requests full flag state from server (sent on reconnect with cached version)
+    FlagCacheSync(FlagCacheSyncPayload),
+
+    /// Forward-compatibility: catch-all for message types added in newer server versions.
+    /// Older agents silently ignore these instead of crashing on deserialization.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -488,6 +504,22 @@ pub enum CoreToAgentMessage {
         whitelist: MachineWhitelist,
     },
 
+    /// v22.0: Server pushes feature flag state to agent
+    FlagSync(FlagSyncPayload),
+
+    /// v22.0: Server pushes config changes to agent
+    ConfigPush(ConfigPushPayload),
+
+    /// v22.0: Server instructs agent to download new binary via OTA
+    OtaDownload(OtaDownloadPayload),
+
+    /// v22.0: Server pushes kill switch activation/deactivation
+    KillSwitch(KillSwitchPayload),
+
+    /// Forward-compatibility: catch-all for message types added in newer server versions.
+    /// Older agents silently ignore these instead of crashing on deserialization.
+    #[serde(other)]
+    Unknown,
 }
 
 fn default_exec_timeout_ms() -> u64 {

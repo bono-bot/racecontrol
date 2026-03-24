@@ -884,6 +884,69 @@ pub struct TrackConfigManifest {
     pub pit_count: Option<u32>,
 }
 
+// ─── v22.0 Phase 176: New message payload types ───────────────────────────────
+
+/// v22.0 Phase 176: Payload for FlagSync messages (server -> agent)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FlagSyncPayload {
+    pub flags: std::collections::HashMap<String, bool>,
+    #[serde(default)]
+    pub version: u64,
+}
+
+/// v22.0 Phase 176: Payload for ConfigPush messages (server -> agent)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConfigPushPayload {
+    pub fields: std::collections::HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub sequence: u64,
+}
+
+/// v22.0 Phase 176: Payload for OtaDownload command (server -> agent)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtaDownloadPayload {
+    pub manifest_url: String,
+    pub binary_sha256: String,
+    pub version: String,
+}
+
+/// v22.0 Phase 176: Payload for OtaAck messages (agent -> server)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtaAckPayload {
+    pub pod_id: String,
+    pub version: String,
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// v22.0 Phase 176: Payload for ConfigAck messages (agent -> server)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigAckPayload {
+    pub pod_id: String,
+    pub sequence: u64,
+    pub accepted: bool,
+}
+
+/// v22.0 Phase 176: Payload for KillSwitch messages (server -> agent)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KillSwitchPayload {
+    pub flag_name: String,
+    pub active: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// v22.0 Phase 176: Payload for FlagCacheSync messages (agent -> server, requesting full flag state on reconnect)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlagCacheSyncPayload {
+    pub pod_id: String,
+    #[serde(default)]
+    pub cached_version: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
