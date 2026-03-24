@@ -18,7 +18,7 @@ use serde_json::json;
 use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
-use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_SERVER};
+use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryIntent, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
 
 const POD_AGENT_PORT: u16 = 8090;
@@ -320,9 +320,20 @@ async fn heal_pod(
             } else {
                 // No WebSocket, no billing -- this is a genuine rc-agent failure.
                 // Set needs_restart flag so pod_monitor triggers restart on next cycle.
-                {
+                // COORD-01: Only flag restart if PodHealer owns rc-agent.exe (or it's unregistered).
+                let is_restart_owner = {
+                    let ownership = state.process_ownership.lock().unwrap_or_else(|e| e.into_inner());
+                    ownership.owner_of("rc-agent.exe").map_or(true, |o| o == RecoveryAuthority::PodHealer)
+                };
+                if is_restart_owner {
                     let mut needs = state.pod_needs_restart.write().await;
                     needs.insert(pod.id.clone(), true);
+                } else {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} rc-agent.exe not owned by PodHealer — skipping restart flag, deferring to owner",
+                        pod.id
+                    );
                 }
                 tracing::info!(
                     "Pod healer: {} lock screen unresponsive, no WebSocket -- flagged for restart",
@@ -574,6 +585,52 @@ async fn run_graduated_recovery(
         return;
     }
 
+    // COORD-02: Check if another authority has an active recovery intent for this pod
+    {
+        let intents = state.recovery_intents.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(active) = intents.has_active_intent(&pod.id, "rc-agent.exe") {
+            let remaining = 120 - (Utc::now() - active.created_at).num_seconds();
+            tracing::info!(
+                target: "pod_healer",
+                "Pod {} has active recovery intent from {:?} ({}), skipping — TTL expires in {}s",
+                pod.id, active.authority, active.reason, remaining
+            );
+            return;
+        }
+    }
+
+    // COORD-03: Check GRACEFUL_RELAUNCH sentinel via rc-sentry /files endpoint
+    // If the sentinel is present, rc-agent is in the middle of a planned self-restart — not a crash.
+    let sentry_url = format!(
+        "http://{}:8091/files?path=C%3A%5CRacingPoint%5CGRACEFUL_RELAUNCH",
+        pod.ip_address
+    );
+    match state
+        .http_client
+        .get(&sentry_url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!(
+                target: "pod_healer",
+                "Pod {} GRACEFUL_RELAUNCH sentinel present — intentional restart in progress, skipping recovery",
+                pod.id
+            );
+            let decision = RecoveryDecision::new(
+                "server",
+                "rc-agent.exe",
+                RecoveryAuthority::PodHealer,
+                RecoveryAction::SkipCascadeGuardActive,
+                "graceful_relaunch_sentinel_present",
+            );
+            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+            return;
+        }
+        _ => {} // Sentinel absent or rc-sentry unreachable — proceed with recovery
+    }
+
     let tracker = trackers.entry(pod.id.clone()).or_insert_with(PodRecoveryTracker::new);
     let now_instant = std::time::Instant::now();
 
@@ -615,6 +672,26 @@ async fn run_graduated_recovery(
                 "Pod {} — step 2: Tier 1 restart (rc-agent via pod-agent)",
                 pod.id
             );
+
+            // COORD-01: ProcessOwnership enforcement
+            // rc-agent.exe is registered to RcSentry — PodHealer should not perform
+            // a direct process restart on it. Skip Tier 1 and advance to AI escalation.
+            {
+                let ownership = state.process_ownership.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(owner) = ownership.owner_of("rc-agent.exe") {
+                    if owner != RecoveryAuthority::PodHealer {
+                        tracing::info!(
+                            target: "pod_healer",
+                            "Pod {} rc-agent.exe owned by {:?}, not PodHealer — skipping Tier 1 restart, advancing to AI escalation",
+                            pod.id, owner
+                        );
+                        tracker.step = PodRecoveryStep::AiEscalation;
+                        return;
+                    }
+                }
+                // If unregistered, PodHealer may proceed (backward compat)
+            }
+
             let decision = RecoveryDecision::new(
                 "server",
                 "rc-agent.exe",
@@ -634,6 +711,18 @@ async fn run_graduated_recovery(
                 }
             }
             let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
+
+            // COORD-02: Register PodHealer's recovery intent before acting.
+            // This prevents concurrent recovery by another authority within the 2-min TTL.
+            {
+                let mut intents = state.recovery_intents.lock().unwrap_or_else(|e| e.into_inner());
+                intents.register(RecoveryIntent::new(
+                    &pod.id,
+                    "rc-agent.exe",
+                    RecoveryAuthority::PodHealer,
+                    "graduated_tier1_restart",
+                ));
+            }
 
             // Attempt restart via pod-agent :8090/exec
             let restart_cmd = r#"cd /d C:\RacingPoint & start /b rc-agent.exe"#;
@@ -1808,6 +1897,64 @@ mod tests {
             tracker.step,
             PodRecoveryStep::TierOneRestart,
             "step must be TierOneRestart after 30s elapsed"
+        );
+    }
+
+    // ─── COORD-01: ProcessOwnership unit tests ────────────────────────────────
+
+    #[test]
+    fn test_ownership_check_skips_when_not_owner() {
+        // When rc-agent.exe is owned by RcSentry, owner_of returns RcSentry (not PodHealer).
+        // PodHealer should detect this and skip.
+        use rc_common::recovery::{ProcessOwnership, RecoveryAuthority};
+
+        let mut ownership = ProcessOwnership::new();
+        ownership
+            .register("rc-agent.exe", RecoveryAuthority::RcSentry)
+            .expect("register should succeed");
+
+        let owner = ownership.owner_of("rc-agent.exe");
+        assert_eq!(
+            owner,
+            Some(RecoveryAuthority::RcSentry),
+            "owner_of must return RcSentry"
+        );
+        assert_ne!(
+            owner,
+            Some(RecoveryAuthority::PodHealer),
+            "PodHealer must not own rc-agent.exe after RcSentry registration"
+        );
+        // PodHealer would skip the restart — simulate the guard
+        let should_skip = owner.map_or(false, |o| o != RecoveryAuthority::PodHealer);
+        assert!(should_skip, "PodHealer must skip when rc-agent.exe is owned by RcSentry");
+    }
+
+    // ─── COORD-02: RecoveryIntent unit tests ──────────────────────────────────
+
+    #[test]
+    fn test_recovery_intent_prevents_concurrent_action() {
+        // Create an active intent for pod-1 and verify has_active_intent finds it.
+        use crate::recovery::RecoveryIntentStore;
+        use rc_common::recovery::{RecoveryAuthority, RecoveryIntent};
+
+        let mut store = RecoveryIntentStore::new();
+        let intent = RecoveryIntent::new(
+            "pod-1",
+            "rc-agent.exe",
+            RecoveryAuthority::RcSentry,
+            "heartbeat_timeout_60s",
+        );
+        store.register(intent);
+
+        let found = store.has_active_intent("pod-1", "rc-agent.exe");
+        assert!(
+            found.is_some(),
+            "active intent must be found — concurrent action must be blocked"
+        );
+        assert_eq!(
+            found.unwrap().authority,
+            RecoveryAuthority::RcSentry,
+            "found intent authority must match registered authority"
         );
     }
 }
