@@ -1214,11 +1214,11 @@ Plans:
   2. Booking wizard shows real-time pod availability from live RaceControl data
   3. System tracks each customer's commitment ladder position and surfaces next-step nudges
   4. Booking page displays real social proof using actual data
-**Plans**: 2 (researched + planned 2026-03-21)
+**Plans**: 2 plans
 
 Plans:
-- [ ] 94-01: TBD
-
+- [ ] 94-01-PLAN.md — Backend: pricing display + social proof endpoints, DB migration, commitment ladder logic
+- [ ] 94-02-PLAN.md — Frontend: kiosk PricingDisplay + ScarcityBanner, web /book page with social proof
 ### Phase 95: Staff Gamification
 **Goal**: Staff who opt in can see performance, earn badges, participate in team challenges, and give recognition
 **Depends on**: Phase 89
