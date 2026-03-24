@@ -2795,7 +2795,7 @@ Plans:
 - [x] **Phase 183: Recovery Events API** - Server-side recovery events endpoint that all pod-side phases report to (completed 2026-03-24)
 - [x] **Phase 184: rc-sentry Crash Handler Upgrade** - Spawn verification, graduated Tier 1-4 recovery, pattern memory wired into crash handler (completed 2026-03-24)
 - [x] **Phase 185: pod_healer WoL Coordination** - Recovery authority enforcement and context-aware Wake-on-LAN with intent checking (completed 2026-03-24)
-- [ ] **Phase 186: MAINTENANCE_MODE Auto-Clear** - JSON diagnostic payload, 30-min auto-clear, WhatsApp staff alert
+- [x] **Phase 186: MAINTENANCE_MODE Auto-Clear** - JSON diagnostic payload, 30-min auto-clear, WhatsApp staff alert (completed 2026-03-24)
 - [ ] **Phase 187: self_monitor Coordination** - rc-agent self_monitor yields to rc-sentry, PowerShell relaunch becomes rare fallback
 - [ ] **Phase 188: James Watchdog + rc-watchdog Grace Window** - James-local AI watchdog replaces james_watchdog.ps1; rc-watchdog adds grace window
 
@@ -2897,6 +2897,6 @@ Plans:
 | 183. Recovery Events API | 1/1 | Complete    | 2026-03-24 |
 | 184. rc-sentry Crash Handler Upgrade | 3/3 | Complete    | 2026-03-24 |
 | 185. pod_healer WoL Coordination | 2/2 | Complete    | 2026-03-24 |
-| 186. MAINTENANCE_MODE Auto-Clear | 0/TBD | Not started | - |
+| 186. MAINTENANCE_MODE Auto-Clear | 1/1 | Complete   | 2026-03-24 |
 | 187. self_monitor Coordination | 0/TBD | Not started | - |
 | 188. James Watchdog + rc-watchdog Grace Window | 0/TBD | Not started | - |

@@ -763,3 +763,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 03:03 IST | James | 80f51796 | 185-01: ProcessOwnership+RecoveryIntent+GRACEFUL_RELAUNCH coordination gates wired into pod_healer (COORD-01/02/03) |
 | 2026-03-25 03:13 IST | James | 9abadb82 | feat(185-02): context-aware WoL — recovery event query (60s grace), MAINTENANCE_MODE /files check (MAINT-04), WOL_SENT sentinel before magic packet; 30 tests pass |
 | 2026-03-25 03:15 IST | James | f8d63cd7 | docs(185-02): SUMMARY.md + STATE.md + ROADMAP.md — phase 185 Complete |
+| 2026-03-25 07:30 IST | James | 2fef1d3a | feat(186-01): JSON maintenance mode + auto-clear + WhatsApp alert — MaintenanceModePayload, ClearResult, check_and_clear_maintenance, enter_maintenance_mode writes JSON+fires fleet/alert |
+| 2026-03-25 07:35 IST | James | c7501edf | feat(186-01): crash handler thread uses recv_timeout(60s) — periodic auto-clear check, tracker reset on Cleared, fix mtime .ok() chain; 64 tests pass, release build ok |
