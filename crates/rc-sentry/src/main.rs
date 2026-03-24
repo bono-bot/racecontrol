@@ -135,7 +135,37 @@ fn main() {
                 // Tier 4: last escalation time — cooldown prevents alert spam (GRAD-04)
                 #[cfg(feature = "tier1-fixes")]
                 let mut last_escalation: Option<std::time::Instant> = None;
-                while let Ok(ctx) = crash_rx.recv() {
+                loop {
+                    // MAINT-01: Check maintenance mode auto-clear every 60s even with no crashes
+                    #[cfg(feature = "tier1-fixes")]
+                    {
+                        let clear_result = tier1_fixes::check_and_clear_maintenance();
+                        match clear_result {
+                            tier1_fixes::ClearResult::Cleared { reason } => {
+                                tracing::info!(target: "crash-handler",
+                                    "MAINTENANCE_MODE cleared: {} — rc-agent restart attempted", reason);
+                                // Reset tracker so auto-clear doesn't immediately re-enter maintenance
+                                tracker = tier1_fixes::RestartTracker::new();
+                                consecutive_failures = 0;
+                            }
+                            tier1_fixes::ClearResult::StillLocked { remaining_secs } => {
+                                tracing::debug!(target: "crash-handler",
+                                    "MAINTENANCE_MODE still active — {} seconds remaining", remaining_secs);
+                            }
+                            tier1_fixes::ClearResult::NotInMaintenance => {}
+                        }
+                    }
+
+                    // Wait for crash event with 60s timeout (allows periodic auto-clear check)
+                    let ctx = match crash_rx.recv_timeout(std::time::Duration::from_secs(60)) {
+                        Ok(ctx) => ctx,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            tracing::error!(target: "crash-handler", "crash channel disconnected — stopping handler");
+                            break;
+                        }
+                    };
+
                     tracing::warn!(
                         target: "crash-handler",
                         "rc-agent crash detected: panic={:?}, exit_code={:?}, last_phase={:?}",

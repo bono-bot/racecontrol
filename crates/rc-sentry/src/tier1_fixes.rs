@@ -745,7 +745,8 @@ pub fn check_and_clear_maintenance() -> ClearResult {
                     Err(_) => {
                         // Legacy plain-text file — check file mtime instead
                         maint_path.metadata()
-                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|m| m.modified().ok())
                             .and_then(|t| t.elapsed().ok())
                             .map(|d| d.as_secs())
                             .unwrap_or(0)
