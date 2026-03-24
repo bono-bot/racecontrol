@@ -96,6 +96,8 @@ pub(crate) struct ConnectionState {
     pub(crate) game_running_since: Option<std::time::Instant>,
     /// Whether the deferred-connect log has been emitted (avoid spam).
     pub(crate) shm_defer_logged: bool,
+    /// v22.0 Phase 178: Queued acks (ConfigAck etc.) to drain after each WS message.
+    pub(crate) pending_acks: Vec<AgentMessage>,
 }
 
 impl ConnectionState {
@@ -130,6 +132,7 @@ impl ConnectionState {
             f1_udp_playable_received: false,
             game_running_since: None,
             shm_defer_logged: false,
+            pending_acks: Vec::new(),
         }
     }
 }
@@ -1364,6 +1367,12 @@ pub async fn run(
                             Ok(HandleResult::Break) => break,
                             Ok(HandleResult::Continue) => {}
                             Err(e) => { tracing::error!(target: LOG_TARGET, "ws_handler error: {}", e); }
+                        }
+                        // Drain any acks queued by handlers (e.g. ConfigAck from ConfigPush)
+                        for ack in conn.pending_acks.drain(..) {
+                            if let Ok(json) = serde_json::to_string(&ack) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => {

@@ -103,7 +103,8 @@ impl FeatureFlags {
     /// Apply a FlagSync payload received from the server.
     ///
     /// `kill_*` prefixed keys are routed to `kill_switches`; all others go to `flags`.
-    /// Updates `version` and persists the new state to disk.
+    /// Updates `version`, persists the new state to disk, and writes sentry-flags.json
+    /// so rc-sentry can consume current flags on its next watchdog poll.
     pub fn apply_sync(&mut self, payload: &FlagSyncPayload) {
         for (key, value) in &payload.flags {
             if key.starts_with("kill_") {
@@ -114,6 +115,32 @@ impl FeatureFlags {
         }
         self.version = payload.version;
         self.persist_to_disk();
+        self.write_sentry_flags();
+    }
+
+    /// Write current flags to sentry-flags.json for rc-sentry consumption.
+    ///
+    /// Called after every FlagSync. rc-sentry reads this file on its 5s watchdog cycle
+    /// to gate watchdog behavior (e.g., suppressing restart via kill_watchdog_restart).
+    /// Uses atomic tmp-file + rename to avoid partial reads by rc-sentry.
+    pub fn write_sentry_flags(&self) {
+        let path = std::path::Path::new(r"C:\RacingPoint\sentry-flags.json");
+        let tmp_path = path.with_extension("json.tmp");
+        let data = serde_json::json!({
+            "flags": &self.flags,
+            "kill_switches": &self.kill_switches,
+            "version": self.version,
+        });
+        match serde_json::to_string_pretty(&data) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&tmp_path, &json)
+                    .and_then(|_| std::fs::rename(&tmp_path, path))
+                {
+                    tracing::warn!(target: LOG_TARGET, "Failed to write sentry-flags.json: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!(target: LOG_TARGET, "Failed to serialize sentry flags: {}", e),
+        }
     }
 
     /// Apply a KillSwitch payload received from the server.

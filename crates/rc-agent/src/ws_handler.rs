@@ -993,6 +993,49 @@ pub async fn handle_ws_message(
             flags.apply_kill_switch(&payload);
         }
 
+        // v22.0 Phase 178: ConfigPush — hot-reload selected fields without restart.
+        // Non-reloadable fields (port, ws_url, pod_number, pod_id) are logged and ignored.
+        // ConfigAck is queued in pending_acks to be drained by the event loop after handling.
+        CoreToAgentMessage::ConfigPush(payload) => {
+            const HOT_RELOAD_FIELDS: &[&str] = &["billing_rates", "game_limits", "process_guard_whitelist", "debug_verbosity"];
+            const NON_RELOAD_FIELDS: &[&str] = &["port", "ws_url", "pod_number", "pod_id"];
+
+            let mut accepted = true;
+            for (field, value) in &payload.fields {
+                if NON_RELOAD_FIELDS.iter().any(|f| field.contains(f)) {
+                    tracing::warn!(target: LOG_TARGET, "ConfigPush: ignoring non-reloadable field '{}' (requires restart)", field);
+                    continue;
+                }
+                if HOT_RELOAD_FIELDS.iter().any(|f| field.contains(f)) {
+                    if field.contains("process_guard_whitelist") {
+                        // Update the existing guard_whitelist via its Arc<RwLock>
+                        if let Ok(wl) = serde_json::from_value::<MachineWhitelist>(value.clone()) {
+                            let mut guard = state.guard_whitelist.write().await;
+                            *guard = wl;
+                            tracing::info!(target: LOG_TARGET, "ConfigPush: updated process_guard_whitelist");
+                        } else {
+                            tracing::warn!(target: LOG_TARGET, "ConfigPush: invalid process_guard_whitelist value");
+                            accepted = false;
+                        }
+                    } else {
+                        // Future hot-reload fields (billing_rates, game_limits, debug_verbosity)
+                        // will be wired here as their Arc<RwLock> state containers are created
+                        tracing::info!(target: LOG_TARGET, "ConfigPush: accepted field '{}' = {}", field, value);
+                    }
+                } else {
+                    tracing::warn!(target: LOG_TARGET, "ConfigPush: unknown field '{}' — ignored", field);
+                }
+            }
+            // Queue ConfigAck to be drained by event loop after this handler returns
+            let ack = AgentMessage::ConfigAck(rc_common::types::ConfigAckPayload {
+                pod_id: state.pod_id.clone(),
+                sequence: payload.sequence,
+                accepted,
+            });
+            conn.pending_acks.push(ack);
+            tracing::info!(target: LOG_TARGET, "ConfigPush applied (seq={}), ack queued", payload.sequence);
+        }
+
         CoreToAgentMessage::ForceRelaunchBrowser { pod_id: _ } => {
             // Phase 139: Server-initiated lock screen recovery.
             // Guard: never relaunch during an active billing session (standing rule #10).
