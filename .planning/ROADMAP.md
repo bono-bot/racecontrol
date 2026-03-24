@@ -2811,7 +2811,10 @@ Plans:
   3. The in-memory ring buffer is capped at 200 events and does not grow without bound -- confirmed by pushing 250 events and observing the oldest are dropped
   4. If the fleet alert endpoint (POST /api/v1/fleet/alert) does not already exist, it is added alongside recovery.rs in this phase so Tier 4 WhatsApp escalation has a working target
   5. Server rebuild and deploy to .23 completes successfully -- build_id on /api/v1/health matches git rev-parse --short HEAD
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 183-01-PLAN.md — Recovery events ring buffer, POST/GET handlers, deploy to server
 
 ### Phase 184: rc-sentry Crash Handler Upgrade
 **Goal**: rc-sentry's crash handler executes Tier 1 deterministic fixes, checks Tier 2 pattern memory for instant replay, queries Tier 3 Ollama for unknown patterns, escalates to staff after 3+ failures, verifies that spawned processes actually started, and reports every attempt to the recovery events API -- replacing blind restart-loop with a 4-tier graduated response
@@ -2879,7 +2882,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 183. Recovery Events API | 0/TBD | Not started | - |
+| 183. Recovery Events API | 0/1 | Planned | - |
 | 184. rc-sentry Crash Handler Upgrade | 0/TBD | Not started | - |
 | 185. pod_healer WoL Coordination | 0/TBD | Not started | - |
 | 186. MAINTENANCE_MODE Auto-Clear | 0/TBD | Not started | - |
