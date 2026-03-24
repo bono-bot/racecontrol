@@ -18,6 +18,9 @@ export default function BillingPage() {
     pricing_tier_id: string;
     custom_price_paise?: number;
     custom_duration_minutes?: number;
+    payment_method: string;
+    staff_discount_paise?: number;
+    discount_reason?: string;
   }) {
     sendCommand("start_billing", data);
     setModalPod(null);
@@ -30,6 +33,9 @@ export default function BillingPage() {
     auth_type: string;
     custom_price_paise?: number;
     custom_duration_minutes?: number;
+    payment_method: string;
+    staff_discount_paise?: number;
+    discount_reason?: string;
   }) {
     sendCommand("assign_customer", data);
     setModalPod(null);

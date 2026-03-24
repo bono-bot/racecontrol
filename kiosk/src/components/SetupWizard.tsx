@@ -947,10 +947,51 @@ export function SetupWizard({
               )}
             </div>
 
+            {/* Payment & Discount */}
+            <div className="bg-rp-surface border border-rp-border rounded-xl p-4 space-y-3">
+              <h4 className="text-xs text-rp-grey uppercase tracking-wider">Payment</h4>
+              <div className="flex gap-2">
+                {(["wallet", "cash", "upi", "card"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setField("paymentMethod", m)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      ws.paymentMethod === m
+                        ? "bg-rp-red text-white"
+                        : "border border-rp-border text-rp-grey hover:text-white"
+                    }`}
+                  >
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-rp-grey whitespace-nowrap">Discount (cr)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={ws.discountCredits || ""}
+                  onChange={(e) => setField("discountCredits", Math.max(0, parseInt(e.target.value) || 0))}
+                  placeholder="0"
+                  className="w-20 bg-zinc-800 border border-rp-border rounded px-2 py-1 text-sm text-white text-right"
+                />
+              </div>
+              {ws.discountCredits > 0 && (
+                <input
+                  type="text"
+                  value={ws.discountReason}
+                  onChange={(e) => setField("discountReason", e.target.value)}
+                  placeholder="Discount reason (required)"
+                  className="w-full bg-zinc-800 border border-rp-border rounded px-2 py-1 text-sm text-white placeholder:text-zinc-500"
+                />
+              )}
+            </div>
+
             <button
               data-testid="launch-btn"
               onClick={handleLaunch}
-              className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+              disabled={ws.discountCredits > 0 && !ws.discountReason.trim()}
+              className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               LAUNCH
             </button>

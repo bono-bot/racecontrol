@@ -4,25 +4,29 @@ import { useEffect, useState, useMemo } from "react";
 import { api } from "@/lib/api";
 import type { Driver, PricingTier } from "@/lib/api";
 
+type PaymentMethod = "wallet" | "cash" | "upi" | "card";
+
+interface BillingStartData {
+  pod_id: string;
+  driver_id: string;
+  pricing_tier_id: string;
+  custom_price_paise?: number;
+  custom_duration_minutes?: number;
+  payment_method: PaymentMethod;
+  staff_discount_paise?: number;
+  discount_reason?: string;
+}
+
+interface BillingAssignData extends BillingStartData {
+  auth_type: string;
+}
+
 interface BillingStartModalProps {
   podId: string;
   podName: string;
   onClose: () => void;
-  onStart: (data: {
-    pod_id: string;
-    driver_id: string;
-    pricing_tier_id: string;
-    custom_price_paise?: number;
-    custom_duration_minutes?: number;
-  }) => void;
-  onAssign?: (data: {
-    pod_id: string;
-    driver_id: string;
-    pricing_tier_id: string;
-    auth_type: string;
-    custom_price_paise?: number;
-    custom_duration_minutes?: number;
-  }) => void;
+  onStart: (data: BillingStartData) => void;
+  onAssign?: (data: BillingAssignData) => void;
 }
 
 type StartMode = "pin" | "qr" | "direct";
@@ -48,6 +52,11 @@ export default function BillingStartModal({
   const [variableTime, setVariableTime] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(30);
   const [customPriceRupees, setCustomPriceRupees] = useState(200);
+
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
+  const [showDiscount, setShowDiscount] = useState(false);
+  const [discountCredits, setDiscountCredits] = useState(0);
+  const [discountReason, setDiscountReason] = useState("");
 
   const [starting, setStarting] = useState(false);
 
@@ -83,49 +92,30 @@ export default function BillingStartModal({
 
   function handleStart() {
     if (!selectedDriver) return;
+    if (showDiscount && discountCredits > 0 && !discountReason.trim()) return;
     setStarting(true);
 
+    const base: BillingStartData = {
+      pod_id: podId,
+      driver_id: selectedDriver.id,
+      pricing_tier_id: selectedTier?.id || "",
+      payment_method: paymentMethod,
+    };
+
+    if (variableTime) {
+      base.custom_duration_minutes = customMinutes;
+      base.custom_price_paise = customPriceRupees * 100;
+    }
+
+    if (showDiscount && discountCredits > 0) {
+      base.staff_discount_paise = discountCredits * 100;
+      base.discount_reason = discountReason.trim();
+    }
+
     if (startMode === "direct") {
-      const data: {
-        pod_id: string;
-        driver_id: string;
-        pricing_tier_id: string;
-        custom_price_paise?: number;
-        custom_duration_minutes?: number;
-      } = {
-        pod_id: podId,
-        driver_id: selectedDriver.id,
-        pricing_tier_id: selectedTier?.id || "",
-      };
-
-      if (variableTime) {
-        data.custom_duration_minutes = customMinutes;
-        data.custom_price_paise = customPriceRupees * 100;
-      }
-
-      onStart(data);
+      onStart(base);
     } else if (onAssign) {
-      // PIN or QR assignment
-      const data: {
-        pod_id: string;
-        driver_id: string;
-        pricing_tier_id: string;
-        auth_type: string;
-        custom_price_paise?: number;
-        custom_duration_minutes?: number;
-      } = {
-        pod_id: podId,
-        driver_id: selectedDriver.id,
-        pricing_tier_id: selectedTier?.id || "",
-        auth_type: startMode,
-      };
-
-      if (variableTime) {
-        data.custom_duration_minutes = customMinutes;
-        data.custom_price_paise = customPriceRupees * 100;
-      }
-
-      onAssign(data);
+      onAssign({ ...base, auth_type: startMode });
     }
   }
 
@@ -364,10 +354,82 @@ export default function BillingStartModal({
               </div>
             )}
 
+            {/* Payment Method */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-2">
+                Payment Method
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {(
+                  [
+                    { value: "wallet" as PaymentMethod, label: "Wallet" },
+                    { value: "cash" as PaymentMethod, label: "Cash" },
+                    { value: "upi" as PaymentMethod, label: "UPI" },
+                    { value: "card" as PaymentMethod, label: "Card" },
+                  ] as const
+                ).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setPaymentMethod(value)}
+                    className={`rounded-lg border py-2 text-xs font-medium transition-all ${
+                      paymentMethod === value
+                        ? "border-rp-red bg-rp-red/10 text-neutral-200"
+                        : "border-rp-border bg-rp-card text-rp-grey hover:border-rp-border"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Staff Discount */}
+            <div>
+              <button
+                onClick={() => setShowDiscount(!showDiscount)}
+                className="text-xs text-rp-grey hover:text-neutral-300 transition-colors"
+              >
+                {showDiscount ? "- Hide discount" : "+ Add staff discount"}
+              </button>
+              {showDiscount && (
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <label className="block text-xs text-neutral-400 mb-1">
+                      Discount (credits)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={10}
+                      value={discountCredits}
+                      onChange={(e) =>
+                        setDiscountCredits(parseInt(e.target.value) || 0)
+                      }
+                      className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-rp-red transition-colors"
+                    />
+                  </div>
+                  {discountCredits > 0 && (
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">
+                        Reason (required)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. loyalty, first-time, event comp"
+                        value={discountReason}
+                        onChange={(e) => setDiscountReason(e.target.value)}
+                        className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-rp-grey focus:outline-none focus:border-rp-red transition-colors"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Start Button */}
             <button
               onClick={handleStart}
-              disabled={!canStart || starting}
+              disabled={!canStart || starting || (showDiscount && discountCredits > 0 && !discountReason.trim())}
               className={`w-full rounded-lg py-3 font-semibold text-sm transition-all ${
                 canStart && !starting
                   ? "bg-rp-red text-white hover:bg-rp-red active:bg-rp-red"

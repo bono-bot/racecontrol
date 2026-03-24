@@ -663,6 +663,13 @@ export interface BillingSession {
   status: "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
   driving_state: "active" | "idle" | "no_device";
   started_at?: string;
+  split_count?: number;
+  split_duration_minutes?: number;
+  current_split_number?: number;
+  elapsed_seconds?: number;
+  cost_paise?: number;
+  rate_per_min_paise?: number;
+  payment_method?: string;
 }
 
 export interface PricingTier {
@@ -711,6 +718,8 @@ export interface BillingSessionRecord {
   driving_seconds: number;
   status: string;
   price_paise: number;
+  /** Alias for price_paise — shared-types uses cost_paise */
+  cost_paise?: number;
   started_at?: string;
   ended_at?: string;
 }

@@ -83,6 +83,21 @@ export interface Lap {
 // ─── Billing ──────────────────────────────────────────────────────────────
 // BillingSession, BillingSessionStatus, PricingTier re-exported from @racingpoint/types above
 
+export interface RecentSession {
+  id: string;
+  driver_id: string;
+  driver_name: string;
+  pod_id: string;
+  pod_number: number;
+  pricing_tier_name: string;
+  allocated_seconds: number;
+  driving_seconds: number;
+  cost_paise?: number;
+  status: BillingStatus;
+  started_at?: string;
+  ended_at?: string;
+}
+
 export interface PendingSplitContinuation {
   pod_id: string;
   driver_id: string;
@@ -279,7 +294,7 @@ export interface AcCatalog {
 
 // ─── Side Panel ──────────────────────────────────────────────────────
 
-export type PanelMode = "setup" | "live_session" | "waiting" | "wallet_topup" | "game_picker" | null;
+export type PanelMode = "setup" | "live_session" | "waiting" | "wallet_topup" | "game_picker" | "refund" | null;
 
 export type SetupStep =
   | "register_driver"

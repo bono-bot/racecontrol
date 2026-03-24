@@ -78,7 +78,14 @@ export function LiveSessionPanel({
       <div className="bg-rp-surface border border-rp-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-xl font-bold text-white">{billing.driver_name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xl font-bold text-white">{billing.driver_name}</p>
+              {billing.split_count > 1 && (
+                <span className="text-xs bg-zinc-700 text-zinc-300 px-2 py-0.5 rounded">
+                  Split {billing.current_split_number} of {billing.split_count}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-rp-grey">Pod {pod.number} &middot; {billing.pricing_tier_name}</p>
           </div>
           <div className="text-right">
@@ -137,6 +144,16 @@ export function LiveSessionPanel({
           <span>Drove {formatTime(billing.driving_seconds)}</span>
           <span>of {formatTime(billing.allocated_seconds)}</span>
         </div>
+        {(billing.cost_paise != null || billing.rate_per_min_paise != null) && (
+          <div className="flex justify-between text-xs text-zinc-500 mt-1">
+            {billing.cost_paise != null && (
+              <span>{(billing.cost_paise / 100).toFixed(0)} credits</span>
+            )}
+            {billing.rate_per_min_paise != null && (
+              <span>{(billing.rate_per_min_paise / 100).toFixed(0)} cr/min</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Launch Game button — when billing active but no game running */}

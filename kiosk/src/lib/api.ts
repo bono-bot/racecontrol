@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession } from "./types";
 import type { RedeemPinResponse } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -69,6 +69,9 @@ export const api = {
     driver_id: string;
     pricing_tier_id: string;
     staff_id?: string;
+    payment_method?: "wallet" | "cash" | "upi" | "card";
+    staff_discount_paise?: number;
+    discount_reason?: string;
     split_count?: number;
     split_duration_minutes?: number;
   }) =>
@@ -86,6 +89,21 @@ export const api = {
     fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string; current_split_number?: number; total_splits?: number }>(
       "/billing/continue-split",
       { method: "POST", body: JSON.stringify(data) }
+    ),
+
+  refundSession: (billingSessionId: string, data: {
+    amount_paise: number;
+    method: "wallet" | "cash" | "upi";
+    reason: string;
+  }) =>
+    fetchApi<{ ok?: boolean; error?: string; refund_id?: string }>(
+      `/billing/${billingSessionId}/refund`,
+      { method: "POST", body: JSON.stringify(data) }
+    ),
+
+  recentSessions: (limit = 10) =>
+    fetchApi<{ sessions: RecentSession[] }>(
+      `/billing/sessions?limit=${limit}&status=completed`
     ),
 
   // Auth

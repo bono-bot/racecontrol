@@ -15,7 +15,7 @@ import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
 import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
-import type { AuthTokenInfo, PanelMode } from "@/lib/types";
+import type { AuthTokenInfo, PanelMode, RecentSession } from "@/lib/types";
 
 export default function StaffTerminal() {
   const [staffName, setStaffName] = useState<string | null>(null);
@@ -93,6 +93,11 @@ export default function StaffTerminal() {
   // Wallet balances cache: driver_id → balance_paise
   const [walletBalances, setWalletBalances] = useState<Map<string, number>>(new Map());
 
+  // Recent sessions + refund state
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [recentSessionsOpen, setRecentSessionsOpen] = useState(false);
+  const [refundTarget, setRefundTarget] = useState<RecentSession | null>(null);
+
   // Setup wizard hook
   const wizard = useSetupWizard();
 
@@ -125,6 +130,22 @@ export default function StaffTerminal() {
     const interval = setInterval(fetchWalletBalances, 15000);
     return () => clearInterval(interval);
   }, [fetchWalletBalances]);
+
+  // Fetch recent completed sessions
+  const fetchRecentSessions = useCallback(async () => {
+    try {
+      const res = await api.recentSessions(10);
+      setRecentSessions(res.sessions || []);
+    } catch {
+      // Non-critical — silent fail
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRecentSessions();
+    const interval = setInterval(fetchRecentSessions, 30000);
+    return () => clearInterval(interval);
+  }, [fetchRecentSessions]);
 
   // Sort pods by number for consistent 4x2 grid
   const sortedPods = Array.from(pods.values()).sort((a, b) => a.number - b.number);
@@ -212,11 +233,19 @@ export default function StaffTerminal() {
       const tier = wizard.state.selectedTier;
       if (driver && tier) {
         try {
+          const discountPaise = wizard.state.discountCredits > 0
+            ? wizard.state.discountCredits * 100
+            : undefined;
           const result = await api.startBilling({
             pod_id: selectedPodId,
             driver_id: driver.id,
             pricing_tier_id: tier.id,
             staff_id: staffId || undefined,
+            payment_method: wizard.state.paymentMethod,
+            ...(discountPaise && {
+              staff_discount_paise: discountPaise,
+              discount_reason: wizard.state.discountReason,
+            }),
             ...(wizard.state.splitCount > 1 && {
               split_count: wizard.state.splitCount,
               split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
@@ -335,6 +364,12 @@ export default function StaffTerminal() {
     setPanelMode("live_session");
   };
 
+  const handleOpenRefund = (session: RecentSession) => {
+    setRefundTarget(session);
+    setSelectedPodId(session.pod_id);
+    setPanelMode("refund");
+  };
+
   const handleSignOut = () => {
     setStaffName(null);
     setStaffId(null);
@@ -355,6 +390,8 @@ export default function StaffTerminal() {
         return `Waiting — Pod ${selectedPod.number}`;
       case "wallet_topup":
         return `Top Up Wallet`;
+      case "refund":
+        return `Refund Session`;
       case "game_picker":
         return `Select Game — Pod ${selectedPod.number}`;
       default:
@@ -407,7 +444,7 @@ export default function StaffTerminal() {
       />
 
       {/* Main Content: Grid + Side Panel */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
         {/* Pod Grid */}
         <div className={`p-4 transition-all duration-300 ${isPanelOpen ? "w-[40%]" : "w-full"}`}>
           {displayPods.length === 0 ? (
@@ -585,8 +622,186 @@ export default function StaffTerminal() {
               onSuccess={handleTopUpSuccess}
             />
           )}
+
+          {/* Refund */}
+          {panelMode === "refund" && refundTarget && (
+            <RefundPanel
+              session={refundTarget}
+              onClose={() => {
+                setRefundTarget(null);
+                closePanel();
+              }}
+              onSuccess={() => {
+                setRefundTarget(null);
+                closePanel();
+                fetchRecentSessions();
+              }}
+            />
+          )}
         </SidePanel>
+        {/* Recent Sessions (collapsible) */}
+        {!isPanelOpen && (
+          <div className="absolute bottom-0 left-0 right-0 bg-rp-black border-t border-rp-border">
+            <button
+              onClick={() => setRecentSessionsOpen((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-2 text-xs text-rp-grey hover:text-white transition-colors"
+            >
+              <span className="uppercase tracking-wider font-medium">Recent Sessions ({recentSessions.length})</span>
+              <span>{recentSessionsOpen ? "\u25B2" : "\u25BC"}</span>
+            </button>
+            {recentSessionsOpen && recentSessions.length > 0 && (
+              <div className="max-h-48 overflow-y-auto px-4 pb-2 space-y-1">
+                {recentSessions.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between bg-rp-surface border border-rp-border rounded-lg px-3 py-1.5 text-xs">
+                    <div className="flex items-center gap-3 text-white">
+                      <span className="font-medium">{s.driver_name}</span>
+                      <span className="text-rp-grey">Pod {s.pod_number}</span>
+                      <span className="text-rp-grey">{Math.floor(s.driving_seconds / 60)}m</span>
+                      {s.cost_paise != null && (
+                        <span className="text-rp-grey">{(s.cost_paise / 100).toFixed(0)} cr</span>
+                      )}
+                      {s.ended_at && (
+                        <span className="text-zinc-500">
+                          {new Date(s.ended_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true, hour: "numeric", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleOpenRefund(s)}
+                      className="px-2 py-0.5 border border-amber-600/40 text-amber-400 hover:bg-amber-600/10 rounded text-xs transition-colors"
+                    >
+                      Refund
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+// ─── Refund Panel (inline) ───────────────────────────────────────────────
+function RefundPanel({
+  session,
+  onClose,
+  onSuccess,
+}: {
+  session: RecentSession;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [amountCredits, setAmountCredits] = useState(0);
+  const [method, setMethod] = useState<"wallet" | "cash" | "upi">("wallet");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const { toastSuccess, toastError } = useToast();
+
+  const canSubmit = amountCredits > 0 && reason.trim().length > 0 && !busy;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.refundSession(session.id, {
+        amount_paise: amountCredits * 100,
+        method,
+        reason: reason.trim(),
+      });
+      if (result.error) {
+        setError(result.error);
+        toastError(`Refund failed: ${result.error}`);
+      } else {
+        toastSuccess(`Refund of ${amountCredits} credits processed`);
+        onSuccess();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setError(msg);
+      toastError(`Refund failed: ${msg}`);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="flex flex-col h-full p-5 gap-4">
+      <div className="bg-rp-surface border border-rp-border rounded-xl p-4 space-y-2">
+        <p className="text-white font-semibold">{session.driver_name}</p>
+        <div className="flex gap-3 text-xs text-rp-grey">
+          <span>Pod {session.pod_number}</span>
+          <span>{session.pricing_tier_name}</span>
+          <span>{Math.floor(session.driving_seconds / 60)} min</span>
+          {session.cost_paise != null && (
+            <span>{(session.cost_paise / 100).toFixed(0)} credits</span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-rp-grey block mb-1">Refund Amount (credits)</label>
+          <input
+            type="number"
+            min={1}
+            value={amountCredits || ""}
+            onChange={(e) => setAmountCredits(Math.max(0, parseInt(e.target.value) || 0))}
+            className="w-full bg-zinc-800 border border-rp-border rounded-lg px-3 py-2 text-white text-sm"
+            placeholder="0"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-rp-grey block mb-1">Method</label>
+          <div className="flex gap-2">
+            {(["wallet", "cash", "upi"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMethod(m)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  method === m
+                    ? "bg-rp-red text-white"
+                    : "border border-rp-border text-rp-grey hover:text-white"
+                }`}
+              >
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-rp-grey block mb-1">Reason (required)</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={2}
+            className="w-full bg-zinc-800 border border-rp-border rounded-lg px-3 py-2 text-white text-sm resize-none placeholder:text-zinc-500"
+            placeholder="Why is this refund being issued?"
+          />
+        </div>
+
+        {error && <p className="text-red-400 text-xs">{error}</p>}
+      </div>
+
+      <div className="mt-auto space-y-2">
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? "Processing..." : `Refund ${amountCredits > 0 ? amountCredits + " credits" : ""}`}
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 border border-rp-border text-rp-grey hover:text-white rounded-lg text-sm transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
