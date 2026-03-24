@@ -67,33 +67,33 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPAWN-01 | — | Pending |
-| SPAWN-02 | — | Pending |
-| SPAWN-03 | — | Pending |
-| COORD-01 | — | Pending |
-| COORD-02 | — | Pending |
-| COORD-03 | — | Pending |
-| COORD-04 | — | Pending |
-| GRAD-01 | — | Pending |
-| GRAD-02 | — | Pending |
-| GRAD-03 | — | Pending |
-| GRAD-04 | — | Pending |
-| GRAD-05 | — | Pending |
-| MAINT-01 | — | Pending |
-| MAINT-02 | — | Pending |
-| MAINT-03 | — | Pending |
-| MAINT-04 | — | Pending |
-| JAMES-01 | — | Pending |
-| JAMES-02 | — | Pending |
-| JAMES-03 | — | Pending |
-| SELF-01 | — | Pending |
-| SELF-02 | — | Pending |
+| SPAWN-01 | Phase 184 | Pending |
+| SPAWN-02 | Phase 184 | Pending |
+| SPAWN-03 | Phase 184 | Pending |
+| COORD-01 | Phase 185 | Pending |
+| COORD-02 | Phase 185 | Pending |
+| COORD-03 | Phase 185 | Pending |
+| COORD-04 | Phase 183 | Pending |
+| GRAD-01 | Phase 184 | Pending |
+| GRAD-02 | Phase 184 | Pending |
+| GRAD-03 | Phase 184 | Pending |
+| GRAD-04 | Phase 184 | Pending |
+| GRAD-05 | Phase 184 | Pending |
+| MAINT-01 | Phase 186 | Pending |
+| MAINT-02 | Phase 186 | Pending |
+| MAINT-03 | Phase 186 | Pending |
+| MAINT-04 | Phase 185 | Pending |
+| JAMES-01 | Phase 188 | Pending |
+| JAMES-02 | Phase 188 | Pending |
+| JAMES-03 | Phase 188 | Pending |
+| SELF-01 | Phase 187 | Pending |
+| SELF-02 | Phase 187 | Pending |
 
 **Coverage:**
 - v17.1 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21 ⚠️
+- Mapped to phases: 21/21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after initial definition*
+*Last updated: 2026-03-25 after roadmap creation (phases 183-188)*

@@ -2532,7 +2532,8 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
 - [x] **Phase 172: Standing Rules Sync** - Propagate standing rules to all active repos, sync to Bono VPS, add automated compliance check script (completed 2026-03-23)
 - [x] **Phase 173: API Contracts** - Document all API boundaries, extract shared TypeScript types, generate OpenAPI specs, add contract tests and CI drift prevention (completed 2026-03-22)
 - [x] **Phase 174: Health Monitoring & Unified Deploy** - Add /health to all services, central health check script, clean deploy-staging, unified deploy scripts and runbook, verify all services running at runtime (completed 2026-03-22)
-- [x] **Phase 175: E2E Validation** - Run full 231-test suite on POS and Kiosk, cross-sync tests, triage and fix all critical failures (completed 2026-03-23)
+- [x] **Phase 175: E2E Validation** - Run full 231-test suite on POS and Kiosk, cross-sync tests, triage and fix all critical failures
+ (completed 2026-03-23)
 
 ## Phase Details
 
@@ -2780,3 +2781,107 @@ Plans:
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
 | 181. Standing Rules Gate | 0/TBD | Not started | - |
 | 182. Cross-Milestone Integration | 0/TBD | Not started | - |
+
+---
+
+## v17.1 Watchdog-to-AI Migration
+
+**Goal:** Replace dumb restart-loop watchdogs with intelligent AI-driven recovery. Detect -> pattern memory -> Tier 1 fix -> escalate to AI -> alert staff after 3+ failures. Single recovery authority per machine, no fighting between self_monitor / rc-sentry / pod_monitor / WoL.
+
+**Phase start:** 183 (last phase in roadmap was 182)
+
+## Phases
+
+- [ ] **Phase 183: Recovery Events API** - Server-side recovery events endpoint that all pod-side phases report to
+- [ ] **Phase 184: rc-sentry Crash Handler Upgrade** - Spawn verification, graduated Tier 1-4 recovery, pattern memory wired into crash handler
+- [ ] **Phase 185: pod_healer WoL Coordination** - Recovery authority enforcement and context-aware Wake-on-LAN with intent checking
+- [ ] **Phase 186: MAINTENANCE_MODE Auto-Clear** - JSON diagnostic payload, 30-min auto-clear, WhatsApp staff alert
+- [ ] **Phase 187: self_monitor Coordination** - rc-agent self_monitor yields to rc-sentry, PowerShell relaunch becomes rare fallback
+- [ ] **Phase 188: James Watchdog + rc-watchdog Grace Window** - James-local AI watchdog replaces james_watchdog.ps1; rc-watchdog adds grace window
+
+## Phase Details
+
+### Phase 183: Recovery Events API
+**Goal**: The racecontrol server exposes a recovery events endpoint so all recovery authorities (rc-sentry, pod_healer, self_monitor) can report attempts and query each other's recent actions -- enabling cross-machine recovery visibility without any pod-to-pod communication
+**Depends on**: Nothing (server-side only, prerequisite for all other phases)
+**Requirements**: COORD-04
+**Success Criteria** (what must be TRUE):
+  1. POST /api/v1/recovery/events accepts a recovery event from rc-sentry (pod_id, process, action, spawn_verified, server_reachable) and returns 201 -- confirmed by curl from James's machine pointing at server .23
+  2. GET /api/v1/recovery/events?pod_id=pod-8&since_secs=120 returns all recovery events for Pod 8 in the last 2 minutes -- pod_healer can query this before deciding to send WoL
+  3. The in-memory ring buffer is capped at 200 events and does not grow without bound -- confirmed by pushing 250 events and observing the oldest are dropped
+  4. If the fleet alert endpoint (POST /api/v1/fleet/alert) does not already exist, it is added alongside recovery.rs in this phase so Tier 4 WhatsApp escalation has a working target
+  5. Server rebuild and deploy to .23 completes successfully -- build_id on /api/v1/health matches git rev-parse --short HEAD
+**Plans**: TBD
+
+### Phase 184: rc-sentry Crash Handler Upgrade
+**Goal**: rc-sentry's crash handler executes Tier 1 deterministic fixes, checks Tier 2 pattern memory for instant replay, queries Tier 3 Ollama for unknown patterns, escalates to staff after 3+ failures, verifies that spawned processes actually started, and reports every attempt to the recovery events API -- replacing blind restart-loop with a 4-tier graduated response
+**Depends on**: Phase 183 (recovery events API must exist before rc-sentry reports to it)
+**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, GRAD-01, GRAD-02, GRAD-03, GRAD-04, GRAD-05
+**Success Criteria** (what must be TRUE):
+  1. After rc-agent is killed on Pod 8, rc-sentry polls /health at 500ms intervals for up to 10s after restart -- spawn_verified: true only appears in the recovery event when HTTP 200 is received; a process that silently fails to start produces spawn_verified: false
+  2. A crash pattern matching debug-memory.json fires the recorded fix instantly before any Ollama query -- confirmed by observing the pattern memory hit in rc-sentry logs with no Ollama round-trip latency
+  3. A crash with a matching Tier 1 fix (stale socket, zombie process, config corruption) is resolved without Ollama -- Tier 1 fires first, Ollama query only follows if Tier 1 fails
+  4. After 3+ failed recovery attempts on one pod, a WhatsApp alert reaches Uday with pod ID, failure count, and last error -- staff escalation fires and does not repeat before the configured cooldown
+  5. Recovery events with server_reachable: false are tagged inconclusive and do not count toward the MAINTENANCE_MODE threshold -- server-down disconnects never trigger pod lockout
+  6. All GUI process restarts route through Session 1 spawn path (WTSQueryUserToken + CreateProcessAsUser) -- std::process::Command is never used for interactive processes on pods
+  7. Pod 8 canary: kill rc-agent, observe graduated response in rc-sentry logs (Tier 0 hysteresis -> Tier 1 -> Tier 2 -> restart -> spawn verify -> recovery event posted) -- full pipeline runs end-to-end before fleet deploy
+**Plans**: TBD
+
+### Phase 185: pod_healer WoL Coordination
+**Goal**: pod_healer queries the recovery events API before escalating to Wake-on-LAN -- if rc-sentry already restarted the pod with spawn_verified: true within the last 60 seconds, WoL is skipped; a WOL_SENT sentinel is written via rc-sentry before sending WoL so all recovery systems see the escalation
+**Depends on**: Phase 183 (recovery events API), Phase 184 (rc-sentry must be reporting events before pod_healer can query them)
+**Requirements**: COORD-01, COORD-02, COORD-03, MAINT-04
+**Success Criteria** (what must be TRUE):
+  1. When rc-sentry restarts rc-agent with spawn_verified: true and pod_healer detects the pod as offline within 60s of that event, pod_healer skips WoL -- confirmed by observing "skipping WoL, sentry restarted within grace window" in pod_healer logs
+  2. When pod_healer does escalate to WoL, it writes WOL_SENT sentinel via rc-sentry /exec before sending the magic packet -- all recovery systems can see the WoL decision via sentinel check
+  3. ProcessOwnership registry enforcement is wired at all call sites in rc-sentry, self_monitor, pod_monitor, and the WoL path -- no two recovery authorities can claim the same process simultaneously
+  4. GRACEFUL_RELAUNCH sentinel reliably distinguishes intentional restarts from crashes -- a deliberate rc-agent self-restart does not trigger pod_healer WoL within the deconfliction window
+  5. Recovery intent file (recovery-intent.json) is written before any restart attempt and expires after 2 minutes -- a pod that enters MAINTENANCE_MODE while a recovery intent is active does not trigger a new recovery action from a different authority
+**Plans**: TBD
+
+### Phase 186: MAINTENANCE_MODE Auto-Clear
+**Goal**: MAINTENANCE_MODE stops being a silent permanent pod killer -- it now carries a JSON diagnostic payload (reason, timestamp, restart count), auto-clears after 30 minutes or when WOL_SENT sentinel exists, and sends a WhatsApp alert to staff the moment it activates on any pod
+**Depends on**: Phase 185 (WOL_SENT sentinel written by pod_healer is what triggers the immediate auto-clear path)
+**Requirements**: MAINT-01, MAINT-02, MAINT-03
+**Success Criteria** (what must be TRUE):
+  1. After 3 rapid rc-agent crashes triggering MAINTENANCE_MODE, a WhatsApp message arrives within 60 seconds containing pod ID, reason, restart count, and timestamp in IST -- staff knows a pod is locked without needing SSH
+  2. After 30 minutes, MAINTENANCE_MODE auto-clears and an rc-agent restart is attempted -- pod recovers without manual "del MAINTENANCE_MODE" intervention
+  3. When WOL_SENT sentinel is present alongside MAINTENANCE_MODE, the auto-clear fires immediately (not after 30 minutes) -- WoL from pod_healer breaks the deadlock
+  4. Reading C:\RacingPoint\MAINTENANCE_MODE on a pod in maintenance shows valid JSON with reason, timestamp, restart_count, and diagnostic_context fields -- not an empty file
+  5. pod_healer reads MAINTENANCE_MODE JSON via rc-sentry /files before sending WoL -- WoL is never sent to a pod in maintenance mode unless the auto-clear condition is met, eliminating the WoL-into-maintenance infinite loop
+**Plans**: TBD
+
+### Phase 187: self_monitor Coordination
+**Goal**: rc-agent's self_monitor yields to rc-sentry when sentry is reachable -- instead of spawning a PowerShell process to relaunch itself (leaking 90MB per restart), self_monitor writes GRACEFUL_RELAUNCH and exits cleanly, letting rc-sentry handle the restart through the verified Session 1 spawn path
+**Depends on**: Phase 184 (rc-sentry must be upgraded and stable before self_monitor defers to it)
+**Requirements**: SELF-01, SELF-02
+**Success Criteria** (what must be TRUE):
+  1. When self_monitor detects a crash condition with rc-sentry reachable on TCP :8091, no PowerShell process is spawned -- tasklist shows zero orphan powershell.exe processes from self_monitor after the restart cycle
+  2. When rc-sentry is unreachable (stopped for testing), self_monitor falls back to the PowerShell+DETACHED_PROCESS path -- rc-agent still relaunches even without sentry supervision
+  3. Three-state verification passes on Pod 8: (a) sentry up + kill agent -- sentry restarts agent, no PowerShell spawned; (b) sentry down + kill agent -- PowerShell fallback relaunches agent; (c) sentry down + kill agent + restart sentry -- sentry takes over the already-running agent without double-restart
+  4. The port :8090 double-bind race condition no longer occurs -- GRACEFUL_RELAUNCH sentinel prevents rc-sentry from issuing a simultaneous restart while self_monitor's PowerShell path is still starting the new process
+**Plans**: TBD
+
+### Phase 188: James Watchdog + rc-watchdog Grace Window
+**Goal**: james_watchdog.ps1's blind 2-minute service check is replaced by a Rust-based AI watchdog using shared ollama.rs from rc-common with graduated Tier 1-4 response; rc-watchdog adds a 30-second grace window that reads sentry-restart-breadcrumb.txt before acting, plus spawn verification after session1 launch
+**Depends on**: Phase 184 (ollama.rs must be moved to rc-common before rc-watchdog can share it; rc-sentry must be stable before rc-watchdog defers to it)
+**Requirements**: JAMES-01, JAMES-02, JAMES-03
+**Success Criteria** (what must be TRUE):
+  1. james_watchdog.ps1 is deleted from deploy-staging; rc-watchdog (Rust binary) monitors comms-link, go2rtc, rc-sentry-ai, and Ollama with health-poll verification -- confirmed by tasklist on James's machine showing rc-watchdog.exe, not a powershell.exe running the old script
+  2. A service failure on James's machine triggers graduated response: count 1 waits, count 2 restarts, count 3 queries Ollama for diagnosis, count 4+ sends WhatsApp alert to Uday -- blind immediate restart is eliminated
+  3. After rc-watchdog triggers a restart, it polls the target service's health endpoint at 500ms intervals for up to 10 seconds before declaring success -- spawn_verified: true only if the health endpoint responds with HTTP 200
+  4. When sentry-restart-breadcrumb.txt is less than 30 seconds old, rc-watchdog skips its restart action -- confirmed by manually touching the breadcrumb file and observing "grace window active, skipping restart" in rc-watchdog log
+**Plans**: TBD
+
+## v17.1 Progress
+
+**Execution Order:** 183 -> 184 -> 185 -> 186 -> 187 -> 188
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 183. Recovery Events API | 0/TBD | Not started | - |
+| 184. rc-sentry Crash Handler Upgrade | 0/TBD | Not started | - |
+| 185. pod_healer WoL Coordination | 0/TBD | Not started | - |
+| 186. MAINTENANCE_MODE Auto-Clear | 0/TBD | Not started | - |
+| 187. self_monitor Coordination | 0/TBD | Not started | - |
+| 188. James Watchdog + rc-watchdog Grace Window | 0/TBD | Not started | - |
