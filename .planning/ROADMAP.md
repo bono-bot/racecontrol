@@ -2772,7 +2772,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 176. Protocol Foundation + Cargo Gates | 3/3 | Complete    | 2026-03-24 |
 | 177. Server-Side Registry + Config Foundation | 4/4 | Complete    | 2026-03-24 |
-| 178. Agent-Side Consumer | 0/TBD | Not started | - |
+| 178. Agent-Side Consumer | 1/3 | In Progress|  |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
 | 181. Standing Rules Gate | 0/TBD | Not started | - |

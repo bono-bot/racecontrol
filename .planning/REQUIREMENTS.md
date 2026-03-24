@@ -63,7 +63,7 @@
 
 - [x] **SYNC-01**: Feature flag and config push APIs are documented in the OpenAPI 3.0 spec (extends v21.0 Phase 173 contract) with shared TypeScript types in packages/shared-types/
 - [ ] **SYNC-02**: OTA pipeline uses the unified deploy scripts (deploy.sh, check-health.sh) from v21.0 as its health gate foundation — extends, not replaces
-- [ ] **SYNC-03**: New WebSocket message types (FlagSync, ConfigPush, OtaDownload, etc.) are added to rc-common AND to the shared TypeScript types package — contract tests verify both sides match
+- [x] **SYNC-03**: New WebSocket message types (FlagSync, ConfigPush, OtaDownload, etc.) are added to rc-common AND to the shared TypeScript types package — contract tests verify both sides match
 - [ ] **SYNC-04**: Feature flag and config push changes cascade to ALL affected components (racecontrol, rc-agent, kiosk, admin dashboard, API gateway) per the cross-process update standing rule
 - [ ] **SYNC-05**: OTA release manifest includes version compatibility matrix — which rc-agent version works with which racecontrol version, which kiosk build, which config schema
 - [ ] **SYNC-06**: Standing rules gate script (gate-check.sh) extends the v21.0 E2E test framework (run-all.sh) — not a separate test system
@@ -126,7 +126,7 @@
 | FF-07 | Phase 178 | Pending |
 | FF-08 | Phase 178 | Pending |
 | CP-03 | Phase 178 | Pending |
-| SYNC-03 | Phase 178 | Pending |
+| SYNC-03 | Phase 178 | Complete |
 | OTA-01 | Phase 179 | Pending |
 | OTA-02 | Phase 179 | Pending |
 | OTA-03 | Phase 179 | Pending |
