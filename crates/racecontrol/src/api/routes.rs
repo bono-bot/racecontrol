@@ -75,6 +75,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
+        .route("/debug/db-stats", get(debug_db_stats))
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -467,6 +468,62 @@ async fn health() -> Json<Value> {
         "service": "racecontrol",
         "version": env!("CARGO_PKG_VERSION"),
         "build_id": BUILD_ID,
+    }))
+}
+
+/// GET /api/v1/debug/db-stats — AI debugger database statistics (public, no auth).
+/// Returns counts for ai_suggestions, ai_training_pairs, and recent entries.
+async fn debug_db_stats(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let db = &state.db;
+
+    let suggestion_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ai_suggestions")
+        .fetch_one(db)
+        .await
+        .unwrap_or(0);
+
+    let active_suggestions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ai_suggestions WHERE dismissed = 0",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
+    let training_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ai_training_pairs")
+        .fetch_one(db)
+        .await
+        .unwrap_or(0);
+
+    // Recent suggestions (last 10)
+    let recent: Vec<serde_json::Value> = sqlx::query_as::<_, (String, String, String, String, String, i32, String)>(
+        "SELECT id, pod_id, sim_type, source, model, dismissed, created_at FROM ai_suggestions ORDER BY created_at DESC LIMIT 10",
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(id, pod_id, sim_type, source, model, dismissed, created_at)| {
+        json!({
+            "id": id,
+            "pod_id": pod_id,
+            "sim_type": sim_type,
+            "source": source,
+            "model": model,
+            "dismissed": dismissed != 0,
+            "created_at": created_at,
+        })
+    })
+    .collect();
+
+    Json(json!({
+        "ai_suggestions": {
+            "total": suggestion_count,
+            "active": active_suggestions,
+            "dismissed": suggestion_count - active_suggestions,
+        },
+        "ai_training_pairs": {
+            "total": training_count,
+        },
+        "recent_suggestions": recent,
     }))
 }
 

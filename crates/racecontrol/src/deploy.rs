@@ -181,7 +181,7 @@ use_steam = true
 [ai_debugger]
 enabled = true
 ollama_url = "http://192.168.31.27:11434"
-ollama_model = "qwen2.5-coder:14b"
+ollama_model = "qwen2.5:3b"
 "#,
         pod_number = pod_number,
         pod_name = pod_name

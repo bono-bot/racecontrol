@@ -12,7 +12,7 @@ const LOG_TARGET: &str = "ollama";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_TIMEOUT: Duration = Duration::from_secs(45);
 const DEFAULT_OLLAMA_URL: &str = "192.168.31.27:11434";
-const DEFAULT_MODEL: &str = "qwen3:0.6b";
+const DEFAULT_MODEL: &str = "qwen2.5:3b";
 
 /// Query result from Ollama.
 #[derive(Debug)]

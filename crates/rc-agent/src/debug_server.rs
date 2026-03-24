@@ -7,8 +7,10 @@
 //!   GET /page       — returns the lock screen HTML (what the browser sees)
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::lock_screen::LockScreenState;
 
@@ -26,9 +28,17 @@ pub fn spawn(
     last_launch_error: LastLaunchError,
 ) {
     tokio::spawn(async move {
-        let listener = match TcpListener::bind("0.0.0.0:18924").await {
+        // Use SO_REUSEADDR to allow binding even if zombie connections from old process hold the port
+        let listener = match (|| -> std::io::Result<TcpListener> {
+            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+            socket.set_reuse_address(true)?;
+            socket.set_nonblocking(true)?;
+            socket.bind(&"0.0.0.0:18924".parse::<std::net::SocketAddr>().unwrap().into())?;
+            socket.listen(128)?;
+            TcpListener::from_std(std::net::TcpListener::from(socket))
+        })() {
             Ok(l) => {
-                tracing::info!(target: LOG_TARGET, "Debug server listening on http://0.0.0.0:18924");
+                tracing::info!(target: LOG_TARGET, "Debug server listening on http://0.0.0.0:18924 (SO_REUSEADDR)");
                 l
             }
             Err(e) => {
@@ -49,9 +59,13 @@ pub fn spawn(
 
             tokio::spawn(async move {
                 let mut buf = [0u8; 4096];
-                let n = match stream.read(&mut buf).await {
-                    Ok(n) if n > 0 => n,
-                    _ => return,
+                // Read with 5s timeout — prevents hung connections from leaking tasks
+                let n = match tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await {
+                    Ok(Ok(n)) if n > 0 => n,
+                    _ => {
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
                 };
 
                 let request = String::from_utf8_lossy(&buf[..n]);
@@ -66,6 +80,8 @@ pub fn spawn(
                     // Default: /status
                     serve_status(&mut stream, &state, &pod_name, pod_number, &last_launch_error).await;
                 }
+                // Ensure connection is closed (prevents stale ESTABLISHED connections)
+                let _ = stream.shutdown().await;
             });
         }
     });
@@ -78,7 +94,23 @@ async fn serve_status(
     pod_number: u32,
     last_launch_error: &LastLaunchError,
 ) {
-    let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // Use try_lock to avoid blocking the tokio worker thread.
+    // std::sync::Mutex::lock() blocks the thread, which in an async context can deadlock
+    // if the lock holder is on the same tokio worker thread.
+    // Clone immediately to drop the guard before any await point.
+    let lock_result = state.try_lock().ok().map(|g| g.clone());
+    let current = match lock_result {
+        Some(s) => s,
+        None => {
+            let body = r#"{"debug_server":"busy","error":"lock_screen_state mutex contested"}"#;
+            let resp = format!(
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            let _ = stream.write_all(resp.as_bytes()).await;
+            return;
+        }
+    };
     let state_name = match &current {
         LockScreenState::Hidden => "hidden",
         LockScreenState::PinEntry { .. } => "pin_entry",
@@ -96,7 +128,7 @@ async fn serve_status(
         LockScreenState::MaintenanceRequired { .. } => "maintenance_required",
     };
 
-    let launch_err = last_launch_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let launch_err = last_launch_error.try_lock().ok().and_then(|guard| guard.clone());
     let launch_err_json = match &launch_err {
         Some(err) => {
             // Escape JSON special chars in error message

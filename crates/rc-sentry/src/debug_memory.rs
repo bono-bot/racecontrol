@@ -113,23 +113,31 @@ pub fn derive_pattern_key(
     exit_code: Option<i32>,
     last_phase: Option<&str>,
 ) -> String {
+    // Build pattern key from most specific to least specific signal.
+    // Combine multiple signals when available for better differentiation.
+    let mut parts = Vec::new();
+
     if let Some(panic) = panic_message {
         // Normalize: strip line numbers, addresses, specific values
         let normalized = panic
             .replace(|c: char| c.is_ascii_digit(), "#")
             .replace("##", "#");
-        return format!("panic:{}", normalized.chars().take(100).collect::<String>());
+        parts.push(format!("panic:{}", normalized.chars().take(100).collect::<String>()));
     }
 
     if let Some(code) = exit_code {
-        return format!("exit:{}", code);
+        parts.push(format!("exit:{}", code));
     }
 
     if let Some(phase) = last_phase {
-        return format!("phase:{}", phase.chars().take(80).collect::<String>());
+        parts.push(format!("phase:{}", phase.chars().take(80).collect::<String>()));
     }
 
-    "unknown".to_string()
+    if parts.is_empty() {
+        "unknown".to_string()
+    } else {
+        parts.join("+")
+    }
 }
 
 /// Get current timestamp as ISO 8601 string without chrono dependency.
@@ -189,9 +197,9 @@ mod tests {
     }
 
     #[test]
-    fn derive_key_falls_back_to_exit_code() {
+    fn derive_key_combines_exit_code_and_phase() {
         let key = derive_pattern_key(None, Some(101), Some("phase:bind"));
-        assert_eq!(key, "exit:101");
+        assert_eq!(key, "exit:101+phase:phase:bind");
     }
 
     #[test]
