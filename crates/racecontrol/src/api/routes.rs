@@ -439,6 +439,9 @@ fn service_routes() -> Router<Arc<AppState>> {
         // Process guard intake (Phase 105: rc-process-guard on James reports via HTTP)
         // Auth: X-Guard-Token header checked against config.process_guard.report_secret
         .route("/guard/report", post(process_guard::post_guard_report_handler))
+        // Deploy audit log (Phase 177: record every deploy attempt)
+        .route("/deploy-log", post(create_deploy_log))
+        .route("/deploy-log", get(list_deploy_logs))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -15948,6 +15951,114 @@ fn parse_badge_progress(criteria_json: &str, total_laps: i64, unique_tracks: i64
         }
         Err(_) => (0, 1),
     }
+}
+
+// ─── Deploy Audit Log (Phase 177) ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CreateDeployLog {
+    app: String,
+    result: String,
+    #[serde(default = "default_deployer")]
+    deployer: String,
+    pages_before: Option<i64>,
+    pages_after: Option<i64>,
+    pages_missing: Option<String>,
+    duration_secs: Option<i64>,
+    error: Option<String>,
+    build_hash: Option<String>,
+}
+
+fn default_deployer() -> String {
+    "james".to_string()
+}
+
+async fn create_deploy_log(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateDeployLog>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    let id = uuid::Uuid::new_v4().to_string();
+    let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    let db = state.db.clone();
+    let id_clone = id.clone();
+    tokio::spawn(async move {
+        let _ = sqlx::query(
+            "INSERT INTO deploy_logs (id, app, timestamp, deployer, result, pages_before, pages_after, pages_missing, duration_secs, error, build_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id_clone)
+        .bind(&body.app)
+        .bind(&timestamp)
+        .bind(&body.deployer)
+        .bind(&body.result)
+        .bind(body.pages_before)
+        .bind(body.pages_after)
+        .bind(&body.pages_missing)
+        .bind(body.duration_secs)
+        .bind(&body.error)
+        .bind(&body.build_hash)
+        .execute(&db)
+        .await;
+    });
+
+    (
+        axum::http::StatusCode::CREATED,
+        Json(json!({ "id": id, "status": "logged" })),
+    )
+}
+
+async fn list_deploy_logs(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let rows = sqlx::query_as::<_, DeployLogRow>(
+        "SELECT id, app, timestamp, deployer, result, pages_before, pages_after, pages_missing, duration_secs, error, build_hash FROM deploy_logs ORDER BY timestamp DESC LIMIT 50",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(logs) => {
+            let entries: Vec<Value> = logs
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "id": r.id,
+                        "app": r.app,
+                        "timestamp": r.timestamp,
+                        "deployer": r.deployer,
+                        "result": r.result,
+                        "pages_before": r.pages_before,
+                        "pages_after": r.pages_after,
+                        "pages_missing": r.pages_missing,
+                        "duration_secs": r.duration_secs,
+                        "error": r.error,
+                        "build_hash": r.build_hash,
+                    })
+                })
+                .collect();
+            Json(json!(entries))
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch deploy_logs: {e}");
+            Json(json!([]))
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct DeployLogRow {
+    id: String,
+    app: String,
+    timestamp: String,
+    deployer: String,
+    result: String,
+    pages_before: Option<i64>,
+    pages_after: Option<i64>,
+    pages_missing: Option<String>,
+    duration_secs: Option<i64>,
+    error: Option<String>,
+    build_hash: Option<String>,
 }
 
 #[cfg(test)]

@@ -2514,6 +2514,25 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             .await?;
     }
 
+    // ─── Deploy Audit Log (Phase 177) ────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS deploy_logs (
+            id TEXT PRIMARY KEY,
+            app TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            deployer TEXT NOT NULL DEFAULT 'james',
+            result TEXT NOT NULL,
+            pages_before INTEGER,
+            pages_after INTEGER,
+            pages_missing TEXT,
+            duration_secs INTEGER,
+            error TEXT,
+            build_hash TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
