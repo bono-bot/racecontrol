@@ -1,0 +1,29 @@
+{
+  "success": {
+    "pod_number": 8,
+    "pod_id": "pod-8",
+    "driver_name": "Test Racer",
+    "experience_name": "Monza Hot Lap",
+    "tier_name": "30 Minutes",
+    "allocated_seconds": 1800,
+    "billing_session_id": "deferred-test-uuid-123"
+  },
+  "error_invalid_pin": {
+    "error": "Invalid PIN or reservation not found",
+    "remaining_attempts": 8,
+    "status": "invalid_pin"
+  },
+  "error_lockout": {
+    "error": "Too many failed attempts. Please wait 5 minutes and 0 seconds.",
+    "lockout_remaining_seconds": 300,
+    "status": "lockout"
+  },
+  "error_pending_debit": {
+    "error": "Your booking is being processed. Please try again in a minute.",
+    "status": "pending_debit"
+  },
+  "error_infra": {
+    "error": "All pods are currently in use. Please wait a moment and try again.",
+    "status": "error"
+  }
+}

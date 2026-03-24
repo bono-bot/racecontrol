@@ -63,6 +63,53 @@ const MOCK_AC_CATALOG = {
   categories: { tracks: ["Circuit"], cars: ["GT3"] },
 };
 
+// ─── Redeem PIN mock responses ───────────────────────────────────────────────
+
+const MOCK_REDEEM_PIN_SUCCESS = {
+  pod_number: 8,
+  pod_id: 'pod-8',
+  driver_name: 'Test Racer',
+  experience_name: 'Monza Hot Lap',
+  tier_name: '30 Minutes',
+  allocated_seconds: 1800,
+  billing_session_id: 'deferred-test-123',
+};
+
+export const MOCK_REDEEM_PIN_ERROR = {
+  error: 'Invalid PIN or reservation not found',
+  remaining_attempts: 8,
+  status: 'invalid_pin',
+};
+
+export const MOCK_REDEEM_PIN_LOCKOUT = {
+  error: 'Too many failed attempts. Please wait 5 minutes and 0 seconds.',
+  lockout_remaining_seconds: 300,
+  status: 'lockout',
+};
+
+export const MOCK_REDEEM_PIN_PENDING = {
+  error: 'Your booking is being processed. Please try again in a minute.',
+  status: 'pending_debit',
+};
+
+export const MOCK_REDEEM_PIN_INFRA_ERROR = {
+  error: 'All pods are currently in use. Please wait a moment and try again.',
+  status: 'error',
+};
+
+/**
+ * Override the default redeem-pin mock response for a specific test.
+ * Call AFTER setupApiMocks to take priority via route.continue precedence.
+ */
+export async function overrideRedeemPinMock(page: Page, response: Record<string, unknown>): Promise<void> {
+  await page.route('**/api/v1/kiosk/redeem-pin', async (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ json: response });
+    }
+    await route.continue();
+  });
+}
+
 export async function setupApiMocks(page: Page): Promise<void> {
   // Intercept all API calls to the racecontrol backend
   await page.route('**/api/v1/**', async (route) => {
@@ -87,6 +134,7 @@ export async function setupApiMocks(page: Page): Promise<void> {
       if (path === '/customer/login') return route.fulfill({ json: { status: 'otp_sent' } });
       if (path === '/customer/verify-otp') return route.fulfill({ json: { token: 'test-token', driver_id: 'drv-1', driver_name: 'Test Racer' } });
       if (path === '/customer/book') return route.fulfill({ json: { pin: 'ABC123', pod_number: 8, allocated_seconds: 1800 } });
+      if (path === '/kiosk/redeem-pin') return route.fulfill({ json: MOCK_REDEEM_PIN_SUCCESS });
       if (path === '/staff/validate-pin') return route.fulfill({ json: { status: 'ok', staff_id: 'staff-1', staff_name: 'Test Staff', token: 'staff-token' } });
       if (path === '/auth/kiosk/validate-pin') return route.fulfill({ json: { status: 'ok', pod_number: 8, driver_name: 'Test Racer', allocated_seconds: 1800 } });
       if (path === '/games/launch') return route.fulfill({ json: { ok: true } });

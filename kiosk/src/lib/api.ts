@@ -1,6 +1,7 @@
 import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo } from "./types";
+import type { RedeemPinResponse } from "@racingpoint/types";
 
-export type { ActivePromo };
+export type { ActivePromo, RedeemPinResponse };
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -434,18 +435,7 @@ export const api = {
 
   // Kiosk PIN Redemption (remote booking flow)
   redeemPin: (pin: string) =>
-    fetchApi<{
-      error?: string;
-      pod_number?: number;
-      pod_id?: string;
-      driver_name?: string;
-      experience_name?: string;
-      tier_name?: string;
-      allocated_seconds?: number;
-      billing_session_id?: string;
-      remaining_attempts?: number;
-      lockout_remaining_seconds?: number;
-    }>("/kiosk/redeem-pin", {
+    fetchApi<RedeemPinResponse>("/kiosk/redeem-pin", {
       method: "POST",
       body: JSON.stringify({ pin }),
     }),

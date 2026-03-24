@@ -5,17 +5,27 @@ import { api } from "@/lib/api";
 
 // PIN charset: no ambiguous I, L, O, 0, 1
 const PIN_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const PIN_LENGTH = 6;
 const AUTO_CLOSE_SUCCESS_MS = 15_000;
 const AUTO_RETURN_ERROR_MS = 10_000;
 
+// Defaults matching backend constants (PIN_REDEEM_LENGTH, etc. in routes.rs).
+// Can be overridden via pinConfig prop when parent fetches /kiosk/settings.
+const DEFAULT_PIN_LENGTH = 6;
+
 type RedeemStep = "entry" | "validating" | "success" | "error" | "lockout";
+
+/** PIN configuration from server /kiosk/settings — all optional with safe defaults. */
+export interface PinConfig {
+  pinLength?: number;
+}
 
 interface PinRedeemScreenProps {
   onClose: () => void;
+  pinConfig?: PinConfig;
 }
 
-export default function PinRedeemScreen({ onClose }: PinRedeemScreenProps) {
+export default function PinRedeemScreen({ onClose, pinConfig }: PinRedeemScreenProps) {
+  const PIN_LENGTH = pinConfig?.pinLength ?? DEFAULT_PIN_LENGTH;
   const [step, setStep] = useState<RedeemStep>("entry");
   const [pin, setPin] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -24,6 +34,7 @@ export default function PinRedeemScreen({ onClose }: PinRedeemScreenProps) {
 
   // Success data
   const [resultPodNumber, setResultPodNumber] = useState(0);
+  const [resultDriverName, setResultDriverName] = useState("");
   const [resultExperience, setResultExperience] = useState("");
   const [resultTier, setResultTier] = useState("");
   const [resultSeconds, setResultSeconds] = useState(0);
@@ -51,21 +62,32 @@ export default function PinRedeemScreen({ onClose }: PinRedeemScreenProps) {
     setStep("validating");
     try {
       const res = await api.redeemPin(pin);
-      if (res.lockout_remaining_seconds) {
-        setLockoutSeconds(res.lockout_remaining_seconds);
+
+      // F1+F4 fix: use status field for reliable state detection instead of
+      // checking lockout_remaining_seconds (which can be 0/falsy) or string matching
+      if (res.status === "lockout") {
+        setLockoutSeconds(res.lockout_remaining_seconds ?? 300);
         setStep("lockout");
+      } else if (res.status === "pending_debit") {
+        setErrorMsg(res.error ?? "Your booking is being processed.");
+        setRemainingAttempts(null);
+        setStep("error");
       } else if (res.error) {
         setErrorMsg(res.error);
         setRemainingAttempts(res.remaining_attempts ?? null);
         setStep("error");
       } else {
         setResultPodNumber(res.pod_number ?? 0);
+        setResultDriverName(res.driver_name ?? "");
         setResultExperience(res.experience_name ?? "");
         setResultTier(res.tier_name ?? "");
         setResultSeconds(res.allocated_seconds ?? 0);
         setStep("success");
       }
-    } catch {
+    } catch (err: unknown) {
+      // F2 fix: log the actual error for debugging, not just generic message
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[PinRedeemScreen] submission failed:", msg);
       setErrorMsg("Network error - please try again");
       setStep("error");
     }
@@ -110,6 +132,8 @@ export default function PinRedeemScreen({ onClose }: PinRedeemScreenProps) {
   const lockoutMin = Math.floor(lockoutSeconds / 60);
   const lockoutSec = lockoutSeconds % 60;
   const allocatedMinutes = Math.floor(resultSeconds / 60);
+  // F4 fix: pending detection now uses error message as fallback only —
+  // primary detection is via status field in handleSubmit (sets step directly)
   const isPending = errorMsg.toLowerCase().includes("being processed");
 
   // ---- ENTRY ----
@@ -230,6 +254,9 @@ export default function PinRedeemScreen({ onClose }: PinRedeemScreenProps) {
           </svg>
         </div>
 
+        {resultDriverName && (
+          <p className="text-[#5A5A5A] text-sm mb-2">Welcome, {resultDriverName}</p>
+        )}
         <h2 className="text-2xl font-bold text-white mb-2">Head to Pod</h2>
         <p className="text-8xl font-bold text-[#E10600] mb-6">{resultPodNumber}</p>
 

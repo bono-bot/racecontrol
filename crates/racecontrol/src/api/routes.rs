@@ -4517,34 +4517,53 @@ async fn kiosk_redeem_pin(
         Err(e) => {
             state.record_api_error("kiosk/redeem-pin");
 
-            // Track failure for lockout (only for actual PIN validation errors, not "pods busy" etc.)
-            let remaining_attempts = {
-                let mut lockout_map = PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
-                let entry = lockout_map.entry(client_ip).or_insert(PinLockoutState {
-                    fail_count: 0,
-                    last_attempt: std::time::Instant::now(),
-                    locked_until: None,
-                });
-                entry.fail_count += 1;
-                entry.last_attempt = std::time::Instant::now();
+            // B1 fix: Only count actual PIN errors toward lockout.
+            // "All pods busy", "DB error", "billing failed" should NOT punish the customer.
+            if e.is_pin_error {
+                let remaining_attempts = {
+                    let mut lockout_map = PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+                    let entry = lockout_map.entry(client_ip).or_insert(PinLockoutState {
+                        fail_count: 0,
+                        last_attempt: std::time::Instant::now(),
+                        locked_until: None,
+                    });
+                    entry.fail_count += 1;
+                    entry.last_attempt = std::time::Instant::now();
 
-                if entry.fail_count >= 10 {
-                    entry.locked_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(300));
-                    0u32
+                    if entry.fail_count >= PIN_REDEEM_MAX_ATTEMPTS {
+                        entry.locked_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(PIN_REDEEM_LOCKOUT_SECONDS as u64));
+                        0u32
+                    } else {
+                        PIN_REDEEM_MAX_ATTEMPTS - entry.fail_count
+                    }
+                };
+
+                if remaining_attempts == 0 {
+                    let lockout_min = PIN_REDEEM_LOCKOUT_SECONDS / 60;
+                    let lockout_sec = PIN_REDEEM_LOCKOUT_SECONDS % 60;
+                    Json(json!({
+                        "error": format!("Too many failed attempts. Please wait {} minutes and {} seconds.", lockout_min, lockout_sec),
+                        "lockout_remaining_seconds": PIN_REDEEM_LOCKOUT_SECONDS,
+                        "status": "lockout",
+                    }))
                 } else {
-                    10 - entry.fail_count
+                    Json(json!({
+                        "error": e.message,
+                        "remaining_attempts": remaining_attempts,
+                        "status": "invalid_pin",
+                    }))
                 }
-            };
-
-            if remaining_attempts == 0 {
+            } else if e.is_pending_debit {
+                // F4 fix: dedicated status field instead of relying on string matching
                 Json(json!({
-                    "error": "Too many failed attempts. Please wait 5 minutes and 0 seconds.",
-                    "lockout_remaining_seconds": 300,
+                    "error": e.message,
+                    "status": "pending_debit",
                 }))
             } else {
+                // Infrastructure error — no lockout penalty
                 Json(json!({
-                    "error": e,
-                    "remaining_attempts": remaining_attempts,
+                    "error": e.message,
+                    "status": "error",
                 }))
             }
         }
@@ -7244,6 +7263,12 @@ async fn kiosk_book_multiplayer(
     }
 }
 
+/// PIN configuration constants — exposed via kiosk settings so the frontend
+/// reads config truth instead of hardcoding (standing rule: UI must reflect config truth).
+const PIN_REDEEM_LENGTH: u32 = 6;
+const PIN_REDEEM_MAX_ATTEMPTS: u32 = 10;
+const PIN_REDEEM_LOCKOUT_SECONDS: u32 = 300;
+
 async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT key, value FROM kiosk_settings",
@@ -7257,6 +7282,10 @@ async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
             for (key, value) in &settings {
                 map.insert(key.clone(), json!(value));
             }
+            // Inject PIN config constants so frontend reads from server, not hardcoded (C3)
+            map.insert("pin_length".to_string(), json!(PIN_REDEEM_LENGTH.to_string()));
+            map.insert("pin_max_attempts".to_string(), json!(PIN_REDEEM_MAX_ATTEMPTS.to_string()));
+            map.insert("pin_lockout_seconds".to_string(), json!(PIN_REDEEM_LOCKOUT_SECONDS.to_string()));
             Json(json!({ "settings": map }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
