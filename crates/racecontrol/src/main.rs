@@ -21,11 +21,10 @@ use racecontrol_crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
-    ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, app_health_monitor, auth,
-    billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
-    game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
-    pod_monitor, pod_reservation, process_guard, psychology, remote_terminal, scheduler,
-    server_ops, wallet, udp_heartbeat, wol, ws,
+    ac_camera, ac_server, action_queue, api, app_health_monitor, auth,
+    billing, bono_relay, cloud_sync, db, error_aggregator, fleet_health,
+    game_launcher, pod_healer, pod_monitor, pod_reservation, process_guard,
+    psychology, remote_terminal, scheduler, server_ops, udp_heartbeat, ws,
 };
 
 /// Auto-seed all 8 pods into the in-memory pods map on server startup.

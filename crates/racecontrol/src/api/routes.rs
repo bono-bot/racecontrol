@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -2289,6 +2289,7 @@ async fn delete_billing_rate(
 // ─── Discount / Coupon helpers ───────────────────────────────────────────────
 
 /// Validated coupon info ready to apply as a discount.
+#[allow(dead_code)]
 struct CouponDiscount {
     coupon_id: String,
     coupon_type: String,
@@ -3222,7 +3223,7 @@ async fn refund_billing_session(
     .fetch_optional(&state.db)
     .await;
 
-    let (sid, driver_id, debit_paise, driver_name) = match session {
+    let (_sid, driver_id, debit_paise, driver_name) = match session {
         Ok(Some(s)) => s,
         Ok(None) => return Json(json!({ "error": "Session not found" })),
         Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
@@ -3263,7 +3264,7 @@ async fn refund_billing_session(
         )
         .await
         {
-            Ok(new_balance) => {
+            Ok(_new_balance) => {
                 // Get the txn_id from the most recent transaction
                 let txn = sqlx::query_as::<_, (String,)>(
                     "SELECT id FROM wallet_transactions WHERE driver_id = ? AND txn_type = 'refund_session' ORDER BY created_at DESC LIMIT 1"
@@ -13673,13 +13674,6 @@ async fn list_journal_entries(
     State(state): State<Arc<AppState>>,
     Query(params): Query<DateRangeQuery>,
 ) -> Json<Value> {
-    #[derive(Deserialize)]
-    struct JournalQuery {
-        from: Option<String>,
-        to: Option<String>,
-        limit: Option<i64>,
-    }
-
     let limit = 100i64; // default
 
     let mut query = String::from(

@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::billing;
-use crate::crypto::redaction::{redact_phone, redact_otp};
-use crate::pod_reservation;
+use crate::crypto::redaction::redact_phone;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::types::AuthTokenInfo;
@@ -248,26 +247,6 @@ async fn pod_has_game(state: &Arc<AppState>, pod_id: &str, sim_type: rc_common::
     }
 }
 
-/// After billing starts, link reservation_id + wallet fields to the billing session.
-async fn link_reservation_to_billing(
-    state: &Arc<AppState>,
-    billing_session_id: &str,
-    driver_id: &str,
-) {
-    // Find active reservation for this driver
-    if let Some(reservation) = pod_reservation::get_active_reservation_for_driver(state, driver_id).await {
-        let _ = sqlx::query(
-            "UPDATE billing_sessions SET reservation_id = ? WHERE id = ?",
-        )
-        .bind(&reservation.id)
-        .bind(billing_session_id)
-        .execute(&state.db)
-        .await;
-
-        // Touch reservation activity
-        pod_reservation::touch_reservation(state, &reservation.id).await;
-    }
-}
 
 /// Auto-launch game or show assistance screen depending on game type.
 /// Returns the game name if an experience was linked.

@@ -844,7 +844,7 @@ pub async fn staff_book_multiplayer(
     .map_err(|e| format!("DB error: {}", e))?
     .ok_or("Pricing tier not found")?;
 
-    let (tier_name, price_paise, duration_minutes) = tier;
+    let (_tier_name, price_paise, duration_minutes) = tier;
 
     // Resolve experience
     let (experience_id_resolved, experience_name) = if let Some(eid) = experience_id {

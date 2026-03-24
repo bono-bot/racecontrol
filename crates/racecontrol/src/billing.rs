@@ -2424,7 +2424,7 @@ fn generate_receipt_pdf(
     // Build content stream with text positioning
     let mut s = String::from("BT\n");
     let mut y = ph - 30.0;
-    let mut line = |s: &mut String, font: &str, sz: f64, txt: &str, y: &mut f64| {
+    let line = |s: &mut String, font: &str, sz: f64, txt: &str, y: &mut f64| {
         let esc = txt.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
         s.push_str(&format!("{} {} Tf\n12 {} Td\n({}) Tj\n", font, sz, *y, esc));
         *y -= sz + 4.0;
