@@ -125,6 +125,8 @@ async fn run_test_migrations(pool: &SqlitePool) {
             valid BOOLEAN DEFAULT 1,
             car_class TEXT,
             suspect INTEGER DEFAULT 0,
+            review_required INTEGER NOT NULL DEFAULT 0,
+            session_type TEXT NOT NULL DEFAULT 'practice',
             created_at TEXT DEFAULT (datetime('now'))
         )"
     ).execute(pool).await.unwrap();
@@ -134,10 +136,11 @@ async fn run_test_migrations(pool: &SqlitePool) {
             driver_id TEXT REFERENCES drivers(id),
             track TEXT NOT NULL,
             car TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
             best_lap_ms INTEGER NOT NULL,
             lap_id TEXT REFERENCES laps(id),
             achieved_at TEXT,
-            PRIMARY KEY (driver_id, track, car)
+            PRIMARY KEY (driver_id, track, car, sim_type)
         )"
     ).execute(pool).await.unwrap();
 
@@ -145,11 +148,12 @@ async fn run_test_migrations(pool: &SqlitePool) {
         "CREATE TABLE IF NOT EXISTS track_records (
             track TEXT NOT NULL,
             car TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
             driver_id TEXT REFERENCES drivers(id),
             best_lap_ms INTEGER NOT NULL,
             lap_id TEXT REFERENCES laps(id),
             achieved_at TEXT,
-            PRIMARY KEY (track, car)
+            PRIMARY KEY (track, car, sim_type)
         )"
     ).execute(pool).await.unwrap();
 
@@ -643,6 +647,7 @@ async fn run_test_migrations(pool: &SqlitePool) {
             threshold_minutes INTEGER NOT NULL,
             rate_per_min_paise INTEGER NOT NULL,
             is_active BOOLEAN DEFAULT 1,
+            sim_type TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         )"
@@ -2093,7 +2098,7 @@ async fn test_notification_data_before_upsert() {
     assert_eq!(holder.1, 90000);
 
     // Use get_previous_record_holder to verify the data is available before UPSERT
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t", "assettoCorsa").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t", "assettocorsa").await;
     assert!(prev.is_some(), "Previous record holder should exist");
     let (prev_time, prev_name, prev_email) = prev.unwrap();
     assert_eq!(prev_time, 90000);
@@ -2192,7 +2197,7 @@ async fn test_notification_skip_no_email() {
     racecontrol_crate::lap_tracker::persist_lap(&state, &lap_c).await;
 
     // Verify get_previous_record_holder returns None email
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30", "assettoCorsa").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30", "assettocorsa").await;
     assert!(prev.is_some(), "Record exists for C");
     let (_, _, prev_email) = prev.unwrap();
     assert!(prev_email.is_none(), "Driver C has no email — should be None");
@@ -2259,7 +2264,7 @@ async fn test_notification_first_record_no_notify() {
     ).execute(&pool).await.unwrap();
 
     // No prior record exists — get_previous_record_holder should return None
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r", "assettoCorsa").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r", "assettocorsa").await;
     assert!(prev.is_none(), "No previous record should exist on fresh track");
 
     // Driver E sets the first record
