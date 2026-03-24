@@ -22,6 +22,27 @@ const PORT_WAIT_POLL: Duration = Duration::from_millis(500);
 const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
 const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 const RCAGENT_SELF_RESTART_SENTINEL: &str = r"C:\RacingPoint\rcagent-restart-sentinel.txt";
+const MAINTENANCE_AUTOCLEAR_TIMEOUT: Duration = Duration::from_secs(1800); // 30 minutes
+const WOL_SENT_SENTINEL: &str = r"C:\RacingPoint\WOL_SENT";
+
+// ─── Maintenance Mode Types ───────────────────────────────────────────────────
+
+/// JSON payload written to MAINTENANCE_MODE file (MAINT-02).
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct MaintenanceModePayload {
+    pub reason: String,
+    pub timestamp_epoch: u64,
+    pub restart_count: u32,
+    pub diagnostic_context: String,
+}
+
+/// Result of check_and_clear_maintenance (MAINT-01).
+#[derive(Debug, PartialEq)]
+pub enum ClearResult {
+    NotInMaintenance,
+    StillLocked { remaining_secs: u64 },
+    Cleared { reason: &'static str },
+}
 
 // Spawn verification constants (SPAWN-01)
 const SPAWN_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -597,18 +618,187 @@ pub fn escalate_to_whatsapp(
     );
 }
 
-/// Write MAINTENANCE_MODE file to prevent further restarts.
-pub fn enter_maintenance_mode(reason: &str) -> bool {
+/// Write MAINTENANCE_MODE file as JSON and fire WhatsApp alert (MAINT-02, MAINT-03).
+pub fn enter_maintenance_mode(reason: &str, restart_count: u32, diagnostic_context: &str) -> bool {
     #[cfg(test)]
     {
-        let _ = reason;
+        let _ = (reason, restart_count, diagnostic_context);
         return true;
     }
     #[cfg(not(test))]
     {
-        let content = format!("MAINTENANCE_MODE\nReason: {}\nTimestamp: {:?}\n", reason, std::time::SystemTime::now());
-        std::fs::write(MAINTENANCE_FILE, content).is_ok()
+        let payload = MaintenanceModePayload {
+            reason: reason.to_string(),
+            timestamp_epoch: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            restart_count,
+            diagnostic_context: diagnostic_context.to_string(),
+        };
+        let json = match serde_json::to_string_pretty(&payload) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, "failed to serialize MAINTENANCE_MODE payload: {}", e);
+                return false;
+            }
+        };
+        if let Err(e) = std::fs::write(MAINTENANCE_FILE, &json) {
+            tracing::error!(target: LOG_TARGET, "failed to write MAINTENANCE_MODE: {}", e);
+            return false;
+        }
+        tracing::error!(target: LOG_TARGET,
+            "MAINTENANCE_MODE ACTIVATED — reason: {}, restart_count: {}", reason, restart_count);
+
+        // MAINT-03: WhatsApp alert on activation
+        let pod_id = get_pod_id();
+        let alert_msg = format!(
+            "MAINTENANCE_MODE activated on {}. Reason: {}. Restarts: {}. Pod is locked — auto-clear in 30 min.",
+            pod_id, reason, restart_count
+        );
+        let body = serde_json::json!({
+            "pod_id": pod_id,
+            "message": alert_msg,
+            "severity": "critical"
+        });
+        if let Ok(body_str) = serde_json::to_string(&body) {
+            let request = format!(
+                "POST /api/v1/fleet/alert HTTP/1.0\r\n\
+                 Host: 192.168.31.23\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\
+                 \r\n{}",
+                body_str.len(), body_str
+            );
+            if let Ok(addr) = SERVER_ADDR.parse::<std::net::SocketAddr>() {
+                match std::net::TcpStream::connect_timeout(&addr, SERVER_CONNECT_TIMEOUT) {
+                    Ok(mut stream) => {
+                        if let Err(e) = stream.write_all(request.as_bytes()) {
+                            tracing::warn!(target: LOG_TARGET, "MAINTENANCE_MODE WhatsApp alert failed (write): {}", e);
+                        } else {
+                            tracing::info!(target: LOG_TARGET, "MAINTENANCE_MODE WhatsApp alert sent for {}", pod_id);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: LOG_TARGET, "MAINTENANCE_MODE WhatsApp alert failed (connect): {}", e);
+                    }
+                }
+            }
+        }
+        true
     }
+}
+
+/// Read the maintenance mode payload. Returns None if not in maintenance or file is not JSON.
+pub fn read_maintenance_payload() -> Option<MaintenanceModePayload> {
+    #[cfg(test)]
+    {
+        return None;
+    }
+    #[cfg(not(test))]
+    {
+        std::fs::read_to_string(MAINTENANCE_FILE)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+    }
+}
+
+/// Check if MAINTENANCE_MODE should auto-clear (MAINT-01).
+/// Returns Cleared if: (a) WOL_SENT sentinel exists, or (b) 30 minutes elapsed.
+/// On clear: deletes MAINTENANCE_MODE file (and WOL_SENT if present), attempts rc-agent restart.
+pub fn check_and_clear_maintenance() -> ClearResult {
+    #[cfg(test)]
+    {
+        return ClearResult::NotInMaintenance;
+    }
+    #[cfg(not(test))]
+    {
+        use std::path::Path;
+        let maint_path = Path::new(MAINTENANCE_FILE);
+        if !maint_path.exists() {
+            return ClearResult::NotInMaintenance;
+        }
+
+        // Immediate clear when WOL_SENT sentinel exists
+        let wol_sent = Path::new(WOL_SENT_SENTINEL).exists();
+        if wol_sent {
+            tracing::info!(target: LOG_TARGET,
+                "WOL_SENT sentinel found — immediate MAINTENANCE_MODE clear");
+            let _ = std::fs::remove_file(MAINTENANCE_FILE);
+            let _ = std::fs::remove_file(WOL_SENT_SENTINEL);
+            attempt_restart_after_clear();
+            return ClearResult::Cleared { reason: "WOL_SENT immediate clear" };
+        }
+
+        // Check 30-min timeout from JSON timestamp (with mtime fallback for legacy plain-text files)
+        let elapsed_secs = match std::fs::read_to_string(MAINTENANCE_FILE) {
+            Ok(content) => {
+                match serde_json::from_str::<MaintenanceModePayload>(&content) {
+                    Ok(payload) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        now.saturating_sub(payload.timestamp_epoch)
+                    }
+                    Err(_) => {
+                        // Legacy plain-text file — check file mtime instead
+                        maint_path.metadata()
+                            .and_then(|m| m.modified())
+                            .and_then(|t| t.elapsed().ok())
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                    }
+                }
+            }
+            Err(_) => 0,
+        };
+
+        if elapsed_secs >= MAINTENANCE_AUTOCLEAR_TIMEOUT.as_secs() {
+            tracing::info!(target: LOG_TARGET,
+                "MAINTENANCE_MODE auto-clear — {} seconds elapsed (threshold: {})",
+                elapsed_secs, MAINTENANCE_AUTOCLEAR_TIMEOUT.as_secs());
+            let _ = std::fs::remove_file(MAINTENANCE_FILE);
+            attempt_restart_after_clear();
+            return ClearResult::Cleared { reason: "30-min timeout" };
+        }
+
+        let remaining = MAINTENANCE_AUTOCLEAR_TIMEOUT.as_secs() - elapsed_secs;
+        ClearResult::StillLocked { remaining_secs: remaining }
+    }
+}
+
+/// After clearing maintenance mode, attempt to restart rc-agent via schtasks.
+#[cfg(windows)]
+fn attempt_restart_after_clear() {
+    #[cfg(test)]
+    return;
+    #[cfg(not(test))]
+    {
+        tracing::info!(target: LOG_TARGET, "attempting rc-agent restart after maintenance clear");
+        let result = std::process::Command::new("schtasks")
+            .args(["/Run", "/TN", "StartRCAgent"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+        match result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                tracing::info!(target: LOG_TARGET,
+                    "schtasks StartRCAgent after maintenance clear: status={}, stdout={}",
+                    output.status, stdout.trim());
+            }
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET,
+                    "failed to run schtasks StartRCAgent after maintenance clear: {}", e);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn attempt_restart_after_clear() {
+    // No-op on non-Windows (test builds)
 }
 
 /// Check if maintenance mode is active.
@@ -745,11 +935,15 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> CrashHa
                     "ESCALATION: {} restarts in {:?} — entering maintenance mode",
                     tracker.restart_count(), tracker.window
                 );
-                enter_maintenance_mode(&format!(
-                    "{} restarts in 10 minutes. Last crash: {:?}",
+                enter_maintenance_mode(
+                    &format!(
+                        "{} restarts in 10 minutes. Last crash: {:?}",
+                        tracker.restart_count(),
+                        ctx.panic_message.as_deref().unwrap_or("unknown")
+                    ),
                     tracker.restart_count(),
-                    ctx.panic_message.as_deref().unwrap_or("unknown")
-                ));
+                    &format!("exit_code:{:?} last_phase:{:?}", ctx.exit_code, ctx.last_phase),
+                );
                 return CrashHandlerResult {
                     fix_results: results,
                     restarted: false,
@@ -1014,5 +1208,56 @@ mod tests {
         let _ = handle_crash(&ctx, &mut tracker);
         // backoff_index advances on record_restart — 0 -> 1
         assert_eq!(tracker.backoff_index, 1, "record_restart should have been called");
+    }
+
+    // ─── MAINT-01/02/03 tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn maintenance_autoclear_timeout_is_1800() {
+        assert_eq!(MAINTENANCE_AUTOCLEAR_TIMEOUT, Duration::from_secs(1800));
+    }
+
+    #[test]
+    fn wol_sent_sentinel_constant_value() {
+        assert_eq!(WOL_SENT_SENTINEL, r"C:\RacingPoint\WOL_SENT");
+    }
+
+    #[test]
+    fn maintenance_mode_payload_serializes() {
+        let payload = MaintenanceModePayload {
+            reason: "test reason".to_string(),
+            timestamp_epoch: 1000000,
+            restart_count: 3,
+            diagnostic_context: "exit_code:1".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"reason\""));
+        assert!(json.contains("\"timestamp_epoch\""));
+        assert!(json.contains("\"restart_count\""));
+        assert!(json.contains("\"diagnostic_context\""));
+        assert!(json.contains("test reason"));
+    }
+
+    #[test]
+    fn maintenance_mode_payload_roundtrips() {
+        let original = MaintenanceModePayload {
+            reason: "crash storm".to_string(),
+            timestamp_epoch: 9999999,
+            restart_count: 5,
+            diagnostic_context: "exit_code:137 last_phase:startup".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: MaintenanceModePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.reason, original.reason);
+        assert_eq!(parsed.timestamp_epoch, original.timestamp_epoch);
+        assert_eq!(parsed.restart_count, original.restart_count);
+        assert_eq!(parsed.diagnostic_context, original.diagnostic_context);
+    }
+
+    #[test]
+    fn check_and_clear_maintenance_returns_not_in_maintenance_in_test() {
+        // In test cfg, check_and_clear_maintenance must return NotInMaintenance
+        let result = check_and_clear_maintenance();
+        assert_eq!(result, ClearResult::NotInMaintenance);
     }
 }
