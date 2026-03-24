@@ -43,6 +43,10 @@ tags:
     description: Agent rolling deploy
   - name: fleet
     description: Fleet health and remote exec
+  - name: Feature Flags
+    description: Boolean feature flag registry with per-pod overrides
+  - name: Config Push
+    description: Config push queue and delivery to pods
 
 components:
   securitySchemes:
@@ -350,6 +354,82 @@ components:
       properties:
         error:
           type: string
+
+    FeatureFlag:
+      type: object
+      required: [name, enabled, default_value, overrides, version, updated_at]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        default_value:
+          type: boolean
+        overrides:
+          type: object
+          additionalProperties:
+            type: boolean
+        version:
+          type: integer
+        updated_at:
+          type: string
+
+    ConfigPush:
+      type: object
+      required: [id, pod_id, payload, seq_num, status, created_at]
+      properties:
+        id:
+          type: integer
+        pod_id:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        seq_num:
+          type: integer
+        status:
+          type: string
+          enum: [pending, delivered, acked]
+        created_at:
+          type: string
+        acked_at:
+          type: string
+          nullable: true
+
+    ConfigAuditEntry:
+      type: object
+      required: [id, action, entity_type, entity_name, pushed_by, pods_acked, created_at]
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_name:
+          type: string
+        old_value:
+          type: string
+          nullable: true
+        new_value:
+          type: string
+          nullable: true
+        pushed_by:
+          type: string
+        pods_acked:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+
+    ValidationErrors:
+      type: object
+      properties:
+        errors:
+          type: object
+          additionalProperties:
+            type: string
 
 paths:
 
@@ -2025,3 +2105,178 @@ paths:
             application/json:
               schema:
                 type: object
+
+  # ─── Feature Flags ─────────────────────────────────────────────────────────
+
+  /api/v1/flags:
+    get:
+      tags: [Feature Flags]
+      summary: List all feature flags
+      operationId: listFeatureFlags
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: List of feature flags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeatureFlag'
+    post:
+      tags: [Feature Flags]
+      summary: Create a feature flag
+      operationId: createFeatureFlag
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+                default_value:
+                  type: boolean
+                overrides:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+      responses:
+        '201':
+          description: Created feature flag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlag'
+
+  /api/v1/flags/{name}:
+    put:
+      tags: [Feature Flags]
+      summary: Update a feature flag
+      operationId: updateFeatureFlag
+      security:
+        - staffJWT: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                default_value:
+                  type: boolean
+                overrides:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+      responses:
+        '200':
+          description: Updated feature flag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlag'
+        '404':
+          description: Flag not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ─── Config Push ────────────────────────────────────────────────────────────
+
+  /api/v1/config/push:
+    post:
+      tags: [Config Push]
+      summary: Push config to pods
+      operationId: pushConfig
+      security:
+        - staffJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fields]
+              properties:
+                fields:
+                  type: object
+                  additionalProperties: true
+                schema_version:
+                  type: integer
+                target_pods:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Config push result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued:
+                    type: integer
+                  delivered:
+                    type: integer
+                  seq_nums:
+                    type: array
+                    items:
+                      type: integer
+        '400':
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrors'
+
+  /api/v1/config/push/queue:
+    get:
+      tags: [Config Push]
+      summary: List config push queue
+      operationId: listConfigPushQueue
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Config push queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigPush'
+
+  /api/v1/config/audit:
+    get:
+      tags: [Config Push]
+      summary: List config audit log
+      operationId: listConfigAudit
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Config audit log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigAuditEntry'
