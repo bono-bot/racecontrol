@@ -750,6 +750,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-23 09:24 IST | James | 58c7d2d6 | docs(175-01): plan 175-01 complete — SUMMARY, STATE, ROADMAP, REQUIREMENTS (E2E-01, E2E-02 marked done) |
 | 2026-03-24 00:15 IST | James | 5e609056 | feat(176-01): add Unknown catch-all + 7 new message variant stubs to protocol enums (AgentMessage, CoreToAgentMessage) |
 | 2026-03-24 00:15 IST | James | a8be649d | test(176-01): add 10 serde forward-compat + roundtrip tests, 168 total pass |
-| 2026-03-24 10:43 IST | James | 4f5809ad | feat(177-03): TypeScript shared types (FeatureFlag, ConfigPush, ConfigAuditEntry) + OpenAPI 6 endpoints + 4 schemas |
-| 2026-03-24 10:43 IST | James | 50beb73f | feat(177-03): contract tests for flags and config push — 21/21 tests pass |
-| 2026-03-24 10:43 IST | James | 8c36b21b | docs(177-03): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated — SYNC-01 complete |
+
+| 2026-03-24 14:30 IST | James | 1fc92867 | feat(177-04): per-pod override resolution in broadcast_flag_sync + FlagCacheSync handler |
+| 2026-03-24 14:30 IST | James | 697d20be | docs(177-04): FF-01, FF-02, FF-03, CP-05 marked Complete in REQUIREMENTS.md |
+| 2026-03-24 14:30 IST | James | 5cc00ea6 | docs(177-04): plan summary, STATE.md advance to plan 04, ROADMAP.md 177 progress 4/4 |
