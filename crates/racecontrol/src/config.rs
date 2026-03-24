@@ -528,17 +528,21 @@ impl Config {
         for path in &paths {
             match Self::load(path) {
                 Ok(config) => {
+                    // eprintln so it's visible even before tracing is initialized
+                    eprintln!("[config] Loaded config from {}", path);
                     tracing::info!("Loaded config from {}", path);
                     return config;
                 }
                 Err(e) => {
                     // Only log as warn if the file exists but failed to parse — missing file is expected
                     if std::path::Path::new(path.as_str()).exists() {
+                        eprintln!("[config] ERROR: Failed to parse config at {}: {}", path, e);
                         tracing::warn!("Failed to parse config at {}: {}", path, e);
                     }
                 }
             }
         }
+        eprintln!("[config] WARNING: No config file found in {:?}, using defaults", paths);
         tracing::warn!("No config file found in {:?}, using defaults", paths);
         Self::default_config()
     }
@@ -1064,5 +1068,43 @@ name = "Test Venue"
         assert_eq!(config.process_guard.poll_interval_secs, 60);
         assert!(config.process_guard.allowed.is_empty());
         assert!(config.process_guard.overrides.is_empty());
+    }
+
+    /// Validates the repo's racecontrol.toml parses without error and has a
+    /// non-empty process guard allowlist. Catches SSH banner corruption, BOM,
+    /// or missing required fields before they reach production.
+    #[test]
+    fn repo_toml_parses_and_has_allowlist() {
+        let toml_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../racecontrol.toml");
+        let content = std::fs::read_to_string(toml_path)
+            .expect("racecontrol.toml must exist at repo root");
+
+        // Detect common corruption: SSH banners, BOM
+        assert!(
+            !content.starts_with("**"),
+            "racecontrol.toml starts with '**' — likely SSH banner corruption"
+        );
+        assert!(
+            !content.as_bytes().starts_with(&[0xEF, 0xBB, 0xBF]),
+            "racecontrol.toml has UTF-8 BOM — TOML parsers reject this"
+        );
+        assert!(
+            content.starts_with('['),
+            "racecontrol.toml must start with a TOML section header, got: {:?}",
+            &content[..content.len().min(40)]
+        );
+
+        let config: Config = toml::from_str(&content)
+            .expect("racecontrol.toml must be valid TOML matching Config struct");
+
+        assert!(
+            !config.process_guard.allowed.is_empty(),
+            "process_guard.allowed must not be empty — got 0 entries"
+        );
+        assert!(
+            config.process_guard.allowed.len() >= 100,
+            "process_guard.allowed has only {} entries — expected 100+, possible data loss",
+            config.process_guard.allowed.len()
+        );
     }
 }

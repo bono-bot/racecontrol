@@ -161,11 +161,22 @@ pub fn spawn_server_guard(state: std::sync::Arc<crate::state::AppState>) {
 
     let config = state.config.process_guard.clone();
 
+    // Sanity check: enabled=true but empty allowlist is almost certainly a config loading failure.
+    // Log loudly so operators notice before 28K false violations pile up.
+    if config.allowed.is_empty() {
+        tracing::error!(
+            "[server-guard] process_guard.enabled=true but allowed list is EMPTY — \
+             every process will be flagged as a violation. This usually means \
+             racecontrol.toml failed to parse. Check config file for corruption."
+        );
+    }
+
     tokio::spawn(async move {
         tracing::info!(
-            "[server-guard] Starting server process guard (interval={}s, action={})",
+            "[server-guard] Starting server process guard (interval={}s, action={}, allowed={})",
             config.poll_interval_secs,
-            config.violation_action
+            config.violation_action,
+            config.allowed.len()
         );
 
         let own_pid = std::process::id();
