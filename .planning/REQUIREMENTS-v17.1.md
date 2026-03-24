@@ -30,9 +30,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 ### MAINTENANCE_MODE Fix
 
-- [ ] **MAINT-01**: MAINTENANCE_MODE auto-clears after 30 minutes instead of blocking permanently
-- [ ] **MAINT-02**: MAINTENANCE_MODE file carries JSON with diagnostic reason, timestamp, and restart count
-- [ ] **MAINT-03**: Staff receives WhatsApp alert when MAINTENANCE_MODE activates on any pod
+- [x] **MAINT-01**: MAINTENANCE_MODE auto-clears after 30 minutes instead of blocking permanently
+- [x] **MAINT-02**: MAINTENANCE_MODE file carries JSON with diagnostic reason, timestamp, and restart count
+- [x] **MAINT-03**: Staff receives WhatsApp alert when MAINTENANCE_MODE activates on any pod
 - [x] **MAINT-04**: pod_healer reads MAINTENANCE_MODE via rc-sentry /files before sending Wake-on-LAN, preventing WoL→restart→block infinite loop
 
 ### James Watchdog
@@ -79,9 +79,9 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 | GRAD-03 | Phase 184 | Complete |
 | GRAD-04 | Phase 184 | Complete |
 | GRAD-05 | Phase 184 | Complete |
-| MAINT-01 | Phase 186 | Pending |
-| MAINT-02 | Phase 186 | Pending |
-| MAINT-03 | Phase 186 | Pending |
+| MAINT-01 | Phase 186 | Complete |
+| MAINT-02 | Phase 186 | Complete |
+| MAINT-03 | Phase 186 | Complete |
 | MAINT-04 | Phase 185 | Complete |
 | JAMES-01 | Phase 188 | Pending |
 | JAMES-02 | Phase 188 | Pending |
