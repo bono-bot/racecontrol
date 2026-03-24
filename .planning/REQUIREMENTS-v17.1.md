@@ -11,7 +11,7 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 
 - [ ] **SPAWN-01**: rc-sentry verifies spawned processes are alive by polling /health with 10s timeout and 500ms interval before declaring restart success
 - [ ] **SPAWN-02**: Recovery events include spawn_verified field (true/false) so server knows if restarts actually worked
-- [ ] **SPAWN-03**: rc-sentry uses Session 1 spawn path (WTSQueryUserToken + CreateProcessAsUser) for GUI process launches, not std::process::Command
+- [x] **SPAWN-03**: rc-sentry uses Session 1 spawn path (WTSQueryUserToken + CreateProcessAsUser) for GUI process launches, not std::process::Command
 
 ### Recovery Coordination
 
@@ -69,7 +69,7 @@ Requirements for watchdog-to-AI migration. Each maps to roadmap phases.
 |-------------|-------|--------|
 | SPAWN-01 | Phase 184 | Pending |
 | SPAWN-02 | Phase 184 | Pending |
-| SPAWN-03 | Phase 184 | Pending |
+| SPAWN-03 | Phase 184 | Complete |
 | COORD-01 | Phase 185 | Pending |
 | COORD-02 | Phase 185 | Pending |
 | COORD-03 | Phase 185 | Pending |

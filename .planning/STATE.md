@@ -1,5 +1,34 @@
 ---
 gsd_state_version: 1.0
+milestone: v17.1
+milestone_name: Watchdog-to-AI Migration
+status: in_progress
+stopped_at: Completed 184-03-PLAN.md
+last_updated: "2026-03-25T02:49:00+05:30"
+progress:
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 3
+  percent: 15
+context:
+  current_phase: 184
+  current_plan: 03
+  phase_name: rc-sentry Session 1 Spawn
+  next_action: Continue Phase 184 or run Phase 185
+  phases_defined: 183-188
+  requirements_mapped: 21/21
+decisions:
+  - "183-01: Used std::sync::Mutex<RecoveryEventStore> (not RwLock) — writes are microseconds, frequent"
+  - "183-01: Server stamps timestamp on POST to prevent pod clock drift"
+  - "183-01: All 3 routes in public_routes() — rc-sentry calls without JWT"
+  - "184-03: Session 1 spawn uses CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE (not CREATE_NO_WINDOW) — rc-agent kiosk UI must appear on interactive desktop"
+  - "184-03: spawn_in_session1 takes bat_path directly (not exe_dir like rc-watchdog) — callers have cfg.start_script from sentry_config"
+  - "184-03: schtasks preserved as fallback — session may not be active at boot before user login"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
