@@ -248,10 +248,10 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   - Always test recovery paths against **server downtime**, not just pod failures.
 
   _Why: Self-restart + watchdog + WoL created an infinite restart loop that took 45 minutes to diagnose; the systems had no coordination._
-- **Allowlist Auth known issue** — `/api/v1/config/kiosk-allowlist` requires auth. rc-agent calls it without auth → 401 → pods run on hardcoded local allowlist only. Fix when touching kiosk or auth code.
-  _Why: Known gap; documenting here prevents it being "fixed" in isolation without updating rc-agent._
-- **Process guard allowlist is fetch-once-at-boot.** rc-agent fetches from `/api/v1/guard/whitelist/pod-{N}` at startup only. If the server is down at boot time, pods get `MachineWhitelist::default()` (empty) and flag EVERY process as a violation. No re-fetch mechanism exists. After any server restart or fleet reboot, restart rc-agent on all pods so they re-fetch the allowlist: `curl -X POST http://<pod_ip>:8091/exec -d '{"cmd":"taskkill /F /IM rc-agent.exe & schtasks /Run /TN StartRCAgent"}'` via rc-sentry. Verify: `violation_count_24h` should stop increasing after restart. **TODO:** Add periodic re-fetch (every 5 min) to rc-agent so pods self-heal without manual restart.
-  _Why: 2026-03-24 — all 8 pods showed violation_count_24h: 100 (false positives). Server had restarted, pods booted while server was briefly down, fetched empty default, and never re-fetched. Restarting all rc-agents immediately fixed it — no new violations after restart._
+- **Allowlist Auth — RESOLVED.** GET endpoints (`/config/kiosk-allowlist`, `/guard/whitelist/pod-{N}`) moved to `public_routes` — rc-agent fetches without auth. POST/DELETE still require staff JWT. See Security section.
+  _Why: 401 on GET caused rc-agent to fall back to empty default allowlist._
+- **Process guard allowlist: fetch-at-boot + 5-min periodic re-fetch (DONE in `821c3031`).** rc-agent fetches from `/api/v1/guard/whitelist/pod-{N}` at startup AND every 300s via a background tokio task. If the server is down at boot, pods get `MachineWhitelist::default()` (empty) but self-heal within 5 minutes once the server is back. Manual restart is no longer required but can be used for immediate effect: `curl -X POST http://<pod_ip>:8091/exec -d '{"cmd":"taskkill /F /IM rc-agent.exe & schtasks /Run /TN StartRCAgent"}'` via rc-sentry. Verify: `violation_count_24h` should stop increasing after the next re-fetch cycle.
+  _Why: 2026-03-24 — all 8 pods showed violation_count_24h: 100 (false positives). Server had restarted, pods booted while server was briefly down, fetched empty default, and never re-fetched. Periodic re-fetch implemented same day to prevent recurrence._
 - **"Shipped" Means "Works For The User"** — A milestone is NOT shipped until every user-facing endpoint is verified working at runtime:
   - Binary built, deployed, and **running** (not just compiled). All runtime dependencies present (DLLs, models, config files).
   - Every API endpoint returns correct data (not just HTTP 200 — check response content).
@@ -271,8 +271,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 
 ### Security
 
-- **Allowlist auth required** on `/api/v1/config/kiosk-allowlist` — see Debugging section for full context.
-  _Why: Unauthenticated endpoint would allow any LAN device to overwrite the process allowlist._
+- **Allowlist endpoints: GET is public, POST/DELETE require staff auth.** `GET /api/v1/config/kiosk-allowlist` and `GET /api/v1/guard/whitelist/pod-{N}` are in `public_routes` so rc-agent can fetch without auth. Write operations (POST to add, DELETE to remove entries) still require staff JWT.
+  _Why: rc-agent fetches the allowlist at boot and every 5 min (periodic re-fetch added in `821c3031`). Requiring auth on GET caused 401 → empty allowlist → false violations fleet-wide._
 - **Process guard safe mode:** Do not disable rc-process-guard during testing sessions — use the allowlist override instead.
   _Why: Disabling the guard entirely during a test left the machine unprotected when the session ended without re-enabling it._
 

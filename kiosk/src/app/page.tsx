@@ -231,16 +231,20 @@ export default function CustomerLanding() {
             const podNum = idx + 1;
 
             if (!pod) {
-              // Empty slot (pod not registered)
+              // Empty slot — show shimmer while WS connecting, "Offline" once connected
               return (
                 <div
                   key={`empty-${podNum}`}
-                  className="rounded-xl border border-rp-border bg-rp-card/30 flex flex-col items-center justify-center opacity-40"
+                  className={`rounded-xl border border-rp-border bg-rp-card/30 flex flex-col items-center justify-center ${
+                    connected ? "opacity-40" : "animate-pulse opacity-30"
+                  }`}
                 >
                   <span className="text-4xl font-bold text-rp-grey font-[family-name:var(--font-display)]">
                     {podNum}
                   </span>
-                  <span className="text-xs text-rp-grey mt-1">Offline</span>
+                  <span className="text-xs text-rp-grey mt-1">
+                    {connected ? "Offline" : ""}
+                  </span>
                 </div>
               );
             }
