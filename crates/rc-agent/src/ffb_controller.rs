@@ -575,6 +575,283 @@ pub(crate) fn verify_conspit_configs_in_dir(dir: &std::path::Path) -> bool {
     verify_conspit_configs_impl(Some(dir))
 }
 
+// ─── Auto-Switch Configuration ──────────────────────────────────────────────
+
+/// Logging target for auto-switch config operations.
+const LOG_TARGET_CFG: &str = "conspit-cfg";
+
+/// ConspitLink install directory (default production path).
+const INSTALL_DIR: &str = r"C:\Program Files (x86)\Conspit Link 2.0";
+
+/// Runtime directory where ConspitLink reads Global.json at startup.
+const RUNTIME_DIR: &str = r"C:\RacingPoint";
+
+/// Known venue game keys in GameToBaseConfig.json.
+/// AC EVO and AC Rally keys will be confirmed from pod inspection (Phase 61).
+/// For now use the confirmed keys from ConspitLink's default config.
+const VENUE_GAME_KEYS: &[&str] = &[
+    "Assetto Corsa",
+    "F1 25",
+    "Assetto Corsa Competizione",
+    // AC EVO / AC Rally keys TBD — Phase 61 pod inspection will confirm exact strings
+];
+
+/// Result of the auto-switch config self-heal operation.
+pub struct AutoSwitchConfigResult {
+    /// True if the Global.json file was found in the install dir and placement was attempted.
+    pub global_json_placed: bool,
+    /// True if the target Global.json content actually changed (write occurred).
+    pub global_json_changed: bool,
+    /// True if any GameToBaseConfig.json mapping was added or corrected.
+    pub game_to_base_fixed: bool,
+    /// True if ConspitLink was restarted (only when config changed).
+    pub conspit_restarted: bool,
+    /// Non-fatal errors that occurred during the operation.
+    pub errors: Vec<String>,
+}
+
+/// Ensure ConspitLink auto-switch configuration is in place.
+///
+/// Places `Global.json` at `C:\RacingPoint\Global.json` with `AresAutoChangeConfig` forced
+/// to `"open"`, verifies `GameToBaseConfig.json` game mappings, and restarts ConspitLink
+/// if anything changed.  Non-fatal: errors are logged but do not block startup.
+///
+/// Must be called BEFORE `enforce_safe_state()` so ConspitLink starts with correct config.
+pub fn ensure_auto_switch_config() -> AutoSwitchConfigResult {
+    ensure_auto_switch_config_impl(None, None)
+}
+
+/// Testable entry point for `ensure_auto_switch_config` — uses provided dirs instead of
+/// the production paths.  Called from unit tests via `ensure_auto_switch_config_in_dir`.
+fn ensure_auto_switch_config_impl(
+    install_dir: Option<&std::path::Path>,
+    runtime_dir: Option<&std::path::Path>,
+) -> AutoSwitchConfigResult {
+    let install_base = install_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(INSTALL_DIR));
+    let runtime_base = runtime_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(RUNTIME_DIR));
+
+    let mut result = AutoSwitchConfigResult {
+        global_json_placed: false,
+        global_json_changed: false,
+        game_to_base_fixed: false,
+        conspit_restarted: false,
+        errors: Vec::new(),
+    };
+
+    // Ensure runtime directory exists (C:\RacingPoint\ on production)
+    if let Err(e) = std::fs::create_dir_all(&runtime_base) {
+        result.errors.push(format!("create_dir_all({}): {}", runtime_base.display(), e));
+        return result;
+    }
+
+    // 1. Place Global.json with AresAutoChangeConfig forced to "open"
+    let source_global = install_base.join("Global.json");
+    let target_global = runtime_base.join("Global.json");
+    match place_global_json(&source_global, &target_global) {
+        Ok(changed) => {
+            result.global_json_placed = true;
+            result.global_json_changed = changed;
+            if changed {
+                tracing::info!(
+                    target: LOG_TARGET_CFG,
+                    "Global.json placed at runtime path with AresAutoChangeConfig=open"
+                );
+            } else {
+                tracing::debug!(
+                    target: LOG_TARGET_CFG,
+                    "Global.json already correct at runtime path — no write needed"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET_CFG, "Failed to place Global.json: {}", e);
+            result.errors.push(format!("Global.json: {}", e));
+        }
+    }
+
+    // 2. Verify GameToBaseConfig.json game mappings (only if the file exists)
+    let gtb_path = install_base
+        .join("JsonConfigure")
+        .join("GameToBaseConfig.json");
+    if gtb_path.exists() {
+        match verify_game_to_base_config(&gtb_path, &install_base) {
+            Ok(fixed) => {
+                result.game_to_base_fixed = fixed;
+                if fixed {
+                    tracing::info!(
+                        target: LOG_TARGET_CFG,
+                        "GameToBaseConfig.json: missing game key(s) added"
+                    );
+                } else {
+                    tracing::debug!(
+                        target: LOG_TARGET_CFG,
+                        "GameToBaseConfig.json: all venue game keys present"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: LOG_TARGET_CFG,
+                    "GameToBaseConfig.json verification failed: {}",
+                    e
+                );
+                result.errors.push(format!("GameToBaseConfig.json: {}", e));
+            }
+        }
+    } else {
+        tracing::debug!(
+            target: LOG_TARGET_CFG,
+            "GameToBaseConfig.json not found at {} — skipping (CL may not be installed)",
+            gtb_path.display()
+        );
+    }
+
+    // 3. Restart ConspitLink only if config actually changed.
+    //    In test mode (install_dir.is_some()) we skip the real restart — just set the flag.
+    if result.global_json_changed || result.game_to_base_fixed {
+        tracing::info!(
+            target: LOG_TARGET_CFG,
+            "Config changed — restarting ConspitLink to pick up new settings"
+        );
+        result.conspit_restarted = true;
+        if install_dir.is_none() {
+            // Production path only — never call from tests
+            restart_conspit_link_hardened(false);
+        }
+    }
+
+    result
+}
+
+/// Place `Global.json` from the install directory to the runtime directory.
+///
+/// - Reads source, parses as JSON, forces `AresAutoChangeConfig` to `"open"`.
+/// - Compares with existing target content; returns `Ok(false)` if identical (no-op).
+/// - Writes atomically: `target.json.tmp` then rename to `target`.
+/// - Returns `Ok(true)` when the file was written/updated.
+fn place_global_json(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<bool, String> {
+    if !source.exists() {
+        return Err(format!(
+            "Source Global.json not found: {} — ConspitLink may not be installed",
+            source.display()
+        ));
+    }
+
+    // Parse source JSON
+    let raw = std::fs::read_to_string(source)
+        .map_err(|e| format!("read {}: {}", source.display(), e))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse JSON: {}", e))?;
+
+    // Force AresAutoChangeConfig to "open" (Pitfall 2: default is "close")
+    json["AresAutoChangeConfig"] = serde_json::json!("open");
+
+    let new_content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("serialize JSON: {}", e))?;
+
+    // Compare with existing target — skip write if identical (Pitfall 1: avoid unnecessary CL restart)
+    if target.exists() {
+        if let Ok(existing) = std::fs::read_to_string(target) {
+            if existing == new_content {
+                return Ok(false); // Already correct — no change needed
+            }
+        }
+    }
+
+    // Atomic write: write to .json.tmp then rename (NTFS rename is atomic)
+    let tmp = target.with_extension("json.tmp");
+    std::fs::write(&tmp, &new_content)
+        .map_err(|e| format!("write tmp {}: {}", tmp.display(), e))?;
+    std::fs::rename(&tmp, target)
+        .map_err(|e| format!("rename {} -> {}: {}", tmp.display(), target.display(), e))?;
+
+    Ok(true) // File was updated
+}
+
+/// Verify that `GameToBaseConfig.json` has entries for all venue games.
+///
+/// For each key in `VENUE_GAME_KEYS`:
+/// - If the key is missing, adds a default entry (pointing to install dir).
+/// - If the mapped `.Base` file does not exist, logs a warning (path fix deferred to Phase 61).
+///
+/// Returns `Ok(true)` if any entry was added, `Ok(false)` if all keys were already present.
+fn verify_game_to_base_config(
+    gtb_path: &std::path::Path,
+    install_base: &std::path::Path,
+) -> Result<bool, String> {
+    let raw = std::fs::read_to_string(gtb_path)
+        .map_err(|e| format!("read {}: {}", gtb_path.display(), e))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse JSON: {}", e))?;
+
+    let map = json
+        .as_object_mut()
+        .ok_or_else(|| "GameToBaseConfig.json root is not a JSON object".to_string())?;
+
+    let mut fixed = false;
+    for &key in VENUE_GAME_KEYS {
+        if let Some(entry) = map.get(key) {
+            // Key exists — check that the mapped .Base file path exists (warn only, no fix in Phase 59)
+            if let Some(path_str) = entry.as_str() {
+                let base_file = std::path::Path::new(path_str);
+                if !base_file.exists() {
+                    tracing::warn!(
+                        target: LOG_TARGET_CFG,
+                        "GameToBaseConfig: '{}' maps to '{}' which does not exist on disk — \
+                         preset path fix deferred to Phase 61",
+                        key,
+                        path_str
+                    );
+                }
+            }
+        } else {
+            // Key missing — add a default entry pointing to install dir presets
+            let default_path = install_base
+                .join("Presets")
+                .join(key)
+                .to_string_lossy()
+                .into_owned();
+            tracing::info!(
+                target: LOG_TARGET_CFG,
+                "GameToBaseConfig: missing key '{}' — adding default entry '{}'",
+                key,
+                default_path
+            );
+            map.insert(key.to_string(), serde_json::json!(default_path));
+            fixed = true;
+        }
+    }
+
+    if fixed {
+        // Write the updated config back (atomic write)
+        let new_content = serde_json::to_string_pretty(&json)
+            .map_err(|e| format!("serialize: {}", e))?;
+        let tmp = gtb_path.with_extension("json.tmp");
+        std::fs::write(&tmp, &new_content)
+            .map_err(|e| format!("write tmp: {}", e))?;
+        std::fs::rename(&tmp, gtb_path)
+            .map_err(|e| format!("rename: {}", e))?;
+    }
+
+    Ok(fixed)
+}
+
+/// Testable entry point for `ensure_auto_switch_config` — operates inside provided dirs.
+#[cfg(test)]
+pub(crate) fn ensure_auto_switch_config_in_dir(
+    install_dir: &std::path::Path,
+    runtime_dir: &std::path::Path,
+) -> AutoSwitchConfigResult {
+    ensure_auto_switch_config_impl(Some(install_dir), Some(runtime_dir))
+}
+
 /// Minimize ConspitLink window with polling retry.
 ///
 /// Calls `minimize_conspit_window()` every 500ms for up to 8s (16 attempts).
@@ -1121,5 +1398,247 @@ mod tests {
             .returning(|_| Ok(true))
             .times(1);
         assert_eq!(mock.set_idle_spring(1000), Ok(true));
+    }
+
+    // ─── Auto-Switch Config Tests ─────────────────────────────────────────────
+
+    fn make_install_dir(base: &std::path::Path) {
+        // Create install dir structure with a valid Global.json
+        let install = base.join("install");
+        std::fs::create_dir_all(install.join("JsonConfigure")).unwrap();
+        let global_json = serde_json::json!({
+            "AresAutoChangeConfig": "close",
+            "SomeOtherKey": "value"
+        });
+        std::fs::write(
+            install.join("Global.json"),
+            serde_json::to_string_pretty(&global_json).unwrap(),
+        ).unwrap();
+    }
+
+    fn make_runtime_dir(base: &std::path::Path) -> std::path::PathBuf {
+        let runtime = base.join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        runtime
+    }
+
+    #[test]
+    fn test_place_global_json_forces_open_when_source_has_close() {
+        let dir = std::env::temp_dir().join("auto_switch_test_forces_open");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Source has AresAutoChangeConfig = "close"
+        let source = dir.join("source_Global.json");
+        let target = dir.join("target_Global.json");
+        let source_json = serde_json::json!({ "AresAutoChangeConfig": "close", "Other": 1 });
+        std::fs::write(&source, serde_json::to_string_pretty(&source_json).unwrap()).unwrap();
+
+        let result = place_global_json(&source, &target).unwrap();
+        assert!(result, "Should return true (changed) when source has 'close'");
+        assert!(target.exists(), "Target file should have been created");
+
+        let target_content = std::fs::read_to_string(&target).unwrap();
+        let target_json: serde_json::Value = serde_json::from_str(&target_content).unwrap();
+        assert_eq!(
+            target_json["AresAutoChangeConfig"],
+            serde_json::json!("open"),
+            "AresAutoChangeConfig must be forced to 'open'"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_place_global_json_creates_target_when_missing() {
+        let dir = std::env::temp_dir().join("auto_switch_test_creates_target");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let source = dir.join("Global.json");
+        let target = dir.join("runtime").join("Global.json");
+        // Create runtime subdir
+        std::fs::create_dir_all(dir.join("runtime")).unwrap();
+
+        let source_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(&source, serde_json::to_string_pretty(&source_json).unwrap()).unwrap();
+
+        assert!(!target.exists(), "Target should not exist yet");
+        let result = place_global_json(&source, &target).unwrap();
+        assert!(result, "Should return true (created) when target is missing");
+        assert!(target.exists(), "Target must be created");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_place_global_json_noop_when_already_correct() {
+        let dir = std::env::temp_dir().join("auto_switch_test_noop");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let source = dir.join("Global.json");
+        let target = dir.join("runtime_Global.json");
+
+        // Source with "close" — first call should create target with "open"
+        let source_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(&source, serde_json::to_string_pretty(&source_json).unwrap()).unwrap();
+
+        let first = place_global_json(&source, &target).unwrap();
+        assert!(first, "First call: should return true (created/changed)");
+
+        // Second call: target already has "open" content — should be no-op
+        let second = place_global_json(&source, &target).unwrap();
+        assert!(!second, "Second call: should return false (no change)");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_place_global_json_atomic_write_uses_tmp() {
+        // Verify that the intermediate .json.tmp file is cleaned up (not left behind)
+        let dir = std::env::temp_dir().join("auto_switch_test_atomic");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let source = dir.join("Global.json");
+        let target = dir.join("target_Global.json");
+        let tmp = dir.join("target_Global.json.tmp");
+
+        let source_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(&source, serde_json::to_string_pretty(&source_json).unwrap()).unwrap();
+
+        place_global_json(&source, &target).unwrap();
+
+        // After successful atomic write, .tmp should be gone (renamed to target)
+        assert!(!tmp.exists(), ".json.tmp must be renamed away after write");
+        assert!(target.exists(), "Target must exist after atomic write");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_game_to_base_config_returns_false_when_all_keys_present() {
+        let dir = std::env::temp_dir().join("auto_switch_test_gtb_all_present");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let gtb_path = dir.join("GameToBaseConfig.json");
+        // All VENUE_GAME_KEYS present (with a dummy path each)
+        let mut map = serde_json::Map::new();
+        for &key in VENUE_GAME_KEYS {
+            map.insert(key.to_string(), serde_json::json!("C:\\some\\preset.Base"));
+        }
+        std::fs::write(&gtb_path, serde_json::to_string_pretty(&serde_json::Value::Object(map)).unwrap()).unwrap();
+
+        let result = verify_game_to_base_config(&gtb_path, &dir).unwrap();
+        assert!(!result, "Should return false (no changes) when all keys already exist");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_game_to_base_config_adds_missing_key() {
+        let dir = std::env::temp_dir().join("auto_switch_test_gtb_missing");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let gtb_path = dir.join("GameToBaseConfig.json");
+        // Only the first key present
+        let mut map = serde_json::Map::new();
+        if let Some(&first_key) = VENUE_GAME_KEYS.first() {
+            map.insert(first_key.to_string(), serde_json::json!("some/path.Base"));
+        }
+        std::fs::write(&gtb_path, serde_json::to_string_pretty(&serde_json::Value::Object(map)).unwrap()).unwrap();
+
+        let result = verify_game_to_base_config(&gtb_path, &dir).unwrap();
+        assert!(result, "Should return true (fixed) when keys were missing and added");
+
+        // Verify the file now has all keys
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gtb_path).unwrap()).unwrap();
+        for &key in VENUE_GAME_KEYS {
+            assert!(updated.get(key).is_some(), "Key '{}' must be present after fix", key);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_ensure_auto_switch_config_impl_places_and_restarts_on_change() {
+        let dir = std::env::temp_dir().join("auto_switch_test_full_change");
+        let _ = std::fs::remove_dir_all(&dir);
+        let install = dir.join("install");
+        let runtime = dir.join("runtime");
+        std::fs::create_dir_all(install.join("JsonConfigure")).unwrap();
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // Source Global.json with "close" — will cause a change
+        let global_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(
+            install.join("Global.json"),
+            serde_json::to_string_pretty(&global_json).unwrap(),
+        ).unwrap();
+
+        let result = ensure_auto_switch_config_in_dir(&install, &runtime);
+
+        assert!(result.global_json_placed, "global_json_placed must be true");
+        assert!(result.global_json_changed, "global_json_changed must be true");
+        assert!(result.conspit_restarted, "conspit_restarted must be true when config changed");
+        assert!(result.errors.is_empty(), "errors must be empty: {:?}", result.errors);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_ensure_auto_switch_config_impl_no_restart_when_nothing_changed() {
+        let dir = std::env::temp_dir().join("auto_switch_test_no_change");
+        let _ = std::fs::remove_dir_all(&dir);
+        let install = dir.join("install");
+        let runtime = dir.join("runtime");
+        std::fs::create_dir_all(install.join("JsonConfigure")).unwrap();
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // Source Global.json with "close" — first call places it (changed=true)
+        let global_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(
+            install.join("Global.json"),
+            serde_json::to_string_pretty(&global_json).unwrap(),
+        ).unwrap();
+
+        // First call — places the file
+        let first = ensure_auto_switch_config_in_dir(&install, &runtime);
+        assert!(first.conspit_restarted, "First call: must set conspit_restarted=true");
+
+        // Second call — file already has "open", nothing changed
+        let second = ensure_auto_switch_config_in_dir(&install, &runtime);
+        assert!(!second.global_json_changed, "Second call: global_json_changed must be false");
+        assert!(!second.conspit_restarted, "Second call: conspit_restarted must be false (no change)");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_ensure_auto_switch_creates_runtime_dir_if_missing() {
+        let dir = std::env::temp_dir().join("auto_switch_test_mkdir");
+        let _ = std::fs::remove_dir_all(&dir);
+        let install = dir.join("install");
+        // Runtime dir does NOT exist yet
+        let runtime = dir.join("runtime_new");
+        std::fs::create_dir_all(&install).unwrap();
+
+        let global_json = serde_json::json!({ "AresAutoChangeConfig": "close" });
+        std::fs::write(
+            install.join("Global.json"),
+            serde_json::to_string_pretty(&global_json).unwrap(),
+        ).unwrap();
+
+        assert!(!runtime.exists(), "Runtime dir must not exist before test");
+        let result = ensure_auto_switch_config_in_dir(&install, &runtime);
+
+        assert!(runtime.exists(), "Runtime dir must be created by ensure_auto_switch_config_impl");
+        assert!(result.global_json_placed, "global_json_placed must be true after dir creation");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
