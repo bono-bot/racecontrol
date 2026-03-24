@@ -21,7 +21,8 @@ use crate::failure_state::FailureState;
 
 const MACHINE: &str = "james";
 const HTTP_TIMEOUT_SECS: u64 = 3;
-const OLLAMA_URL: &str = "http://127.0.0.1:11434/api/generate";
+/// Ollama runs locally on James's machine — localhost host:port for TcpStream API.
+const OLLAMA_HOST_PORT: &str = "127.0.0.1:11434";
 const OLLAMA_MODEL: &str = "qwen2.5:3b";
 
 pub struct ServiceConfig {
@@ -217,39 +218,19 @@ fn tail_log(path: &str, lines: usize) -> Option<String> {
     }
 }
 
-/// Query Ollama for AI diagnosis of a service failure.
+/// Query Ollama for AI diagnosis of a service failure using shared rc_common::ollama.
 /// Only called at failure count 3 — not on every check (expensive).
 fn ai_diagnose(service_name: &str, symptoms: &str) -> Option<String> {
-    let prompt = format!(
-        "You are an operations AI for Racing Point eSports. Service '{}' is DOWN.\n\
-         Symptoms:\n{}\n\n\
-         In 2-3 sentences: what is the most likely cause and what should be done to fix it? \
-         Be specific to this service.",
+    let crash_context = format!(
+        "Service '{}' is DOWN on James AI healer machine.\nSymptoms:\n{}",
         service_name, symptoms
     );
-
-    let body = serde_json::json!({
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": false,
-        "options": { "num_predict": 150 }
-    });
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .ok()?;
-
-    let resp = client
-        .post(OLLAMA_URL)
-        .json(&body)
-        .send()
-        .ok()?;
-
-    let json: serde_json::Value = resp.json().ok()?;
-    json.get("response")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
+    rc_common::ollama::query_crash(
+        &crash_context,
+        Some(OLLAMA_HOST_PORT),
+        Some(OLLAMA_MODEL),
+    )
+    .map(|r| r.suggestion)
 }
 
 /// Collect symptoms for a down service: log tail + failure count + duration.
@@ -276,7 +257,25 @@ fn collect_symptoms(svc: &ServiceConfig, state: &FailureState) -> String {
     symptoms
 }
 
-fn attempt_restart(svc: &ServiceConfig) {
+/// Poll the service health for up to 10s at 500ms intervals after a restart.
+/// Returns true if the service becomes healthy within the window.
+fn verify_spawn(svc: &ServiceConfig) -> bool {
+    let max_wait = std::time::Duration::from_secs(10);
+    let poll_interval = std::time::Duration::from_millis(500);
+    let start = std::time::Instant::now();
+    while start.elapsed() < max_wait {
+        std::thread::sleep(poll_interval);
+        if is_healthy(svc) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Attempt to restart a service and verify it actually started (SPAWN-01 pattern).
+/// Returns true if the service became healthy within 10s after the spawn.
+/// Returns false if spawn failed or service did not recover within the verify window.
+fn attempt_restart(svc: &ServiceConfig) -> bool {
     if let Some(ref cmd_spec) = svc.restart_cmd {
         let mut cmd = std::process::Command::new(cmd_spec.exe);
         cmd.args(cmd_spec.args);
@@ -286,14 +285,23 @@ fn attempt_restart(svc: &ServiceConfig) {
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
         match cmd.spawn() {
-            Ok(_) => tracing::info!("james_monitor: restart spawned for {}", svc.name),
-            Err(e) => tracing::warn!("james_monitor: restart failed for {}: {}", svc.name, e),
+            Ok(_) => {
+                tracing::info!("james_monitor: restart spawned for {}, polling for health", svc.name);
+                let verified = verify_spawn(svc);
+                tracing::info!("james_monitor: {} spawn_verified={}", svc.name, verified);
+                verified
+            }
+            Err(e) => {
+                tracing::warn!("james_monitor: restart failed for {}: {}", svc.name, e);
+                false
+            }
         }
     } else {
         tracing::info!(
             "james_monitor: no restart cmd for {} — alert-only service",
             svc.name
         );
+        false
     }
 }
 
@@ -374,9 +382,10 @@ pub fn run_monitor() {
 
         let (action, reason) = graduated_action(count);
 
-        // Step 2: Attempt restart at count 2
+        // Step 2: Attempt restart at count 2, verify it actually started
+        let mut spawn_verified = false;
         if count == 2 {
-            attempt_restart(&svc);
+            spawn_verified = attempt_restart(&svc);
         }
 
         // Step 3: AI diagnosis at count 3 (expensive — only once)
@@ -398,9 +407,9 @@ pub fn run_monitor() {
             &reason,
         );
         d.context = if let Some(ref diag) = ai_diagnosis {
-            format!("failure_count:{} ai_diagnosis:{}", count, diag)
+            format!("failure_count:{} spawn_verified:{} ai_diagnosis:{}", count, spawn_verified, diag)
         } else {
-            format!("failure_count:{}", count)
+            format!("failure_count:{} spawn_verified:{}", count, spawn_verified)
         };
         let _ = logger.log(&d);
 

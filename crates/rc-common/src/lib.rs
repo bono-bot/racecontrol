@@ -5,3 +5,4 @@ pub mod watchdog;
 pub mod ai_names;
 pub mod exec;
 pub mod recovery;
+pub mod ollama;

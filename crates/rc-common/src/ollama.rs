@@ -1,8 +1,8 @@
-//! Tier 3 Ollama integration — blocking HTTP POST for crash analysis.
+//! Shared Ollama integration — blocking HTTP POST for crash analysis.
 //!
-//! Queries Ollama on James (.27:11434) for unknown crash patterns.
-//! Pure std::net::TcpStream — no reqwest, no tokio.
-//! Fire-and-forget: spawns a thread, doesn't block restart.
+//! Queries Ollama via raw TcpStream (no reqwest, pure std).
+//! Fire-and-forget: spawns a thread, doesn't block the caller.
+//! Used by rc-sentry (Tier 3 crash analysis) and rc-watchdog (James AI healer).
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -147,7 +147,7 @@ pub fn query_async(
     on_result: Box<dyn FnOnce(Option<OllamaResult>) + Send + 'static>,
 ) {
     std::thread::Builder::new()
-        .name("sentry-ollama".to_string())
+        .name("rc-common-ollama".to_string())
         .spawn(move || {
             let result = query_crash(&crash_context, None, None);
             on_result(result);
@@ -172,7 +172,6 @@ mod tests {
     fn query_async_calls_callback() {
         let (tx, rx) = std::sync::mpsc::channel();
         // Use a guaranteed-unreachable address to avoid environment dependency
-        // (James's machine has Ollama running on the default URL)
         query_async(
             "test crash".to_string(),
             Box::new(move |result| {

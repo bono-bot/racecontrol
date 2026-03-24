@@ -22,8 +22,7 @@ mod watchdog;
 mod tier1_fixes;
 #[cfg(feature = "ai-diagnosis")]
 mod debug_memory;
-#[cfg(feature = "ai-diagnosis")]
-mod ollama;
+// ollama module is now in rc-common — see rc_common::ollama
 mod session1_spawn;
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision};
@@ -642,9 +641,9 @@ const OLLAMA_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 fn query_ollama_with_timeout(
     crash_summary: String,
     timeout: std::time::Duration,
-) -> Option<ollama::OllamaResult> {
+) -> Option<rc_common::ollama::OllamaResult> {
     let (tx, rx) = std::sync::mpsc::channel();
-    ollama::query_async(crash_summary, Box::new(move |result| {
+    rc_common::ollama::query_async(crash_summary, Box::new(move |result| {
         let _ = tx.send(result);
     }));
     rx.recv_timeout(timeout).ok().flatten()
@@ -792,7 +791,7 @@ mod tests {
     #[test]
     fn query_ollama_timeout_respects_deadline() {
         // A slow responder (never fires within deadline) should return None/Err
-        let (tx, rx) = std::sync::mpsc::channel::<Option<ollama::OllamaResult>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Option<rc_common::ollama::OllamaResult>>();
         // Spawn thread that sleeps much longer than our deadline
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(2));
@@ -807,10 +806,10 @@ mod tests {
     #[test]
     fn query_ollama_with_timeout_returns_result_when_fast() {
         // A fast responder should be received before the timeout
-        let (tx, rx) = std::sync::mpsc::channel::<Option<ollama::OllamaResult>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Option<rc_common::ollama::OllamaResult>>();
         std::thread::spawn(move || {
             // Respond immediately
-            let _ = tx.send(Some(ollama::OllamaResult {
+            let _ = tx.send(Some(rc_common::ollama::OllamaResult {
                 suggestion: "check disk space".to_string(),
                 model: "test-model".to_string(),
             }));
