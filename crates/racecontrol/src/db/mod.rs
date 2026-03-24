@@ -2533,6 +2533,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── App Health Log (Phase 179) ──────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS app_health_log (
+            id TEXT PRIMARY KEY,
+            app TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            status TEXT NOT NULL,
+            pages_expected INTEGER,
+            pages_available INTEGER,
+            response_ms INTEGER,
+            error TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

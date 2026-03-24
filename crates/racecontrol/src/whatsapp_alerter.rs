@@ -38,7 +38,7 @@ impl P0State {
 }
 
 /// Returns IST timestamp string (e.g., "20 Mar 2026 15:30 IST").
-fn ist_now_string() -> String {
+pub(crate) fn ist_now_string() -> String {
     chrono::Utc::now()
         .with_timezone(&chrono_tz::Asia::Kolkata)
         .format("%d %b %Y %H:%M IST")
@@ -57,7 +57,7 @@ async fn count_online_pods(state: &Arc<AppState>) -> (usize, usize) {
 }
 
 /// Send WhatsApp message via Evolution API. Best-effort: warns on failure, never panics.
-async fn send_whatsapp(config: &Config, message: &str) {
+pub(crate) async fn send_whatsapp(config: &Config, message: &str) {
     let (evo_url, evo_key, evo_instance, phone) = match (
         &config.auth.evolution_url,
         &config.auth.evolution_api_key,

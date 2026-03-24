@@ -21,7 +21,7 @@ use racecontrol_crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
-    ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
+    ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, app_health_monitor, auth,
     billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
     pod_monitor, pod_reservation, process_guard, psychology, remote_terminal, scheduler,
@@ -630,6 +630,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
+
+    // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
+    app_health_monitor::spawn(state.clone());
 
     // Spawn server-side process guard (monitors server .23 for unauthorized processes)
     process_guard::spawn_server_guard(state.clone());
