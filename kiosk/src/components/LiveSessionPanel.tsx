@@ -252,7 +252,7 @@ function TransmissionTogglePanel({ podId }: { podId: string }) {
     try {
       await api.setTransmission(podId, next);
       setMode(next);
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("Toggle failed:", err); }
     setBusy(false);
   };
 
@@ -284,7 +284,7 @@ function FfbTogglePanel({ podId }: { podId: string }) {
     try {
       await api.setFfb(podId, next);
       setPreset(next);
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("Toggle failed:", err); }
     setBusy(false);
   };
 

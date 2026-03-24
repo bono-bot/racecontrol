@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
+import { GAMES, GAME_LABELS, CLASS_COLORS, DIFFICULTY_PRESETS } from "@/lib/constants";
 import type { Driver, PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
 import type { WizardState } from "@/hooks/useSetupWizard";
 
@@ -18,41 +19,6 @@ interface SetupWizardProps {
   buildLaunchArgs: () => string;
   onCancel: () => void;
 }
-
-const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string }> = {
-  easy: { label: "Easy", desc: "ABS, TC, Stability, Ideal Line" },
-  medium: { label: "Medium", desc: "ABS, TC only" },
-  hard: { label: "Hard", desc: "No assists" },
-};
-
-const GAMES = [
-  { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "assetto_corsa_evo", name: "AC EVO", enabled: true },
-  { id: "assetto_corsa_rally", name: "AC Rally", enabled: true },
-  { id: "f1_25", name: "F1 25", enabled: true },
-  { id: "iracing", name: "iRacing", enabled: true },
-  { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
-  { id: "forza", name: "Forza Motorsport", enabled: false },
-  { id: "forza_horizon_5", name: "Forza Horizon 5", enabled: true },
-];
-
-const GAME_LABELS: Record<string, string> = {
-  assetto_corsa: "Assetto Corsa",
-  assetto_corsa_evo: "AC EVO",
-  assetto_corsa_rally: "AC Rally",
-  f1_25: "F1 25",
-  iracing: "iRacing",
-  le_mans_ultimate: "Le Mans Ultimate",
-  forza: "Forza Motorsport",
-  forza_horizon_5: "Forza Horizon 5",
-};
-
-const CLASS_COLORS: Record<string, string> = {
-  A: "bg-rp-red text-white",
-  B: "bg-orange-500 text-white",
-  C: "bg-amber-500 text-black",
-  D: "bg-green-500 text-white",
-};
 
 const STEP_TITLES: Record<string, string> = {
   register_driver: "Register Driver",

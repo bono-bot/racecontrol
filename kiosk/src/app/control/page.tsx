@@ -7,6 +7,7 @@ import { KioskHeader } from "@/components/KioskHeader";
 import { PodKioskView } from "@/components/PodKioskView";
 import { SidePanel } from "@/components/SidePanel";
 import { CafeMenuPanel } from "@/components/CafeMenuPanel";
+import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { KioskExperience, KioskSettings, Pod } from "@/lib/types";
 
@@ -17,6 +18,8 @@ export default function ControlPage() {
   const [venueName, setVenueName] = useState("Racing Point");
   const [lockedPods, setLockedPods] = useState<Set<string>>(new Set());
   const [showCafeMenu, setShowCafeMenu] = useState(false);
+
+  const { toastError } = useToast();
 
   const {
     connected,
@@ -62,42 +65,74 @@ export default function ControlPage() {
   }
 
   const handleTogglePod = async (pod: Pod) => {
-    if (pod.status === "disabled") {
-      await api.enablePod(pod.id);
-    } else {
-      await api.disablePod(pod.id);
+    try {
+      if (pod.status === "disabled") {
+        await api.enablePod(pod.id);
+      } else {
+        await api.disablePod(pod.id);
+      }
+    } catch (err) {
+      toastError(`Toggle pod failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
   };
 
   const handleSelectExperience = async (podId: string, experienceId: string) => {
-    await api.podLaunchExperience(podId, experienceId);
+    try {
+      await api.podLaunchExperience(podId, experienceId);
+    } catch (err) {
+      toastError(`Launch experience failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleWakePod = async (podId: string) => {
-    await api.wakePod(podId);
+    try {
+      await api.wakePod(podId);
+    } catch (err) {
+      toastError(`Wake failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleRestartPod = async (podId: string) => {
-    await api.restartPod(podId);
+    try {
+      await api.restartPod(podId);
+    } catch (err) {
+      toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleShutdownPod = async (podId: string) => {
     if (!window.confirm("Shutdown this pod?")) return;
-    await api.shutdownPod(podId);
+    try {
+      await api.shutdownPod(podId);
+    } catch (err) {
+      toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleWakeAll = async () => {
-    await api.wakeAllPods();
+    try {
+      await api.wakeAllPods();
+    } catch (err) {
+      toastError(`Wake all failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleShutdownAll = async () => {
     if (!window.confirm("Shutdown ALL pods? This will force-close everything.")) return;
-    await api.shutdownAllPods();
+    try {
+      await api.shutdownAllPods();
+    } catch (err) {
+      toastError(`Shutdown all failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleRestartAll = async () => {
     if (!window.confirm("Restart ALL pods? Active sessions will be interrupted.")) return;
-    await api.restartAllPods();
+    try {
+      await api.restartAllPods();
+    } catch (err) {
+      toastError(`Restart all failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleLockAll = async () => {
@@ -106,12 +141,20 @@ export default function ControlPage() {
       .filter((p) => p.status !== "offline" && p.status !== "disabled")
       .map((p) => p.id);
     setLockedPods(new Set(allOnlineIds));
-    await api.lockdownAllPods(true);
+    try {
+      await api.lockdownAllPods(true);
+    } catch (err) {
+      toastError(`Lock all failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleUnlockAll = async () => {
     setLockedPods(new Set());
-    await api.lockdownAllPods(false);
+    try {
+      await api.lockdownAllPods(false);
+    } catch (err) {
+      toastError(`Unlock all failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   const handleToggleLockdown = async (podId: string) => {
@@ -123,7 +166,11 @@ export default function ControlPage() {
       else next.delete(podId);
       return next;
     });
-    await api.lockdownPod(podId, newLocked);
+    try {
+      await api.lockdownPod(podId, newLocked);
+    } catch (err) {
+      toastError(`Lockdown toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
   };
 
   if (!staffName) return null;

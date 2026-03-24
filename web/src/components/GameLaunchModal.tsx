@@ -9,6 +9,8 @@ interface GameLaunchModalProps {
   onLaunch: (simType: string, launchArgs?: string) => void;
 }
 
+// All games must match SimType enum in rc-common/types.rs
+// To add a new game: add to SimType enum, then add here, then update kiosk/gameDisplayInfo.ts
 const GAMES = [
   {
     id: "assetto_corsa",
@@ -17,6 +19,22 @@ const GAMES = [
     color: "text-red-400",
     bg: "bg-red-500/10",
     border: "border-red-500",
+  },
+  {
+    id: "assetto_corsa_evo",
+    name: "AC EVO",
+    icon: "ACE",
+    color: "text-teal-400",
+    bg: "bg-teal-500/10",
+    border: "border-teal-500",
+  },
+  {
+    id: "assetto_corsa_rally",
+    name: "EA WRC",
+    icon: "ACR",
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500",
   },
   {
     id: "iracing",
@@ -49,6 +67,14 @@ const GAMES = [
     color: "text-green-400",
     bg: "bg-green-500/10",
     border: "border-green-500",
+  },
+  {
+    id: "forza_horizon_5",
+    name: "Forza Horizon 5",
+    icon: "FH5",
+    color: "text-yellow-400",
+    bg: "bg-yellow-500/10",
+    border: "border-yellow-500",
   },
 ];
 

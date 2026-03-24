@@ -10,6 +10,14 @@ export type SimType =
   | "forza"
   | "forza_horizon_5";
 
+/** Maps to /api/v1/games/catalog response item */
+export interface GameCatalogEntry {
+  id: SimType;
+  name: string;
+  abbr: string;
+  installed_pod_count: number;
+}
+
 export type PodStatus = "offline" | "idle" | "in_session" | "error" | "disabled";
 
 export type DrivingState = "active" | "idle" | "no_device";

@@ -79,7 +79,7 @@ export default function FleetPage() {
   function formatTimestamp(ts: string): string {
     try {
       const d = new Date(ts);
-      return d.toLocaleTimeString();
+      return d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
     } catch {
       return ts;
     }

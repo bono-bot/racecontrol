@@ -1,27 +1,54 @@
 // ─── Shared Constants ────────────────────────────────────────────────────────
-// Single source of truth for game-related constants used across kiosk pages.
+// Game data derived from gameDisplayInfo.ts — single source of truth.
+// At runtime, call loadGameCatalog() to fetch from API and update dynamically.
 
-export const GAMES = [
-  { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "assetto_corsa_evo", name: "AC EVO", enabled: true },
-  { id: "assetto_corsa_rally", name: "AC Rally", enabled: true },
-  { id: "f1_25", name: "F1 25", enabled: true },
-  { id: "iracing", name: "iRacing", enabled: true },
-  { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
-  { id: "forza", name: "Forza Motorsport", enabled: false },
-  { id: "forza_horizon_5", name: "Forza Horizon 5", enabled: true },
-] as const;
+import { GAME_DISPLAY, mergeApiCatalog, type GameDisplayEntry } from "./gameDisplayInfo";
+import { api } from "./api";
 
-export const GAME_LABELS: Record<string, string> = {
-  assetto_corsa: "Assetto Corsa",
-  assetto_corsa_evo: "AC EVO",
-  assetto_corsa_rally: "AC Rally",
-  f1_25: "F1 25",
-  iracing: "iRacing",
-  le_mans_ultimate: "Le Mans Ultimate",
-  forza: "Forza Motorsport",
-  forza_horizon_5: "Forza Horizon 5",
-};
+// ─── Dynamic game catalog ───────────────────────────────────────────────────
+// Starts with fallback data, updated when API responds.
+
+let _gameDisplay: Record<string, GameDisplayEntry> = { ...GAME_DISPLAY };
+let _catalogLoaded = false;
+
+/** Fetch game catalog from API and merge into display data. Safe to call multiple times. */
+export async function loadGameCatalog(): Promise<void> {
+  if (_catalogLoaded) return;
+  try {
+    const res = await api.gamesCatalog();
+    if (res.games?.length) {
+      _gameDisplay = mergeApiCatalog(res.games);
+      _catalogLoaded = true;
+    }
+  } catch {
+    // API unreachable — use fallback. Will retry on next call.
+  }
+}
+
+/** Current game display map (fallback until API loads). */
+export function getGameDisplay(): Record<string, GameDisplayEntry> {
+  return _gameDisplay;
+}
+
+// Derive GAMES list from current display data
+export function getGames(): { id: string; name: string; enabled: boolean }[] {
+  return Object.entries(_gameDisplay).map(([id, entry]) => ({
+    id,
+    name: entry.name,
+    enabled: true,
+  }));
+}
+
+// Static exports for backward compatibility (uses fallback until loadGameCatalog resolves)
+export const GAMES = Object.entries(GAME_DISPLAY).map(([id, entry]) => ({
+  id,
+  name: entry.name,
+  enabled: true,
+}));
+
+export const GAME_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(GAME_DISPLAY).map(([id, entry]) => [id, entry.name])
+);
 
 export const CLASS_COLORS: Record<string, string> = {
   A: "bg-rp-red text-white",

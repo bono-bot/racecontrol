@@ -266,6 +266,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/games/launch", post(launch_game))
         .route("/games/relaunch/{pod_id}", post(relaunch_game))
         .route("/games/stop", post(stop_game))
+        .route("/games/catalog", get(games_catalog))
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
         .route("/games/pod/{pod_id}", get(pod_game_state))
@@ -3670,6 +3671,54 @@ async fn stop_game(
 
     let _ = game_launcher::handle_dashboard_command(&state, cmd).await;
     Json(json!({ "ok": true }))
+}
+
+/// Returns the full game catalog — authoritative source for all UI game lists.
+/// Each entry includes the sim_type id (snake_case), display name, and abbreviation.
+/// Pods filter this list against their `installed_games` field.
+async fn games_catalog(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let all_games = [
+        SimType::AssettoCorsa,
+        SimType::AssettoCorsaEvo,
+        SimType::AssettoCorsaRally,
+        SimType::IRacing,
+        SimType::LeMansUltimate,
+        SimType::F125,
+        SimType::Forza,
+        SimType::ForzaHorizon5,
+    ];
+
+    // Count how many pods have each game installed
+    let pods = state.pods.read().await;
+    let mut install_counts: std::collections::HashMap<SimType, usize> = std::collections::HashMap::new();
+    for pod in pods.values() {
+        for game in &pod.installed_games {
+            *install_counts.entry(*game).or_insert(0) += 1;
+        }
+    }
+
+    let catalog: Vec<Value> = all_games.iter().map(|sim| {
+        let id = serde_json::to_value(sim).unwrap_or(json!("unknown"));
+        let id_str = id.as_str().unwrap_or("unknown");
+        let abbr = match sim {
+            SimType::AssettoCorsa => "AC",
+            SimType::AssettoCorsaEvo => "ACE",
+            SimType::AssettoCorsaRally => "ACR",
+            SimType::IRacing => "iR",
+            SimType::LeMansUltimate => "LMU",
+            SimType::F125 => "F1",
+            SimType::Forza => "FRZ",
+            SimType::ForzaHorizon5 => "FH5",
+        };
+        json!({
+            "id": id_str,
+            "name": sim.to_string(),
+            "abbr": abbr,
+            "installed_pod_count": install_counts.get(sim).unwrap_or(&0),
+        })
+    }).collect();
+
+    Json(json!({ "games": catalog }))
 }
 
 async fn active_games(State(state): State<Arc<AppState>>) -> Json<Value> {

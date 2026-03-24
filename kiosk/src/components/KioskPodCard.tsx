@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { GAME_DISPLAY } from "@/lib/gameDisplayInfo";
 import { LiveTelemetry } from "./LiveTelemetry";
+import { useToast } from "./Toast";
 import { api } from "@/lib/api";
 
 interface KioskPodCardProps {
@@ -664,8 +665,8 @@ function TransmissionToggle({ podId }: { podId: string }) {
     try {
       await api.setTransmission(podId, next);
       setMode(next);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("Transmission toggle failed:", err);
     }
     setBusy(false);
   };
@@ -704,8 +705,8 @@ function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: st
     try {
       await api.setFfb(podId, next);
       setPreset(next);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("FFB toggle failed:", err);
     }
     setBusy(false);
   };
@@ -743,7 +744,7 @@ function UnrestrictButton({ podId }: { podId: string }) {
         setUnrestricted(next);
       }
     } catch (err) {
-      alert(`Failed to ${action}: ${err instanceof Error ? err.message : "Network error"}`);
+      console.error(`Failed to ${action}:`, err);
     }
     setBusy(false);
   };
@@ -789,7 +790,7 @@ function FreedomModeButton({ podId, freedomMode }: { podId: string; freedomMode?
         setActive(next);
       }
     } catch (err) {
-      alert(`Freedom mode toggle failed: ${err instanceof Error ? err.message : "Network error"}`);
+      console.error("Freedom mode toggle failed:", err);
     }
     setBusy(false);
   };
@@ -835,7 +836,7 @@ function BlankScreenButton({ podId, screenBlanked }: { podId: string; screenBlan
         setBlanked(next);
       }
     } catch (err) {
-      alert(`Screen ${next ? "blank" : "unblank"} failed: ${err instanceof Error ? err.message : "Network error"}`);
+      console.error(`Screen ${next ? "blank" : "unblank"} failed:`, err);
     }
     setBusy(false);
   };

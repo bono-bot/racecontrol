@@ -20,9 +20,16 @@ function formatLapTime(ms: number): string {
   return `${seconds}.${String(millis).padStart(3, "0")}`;
 }
 
+// All games — must match SimType enum in rc-common/types.rs
 const SIM_TYPES = [
   { value: "assetto_corsa", label: "Assetto Corsa" },
+  { value: "assetto_corsa_evo", label: "AC EVO" },
+  { value: "assetto_corsa_rally", label: "EA WRC" },
+  { value: "iracing", label: "iRacing" },
   { value: "f1_25", label: "F1 25" },
+  { value: "le_mans_ultimate", label: "Le Mans Ultimate" },
+  { value: "forza", label: "Forza Motorsport" },
+  { value: "forza_horizon_5", label: "Forza Horizon 5" },
 ] as const;
 
 export default function LeaderboardsPage() {

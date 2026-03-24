@@ -8,7 +8,10 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx playwright test",
+    "test:kiosk": "npx playwright test --project=kiosk",
+    "test:pos": "npx playwright test --project=pos-dashboard",
+    "test:report": "npx playwright show-report tests/e2e/report"
   },
   "repository": {
     "type": "git",

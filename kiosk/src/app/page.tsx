@@ -319,13 +319,13 @@ export default function CustomerLanding() {
         <Link
           href="/book"
           data-testid="book-session-btn"
-          className="px-6 py-2 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-lg text-sm transition-colors"
+          className="px-8 py-3 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-lg text-sm transition-colors min-h-[60px] flex items-center"
         >
           Book a Session
         </Link>
         <button
           onClick={() => setShowPinRedeem(true)}
-          className="px-6 py-2 bg-[#222222] hover:bg-[#333333] text-white font-semibold rounded-lg text-sm transition-colors border border-[#333333]"
+          className="px-8 py-3 bg-[#222222] hover:bg-[#333333] text-white font-semibold rounded-lg text-sm transition-colors border border-[#333333] min-h-[60px]"
         >
           Have a PIN?
         </button>

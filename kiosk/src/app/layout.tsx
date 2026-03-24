@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Montserrat, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ToastProvider } from "@/components/Toast";
+import { GameCatalogLoader } from "@/components/GameCatalogLoader";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -36,7 +38,12 @@ export default function RootLayout({
       <body
         className={`${montserrat.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} antialiased bg-rp-black text-white font-sans`}
       >
-        <ErrorBoundary>{children}</ErrorBoundary>
+        <ErrorBoundary>
+          <ToastProvider>
+            <GameCatalogLoader />
+            {children}
+          </ToastProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

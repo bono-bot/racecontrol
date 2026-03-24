@@ -1532,6 +1532,38 @@ paths:
 
   # ─── Games ─────────────────────────────────────────────────────────────────
 
+  /games/catalog:
+    get:
+      tags: [games]
+      summary: Full game catalog — authoritative source for all UI game lists
+      operationId: getGamesCatalog
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: All available games with install counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  games:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          $ref: '#/components/schemas/SimType'
+                        name:
+                          type: string
+                          example: "Assetto Corsa"
+                        abbr:
+                          type: string
+                          example: "AC"
+                        installed_pod_count:
+                          type: integer
+                          example: 8
+
   /games/launch:
     post:
       tags: [games]

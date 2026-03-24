@@ -13,6 +13,7 @@ import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
 import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
+import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode } from "@/lib/types";
 
@@ -20,6 +21,8 @@ export default function StaffTerminal() {
   const [staffName, setStaffName] = useState<string | null>(null);
   const [staffId, setStaffId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+
+  const { toastError } = useToast();
 
   // Restore auth from sessionStorage after hydration (SSR can't access sessionStorage)
   useEffect(() => {
@@ -193,11 +196,11 @@ export default function StaffTerminal() {
           launch_args: launchArgs,
         });
         if (result.error) {
-          alert(`Continue split failed: ${result.error}`);
+          toastError(`Continue split failed: ${result.error}`);
           return;
         }
       } catch (err) {
-        alert(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
+        toastError(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
         return;
       }
       setIsSplitContinuation(false);
@@ -220,11 +223,11 @@ export default function StaffTerminal() {
           });
 
           if (result.error) {
-            alert(`Billing failed: ${result.error}`);
+            toastError(`Billing failed: ${result.error}`);
             return;
           }
         } catch (err) {
-          alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+          toastError(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
           return;
         }
       }
@@ -277,7 +280,7 @@ export default function StaffTerminal() {
     try {
       await api.wakePod(podId);
     } catch (err) {
-      alert(`Wake failed: ${err instanceof Error ? err.message : "Network error"}`);
+      toastError(`Wake failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
   };
 
@@ -285,7 +288,7 @@ export default function StaffTerminal() {
     try {
       await api.restartPod(podId);
     } catch (err) {
-      alert(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
+      toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
   };
 
@@ -294,7 +297,7 @@ export default function StaffTerminal() {
     try {
       await api.shutdownPod(podId);
     } catch (err) {
-      alert(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
+      toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
   };
 
@@ -393,7 +396,7 @@ export default function StaffTerminal() {
           try {
             await api.launchGame(req.pod_id, req.sim_type, undefined);
           } catch (err) {
-            alert(
+            toastError(
               `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
             );
           }
@@ -446,7 +449,7 @@ export default function StaffTerminal() {
                       try {
                         await api.relaunchGame(podId);
                       } catch (err) {
-                        alert(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
+                        toastError(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
                       }
                     }}
                     onStartNow={handleStartNow}
@@ -465,7 +468,7 @@ export default function StaffTerminal() {
                             try {
                               await api.retryPodJoin(multiplayerGroup.ac_session_id, podId);
                             } catch (err) {
-                              alert(`Retry join failed: ${err instanceof Error ? err.message : "Network error"}`);
+                              toastError(`Retry join failed: ${err instanceof Error ? err.message : "Network error"}`);
                             }
                           }
                         : undefined
@@ -517,7 +520,7 @@ export default function StaffTerminal() {
                   try {
                     await api.launchGame(podId, simType, undefined);
                   } catch (err) {
-                    alert(
+                    toastError(
                       `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
                     );
                     return;
@@ -555,7 +558,7 @@ export default function StaffTerminal() {
                 try {
                   await api.relaunchGame(podId);
                 } catch (err) {
-                  alert(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
+                  toastError(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
                 }
               }}
               onTopUp={handleTopUp}
@@ -613,7 +616,7 @@ function WaitingPanel({
       )}
       <p className="text-sm text-rp-grey">{authToken.pricing_tier_name}</p>
       <p className="text-xs text-rp-grey">
-        Expires {new Date(authToken.expires_at).toLocaleTimeString()}
+        Expires {new Date(authToken.expires_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true })}
       </p>
       <div className="flex gap-3 mt-4">
         <button

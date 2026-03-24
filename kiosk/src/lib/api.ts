@@ -91,6 +91,10 @@ export const api = {
       body: JSON.stringify({ token_id: tokenId }),
     }),
 
+  // Game Catalog (authoritative source — replaces hardcoded GAMES list)
+  gamesCatalog: () =>
+    fetchApi<{ games: { id: string; name: string; abbr: string; installed_pod_count: number }[] }>("/games/catalog"),
+
   // Game Launcher
   launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
     fetchApi<{ ok: boolean }>("/games/launch", {

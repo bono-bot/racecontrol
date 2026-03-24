@@ -53,7 +53,7 @@ export default function SettingsPage() {
     try {
       const res = await api.addKioskAllowlistEntry(name);
       if (res.status === "already_in_baseline" || res.status === "already_exists") {
-        alert(res.message || `'${name}' is already in the allowlist`);
+        console.warn(res.message || `'${name}' is already in the allowlist`);
       } else {
         const allowlistRes = await api.listKioskAllowlist();
         setAllowlist(allowlistRes.allowlist || []);

@@ -160,8 +160,9 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: BOM and parentheses in .bat files cause silent command failures on Windows; caught after multiple broken deploys._
 - **Static CRT:** `.cargo/config.toml` `+crt-static` — no vcruntime140.dll dependency on pods.
   _Why: Pod images don't ship VS redistributables; dynamic CRT causes instant crash-on-launch._
-- **Cascade updates:** When changing a process, update ALL linked references (training data, playbooks, prompts, docs, memory). Never change one place and leave stale references. This includes **data formats** — if you change how a file is written (name, format, location), grep for every reader of that file and update them too.
-  _Why: Stale references in playbooks or prompts cause both AIs to apply the old behavior after a fix. v23 example: rolling appender changed from `racecontrol.log.*` to `racecontrol-*.jsonl` but the `/api/v1/logs` reader still searched for the old name — API returned 3-day-old data silently for days._
+- **Cascade updates (RECURSIVE):** When changing a process, update ALL linked references (training data, playbooks, prompts, docs, memory). Never change one place and leave stale references. This includes **data formats** — if you change how a file is written (name, format, location), grep for every reader of that file and update them too. **The cascade is recursive**: if updating process A requires changing file B, then check what process B affects and update those too. Continue until no further downstream impacts exist. Document the full cascade chain in the commit message.
+  _Cascade checklist for ANY change:_ (1) grep for all consumers of the changed interface/file/endpoint, (2) update each consumer, (3) for each consumer updated, repeat step 1 on THAT consumer, (4) update OpenAPI specs, contract tests, shared types, (5) document deploy impacts (cloud rebuild, pod redeploy).
+  _Why: Stale references in playbooks or prompts cause both AIs to apply the old behavior after a fix. v23 example: rolling appender changed from `racecontrol.log.*` to `racecontrol-*.jsonl` but the `/api/v1/logs` reader still searched for the old name — API returned 3-day-old data silently for days. Kiosk audit (2026-03-24): adding `/games/catalog` endpoint missed 5 downstream consumers — web dashboard had 3 missing games, leaderboards had only 2/8 games, OpenAPI spec was stale, contract tests had no coverage, shared types lacked the response type._
 - **Next.js hydration:** Never read `sessionStorage`/`localStorage` in `useState` initializer — use `useEffect` + hydrated flag.
   _Why: SSR reads fail server-side; hydration mismatch breaks the entire page silently._
 - **Git Bash JSON:** Write JSON payloads to a file with Write tool, then `curl -d @file`. Bash string escaping mangles backslashes.
@@ -357,7 +358,7 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 - No `.unwrap()` in production Rust. No `any` in TypeScript. Idempotent SQL migrations.
 - Static CRT: `.cargo/config.toml` `+crt-static` — eliminates vcruntime140.dll on pods
 - Git config (per-repo): `user.name="James Vowles"`, `user.email="james@racingpoint.in"`
-- Cascade updates: when changing a process, update ALL linked references (training data, playbooks, prompts, docs)
+- Cascade updates (RECURSIVE): when changing a process, update ALL linked references AND their downstream consumers recursively. See Standing Rules > Code Quality for full checklist
 - LSP: rust-analyzer enabled in settings.json
 - Next.js hydration: never read `sessionStorage`/`localStorage` in useState initializer — use `useEffect` + hydrated flag
 - `.bat` files: NEVER use parentheses in if/else blocks — use `goto` labels. Test with `cmd /c` before deploying.

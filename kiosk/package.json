@@ -6,7 +6,10 @@
     "dev": "next dev -p 3300 -H 0.0.0.0 --webpack",
     "build": "next build",
     "start": "next start -p 3300",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "cd .. && npx playwright test --project=kiosk",
+    "test:headed": "cd .. && npx playwright test --project=kiosk --headed",
+    "test:report": "cd .. && npx playwright show-report tests/e2e/report"
   },
   "dependencies": {
     "next": "16.1.6",
