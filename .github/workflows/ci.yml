@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build all (default features)
+        run: cargo build --workspace
+
+      - name: Test rc-common
+        run: cargo test -p rc-common
+
+      - name: Test rc-agent
+        run: cargo test -p rc-agent-crate
+
+      - name: Build rc-agent (minimal features)
+        run: cargo build -p rc-agent-crate --no-default-features
+
+      - name: Build rc-sentry (minimal features)
+        run: cargo build -p rc-sentry --no-default-features
+
+      - name: Build rc-agent (default features - explicit)
+        run: cargo build -p rc-agent-crate
+
+      - name: Build rc-sentry (default features - explicit)
+        run: cargo build -p rc-sentry
