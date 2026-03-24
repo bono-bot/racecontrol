@@ -32,14 +32,14 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Runtime feature flag registry in racecontrol server with per-pod override support
 - Admin dashboard UI for toggling features per-pod, per-service with live status
 - Server-to-pod config push over existing WebSocket (no manual TOML editing)
-- Cargo feature gates for major modules (telemetry, AI debugger, process guard, camera AI) — compile-time inclusion/exclusion
+- Cargo feature gates for rc-agent (AI debugger, process guard) and rc-sentry (watchdog, tier1-fixes, ai-diagnosis) — compile-time inclusion/exclusion. Telemetry excluded from gates: too deeply woven into billing/game state machine.
 - Hot-reload for runtime config changes without binary restart where possible
 - Full OTA release pipeline: CI build → canary (Pod 8) → staged rollout → health verification → auto-rollback on failure
 - Atomic versioned releases: binaries + config + frontends bundled with manifest
 - All 41+ CLAUDE.md standing rules codified as automated checks — pipeline blocks until ALL pass at every step
 - New standing rules for: OTA pipeline safety, feature toggle rollback, config push verification, release versioning
 - Rollback system: one-command revert to previous known-good release across entire fleet
-- Components in scope: racecontrol, rc-agent, rc-sentry-ai, cloud services (API gateway, admin, bots)
+- Components in scope: racecontrol, rc-agent, rc-sentry (watchdog), rc-sentry-ai (camera AI), cloud services (API gateway, admin, bots)
 
 **Constraints:**
 - Must not reduce current deployment reliability — OTA must be at least as reliable as manual scp + restart
