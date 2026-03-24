@@ -63,7 +63,13 @@ pub struct CrashContext {
 fn poll_health() -> bool {
     let cfg = sentry_config::load();
     let stream = match TcpStream::connect_timeout(
-        &cfg.health_addr.parse().expect("valid addr"),
+        &match cfg.health_addr.parse() {
+            Ok(addr) => addr,
+            Err(e) => {
+                tracing::warn!("invalid health_addr '{}': {}", cfg.health_addr, e);
+                return false;
+            }
+        },
         CONNECT_TIMEOUT,
     ) {
         Ok(s) => s,
@@ -104,7 +110,10 @@ fn read_log_tail(path: &str, max_chars: usize) -> String {
     match std::fs::read_to_string(path) {
         Ok(content) => {
             if content.len() > max_chars {
-                content[content.len() - max_chars..].to_string()
+                // Find a valid char boundary near the desired offset
+                let start = content.len() - max_chars;
+                let start = content.ceil_char_boundary(start);
+                content[start..].to_string()
             } else {
                 content
             }

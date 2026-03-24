@@ -257,8 +257,9 @@ async fn main() -> anyhow::Result<()> {
     {
         let audit = audit_writer.clone();
         let retention_days = config.privacy.retention_days;
+        let db_path = config.recognition.gallery_db_path.clone();
         tokio::spawn(async move {
-            privacy::retention::retention_purge_task(retention_days, audit).await;
+            privacy::retention::retention_purge_task(retention_days, db_path, audit).await;
         });
     }
 
@@ -340,7 +341,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = health::health_router(state)
-        .merge(health::privacy_router(audit_writer.clone()))
+        .merge(health::privacy_router(Arc::new(privacy::deletion::PrivacyState {
+            audit: audit_writer.clone(),
+            db_path: config.recognition.gallery_db_path.clone(),
+            face_crop_dir: config.alerts.face_crop_dir.clone(),
+        })))
         .merge(enrollment::routes::enrollment_router(enrollment_state))
         .merge(attendance::routes::attendance_router(attendance_state))
         .merge(alerts::ws::alerts_router(alert_ws_state))

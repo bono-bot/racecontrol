@@ -61,6 +61,9 @@ pub struct FailureMonitorState {
     /// Active billing session ID (set by main.rs on BillingStarted, cleared on SessionEnded).
     /// Used by billing_guard for orphan auto-end HTTP call (SESSION-01).
     pub active_billing_session_id: Option<String>,
+    /// Current sim type (set by main.rs on LaunchGame, cleared on SessionEnded).
+    /// Used by failure_monitor for TelemetryGap reporting (TELEM-01).
+    pub sim_type: Option<SimType>,
 }
 
 impl Default for FailureMonitorState {
@@ -75,6 +78,7 @@ impl Default for FailureMonitorState {
             driving_state: None,
             billing_paused: false,
             active_billing_session_id: None,
+            sim_type: None,
         }
     }
 }
@@ -167,7 +171,7 @@ pub fn spawn(
                     );
                     let msg = AgentMessage::TelemetryGap {
                         pod_id: pod_id.clone(),
-                        sim_type: SimType::AssettoCorsa, // TODO: read from state.sim_type when available
+                        sim_type: state.sim_type.unwrap_or(SimType::AssettoCorsa),
                         gap_seconds: gap as u32,
                     };
                     let _ = agent_msg_tx.try_send(msg);

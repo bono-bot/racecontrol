@@ -9602,9 +9602,10 @@ async fn customer_session_share(
 
     // Improvement: compare first valid lap to best valid lap
     let improvement_ms = if valid_laps.len() >= 2 {
-        let first = valid_laps.first().unwrap().1;
-        let best = best_lap_ms.unwrap();
-        Some(first - best)
+        match (valid_laps.first(), best_lap_ms) {
+            (Some(first), Some(best)) => Some(first.1 - best),
+            _ => None,
+        }
     } else {
         None
     };

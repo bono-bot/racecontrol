@@ -116,7 +116,7 @@ pub fn spawn(
                     stuck_fired = true;
                     let msg = AgentMessage::BillingAnomaly {
                         pod_id: pod_id.clone(),
-                        billing_session_id: "unknown".to_string(), // server resolves via active_timers
+                        billing_session_id: state.active_billing_session_id.clone().unwrap_or_else(|| "unknown".to_string()),
                         reason: PodFailureReason::SessionStuckWaitingForGame,
                         detail: format!(
                             "game_pid=None for {}s while billing active",
@@ -185,7 +185,7 @@ pub fn spawn(
                     idle_fired = true;
                     let msg = AgentMessage::BillingAnomaly {
                         pod_id: pod_id.clone(),
-                        billing_session_id: "unknown".to_string(),
+                        billing_session_id: state.active_billing_session_id.clone().unwrap_or_else(|| "unknown".to_string()),
                         reason: PodFailureReason::IdleBillingDrift,
                         detail: format!(
                             "DrivingState not Active for {}s while billing active (state={:?})",
@@ -229,6 +229,7 @@ mod tests {
             launch_started_at: None,
             billing_paused: false,
             active_billing_session_id: None,
+            sim_type: None,
         }
     }
 

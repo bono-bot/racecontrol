@@ -5,30 +5,67 @@ use tokio::time::{interval, Duration};
 use super::audit::{AuditEntry, AuditWriter};
 
 /// Hourly retention check task.
-/// In Phase 113: logs that purge ran (no embeddings to purge yet).
-/// Phase 114 will add actual SQLite embedding purge.
-pub async fn retention_purge_task(retention_days: u64, audit: Arc<AuditWriter>) {
+/// Purges expired face embeddings and old attendance records from SQLite.
+pub async fn retention_purge_task(retention_days: u64, db_path: String, audit: Arc<AuditWriter>) {
     let mut tick = interval(Duration::from_secs(3600)); // hourly
     loop {
         tick.tick().await;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+        let cutoff_str = cutoff.to_rfc3339();
 
-        tracing::info!(
-            retention_days = retention_days,
-            cutoff = %cutoff.to_rfc3339(),
-            "retention purge check completed"
-        );
+        let db = db_path.clone();
+        let cutoff_clone = cutoff_str.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<(usize, usize), String> {
+            let conn = rusqlite::Connection::open(&db).map_err(|e| e.to_string())?;
+            conn.execute("PRAGMA foreign_keys = ON", []).map_err(|e| e.to_string())?;
 
-        // Log purge run in audit trail
-        let entry = AuditEntry {
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            action: "retention_purge".to_string(),
-            person_id: None,
-            accessor: "system".to_string(),
-            details: Some(format!("Purge check for entries older than {cutoff}")),
-        };
-        audit.log(entry);
+            // Purge expired embeddings (expires_at < now)
+            let embeddings_purged = conn
+                .execute(
+                    "DELETE FROM face_embeddings WHERE expires_at < datetime('now')",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
 
-        // Phase 114: purge embeddings from SQLite where created_at < cutoff
+            // Purge old attendance logs beyond retention window
+            let attendance_purged = conn
+                .execute(
+                    "DELETE FROM attendance_log WHERE logged_at < ?1",
+                    [&cutoff_clone],
+                )
+                .map_err(|e| e.to_string())?;
+
+            Ok((embeddings_purged, attendance_purged))
+        })
+        .await;
+
+        match result {
+            Ok(Ok((embeddings, attendance))) => {
+                tracing::info!(
+                    retention_days = retention_days,
+                    cutoff = %cutoff_str,
+                    embeddings_purged = embeddings,
+                    attendance_purged = attendance,
+                    "retention purge completed"
+                );
+
+                let entry = AuditEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    action: "retention_purge".to_string(),
+                    person_id: None,
+                    accessor: "system".to_string(),
+                    details: Some(format!(
+                        "Purged {embeddings} expired embeddings, {attendance} old attendance records (cutoff: {cutoff_str})"
+                    )),
+                };
+                audit.log(entry);
+            }
+            Ok(Err(e)) => {
+                tracing::error!(error = %e, "retention purge DB error");
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "retention purge task panicked");
+            }
+        }
     }
 }

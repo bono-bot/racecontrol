@@ -528,6 +528,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn billing tick loop (1 second interval, refresh rates every 60s)
     let tick_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("billing-tick task started (1s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         let mut refresh_counter: u32 = 0;
         loop {
@@ -544,6 +545,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn billing DB sync loop (5 second interval)
     let sync_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("billing-db-sync task started (5s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
@@ -554,6 +556,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn game health check loop (5 second interval)
     let game_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("game-health-check task started (5s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
@@ -564,6 +567,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn AC server health check loop (5 second interval)
     let ac_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("ac-server-health task started (5s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
@@ -574,6 +578,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn auth token expiry loop (30 second interval)
     let auth_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("auth-token-expiry task started (30s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
@@ -584,6 +589,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn pod reservation expiry loop (30 second interval)
     let res_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("pod-reservation-expiry task started (30s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
@@ -594,6 +600,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn camera control tick loop (2 second interval)
     let cam_state = state.clone();
     tokio::spawn(async move {
+        tracing::info!("camera-control-tick task started (2s interval)");
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         loop {
             interval.tick().await;

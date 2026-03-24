@@ -495,7 +495,16 @@ fn handle_files(
         .replace("%5c", "\\")
         .replace("%2F", "/")
         .replace("%2f", "/")
-        .replace("%20", " ");
+        .replace("%20", " ")
+        .replace("%23", "#")
+        .replace("%25", "%")
+        .replace("%26", "&")
+        .replace("%3F", "?")
+        .replace("%3f", "?")
+        .replace("%2B", "+")
+        .replace("%2b", "+")
+        .replace("%28", "(")
+        .replace("%29", ")");
     let dir = std::path::PathBuf::from(&decoded);
 
     if !dir.exists() {
@@ -571,8 +580,7 @@ fn send_response(
          Content-Length: {}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Connection: close\r\n\
-         \r\n\
-         {body}",
+         \r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes())?;
@@ -591,8 +599,7 @@ fn send_plain(
          Content-Length: {}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Connection: close\r\n\
-         \r\n\
-         {body}",
+         \r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes())?;

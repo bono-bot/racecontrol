@@ -503,7 +503,10 @@ pub async fn handle_game_status_update(
                         });
                     }
 
-                    let wait = mp.get_mut(&group_id).unwrap();
+                    let Some(wait) = mp.get_mut(&group_id) else {
+                        tracing::error!("multiplayer group_id {} missing from map after insert", group_id);
+                        return;
+                    };
                     wait.live_pods.insert(pod_id.to_string());
                     wait.waiting_entries.insert(pod_id.to_string(), entry);
 

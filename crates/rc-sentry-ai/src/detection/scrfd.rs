@@ -284,7 +284,11 @@ fn distance2kps(anchor: (f32, f32), dist: &[f32], stride: f32) -> [[f32; 2]; 5] 
 /// Sorts by confidence descending, then for each face suppresses all
 /// lower-confidence faces with IoU > `iou_threshold`.
 fn nms(faces: &mut Vec<DetectedFace>, iou_threshold: f32) {
-    faces.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+    faces.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut keep = vec![true; faces.len()];
 
