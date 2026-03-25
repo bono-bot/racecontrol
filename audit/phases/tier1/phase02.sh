@@ -40,6 +40,40 @@ run_phase02() {
   fi
   emit_result "$phase" "$tier" "server-23-toml-keys" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # Server: ws_connect_timeout value check (CV-01)
+  response=$(safe_remote_exec "192.168.31.23" "8090" \
+    'findstr /C:"ws_connect_timeout" C:\RacingPoint\racecontrol.toml' \
+    "$DEFAULT_TIMEOUT")
+  local ws_timeout_line; ws_timeout_line=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
+  local ws_timeout_val; ws_timeout_val=$(printf '%s' "$ws_timeout_line" | grep -oE '[0-9]+' | head -1 || true)
+  if [[ -n "$ws_timeout_val" ]] && [[ "$ws_timeout_val" -ge 600 ]] 2>/dev/null; then
+    status="PASS"; severity="P3"; message="ws_connect_timeout = ${ws_timeout_val}ms (>= 600ms threshold)"
+  elif [[ -n "$ws_timeout_val" ]] && [[ "$ws_timeout_val" -lt 600 ]] 2>/dev/null; then
+    status="WARN"; severity="P2"; message="ws_connect_timeout = ${ws_timeout_val}ms (below 600ms threshold -- risk of false WS disconnects)"
+  else
+    status="WARN"; severity="P2"; message="ws_connect_timeout not found or unparseable in racecontrol.toml"
+  fi
+  emit_result "$phase" "$tier" "server-23-ws-timeout" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # Server: app_health monitoring URL port check (CV-02)
+  response=$(safe_remote_exec "192.168.31.23" "8090" \
+    'findstr /C:"app_health" C:\RacingPoint\racecontrol.toml' \
+    "$DEFAULT_TIMEOUT")
+  local app_health_lines; app_health_lines=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
+  if [[ -z "$app_health_lines" ]]; then
+    status="WARN"; severity="P2"; message="No app_health monitoring URLs in racecontrol.toml"
+  else
+    local has_admin has_kiosk
+    has_admin=$(printf '%s' "$app_health_lines" | grep -c "3201" || true)
+    has_kiosk=$(printf '%s' "$app_health_lines" | grep -c "3300" || true)
+    if [[ "${has_admin:-0}" -ge 1 ]] && [[ "${has_kiosk:-0}" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="app_health URLs contain correct ports (:3201 admin, :3300 kiosk)"
+    else
+      status="WARN"; severity="P2"; message="app_health URLs may have wrong ports (expected :3201 for admin, :3300 for kiosk) -- found: ${app_health_lines:0:120}"
+    fi
+  fi
+  emit_result "$phase" "$tier" "server-23-app-health-urls" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   # Pod TOML -- verify pod_number key exists
   local ip host
   for ip in $PODS; do
