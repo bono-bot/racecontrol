@@ -52,7 +52,8 @@ fn services() -> Vec<ServiceConfig> {
         // === Local services (.27) ===
         ServiceConfig {
             name: "ollama",
-            check: ServiceCheck::Http("http://127.0.0.1:11434"),
+            // Verify models are loaded, not just HTTP 200
+            check: ServiceCheck::HttpJson("http://127.0.0.1:11434/api/tags", "models"),
             restart_cmd: None,
             log_path: None,
         },
@@ -92,19 +93,22 @@ fn services() -> Vec<ServiceConfig> {
         // === Server services (.23) ===
         ServiceConfig {
             name: "racecontrol",
-            check: ServiceCheck::HttpJson("http://192.168.31.23:8080/api/v1/health", "build_id"),
+            // Verify status=ok, not just build_id exists
+            check: ServiceCheck::HttpJson("http://192.168.31.23:8080/api/v1/health", "\"status\":\"ok\""),
             restart_cmd: None, // Server-side — alert only, needs SSH
             log_path: None,    // Logs are on .23, not local
         },
         ServiceConfig {
             name: "kiosk",
-            check: ServiceCheck::Http("http://192.168.31.23:3300"),
+            // Verify deploy health (static_assets + pages), not just HTTP 200
+            check: ServiceCheck::HttpJson("http://192.168.31.23:3300/kiosk/api/health", "\"healthy\":true"),
             restart_cmd: None,
             log_path: None,
         },
         ServiceConfig {
             name: "dashboard",
-            check: ServiceCheck::Http("http://192.168.31.23:3200"),
+            // Verify deploy health (static_assets + pages), not just HTTP 200
+            check: ServiceCheck::HttpJson("http://192.168.31.23:3200/api/health", "\"healthy\":true"),
             restart_cmd: None,
             log_path: None,
         },
@@ -121,7 +125,8 @@ fn services() -> Vec<ServiceConfig> {
         // === Network connectivity ===
         ServiceConfig {
             name: "tailscale-bono",
-            check: ServiceCheck::Http("http://100.70.177.44:8080/api/v1/health"),
+            // Verify cloud racecontrol responds with build_id, not just HTTP 200
+            check: ServiceCheck::HttpJson("http://100.70.177.44:8080/api/v1/health", "build_id"),
             restart_cmd: None, // Tailscale reconnect needs admin
             log_path: None,
         },
