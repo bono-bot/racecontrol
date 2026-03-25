@@ -41,14 +41,14 @@
 
 ### Auto-Fix
 
-- [ ] **FIX-01**: Auto-fix only executes when `--auto-fix` flag is passed (off by default)
-- [ ] **FIX-02**: Every fix function checks `is_pod_idle()` before executing — never touch a pod with active billing
-- [ ] **FIX-03**: Every fix function checks for OTA_DEPLOYING and MAINTENANCE_MODE sentinels before executing
-- [ ] **FIX-04**: Safe fix: clear stale MAINTENANCE_MODE / GRACEFUL_RELAUNCH / restart sentinel files
-- [ ] **FIX-05**: Safe fix: kill orphan PowerShell processes (count > 1) on pods
-- [ ] **FIX-06**: Safe fix: restart rc-agent via schtasks on pods where it's down but rc-sentry is up
-- [ ] **FIX-07**: All fix actions logged to JSON with before/after state for audit trail
-- [ ] **FIX-08**: Explicit approved-fixes whitelist array in lib/fixes.sh — no fix runs unless listed
+- [x] **FIX-01**: Auto-fix only executes when `--auto-fix` flag is passed (off by default)
+- [x] **FIX-02**: Every fix function checks `is_pod_idle()` before executing — never touch a pod with active billing
+- [x] **FIX-03**: Every fix function checks for OTA_DEPLOYING and MAINTENANCE_MODE sentinels before executing
+- [x] **FIX-04**: Safe fix: clear stale MAINTENANCE_MODE / GRACEFUL_RELAUNCH / restart sentinel files
+- [x] **FIX-05**: Safe fix: kill orphan PowerShell processes (count > 1) on pods
+- [x] **FIX-06**: Safe fix: restart rc-agent via schtasks on pods where it's down but rc-sentry is up
+- [x] **FIX-07**: All fix actions logged to JSON with before/after state for audit trail
+- [x] **FIX-08**: Explicit approved-fixes whitelist array in lib/fixes.sh — no fix runs unless listed
 
 ### Notifications
 
@@ -112,14 +112,14 @@
 | INTL-06 | Phase 192 | Complete |
 | INTL-07 | Phase 192 | Complete |
 | INTL-08 | Phase 192 | Complete |
-| FIX-01 | Phase 193 | Pending |
-| FIX-02 | Phase 193 | Pending |
-| FIX-03 | Phase 193 | Pending |
-| FIX-04 | Phase 193 | Pending |
-| FIX-05 | Phase 193 | Pending |
-| FIX-06 | Phase 193 | Pending |
-| FIX-07 | Phase 193 | Pending |
-| FIX-08 | Phase 193 | Pending |
+| FIX-01 | Phase 193 | Complete |
+| FIX-02 | Phase 193 | Complete |
+| FIX-03 | Phase 193 | Complete |
+| FIX-04 | Phase 193 | Complete |
+| FIX-05 | Phase 193 | Complete |
+| FIX-06 | Phase 193 | Complete |
+| FIX-07 | Phase 193 | Complete |
+| FIX-08 | Phase 193 | Complete |
 | NOTF-01 | Phase 193 | Complete |
 | NOTF-02 | Phase 193 | Complete |
 | NOTF-03 | Phase 193 | Complete |
