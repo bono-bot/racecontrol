@@ -238,9 +238,9 @@ pub(crate) fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 67
 pub(crate) fn validate_config(config: &AgentConfig) -> Result<()> {
     let mut errors: Vec<String> = Vec::new();
 
-    if config.pod.number == 0 || config.pod.number > 8 {
+    if config.pod.number == 0 || config.pod.number > 99 {
         errors.push(format!(
-            "pod.number must be 1-8, got {}",
+            "pod.number must be 1-99, got {}",
             config.pod.number
         ));
     }
@@ -388,22 +388,29 @@ mod tests {
         config.pod.number = 0;
         let err = validate_config(&config).unwrap_err();
         assert!(
-            err.to_string().contains("pod.number must be 1-8"),
-            "Error should mention pod.number must be 1-8, got: {}",
+            err.to_string().contains("pod.number must be 1-99"),
+            "Error should mention pod.number must be 1-99, got: {}",
             err
         );
     }
 
     #[test]
-    fn validate_config_rejects_pod_number_nine() {
+    fn validate_config_rejects_pod_number_100() {
         let mut config = valid_config();
-        config.pod.number = 9;
+        config.pod.number = 100;
         let err = validate_config(&config).unwrap_err();
         assert!(
-            err.to_string().contains("pod.number must be 1-8"),
-            "Error should mention pod.number must be 1-8, got: {}",
+            err.to_string().contains("pod.number must be 1-99"),
+            "Error should mention pod.number must be 1-99, got: {}",
             err
         );
+    }
+
+    #[test]
+    fn validate_config_accepts_pod_number_9_for_pos() {
+        let mut config = valid_config();
+        config.pod.number = 9;
+        assert!(validate_config(&config).is_ok(), "Pod number 9 should be valid (POS/auxiliary devices)");
     }
 
     #[test]
