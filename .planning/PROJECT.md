@@ -50,23 +50,9 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Cross-process update standing rule applies: feature changes must cascade to ALL affected components
 - Static CRT constraint remains — all binaries must be self-contained
 
-## Current Milestone: v17.1 Watchdog-to-AI Migration
+## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
-**Goal:** Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery. Watchdogs do "if dead → restart" without understanding WHY, causing infinite loops, cascading conflicts (standing rule #10), and user-facing flicker. AI recovery does: detect → pattern memory → Tier 1 fix → escalate to AI → alert staff after 3+ failures.
-
-**Target features:**
-- rc-sentry: replace blind 5s health poll + restart with AI healer pattern memory + graduated response + escalation
-- pod_monitor: merge server-side WoL + restart into AI healer with context-aware recovery (distinguish crash vs deliberate shutdown)
-- James watchdog: replace james_watchdog.ps1 blind 2min service check with AI debugger + pattern memory
-- Recovery consolidation: single recovery authority per machine, prevent fighting between self_monitor / rc-sentry / pod_monitor / WoL
-
-**Constraints:**
-- Must not reduce recovery reliability — AI recovery must be at least as fast as dumb watchdog for real crashes
-- Pattern memory must persist across rc-agent restarts (debug-memory.json)
-- Standing rule #10: recovery systems must not fight each other — this milestone enforces it
-- Browser watchdog already replaced in v17.0 (server healer + ForceRelaunchBrowser)
-
-**Incident trigger:** v17.0 browser watchdog caused 30s screen flicker on all 8 pods. Root cause: `tasklist /FI` returns empty on pods → watchdog thinks Edge is dead → kills + relaunches every 30s. Dumb watchdogs are fragile.
+**Delivered:** Replaced all dumb restart-loop watchdogs with 4-tier graduated AI recovery. 6 phases, 9 plans, 21 requirements. Recovery events API (ring buffer + fleet alert), spawn verification (500ms/10s health poll), Session 1 spawn path (WTSQueryUserToken), ProcessOwnership registry + RecoveryIntentStore (2-min TTL), GRACEFUL_RELAUNCH sentinel deconfliction, context-aware WoL (skips when sentry handled), MAINTENANCE_MODE JSON payload with 30-min auto-clear + WOL_SENT immediate-clear + WhatsApp alert, self_monitor yields to sentry (eliminates orphan PowerShell), shared ollama.rs in rc-common, sentry breadcrumb grace window in rc-watchdog.
 
 ## Shipped Milestone: v17.0 AI Debugger Autonomy & Self-Healing
 

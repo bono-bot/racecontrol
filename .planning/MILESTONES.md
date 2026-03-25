@@ -1,4 +1,13 @@
 # Milestones
+## v17.1 Watchdog-to-AI Migration (Shipped: 2026-03-25)
+
+**Phases completed:** 119 phases, 270 plans, 66 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v21.0 Cross-Project Sync & Stabilization (Shipped: 2026-03-23)
 
 **Phases completed:** 107 phases, 244 plans, 49 tasks
