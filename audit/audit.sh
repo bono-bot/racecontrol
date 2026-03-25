@@ -29,6 +29,10 @@ if [ -f "$SCRIPT_DIR/lib/parallel.sh" ]; then
   source "$SCRIPT_DIR/lib/parallel.sh"
 fi
 
+if [ -f "$SCRIPT_DIR/lib/results.sh" ]; then
+  source "$SCRIPT_DIR/lib/results.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -435,6 +439,13 @@ fi
 
 echo ""
 echo "Phase runner complete. Results in: $RESULT_DIR"
+
+# ---------------------------------------------------------------------------
+# Finalize results: update run-meta.json with counts, append to index.json
+# ---------------------------------------------------------------------------
+if declare -f finalize_results >/dev/null 2>&1; then
+  finalize_results
+fi
 
 # ---------------------------------------------------------------------------
 # Exit code: count FAIL results in result dir
