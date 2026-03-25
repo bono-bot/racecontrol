@@ -30,8 +30,8 @@
 
 ### Intelligence
 
-- [ ] **INTL-01**: Delta tracking compares current run against previous run's JSON, highlighting regressions (PASS→FAIL) and improvements (FAIL→PASS)
-- [ ] **INTL-02**: Delta is mode-aware and venue-state-aware — PASS→QUIET is NOT flagged as regression
+- [x] **INTL-01**: Delta tracking compares current run against previous run's JSON, highlighting regressions (PASS→FAIL) and improvements (FAIL→PASS)
+- [x] **INTL-02**: Delta is mode-aware and venue-state-aware — PASS→QUIET is NOT flagged as regression
 - [x] **INTL-03**: Known-issue suppression via `suppress.json` with fields: phase, host_pattern, message_pattern, reason, added_date, expires_date, owner
 - [x] **INTL-04**: Suppressed issues appear in report as SUPPRESSED with reason, not silently hidden
 - [x] **INTL-05**: Severity scoring: PASS/WARN/FAIL/QUIET/SUPPRESSED status + P1 (service down) / P2 (degraded) / P3 (cosmetic) severity
@@ -104,8 +104,8 @@
 | EXEC-05 | Phase 190 | Complete |
 | EXEC-06 | Phase 190 | Complete |
 | EXEC-07 | Phase 189 | Complete |
-| INTL-01 | Phase 192 | Pending |
-| INTL-02 | Phase 192 | Pending |
+| INTL-01 | Phase 192 | Complete |
+| INTL-02 | Phase 192 | Complete |
 | INTL-03 | Phase 192 | Complete |
 | INTL-04 | Phase 192 | Complete |
 | INTL-05 | Phase 192 | Complete |

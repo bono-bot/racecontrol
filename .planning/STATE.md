@@ -32,20 +32,20 @@ gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: Audit Protocol v4.0 — Automated Fleet Audit System
 status: in_progress
-stopped_at: Completed 189-02-PLAN.md
-last_updated: "2026-03-25T13:33:00+05:30"
+stopped_at: Completed 192-02-PLAN.md
+last_updated: "2026-03-25T16:00:00+05:30"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 16
-  completed_plans: 2
-  percent: 12
-  progress_bar: "[█░░░░░░░░░] 12%"
+  completed_plans: 10
+  percent: 62
+  progress_bar: "[██████░░░░] 62%"
 context:
-  current_phase: 189
+  current_phase: 192
   current_plan: 02
-  phase_name: Core Scaffold and Shared Primitives
-  next_action: Execute 189-03-PLAN.md (or next plan in phase 189)
+  phase_name: Intelligence Layer — Delta Engine
+  next_action: Execute 192-03-PLAN.md (or next plan in phase 192)
   phases_defined: 189-193
   phases_start_from: 189
   previous_milestone: v22.0 Feature Management & OTA Pipeline (SHIPPED)
@@ -57,6 +57,9 @@ decisions:
   - "Phase 190: Sequential execution verified correct BEFORE parallel engine introduced in Phase 191"
   - "Phase 192: Intelligence layer built AFTER 2+ audit runs exist to validate delta correctness"
   - "Phase 193: Auto-fix gated on confirmed-accurate PASS/FAIL signals from Phase 192 (3+ consecutive runs)"
+  - "192-02: PASS->QUIET = STABLE (venue closed, not a regression) — mode-aware delta comparison"
+  - "192-02: QUIET->FAIL = REGRESSION — was quiet but now actively failing must be surfaced"
+  - "192-02: compute_delta always returns 0 — delta failure must never abort the audit run"
 blockers:
   - "jq not installed on James machine — must run winget install jqlang.jq before Phase 189 begins (verify resolved)"
   - "Operating hours for venue-closed detection: using 09:00-22:00 IST + active billing check (confirmed in core.sh)"
