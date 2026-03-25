@@ -506,6 +506,11 @@ async fn main() -> Result<()> {
     // Always start the lock screen server so customers can enter PINs
     let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
     let mut lock_screen = LockScreenManager::new(lock_event_tx);
+    // POS-01: Disable browser launch on auxiliary devices (POS, staff terminals).
+    // State tracking and HTTP server still active for health/debug, but no Edge overlay.
+    if !config.lock_screen.enabled {
+        lock_screen.set_browser_disabled(true);
+    }
     // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
     let lock_screen_rx = lock_screen.start_server_checked();
 

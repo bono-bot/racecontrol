@@ -1249,11 +1249,44 @@ for APP in kiosk pwa web; do
     || echo "$APP: MISSING .next/static in standalone!"
 done
 
-# Also check server-side Next.js deploys
-for PORT in 3200 3300; do
-  curl -s -X POST http://192.168.31.23:8090/exec \
-    -d "{\"cmd\":\"dir C:\\\\RacingPoint\\\\apps\\\\*\\\\standalone\\\\.next\\\\static 2>nul || echo MISSING\"}"
-done
+# DBG-13b: Runtime static file serving verification (CRITICAL)
+# Checks that _next/static/* files are actually served by each Next.js app.
+# Root cause (2026-03-25): Next.js standalone embeds build-machine absolute paths
+# in required-server-files.json (appDir field) and server.js (outputFileTracingRoot).
+# When deployed to a different machine, these stale paths cause static file 404s
+# even though the files exist on disk. Pages render (SSR works) but CSS/JS/fonts
+# all return 404, making the UI unstyled and non-functional.
+# Fix: Set outputFileTracingRoot: path.join(__dirname) in each next.config.ts
+# AND verify appDir in deployed required-server-files.json matches deploy path.
+
+echo "=== Runtime Static File Check ==="
+
+# Kiosk (basePath: /kiosk)
+KIOSK_CSS=$(curl -s http://192.168.31.23:3300/kiosk 2>/dev/null | grep -oP 'href="/kiosk/_next/static/chunks/[^"]+\.css"' | head -1 | grep -oP '/kiosk/_next/static/chunks/[^"]+')
+if [ -n "$KIOSK_CSS" ]; then
+  KIOSK_STATIC=$(curl -s -o /dev/null -w "%{http_code}" "http://192.168.31.23:3300${KIOSK_CSS}")
+  [ "$KIOSK_STATIC" = "200" ] && echo "kiosk: static CSS OK" || echo "kiosk: STATIC FILE 404 — check appDir in required-server-files.json"
+else
+  echo "kiosk: no CSS reference found in HTML — app may be down"
+fi
+
+# Web dashboard (no basePath)
+WEB_JS=$(curl -s http://192.168.31.23:3200 2>/dev/null | grep -oP 'src="/_next/static/chunks/[^"]+\.js"' | head -1 | grep -oP '/_next/static/chunks/[^"]+')
+if [ -n "$WEB_JS" ]; then
+  WEB_STATIC=$(curl -s -o /dev/null -w "%{http_code}" "http://192.168.31.23:3200${WEB_JS}")
+  [ "$WEB_STATIC" = "200" ] && echo "web: static JS OK" || echo "web: STATIC FILE 404 — check appDir in required-server-files.json"
+else
+  echo "web: no JS reference found in HTML — app may be down"
+fi
+
+# Admin (no basePath, port 3201)
+ADMIN_JS=$(curl -s -L http://192.168.31.23:3201 2>/dev/null | grep -oP 'src="/_next/static/chunks/[^"]+\.js"' | head -1 | grep -oP '/_next/static/chunks/[^"]+')
+if [ -n "$ADMIN_JS" ]; then
+  ADMIN_STATIC=$(curl -s -o /dev/null -w "%{http_code}" "http://192.168.31.23:3201${ADMIN_JS}")
+  [ "$ADMIN_STATIC" = "200" ] && echo "admin: static JS OK" || echo "admin: STATIC FILE 404 — check appDir in required-server-files.json"
+else
+  echo "admin: no JS reference found in HTML — app may be down"
+fi
 
 # CQ-14: No hardcoded camera arrays in UI (should fetch from API)
 grep -rn "cam[0-9]\|camera.*=.*\[" kiosk/src/ pwa/src/ web/src/ --include="*.tsx" --include="*.ts" \

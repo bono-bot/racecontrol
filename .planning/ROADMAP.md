@@ -2931,3 +2931,119 @@ Plans:
 | 186. MAINTENANCE_MODE Auto-Clear | 1/1 | Complete    | 2026-03-24 |
 | 187. self_monitor Coordination | 1/1 | Complete    | 2026-03-24 |
 | 188. James Watchdog + rc-watchdog Grace Window | 1/1 | Complete    | 2026-03-24 |
+
+---
+
+## v23.0 Audit Protocol v4.0 — Automated Fleet Audit System
+
+**Goal:** Transform the manual 60-phase AUDIT-PROTOCOL v3.0 into a single-command automated runner that produces structured, comparable results across the entire fleet — no copy-paste, no manual tracking, no missed checks.
+
+**Phase start:** 189 (last phase was 188)
+
+## Phases
+
+- [ ] **Phase 189: Core Scaffold and Shared Primitives** - audit.sh entry point, lib/core.sh with all safe wrapper functions, JSON schema, auth token acquisition, prerequisites check
+- [ ] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors
+- [ ] **Phase 191: Parallel Engine and Phase Scripts Tiers 10-18** - lib/parallel.sh with file-based semaphore; port v3.0 phases 35-60; audit runtime reduced from ~24 min to ~6 min
+- [ ] **Phase 192: Intelligence Layer** - Delta tracking, known-issue suppression with expiry, severity scoring, Markdown report generation, results storage
+- [ ] **Phase 193: Auto-Fix, Notifications, and Results Management** - Safe auto-fix engine with whitelist, Bono/WhatsApp notifications, git commit of results
+
+## Phase Details
+
+### Phase 189: Core Scaffold and Shared Primitives
+**Goal**: Operators can run `bash audit/audit.sh --mode quick` and receive a valid structured JSON result file — auth token obtained automatically, all primitives working correctly, Windows quoting and curl pitfalls mitigated before any check is built on top of them
+**Depends on**: Nothing (first phase of v23.0)
+**Requirements**: RUN-01, RUN-02, RUN-03, RUN-05, RUN-06, RUN-07, RUN-08, RUN-09, RUN-10, EXEC-01, EXEC-02, EXEC-07
+**Success Criteria** (what must be TRUE):
+  1. `bash audit/audit.sh --mode quick` runs to completion without hanging — auth token obtained from /api/v1/terminal/auth using PIN from env var, jq/curl/ssh prerequisites validated, and a result JSON file written to audit/results/
+  2. Running the audit when jq is not installed prints a clear error and exits non-zero within 2 seconds — no cryptic downstream failures
+  3. `audit/lib/core.sh` functions `emit_result`, `http_get`, `safe_remote_exec`, and `safe_ssh_capture` are callable from a test script and produce correctly structured JSON output
+  4. When venue-closed state is detected (no active billing session + outside 09:00-22:00 IST fallback), a phase that checks pod display hardware emits `status: QUIET` instead of `status: FAIL` in its JSON result
+  5. Every phase result JSON record contains `mode`, `venue_state`, `timestamp` (IST), `phase`, `tier`, `host`, `status`, and `message` fields — the schema required by delta tracking in Phase 192 is established from the first run
+**Plans**: TBD
+
+Plans:
+- [ ] 189-01-PLAN.md — audit.sh entry point: mode parsing, prerequisites check, auth token acquisition, output directory initialization, structured exit codes 0/1/2
+- [ ] 189-02-PLAN.md — lib/core.sh: emit_result, emit_fix, http_get (curl quote stripping), safe_remote_exec (bat-file wrapper), safe_ssh_capture (2>/dev/null + structure validation), get_session_token, is_suppressed, pod_loop stubs
+- [ ] 189-03-PLAN.md — JSON schema definition, venue-open/closed detection (fleet health API + time-of-day fallback), QUIET logic for closed-venue hardware tiers, UTC to IST timestamp conversion
+
+### Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)
+**Goal**: All v3.0 phases 1-34 (tiers 1-9) run non-interactively in sequential mode and produce correct PASS/WARN/FAIL/QUIET results — verified against the live fleet before parallelism is introduced
+**Depends on**: Phase 189 (lib/core.sh primitives must exist and work before any phase check is built on them)
+**Requirements**: RUN-04, EXEC-05, EXEC-06
+**Success Criteria** (what must be TRUE):
+  1. `bash audit/audit.sh --mode standard` runs all phases in tiers 1-9 sequentially to completion against the live fleet — every offline pod produces QUIET or FAIL within its 10s timeout, not a hung process
+  2. `bash audit/audit.sh --tier 2` runs only tier 2 phases and exits — tier selector works correctly
+  3. `bash audit/audit.sh --phase 07` runs only phase 07 and exits — phase selector works correctly
+  4. Every phase script in audit/phases/tier1/ through audit/phases/tier9/ exits 0 always — errors are encoded in the JSON result, never as bash exit codes that would abort the runner
+  5. A phase checking a service on server .23 produces a result within 10 seconds even when .23 is unreachable — timeout enforcement works and no single offline host blocks the audit
+**Plans**: TBD
+
+Plans:
+- [ ] 190-01-PLAN.md — Tiers 1-3: infrastructure checks (server health, build IDs, network), core services (racecontrol, rc-agent, rc-sentry), display/UX (lock screen, Edge, blanking)
+- [ ] 190-02-PLAN.md — Tiers 4-6: billing/session lifecycle, games/hardware (AC, FFB, USB), notifications (WhatsApp, comms-link)
+- [ ] 190-03-PLAN.md — Tiers 7-9: cloud/PWA (Bono VPS, app.racingpoint.cloud), security (JWT, firewall, process guard), data/analytics (laps DB, leaderboard, telemetry)
+
+### Phase 191: Parallel Engine and Phase Scripts Tiers 10-18
+**Goal**: All 60 v3.0 phases are ported and the audit runtime drops from ~24 minutes to ~6 minutes via parallel pod queries — file-based semaphore enforces the 4-concurrent-connection cap, no output interleaving, no ARP flood on the venue LAN
+**Depends on**: Phase 190 (all sequential phase scripts must be verified correct before parallelism is introduced)
+**Requirements**: EXEC-03, EXEC-04
+**Success Criteria** (what must be TRUE):
+  1. `bash audit/audit.sh --mode full` completes in under 8 minutes on the live fleet — parallel execution is working and reducing total runtime compared to sequential baseline
+  2. At no point during a full audit run are more than 4 simultaneous connections open to pod hosts — the file-based semaphore is enforced
+  3. All 60 phase scripts exist in audit/phases/ across 18 tier directories — complete v3.0 port with no phases missing
+  4. The result JSON after a full parallel run contains exactly one result record per phase per host — no duplicate or missing records from background job output interleaving
+  5. When 3 pods are offline simultaneously during a full run, the audit still completes within 8 minutes — offline pods time out individually without blocking other parallel jobs
+**Plans**: TBD
+
+Plans:
+- [ ] 191-01-PLAN.md — lib/parallel.sh: file-based semaphore (max 4 concurrent), pod_loop helper using semaphore, 200ms launch stagger, background job temp file coordination
+- [ ] 191-02-PLAN.md — Tiers 10-12: AI/feature flags (Ollama, rp-debug, feature flag registry), marketing/staff (notifications, badge engine), OTA/deployment (canary health, binary SHA verification)
+- [ ] 191-03-PLAN.md — Tiers 13-18: remaining v3.0 phases; integration with parallel engine; full-run timing verification
+
+### Phase 192: Intelligence Layer
+**Goal**: Two consecutive audit runs produce a delta report that correctly identifies regressions (PASS to FAIL), improvements (FAIL to PASS), and new issues — and known recurring issues can be suppressed with mandatory expiry dates so they appear as SUPPRESSED rather than cluttering the FAIL list
+**Depends on**: Phase 191 (delta tracking requires at least 2 completed audit runs with JSON output; JSON schema with mode/venue_state fields must be established in Phase 189)
+**Requirements**: INTL-01, INTL-02, INTL-03, INTL-04, INTL-05, INTL-06, INTL-07, INTL-08, RSLT-01, RSLT-02, RSLT-04
+**Success Criteria** (what must be TRUE):
+  1. After two consecutive audit runs where one phase degrades from PASS to FAIL, the generated Markdown report contains a "Regressions" section listing that phase — delta tracking correctly identifies and surfaces the degradation
+  2. A PASS to QUIET transition (venue was open, then closed) does NOT appear as a regression in the delta report — mode-aware and venue-state-aware comparison prevents false regressions from context changes
+  3. Adding a suppress.json entry for a known failing phase causes that phase to appear as SUPPRESSED (with reason) in subsequent reports — not silently hidden and not as a FAIL
+  4. A suppress.json entry whose `expires_date` is in the past is automatically ignored — the phase reverts to its actual status without manual cleanup
+  5. `audit/results/YYYY-MM-DD_HH-MM/` contains both a `-report.md` and a `-summary.json` file after every audit run — dual output format works for both human reading and machine parsing
+**Plans**: TBD
+
+Plans:
+- [ ] 192-01-PLAN.md — Results storage: audit/results/YYYY-MM-DD_HH-MM/ directory, latest symlink, results/index.json audit run history (RSLT-01, RSLT-02, RSLT-04)
+- [ ] 192-02-PLAN.md — lib/delta.sh: jq-based join on phase/host between runs; REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categories; mode-aware and venue-state-aware comparison (INTL-01, INTL-02)
+- [ ] 192-03-PLAN.md — suppress.json schema + expiry enforcement + SUPPRESSED status emission (INTL-03, INTL-04, INTL-08); severity scoring P1/P2/P3 per phase (INTL-05)
+- [ ] 192-04-PLAN.md — generate-report.sh: Markdown report with tier tables, delta section, suppressed section, fix log, overall verdict; summary JSON with counts (INTL-06, INTL-07)
+
+### Phase 193: Auto-Fix, Notifications, and Results Management
+**Goal**: Operators can run `bash audit/audit.sh --mode full --auto-fix --notify --commit` and get the full pipeline — safe fixes executed on idle pods, Bono notified via comms-link, Uday's phone gets a WhatsApp summary with P1/P2 counts, and results committed to git — all gated so no fix ever touches an active billing session
+**Depends on**: Phase 192 (auto-fix must not be enabled until PASS/FAIL signals are confirmed accurate from at least 3 consecutive runs; notifications send delta summaries that require Phase 192's delta tracking)
+**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04, FIX-05, FIX-06, FIX-07, FIX-08, NOTF-01, NOTF-02, NOTF-03, NOTF-04, NOTF-05, RSLT-03
+**Success Criteria** (what must be TRUE):
+  1. Running `bash audit/audit.sh --mode standard --auto-fix` on a pod with an active billing session produces SKIP_ACTIVE_SESSION in the fix log for that pod — `is_pod_idle()` gate works and no fix action is attempted on a pod earning revenue
+  2. Running the same command on an idle pod with a stale MAINTENANCE_MODE sentinel file clears the sentinel and logs the before/after state to the fix log — safe fix FIX-04 works end-to-end
+  3. Running without `--auto-fix` flag produces zero fix actions even when fixable issues are detected — auto-fix is off by default
+  4. Running with `--notify` sends a message to Bono via comms-link and appends an entry to INBOX.md — dual-channel notification works and a notification failure does not abort or fail the audit run
+  5. Running with `--commit` commits the results directory to git — audit results are preserved in version history
+**Plans**: TBD
+
+Plans:
+- [ ] 193-01-PLAN.md — lib/fixes.sh: approved-fixes whitelist, is_pod_idle() gate, OTA_DEPLOYING/MAINTENANCE_MODE sentinel checks, FIX-01 through FIX-08 implementations, per-fix audit log
+- [ ] 193-02-PLAN.md — lib/notify.sh: comms-link WS relay + INBOX.md dual-channel (NOTF-01, NOTF-02), WhatsApp via Bono relay Evolution API (NOTF-03), --notify flag gate (NOTF-04), delta summary in notification (NOTF-05)
+- [ ] 193-03-PLAN.md — RSLT-03 git commit of results; end-to-end integration test of full pipeline with all flags
+
+## v23.0 Progress
+
+**Execution Order:** 189 -> 190 -> 191 -> 192 -> 193
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 189. Core Scaffold and Shared Primitives | 0/3 | Not started | - |
+| 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 0/3 | Not started | - |
+| 191. Parallel Engine and Phase Scripts Tiers 10-18 | 0/3 | Not started | - |
+| 192. Intelligence Layer | 0/4 | Not started | - |
+| 193. Auto-Fix, Notifications, and Results Management | 0/3 | Not started | - |

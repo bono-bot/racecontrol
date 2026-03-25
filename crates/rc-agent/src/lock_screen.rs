@@ -159,6 +159,10 @@ pub struct LockScreenManager {
     /// SAFE-06: gates Focus Assist registry writes during protected game sessions.
     /// Wired after AppState construction via wire_safe_mode().
     safe_mode_active: Arc<AtomicBool>,
+    /// POS-01: When true, lock screen state is tracked but browser is never launched.
+    /// Used on POS/auxiliary devices where Edge kiosk shows the billing page —
+    /// launching the lock screen browser would overlay and hide the billing UI.
+    browser_disabled: bool,
 }
 
 impl LockScreenManager {
@@ -171,6 +175,16 @@ impl LockScreenManager {
             browser_process: None,
             wallpaper_url: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
+            browser_disabled: false,
+        }
+    }
+
+    /// POS-01: Disable browser launch for auxiliary devices (POS, staff terminals).
+    /// State transitions still work for health reporting, but no Edge window is created.
+    pub fn set_browser_disabled(&mut self, disabled: bool) {
+        self.browser_disabled = disabled;
+        if disabled {
+            tracing::info!(target: LOG_TARGET, "Lock screen browser DISABLED (POS/auxiliary mode)");
         }
     }
 
@@ -574,6 +588,10 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn launch_browser(&mut self) {
+        // POS-01: auxiliary devices never launch the lock screen browser
+        if self.browser_disabled {
+            return;
+        }
         // Only skip relaunch if OUR tracked browser child is still alive.
         // This avoids flicker during rapid state transitions (e.g., PIN → ActiveSession)
         // where the same Edge window just needs to refresh from the HTTP server.
@@ -1756,7 +1774,7 @@ mod tests {
 
         // Create manager on that port and confirm it returns quickly
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false };
 
         let start = std::time::Instant::now();
         manager.wait_for_self_ready().await;
@@ -1768,7 +1786,7 @@ mod tests {
     async fn wait_for_self_ready_timeout() {
         // Do NOT bind port 18922 — let it fail
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false };
 
         let start = std::time::Instant::now();
         // Should return (not panic) within ~6 seconds
@@ -1804,6 +1822,7 @@ mod tests {
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            browser_disabled: false,
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle (pod not ready for customers)");
     }
@@ -2125,6 +2144,7 @@ mod tests {
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            browser_disabled: false,
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle (pod not serving customer)");
     }
@@ -2147,6 +2167,7 @@ mod tests {
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            browser_disabled: false,
         };
         // Should not panic or hang — safe mode gate skips taskkill
         manager.close_browser();
@@ -2163,6 +2184,7 @@ mod tests {
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            browser_disabled: false,
         };
         // Should not panic — with no browser_process and no real Edge running, this is a no-op
         manager.close_browser();

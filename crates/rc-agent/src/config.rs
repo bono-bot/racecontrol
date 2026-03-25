@@ -34,6 +34,8 @@ pub struct AgentConfig {
     #[serde(default)]
     pub kiosk: KioskConfig,
     #[serde(default)]
+    pub lock_screen: LockScreenConfig,
+    #[serde(default)]
     pub preflight: PreflightConfig,
     #[serde(default)]
     pub process_guard: ProcessGuardConfig,
@@ -62,6 +64,21 @@ impl Default for KioskConfig {
 }
 
 fn default_true() -> bool { true }
+
+/// POS-01: Lock screen browser configuration.
+/// On gaming pods (default), the lock screen browser shows branded screens.
+/// On POS/auxiliary devices, disable to prevent overlaying the billing kiosk.
+#[derive(Debug, Deserialize)]
+pub struct LockScreenConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for LockScreenConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PreflightConfig {
@@ -369,6 +386,7 @@ mod tests {
             games: GamesConfig::default(),
             ai_debugger: AiDebuggerConfig::default(),
             kiosk: KioskConfig::default(),
+            lock_screen: LockScreenConfig::default(),
             preflight: PreflightConfig::default(),
             process_guard: ProcessGuardConfig::default(),
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
