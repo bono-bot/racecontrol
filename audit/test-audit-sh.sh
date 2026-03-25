@@ -91,7 +91,8 @@ else
 fi
 
 # Test 5: no set -e
-SET_E_COUNT=$(grep -c "set -e" "$AUDIT_SH" 2>/dev/null || echo 0)
+# Use grep -P (fixed pattern) and tr to strip CRLF artifacts from Windows Git Bash
+SET_E_COUNT=$(grep -c "set -e" "$AUDIT_SH" 2>/dev/null | tr -d '\r' | head -1 || echo 0)
 assert_zero "T5: set -e is absent (grep -c returns 0)" "$SET_E_COUNT"
 
 # Test 6: set -u present
