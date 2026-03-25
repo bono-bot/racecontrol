@@ -3338,7 +3338,9 @@ Plans:
   2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
   3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
 ### Phase 206: Observable State Transitions
 **Goal**: Every degraded state in the system emits an observable signal at the moment it occurs -- operators learn of pod failures, config fallbacks, and empty allowlists within 30 seconds, not after downstream symptoms appear
