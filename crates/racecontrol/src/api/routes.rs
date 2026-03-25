@@ -109,6 +109,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/recovery/events", get(recovery::get_recovery_events))
         // Fleet alert API -- Tier 4 WhatsApp escalation (GRAD-04 prerequisite)
         .route("/fleet/alert", post(fleet_alert::post_fleet_alert))
+        // Pricing psychology (v14.0 Phase 94) — public for customer-facing /book page
+        .route("/pricing/display", get(pricing_display_handler))
+        .route("/pricing/social-proof", get(pricing_social_proof_handler))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
@@ -1991,6 +1994,62 @@ async fn list_pricing_tiers(State(state): State<Arc<AppState>>) -> Json<Value> {
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+// ─── Pricing Psychology (v14.0 Phase 94) ────────────────────────────────────
+
+/// Public: returns pricing tiers with dynamic (time-of-day adjusted) prices.
+async fn pricing_display_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, bool, bool, i64)>(
+        "SELECT id, name, duration_minutes, price_paise, is_trial, is_active, sort_order
+         FROM pricing_tiers WHERE is_active = 1 ORDER BY sort_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut tiers = Vec::new();
+    for (id, name, duration_minutes, price_paise, is_trial, _is_active, sort_order) in &rows {
+        let dynamic_price = crate::billing::compute_dynamic_price(&state, *price_paise).await;
+        let has_discount = dynamic_price != *price_paise;
+        tiers.push(json!({
+            "id": id,
+            "name": name,
+            "duration_minutes": duration_minutes,
+            "base_price_paise": price_paise,
+            "dynamic_price_paise": dynamic_price,
+            "has_discount": has_discount,
+            "is_trial": is_trial,
+            "sort_order": sort_order,
+        }));
+    }
+    Json(json!({ "tiers": tiers }))
+}
+
+/// Public: returns real social proof counts from billing_sessions.
+async fn pricing_social_proof_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let drivers_this_week: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT driver_id) FROM billing_sessions
+         WHERE status IN ('completed', 'ended_early')
+         AND started_at >= datetime('now', '-7 days')"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let sessions_today: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_sessions
+         WHERE status IN ('completed', 'ended_early')
+         AND date(started_at) = date('now')"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    Json(json!({
+        "drivers_this_week": drivers_this_week,
+        "sessions_today": sessions_today
+    }))
 }
 
 async fn create_pricing_tier(

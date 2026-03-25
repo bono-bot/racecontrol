@@ -2561,6 +2561,67 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
 
     // 7. Maybe grant variable reward for milestone (10% probability, capped at 5% spend)
     crate::psychology::maybe_grant_variable_reward(state, driver_id, "milestone").await;
+
+    // 8. Evaluate commitment ladder and queue escalation nudge (v14.0 Phase 94)
+    evaluate_commitment_ladder(state, driver_id).await;
+}
+
+/// Evaluate driver's commitment ladder position based on completed session count.
+/// Queue WhatsApp nudge at escalation thresholds (2 sessions → package, 5 → membership).
+async fn evaluate_commitment_ladder(state: &Arc<AppState>, driver_id: &str) {
+    let session_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_sessions
+         WHERE driver_id = ? AND status IN ('completed', 'ended_early')
+         AND is_trial = 0"
+    )
+    .bind(driver_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let (new_position, should_nudge, nudge_message) = match session_count {
+        0     => ("trial",   false, ""),
+        1     => ("single",  false, ""),
+        2     => ("single",  true,  "You've done 2 sessions at RacingPoint! Save 20% with a 5-pack — ask at the counter."),
+        3..=4 => ("package", false, ""),
+        5     => ("package", true,  "5 sessions in! Become a RacingPoint member for unlimited sessions and priority booking."),
+        _     => ("member",  false, ""),
+    };
+
+    // Update ladder position
+    let _ = sqlx::query(
+        "UPDATE drivers SET commitment_ladder = ? WHERE id = ?"
+    )
+    .bind(new_position)
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
+
+    // Queue nudge if at escalation point (with 7-day dedup)
+    if should_nudge {
+        let already_sent: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM nudge_queue
+             WHERE driver_id = ? AND template = ?
+             AND created_at >= datetime('now', '-7 days')"
+        )
+        .bind(driver_id)
+        .bind(nudge_message)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false);
+
+        if !already_sent {
+            crate::psychology::queue_notification(
+                state,
+                driver_id,
+                crate::psychology::NotificationChannel::Whatsapp,
+                3, // priority 3 (lower than PB notifications)
+                nudge_message,
+                "{}",
+            )
+            .await;
+        }
+    }
 }
 
 async fn extend_billing_session(

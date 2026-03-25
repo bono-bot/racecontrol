@@ -677,6 +677,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Commitment ladder for pricing psychology (v14.0 Phase 94) ──────────
+    let _ = sqlx::query(
+        "ALTER TABLE drivers ADD COLUMN commitment_ladder TEXT DEFAULT 'trial' \
+         CHECK(commitment_ladder IN ('trial', 'single', 'package', 'member'))"
+    )
+    .execute(pool)
+    .await;
+
     // Migration: add 'consuming' to auth_tokens status CHECK constraint
     // SQLite can't ALTER CHECK constraints, so we rebuild the table
     let needs_rebuild: bool = sqlx::query_scalar::<_, String>(

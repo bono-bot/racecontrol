@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { GAMES, GAME_LABELS, CLASS_COLORS, DIFFICULTY_PRESETS } from "@/lib/constants";
 import type { Driver, PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
 import type { WizardState } from "@/hooks/useSetupWizard";
+import PricingDisplay from "./PricingDisplay";
+import ScarcityBanner from "./ScarcityBanner";
 
 interface SetupWizardProps {
   podId: string;
@@ -316,23 +318,12 @@ export function SetupWizard({
 
         {/* ─── SELECT PLAN ──────────────────────────────────────── */}
         {step === "select_plan" && (
-          <div data-testid="step-select-plan" className="space-y-2">
-            {tiers.filter(t => !t.is_trial || !ws.selectedDriver?.has_used_trial).map((tier) => (
-              <button
-                key={tier.id}
-                data-testid={`tier-option-${tier.id}`}
-                onClick={() => handleSelectTier(tier)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-rp-surface border border-rp-border rounded hover:border-rp-red/50 transition-colors"
-              >
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-white">{tier.name}</p>
-                  <p className="text-xs text-rp-grey">{tier.duration_minutes} min</p>
-                </div>
-                <span className="text-sm font-bold text-rp-red">
-                  {tier.is_trial ? "Free" : `${(tier.price_paise / 100).toFixed(0)} credits`}
-                </span>
-              </button>
-            ))}
+          <div data-testid="step-select-plan" className="space-y-3">
+            <ScarcityBanner />
+            <PricingDisplay
+              onSelectTier={(tier) => handleSelectTier(tier)}
+              hasUsedTrial={ws.selectedDriver?.has_used_trial}
+            />
           </div>
         )}
 

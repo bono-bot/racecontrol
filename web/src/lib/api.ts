@@ -27,6 +27,13 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   return res.json();
 }
 
+// Public endpoint fetcher — no auth header, no 401 redirect.
+// Used by customer-facing pages (/book) that have no JWT.
+export async function fetchPublic<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}/api/v1${path}`);
+  return res.json();
+}
+
 // Cafe Menu types
 export interface CafeCategory {
   id: string;
