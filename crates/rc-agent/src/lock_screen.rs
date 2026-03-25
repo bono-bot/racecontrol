@@ -281,7 +281,7 @@ impl LockScreenManager {
     ///
     /// Opens Edge kiosk pointing at the local server which now shows the StartupConnecting
     /// page. As rc-agent transitions to other states (Disconnected, PinEntry, etc.) the
-    /// browser auto-reloads every 3s and picks up the new state.
+    /// STATE-POLL JS (injected by render_page) polls /health every 3s and reloads on state change.
     pub fn show_startup_connecting(&mut self) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1130,7 +1130,7 @@ pub fn render_page_public(state: &LockScreenState) -> String {
 }
 
 fn render_page(state: &LockScreenState, wallpaper_url: Option<&str>) -> String {
-    match state {
+    let html = match state {
         LockScreenState::Hidden => render_idle_page(wallpaper_url),
         LockScreenState::PinEntry {
             driver_name,
@@ -1183,6 +1183,47 @@ fn render_page(state: &LockScreenState, wallpaper_url: Option<&str>) -> String {
         LockScreenState::ConfigError { .. } => render_config_error_page(),
         LockScreenState::Lockdown { message } => render_lockdown_page(message),
         LockScreenState::MaintenanceRequired { failures } => render_maintenance_required_page(failures),
+    };
+
+    // STATE-POLL: Inject state-change polling script for states that should
+    // auto-refresh when the server-side state changes. This enables blanking
+    // (and other state transitions) to take effect without killing Edge.
+    //
+    // Excluded states (have interactive JS content or timers that would break):
+    // - ActiveSession: countdown timer running in JS
+    // - SessionSummary: must NOT auto-reload (SESS-03)
+    // - BetweenSessions: split selection buttons
+    // - PinEntry: user typing PIN — reload clears input
+    // - StartupConnecting: must NOT auto-reload (flicker prevention)
+    // - LaunchSplash: brief transition, no need
+    let should_poll = matches!(
+        state,
+        LockScreenState::Hidden
+            | LockScreenState::ScreenBlanked
+            | LockScreenState::Disconnected
+            | LockScreenState::ConfigError { .. }
+            | LockScreenState::Lockdown { .. }
+            | LockScreenState::MaintenanceRequired { .. }
+            | LockScreenState::AwaitingAssistance { .. }
+            | LockScreenState::QrDisplay { .. }
+    );
+
+    if should_poll {
+        let sn = state_name(state);
+        let script = format!(
+            r#"<script>setInterval(function(){{var x=new XMLHttpRequest();x.open("GET","/health");x.onload=function(){{try{{var d=JSON.parse(x.responseText);if(d.state&&d.state!=="{}")location.reload()}}catch(e){{}}}};x.send()}},3000)</script>"#,
+            sn
+        );
+        // Inject before </body> if present, otherwise append
+        if let Some(pos) = html.rfind("</body>") {
+            let mut result = html;
+            result.insert_str(pos, &script);
+            result
+        } else {
+            format!("{}{}", html, script)
+        }
+    } else {
+        html
     }
 }
 
@@ -1561,6 +1602,27 @@ fn generate_qr_svg(data: &str) -> String {
 ///
 /// The HTTP 200 status itself signals "server is alive". This JSON body provides
 /// extra state context for monitoring and future use.
+/// Short identifier for the current lock screen state.
+/// Used by the page shell JS to detect state changes and trigger reload.
+pub fn state_name(state: &LockScreenState) -> &'static str {
+    match state {
+        LockScreenState::Hidden => "hidden",
+        LockScreenState::ScreenBlanked => "blanked",
+        LockScreenState::Disconnected => "disconnected",
+        LockScreenState::StartupConnecting => "startup",
+        LockScreenState::PinEntry { .. } => "pin",
+        LockScreenState::QrDisplay { .. } => "qr",
+        LockScreenState::ActiveSession { .. } => "active",
+        LockScreenState::SessionSummary { .. } => "summary",
+        LockScreenState::BetweenSessions { .. } => "between",
+        LockScreenState::AwaitingAssistance { .. } => "assistance",
+        LockScreenState::LaunchSplash { .. } => "splash",
+        LockScreenState::ConfigError { .. } => "config_error",
+        LockScreenState::Lockdown { .. } => "lockdown",
+        LockScreenState::MaintenanceRequired { .. } => "maintenance",
+    }
+}
+
 pub fn health_response_body(state: &LockScreenState) -> String {
     let is_active = !matches!(
         state,
@@ -1571,7 +1633,8 @@ pub fn health_response_body(state: &LockScreenState) -> String {
             | LockScreenState::MaintenanceRequired { .. }
     );
     let status_str = if is_active { "ok" } else { "degraded" };
-    format!(r#"{{"status":"{}"}}"#, status_str)
+    let sn = state_name(state);
+    format!(r#"{{"status":"{}","state":"{}"}}"#, status_str, sn)
 }
 
 #[cfg(test)]
@@ -1587,7 +1650,7 @@ mod tests {
             allocated_seconds: 1800,
             pin_error: None,
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"ok""#));
     }
 
     #[test]
@@ -1597,19 +1660,19 @@ mod tests {
             remaining_seconds: 900,
             allocated_seconds: 1800,
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"ok""#));
     }
 
     #[test]
     fn health_degraded_for_hidden() {
         let state = LockScreenState::Hidden;
-        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"degraded""#));
     }
 
     #[test]
     fn health_degraded_for_disconnected() {
         let state = LockScreenState::Disconnected;
-        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"degraded""#));
     }
 
     #[test]
@@ -1617,7 +1680,7 @@ mod tests {
         let state = LockScreenState::ConfigError {
             message: "missing pod number".to_string(),
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"degraded""#));
     }
 
     #[test]
@@ -1629,7 +1692,7 @@ mod tests {
             pricing_tier_name: "60min".to_string(),
             allocated_seconds: 3600,
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"ok""#));
     }
 
     #[test]
@@ -1652,7 +1715,7 @@ mod tests {
             driver_name: "Leclerc".to_string(),
             message: "Preparing your session...".to_string(),
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+        assert!(health_response_body(&state).contains(r#""status":"ok""#));
     }
 
     #[test]
@@ -1677,7 +1740,7 @@ mod tests {
             driver_name: "Sainz".to_string(),
             message: "Preparing your session...".to_string(),
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#,
+        assert!(health_response_body(&state).contains(r#""status":"ok""#),
             "LaunchSplash is not idle — health must be ok");
     }
 
@@ -1748,9 +1811,8 @@ mod tests {
     #[test]
     fn health_degraded_for_startup_connecting() {
         let state = LockScreenState::StartupConnecting;
-        assert_eq!(
-            health_response_body(&state),
-            r#"{"status":"degraded"}"#,
+        assert!(
+            health_response_body(&state).contains(r#""status":"degraded""#),
             "StartupConnecting is a startup/waiting state — health must be degraded"
         );
     }
@@ -1958,7 +2020,7 @@ mod tests {
             allocated_seconds: 0,
             pin_error: None,
         };
-        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#,
+        assert!(health_response_body(&state).contains(r#""status":"ok""#),
             "Idle PinEntry state must return health 'ok'");
     }
 
@@ -2046,7 +2108,7 @@ mod tests {
     #[test]
     fn health_degraded_for_maintenance_required() {
         let state = LockScreenState::MaintenanceRequired { failures: vec!["HID device not found".to_string()] };
-        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#,
+        assert!(health_response_body(&state).contains(r#""status":"degraded""#),
             "MaintenanceRequired is a blocked state — health must be degraded");
     }
 
