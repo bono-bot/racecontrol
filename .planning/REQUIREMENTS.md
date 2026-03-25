@@ -8,15 +8,15 @@
 ### Core Runner
 
 - [ ] **RUN-01**: Operator can execute full audit with `bash audit.sh --mode <mode>` (quick|standard|full|pre-ship|post-incident)
-- [ ] **RUN-02**: Each phase produces structured JSON: `{phase, tier, host, status, severity, message, timestamp, mode, venue_state}`
+- [x] **RUN-02**: Each phase produces structured JSON: `{phase, tier, host, status, severity, message, timestamp, mode, venue_state}`
 - [ ] **RUN-03**: Every check has a configurable timeout (default 10s) — one offline pod cannot hang the audit
 - [ ] **RUN-04**: All 60 phases from AUDIT-PROTOCOL v3.0 are ported as non-interactive bash functions
-- [ ] **RUN-05**: Shared library (lib/core.sh) provides `record_result()`, `record_fix()`, `exec_on_pod()`, `exec_on_server()` primitives
-- [ ] **RUN-06**: cmd.exe quoting wrapper in exec helpers — prevents the 4+ known quoting pitfalls through rc-agent `/exec`
-- [ ] **RUN-07**: curl output sanitization — strips quotes from health endpoint responses (`"200"` → `200`)
+- [x] **RUN-05**: Shared library (lib/core.sh) provides `record_result()`, `record_fix()`, `exec_on_pod()`, `exec_on_server()` primitives
+- [x] **RUN-06**: cmd.exe quoting wrapper in exec helpers — prevents the 4+ known quoting pitfalls through rc-agent `/exec`
+- [x] **RUN-07**: curl output sanitization — strips quotes from health endpoint responses (`"200"` → `200`)
 - [ ] **RUN-08**: jq is validated at startup — audit aborts with clear error if jq not found
-- [ ] **RUN-09**: Auth token obtained automatically at audit start from `/api/v1/terminal/auth` (PIN from env var, not hardcoded)
-- [ ] **RUN-10**: Auth token refresh mid-run if full audit exceeds token lifespan
+- [x] **RUN-09**: Auth token obtained automatically at audit start from `/api/v1/terminal/auth` (PIN from env var, not hardcoded)
+- [x] **RUN-10**: Auth token refresh mid-run if full audit exceeds token lifespan
 
 ### Execution
 
@@ -88,15 +88,15 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | RUN-01 | Phase 189 | Pending |
-| RUN-02 | Phase 189 | Pending |
+| RUN-02 | Phase 189 | Complete |
 | RUN-03 | Phase 189 | Pending |
 | RUN-04 | Phase 190 | Pending |
-| RUN-05 | Phase 189 | Pending |
-| RUN-06 | Phase 189 | Pending |
-| RUN-07 | Phase 189 | Pending |
+| RUN-05 | Phase 189 | Complete |
+| RUN-06 | Phase 189 | Complete |
+| RUN-07 | Phase 189 | Complete |
 | RUN-08 | Phase 189 | Pending |
-| RUN-09 | Phase 189 | Pending |
-| RUN-10 | Phase 189 | Pending |
+| RUN-09 | Phase 189 | Complete |
+| RUN-10 | Phase 189 | Complete |
 | EXEC-01 | Phase 189 | Pending |
 | EXEC-02 | Phase 189 | Pending |
 | EXEC-03 | Phase 191 | Pending |
