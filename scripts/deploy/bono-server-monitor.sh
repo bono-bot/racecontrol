@@ -93,15 +93,26 @@ health_response=$(curl -s --connect-timeout 5 --max-time 10 "$HEALTH_URL" 2>/dev
 health_status=$(echo "$health_response" | grep -o '"status":"ok"' 2>/dev/null)
 
 if [ -n "$health_status" ]; then
-    # Healthy
+    # Healthy — heartbeat log every 10th check (~30 min) so we know the monitor is alive
+    check_count=0
+    if [ -f "$STATE_FILE" ]; then
+        check_count=$(grep -o 'checks=[0-9]*' "$STATE_FILE" | cut -d= -f2)
+        check_count=${check_count:-0}
+    fi
+    check_count=$((check_count + 1))
     if [ "$consecutive_fails" -gt 0 ]; then
         log "RECOVERED: racecontrol healthy after $consecutive_fails failed checks"
         if [ "$consecutive_fails" -ge 3 ]; then
             send_alert "Server recovered. Racecontrol healthy after $consecutive_fails failed checks."
         fi
     fi
+    if [ $((check_count % 10)) -eq 1 ]; then
+        log "OK - server .23 healthy (check #$check_count)"
+    fi
     consecutive_fails=0
     save_state
+    # Append check_count to state
+    echo "|checks=${check_count}" >> "$STATE_FILE"
     exit 0
 fi
 

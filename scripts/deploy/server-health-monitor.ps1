@@ -170,6 +170,13 @@ if ($healthy) {
             Send-Alert "Server recovered. Racecontrol healthy again after $prevFails failed checks."
         }
     }
+    # Heartbeat log every 10th check (~20 min) so we know the monitor is alive
+    $checkCount = if ($state.PSObject.Properties['check_count']) { $state.check_count } else { 0 }
+    $checkCount++
+    $state | Add-Member -NotePropertyName check_count -NotePropertyValue $checkCount -Force
+    if ($checkCount % 10 -eq 1) {
+        Write-Log "OK - server healthy (check #$checkCount)"
+    }
     $state.consecutive_fails = 0
     Save-State $state
     exit 0
