@@ -226,6 +226,47 @@ export const deleteCafePromo = (id: string) =>
 export const toggleCafePromo = (id: string) =>
   fetchApi<CafePromo>(`/cafe/promos/${id}/toggle`, { method: "POST", body: JSON.stringify({}) });
 
+// ─── Feature Flag Types (v22.0 Phase 180) ────────────────────────────────
+export interface FeatureFlagRow {
+  name: string;
+  enabled: boolean;
+  default_value: boolean;
+  overrides: string;      // JSON string: {"pod_1": true, "pod_8": false}
+  version: number;
+  updated_at: string | null;
+}
+
+export interface UpdateFlagRequest {
+  enabled?: boolean;
+  default_value?: boolean;
+  overrides?: Record<string, boolean>;  // e.g. {"pod_1": true}
+}
+
+// ─── OTA Pipeline Types (v22.0 Phase 180) ─────────────────────────────────
+export type PipelineState =
+  | "idle"
+  | "building"
+  | "staging"
+  | "canary"
+  | "staged_rollout"
+  | "health_checking"
+  | "completed"
+  | "rolling_back";
+
+export interface DeployRecord {
+  state: PipelineState;
+  manifest_version: string;
+  started_at: string;
+  updated_at: string;
+  waves_completed: number;    // 0-3
+  failed_pods: string[];
+  rollback_reason: string | null;
+}
+
+export type OtaStatusResponse =
+  | DeployRecord
+  | { state: "idle"; message: string };
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -486,6 +527,28 @@ export const api = {
     });
     if (!res.ok) throw new Error(`Image upload failed: ${res.status}`);
     return res.json() as Promise<{ image_url: string }>;
+  },
+
+  // Feature Flags (v22.0 Phase 180)
+  listFlags: () => fetchApi<FeatureFlagRow[]>("/flags"),
+  updateFlag: (name: string, data: UpdateFlagRequest) =>
+    fetchApi<FeatureFlagRow>(`/flags/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  // OTA Pipeline (v22.0 Phase 180)
+  getOtaStatus: () => fetchApi<OtaStatusResponse>("/ota/status"),
+  triggerOtaDeploy: async (tomlManifest: string): Promise<{ ok?: boolean; version?: string; error?: string }> => {
+    const token = getToken();
+    const headers: Record<string, string> = { "Content-Type": "text/plain" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/api/v1/ota/deploy`, {
+      method: "POST",
+      headers,
+      body: tomlManifest,
+    });
+    return res.json() as Promise<{ ok?: boolean; version?: string; error?: string }>;
   },
 };
 

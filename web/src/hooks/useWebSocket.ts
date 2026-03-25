@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig, AuthTokenInfo } from "@/lib/api";
+import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig, AuthTokenInfo, FeatureFlagRow } from "@/lib/api";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
 const WS_TOKEN = process.env.NEXT_PUBLIC_WS_TOKEN || "";
@@ -33,6 +33,7 @@ export function useWebSocket() {
   const [acPresets, setAcPresets] = useState<AcPresetSummary[]>([]);
   const [acLoadedConfig, setAcLoadedConfig] = useState<{ presetId: string; config: AcLanSessionConfig } | null>(null);
   const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlagRow[]>([]);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -207,6 +208,24 @@ export function useWebSocket() {
             });
             break;
           }
+          case "flag_sync": {
+            const flags = msg.data as FeatureFlagRow[];
+            setFeatureFlags(flags);
+            break;
+          }
+          case "flag_updated": {
+            const flag = msg.data as FeatureFlagRow;
+            setFeatureFlags((prev) => {
+              const idx = prev.findIndex((f) => f.name === flag.name);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = flag;
+                return next;
+              }
+              return [...prev, flag];
+            });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[RaceControl] Parse error:", e);
@@ -246,6 +265,7 @@ export function useWebSocket() {
     acPresets,
     acLoadedConfig,
     pendingAuthTokens,
+    featureFlags,
     sendCommand,
   };
 }

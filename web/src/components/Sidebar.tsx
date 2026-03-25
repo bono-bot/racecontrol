@@ -23,6 +23,8 @@ const nav = [
   { href: "/cameras/playback", label: "Playback", icon: "&#9202;" },
   { href: "/cafe", label: "Cafe Menu", icon: "&#9749;" },
   { href: "/settings", label: "Settings", icon: "&#9874;" },
+  { href: "/flags", label: "Feature Flags", icon: "&#9873;" },
+  { href: "/ota", label: "OTA Releases", icon: "&#128640;" },
 ];
 
 export default function Sidebar() {
