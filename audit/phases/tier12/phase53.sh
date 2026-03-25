@@ -69,8 +69,10 @@ run_phase53() {
   local ps_count; ps_count=$(printf '%s' "$exec_result" | jq -r '.stdout // ""' 2>/dev/null | tr -d '[:space:]' || echo "")
   if [[ -z "$ps_count" ]]; then
     status="PASS"; severity="P3"; message="Server watchdog check: could not get PowerShell count (exec unavailable)"
-  elif [[ "$ps_count" -le 1 ]] 2>/dev/null; then
-    status="PASS"; severity="P3"; message="Server PowerShell instances: ${ps_count} (watchdog singleton healthy)"
+  elif [[ "$ps_count" -eq 0 ]] 2>/dev/null; then
+    status="WARN"; severity="P2"; message="Server PowerShell instances: 0 (watchdog may be dead -- verify start-racecontrol-watchdog.ps1 is running)"
+  elif [[ "$ps_count" -eq 1 ]] 2>/dev/null; then
+    status="PASS"; severity="P3"; message="Server PowerShell instances: 1 (watchdog singleton healthy)"
   elif [[ "$ps_count" -gt 1 ]] 2>/dev/null; then
     status="WARN"; severity="P2"; message="Server has ${ps_count} PowerShell instances (watchdog multiplication — kill all powershell.exe, then restart via schtasks)"
   else

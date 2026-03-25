@@ -21,8 +21,10 @@ run_phase21() {
   response=$(curl -s -m "$DEFAULT_TIMEOUT" \
     "http://192.168.31.23:8080/api/v1/pricing" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '\r')
-  if [[ "$pricing_code" = "000" ]]; then
+  if [[ "$pricing_code" = "000" ]] && [[ "$venue_state" != "closed" ]]; then
     status="FAIL"; severity="P1"; message="Pricing endpoint unreachable (server down)"
+  elif [[ "$pricing_code" = "000" ]] && [[ "$venue_state" = "closed" ]]; then
+    status="QUIET"; severity="P3"; message="Pricing endpoint unreachable (venue closed)"
   elif [[ "$pricing_code" = "401" || "$pricing_code" = "403" ]]; then
     status="PASS"; severity="P3"; message="Pricing endpoint exists (HTTP ${pricing_code} — auth required)"
   elif [[ -n "$response" ]]; then
@@ -44,8 +46,10 @@ run_phase21() {
   if [[ -n "$response" ]]; then
     # 0 active sessions is fine if venue closed
     status="PASS"; severity="P3"; message="Active billing sessions endpoint responding"
+  elif [[ "$venue_state" != "closed" ]]; then
+    status="WARN"; severity="P2"; message="Active billing sessions endpoint unreachable during venue hours"
   else
-    status="PASS"; severity="P3"; message="Active billing sessions endpoint unreachable (auth required)"
+    status="QUIET"; severity="P3"; message="Active billing sessions endpoint unreachable (venue closed)"
   fi
   emit_result "$phase" "$tier" "server-23-billing-active" "$status" "$severity" "$message" "$mode" "$venue_state"
 
@@ -55,8 +59,10 @@ run_phase21() {
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '\r')
   if [[ -n "$response" ]]; then
     status="PASS"; severity="P3"; message="Billing sessions history endpoint responding"
+  elif [[ "$venue_state" != "closed" ]]; then
+    status="WARN"; severity="P2"; message="Billing sessions history unreachable during venue hours"
   else
-    status="PASS"; severity="P3"; message="Billing sessions history unreachable (auth required)"
+    status="QUIET"; severity="P3"; message="Billing sessions history unreachable (venue closed)"
   fi
   emit_result "$phase" "$tier" "server-23-billing-history" "$status" "$severity" "$message" "$mode" "$venue_state"
 
