@@ -2663,7 +2663,7 @@ Plans:
 - [x] **Phase 178: Agent & Sentry Consumer** - Wire rc-agent and rc-sentry to receive and apply flag updates, config pushes, and OTA download messages — rc-agent over WebSocket, rc-sentry via local config from rc-agent (completed 2026-03-24)
 - [x] **Phase 179: OTA Pipeline** - Implement the full state-machine-driven release pipeline -- canary, staged rollout, session-gated binary swap, health gates, and auto-rollback
 - [x] **Phase 180: Admin Dashboard UI** - Deliver operator-facing feature toggle and OTA release pages in the admin dashboard (completed 2026-03-25)
-- [ ] **Phase 181: Standing Rules Gate** - Codify all 41+ standing rules as machine-enforceable checks and wire them as pipeline gates
+- [x] **Phase 181: Standing Rules Gate** - Codify all 41+ standing rules as machine-enforceable checks and wire them as pipeline gates
 
 ## Phase Details
 
@@ -2799,7 +2799,7 @@ Plans:
 | 178. Agent-Side Consumer | 3/3 | Complete    | 2026-03-24 |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
-| 181. Standing Rules Gate | 2/3 | In Progress|  |
+| 181. Standing Rules Gate | 3/3 | Complete | 2026-03-25 |
 | 182. Cross-Milestone Integration | 0/TBD | Not started | - |
 
 ---
