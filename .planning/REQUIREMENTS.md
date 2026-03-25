@@ -21,10 +21,10 @@
 
 ### Config Validation (CV) — Verify credentials and config values are correct
 
-- [ ] **CV-01**: Phase 02 config check validates ws_connect_timeout >= 600ms in racecontrol.toml
-- [ ] **CV-02**: Phase 02 config check validates app_health monitoring URLs contain correct ports
-- [ ] **CV-03**: Phase 30 WhatsApp check tests Evolution API live connection state
-- [ ] **CV-04**: Phase 31 email check proactively verifies OAuth token expiry date
+- [x] **CV-01**: Phase 02 config check validates ws_connect_timeout >= 600ms in racecontrol.toml
+- [x] **CV-02**: Phase 02 config check validates app_health monitoring URLs contain correct ports
+- [x] **CV-03**: Phase 30 WhatsApp check tests Evolution API live connection state
+- [x] **CV-04**: Phase 31 email check proactively verifies OAuth token expiry date
 
 ### Dashboard/UI (UI) — Verify user-facing pages render correctly
 
@@ -39,13 +39,13 @@
 
 ### Structural Fixes (SF) — False PASSes and inoperative checks
 
-- [ ] **SF-01**: Phase 19 display resolution check measures resolution via rc-agent exec (not hardcoded 1920x1080)
-- [ ] **SF-02**: Phase 21 billing endpoint unreachable returns WARN during venue hours (not PASS)
-- [ ] **SF-03**: Phase 53 watchdog check treats ps_count=0 as WARN (watchdog dead)
+- [x] **SF-01**: Phase 19 display resolution check measures resolution via rc-agent exec (not hardcoded 1920x1080)
+- [x] **SF-02**: Phase 21 billing endpoint unreachable returns WARN during venue hours (not PASS)
+- [x] **SF-03**: Phase 53 watchdog check treats ps_count=0 as WARN (watchdog dead)
 
 ### Operational (OP) — Startup reliability
 
-- [ ] **OP-01**: go2rtc warmup integrated into start-rcsentry-ai.bat (prevents NVR RTSP flood)
+- [x] **OP-01**: go2rtc warmup integrated into start-rcsentry-ai.bat (prevents NVR RTSP flood)
 
 ## v2 Requirements
 
@@ -65,14 +65,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CV-01 | Phase 202 | Pending |
-| CV-02 | Phase 202 | Pending |
-| CV-03 | Phase 202 | Pending |
-| CV-04 | Phase 202 | Pending |
-| SF-01 | Phase 202 | Pending |
-| SF-02 | Phase 202 | Pending |
-| SF-03 | Phase 202 | Pending |
-| OP-01 | Phase 202 | Pending |
+| CV-01 | Phase 202 | Complete |
+| CV-02 | Phase 202 | Complete |
+| CV-03 | Phase 202 | Complete |
+| CV-04 | Phase 202 | Complete |
+| SF-01 | Phase 202 | Complete |
+| SF-02 | Phase 202 | Complete |
+| SF-03 | Phase 202 | Complete |
+| OP-01 | Phase 202 | Complete |
 | WL-01 | Phase 203 | Pending |
 | WL-02 | Phase 203 | Pending |
 | WL-03 | Phase 203 | Pending |

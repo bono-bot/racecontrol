@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: planning
-stopped_at: Completed 202-01-PLAN.md
-last_updated: "2026-03-25T23:25:45.868Z"
+stopped_at: Completed 202-02-PLAN.md
+last_updated: "2026-03-25T23:26:44.820Z"
 last_activity: 2026-03-26 — Roadmap created (6 phases, 26 requirements mapped)
 progress:
   total_phases: 165
-  completed_phases: 124
+  completed_phases: 125
   total_plans: 301
-  completed_plans: 296
+  completed_plans: 297
   percent: 0
 ---
 
@@ -51,6 +51,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 195-03]: Routes placed in public_routes() — consistent with fleet/health pattern, admin dashboard needs unauthenticated SSR access
 - [Phase 195-03]: P95 computed by sorted-fetch + index — SQLite lacks NTILE window function, approach works for expected event volumes
 - [Phase 202]: ws_connect_timeout threshold at 600ms, billing checks venue-state-aware, ps_count=0 is WARN (watchdog dead)
+- [Phase 202]: Used Get-CimInstance Win32_VideoController for pod resolution query (safer cmd.exe quoting)
+- [Phase 202]: Evolution API connection check uses /api/instance/connectionState/racingpoint endpoint with TOML URL extraction fallback
 
 ### Pending Todos
 
@@ -62,6 +64,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T23:25:45.848Z
-Stopped at: Completed 202-01-PLAN.md
+Last session: 2026-03-25T23:26:44.804Z
+Stopped at: Completed 202-02-PLAN.md
 Resume file: None
