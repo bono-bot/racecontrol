@@ -2995,12 +2995,12 @@ Plans:
   3. All 60 phase scripts exist in audit/phases/ across 18 tier directories — complete v3.0 port with no phases missing
   4. The result JSON after a full parallel run contains exactly one result record per phase per host — no duplicate or missing records from background job output interleaving
   5. When 3 pods are offline simultaneously during a full run, the audit still completes within 8 minutes — offline pods time out individually without blocking other parallel jobs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 191-01-PLAN.md — lib/parallel.sh: file-based semaphore (max 4 concurrent), pod_loop helper using semaphore, 200ms launch stagger, background job temp file coordination
-- [ ] 191-02-PLAN.md — Tiers 10-12: AI/feature flags (Ollama, rp-debug, feature flag registry), marketing/staff (notifications, badge engine), OTA/deployment (canary health, binary SHA verification)
-- [ ] 191-03-PLAN.md — Tiers 13-18: remaining v3.0 phases; integration with parallel engine; full-run timing verification
+- [ ] 191-01-PLAN.md — lib/parallel.sh: file-based semaphore (max 4 concurrent), pod_loop helper, 200ms stagger, audit.sh tier 10-18 dispatch
+- [ ] 191-02-PLAN.md — Tiers 10-12 phase scripts (phases 45-53): Ops/Compliance, E2E Journeys, Code Quality
+- [ ] 191-03-PLAN.md — Tiers 13-18 phase scripts (phases 54-60): Registry, Data Integrity, Test Suites, Cloud, Customer Flows, Cross-System Chains
 
 ### Phase 192: Intelligence Layer
 **Goal**: Two consecutive audit runs produce a delta report that correctly identifies regressions (PASS to FAIL), improvements (FAIL to PASS), and new issues — and known recurring issues can be suppressed with mandatory expiry dates so they appear as SUPPRESSED rather than cluttering the FAIL list
