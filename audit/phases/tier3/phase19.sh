@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# audit/phases/tier3/phase19.sh -- Phase 19: Display Resolution
+# Tier: 3 (Display & UX) -- ALL checks QUIET when venue closed
+# What: All pods running correct resolution. NVIDIA Surround not collapsed.
+# WARNING: NEVER restart explorer.exe on pods with NVIDIA Surround.
+# Standing rule: Phase scripts always exit 0 -- errors encoded in emit_result status, never bash exit code.
+
+set -u
+set -o pipefail
+# NO set -e -- errors go into emit_result status=FAIL, not bash exit code
+
+run_phase19() {
+  local phase="19" tier="3"
+  local mode="${AUDIT_MODE:-quick}"
+  local venue_state="${VENUE_STATE:-unknown}"
+  local response status severity message
+
+  local ip host pod_num
+  pod_num=1
+  for ip in $PODS; do
+    host="pod-$(printf '%s' "$ip" | sed 's/192\.168\.31\.//')"
+
+    if [[ "$venue_state" = "closed" ]]; then
+      emit_result "$phase" "$tier" "${host}-resolution" "QUIET" "P3" \
+        "Display check skipped -- venue closed" "$mode" "$venue_state"
+      pod_num=$((pod_num+1))
+      continue
+    fi
+
+    response=$(safe_remote_exec "$ip" "8090" \
+      'wmic path Win32_VideoController get CurrentHorizontalResolution,CurrentVerticalResolution /value' \
+      "$DEFAULT_TIMEOUT")
+    local res_out; res_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
+    local horiz; horiz=$(printf '%s' "$res_out" | grep -i "CurrentHorizontalResolution" | grep -oE '[0-9]+' | head -1 || echo "0")
+    local vert; vert=$(printf '%s' "$res_out" | grep -i "CurrentVerticalResolution" | grep -oE '[0-9]+' | head -1 || echo "0")
+
+    if [[ "${horiz:-0}" -eq 7680 && "${vert:-0}" -eq 1440 ]]; then
+      status="PASS"; severity="P3"; message="NVIDIA Surround 7680x1440 active"
+    elif [[ "${horiz:-0}" -ge 1920 && "${vert:-0}" -ge 1080 ]]; then
+      status="PASS"; severity="P3"; message="Resolution ${horiz}x${vert} (single monitor mode)"
+    elif [[ "${horiz:-0}" -eq 1024 && "${vert:-0}" -eq 768 ]]; then
+      if [[ "$pod_num" -eq 8 ]]; then
+        status="WARN"; severity="P2"; message="Pod 8 at 1024x768 -- known issue (NVIDIA Surround needs physical setup)"
+      else
+        status="FAIL"; severity="P2"; message="Surround collapsed to 1024x768 -- needs reboot to restore (NEVER restart explorer)"
+      fi
+    else
+      status="WARN"; severity="P2"; message="Resolution ${horiz:-unknown}x${vert:-unknown} -- unexpected value"
+    fi
+    emit_result "$phase" "$tier" "${host}-resolution" "$status" "$severity" "$message" "$mode" "$venue_state"
+    pod_num=$((pod_num+1))
+  done
+
+  return 0
+}
+export -f run_phase19
