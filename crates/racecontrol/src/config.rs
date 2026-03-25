@@ -176,6 +176,14 @@ pub struct WhatsAppConfig {
     #[serde(default)]
     pub enabled: bool,
     pub contact: Option<String>,
+    /// Evolution API URL for marketing/promotional messages (broadcasts, nudges, campaigns).
+    /// Should point directly to Bono VPS (e.g., "http://100.70.177.44:53622").
+    /// Falls back to auth.evolution_url if not set.
+    pub marketing_url: Option<String>,
+    /// API key for the marketing Evolution instance. Falls back to auth.evolution_api_key.
+    pub marketing_api_key: Option<String>,
+    /// Instance name for marketing messages. Falls back to auth.evolution_instance.
+    pub marketing_instance: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,6 +269,51 @@ impl Default for AuthConfig {
             evolution_api_key: None,
             evolution_instance: None,
             admin_pin_hash: None,
+        }
+    }
+}
+
+/// Message category determines which Evolution API instance to route through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhatsAppCategory {
+    /// OTP, receipts, alerts, operational notifications — venue tunnel OK
+    Operational,
+    /// Broadcasts, promotions, deals, nudges, campaigns — must use Bono VPS
+    Marketing,
+}
+
+/// Resolved Evolution API credentials for a given message category.
+pub struct EvolutionCredentials {
+    pub url: String,
+    pub api_key: String,
+    pub instance: String,
+}
+
+impl Config {
+    /// Resolve Evolution API credentials by message category.
+    /// Marketing messages use `integrations.whatsapp.marketing_*` if configured,
+    /// falling back to `auth.evolution_*`. This ensures marketing can be routed
+    /// through Bono VPS while operational messages stay on the venue tunnel.
+    pub fn evolution_for(&self, category: WhatsAppCategory) -> Option<EvolutionCredentials> {
+        match category {
+            WhatsAppCategory::Operational => {
+                Some(EvolutionCredentials {
+                    url: self.auth.evolution_url.clone()?,
+                    api_key: self.auth.evolution_api_key.clone()?,
+                    instance: self.auth.evolution_instance.clone()?,
+                })
+            }
+            WhatsAppCategory::Marketing => {
+                let wa = &self.integrations.whatsapp;
+                // Use dedicated marketing config if set, otherwise fall back to operational
+                let url = wa.marketing_url.as_ref()
+                    .or(self.auth.evolution_url.as_ref())?.clone();
+                let key = wa.marketing_api_key.as_ref()
+                    .or(self.auth.evolution_api_key.as_ref())?.clone();
+                let inst = wa.marketing_instance.as_ref()
+                    .or(self.auth.evolution_instance.as_ref())?.clone();
+                Some(EvolutionCredentials { url, api_key: key, instance: inst })
+            }
         }
     }
 }

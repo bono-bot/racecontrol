@@ -64,20 +64,17 @@ pub async fn broadcast_promo(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BroadcastRequest>,
 ) -> Result<Json<BroadcastResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // Guard: Evolution API must be configured.
-    let (evo_url, evo_key, evo_instance) = match (
-        &state.config.auth.evolution_url,
-        &state.config.auth.evolution_api_key,
-        &state.config.auth.evolution_instance,
-    ) {
-        (Some(url), Some(key), Some(inst)) => (url.clone(), key.clone(), inst.clone()),
-        _ => {
+    // Guard: Evolution API must be configured (marketing route preferred).
+    let creds = match state.config.evolution_for(crate::config::WhatsAppCategory::Marketing) {
+        Some(c) => c,
+        None => {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "WhatsApp not configured" })),
             ));
         }
     };
+    let (evo_url, evo_key, evo_instance) = (creds.url, creds.api_key, creds.instance);
 
     // Fetch all drivers that have a phone number stored.
     let rows: Vec<DriverPhone> = sqlx::query_as(

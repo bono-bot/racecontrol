@@ -519,41 +519,39 @@ fn resolve_template(template: &str, payload_json: &str) -> String {
 
 // ─── Channel Send Helpers ─────────────────────────────────────────────────────
 
-/// Send a WhatsApp message via the Evolution API.
-/// Follows the same pattern as billing.rs send_whatsapp_receipt.
+/// Send a WhatsApp message via the Evolution API (marketing route).
+/// Psychology nudges are retention/engagement messages — routed through marketing channel.
 async fn send_whatsapp(state: &Arc<AppState>, phone: &str, message: &str) -> bool {
-    if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
-        &state.config.auth.evolution_url,
-        &state.config.auth.evolution_api_key,
-        &state.config.auth.evolution_instance,
-    ) {
-        let wa_phone = crate::billing::format_wa_phone(phone);
-        let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
-        let body = serde_json::json!({ "number": wa_phone, "text": message });
-        match state.http_client
-            .post(&url)
-            .header("apikey", evo_key.as_str())
-            .timeout(std::time::Duration::from_secs(5))
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                tracing::info!("[psychology] WhatsApp sent to {}", wa_phone);
-                true
-            }
-            Ok(resp) => {
-                tracing::warn!("[psychology] WhatsApp send failed: status={}", resp.status());
-                false
-            }
-            Err(e) => {
-                tracing::warn!("[psychology] WhatsApp send error: {}", e);
-                false
-            }
+    let creds = match state.config.evolution_for(crate::config::WhatsAppCategory::Marketing) {
+        Some(c) => c,
+        None => {
+            tracing::debug!("[psychology] WhatsApp not configured, skipping");
+            return false;
         }
-    } else {
-        tracing::debug!("[psychology] WhatsApp not configured, skipping");
-        false
+    };
+    let wa_phone = crate::billing::format_wa_phone(phone);
+    let url = format!("{}/message/sendText/{}", creds.url, creds.instance);
+    let body = serde_json::json!({ "number": wa_phone, "text": message });
+    match state.http_client
+        .post(&url)
+        .header("apikey", creds.api_key.as_str())
+        .timeout(std::time::Duration::from_secs(5))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!("[psychology] WhatsApp sent to {}", wa_phone);
+            true
+        }
+        Ok(resp) => {
+            tracing::warn!("[psychology] WhatsApp send failed: status={}", resp.status());
+            false
+        }
+        Err(e) => {
+            tracing::warn!("[psychology] WhatsApp send error: {}", e);
+            false
+        }
     }
 }
 
