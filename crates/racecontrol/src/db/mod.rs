@@ -349,6 +349,64 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Billing accuracy events (METRICS-03) ─────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_accuracy_events (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT,
+            event_type TEXT NOT NULL,
+            launch_command_at TEXT,
+            playable_signal_at TEXT,
+            billing_start_at TEXT,
+            delta_ms INTEGER,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_accuracy_session ON billing_accuracy_events(session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_accuracy_pod ON billing_accuracy_events(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_accuracy_created ON billing_accuracy_events(created_at)")
+        .execute(pool)
+        .await?;
+
+    // ─── Recovery events (METRICS-04) ─────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS recovery_events (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT,
+            car TEXT,
+            track TEXT,
+            failure_mode TEXT NOT NULL,
+            recovery_action_tried TEXT NOT NULL,
+            recovery_outcome TEXT NOT NULL,
+            recovery_duration_ms INTEGER,
+            error_details TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_recovery_events_pod ON recovery_events(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_recovery_events_failure ON recovery_events(failure_mode)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_recovery_events_created ON recovery_events(created_at)")
+        .execute(pool)
+        .await?;
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(
