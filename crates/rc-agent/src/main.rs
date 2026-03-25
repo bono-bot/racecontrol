@@ -1131,13 +1131,25 @@ async fn main() -> Result<()> {
 /// Compute reconnect delay based on attempt number.
 /// First 3 attempts: 1s each (fast retry for brief CPU spike blips).
 /// After that: exponential backoff 2s, 4s, 8s, 16s, capped at 30s.
+/// CONN-RESIL: Added jitter (0–25% of delay) to prevent thundering herd
+/// when server restarts and all 8 pods retry at the same deterministic moments.
 fn reconnect_delay_for_attempt(attempt: u32) -> Duration {
-    if attempt < 3 {
+    let base = if attempt < 3 {
         Duration::from_secs(1)
     } else {
         let exp = (attempt - 2).min(5);
         Duration::from_secs(2u64.pow(exp)).min(Duration::from_secs(30))
-    }
+    };
+    // Add 0–25% jitter to stagger reconnection across pods
+    let jitter_ms = {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        std::time::SystemTime::now().hash(&mut hasher);
+        std::thread::current().id().hash(&mut hasher);
+        (hasher.finish() % (base.as_millis() as u64 / 4).max(1)) as u64
+    };
+    base + Duration::from_millis(jitter_ms)
 }
 
 fn local_ip() -> String {

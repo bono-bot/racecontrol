@@ -101,6 +101,9 @@ enum PodRecoveryStep {
 struct PodRecoveryTracker {
     step: PodRecoveryStep,
     first_detected_at: Option<std::time::Instant>,
+    /// CONN-RESIL: Timestamp of last staff alert sent. Used to throttle re-alerts
+    /// to every 15 minutes instead of every 2-minute healer cycle.
+    last_staff_alert_at: Option<std::time::Instant>,
 }
 
 impl PodRecoveryTracker {
@@ -108,12 +111,14 @@ impl PodRecoveryTracker {
         Self {
             step: PodRecoveryStep::Waiting,
             first_detected_at: None,
+            last_staff_alert_at: None,
         }
     }
 
     fn reset(&mut self) {
         self.step = PodRecoveryStep::Waiting;
         self.first_detected_at = None;
+        self.last_staff_alert_at = None;
     }
 }
 
@@ -731,6 +736,39 @@ async fn run_graduated_recovery(
                 ));
             }
 
+            // CONN-RESIL: Network partition detection — check if pod is network-reachable
+            // before attempting restart. If we can't reach rc-sentry :8091 either, the
+            // problem is likely a network partition (switch failure, cable unplugged),
+            // not a crashed rc-agent. WoL won't help either in this case.
+            let sentry_url = format!("http://{}:8091/health", pod.ip_address);
+            let sentry_reachable = state
+                .http_client
+                .get(&sentry_url)
+                .timeout(std::time::Duration::from_secs(3))
+                .send()
+                .await
+                .is_ok();
+
+            if !sentry_reachable {
+                // Neither rc-agent nor rc-sentry is reachable — likely network partition
+                tracing::warn!(
+                    target: "pod_healer",
+                    "Pod {} — network partition detected (rc-sentry :8091 also unreachable). \
+                     Skipping Tier 1 restart (network issue, not process crash). Advancing to WoL.",
+                    pod.id
+                );
+                log_pod_activity(
+                    state,
+                    &pod.id,
+                    "race_engineer",
+                    "Network Partition Detected",
+                    "Both rc-agent and rc-sentry unreachable — likely network issue, not process crash",
+                    "race_engineer",
+                );
+                tracker.step = PodRecoveryStep::WakeOnLan;
+                return;
+            }
+
             // Attempt restart via pod-agent :8090/exec
             let restart_cmd = r#"cd /d C:\RacingPoint & start /b rc-agent.exe"#;
             let exec_url = format!("http://{}:{}/exec", pod.ip_address, POD_AGENT_PORT);
@@ -1034,9 +1072,28 @@ async fn run_graduated_recovery(
         }
 
         PodRecoveryStep::AlertStaff => {
+            // CONN-RESIL: Re-alert every 15 minutes instead of every 2-minute cycle.
+            // Prevents alert spam while ensuring pods don't go silently dead.
+            const RE_ALERT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+            let should_alert = tracker.last_staff_alert_at
+                .map(|t| t.elapsed() >= RE_ALERT_INTERVAL)
+                .unwrap_or(true); // First alert always fires
+
+            if !should_alert {
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} — still at AlertStaff, re-alert suppressed (next in {}s)",
+                    pod.id,
+                    RE_ALERT_INTERVAL.as_secs().saturating_sub(
+                        tracker.last_staff_alert_at.map(|t| t.elapsed().as_secs()).unwrap_or(0)
+                    )
+                );
+                return;
+            }
+
             tracing::warn!(
                 target: "pod_healer",
-                "Pod {} — step 4: alerting staff",
+                "Pod {} — step 4: alerting staff (re-alert every 15min)",
                 pod.id
             );
             let decision = RecoveryDecision::new(
@@ -1048,16 +1105,25 @@ async fn run_graduated_recovery(
             );
             let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
 
+            let offline_duration = tracker.first_detected_at
+                .map(|t| t.elapsed())
+                .unwrap_or_default();
             let body = format!(
                 "Pod {} has failed all automated recovery steps.\n\
                  Tier 1 restart attempted. AI escalated. Pod still offline.\n\
+                 Offline for: {}min {}s\n\
                  Last seen: {:?}\n\
-                 Manual intervention required.",
-                pod.id, pod.last_seen
+                 Manual intervention required.\n\
+                 (This alert repeats every 15 minutes until resolved.)",
+                pod.id,
+                offline_duration.as_secs() / 60,
+                offline_duration.as_secs() % 60,
+                pod.last_seen
             );
             let subject = format!(
-                "[RaceControl] Pod {} — Manual Intervention Required",
-                pod.id
+                "[RaceControl] Pod {} — Manual Intervention Required ({}min offline)",
+                pod.id,
+                offline_duration.as_secs() / 60
             );
             state
                 .email_alerter
@@ -1065,15 +1131,18 @@ async fn run_graduated_recovery(
                 .await
                 .send_alert(&pod.id, &subject, &body)
                 .await;
+            tracker.last_staff_alert_at = Some(std::time::Instant::now());
             log_pod_activity(
                 state,
                 &pod.id,
                 "race_engineer",
                 "Staff Alert Sent",
-                "All automated recovery steps exhausted — staff alerted",
+                &format!(
+                    "All automated recovery steps exhausted — staff alerted (offline {}min)",
+                    offline_duration.as_secs() / 60
+                ),
                 "race_engineer",
             );
-            // Stay at AlertStaff — keep alerting each cycle until pod recovers
         }
     }
 }

@@ -77,7 +77,7 @@ fn services() -> Vec<ServiceConfig> {
             name: "webterm",
             check: ServiceCheck::Http("http://127.0.0.1:9999"),
             restart_cmd: Some(RestartCmd {
-                exe: r"C:\Program Files\Python311\python.exe",
+                exe: r"C:\Users\bono\AppData\Local\Programs\Python\Python312\python.exe",
                 args: &[r"C:\Users\bono\racingpoint\deploy-staging\webterm.py"],
             }),
             log_path: None,
@@ -118,6 +118,18 @@ fn services() -> Vec<ServiceConfig> {
             name: "tailscale-bono",
             check: ServiceCheck::Http("http://100.70.177.44:8080/api/v1/health"),
             restart_cmd: None, // Tailscale reconnect needs admin
+            log_path: None,
+        },
+        // CONN-RESIL: Validate SSH fallback path is alive (not just HTTP).
+        // SSH is the last-resort recovery path — if this fails, Bono VPS is unreachable.
+        ServiceConfig {
+            name: "ssh-bono",
+            check: ServiceCheck::Command(
+                "ssh",
+                &["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "root@100.70.177.44", "echo OK"],
+                "OK",
+            ),
+            restart_cmd: None, // SSH issue needs Tailscale or manual fix
             log_path: None,
         },
     ]
