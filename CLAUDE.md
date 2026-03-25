@@ -283,6 +283,21 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Process guard safe mode:** Do not disable rc-process-guard during testing sessions — use the allowlist override instead.
   _Why: Disabling the guard entirely during a test left the machine unprotected when the session ended without re-enabling it._
 
+### OTA Pipeline
+
+- **Always preserve previous binary before swap.** Rename the current binary to `*-prev.exe` before placing the new one. Never delete the previous binary during the swap step. Manual rollback = rename prev back.
+  _Why: Without a preserved previous binary, a failed deploy requires rebuilding from source — 5+ minutes of downtime vs 10 seconds for a rename._
+- **Never deploy without a signed manifest.** Every OTA release requires a `release-manifest.toml` locking binary SHA256, config schema version, frontend build_id, git commit, and timestamp. gate-check.sh verifies the manifest exists and all fields are populated before any binary leaves staging.
+  _Why: Deploying without a manifest means no SHA256 to verify against post-deploy — health checks can't confirm the right binary is running._
+- **Billing sessions must drain before binary swap on any pod.** The OTA pipeline checks `has_active_billing_session()` before swapping. Pods with active sessions defer swap until session ends or checkpoint to DB. Never kill a billing session mid-transaction.
+  _Why: Killing a billing session mid-race loses the customer's time and money tracking — requires manual reconciliation and erodes trust._
+- **OTA sentinel file protocol.** Write `C:\RacingPoint\OTA_DEPLOYING` sentinel at OTA start, clear on complete or rollback. All recovery systems (rc-sentry, pod_monitor, WoL) MUST check this file before triggering restarts during OTA. A restart during OTA corrupts the binary swap.
+  _Why: rc-sentry restarted rc-agent mid-binary-copy during an early deploy test — the binary was truncated, pod went into MAINTENANCE_MODE._
+- **Config push NEVER goes through fleet exec endpoint.** Config changes use the dedicated ConfigPush WebSocket channel (CP-01). Fleet exec is for operational commands only. Mixing config into exec creates an unaudited config change path that bypasses schema validation.
+  _Why: An early prototype pushed billing rate changes via fleet exec — no validation, no audit log, no ack tracking. Two pods ran different rates for 4 hours._
+- **Rollback window: previous binary preserved for 72 hours minimum.** Do not clean up `*-prev.exe` files within 72 hours of deploy. Late-emerging issues (weekend traffic patterns, edge-case billing scenarios) may require rollback days after deploy.
+  _Why: A billing edge case (session spanning midnight) only surfaced 36 hours after deploy. The previous binary had already been cleaned up — required a full rebuild instead of a 10-second rollback._
+
 ---
 
 ## Debugging Methodology
