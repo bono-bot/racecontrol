@@ -312,6 +312,43 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Metrics: launch_events table (METRICS-01) ────────────────────────
+    // Separate from legacy game_launch_events — richer schema with outcome, taxonomy, JSONL dual-write
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS launch_events (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            car TEXT,
+            track TEXT,
+            session_type TEXT,
+            timestamp TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            error_taxonomy TEXT,
+            duration_to_playable_ms INTEGER,
+            error_details TEXT,
+            launch_args_hash TEXT,
+            attempt_number INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_pod ON launch_events(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_combo ON launch_events(pod_id, sim_type, car, track)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_outcome ON launch_events(outcome)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_created ON launch_events(created_at)")
+        .execute(pool)
+        .await?;
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(

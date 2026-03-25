@@ -32,6 +32,7 @@ pub mod fleet_alert;
 pub mod fleet_health;
 pub mod friends;
 pub mod game_launcher;
+pub mod metrics;
 pub mod multiplayer;
 pub mod network_source;
 pub mod ota_pipeline;
