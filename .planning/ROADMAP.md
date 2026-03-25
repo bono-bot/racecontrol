@@ -3062,7 +3062,7 @@ Plans:
 ### v24.0 Phases
 
 - [x] **Phase 194: Pod ID Normalization** - Canonical pod ID format everywhere, eliminating billing_alt_id and inconsistent lookups (completed 2026-03-25)
-- [ ] **Phase 195: Metrics Foundation** - SQLite + JSONL dual storage for every launch, billing, and crash event with queryable APIs
+- [x] **Phase 195: Metrics Foundation** - SQLite + JSONL dual storage for every launch, billing, and crash event with queryable APIs (completed 2026-03-25)
 - [ ] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation
 - [ ] **Phase 197: Launch Resilience & AC Hardening** - Dynamic timeouts, pre-launch checks, auto-retry, error taxonomy, AC polling-based waits, and arg parsing fixes
 - [ ] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes
@@ -3228,7 +3228,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 194. Pod ID Normalization | 1/1 | Complete    | 2026-03-25 |
-| 195. Metrics Foundation | 2/3 | In Progress|  |
+| 195. Metrics Foundation | 3/3 | Complete   | 2026-03-25 |
 | 196. Game Launcher Structural Rework | 0/0 | Not started | - |
 | 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
 | 198. On-Track Billing | 0/0 | Not started | - |
@@ -3307,3 +3307,106 @@ Plans:
 | 202. Config Validation & Structural Fixes | 0/0 | Not started | - |
 | 203. Deep Service Verification | 0/0 | Not started | - |
 | 204. Cross-Service & UI End-to-End | 0/0 | Not started | - |
+
+
+---
+
+## v25.0 Debug-First-Time-Right --- Systematic Debugging Quality
+
+**Milestone Goal:** Eliminate multi-attempt debugging patterns by building verification frameworks, observable state transitions, boot resilience, and enforced startup verification into the Rust codebase and operational tooling. Born from a retrospective audit of 11 multi-attempt bugs (avg 2.4 attempts each) across 7 root cause categories.
+
+**Phases:** 205-210
+**Requirements:** 26 (OBS-01..05, COV-01..05, GATE-01..05, BOOT-01..04, BAT-01..04, AUDIT-01..03)
+
+### Phases
+
+- [ ] **Phase 205: Verification Chain Foundation** - New rc-common types (VerificationChain, VerifyStep, VerificationError) and spawn_periodic_refetch scaffold -- stabilize before consumers compile
+- [ ] **Phase 206: Observable State Transitions** - Eliminate all silent failures: MAINTENANCE_MODE WhatsApp alert, config fallback warn!, empty allowlist error!, sentinel fleet alerts, FSM transition logging
+- [ ] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented
+- [ ] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain
+- [ ] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption
+- [ ] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section
+
+### Phase Details
+
+### Phase 205: Verification Chain Foundation
+**Goal**: rc-common contains stable VerificationChain and boot_resilience types that all three executables can consume without type churn -- the prerequisite before any chain wrapping or boot resilience work compiles
+**Depends on**: Nothing (first phase -- rc-common lib, no consumers yet)
+**Requirements**: COV-01, BOOT-01
+**Success Criteria** (what must be TRUE):
+  1. `cargo test -p rc-common` passes with VerificationChain builder, VerifyStep trait, and typed VerificationError variants (InputParseError, TransformError, DecisionError, ActionError) all present and tested
+  2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
+  3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
+  4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
+**Plans**: TBD
+
+### Phase 206: Observable State Transitions
+**Goal**: Every degraded state in the system emits an observable signal at the moment it occurs -- operators learn of pod failures, config fallbacks, and empty allowlists within 30 seconds, not after downstream symptoms appear
+**Depends on**: Phase 205 (phase ordering enforces foundation-first; emit_transition pattern and WhatsApp use existing fleet_alert.rs infrastructure)
+**Requirements**: OBS-01, OBS-02, OBS-03, OBS-04, OBS-05
+**Success Criteria** (what must be TRUE):
+  1. Writing MAINTENANCE_MODE on any pod triggers a WhatsApp alert to Uday via Evolution API within 30 seconds, including pod number, reason payload, and IST timestamp -- verified by writing the file and checking WhatsApp
+  2. Booting rc-agent with a corrupted racecontrol.toml (missing api_url) produces a `warn!` log line containing the field name, expected source, and fallback value -- visible in rc-agent startup log before any WS connection attempt
+  3. Starting rc-agent with process_guard enabled but an empty allowlist produces an `error!` log via eprintln! before tracing init, writes EMPTY_ALLOWLIST to startup_log, and auto-switches to report_only mode -- verified by starting with a fresh DB
+  4. Creating or deleting any sentinel file in C:\RacingPoint\ causes a SentinelChange WebSocket message to arrive at racecontrol, and /api/v1/fleet/health response includes active_sentinels field listing current sentinels -- verified via curl after writing a test sentinel
+  5. rc-sentry watchdog.rs FSM transitions from Healthy to Suspect(N) produce a RecoveryLogger entry on EVERY transition (not just on Crashed) -- verified by reading JSONL after triggering a suspect count increment
+**Plans**: TBD
+
+### Phase 207: Boot Resilience
+**Goal**: Any resource fetched at startup that fails to load due to server transience self-heals within one re-fetch cycle -- no resource stays at its boot-time default indefinitely
+**Depends on**: Phase 205 (spawn_periodic_refetch from boot_resilience.rs), Phase 206 (emit_transition available for self-heal observability)
+**Requirements**: BOOT-02, BOOT-03, BOOT-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent started while the server is down loads feature flags from disk cache, emits a "fallback-to-cache" event, then within 5 minutes of the server coming back fetches live flags and emits a "self_healed" event -- verified by stopping server, starting rc-agent, then restarting server
+  2. CLAUDE.md standing rules section contains the boot resilience architectural rule: "Any data fetched from a remote source at startup MUST have a periodic re-fetch background task using spawn_periodic_refetch()" -- with checklist of current startup-fetched resources and their re-fetch status
+  3. Flipping process_guard enabled from false to true in TOML and restarting rc-agent logs first 10 violations -- if violation rate exceeds 50%, system stays in report_only mode and emits "possible misconfiguration" error until operator sends GUARD_CONFIRMED fleet exec command
+  4. `cargo test -p rc-agent` passes with tests covering: feature flag fallback-to-cache path, periodic re-fetch lifecycle logging, and first-scan validation threshold
+**Plans**: TBD
+
+### Phase 208: Chain Verification Integration
+**Goal**: The 4 critical parse/transform chains responsible for 5+ documented incidents each log their intermediate step values -- a failing chain produces a log line naming the exact step and raw value that failed, not just a downstream symptom
+**Depends on**: Phase 205 (VerificationChain types from rc-common must compile)
+**Requirements**: COV-02, COV-03, COV-04, COV-05
+**Success Criteria** (what must be TRUE):
+  1. Pod healer running against a pod whose health endpoint returns "200" (with surrounding quotes) logs the exact raw value including quotes as ParseStep::Failed -- making the curl-quote issue immediately diagnosable without a deploy cycle
+  2. rc-agent loading a TOML file with an SSH banner prepended logs the first 3 lines of the file alongside a VerificationError::TransformError -- not a silent fallback to defaults
+  3. Process guard fetching an empty allowlist from /api/v1/guard/whitelist/pod-{N} produces VerificationError::InputParseError("empty allowlist with guard enabled") and auto-switches to report_only -- the error names the HTTP step that succeeded but the semantic validation that failed
+  4. rc-sentry spawn() returning Ok for rc-agent relaunch is followed by a 500ms PID liveness check and a 10s health endpoint poll -- if either fails, VerificationError::ActionError is logged and spawn is retried
+**Plans**: TBD
+
+### Phase 209: Pre-Ship Gate and Process Tooling
+**Goal**: Every deploy passes through a domain-matched verification gate that cannot be satisfied by health endpoints alone for visual or parse changes -- and every non-trivial bug fix follows the Cause Elimination Process before being declared fixed
+**Depends on**: Nothing (pure bash tooling, zero Rust compile dependency -- can be developed in parallel with Phases 206-208)
+**Requirements**: GATE-01, GATE-02, GATE-03, GATE-04, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. Running gate-check.sh on a commit touching lock_screen or blanking without VISUAL_VERIFIED=true exits non-zero -- the script detects display-domain changes via git diff --name-only pattern matching and blocks PASS
+  2. Running gate-check.sh on a commit touching ws_handler or fleet_exec without a live curl response to /api/v1/health exits non-zero -- network-domain changes require a live connection test, not just build success
+  3. Running gate-check.sh on a commit touching from_str or toml::from_str without a provided test input file and expected output exits non-zero -- parse-domain changes require end-to-end data flow verification
+  4. Running scripts/fix_log.sh prompts for all 5 structured fields (symptom, hypotheses, elimination, confirmed cause, verification) and appends a structured entry to LOGBOOK.md -- a skipped field produces an error, not a silent empty section
+  5. LOGBOOK.md exists at repo root with a defined header format and at least one sample entry demonstrating the Cause Elimination template -- future entries can be verified against the format by grep
+**Plans**: TBD
+
+### Phase 210: Startup Enforcement and Fleet Audit
+**Goal**: All 8 pods run bat files that match the canonical repo version, bat syntax violations are detected before deploy, and the fleet audit system includes 5 new v25.0-specific phases that permanently verify debug quality on every audit run
+**Depends on**: Phase 209 (bat deploy step passes through Phase 209 gate), Phase 206 (sentinel-alerts audit phase requires OBS-01 wiring), Phase 207 (boot-resilience audit phase requires BOOT-02 periodic_tasks field), Phase 208 (verification-chains audit phase requires COV-02..05 chains)
+**Requirements**: BAT-01, BAT-02, BAT-03, BAT-04, AUDIT-01, AUDIT-02, AUDIT-03
+**Success Criteria** (what must be TRUE):
+  1. Running scripts/bat-scanner.sh against all 8 pods produces a per-pod MATCH or DRIFT report showing specific line differences -- a pod with a stale bat missing the ConspitLink singleton kill shows the exact missing lines, not just a hash mismatch
+  2. bat-scanner.sh --syntax run against a bat file containing parentheses in an if/else block, a /dev/null redirect, and a UTF-8 BOM each produces a violation with line number and suggested fix -- all 4 documented Windows bat traps are detected
+  3. Running audit.sh --mode full includes bat-drift, sentinel-alerts, config-fallback, boot-resilience, and verification-chains phases -- each produces PASS, FAIL, or QUIET with documented criteria
+  4. The fleet audit report includes a "v25.0 Debug Quality" section showing per-pod: active sentinels, config fallback warnings in last 24h, bat drift status, periodic re-fetch task health, and verification chain last-run status -- with summary line "Debug Quality: N/8 pods fully instrumented"
+  5. Deploying rc-agent to any pod via deploy-pod.sh includes a bat file sync step that downloads the canonical bat from the repo and deploys it alongside the binary -- verified by checking that a pod with a stale bat before deploy has a matching bat after deploy
+**Plans**: TBD
+
+## v25.0 Progress
+
+**Execution Order:** 205 -> 206 -> 208 (both depend on 205) | 209 (parallel with 206-208) -> 207 (after 206) -> 210 (after 206, 207, 208, 209)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 205. Verification Chain Foundation | 0/0 | Not started | - |
+| 206. Observable State Transitions | 0/0 | Not started | - |
+| 207. Boot Resilience | 0/0 | Not started | - |
+| 208. Chain Verification Integration | 0/0 | Not started | - |
+| 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
+| 210. Startup Enforcement and Fleet Audit | 0/0 | Not started | - |
