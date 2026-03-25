@@ -163,6 +163,8 @@ Key: Single ops.bat entry point replacing 310 scattered scripts; centralized con
 
 Decimal phases appear between their surrounding integers in numeric order.
 
+**Standing Rules Gate (v22.0):** All future phases across all milestones MUST run `bash test/gate-check.sh --pre-deploy` before shipping. No phase can be marked complete without passing the standing rules gate. This is enforced by the OTA pipeline automatically for binary deploys, and manually for documentation/planning-only phases.
+
 - ~~**Phase 36-40: v6.0 Salt Fleet Management**~~ — DEPRECATED 2026-03-25, superseded by v22.0. See Archived Milestones.
 - [x] **Phase 41: Test Foundation** - Shared shell library, pod IP map, Playwright config, and cargo-nextest configured — the skeleton every other test script sources (completed 2026-03-18)
 - [x] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors (completed 2026-03-18)
@@ -193,7 +195,7 @@ Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FF
 - [ ] **Phase 59: Auto-Switch Configuration** - Fix broken auto game detection by placing Global.json at C:\RacingPoint\ (runtime path), update GameToBaseConfig.json mappings to venue presets
 - [ ] **Phase 60: Pre-Launch Profile Loading** - rc-agent pre-loads correct preset BEFORE game launch (not relying solely on ConspitLink auto-detect), safe fallback for unrecognized games
 - [ ] **Phase 61: FFB Preset Tuning** - Create venue-tuned .Base presets for AC (900deg), F1 25 (360deg), ACC/ACE, AC Rally (~800deg) starting from Yifei Ye pro presets, store in version control
-- [ ] **Phase 62: Fleet Config Distribution** - Push configs to all 8 pods via rc-agent WebSocket, atomic writes (temp+rename), Global.json to both paths, graceful CL stop/write/restart/verify cycle
+- ~~**Phase 62: Fleet Config Distribution**~~ — SUPERSEDED by v22.0 Config Push (CP-01 to CP-06). v22.0 provides WebSocket-based config push with schema validation, per-pod queuing, offline delivery via sequence-number ack, and audit logging. Do not implement a separate config distribution system.
 - [ ] **Phase 63: Fleet Monitoring** - rc-agent reports active preset, config hashes, firmware version per pod; racecontrol dashboard shows fleet config status at a glance
 - [ ] **Phase 64: Telemetry Dashboards** - Enable wheel LCD showing RPM/speed/gear for all 4 venue games, verify GameSettingCenter.json telemetry fields, document UDP port chain
 - [ ] **Phase 65: Shift Lights & RGB Lighting** - Auto RPM shift lights for AC/ACC, manual RPM thresholds for F1 25/AC Rally, RGB button lighting tied to telemetry (DRS, ABS, TC, flags)
@@ -234,6 +236,8 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 
 Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA with PlayableSignal-gated billing, per-game telemetry capture, and multi-game leaderboard integration. Extends existing SimAdapter trait and GameProcess — zero new crate dependencies.
 
+**v22.0 integration:** Future game additions should use Cargo feature gates (CF-01) for telemetry modules and feature flags (FF-01) for per-pod game enablement. AC EVO telemetry (Phase 86) already uses a compile-time feature flag — future games should use runtime feature flags via the v22.0 flag registry instead.
+
 - [x] **Phase 81: Game Launch Core** - Launch profiles, process monitoring, kiosk integration, crash recovery for 5 games (completed 2026-03-21)
 - [x] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle (completed 2026-03-21)
 - [x] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits (completed 2026-03-21)
@@ -271,7 +275,7 @@ Deploy three existing web properties (customer PWA, admin panel, live dashboard)
 - [x] **Phase 124: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches (completed 2026-03-21)
 - [ ] **Phase 125: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud
 - [ ] **Phase 126: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud
-- [ ] **Phase 127: CI/CD Pipeline** - Automated build and deploy on push to main
+- [ ] **Phase 127: CI/CD Pipeline** - Automated build and deploy on push to main. **v22.0 integration:** Use OTA-08 (deploy state machine) for both cloud and local deploy orchestration — shared pipeline architecture with wave-based rollout, health gates, and auto-rollback. Standing rules gate (gate-check.sh) required before any deploy.
 - [ ] **Phase 128: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
 - [ ] **Phase 129: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
 
@@ -1489,7 +1493,7 @@ Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry,
 - [x] **Phase 108: Keyboard Hook Replacement** - SetWindowsHookEx hook fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr); kiosk lockdown verified without any hook on Pod 8 (completed 2026-03-21)
 - [x] **Phase 109: Safe Mode State Machine** - safe_mode.rs module; WMI Win32_ProcessStartTrace event subscription for sub-second game detection; 30-second exit cooldown; process guard, Ollama queries, and registry writes gated; safe mode startup default (completed 2026-03-21)
 - [x] **Phase 110: Telemetry Gating** - shm_connect_allowed() guard defers shared memory adapter connect by 5s; UDP sockets scoped to active game; AC EVO telemetry feature-flagged off by default (completed 2026-03-21)
-- [ ] **Phase 111: Code Signing + Per-Game Canary Validation** - rc-agent.exe and rc-sentry.exe signed via signtool in deploy pipeline; staff test session per game (F1 25, iRacing, LMU) on Pod 8 with safe mode active; billing continuity verified during safe mode
+- [ ] **Phase 111: Code Signing + Per-Game Canary Validation** - rc-agent.exe and rc-sentry.exe signed via signtool in deploy pipeline; staff test session per game (F1 25, iRacing, LMU) on Pod 8 with safe mode active; billing continuity verified during safe mode. **v22.0 integration:** Use OTA-10 (SHA256 binary identity in release manifest) for binary verification instead of custom hash checks. Use OTA-02 (canary Pod 8 wave) for canary deployment — do not build a separate canary system. Standing rules gate (gate-check.sh) required before deploy.
 
 ## v15.0 AntiCheat Compatibility -- Phase Details
 
@@ -2664,6 +2668,7 @@ Plans:
 - [x] **Phase 179: OTA Pipeline** - Implement the full state-machine-driven release pipeline -- canary, staged rollout, session-gated binary swap, health gates, and auto-rollback
 - [x] **Phase 180: Admin Dashboard UI** - Deliver operator-facing feature toggle and OTA release pages in the admin dashboard (completed 2026-03-25)
 - [x] **Phase 181: Standing Rules Gate** - Codify all 41+ standing rules as machine-enforceable checks and wire them as pipeline gates
+- [x] **Phase 182: Cross-Milestone Integration** - All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push (completed 2026-03-25)
 
 ## Phase Details
 
@@ -2800,7 +2805,7 @@ Plans:
 | 179. OTA Pipeline | 3/3 | Complete    | 2026-03-25 |
 | 180. Admin Dashboard UI | 1/1 | Complete    | 2026-03-25 |
 | 181. Standing Rules Gate | 3/3 | Complete | 2026-03-25 |
-| 182. Cross-Milestone Integration | 0/TBD | Not started | - |
+| 182. Cross-Milestone Integration | 1/1 | Complete    | 2026-03-25 |
 
 ---
 

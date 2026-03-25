@@ -70,12 +70,12 @@
 
 ### Cross-Milestone Integration
 
-- [ ] **XMIL-01**: v6.0 Salt Fleet Management phases 36-40 reviewed — config distribution aspects superseded by v22.0 config push are marked, Salt scope narrowed to remote exec only or deprecated
-- [ ] **XMIL-02**: v10.0 Phase 62 (Fleet Config Distribution) marked superseded by v22.0 CP-01 to CP-06 — no duplicate config push system exists
-- [ ] **XMIL-03**: v13.0 Multi-Game Launcher incomplete phases updated to use Cargo feature gates (CF-01) for game telemetry modules and feature flags (FF-01) for per-pod game enablement
-- [ ] **XMIL-04**: v15.0 Phase 111 (Code Signing + Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) — no duplicate canary infrastructure
-- [ ] **XMIL-05**: v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) — cloud and local deploy share the same pipeline architecture
-- [ ] **XMIL-06**: All future phases across all milestones include standing rules gate dependency — no phase ships without gate-check.sh
+- [x] **XMIL-01**: v6.0 Salt Fleet Management phases 36-40 reviewed — DEPRECATED, fully superseded by v22.0 (config push + OTA + comms-link relay)
+- [x] **XMIL-02**: v10.0 Phase 62 (Fleet Config Distribution) marked superseded by v22.0 CP-01 to CP-06 — no duplicate config push system exists
+- [x] **XMIL-03**: v13.0 Multi-Game Launcher — v22.0 integration note added: future games use runtime feature flags (FF-01) not compile-time gates
+- [x] **XMIL-04**: v15.0 Phase 111 (Code Signing + Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) — no duplicate canary infrastructure
+- [x] **XMIL-05**: v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) — cloud and local deploy share the same pipeline architecture
+- [x] **XMIL-06**: All future phases across all milestones include standing rules gate dependency — gate-check.sh note added to Phase Numbering section
 
 ## v22.x Requirements (Deferred)
 
@@ -149,12 +149,12 @@
 | SR-06 | Phase 181 | Complete |
 | SR-07 | Phase 181 | Complete |
 | SYNC-06 | Phase 181 | Complete |
-| XMIL-01 | Phase 182 | Pending |
-| XMIL-02 | Phase 182 | Pending |
-| XMIL-03 | Phase 182 | Pending |
-| XMIL-04 | Phase 182 | Pending |
-| XMIL-05 | Phase 182 | Pending |
-| XMIL-06 | Phase 182 | Pending |
+| XMIL-01 | Phase 182 | Complete |
+| XMIL-02 | Phase 182 | Complete |
+| XMIL-03 | Phase 182 | Complete |
+| XMIL-04 | Phase 182 | Complete |
+| XMIL-05 | Phase 182 | Complete |
+| XMIL-06 | Phase 182 | Complete |
 
 **Coverage:**
 - v22.0 requirements: 48 total
