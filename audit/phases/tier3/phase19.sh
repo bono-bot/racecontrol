@@ -27,14 +27,28 @@ run_phase19() {
       continue
     fi
 
-    # wmic removed in Win11 26200; CIM/PowerShell gets mangled by cmd.exe exec
-    # Fallback: verify pod display subsystem via health + GPU driver presence
-    response=$(http_get "http://${ip}:8090/health" "$DEFAULT_TIMEOUT")
-    local pod_up; pod_up=$(printf '%s' "$response" | jq -r '.status // ""' 2>/dev/null)
+    # Query actual display resolution via rc-agent exec using Get-CimInstance
+    # Standing rule: cmd.exe is hostile to quoting -- Get-CimInstance is safer than GetSystemMetrics P/Invoke
     local horiz="" vert=""
-    if [[ "$pod_up" = "ok" ]]; then
-      # Pod is healthy — GPU/display working (rc-agent requires display subsystem)
-      horiz="1920"; vert="1080"  # Assume minimum; physical check for NVIDIA Surround
+    response=$(safe_remote_exec "$ip" "8090" \
+      'powershell -Command "(Get-CimInstance Win32_VideoController | Select-Object -First 1).CurrentHorizontalResolution.ToString() + [char]120 + (Get-CimInstance Win32_VideoController | Select-Object -First 1).CurrentVerticalResolution.ToString()"' \
+      15)
+    local res_output; res_output=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null | tr -d '[:space:]')
+    horiz=$(printf '%s' "$res_output" | grep -oE '^[0-9]+')
+    vert=$(printf '%s' "$res_output" | grep -oE '[0-9]+$')
+
+    # Fallback: if safe_remote_exec failed, check pod health to distinguish offline vs query failure
+    if [[ -z "$horiz" || -z "$vert" ]]; then
+      local pod_health; pod_health=$(http_get "http://${ip}:8090/health" "$DEFAULT_TIMEOUT")
+      local pod_up; pod_up=$(printf '%s' "$pod_health" | jq -r '.status // ""' 2>/dev/null)
+      if [[ "$pod_up" = "ok" ]]; then
+        status="WARN"; severity="P2"
+        message="Pod healthy but resolution query failed -- verify display manually"
+        emit_result "$phase" "$tier" "${host}-resolution" "$status" "$severity" "$message" "$mode" "$venue_state"
+        pod_num=$((pod_num+1)); continue
+      fi
+      # Pod completely offline
+      horiz="0"; vert="0"
     fi
 
     if [[ "${horiz:-0}" -eq 7680 && "${vert:-0}" -eq 1440 ]]; then
