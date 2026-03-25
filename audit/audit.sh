@@ -33,6 +33,18 @@ if [ -f "$SCRIPT_DIR/lib/results.sh" ]; then
   source "$SCRIPT_DIR/lib/results.sh"
 fi
 
+if [ -f "$SCRIPT_DIR/lib/delta.sh" ]; then
+  source "$SCRIPT_DIR/lib/delta.sh"
+fi
+
+if [ -f "$SCRIPT_DIR/lib/suppress.sh" ]; then
+  source "$SCRIPT_DIR/lib/suppress.sh"
+fi
+
+if [ -f "$SCRIPT_DIR/lib/report.sh" ]; then
+  source "$SCRIPT_DIR/lib/report.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -441,11 +453,33 @@ echo ""
 echo "Phase runner complete. Results in: $RESULT_DIR"
 
 # ---------------------------------------------------------------------------
-# Finalize results: update run-meta.json with counts, append to index.json
+# Intelligence Layer: suppress -> finalize -> delta -> report
 # ---------------------------------------------------------------------------
+echo ""
+echo "--- Intelligence Layer ---"
+
+# Step 1: Apply suppressions (rewrites FAIL/WARN -> SUPPRESSED where matched)
+if declare -f apply_suppressions >/dev/null 2>&1; then
+  apply_suppressions
+fi
+
+# Step 2: Finalize results (count statuses, update index.json)
 if declare -f finalize_results >/dev/null 2>&1; then
   finalize_results
 fi
+
+# Step 3: Compute delta against previous run
+if declare -f compute_delta >/dev/null 2>&1; then
+  compute_delta
+fi
+
+# Step 4: Generate report (Markdown + JSON)
+if declare -f generate_report >/dev/null 2>&1; then
+  generate_report
+fi
+
+echo "--- Intelligence Layer Complete ---"
+echo ""
 
 # ---------------------------------------------------------------------------
 # Exit code: count FAIL results in result dir
