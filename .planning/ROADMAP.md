@@ -3030,7 +3030,7 @@ Plans:
   3. Running without `--auto-fix` flag produces zero fix actions even when fixable issues are detected — auto-fix is off by default
   4. Running with `--notify` sends a message to Bono via comms-link and appends an entry to INBOX.md — dual-channel notification works and a notification failure does not abort or fail the audit run
   5. Running with `--commit` commits the results directory to git — audit results are preserved in version history
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 193-01-PLAN.md — lib/fixes.sh: approved-fixes whitelist, is_pod_idle() gate, OTA_DEPLOYING/MAINTENANCE_MODE sentinel checks, FIX-01 through FIX-08 implementations, per-fix audit log
@@ -3046,5 +3046,5 @@ Plans:
 | 189. Core Scaffold and Shared Primitives | 3/3 | Complete    | 2026-03-25 |
 | 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 3/3 | Complete    | 2026-03-25 |
 | 191. Parallel Engine and Phase Scripts Tiers 10-18 | 3/3 | Complete    | 2026-03-25 |
-| 192. Intelligence Layer | 4/4 | Complete   | 2026-03-25 |
+| 192. Intelligence Layer | 4/4 | Complete    | 2026-03-25 |
 | 193. Auto-Fix, Notifications, and Results Management | 0/3 | Not started | - |
