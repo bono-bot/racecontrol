@@ -52,6 +52,38 @@ const DEFAULT_EXEC_TIMEOUT_MS: u64 = 10_000;
 
 static EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(MAX_CONCURRENT_EXECS);
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+/// SHA256 of the running rc-agent binary, computed once at startup (OTA-10).
+static BINARY_SHA256: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Compute SHA256 of the running rc-agent.exe binary. Called once at startup.
+/// Stored in BINARY_SHA256 OnceLock for the /health endpoint (OTA-10).
+pub fn init_binary_sha256() {
+    use sha2::{Digest, Sha256};
+    let exe_path = std::env::current_exe().unwrap_or_default();
+    let hash = match std::fs::File::open(&exe_path) {
+        Ok(mut file) => {
+            use std::io::Read;
+            let mut hasher = Sha256::new();
+            let mut buffer = [0u8; 8192];
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => hasher.update(&buffer[..n]),
+                    Err(e) => {
+                        tracing::warn!("Failed to read binary for SHA256: {e}");
+                        return;
+                    }
+                }
+            }
+            format!("{:x}", hasher.finalize())
+        }
+        Err(e) => {
+            tracing::warn!("Failed to open binary for SHA256: {e}");
+            return;
+        }
+    };
+    let _ = BINARY_SHA256.set(hash);
+}
 
 /// Global billing gate for deploy safety. Set by event_loop on BillingStarted/Stopped.
 /// Checked by RCAGENT_SELF_RESTART to prevent deploys during active billing sessions.
@@ -332,6 +364,7 @@ async fn health() -> Json<serde_json::Value> {
         "status": "ok",
         "version": VERSION,
         "build_id": BUILD_ID,
+        "binary_sha256": BINARY_SHA256.get().map(|s| s.as_str()).unwrap_or("unknown"),
         "uptime_secs": uptime,
         "exec_slots_available": available_exec_slots,
         "exec_slots_total": MAX_CONCURRENT_EXECS,

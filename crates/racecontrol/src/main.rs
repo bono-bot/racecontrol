@@ -488,6 +488,9 @@ async fn main() -> anyhow::Result<()> {
     // v22.0 Phase 177: Load feature flags into in-memory cache and initialize config_push_seq
     state.load_feature_flags().await;
 
+    // v22.0 Phase 179: Check for interrupted OTA pipeline on startup
+    racecontrol_crate::ota_pipeline::check_interrupted_pipeline();
+
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
         let email_script = email_script_for_alerter;

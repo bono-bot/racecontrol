@@ -64,7 +64,7 @@ const SWAP_SCRIPT_CONTENT: &str = "@echo off\r\n\
 /// Sequence: kill bad binary → restore rc-agent-prev.exe → start.
 /// No sleep between kill and del — prevents watchdog from restarting the bad binary.
 /// CRLF line endings required — Windows batch files reject LF-only scripts.
-const ROLLBACK_SCRIPT_CONTENT: &str = "@echo off\r\n\
+pub const ROLLBACK_SCRIPT_CONTENT: &str = "@echo off\r\n\
     cd /d C:\\RacingPoint\r\n\
     taskkill /F /IM rc-agent.exe >nul 2>&1\r\n\
     if exist rc-agent.exe del /Q rc-agent.exe >nul 2>&1\r\n\

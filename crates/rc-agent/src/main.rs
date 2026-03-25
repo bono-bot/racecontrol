@@ -306,6 +306,9 @@ async fn main() -> Result<()> {
     ).entered();
     tracing::info!(target: LOG_TARGET, "Structured logging initialized for {}", pod_id_str);
 
+    // Compute binary SHA256 once at startup (OTA-10) — before server start
+    remote_ops::init_binary_sha256();
+
     let agent_start_time = std::time::Instant::now();
     tracing::info!(target: LOG_TARGET, "Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
     tracing::info!(target: LOG_TARGET, "Core server: {}", config.core.url);

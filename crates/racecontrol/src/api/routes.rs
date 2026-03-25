@@ -1,6 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
+    response::IntoResponse,
     routing::{get, post, put},
 };
 use serde::Deserialize;
@@ -381,6 +382,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/deploy/status", get(deploy_status))
         .route("/deploy/rolling", post(deploy_rolling_handler))
         .route("/deploy/{pod_id}", post(deploy_single_pod))
+        // OTA Pipeline (v22.0 Phase 179)
+        .route("/ota/deploy", post(ota_deploy_handler))
+        .route("/ota/status", get(ota_status_handler))
         // Debug
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
@@ -14654,6 +14658,81 @@ async fn deploy_rolling_handler(
             "binary_url": req.binary_url
         })),
     )
+}
+
+// ─── OTA Pipeline (v22.0 Phase 179) ──────────────────────────────────────────
+
+/// POST /api/v1/ota/deploy — Start an OTA pipeline deploy with a TOML manifest.
+/// Returns 202 Accepted; pipeline runs as background task.
+/// Returns 409 if a pipeline is already running.
+async fn ota_deploy_handler(
+    State(state): State<Arc<AppState>>,
+    body: String,
+) -> impl IntoResponse {
+    use crate::ota_pipeline;
+
+    // Parse manifest from TOML body
+    let manifest = match ota_pipeline::parse_manifest(&body) {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e })),
+            );
+        }
+    };
+
+    // Check if a pipeline is already running
+    if let Some(record) = ota_pipeline::load_pipeline_state() {
+        if !record.state.is_terminal() {
+            return (
+                axum::http::StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "Pipeline already running",
+                    "state": format!("{:?}", record.state),
+                })),
+            );
+        }
+    }
+
+    // Spawn pipeline as background task
+    let version = manifest.release.version.clone();
+    tokio::spawn(async move {
+        tracing::info!("OTA pipeline started for version {}", version);
+        // Pipeline orchestration will be wired here in future iteration
+        // For now: persist initial state
+        let record = ota_pipeline::DeployRecord::new(&version);
+        if let Err(e) = ota_pipeline::persist_pipeline_state(&record) {
+            tracing::error!("Failed to persist initial pipeline state: {e}");
+        }
+    });
+
+    (
+        axum::http::StatusCode::ACCEPTED,
+        Json(json!({ "status": "pipeline_started" })),
+    )
+}
+
+/// GET /api/v1/ota/status — Current OTA pipeline state.
+async fn ota_status_handler() -> impl IntoResponse {
+    use crate::ota_pipeline;
+
+    match ota_pipeline::load_pipeline_state() {
+        Some(record) => match serde_json::to_value(&record) {
+            Ok(json) => (axum::http::StatusCode::OK, Json(json)),
+            Err(e) => {
+                tracing::warn!("Failed to serialize pipeline state: {e}");
+                (
+                    axum::http::StatusCode::OK,
+                    Json(json!({ "state": "error", "message": format!("Serialization error: {e}") })),
+                )
+            }
+        },
+        None => (
+            axum::http::StatusCode::OK,
+            Json(json!({ "state": "idle", "message": "No pipeline state" })),
+        ),
+    }
 }
 
 // ─── Watchdog ────────────────────────────────────────────────────────────────

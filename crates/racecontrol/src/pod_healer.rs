@@ -839,6 +839,32 @@ async fn run_graduated_recovery(
                 return;
             }
 
+            // CHECK 2b (OTA-09): Check OTA sentinel — skip WoL if OTA deploy in progress on this pod.
+            // Mirrors the MAINTENANCE_MODE check above — both must be absent before WoL fires.
+            let ota_check_url = format!(
+                "http://{}:8091/files?path=C%3A%5CRacingPoint%5Cota-in-progress.flag",
+                pod.ip_address
+            );
+            let ota_in_progress = match state
+                .http_client
+                .get(&ota_check_url)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => true,
+                _ => false,
+            };
+            if ota_in_progress {
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} has OTA in progress -- skipping WoL to prevent WoL<>OTA conflict",
+                    pod.id
+                );
+                tracker.step = PodRecoveryStep::AlertStaff;
+                return;
+            }
+
             // CHECK 3: Write WOL_SENT sentinel via rc-sentry /exec BEFORE sending magic packet.
             // This gives all recovery systems visibility into the WoL escalation.
             let sentinel_cmd = r#"echo WOL_SENT > C:\RacingPoint\WOL_SENT"#;
