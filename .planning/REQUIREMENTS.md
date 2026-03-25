@@ -60,10 +60,10 @@
 
 ### Results Management
 
-- [ ] **RSLT-01**: Results stored in `audit/results/YYYY-MM-DD_HH-MM/` with JSON + Markdown files
-- [ ] **RSLT-02**: `audit/results/latest` symlink points to most recent run
+- [x] **RSLT-01**: Results stored in `audit/results/YYYY-MM-DD_HH-MM/` with JSON + Markdown files
+- [x] **RSLT-02**: `audit/results/latest` symlink points to most recent run
 - [ ] **RSLT-03**: Results committed to git when `--commit` flag is passed
-- [ ] **RSLT-04**: Previous run's JSON automatically found for delta comparison (latest symlink)
+- [x] **RSLT-04**: Previous run's JSON automatically found for delta comparison (latest symlink)
 
 ## Future Requirements
 
@@ -125,10 +125,10 @@
 | NOTF-03 | Phase 193 | Pending |
 | NOTF-04 | Phase 193 | Pending |
 | NOTF-05 | Phase 193 | Pending |
-| RSLT-01 | Phase 192 | Pending |
-| RSLT-02 | Phase 192 | Pending |
+| RSLT-01 | Phase 192 | Complete |
+| RSLT-02 | Phase 192 | Complete |
 | RSLT-03 | Phase 193 | Pending |
-| RSLT-04 | Phase 192 | Pending |
+| RSLT-04 | Phase 192 | Complete |
 
 **Coverage:**
 - v1 requirements: 42 total
