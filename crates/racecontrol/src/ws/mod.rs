@@ -1050,9 +1050,9 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
     tracing::info!("Dashboard client connected");
 
-    // Send current pod list on connect
+    // Send current pod list on connect (only physical pods 1-8, exclude POS/utility agents)
     let pods = state.pods.read().await;
-    let pod_list: Vec<_> = pods.values().cloned().collect();
+    let pod_list: Vec<_> = pods.values().filter(|p| p.number >= 1 && p.number <= 8).cloned().collect();
     drop(pods);
 
     let init_msg = DashboardEvent::PodList(pod_list);
@@ -1129,10 +1129,19 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     // Subscribe to broadcast events
     let mut rx = state.dashboard_tx.subscribe();
 
-    // Forward broadcast events to this dashboard client
+    // Forward broadcast events to this dashboard client (filter non-physical pods)
     let send_task = tokio::spawn(async move {
         while let Ok(event) = rx.recv().await {
-            if let Ok(json) = serde_json::to_string(&event) {
+            // Skip PodUpdate for non-physical pods (e.g. POS PC registering as pod 9)
+            let filtered = match &event {
+                DashboardEvent::PodUpdate(pod) if pod.number < 1 || pod.number > 8 => continue,
+                DashboardEvent::PodList(pods) => {
+                    let physical: Vec<_> = pods.iter().filter(|p| p.number >= 1 && p.number <= 8).cloned().collect();
+                    DashboardEvent::PodList(physical)
+                }
+                _ => event,
+            };
+            if let Ok(json) = serde_json::to_string(&filtered) {
                 if sender.send(Message::Text(json.into())).await.is_err() {
                     break;
                 }
