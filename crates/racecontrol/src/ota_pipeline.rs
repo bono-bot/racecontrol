@@ -83,6 +83,7 @@ pub enum PipelineState {
     HealthChecking,
     Completed,
     RollingBack,
+    Paused, // HUMAN-CONFIRM gate pending operator confirmation
 }
 
 impl PipelineState {
@@ -193,6 +194,110 @@ pub fn check_interrupted_pipeline() {
             if let Err(e) = persist_pipeline_state(&record) {
                 tracing::error!("Failed to persist interrupted pipeline state: {e}");
             }
+        }
+    }
+}
+
+// ── Standing Rules Gate (SR-04) ─────────────────────────────────────────────
+
+/// Exit codes from gate-check.sh
+#[derive(Debug, PartialEq, Eq)]
+pub enum GateResult {
+    Pass,           // exit 0 -- all checks passed
+    Fail(String),   // exit 1 -- gate failure, must rollback
+    HumanConfirm,   // exit 2 -- HUMAN-CONFIRM items pending, must pause
+}
+
+/// Run gate-check.sh with the specified mode.
+/// Returns GateResult based on exit code.
+pub fn run_gate_check(mode: &str) -> GateResult {
+    let repo_root = std::env::current_dir().unwrap_or_default();
+    let script = repo_root.join("test").join("gate-check.sh");
+
+    if !script.exists() {
+        return GateResult::Fail(format!("gate-check.sh not found at {}", script.display()));
+    }
+
+    let output = std::process::Command::new("bash")
+        .arg(&script)
+        .arg(mode)
+        .current_dir(&repo_root)
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            match out.status.code() {
+                Some(0) => GateResult::Pass,
+                Some(2) => GateResult::HumanConfirm,
+                Some(code) => GateResult::Fail(format!(
+                    "gate-check.sh exited with code {}\nstdout: {}\nstderr: {}",
+                    code,
+                    stdout.chars().take(500).collect::<String>(),
+                    stderr.chars().take(500).collect::<String>()
+                )),
+                None => GateResult::Fail("gate-check.sh killed by signal".to_string()),
+            }
+        }
+        Err(e) => GateResult::Fail(format!("Failed to run gate-check.sh: {}", e)),
+    }
+}
+
+/// Run pre-deploy gate. Returns the state the pipeline should transition to.
+/// On Pass: proceed to Canary
+/// On Fail: RollingBack
+/// On HumanConfirm: Paused
+pub fn run_pre_deploy_gate() -> PipelineState {
+    match run_gate_check("--pre-deploy") {
+        GateResult::Pass => PipelineState::Canary,
+        GateResult::Fail(reason) => {
+            tracing::error!("Pre-deploy gate FAILED: {}", reason);
+            PipelineState::RollingBack
+        }
+        GateResult::HumanConfirm => {
+            tracing::warn!("Pre-deploy gate requires HUMAN-CONFIRM -- pipeline paused");
+            PipelineState::Paused
+        }
+    }
+}
+
+/// Run post-wave gate. Returns the state the pipeline should transition to.
+pub fn run_post_wave_gate(wave: u32) -> PipelineState {
+    match run_gate_check(&format!("--post-wave {}", wave)) {
+        GateResult::Pass => PipelineState::StagedRollout,
+        GateResult::Fail(reason) => {
+            tracing::error!("Post-wave {} gate FAILED: {}", wave, reason);
+            PipelineState::RollingBack
+        }
+        GateResult::HumanConfirm => {
+            tracing::warn!("Post-wave {} gate requires HUMAN-CONFIRM -- pipeline paused", wave);
+            PipelineState::Paused
+        }
+    }
+}
+
+/// Resume pipeline from Paused state after operator confirmation.
+/// Only valid when current state is Paused.
+pub fn resume_from_pause(record: &mut DeployRecord) -> Result<(), String> {
+    if record.state != PipelineState::Paused {
+        return Err(format!(
+            "Cannot resume: pipeline is in {:?}, not Paused",
+            record.state
+        ));
+    }
+    // Re-run the gate check to confirm operator has resolved all items
+    match run_gate_check("--pre-deploy") {
+        GateResult::Pass => {
+            record.transition(PipelineState::Canary);
+            Ok(())
+        }
+        GateResult::Fail(reason) => {
+            record.transition(PipelineState::RollingBack);
+            Err(format!("Gate still failing after resume: {}", reason))
+        }
+        GateResult::HumanConfirm => {
+            Err("HUMAN-CONFIRM items still pending".to_string())
         }
     }
 }
@@ -509,6 +614,7 @@ binary_url_base = "http://localhost:9998"
             PipelineState::HealthChecking,
             PipelineState::Completed,
             PipelineState::RollingBack,
+            PipelineState::Paused,
         ];
         for state in &states {
             let json = serde_json::to_string(state).unwrap();
@@ -783,5 +889,47 @@ binary_url_base = "http://localhost:9998"
         let json = serde_json::to_string(&failure).unwrap();
         assert!(json.contains("pod_8"));
         assert!(json.contains("sha256_mismatch"));
+    }
+
+    // ── Paused State + Gate Integration Tests (Plan 03, SR-04) ──────────
+
+    #[test]
+    fn paused_state_serialization() {
+        let json = serde_json::to_string(&PipelineState::Paused).unwrap();
+        assert_eq!(json, "\"paused\"");
+        let reparsed: PipelineState = serde_json::from_str(&json).unwrap();
+        assert_eq!(reparsed, PipelineState::Paused);
+    }
+
+    #[test]
+    fn paused_is_not_terminal() {
+        assert!(!PipelineState::Paused.is_terminal());
+    }
+
+    #[test]
+    fn gate_result_debug_format() {
+        let pass = GateResult::Pass;
+        let fail = GateResult::Fail("test failure".to_string());
+        let confirm = GateResult::HumanConfirm;
+        assert_eq!(format!("{pass:?}"), "Pass");
+        assert!(format!("{fail:?}").contains("test failure"));
+        assert_eq!(format!("{confirm:?}"), "HumanConfirm");
+    }
+
+    #[test]
+    fn paused_deploy_record_serializes() {
+        let record = DeployRecord {
+            state: PipelineState::Paused,
+            manifest_version: "gate-test".to_string(),
+            started_at: "t0".to_string(),
+            updated_at: "t1".to_string(),
+            waves_completed: 0,
+            failed_pods: Vec::new(),
+            rollback_reason: None,
+        };
+        let json = serde_json::to_string_pretty(&record).unwrap();
+        assert!(json.contains("\"paused\""));
+        let reparsed: DeployRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(reparsed.state, PipelineState::Paused);
     }
 }
