@@ -1,166 +1,140 @@
-# Requirements: Racing Point Operations — v22.0 Feature Management & OTA Pipeline
+# Requirements: v23.0 Audit Protocol v4.0
 
-**Defined:** 2026-03-23
-**Core Value:** Seamlessly integrate, remove, and update features across the entire RaceControl fleet without reinstalling programs — with every standing rule enforced as an automated gate at every step.
+**Defined:** 2026-03-25
+**Core Value:** One command runs 60 audit phases across the entire fleet and produces actionable, comparable results — no copy-paste, no manual tracking, no missed checks.
 
-## v22.0 Requirements
+## v1 Requirements
 
-### Feature Flags
+### Core Runner
 
-- [x] **FF-01**: Server maintains a central named boolean feature flag registry backed by SQLite with fleet-wide defaults
-- [x] **FF-02**: Operator can set per-pod flag overrides (e.g., enable AC EVO telemetry on Pod 8 only for canary testing)
-- [x] **FF-03**: Flag changes are delivered to pods over the existing WebSocket connection as typed messages — no new ports or protocols
-- [x] **FF-04**: rc-agent caches flags in-memory (Arc<RwLock>) for synchronous reads in hot paths (game launch, billing guard) — no server round-trip per flag check
-- [x] **FF-05**: rc-agent persists last-received flags to flags-cache.json and reads them on startup before server connects — pods operate with last-known flags when offline
-- [ ] **FF-06**: Admin dashboard has a Feature Flags section with toggle switches and per-pod scope selector
-- [x] **FF-07**: Flag changes propagate to all connected pods within seconds of admin toggle — no deploy or restart required
-- [x] **FF-08**: Kill switch flags (named kill_*) are evaluated before all other flag logic and take priority over normal flag hierarchy
+- [ ] **RUN-01**: Operator can execute full audit with `bash audit.sh --mode <mode>` (quick|standard|full|pre-ship|post-incident)
+- [ ] **RUN-02**: Each phase produces structured JSON: `{phase, tier, host, status, severity, message, timestamp, mode, venue_state}`
+- [ ] **RUN-03**: Every check has a configurable timeout (default 10s) — one offline pod cannot hang the audit
+- [ ] **RUN-04**: All 60 phases from AUDIT-PROTOCOL v3.0 are ported as non-interactive bash functions
+- [ ] **RUN-05**: Shared library (lib/core.sh) provides `record_result()`, `record_fix()`, `exec_on_pod()`, `exec_on_server()` primitives
+- [ ] **RUN-06**: cmd.exe quoting wrapper in exec helpers — prevents the 4+ known quoting pitfalls through rc-agent `/exec`
+- [ ] **RUN-07**: curl output sanitization — strips quotes from health endpoint responses (`"200"` → `200`)
+- [ ] **RUN-08**: jq is validated at startup — audit aborts with clear error if jq not found
+- [ ] **RUN-09**: Auth token obtained automatically at audit start from `/api/v1/terminal/auth` (PIN from env var, not hardcoded)
+- [ ] **RUN-10**: Auth token refresh mid-run if full audit exceeds token lifespan
 
-### Config Push
+### Execution
 
-- [x] **CP-01**: Server pushes config changes (billing rates, game limits, process guard entries, debug verbosity) to pods over WebSocket as typed ConfigPush messages — never through fleet exec endpoint
-- [x] **CP-02**: Server maintains a pending config queue per pod — offline pods receive queued updates on WebSocket reconnect with sequence-number-based ack
-- [x] **CP-03**: rc-agent hot-reloads supported config fields (billing rates, game limits, process guard whitelist, debug verbosity) without binary restart using arc-swap — fields requiring restart (port bindings, WS URL) are documented and excluded
-- [x] **CP-04**: Config push includes schema version — rc-agent ignores unknown fields from newer schema versions and logs a warning instead of panicking
-- [x] **CP-05**: All config changes are recorded in an append-only audit log table (timestamp, field, old_value, new_value, pushed_by, pods_acked)
-- [x] **CP-06**: Server validates config changes against schema before accepting — invalid values (negative billing rate, empty allowlist) return 400 with field-level errors and are never pushed to pods
+- [ ] **EXEC-01**: Venue-open/closed auto-detection via fleet health API (any pod with active billing = open) with time-of-day fallback
+- [ ] **EXEC-02**: Display & hardware tiers produce QUIET (not FAIL) when venue is closed
+- [ ] **EXEC-03**: Parallel pod queries with 4-concurrent-connection semaphore using file-based locking
+- [ ] **EXEC-04**: Background jobs write to per-pod temp files (`$RESULT_DIR/phase_host.json`), assembled after `wait`
+- [ ] **EXEC-05**: Mode selects which tiers to run: quick=1-2, standard=1-11, full=1-18, pre-ship=critical subset, post-incident=incident subset
+- [ ] **EXEC-06**: `--tier N` and `--phase N` flags for running individual tiers or phases
+- [ ] **EXEC-07**: UTC→IST timestamp conversion in all output (standing rule compliance)
 
-### OTA Pipeline
+### Intelligence
 
-- [ ] **OTA-01**: Releases are defined by an atomic manifest (release-manifest.toml) locking binary SHA256 hash, config schema version, frontend build_id, git commit, and timestamp as one versioned bundle
-- [ ] **OTA-02**: OTA pipeline always deploys to canary Pod 8 first and waits for health gate pass before proceeding to other pods
-- [ ] **OTA-03**: Health gate runs after each pod wave — checks WS connected, HTTP reachable, binary SHA256 matches manifest, no error spike in logs
-- [ ] **OTA-04**: Pipeline auto-rolls back affected pods on health gate failure — swaps to previous binary (rc-agent-prev.exe) and triggers RCAGENT_SELF_RESTART
-- [ ] **OTA-05**: OTA pipeline gates all destructive operations on billing session state — pods with active sessions defer binary swap until session ends or checkpoint session state to DB before swap
-- [ ] **OTA-06**: Staged wave rollout: wave 1 = canary (Pod 8), wave 2 = 4 pods, wave 3 = remaining pods — each wave waits for health gate before proceeding
-- [ ] **OTA-07**: Previous binary (rc-agent-prev.exe) is always preserved on each pod — never overwritten by the swap step — enabling one-command manual rollback
-- [ ] **OTA-08**: OTA pipeline is implemented as a state machine (idle, building, staging, canary, staged-rollout, health-checking, completed, rolling-back) with state persisted to deploy-state.json — can resume interrupted deploys
-- [ ] **OTA-09**: Recovery systems (rc-sentry, pod_monitor, WoL) are coordinated via sentinel file (ota-in-progress.flag) — all recovery systems check this file before triggering restarts during OTA
-- [ ] **OTA-10**: Binary identity uses SHA256 content hash (not git commit hash) — prevents false redeploy triggers from docs-only commits
+- [ ] **INTL-01**: Delta tracking compares current run against previous run's JSON, highlighting regressions (PASS→FAIL) and improvements (FAIL→PASS)
+- [ ] **INTL-02**: Delta is mode-aware and venue-state-aware — PASS→QUIET is NOT flagged as regression
+- [ ] **INTL-03**: Known-issue suppression via `suppress.json` with fields: phase, host_pattern, message_pattern, reason, added_date, expires_date, owner
+- [ ] **INTL-04**: Suppressed issues appear in report as SUPPRESSED with reason, not silently hidden
+- [ ] **INTL-05**: Severity scoring: PASS/WARN/FAIL/QUIET/SUPPRESSED status + P1 (service down) / P2 (degraded) / P3 (cosmetic) severity
+- [ ] **INTL-06**: Markdown report with tier summary tables, phase details, delta section, fix actions taken, and overall verdict
+- [ ] **INTL-07**: JSON summary file alongside markdown report for machine consumption
+- [ ] **INTL-08**: Suppression entries with expired `expires_date` are automatically ignored (stale suppression prevention)
 
-### Cargo Feature Gates
+### Auto-Fix
 
-- [x] **CF-01**: rc-agent Cargo.toml has feature flags for major optional modules (ai-debugger, process-guard) — modules can be compiled out entirely. Telemetry excluded: too deeply woven into billing/game state machine to gate.
-- [x] **CF-02**: Default features = full production build — no manual flag selection required for standard pod deploy
-- [x] **CF-03**: CI verifies both default and minimal (--no-default-features) builds compile cleanly for both rc-agent and rc-sentry
-- [x] **CF-04**: rc-sentry Cargo.toml has feature flags for optional modules (watchdog, tier1-fixes, ai-diagnosis) — bare binary with all features off is a remote-exec-only tool on port 8091
+- [ ] **FIX-01**: Auto-fix only executes when `--auto-fix` flag is passed (off by default)
+- [ ] **FIX-02**: Every fix function checks `is_pod_idle()` before executing — never touch a pod with active billing
+- [ ] **FIX-03**: Every fix function checks for OTA_DEPLOYING and MAINTENANCE_MODE sentinels before executing
+- [ ] **FIX-04**: Safe fix: clear stale MAINTENANCE_MODE / GRACEFUL_RELAUNCH / restart sentinel files
+- [ ] **FIX-05**: Safe fix: kill orphan PowerShell processes (count > 1) on pods
+- [ ] **FIX-06**: Safe fix: restart rc-agent via schtasks on pods where it's down but rc-sentry is up
+- [ ] **FIX-07**: All fix actions logged to JSON with before/after state for audit trail
+- [ ] **FIX-08**: Explicit approved-fixes whitelist array in lib/fixes.sh — no fix runs unless listed
 
-### Protocol Forward-Compatibility
+### Notifications
 
-- [x] **PFC-01**: AgentMessage and CoreToAgentMessage enums have an Unknown catch-all variant with #[serde(other)] — older binaries silently ignore new message types instead of crashing on deserialization. Must be deployed to all pods BEFORE any new message variants are added.
+- [ ] **NOTF-01**: Audit summary sent to Bono via comms-link `send-message.js` on completion
+- [ ] **NOTF-02**: Audit summary appended to comms-link INBOX.md with git push
+- [ ] **NOTF-03**: WhatsApp summary to Uday via Bono relay Evolution API — P1/P2 counts + overall verdict
+- [ ] **NOTF-04**: Notifications only fire on `--notify` flag (off by default for test runs)
+- [ ] **NOTF-05**: Notification includes delta summary if previous run exists (regressions highlighted)
 
-### Standing Rules Codification
+### Results Management
 
-- [x] **SR-01**: All 41+ CLAUDE.md standing rules are classified into enforcement types: AUTO (linter/compiler/script), HUMAN-CONFIRM (pipeline pauses for operator checklist), INFORMATIONAL (documented but not gated)
-- [x] **SR-02**: Pre-deploy gate script (gate-check.sh) runs before any binary leaves staging — checks: cargo test green, no unwrap in diff, static CRT config present, LOGBOOK updated, bat files clean ASCII — blocks deploy on failure
-- [x] **SR-03**: Post-deploy verification gate runs after each wave — checks: build_id matches manifest, fleet health passes, billing session roundtrip works, no error spike — blocks next wave on failure
-- [x] **SR-04**: Pipeline has no force-continue or skip-gate commands — the only exit from a failed health check is rollback
-- [x] **SR-05**: New standing rules are added to CLAUDE.md covering: always preserve prev binary, never deploy without manifest, rollback window defined, billing sessions drain before swap, OTA sentinel file protocol, config push never through fleet exec
-- [x] **SR-06**: HUMAN-CONFIRM rules (visual verification, customer audit, anomaly investigation) cause pipeline to PAUSE with a named operator checklist — pipeline resumes only on explicit operator confirmation
-- [x] **SR-07**: Standing rules sync to Bono after any modification — both AIs operate under identical rules
+- [ ] **RSLT-01**: Results stored in `audit/results/YYYY-MM-DD_HH-MM/` with JSON + Markdown files
+- [ ] **RSLT-02**: `audit/results/latest` symlink points to most recent run
+- [ ] **RSLT-03**: Results committed to git when `--commit` flag is passed
+- [ ] **RSLT-04**: Previous run's JSON automatically found for delta comparison (latest symlink)
 
-### Cross-Project Sync (builds on v21.0)
+## Future Requirements
 
-- [x] **SYNC-01**: Feature flag and config push APIs are documented in the OpenAPI 3.0 spec (extends v21.0 Phase 173 contract) with shared TypeScript types in packages/shared-types/
-- [ ] **SYNC-02**: OTA pipeline uses the unified deploy scripts (deploy.sh, check-health.sh) from v21.0 as its health gate foundation — extends, not replaces
-- [x] **SYNC-03**: New WebSocket message types (FlagSync, ConfigPush, OtaDownload, etc.) are added to rc-common AND to the shared TypeScript types package — contract tests verify both sides match
-- [ ] **SYNC-04**: Feature flag and config push changes cascade to ALL affected components (racecontrol, rc-agent, kiosk, admin dashboard, API gateway) per the cross-process update standing rule
-- [ ] **SYNC-05**: OTA release manifest includes version compatibility matrix — which rc-agent version works with which racecontrol version, which kiosk build, which config schema
-- [x] **SYNC-06**: Standing rules gate script (gate-check.sh) extends the v21.0 E2E test framework (run-all.sh) — not a separate test system
-
-### Cross-Milestone Integration
-
-- [x] **XMIL-01**: v6.0 Salt Fleet Management phases 36-40 reviewed — DEPRECATED, fully superseded by v22.0 (config push + OTA + comms-link relay)
-- [x] **XMIL-02**: v10.0 Phase 62 (Fleet Config Distribution) marked superseded by v22.0 CP-01 to CP-06 — no duplicate config push system exists
-- [x] **XMIL-03**: v13.0 Multi-Game Launcher — v22.0 integration note added: future games use runtime feature flags (FF-01) not compile-time gates
-- [x] **XMIL-04**: v15.0 Phase 111 (Code Signing + Canary) updated to use OTA-10 (SHA256 binary identity) and OTA-02 (canary Pod 8) — no duplicate canary infrastructure
-- [x] **XMIL-05**: v17.0 Phase 127 (CI/CD Pipeline) updated to use OTA-08 (deploy state machine) — cloud and local deploy share the same pipeline architecture
-- [x] **XMIL-06**: All future phases across all milestones include standing rules gate dependency — gate-check.sh note added to Phase Numbering section
-
-## v22.x Requirements (Deferred)
-
-### Advanced OTA
-- **OTA-D1**: Atomic multi-component rollback across binary + config + frontend simultaneously
-- **OTA-D2**: Full 231-test E2E as post-wave gate (quick subset sufficient for v22.0)
-- **OTA-D3**: Anti-cheat safe mode flags (depends on v15.0 AntiCheat milestone)
-
-### Advanced Config
-- **CP-D1**: Config drift auto-heal (detect diverged pods and auto-push correct config)
-- **CP-D2**: A/B config testing (different config values on different pod groups)
-
-### Advanced Flags
-- **FF-D1**: Percentage rollout (enable flag on N% of pods)
-- **FF-D2**: Time-based flag scheduling (enable flag at specific time, disable after)
+### Advanced Automation
+- **ADV-01**: Scheduled audit via cron/Task Scheduler (daily quick, weekly standard)
+- **ADV-02**: Trend dashboard — multi-run severity charts over time
+- **ADV-03**: Per-pod health score computed from weighted phase results
+- **ADV-04**: Integration with GSD milestone verification (auto-run pre-ship audit on `/gsd:verify-work`)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| External feature flag service (LaunchDarkly, Unleash) | LAN-only venue, 8 pods — external SaaS adds latency, cost, and network dependency for no benefit |
-| A/B testing framework | 8 pods is too small a sample; per-pod override covers the canary use case |
-| Blue-green deployment (duplicate fleet) | Only 8 physical pods; no hardware to double |
-| Kubernetes/container orchestration | Windows pods running bare-metal Rust binaries — containerization adds complexity without value |
-| Mobile OTA (app store) | No mobile apps in scope |
-| Feature flag SDK (OpenFeature) | Over-engineered for 8-pod LAN fleet; custom ~100-line FeatureRegistry in rc-common is the right abstraction |
+| Continuous monitoring daemon | PROJECT.md constraint — audit is point-in-time, not a service |
+| Node.js/Python audit logic | Pure bash constraint — only jq as external dependency |
+| Auto-deploy stale binaries | Too destructive — deploy decisions require human confirmation |
+| Visual verification automation | Standing rule: display-affecting checks need physical/screenshot verification |
+| Pod binary rebuild | Audit detects staleness but doesn't compile — that's deploy tooling |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CF-01 | Phase 176 | Complete |
-| CF-02 | Phase 176 | Complete |
-| CF-03 | Phase 176 | Complete |
-| CF-04 | Phase 176 | Complete |
-| PFC-01 | Phase 176 | Complete |
-| FF-01 | Phase 177 | Complete |
-| FF-02 | Phase 177 | Complete |
-| FF-03 | Phase 177 | Complete |
-| CP-01 | Phase 177 | Complete |
-| CP-02 | Phase 177 | Complete |
-| CP-04 | Phase 177 | Complete |
-| CP-05 | Phase 177 | Complete |
-| CP-06 | Phase 177 | Complete |
-| SYNC-01 | Phase 177 | Complete |
-| FF-04 | Phase 178 | Complete |
-| FF-05 | Phase 178 | Complete |
-| FF-07 | Phase 178 | Complete |
-| FF-08 | Phase 178 | Complete |
-| CP-03 | Phase 178 | Complete |
-| SYNC-03 | Phase 178 | Complete |
-| OTA-01 | Phase 179 | Pending |
-| OTA-02 | Phase 179 | Pending |
-| OTA-03 | Phase 179 | Pending |
-| OTA-04 | Phase 179 | Pending |
-| OTA-05 | Phase 179 | Pending |
-| OTA-06 | Phase 179 | Pending |
-| OTA-07 | Phase 179 | Pending |
-| OTA-08 | Phase 179 | Pending |
-| OTA-09 | Phase 179 | Pending |
-| OTA-10 | Phase 179 | Pending |
-| SYNC-02 | Phase 179 | Pending |
-| SYNC-05 | Phase 179 | Pending |
-| FF-06 | Phase 180 | Pending |
-| SYNC-04 | Phase 180 | Pending |
-| SR-01 | Phase 181 | Complete |
-| SR-02 | Phase 181 | Complete |
-| SR-03 | Phase 181 | Complete |
-| SR-04 | Phase 181 | Complete |
-| SR-05 | Phase 181 | Complete |
-| SR-06 | Phase 181 | Complete |
-| SR-07 | Phase 181 | Complete |
-| SYNC-06 | Phase 181 | Complete |
-| XMIL-01 | Phase 182 | Complete |
-| XMIL-02 | Phase 182 | Complete |
-| XMIL-03 | Phase 182 | Complete |
-| XMIL-04 | Phase 182 | Complete |
-| XMIL-05 | Phase 182 | Complete |
-| XMIL-06 | Phase 182 | Complete |
+| RUN-01 | — | Pending |
+| RUN-02 | — | Pending |
+| RUN-03 | — | Pending |
+| RUN-04 | — | Pending |
+| RUN-05 | — | Pending |
+| RUN-06 | — | Pending |
+| RUN-07 | — | Pending |
+| RUN-08 | — | Pending |
+| RUN-09 | — | Pending |
+| RUN-10 | — | Pending |
+| EXEC-01 | — | Pending |
+| EXEC-02 | — | Pending |
+| EXEC-03 | — | Pending |
+| EXEC-04 | — | Pending |
+| EXEC-05 | — | Pending |
+| EXEC-06 | — | Pending |
+| EXEC-07 | — | Pending |
+| INTL-01 | — | Pending |
+| INTL-02 | — | Pending |
+| INTL-03 | — | Pending |
+| INTL-04 | — | Pending |
+| INTL-05 | — | Pending |
+| INTL-06 | — | Pending |
+| INTL-07 | — | Pending |
+| INTL-08 | — | Pending |
+| FIX-01 | — | Pending |
+| FIX-02 | — | Pending |
+| FIX-03 | — | Pending |
+| FIX-04 | — | Pending |
+| FIX-05 | — | Pending |
+| FIX-06 | — | Pending |
+| FIX-07 | — | Pending |
+| FIX-08 | — | Pending |
+| NOTF-01 | — | Pending |
+| NOTF-02 | — | Pending |
+| NOTF-03 | — | Pending |
+| NOTF-04 | — | Pending |
+| NOTF-05 | — | Pending |
+| RSLT-01 | — | Pending |
+| RSLT-02 | — | Pending |
+| RSLT-03 | — | Pending |
+| RSLT-04 | — | Pending |
 
 **Coverage:**
-- v22.0 requirements: 48 total
-- Mapped to phases: 48
-- Unmapped: 0
+- v1 requirements: 42 total
+- Mapped to phases: 0
+- Unmapped: 42 ⚠️
 
 ---
-*Requirements defined: 2026-03-23*
-*Last updated: 2026-03-24 after adding rc-sentry Cargo feature gates (CF-04)*
+*Requirements defined: 2026-03-25*
+*Last updated: 2026-03-25 after milestone v23.0 initialization*
