@@ -9,6 +9,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 IST | James | `503ef7c0` | feat(195-02): billing_accuracy_events + recovery_events tables with structs and record functions in metrics.rs |
+| Mar 26 IST | James | `2ec92cb5` | feat(195-02): wire billing accuracy event at billing start (billing.rs) and recovery event at crash relaunch (game_launcher.rs) |
+| Mar 26 IST | James | `a19e4780` | docs(195-02): 195-02-SUMMARY + STATE + ROADMAP updated |
 | Mar 26 03:57 IST | James | `27adb455` | feat(194-01): add normalize_pod_id() in rc-common with 10 unit tests |
 | Mar 26 03:57 IST | James | `6e77fd4f` | feat(194-01): replace all alt-id workarounds (billing_alt_id, relaunch_alt, stop_alt) in game_launcher.rs, routes.rs, ws/mod.rs |
 | Mar 26 03:57 IST | James | `bbdd70a6` | feat(194-01): normalize pod_id at all 5 billing.rs entry points |
