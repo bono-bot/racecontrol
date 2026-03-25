@@ -32,6 +32,34 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
+## Current Milestone: v25.0 Debug-First-Time-Right — Systematic Debugging Quality
+
+**Goal:** Eliminate the pattern of multi-attempt debugging by building verification frameworks, observable state transitions, boot resilience, and enforced startup verification into the Rust codebase and operational tooling. Born from a retrospective audit of 11 multi-attempt bugs (avg 2.4 attempts each) revealing 7 root cause categories.
+
+**Target features:**
+- Chain-of-verification framework in Rust — verify each step: input → transform → parse → decision → action (not just endpoints)
+- Observable state transitions — alerts on MAINTENANCE_MODE writes, config fallbacks, sentinel file creation, empty allowlist
+- Boot resilience patterns — periodic re-fetch loops for anything fetched once at startup (allowlist, config, feature flags)
+- Startup enforcement audit — scan all bat files across 8 pods, ensure every manual fix has code enforcement
+- Pre-ship verification gate — domain-matched verification (visual changes = visual checks, network = connection checks)
+- Cause Elimination Process enforcement — structured template before declaring any non-trivial bug fixed
+- Silent failure elimination — eprintln! for errors before logging init, explicit alerts for state machine transitions
+
+**Constraints:**
+- Rust/Axum stack — changes to rc-agent + racecontrol require binary rebuild + fleet deploy
+- Must not break existing billing, lock screen, session management, or recovery systems
+- Bat file changes must be deployed alongside binaries (standing rule: bat sync)
+- Pod 8 canary-first testing for all changes
+- Backward compatible with existing kiosk/PWA/admin flows
+
+**Audit evidence (2026-03-26):**
+- 8+ incidents: proxy verification (build_id/health OK ≠ bug fixed)
+- 5+ incidents: manual fixes without code enforcement (regress on reboot)
+- 3+ incidents: incomplete root cause analysis (piecemeal fixes)
+- 6+ incidents: silent failures (no observable state transitions)
+- 2+ incidents: boot-time transient failures (no periodic retry)
+- 2+ incidents: context/semantic mismatch (dev vs production)
+
 ## Current Milestone: v24.0 Game Launch & Billing Rework — Self-Improving Launch Engine
 
 **Goal:** Rework the game launcher and billing system to be resilient, accurate, and self-improving. Games must launch flawlessly, billing must start precisely when the car is on-track and controllable (not during loading), and every launch/billing event feeds a metrics foundation that makes the system smarter over time.

@@ -1,17 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v7.0
-milestone_name: E2E Test Suite
+milestone: v25.0
+milestone_name: Debug-First-Time-Right
 status: in_progress
-stopped_at: Completed 194-01-PLAN.md
-last_updated: "2026-03-25T22:43:20.822Z"
+stopped_at: Defining requirements
+last_updated: "2026-03-26"
 progress:
-  total_phases: 156
-  completed_phases: 123
-  total_plans: 296
-  completed_plans: 292
-  percent: 99
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-26 — Milestone v25.0 started
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-03-26)
+
+**Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
+**Current focus:** Debug-First-Time-Right — eliminate multi-attempt debugging patterns
+
+---
+<!-- Previous milestone state preserved below -->
 
 
 ---
