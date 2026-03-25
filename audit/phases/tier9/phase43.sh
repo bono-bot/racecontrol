@@ -123,14 +123,67 @@ run_phase43() {
       status="FAIL"; severity="P1"; message="All ${probed} camera probes failed: ${probe_fail_list} — NVR or RTSP may be down"
     fi
   else
-    status="WARN"; severity="P2"; message="Cannot probe cameras �� go2rtc API unavailable"
+    status="WARN"; severity="P2"; message="Cannot probe cameras -- go2rtc API unavailable"
   fi
   if [[ "$venue_state" = "closed" ]] && [[ "$status" != "PASS" ]]; then
     status="QUIET"; severity="P3"
   fi
   emit_result "$phase" "$tier" "james-cameras-health" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # --- Check 6: Standalone camera IPs reachable (entrance .8, reception .15, .154) ---
+  # --- Check 6: NVR credentials loaded (go2rtc env vars) ---
+  # go2rtc.yaml uses ${NVR_USER}/${NVR_PASS}. If .env wasn't sourced on restart,
+  # RTSP URLs contain literal "${NVR_USER}" and ALL cameras silently fail auth.
+  if [[ -n "$response" ]]; then
+    local has_unresolved; has_unresolved=$(printf '%s' "$response" | jq -r '[.. | strings | select(contains("${NVR_"))] | length' 2>/dev/null)
+    if [[ "${has_unresolved:-0}" -gt 0 ]]; then
+      status="FAIL"; severity="P1"; message="go2rtc has unresolved \${NVR_USER}/\${NVR_PASS} — .env not loaded, ALL cameras will fail auth"
+    else
+      status="PASS"; severity="P3"; message="NVR credentials resolved in go2rtc stream URLs"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Cannot verify NVR credentials — go2rtc API unavailable"
+  fi
+  emit_result "$phase" "$tier" "james-go2rtc-credentials" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # --- Check 7: rc-sentry-ai camera status (cross-service dependency) ---
+  # rc-sentry-ai at :8096 has its own /api/v1/cameras with per-camera connected/disconnected.
+  # This catches: missing _h264 streams, RTSP relay failures, frame buffer stale.
+  local sentry_resp; sentry_resp=$(http_get "http://localhost:8096/api/v1/cameras" 5)
+  if [[ -n "$sentry_resp" ]]; then
+    local total_cams; total_cams=$(printf '%s' "$sentry_resp" | jq 'length' 2>/dev/null)
+    local connected; connected=$(printf '%s' "$sentry_resp" | jq '[.[] | select(.status == "connected")] | length' 2>/dev/null)
+    local disconnected_list; disconnected_list=$(printf '%s' "$sentry_resp" | jq -r '[.[] | select(.status != "connected") | .display_name] | join(", ")' 2>/dev/null)
+    if [[ "${connected:-0}" -eq "${total_cams:-0}" ]]; then
+      status="PASS"; severity="P3"; message="rc-sentry-ai: all ${total_cams} cameras connected"
+    elif [[ "${connected:-0}" -ge 1 ]]; then
+      status="WARN"; severity="P2"; message="rc-sentry-ai: ${connected}/${total_cams} connected. Down: ${disconnected_list}"
+    else
+      status="FAIL"; severity="P1"; message="rc-sentry-ai: 0/${total_cams} cameras connected — ${disconnected_list}"
+    fi
+  else
+    status="WARN"; severity="P2"; message="rc-sentry-ai :8096 not responding — camera status unknown"
+  fi
+  if [[ "$venue_state" = "closed" ]] && [[ "$status" != "PASS" ]]; then
+    status="QUIET"; severity="P3"
+  fi
+  emit_result "$phase" "$tier" "james-sentry-cameras" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # --- Check 8: _h264 transcode streams exist in go2rtc (cross-service config match) ---
+  if [[ -n "$response" ]]; then
+    local h264_count; h264_count=$(printf '%s' "$response" | jq '[keys[] | select(endswith("_h264"))] | length' 2>/dev/null)
+    if [[ "${h264_count:-0}" -ge 13 ]]; then
+      status="PASS"; severity="P3"; message="go2rtc: ${h264_count} H.264 transcode streams configured (>= 13)"
+    elif [[ "${h264_count:-0}" -ge 5 ]]; then
+      status="WARN"; severity="P2"; message="go2rtc: only ${h264_count}/13 H.264 transcode streams — some cameras will show disconnected in rc-sentry-ai"
+    else
+      status="FAIL"; severity="P1"; message="go2rtc: only ${h264_count} H.264 streams — rc-sentry-ai camera pipeline broken"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Cannot verify H.264 streams — go2rtc API unavailable"
+  fi
+  emit_result "$phase" "$tier" "james-h264-streams" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # --- Check 9: Standalone camera IPs reachable (entrance .8, reception .15, .154) ---
   local standalone_cams="192.168.31.8 192.168.31.15 192.168.31.154"
   for cam_ip in $standalone_cams; do
     local cam_code; cam_code=$(curl -s -m 3 -o /dev/null -w "%{http_code}" "http://${cam_ip}" 2>/dev/null)
