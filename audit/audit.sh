@@ -49,6 +49,10 @@ if [ -f "$SCRIPT_DIR/lib/notify.sh" ]; then
   source "$SCRIPT_DIR/lib/notify.sh"
 fi
 
+if [ -f "$SCRIPT_DIR/lib/fixes.sh" ]; then
+  source "$SCRIPT_DIR/lib/fixes.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -467,6 +471,11 @@ if declare -f apply_suppressions >/dev/null 2>&1; then
   apply_suppressions
 fi
 
+# Step 1.5: Run auto-fixes on detected issues (if --auto-fix enabled)
+if declare -f run_auto_fixes >/dev/null 2>&1; then
+  run_auto_fixes
+fi
+
 # Step 2: Finalize results (count statuses, update index.json)
 if declare -f finalize_results >/dev/null 2>&1; then
   finalize_results
@@ -490,6 +499,24 @@ echo ""
 # ---------------------------------------------------------------------------
 if declare -f send_notifications >/dev/null 2>&1; then
   send_notifications
+fi
+
+# ---------------------------------------------------------------------------
+# Git commit results (if --commit enabled)
+# ---------------------------------------------------------------------------
+if [[ "${COMMIT:-false}" = "true" ]] && [ -d "$RESULT_DIR" ]; then
+  echo "--- Committing Results ---"
+  (
+    cd "$(dirname "$SCRIPT_DIR")" 2>/dev/null || cd "$SCRIPT_DIR"
+    git add "$RESULT_DIR" 2>/dev/null
+    git commit -m "audit: ${AUDIT_MODE} run $(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M IST')" 2>/dev/null
+    if [ $? -eq 0 ]; then
+      echo "Results committed to git"
+    else
+      echo "WARN: git commit failed (no changes or git error)" >&2
+    fi
+  ) || echo "WARN: git commit step failed" >&2
+  echo "--- Commit Complete ---"
 fi
 
 # ---------------------------------------------------------------------------
