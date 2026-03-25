@@ -54,3 +54,5 @@ build/
 target/
 *.exe
 !*.exe.manifest
+.tmp/
+# Local deploy staging artifacts

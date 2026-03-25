@@ -685,6 +685,39 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── Staff gamification opt-in (v14.0 Phase 95) ────────────────────────
+    let _ = sqlx::query("ALTER TABLE staff_members ADD COLUMN gamification_opt_in INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
+    // Staff kudos table (v14.0 Phase 95)
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_kudos (
+            id TEXT PRIMARY KEY,
+            sender_id TEXT NOT NULL REFERENCES staff_members(id),
+            receiver_id TEXT NOT NULL REFERENCES staff_members(id),
+            message TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'teamwork'
+                CHECK(category IN ('teamwork', 'service', 'initiative')),
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await;
+
+    // Staff earned badges (v14.0 Phase 95)
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_earned_badges (
+            id TEXT PRIMARY KEY,
+            staff_id TEXT NOT NULL REFERENCES staff_members(id),
+            badge_id TEXT NOT NULL REFERENCES staff_badges(id),
+            earned_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(staff_id, badge_id)
+        )"
+    )
+    .execute(pool)
+    .await;
+
     // Migration: add 'consuming' to auth_tokens status CHECK constraint
     // SQLite can't ALTER CHECK constraints, so we rebuild the table
     let needs_rebuild: bool = sqlx::query_scalar::<_, String>(
@@ -2311,6 +2344,18 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+
+    // Seed staff badges (v14.0 Phase 95)
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO staff_badges (id, name, description, criteria_json, badge_icon) VALUES
+         ('sbadge_first_shift', 'First Shift', 'Hosted your first racing session', '{\"type\":\"sessions_hosted\",\"operator\":\">=\",\"value\":1}', 'play'),
+         ('sbadge_event_host', 'Event Host', 'Created and ran a hotlap event', '{\"type\":\"events_created\",\"operator\":\">=\",\"value\":1}', 'calendar'),
+         ('sbadge_streak_4w', 'Streak 4 Weeks', 'Worked 4 consecutive weeks', '{\"type\":\"work_streak_weeks\",\"operator\":\">=\",\"value\":4}', 'flame'),
+         ('sbadge_pod_master', 'Pod Master', 'Hosted 100 racing sessions', '{\"type\":\"sessions_hosted\",\"operator\":\">=\",\"value\":100}', 'crown'),
+         ('sbadge_team_player', 'Team Player', 'Received 10 kudos from colleagues', '{\"type\":\"kudos_received\",\"operator\":\">=\",\"value\":10}', 'heart')"
+    )
+    .execute(pool)
+    .await;
 
     // Psychology Foundation indexes
     sqlx::query(
