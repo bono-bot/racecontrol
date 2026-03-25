@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # audit/phases/tier5/phase29.sh -- Phase 29: Multiplayer & Friends
-# Tier: 5 (Games & Hardware)
+# Tier: 5 (Games & Hardware) -- QUIET when venue closed
 # What: Multiplayer sessions endpoint, friends system functional.
 
 set -u
@@ -12,6 +12,16 @@ run_phase29() {
   local mode="${AUDIT_MODE:-quick}"
   local venue_state="${VENUE_STATE:-unknown}"
   local response status severity message
+
+  # QUIET when venue closed — multiplayer requires live pods
+  if [[ "$venue_state" = "closed" ]]; then
+    emit_result "$phase" "$tier" "server-23-multiplayer" "QUIET" "P3" \
+      "Multiplayer check skipped — venue closed" "$mode" "$venue_state"
+    emit_result "$phase" "$tier" "server-23-friends" "QUIET" "P3" \
+      "Friends check skipped — venue closed" "$mode" "$venue_state"
+    return 0
+  fi
+
   local token; token=$(get_session_token)
 
   # Multiplayer endpoint

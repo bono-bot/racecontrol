@@ -55,8 +55,8 @@ usage() {
 Usage: AUDIT_PIN=<pin> bash audit/audit.sh --mode <MODE> [OPTIONS]
 
 Modes:
-  quick          Fast health sweep (Tier 1 only, ~2 min)
-  standard       Full Tier 1-3 run (~10 min)
+  quick          Fast health sweep (Tiers 1-2, ~5 min)
+  standard       Full Tiers 1-9 run (~15 min)
   full           All tiers + extra probes (~25 min)
   pre-ship       Pre-deployment verification gates
   post-incident  Post-incident investigation sweep
