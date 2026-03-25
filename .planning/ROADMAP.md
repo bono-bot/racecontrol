@@ -3266,7 +3266,10 @@ Plans:
   6. Running audit Phase 21 billing endpoint check returns WARN (not PASS) when the endpoint is unreachable during venue hours
   7. Running audit Phase 53 watchdog check returns WARN when ps_count=0 (watchdog dead) instead of silently passing
   8. go2rtc warmup step exists in start-rcsentry-ai.bat and executes before rc-sentry-ai starts
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 202-01-PLAN.md — Config value validation (phase02) + billing/watchdog severity fixes (phase21, phase53)
+- [ ] 202-02-PLAN.md — WhatsApp/email service checks (phase30, phase31) + display resolution fix (phase19) + go2rtc warmup bat
 
 ### Phase 203: Deep Service Verification
 **Goal**: Audit phase scripts that currently check infrastructure proxies (process count, uptime, HTTP 200) are upgraded to verify the actual consuming service is functional
