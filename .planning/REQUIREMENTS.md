@@ -24,8 +24,8 @@
 - [x] **EXEC-02**: Display & hardware tiers produce QUIET (not FAIL) when venue is closed
 - [ ] **EXEC-03**: Parallel pod queries with 4-concurrent-connection semaphore using file-based locking
 - [ ] **EXEC-04**: Background jobs write to per-pod temp files (`$RESULT_DIR/phase_host.json`), assembled after `wait`
-- [ ] **EXEC-05**: Mode selects which tiers to run: quick=1-2, standard=1-11, full=1-18, pre-ship=critical subset, post-incident=incident subset
-- [ ] **EXEC-06**: `--tier N` and `--phase N` flags for running individual tiers or phases
+- [x] **EXEC-05**: Mode selects which tiers to run: quick=1-2, standard=1-11, full=1-18, pre-ship=critical subset, post-incident=incident subset
+- [x] **EXEC-06**: `--tier N` and `--phase N` flags for running individual tiers or phases
 - [x] **EXEC-07**: UTC→IST timestamp conversion in all output (standing rule compliance)
 
 ### Intelligence
@@ -101,8 +101,8 @@
 | EXEC-02 | Phase 189 | Complete |
 | EXEC-03 | Phase 191 | Pending |
 | EXEC-04 | Phase 191 | Pending |
-| EXEC-05 | Phase 190 | Pending |
-| EXEC-06 | Phase 190 | Pending |
+| EXEC-05 | Phase 190 | Complete |
+| EXEC-06 | Phase 190 | Complete |
 | EXEC-07 | Phase 189 | Complete |
 | INTL-01 | Phase 192 | Pending |
 | INTL-02 | Phase 192 | Pending |

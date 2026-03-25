@@ -2944,7 +2944,7 @@ Plans:
 
 - [x] **Phase 189: Core Scaffold and Shared Primitives** - audit.sh entry point, lib/core.sh with all safe wrapper functions, JSON schema, auth token acquisition, prerequisites check
  (completed 2026-03-25)
-- [ ] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors
+- [x] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors (completed 2026-03-25)
 - [ ] **Phase 191: Parallel Engine and Phase Scripts Tiers 10-18** - lib/parallel.sh with file-based semaphore; port v3.0 phases 35-60; audit runtime reduced from ~24 min to ~6 min
 - [ ] **Phase 192: Intelligence Layer** - Delta tracking, known-issue suppression with expiry, severity scoring, Markdown report generation, results storage
 - [ ] **Phase 193: Auto-Fix, Notifications, and Results Management** - Safe auto-fix engine with whitelist, Bono/WhatsApp notifications, git commit of results
@@ -3044,7 +3044,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 189. Core Scaffold and Shared Primitives | 3/3 | Complete    | 2026-03-25 |
-| 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 2/3 | In Progress|  |
+| 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 3/3 | Complete   | 2026-03-25 |
 | 191. Parallel Engine and Phase Scripts Tiers 10-18 | 0/3 | Not started | - |
 | 192. Intelligence Layer | 0/4 | Not started | - |
 | 193. Auto-Fix, Notifications, and Results Management | 0/3 | Not started | - |
