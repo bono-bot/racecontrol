@@ -19,9 +19,9 @@
 
 ### Pod ID Normalization (PODID)
 
-- [ ] **PODID-01**: Create `normalize_pod_id(raw: &str) -> String` helper that canonicalizes all pod ID formats (`pod-1`, `pod_1`, `POD_1`, `Pod-1`) to a single canonical form — used at EVERY entry point (API handlers, WS handlers, billing lookups)
-- [ ] **PODID-02**: Replace ALL 5+ inconsistent pod ID lookups in game_launcher.rs (lines 95-106, 111-112, 142-176, 210, 395-400) with `normalize_pod_id()` — eliminate the `billing_alt_id` pattern entirely
-- [ ] **PODID-03**: Replace ALL inconsistent pod ID lookups in billing.rs and agent_senders with `normalize_pod_id()` — one canonical format everywhere
+- [x] **PODID-01**: Create `normalize_pod_id(raw: &str) -> String` helper that canonicalizes all pod ID formats (`pod-1`, `pod_1`, `POD_1`, `Pod-1`) to a single canonical form — used at EVERY entry point (API handlers, WS handlers, billing lookups)
+- [x] **PODID-02**: Replace ALL 5+ inconsistent pod ID lookups in game_launcher.rs (lines 95-106, 111-112, 142-176, 210, 395-400) with `normalize_pod_id()` — eliminate the `billing_alt_id` pattern entirely
+- [x] **PODID-03**: Replace ALL inconsistent pod ID lookups in billing.rs and agent_senders with `normalize_pod_id()` — one canonical format everywhere
 
 ### Game Launcher Rework (LAUNCH)
 
@@ -151,9 +151,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PODID-01 | Phase 194 | Pending |
-| PODID-02 | Phase 194 | Pending |
-| PODID-03 | Phase 194 | Pending |
+| PODID-01 | Phase 194 | Complete |
+| PODID-02 | Phase 194 | Complete |
+| PODID-03 | Phase 194 | Complete |
 | METRICS-01 | Phase 195 | Pending |
 | METRICS-02 | Phase 195 | Pending |
 | METRICS-03 | Phase 195 | Pending |

@@ -3061,7 +3061,7 @@ Plans:
 
 ### v24.0 Phases
 
-- [ ] **Phase 194: Pod ID Normalization** - Canonical pod ID format everywhere, eliminating billing_alt_id and inconsistent lookups
+- [x] **Phase 194: Pod ID Normalization** - Canonical pod ID format everywhere, eliminating billing_alt_id and inconsistent lookups (completed 2026-03-25)
 - [ ] **Phase 195: Metrics Foundation** - SQLite + JSONL dual storage for every launch, billing, and crash event with queryable APIs
 - [ ] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation
 - [ ] **Phase 197: Launch Resilience & AC Hardening** - Dynamic timeouts, pre-launch checks, auto-retry, error taxonomy, AC polling-based waits, and arg parsing fixes
@@ -3223,7 +3223,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 194. Pod ID Normalization | 0/0 | Not started | - |
+| 194. Pod ID Normalization | 1/1 | Complete   | 2026-03-25 |
 | 195. Metrics Foundation | 0/0 | Not started | - |
 | 196. Game Launcher Structural Rework | 0/0 | Not started | - |
 | 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
