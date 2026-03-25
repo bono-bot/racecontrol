@@ -52,11 +52,11 @@
 
 ### Notifications
 
-- [ ] **NOTF-01**: Audit summary sent to Bono via comms-link `send-message.js` on completion
-- [ ] **NOTF-02**: Audit summary appended to comms-link INBOX.md with git push
-- [ ] **NOTF-03**: WhatsApp summary to Uday via Bono relay Evolution API — P1/P2 counts + overall verdict
-- [ ] **NOTF-04**: Notifications only fire on `--notify` flag (off by default for test runs)
-- [ ] **NOTF-05**: Notification includes delta summary if previous run exists (regressions highlighted)
+- [x] **NOTF-01**: Audit summary sent to Bono via comms-link `send-message.js` on completion
+- [x] **NOTF-02**: Audit summary appended to comms-link INBOX.md with git push
+- [x] **NOTF-03**: WhatsApp summary to Uday via Bono relay Evolution API — P1/P2 counts + overall verdict
+- [x] **NOTF-04**: Notifications only fire on `--notify` flag (off by default for test runs)
+- [x] **NOTF-05**: Notification includes delta summary if previous run exists (regressions highlighted)
 
 ### Results Management
 
@@ -120,11 +120,11 @@
 | FIX-06 | Phase 193 | Pending |
 | FIX-07 | Phase 193 | Pending |
 | FIX-08 | Phase 193 | Pending |
-| NOTF-01 | Phase 193 | Pending |
-| NOTF-02 | Phase 193 | Pending |
-| NOTF-03 | Phase 193 | Pending |
-| NOTF-04 | Phase 193 | Pending |
-| NOTF-05 | Phase 193 | Pending |
+| NOTF-01 | Phase 193 | Complete |
+| NOTF-02 | Phase 193 | Complete |
+| NOTF-03 | Phase 193 | Complete |
+| NOTF-04 | Phase 193 | Complete |
+| NOTF-05 | Phase 193 | Complete |
 | RSLT-01 | Phase 192 | Complete |
 | RSLT-02 | Phase 192 | Complete |
 | RSLT-03 | Phase 193 | Pending |
