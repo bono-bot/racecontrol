@@ -14,6 +14,47 @@ use std::ffi::OsString;
 use tracing_subscriber::prelude::*;
 use windows_service::{define_windows_service, service_dispatcher};
 
+#[cfg(windows)]
+mod singleton {
+    use std::ptr;
+    use winapi::um::synchapi::CreateMutexW;
+    use winapi::um::synchapi::ReleaseMutex;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::errhandlingapi::GetLastError;
+    use winapi::shared::minwindef::TRUE;
+    use winapi::shared::winerror::ERROR_ALREADY_EXISTS;
+
+    /// Windows mutex-based singleton guard. Drop closes the handle.
+    pub struct SingletonGuard(winapi::shared::ntdef::HANDLE);
+
+    impl SingletonGuard {
+        /// Try to acquire a named mutex. Returns None if another instance holds it.
+        pub fn try_acquire(name: &str) -> Option<Self> {
+            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                let handle = CreateMutexW(ptr::null_mut(), TRUE, wide.as_ptr());
+                if handle.is_null() {
+                    return None;
+                }
+                if GetLastError() == ERROR_ALREADY_EXISTS {
+                    CloseHandle(handle);
+                    return None;
+                }
+                Some(Self(handle))
+            }
+        }
+    }
+
+    impl Drop for SingletonGuard {
+        fn drop(&mut self) {
+            unsafe {
+                ReleaseMutex(self.0);
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
 const BUILD_ID: &str = env!("GIT_HASH");
 
 define_windows_service!(ffi_service_main, service_main);
@@ -39,6 +80,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         service_dispatcher::start("RCWatchdog", ffi_service_main)?;
     } else {
         // James monitor mode: persistent daemon with internal 2-min loop
+
+        // Singleton guard — prevent multiple instances
+        #[cfg(windows)]
+        let _singleton = match singleton::SingletonGuard::try_acquire("Global\\RCWatchdogJames") {
+            Some(guard) => guard,
+            None => {
+                eprintln!("rc-watchdog: another instance is already running, exiting");
+                std::process::exit(0);
+            }
+        };
+
         let file_appender = tracing_appender::rolling::daily(
             r"C:\Users\bono\.claude",
             "rc-watchdog.log",

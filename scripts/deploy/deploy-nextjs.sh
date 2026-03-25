@@ -135,7 +135,14 @@ stop_node_on_port() {
 # --- Helper: check health endpoint, sets HEALTH_RESPONSE ---
 HEALTH_RESPONSE=""
 check_health() {
-  HEALTH_RESPONSE=$(curl -s --max-time 10 "http://192.168.31.23:$PORT/api/health" 2>/dev/null || echo "")
+  # Each app has a basePath — health endpoint must include it
+  local BASE_PATH=""
+  case "$APP" in
+    kiosk) BASE_PATH="/kiosk" ;;
+    admin) BASE_PATH="/admin" ;;
+    web)   BASE_PATH="" ;;
+  esac
+  HEALTH_RESPONSE=$(curl -s --max-time 10 "http://192.168.31.23:$PORT${BASE_PATH}/api/health" 2>/dev/null || echo "")
 }
 
 # =========================================================================
