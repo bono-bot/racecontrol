@@ -2751,7 +2751,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
+- [ ] 180-01-PLAN.md -- Feature Flags page + OTA Releases page + API types + nav entries
 
 ### Phase 181: Standing Rules Gate
 **Goal**: Every standing rule is classified as AUTO, HUMAN-CONFIRM, or INFORMATIONAL and the appropriate enforcement mechanism fires at every pipeline step -- no gate can be bypassed, and HUMAN-CONFIRM rules pause the pipeline with a named checklist
