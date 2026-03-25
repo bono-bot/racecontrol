@@ -1,30 +1,22 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v22.0
+milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: Completed 187-01-PLAN.md
-last_updated: "2026-03-25T02:06:40.564Z"
+stopped_at: Phase 179 research started
+last_updated: "2026-03-25T08:30:00.000Z"
 progress:
-  total_phases: 143
-  completed_phases: 113
-  total_plans: 270
-  completed_plans: 265
----
-
----
-gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: in_progress
-stopped_at: Completed 187-01-PLAN.md
-last_updated: "2026-03-24T22:23:08.950Z"
-progress:
-  total_phases: 143
-  completed_phases: 112
-  total_plans: 269
-  completed_plans: 264
-  percent: 98
+  total_phases: 5
+  completed_phases: 3
+  total_plans: 12
+  completed_plans: 9
+  percent: 75
+context:
+  current_phase: 179
+  phase_name: OTA Pipeline
+  next_action: Execute Phase 179 — full OTA state machine
+  phases_defined: 176-180
+  archived: v6.0 Salt Fleet Management (DEPRECATED, superseded by v22.0)
 ---
 
 ---

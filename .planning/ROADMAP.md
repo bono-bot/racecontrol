@@ -124,11 +124,20 @@ Key: Single ops.bat entry point replacing 310 scattered scripts; centralized con
 
 </details>
 
+## Archived Milestones
+
+<details>
+<summary>v6.0 Salt Fleet Management — Phases 36–40 (DEPRECATED 2026-03-25, superseded by v22.0)</summary>
+
+**Original goal:** Replace pod-agent/remote_ops HTTP with SaltStack. BLOCKED on Intel VT-x disabled in BIOS (server CPU: Intel Core Ultra 9 285K). v22.0 Feature Management & OTA Pipeline supersedes all Salt config distribution and deploy orchestration. Remaining Salt value (remote shell exec) is covered by existing comms-link relay + rc-agent exec.
+
+**Phases 36-40:** All NOT STARTED. No code, no binaries, no infrastructure deployed. Only Phase 36 directory exists (WSL2 Infrastructure — empty planning).
+
+**Decision:** DEPRECATED. Do not implement. v22.0 covers all use cases.
+
+</details>
+
 ## Current Milestone
-
-### v6.0 Salt Fleet Management (Phases 36–40)
-
-**Milestone Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint (port 8090) with SaltStack — salt-master on WSL2 James (.27), salt-minion on all 8 pods + server (.23), salt_exec.rs as the server-side integration seam, remote_ops.rs deleted from rc-agent, and deploy workflow fully migrated to Salt.
 
 ### v7.0 E2E Test Suite (Phases 41–44)
 
@@ -154,11 +163,7 @@ Key: Single ops.bat entry point replacing 310 scattered scripts; centralized con
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 36: WSL2 Infrastructure** - WSL2 Ubuntu 24.04 with mirrored networking, salt-master 3008 LTS, salt-api, and Hyper-V firewall rules running on James (.27) and verified reachable from the pod subnet
-- [ ] **Phase 37: Pod 8 Minion Bootstrap** - Salt minion 3008 installed on Pod 8 canary with explicit minion ID, Defender exclusions pre-applied, sc failure recovery configured, key accepted, and install.bat rewritten without pod-agent sections
-- [ ] **Phase 38: salt_exec.rs + Server Module Migration** - New salt_exec.rs Rust module wrapping salt-api REST calls, all four server-side modules (deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs) migrated from pod-agent HTTP to Salt
-- [ ] **Phase 39: remote_ops.rs Removal** - Characterization tests written covering the WebSocket path, remote_ops.rs deleted from rc-agent, all port 8090 references purged from Rust source and deploy scripts, cargo build clean, Pod 8 canary billing lifecycle verified
-- [ ] **Phase 40: Fleet Rollout** - Salt minion deployed to all 8 pods + server via updated install.bat, all keys accepted, salt '*' test.ping returns 9 True, deploy workflow fully migrated to Salt
+- ~~**Phase 36-40: v6.0 Salt Fleet Management**~~ — DEPRECATED 2026-03-25, superseded by v22.0. See Archived Milestones.
 - [x] **Phase 41: Test Foundation** - Shared shell library, pod IP map, Playwright config, and cargo-nextest configured — the skeleton every other test script sources (completed 2026-03-18)
 - [x] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors (completed 2026-03-18)
 - [x] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal (completed 2026-03-18)
