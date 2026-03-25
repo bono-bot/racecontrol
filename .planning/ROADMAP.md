@@ -3082,7 +3082,9 @@ Plans:
   3. **UNIT TEST**: `normalize_pod_id()` function has tests for: "pod-1"→canonical, "pod_1"→canonical, "POD_1"→canonical, "Pod-1"→canonical, "pod-99"→canonical, ""→error, "garbage"→error
   4. **CROSS-MAP CONSISTENCY**: Start billing for "pod_1", launch game for "pod-1", check game_state for "POD_1" -- all three operations reference the same in-memory state. Verified by: billing timer lookup succeeds, game tracker lookup succeeds, agent_senders lookup succeeds
   5. **REGRESSION**: All existing `cargo test` pass after normalization changes -- zero test regressions
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 194-01-PLAN.md -- normalize_pod_id() in rc-common + replace all alt-id workarounds in racecontrol
 
 ### Phase 195: Metrics Foundation
 **Goal**: Every game launch, billing event, and crash recovery is recorded in dual storage (SQLite for queries, JSONL for immutable audit) with queryable APIs -- the data backbone that powers dynamic timeouts, intelligence, and debugging
