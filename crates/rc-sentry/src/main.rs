@@ -381,6 +381,9 @@ fn read_request(stream: &mut TcpStream) -> Result<String, Box<dyn std::error::Er
 }
 
 fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    // On Windows, accept() inherits non-blocking from the listener — force blocking
+    // mode so reads wait for data instead of returning WouldBlock immediately.
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
