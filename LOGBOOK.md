@@ -813,3 +813,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 21:30 IST | James | 0318038e | fix: ConspitLink flicker regression — process multiplication (4-11 instances), stale bat file, missing power enforcement. Updated start-rcagent.bat + deployed to all 8 pods. Standing rule: every manual fix needs code-enforced startup verification. |
 | 2026-03-25 16:16 IST | James | c93f805e | feat(193-02): create audit/lib/notify.sh — 3-channel notification engine (Bono WS + INBOX.md + WhatsApp) gated behind --notify flag |
 | 2026-03-25 16:16 IST | James | 9c1ac002 | docs(193-02): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated — NOTF-01 to NOTF-05 complete |
+| 2026-03-26 04:38 IST | James | 176c2f4e | feat(195-01): metrics.rs module + launch_events table + JSONL writer |
+| 2026-03-26 04:38 IST | James | 3135e7dc | feat(195-01): wire metrics::record_launch_event into game_launcher + fix log_game_event error swallowing |
+| 2026-03-26 04:38 IST | James | 167a6bc7 | docs(195-01): SUMMARY.md + STATE.md + ROADMAP.md |
