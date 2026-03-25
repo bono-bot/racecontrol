@@ -1,95 +1,204 @@
 # Stack Research
 
-**Domain:** Bash-based automated fleet audit runner — v23.0 Audit Protocol v4.0
-**Researched:** 2026-03-25 IST
-**Confidence:** HIGH (tools verified live on James's machine; integration points traced through existing codebase; parallel execution patterns confirmed against bash 5.2 docs)
+**Domain:** Rust verification framework, observable state machines, boot resilience — v25.0 Debug-First-Time-Right
+**Researched:** 2026-03-26 IST
+**Confidence:** HIGH for crates already in workspace; MEDIUM for new crate additions (verified via docs.rs and official repos)
 
 ---
 
 ## Context: The Constraint
 
-Pure bash. No new compiled dependencies. No new Node packages for audit logic. Runs on James's machine (Windows 11, Git Bash) targeting server (.23), 8 pods, Bono VPS via HTTP APIs and SSH. The constraint is real and workable — this stack leans into what bash already does well.
+This is NOT a greenfield Rust service. The constraint is tight:
 
-**What's already available on James's machine (verified live):**
+- Existing workspace: `tokio 1`, `tracing 0.1`, `tracing-subscriber 0.3`, `axum 0.8`, `serde_json 1`, `anyhow 1`, `thiserror 2`, `sqlx 0.8`
+- New crate additions must clear the bar: "no new dep where an existing primitive suffices"
+- Pod binaries (rc-agent, rc-sentry) require binary rebuild + fleet deploy for every Cargo.toml change
+- The v25.0 goal is observability and correctness patterns, not new runtime infrastructure
 
-| Tool | Version | Available |
-|------|---------|-----------|
-| bash | 5.2.37 (x86_64-pc-msys) | YES — Git Bash |
-| curl | 8.18.0 (mingw32 / Schannel) | YES |
-| ssh | OpenSSH (via Git Bash) | YES |
-| scp | OpenSSH (via Git Bash) | YES |
-| diff | GNU diff | YES |
-| awk | GNU awk | YES |
-| sed | GNU sed | YES |
-| mktemp | GNU coreutils | YES |
-| date | GNU coreutils | YES |
-| node | v22.22.0 | YES — for helpers only |
-| python3 | 3.13.12 | YES — for helpers only |
-| jq | NOT INSTALLED | NEEDS INSTALL |
+**Philosophy for this stack:** most of v25.0 is patterns and macros built on existing deps, not new crates. The few genuine additions are targeted and small.
+
+---
+
+## What Already Exists (Do Not Re-Add)
+
+| Capability | Already Provided By | Used In |
+|------------|---------------------|---------|
+| Structured logging with spans | `tracing 0.1` (workspace) | All crates |
+| Async retry with backoff | `tokio::time::sleep` + custom `EscalatingBackoff` in `rc-common` | self_monitor.rs, ws_handler.rs |
+| Phased startup log | `startup_log.rs` (custom, in rc-agent) | main.rs boot sequence |
+| Pre-flight check framework | `pre_flight.rs` (custom, in rc-agent) | BillingStarted handler |
+| File read/exist checks | `std::fs` | MAINTENANCE_MODE, GRACEFUL_RELAUNCH sentinels |
+| Periodic re-fetch | `tokio::time::interval` (done in `821c3031`) | process_guard allowlist 300s |
+| State broadcast | `tokio::sync::broadcast` | ws_handler.rs fleet alerts |
+| Config file parsing | `toml 0.8` + `serde` (workspace) | config.rs in both crates |
 
 ---
 
 ## Recommended Stack
 
-### Core Technologies
+### Core Technologies (all already in workspace — zero new deps)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| bash | 5.2 (existing) | Audit runner language | Already installed, all 60 phases already written in bash, zero new dependency. `wait -n` (bash 4.3+) enables safe bounded parallelism without external tools. |
-| jq | 1.8.1 | JSON assembly, parsing, delta comparison | The only missing tool. Single static binary, no runtime deps, winget-installable. Without jq, JSON output requires fragile string concatenation — every consumer breaks. With jq, structured output is safe and diff-able. `jq --arg` handles escaping so bash never touches JSON strings directly. |
-| curl | 8.18.0 (existing) | HTTP health checks, API queries, comms-link relay calls | Already used throughout AUDIT-PROTOCOL v3.0. Schannel TLS on Windows — no openssl dep. Use `-s --max-time N --connect-timeout N` on every call to prevent hangs from offline pods. |
-| ssh | OpenSSH (existing) | Fallback exec when HTTP endpoints are down | Already in Git Bash. Tailscale mesh gives Tailscale IPs as fallback path. Use only when HTTP unreachable — matches existing standing rule. |
-| diff | GNU diff (existing) | Delta tracking between audit runs | `diff --unified=0` on previous/current JSON produces machine-readable change lines. `diff -q` for pass/fail. No new tool needed for delta tracking. |
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `tracing` | 0.1 (workspace) | Chain-of-verification spans, state transition events, silent failure elimination | Already the project logger. `#[instrument]` + manual `info_span!` provide per-step spans for data flow verification. `warn!` / `error!` with structured fields (`cause=`, `value=`) surface silent errors. This is the primary tool for 4 of 7 v25.0 goals. |
+| `tokio::time::interval` | tokio 1 (workspace) | Periodic re-fetch loops — configs, allowlists, feature flags fetched at boot | Already used for allowlist 300s re-fetch. Extend the same pattern to all boot-time-fetch resources. No new dep. |
+| `tokio::sync::watch` | tokio 1 (workspace) | Observable state values — single writer, many readers, current-value semantics | Prefer `watch` over `broadcast` for state (not events). `watch::Sender<StateEnum>` + `watch::Receiver` gives live state visibility to all subscribers. Any task can call `receiver.changed().await` to react to transitions. |
+| `std::fs` / `std::path` | std | Sentinel file polling — MAINTENANCE_MODE, GRACEFUL_RELAUNCH, OTA_DEPLOYING | Already used. For v25.0: centralize all sentinel checks in one `sentinel.rs` module with explicit `warn!` events on creation/deletion. |
+| `eprintln!` | std | Pre-logging-init error surfacing — config parse failures, startup crashes | Already used in startup_log.rs ("Never panics -- errors are logged to stderr"). Pattern to enforce: ALL errors before `tracing_subscriber::init()` MUST use `eprintln!`, never `tracing::error!`. |
+| `thiserror` | 2 (workspace) | Typed error variants for chain-of-verification failure classification | Already in workspace. Use for `VerificationError` enum with variants per pipeline stage: `InputParseError`, `TransformError`, `DecisionError`, `ActionError`. |
 
-### Supporting Libraries / Patterns
+### New Crates — Justified Additions
 
-| Library / Pattern | Version | Purpose | When to Use |
-|-------------------|---------|---------|-------------|
-| `wait -n` (bash builtin) | bash 4.3+ | Bounded parallel execution — wait for any one job to finish before launching next | Use in all tier loops that target multiple pods: `(check_pod "$IP") & pids+=($!); [[ ${#pids[@]} -ge 4 ]] && wait -n` |
-| `mktemp -d` (coreutils) | existing | Temp directory for per-run JSON output fragments before assembly | Each parallel phase writes to `$TMPDIR/<phase>_<host>.json`; assembler merges with jq. Avoids stdout interleaving from background jobs. |
-| `trap ... EXIT` (bash builtin) | existing | Cleanup temp files and kill stray background jobs on script exit/signal | Required for any script with background jobs — `trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$TMPDIR"' EXIT INT TERM` |
-| `tee` (coreutils) | existing | Dual output: JSON to file + human-readable to stdout simultaneously | Use for report generation: `generate_report | tee audit-report.md` so operator sees progress while file is written |
-| Node.js (v22, existing) | v22.22.0 | One-off helpers: comms-link WS notify, WhatsApp summary dispatch | NOT for audit logic. Only for the two integration points that require it: comms-link send-message.js and WhatsApp. Never replace bash control flow with Node. |
-| `set -euo pipefail` (bash) | bash 5.x | Fail-fast: exit on unset variable, propagate pipe failures | Use in every sourced library file. The main runner MUST NOT use `set -e` — it needs to collect FAIL results without aborting. Child subshells use `set -e` so individual check failures are captured, not propagated up. |
+| Crate | Version | Purpose | Why | Confidence |
+|-------|---------|---------|-----|-----------|
+| `notify` | 8.2.0 | Filesystem event watcher for sentinel files — MAINTENANCE_MODE writes, config file changes | Windows `ReadDirectoryChangesW` under the hood. Eliminates polling loops for sentinel detection. Use `RecommendedWatcher` + `tokio::sync::mpsc` bridge for async. Sentinel alerting is currently silent — `notify` surfaces the write event immediately. | MEDIUM — verified on docs.rs; Windows support confirmed (windows-sys 0.60 dep, x86_64-pc-windows-msvc listed in supported platforms) |
 
-### Development Tools
+**Why `notify` is justified over polling:** The current pattern is `loop { sleep(1s); if path.exists() { ... } }`. This either burns CPU or adds 1s latency to sentinel detection. `notify` uses OS-level `ReadDirectoryChangesW` — zero polling, instant detection, single background thread. The file size is minimal (no C++ deps). |
+
+### Patterns Without New Crates (the main workhorses)
+
+These are architectural patterns to implement using existing primitives. They require no Cargo.toml changes.
+
+#### Pattern 1: Chain-of-Verification Trait
+
+```rust
+// In rc-common/src/verification.rs (new file, no new deps)
+pub trait VerifyStep {
+    type Input;
+    type Output;
+    type Error: std::error::Error;
+
+    fn verify(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
+}
+
+// Usage: each pipeline step wraps its transform in a VerifyStep impl
+// The span is created at each step boundary:
+//   let span = info_span!("verify_step", step = "config_parse", input = ?raw_toml);
+//   let _enter = span.enter();
+```
+
+No new dep. `tracing::info_span!` is already available. The trait enforces step-by-step verification by making the boundary explicit.
+
+#### Pattern 2: Observable State via `tokio::sync::watch`
+
+```rust
+// In app_state.rs — extend AppState with watch channels
+pub state_tx: tokio::sync::watch::Sender<PodState>,
+pub state_rx: tokio::sync::watch::Receiver<PodState>,
+
+// On every state transition, log before AND after:
+let prev = *self.state_tx.borrow();
+self.state_tx.send(new_state).ok();
+tracing::warn!(target: "state", prev = ?prev, next = ?new_state, "pod state transition");
+```
+
+`tokio::sync::watch` is already in tokio 1. This is purely a usage pattern change — today state changes happen silently; this makes them emit events.
+
+#### Pattern 3: Boot-Resilient Fetch Loop
+
+```rust
+// In rc-agent: for ANY resource fetched once at startup
+async fn fetch_with_retry<T, F, Fut>(fetch: F, resource: &str) -> T
+where F: Fn() -> Fut, Fut: Future<Output = anyhow::Result<T>>, T: Default
+{
+    let mut attempts = 0u32;
+    loop {
+        match fetch().await {
+            Ok(val) => {
+                tracing::info!(target: "boot", resource, attempts, "fetch succeeded");
+                return val;
+            }
+            Err(e) => {
+                attempts += 1;
+                let delay = Duration::from_secs(2u64.pow(attempts.min(6)));
+                tracing::warn!(target: "boot", resource, %e, attempts, delay_secs = delay.as_secs(), "fetch failed, retrying");
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+}
+```
+
+No new dep. This is `tokio::time::sleep` + exponential delay. The key is the `tracing::warn!` on every failed attempt — today these failures are silent.
+
+#### Pattern 4: Pre-Init Error Buffer
+
+```rust
+// In main.rs, before tracing_subscriber::init():
+let mut pre_init_errors: Vec<String> = Vec::new();
+
+// Capture errors during config load, DB init, etc.:
+let config = match load_config() {
+    Ok(c) => c,
+    Err(e) => {
+        pre_init_errors.push(format!("config_load FAILED: {e}"));
+        eprintln!("[STARTUP ERROR] config_load failed: {e}");
+        RcAgentConfig::default()
+    }
+};
+
+// After tracing init, flush buffer:
+for msg in &pre_init_errors {
+    tracing::error!(target: "startup", "{}", msg);
+}
+```
+
+No new dep. Forces pre-logging errors to stderr AND re-emits them after logging is up, so they appear in both the startup log and the structured JSONL log.
+
+#### Pattern 5: Sentinel File Alerting Module
+
+```rust
+// In rc-common/src/sentinel.rs (new file, uses notify crate)
+// Watch C:\RacingPoint\ for file creates/deletes
+// On MAINTENANCE_MODE created: tracing::error! + send WS alert to server
+// On OTA_DEPLOYING created: tracing::info! + suppress recovery actions
+// On GRACEFUL_RELAUNCH created: tracing::info! + suppress crash counters
+```
+
+This is the one case where `notify` is needed — replacing the current silent sentinel file pattern.
+
+### Development / Tooling Additions
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `winget install jqlang.jq` | Install jq 1.8.1 on James's machine | One-time setup. After install, `jq --version` should show `jq-1.8.1`. Verify jq is on PATH in Git Bash: `which jq`. |
-| `bash -n script.sh` | Syntax check audit scripts without running them | Run in CI (comms-link test/run-all.sh gate) to prevent deploying broken audit scripts. |
-| `shellcheck` (optional) | Static analysis for bash scripts | Not required, but catches `[[ ]]` vs `[ ]` misuse, unquoted variables, and SC2086/SC2046 glob expansion bugs. Available via winget or scoop if needed. |
+| `cargo test -p rc-common -- verification` | Unit test suite for chain-of-verification steps | Already supported by existing test harness. Add `tests/verification_tests.rs` in rc-common. |
+| `tracing-test` crate (optional) | Assert on tracing events in unit tests — verify that `warn!` events fire on silent error paths | Version 0.2. Only add if verification tests need to assert on emitted spans. Otherwise use return type inspection. |
 
 ---
 
 ## Installation
 
-```bash
-# One-time setup — jq (the only missing tool)
-winget install jqlang.jq
+```toml
+# In workspace Cargo.toml — workspace.dependencies
+notify = "8.2"   # ONLY new addition
 
-# Verify in Git Bash after install
-jq --version   # expect: jq-1.8.1
+# In crates/rc-agent/Cargo.toml
+notify = { workspace = true }
 
-# All other tools already present — no installs needed
-bash --version | head -1
-curl --version | head -1
-ssh -V 2>&1
-diff --version | head -1
+# In crates/racecontrol/Cargo.toml
+notify = { workspace = true }
 ```
+
+```bash
+# Verify notify builds on Windows target
+cargo check -p rc-agent
+```
+
+All other patterns use zero new dependencies.
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| Pure bash + jq | Python script (python3 available) | When you need complex data structures (dicts, sets, sorting) that bash+jq cannot express cleanly. For this audit, jq handles all JSON needs; Python would add a different interpreter context with different error handling. |
-| `wait -n` bounded parallelism | GNU Parallel (`parallel`) | GNU Parallel is more ergonomic for complex fan-out patterns, but it is NOT installed on James's machine and requires a separate download. `wait -n` + PID arrays achieve the same 4-concurrent-pod limit with zero new deps. |
-| `diff` for delta tracking | `jd` (JSON diff tool) | `jd` (github.com/josephburnett/jd) provides semantic JSON diff — better for nested structure changes. Use it if pure field-level diff proves insufficient. Requires Go binary download. Start with `diff` + jq field extraction; upgrade to jd only if regression detection needs path-level granularity. |
-| curl for all HTTP | Node fetch / axios | Node is available but adding Node to the audit control path means Node errors look like audit errors. Keep curl as the HTTP tool — it returns exit codes that bash can test directly. |
-| comms-link relay for Bono notifications | Direct SSH to Bono VPS | comms-link relay is the standing rule default. SSH is fallback only. Audit completion notification MUST go through relay so there is an audit trail. |
-| Temp dir + jq merge for parallel output | Named pipes / mkfifo | Named pipes are elegant but fragile on Windows Git Bash — FIFO semantics differ from Linux. Temp files are reliable, predictable, and debuggable (you can inspect them after a failed run). |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| `tokio::sync::watch` for state observation | `tokio::sync::broadcast` | `broadcast` drops events if no one is listening; `watch` provides current-value semantics so a late subscriber can always read the current state. For state machines, current-value is correct. |
+| Custom `fetch_with_retry` on `tokio::time::sleep` | `tokio-retry` crate (0.3.0) | `tokio-retry` is clean but adds a dep for something that is 15 lines with existing primitives. The custom version also emits `tracing::warn!` on each attempt — the crate does not. The warn is the point. |
+| `notify` crate for sentinel watching | Polling loop every 500ms | Polling wakes the CPU every 500ms forever. `notify` is event-driven — zero CPU between events. On Windows, `ReadDirectoryChangesW` is the OS mechanism; `notify` is a thin safe wrapper around it. |
+| `tracing::warn!` with structured fields for state transitions | Custom event bus / channel per state type | An event bus adds wiring complexity with no observability benefit over tracing spans. Every `warn!` on a state transition is already captured by the JSONL log subscriber — it's observable by default. |
+| `eprintln!` for pre-init errors (+ flush after init) | Panic with error message | Panic aborts before the startup log can record the failure cause. `eprintln!` + default config fallback keeps the process running and records why it fell back. |
+| `VerifyStep` trait (custom, no dep) | `validator` crate | `validator` is designed for field-level struct validation (email format, range checks), not pipeline step boundary verification. A simple trait with `Input`/`Output`/`Error` is more expressive for the chain-of-verification pattern. |
+| `statig` crate (0.4.1) for pod state machine | Custom enum + match | `statig` is well-designed with `before_transition`/`after_transition` hooks for logging. BUT: the existing pod state machine is not a statig state machine — migrating it would be a breaking change with no immediate reliability benefit. USE statig for NEW state machines in v25.0+, not to rewrite existing ones. |
 
 ---
 
@@ -97,106 +206,85 @@ diff --version | head -1
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `set -e` in the main audit runner | The runner MUST collect FAIL results without aborting. `set -e` would exit on the first pod that returns non-200, discarding all subsequent results. | Explicit exit code capture: `result=$(curl ... 2>&1); exit_code=$?; [[ $exit_code -ne 0 ]] && record_fail ...` |
-| Inline JSON string concatenation in bash | Bash string escaping is hostile to JSON. Double quotes, backslashes, newlines in log messages will corrupt the output silently. Already a standing rule: "Git Bash JSON: write JSON payloads to a file". | `jq -n --arg key "$value"` always. Never `echo '{"key":"'$value'"}'`. |
-| `xargs -P` for pod parallelism | xargs mangles arguments with spaces and special characters. Pod IPs are safe, but xargs passes all args as one string to the command — the callback function can't receive structured results. | `for IP in $PODS; do (check_pod "$IP") & pids+=($!); done; wait` with temp file output collection. |
-| `eval` for dynamic command construction | Audit scripts will compose commands from pod IPs, phase names, and fix commands. `eval` with any external input is a security hole and makes debugging impossible. | Arrays: `cmd=("curl" "-s" "--max-time" "5" "http://$IP:8090/health"); "${cmd[@]}"` |
-| Unbounded background jobs | Running all 60 phases × 8 pods simultaneously = 480 background processes. Git Bash has a ~256 process limit; Windows kernel has overhead per process. Exceeds constraint: "max 4 concurrent pod queries". | `wait -n` semaphore: check `jobs | wc -l` or track PID count before launching next job. |
-| `timeout` command for curl timeouts | `timeout` behavior differs between GNU coreutils (Linux) and Git Bash on Windows. It exists but can behave unexpectedly with subshells. | curl native timeout flags: `--max-time 10 --connect-timeout 5`. Always set both. Never rely on process-level timeout for HTTP calls. |
-| SaltStack / Ansible / Puppet | v6.0 was blocked by BIOS AMD-V. Fleet management via HTTP APIs + SSH is the proven, working path. These tools add new compiled deps contradicting the constraint. | Existing rc-agent exec endpoint (:8090) + SSH via Tailscale. |
-| Writing `.bat` files as the audit format | .bat files are CRLF-sensitive, cmd.exe hostile to quoting, and cannot produce structured JSON output. All standing rules about .bat file pitfalls apply. | Pure bash scripts that call the rc-agent HTTP exec endpoint for anything that needs to run on the pod. |
+| OpenTelemetry stack (`opentelemetry`, `axum-tracing-opentelemetry`) | Heavy dep tree, requires collector infrastructure (Jaeger, OTLP endpoint). For 8-pod venue ops with no external telemetry backend, this is massive over-engineering. | `tracing` + `tracing-subscriber` with JSON subscriber (already configured). The JSONL log file IS the telemetry backend. |
+| `metrics` / `prometheus` crates | Same over-engineering concern. No Prometheus scraper in the venue. | Structured `tracing::info!` with numeric fields (`count=N`, `duration_ms=N`) achieves the same queryability in the JSONL log. |
+| State machine crates for existing state machines | Migrating existing `PodState` enum + match arms to `statig` or `sm` is a rewrite risk with no immediate gain. | Add `tracing::warn!` events to existing `match` arms for state transitions. The observability goal is met without touching state machine structure. |
+| `retry` / `again` crates | Both unmaintained or low activity. `tokio-retry` (0.3.0) is fine but overkill for this use case. | Custom 15-line `fetch_with_retry` pattern using `tokio::time::sleep`. |
+| `anyhow::Context` for chain verification | `anyhow` context strings are unstructured — good for human readability, not for machine-parseable chain step failures. | `thiserror` enum variants with explicit stage names. `anyhow::Context` for user-facing error messages only. |
+| New `tokio::spawn` without lifecycle logs | Silent task death is a root cause category in the 11-bug retrospective. | Every new `tokio::spawn` loop MUST log: (a) start, (b) first item processed, (c) exit reason. Standing rule already exists; the pattern needs enforcement. |
 
 ---
 
 ## Stack Patterns by Variant
 
-**For quick mode (Phases 1-16, daily health check):**
-- Run all 8 pods in parallel (8 concurrent — safe for quick health polls)
-- Use `wait` (not `wait -n`) — simpler, all 8 complete before summary
-- Target: <5 minutes wall clock
+**For chain-of-verification in rc-agent (data pipeline steps):**
+- Use `VerifyStep` trait + `info_span!` per step
+- Input → Transform → Parse → Decision → Action as 5 typed boundaries
+- Each boundary either succeeds (returns typed output) or returns `VerificationError` variant with stage name
+- Log the error at `warn!` level with `stage=`, `input=`, `actual=`, `expected=` fields
 
-**For standard/full mode (all 50-60 phases):**
-- Max 4 concurrent pod queries at any time (`wait -n` semaphore)
-- Tier ordering preserved: complete tier N before starting tier N+1
-- Target: <20 minutes automated vs 90-120 minutes manual
+**For observable state transitions (PodState, BillingState, LockScreenState):**
+- Add `watch::Sender<StateEnum>` to `AppState`
+- Wrap every `state = NewState` assignment with `tracing::warn!` before the assignment
+- Server-side: subscribe to `watch::Receiver` for fleet state visibility
 
-**For pre-ship mode (critical subset only):**
-- Phases 1, 51, 53, 57, 46, 48-50, 58 (as defined in AUDIT-PROTOCOL v3.0)
-- Run sequentially within each phase — pre-ship needs deterministic ordering for audit trail
-- Emit pass/fail summary to comms-link + WhatsApp on completion
+**For boot resilience (allowlist, feature flags, config):**
+- Gate the startup loop: try once immediately, fallback to default, then re-fetch every 300s
+- Log `warn!` on every failed fetch with the resource name and retry delay
+- Log `info!` when re-fetch succeeds, with the number of attempts it took
 
-**For post-incident mode:**
-- Skip QUIET phases (venue-closed hardware checks)
-- Run Tier 1 (infrastructure) + the tier most relevant to the incident
-- Emit delta: compare against last pre-incident audit JSON
+**For sentinel file observability:**
+- Use `notify::RecommendedWatcher` watching `C:\RacingPoint\`
+- Filter for `EventKind::Create` on known sentinel file names
+- On sentinel detected: `tracing::warn!` + WS alert to server
+- Bridge `notify` channel to tokio via `tokio::sync::mpsc` (notify docs pattern)
 
-**For venue-closed state (QUIET detection):**
-- Check `GET /api/v1/fleet/health` — if all pods `ws_connected: false` AND `http_reachable: false`, venue is closed
-- Mark hardware/display/kiosk-browser phases as QUIET rather than FAIL
-- Still run all server, cloud, comms-link, and static analysis phases
-
----
-
-## Integration Points: Existing Infrastructure
-
-| Integration | How | Notes |
-|-------------|-----|-------|
-| Fleet health check | `curl -s --max-time 10 http://192.168.31.23:8080/api/v1/fleet/health` | Returns array of PodFleetStatus. Parse with jq: `.[] | select(.pod_number == N)` |
-| Pod exec | `curl -s -X POST http://<POD_IP>:8090/exec -d '{"cmd":"..."}'` | Write cmd to temp file, use `-d @file` per standing rule on JSON in Git Bash |
-| Pod exec via rc-sentry | `curl -s -X POST http://<POD_IP>:8091/exec -d @file.json` | Fallback when rc-agent is down. rc-sentry :8091 has 6 endpoints including /files |
-| Server exec | `curl -s -X POST http://192.168.31.23:8090/exec -d @file.json` | Server :8090 is server_ops (part of racecontrol binary) |
-| Auth token | `SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth -H "Content-Type: application/json" -d '{"pin":"261121"}' \| jq -r '.session')` | Reuse single token across all authenticated phases |
-| Comms-link Bono notify | `cd C:/Users/bono/racingpoint/comms-link && COMMS_PSK="..." COMMS_URL="ws://..." node send-message.js "audit complete: N pass, M fail"` | Node-based — call from audit runner at completion. Not bash, called as subprocess. |
-| WhatsApp Uday summary | `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d @whatsapp-payload.json` | comms-link relay exec. The relay handles WhatsApp dispatch. |
-| SSH fallback | `ssh -o StrictHostKeyChecking=no User@<tailscale_ip> "command"` | Only when HTTP unreachable. Per standing rule: SSH only as fallback. |
-| OTA sentinel awareness | Check `C:\RacingPoint\OTA_DEPLOYING` via rc-sentry /files before any fix action | Standing rule: never restart during OTA. Audit auto-fix MUST check this sentinel. |
-| MAINTENANCE_MODE awareness | Check `C:\RacingPoint\MAINTENANCE_MODE` before recording pod as FAIL | Pod with MAINTENANCE_MODE sentinel is deliberately stopped — report as QUIET/WARN, not FAIL |
-
----
-
-## Output Format Strategy
-
-Two files per audit run — human + machine:
-
-```
-audit-results/
-  YYYY-MM-DD_HHMMIST_quick.json      # Structured: all results, severity, timestamps
-  YYYY-MM-DD_HHMMIST_quick.md        # Human: tier summaries, delta from previous, auto-fix log
-  latest-quick.json                  # Symlink / copy to latest — used for delta comparison
-  latest-standard.json
-  latest-full.json
-  suppression.json                   # Known issues: {phase, host, pattern} → suppress if matches
-```
-
-Delta logic: `diff <(jq -S '.' latest-full.json) <(jq -S '.' current-full.json)` produces a unified diff. Extract regressions (new FAILs) with jq: `.results[] | select(.status == "FAIL")` compared against previous run's same field.
+**For pre-ship verification gates (tooling, not runtime):**
+- Domain-matched verification is a PROCESS pattern, not a crate
+- Encode as a checklist in the Cause Elimination Process template (bash/markdown)
+- No runtime Rust code needed; this is CI/GSD phase tooling
 
 ---
 
 ## Version Compatibility
 
-| Package | Version | Notes |
-|---------|---------|-------|
-| bash | 5.2.37 | `wait -n` requires bash 4.3+. `declare -A` associative arrays require bash 4.0+. Both confirmed available. |
-| jq | 1.8.1 | Latest stable as of 2026-03. Fixes CVE-2025-49014 heap use-after-free. Use `jq -e` for exit-code-based failure detection (exits non-zero if result is false/null). |
-| curl | 8.18.0 | Schannel TLS (Windows native). No `--cacert` needed for HTTPS to known hosts. `--max-time` and `--connect-timeout` both supported. `-w "%{http_code}"` for status code extraction. |
-| ssh | OpenSSH (Git Bash) | `StrictHostKeyChecking=no` required for pod Tailscale IPs (host keys not pre-registered). Already used in standing rules. |
-| Node.js | v22.22.0 LTS | Used ONLY for send-message.js (comms-link WS) and WhatsApp relay calls. Not imported into audit logic. |
+| Package | Existing Version | New Addition | Compatibility |
+|---------|-----------------|--------------|---------------|
+| `tokio` | 1.x (workspace) | n/a | `watch`, `mpsc`, `time::interval` all in tokio 1 |
+| `tracing` | 0.1 (workspace) | n/a | `info_span!`, `instrument`, `warn!` with fields all stable |
+| `notify` | new: 8.2.0 | 8.2.0 | Windows `windows-sys ^0.60` dep — compatible with Rust 1.70+. Workspace rustc is 1.93.1. No conflict. |
+| `thiserror` | 2 (workspace) | n/a | No conflict with new error variants |
+| `tracing-test` | optional: 0.2 | only if added | Test-only dev-dependency, zero runtime impact |
+
+---
+
+## Integration With Existing Stack
+
+| Existing Module | v25.0 Addition | Integration Point |
+|-----------------|----------------|-------------------|
+| `startup_log.rs` | Pre-init error buffer pattern | Add `pre_init_errors` vec before `tracing_subscriber::init()` in `main.rs` |
+| `pre_flight.rs` | Chain-of-verification spans | Wrap each of the 3 concurrent checks in `info_span!("pre_flight_check", name = check.name)` |
+| `self_monitor.rs` | State transition logging | Add `tracing::warn!` on WS dead detection and CLOSE_WAIT threshold crossings with structured fields |
+| `process_guard.rs` | Boot-resilient fetch loop | Already has 300s periodic re-fetch (commit `821c3031`). Add warn logging on each failed fetch. |
+| `app_state.rs` | `watch::Sender<PodState>` | Replace bare atomic/mutex state with watch channel for observable transitions |
+| `event_loop.rs` | Sentinel file watcher | Spawn `notify` watcher task alongside existing tokio tasks |
+| `ws_handler.rs` | State subscription | Subscribe to `watch::Receiver` for state-change-triggered WS messages to server |
 
 ---
 
 ## Sources
 
-- bash 5.2 `wait -n` docs — HIGH confidence (builtin, verified on James's machine)
-- jq 1.8.1 release notes (github.com/jqlang/jq/releases) — HIGH confidence (latest stable June 2025, CVE fix in 1.8.1)
-- jq official docs (jqlang.org) — HIGH confidence
-- curl 8.18.0 (verified live: `curl --version`) — HIGH confidence
-- AUDIT-PROTOCOL.md v3.0 (1928 lines, read directly) — HIGH confidence
-- CLAUDE.md standing rules (JSON in Git Bash, cmd.exe quoting, OTA sentinel, SSH fallback) — HIGH confidence
-- PROJECT.md v23.0 milestone spec (read directly) — HIGH confidence
-- comms-link send-message.js (verified path: `C:/Users/bono/racingpoint/comms-link/send-message.js`) — HIGH confidence
-- WebSearch: parallel bash patterns, jq on Windows, delta tracking approaches — MEDIUM confidence (corroborated by live tool verification)
+- `docs.rs/notify/latest/notify/` — notify 8.2.0, Windows support (windows-sys 0.60), `RecommendedWatcher` API — MEDIUM confidence
+- `docs.rs/tokio-retry/latest/tokio_retry/` — tokio-retry 0.3.0, ExponentialBackoff, strategies — MEDIUM confidence (verified on docs.rs)
+- `docs.rs/statig/latest/statig/` — statig 0.4.1, `before_transition`/`after_transition` hooks confirmed — MEDIUM confidence
+- `docs.rs/tracing` + tokio-rs/tracing GitHub — `info_span!`, `#[instrument]`, `watch` channel patterns — HIGH confidence (existing dep, used throughout codebase)
+- Existing codebase: `startup_log.rs`, `pre_flight.rs`, `self_monitor.rs`, `process_guard.rs` — HIGH confidence (read directly)
+- workspace `Cargo.toml` — existing dep versions confirmed — HIGH confidence
+- PROJECT.md v25.0 milestone spec — feature requirements — HIGH confidence (read directly)
+- CLAUDE.md standing rules (eprintln! for pre-init errors, silent failure root causes) — HIGH confidence (read directly)
+- WebSearch: tracing spans for Axum, notify crate Windows support, tokio watch vs broadcast — MEDIUM confidence (corroborated by docs.rs verification)
 
 ---
 
-*Stack research for: v23.0 Audit Protocol v4.0 — bash automated fleet audit runner*
-*Researched: 2026-03-25 IST*
+*Stack research for: v25.0 Debug-First-Time-Right — Rust verification framework, observable state machines, boot resilience*
+*Researched: 2026-03-26 IST*

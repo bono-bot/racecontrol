@@ -1,17 +1,17 @@
 # Project Research Summary
 
-**Project:** v23.0 Audit Protocol v4.0 -- Automated Fleet Audit Runner
-**Domain:** Bash-based automated infrastructure audit system targeting 8 gaming pods, a Windows server, and Bono VPS via HTTP exec endpoints, SSH, and comms-link relay
-**Researched:** 2026-03-25 IST
+**Project:** v25.0 — Debug-First-Time-Right
+**Domain:** Rust verification framework — observable state machines, boot resilience, silent failure elimination
+**Researched:** 2026-03-26 IST
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v23.0 transforms AUDIT-PROTOCOL v3.0 -- a 1928-line markdown document of 60 phases of copy-paste bash commands requiring 45-90 minutes of active operator attention -- into a single command: `bash audit/audit.sh --mode standard`. The automation gap is entirely in execution mechanics, not in check coverage: the 60 phases and their expected outputs are already defined. The task is to make them run non-interactively, produce structured output, compare against previous runs, and close the loop via comms-link and WhatsApp. The recommended approach is pure bash with jq (the only missing tool, installable via winget), using a modular phase-per-file architecture with a shared lib/ for primitives, parallel execution capped at 4 concurrent pod connections, and JSON output as the foundation for all downstream features.
+v25.0 is a quality infrastructure retrofit, not a greenfield feature. The goal is systematic elimination of the 11 multi-attempt debugging incidents documented in this codebase, which averaged 2.4 fix attempts each and stemmed from 7 recurring root cause categories: proxy verification, silent failures, incomplete root cause analysis, manual fixes without code enforcement, boot-time transient failures, context/semantic mismatches, and missing first-run verification on guards. The recommended approach is additive — new modules layer onto the existing 4-crate structure (rc-common, rc-agent, racecontrol, rc-sentry) using primitives already in the workspace. Only one new Cargo dependency is justified (`notify 8.2.0` for sentinel file watching via OS-level `ReadDirectoryChangesW`); all other patterns are built from `tracing 0.1`, `tokio::sync::watch`, `tokio::time::interval`, `thiserror 2`, and `eprintln!`.
 
-The key architectural decision is to treat every phase as a thin bash function that writes a JSON result record and returns exit 0 always -- errors are encoded in the JSON, not as bash exit codes. This design allows the main runner to collect all results without aborting on first failure, which is the fundamental requirement of an audit tool. Phase scripts source shared primitives (lib/core.sh) and write to per-run temp files; the report generator assembles everything after all tiers complete. Parallelism is contained within tiers: pod-targeting loops use a file-based semaphore to enforce the 4-connection cap, preventing false FAILs from saturating the venue LAN.
+The architecture concentrates on two complementary mechanisms: making failures visible at the moment they occur (not after downstream symptoms appear) and enforcing correctness patterns as code rather than process guidelines. The `VerificationChain` type in rc-common wraps existing parse/transform paths at the call site so intermediate failures become observable without touching the final health endpoint. The `ObservableState` pattern fires an `eprintln!` plus `tracing::warn!` before any sentinel file is written or config fallback is activated — ensuring degraded states are emitted even before the tracing subscriber is initialized. The `boot_resilience.rs` module formalizes the periodic re-fetch pattern already applied to the process guard allowlist (commit `821c3031`) and extends it to feature flags and any future startup-fetched resource.
 
-The critical risks are all Windows-specific: cmd.exe quoting destroys remote commands passed through rc-agent's /exec endpoint, curl output in Git Bash can include surrounding quotes that break string comparisons, SSH banners corrupt captured output when stderr is merged with stdout, and parallel background jobs interleave stdout without coordination. All four have documented production incidents in this codebase. The mitigation is to establish safe wrapper functions in Phase 1 (lib/core.sh) before any phase checks are written -- `safe_remote_exec` (writes commands to bat files), `http_get` (jq -r plus quote stripping), and `safe_ssh_capture` (2>/dev/null plus structure validation). Getting these primitives right before building 60 checks on top of them is the single most important implementation decision.
+The primary risk for this milestone is scope creep in the wrong direction: building a verification framework only for new code while leaving the 6 known silent failure categories in existing code untouched. Research is unambiguous that v25.0 must include a retroactive sweep of existing failure sites — specifically the 7 `unwrap_or("http://127.0.0.1:8080")` silent fallbacks in `main.rs`, the missing WhatsApp alert on `MAINTENANCE_MODE` writes, and the `spawn().is_ok()` false confirmation in rc-sentry `restart_service()`. A framework that only instruments new paths will not reduce the documented incident average.
 
 ---
 
@@ -19,215 +19,165 @@ The critical risks are all Windows-specific: cmd.exe quoting destroys remote com
 
 ### Recommended Stack
 
-The stack is intentionally minimal. Every tool except jq is already installed on James's machine and already used in AUDIT-PROTOCOL v3.0. The constraint (pure bash, no new compiled dependencies) is workable and appropriate -- adding Node.js or Python for audit logic would create dependency management overhead without simplifying the bash control flow.
+The stack for v25.0 is almost entirely the existing workspace. Zero new runtime infrastructure is needed. The philosophy: "most of v25.0 is patterns and macros built on existing deps, not new crates." The workspace already has `tracing 0.1`, `tokio 1`, `thiserror 2`, `serde_json 1`, and `anyhow 1` — all are used directly.
+
+The single justified addition is `notify = "8.2"` added to workspace deps. This replaces silent polling loops (`loop { sleep(1s); if path.exists() }`) with OS-level `ReadDirectoryChangesW` events for sentinel file detection. It is the only new crate that cannot be replicated in 15 lines with existing primitives.
 
 **Core technologies:**
-- **bash 5.2.37** (existing, Git Bash): audit runner language; `wait -n` (bash 4.3+) enables safe bounded parallelism; `declare -A` associative arrays available
-- **jq 1.8.1** (needs `winget install jqlang.jq`): the only missing tool; required for all JSON assembly, parsing, and delta comparison; without it, JSON output requires fragile string concatenation that breaks on every consumer
-- **curl 8.18.0** (existing): all HTTP health checks and API queries; always use `--max-time 10 --connect-timeout 5`; never use the `timeout` command (Git Bash semantics differ from Linux)
-- **ssh/scp** (existing, OpenSSH via Git Bash): fallback exec when HTTP endpoints are down; always add `2>/dev/null` to SSH captures; validate output structure before parsing
-- **diff** (existing, GNU diff): delta tracking between audit runs; `jq -S` normalization before diff for structural JSON comparison
 
-**Supporting patterns:**
-- `wait -n` semaphore for bounded parallelism (max 4 concurrent pod connections per standing rule)
-- `mktemp -d` temp dir per run for per-pod result files (avoids stdout interleaving from background jobs)
-- `trap ... EXIT INT TERM` cleanup for background job management
-- `set -euo pipefail` in lib files only; main runner collects FAILs without aborting
-- Node.js v22 used only for comms-link `send-message.js` and WhatsApp relay -- NOT for audit logic
+- `tracing 0.1` (workspace) — chain-of-verification spans, state transition events, structured warn/error fields; the primary tool for 4 of 7 v25.0 goals
+- `tokio::sync::watch` (tokio 1 workspace) — observable state values with current-value semantics; prefer over `broadcast` for state (not events)
+- `tokio::time::interval` (tokio 1 workspace) — periodic re-fetch loops for all startup-fetched resources; same primitive as existing allowlist re-fetch
+- `thiserror 2` (workspace) — typed `VerificationError` enum variants per pipeline stage (InputParseError, TransformError, DecisionError, ActionError)
+- `eprintln!` (std) — mandatory for all errors before `tracing_subscriber::init()`; the only output path that works before logging is initialized
+- `notify 8.2.0` (new) — filesystem event watcher for sentinel files on Windows via `ReadDirectoryChangesW`; zero-CPU idle cost vs polling; justified because no existing primitive achieves event-driven detection
 
-**Not to use:** `set -e` in the main runner, inline JSON string concatenation, `xargs -P`, `eval`, unbounded background jobs, `timeout` command for HTTP calls, `.bat` files as the audit format.
-
----
+**What NOT to add:** OpenTelemetry stack, Prometheus/metrics crates, state machine crates for existing state machines (`statig` is correct for NEW state machines only), `tokio-retry` crate (overkill vs 15-line custom pattern), `anyhow::Context` for chain verification (unstructured; use `thiserror` variants for machine-parseable stage names).
 
 ### Expected Features
 
-The existing v3.0 protocol defines all 60 checks. v23.0 adds the execution layer. Features fall into three groups based on dependency order.
+Features map directly to the 7 root cause categories from the 11-incident retrospective.
 
-**Must have (table stakes -- without these, a human still manually operates the tool):**
-- Single-command invocation with `--mode quick|standard|full|pre-ship|post-incident`
-- All 60 v3.0 phases ported as non-interactive bash functions
-- Per-check PASS/WARN/FAIL/QUIET status (QUIET = skipped because venue closed or target deliberately offline -- not a failure)
-- Venue-open/closed detection -- hardware checks must be QUIET when venue is closed, not FAIL
-- Timeout enforcement -- 10s per curl call, 30s per phase; offline pods do not hang the audit
-- JSON output file plus Markdown report on every run (both formats from the same execution pass)
-- Structured exit codes: 0 = clean, 1 = WARN, 2 = FAIL
-- Auth token acquisition at startup, reused across all phases
-- Prerequisites check (jq, curl, ssh) as first function before any check runs
+**Must have — P1 (directly prevents documented incident patterns):**
 
-**Should have (give automation capability unavailable to copy-paste execution):**
-- Delta tracking against previous run -- "Phase 07 added 47 new violations since last audit" is actionable; raw counts are not
-- Parallel phase execution within tiers capped at 4 concurrent pod connections (reduces ~24 min sequential to ~6 min)
-- Known-issue suppression list with mandatory expiry dates -- suppressed checks appear as KNOWN-ISSUE, not invisible skips
-- Severity scoring per phase (P1 = immediate action, P2 = fix before next deploy, P3 = fix before next milestone)
-- Audit run history index (timestamp, mode, P1/P2/P3 counts per run)
-- Safe auto-fix for pre-approved low-blast-radius operations: clear sentinel files, kill orphan Variable_dump.exe, kill duplicate rc-agent instances; all gated on `is_pod_idle()` before executing
+- `MAINTENANCE_MODE` write alert — WhatsApp alert within 30s of sentinel write; prevents 1.5-hour silent pod death (3 pods dark)
+- Config fallback observability — `warn!` on every `unwrap_or("http://127.0.0.1:8080")` site; 6 known silent fallbacks confirmed in `main.rs`; prevents dev URL in production
+- Empty allowlist on boot alert — `error!` before logging init when process guard enabled but allowlist empty; prevents 28,749 false violations/day recurrence
+- Sentinel file creation alerts via `fleet_alert.rs` — `GRACEFUL_RELAUNCH`, `OTA_DEPLOYING`, `MAINTENANCE_MODE` all visible in fleet health dashboard
+- Cause Elimination template enforcement — bash `fix_log.sh` helper that prompts for 5-step process before LOGBOOK entry; zero Rust changes required
+- Domain-matched verification gate — pre-ship checklist that classifies change type (display/network/parse/billing/config) and requires the corresponding verification domain; addresses 8+ proxy verification incidents
 
-**Defer to after validation (require stable core to be safe to enable):**
-- Comms-link notification to Bono on audit completion
-- WhatsApp summary to Uday (P1 issues only by default)
-- Phase-level retry for transient curl failures (1 retry, 5s delay)
-- Continuous monitoring daemon -- explicitly out of scope; existing watchdog infrastructure handles this
+**Should have — P2 (closes structural gaps):**
 
-**Anti-features (explicitly excluded per PROJECT.md):**
-- Daemon/always-on monitoring (watchdog infrastructure already covers it)
-- Auto-fix for anything touching billing sessions (active session = customer revenue at risk on false positive)
-- Fleet-wide parallel execution (all 8 pods simultaneously) -- exceeds the 4-connection standing rule cap
-- Auto-deploy for stale binaries -- requires human confirmation of the 7-step deploy sequence
-- Alerting on every WARN -- creates alert fatigue; notify on P1 FAILs and regressions only
-- Web dashboard for audit results -- coupling output to admin panel creates runtime dependency
+- Chain-of-verification helpers — `VerifyStep` trait + `info_span!` per step for the 4 critical chains (UDP→billing, config→URL, curl→stdout→parse, allowlist→enforcement)
+- Startup enforcement bat scanner — compare deployed bat hash on all 8 pods against canonical in `self_heal.rs`; closed-loop (detect + deploy canonical + verify), not report-only
+- Boot resilience for feature flags — periodic re-fetch to match the `821c3031` allowlist pattern
+- Bat drift detector in fleet audit — extends existing v23.0 `audit.sh` phase framework
+- First-scan validation for guards — log first 10 violations when a guard flips from disabled to enabled; require operator acknowledgment before enforcement proceeds
 
----
+**Defer to v26+ — P3 (quality measurement, deferred):**
+
+- Fix attempt counter per incident — requires structured LOGBOOK adoption first
+- Boot resilience scorecard in dashboard — requires `startup_log` enrichment with fetch outcomes
+- Automated parse-chain smoke tests — HIGH complexity; add alongside each chain as fixed, not upfront
+
+**Anti-features (do not build):**
+
+- Universal "super health" endpoint — creates a new proxy to replace old proxies; the root problem
+- Real-time debugging dashboard with live state streams — incidents had enough data in existing logs; the failure was process discipline, not data availability
+- LLM-gated fix declarations — adds external dependency to every debugging session; structured template achieves same outcome with zero dependencies
+- Global debug mode flag — use `RUST_LOG=rc_agent::billing_guard=debug` per-target instead
 
 ### Architecture Approach
 
-The system uses a modular file structure where each of the 60 phases is a thin bash script (one file per phase, 12 tier directories) that emits JSON to stdout and exits 0. A shared lib/ provides all primitives. The main entry point (audit.sh) is a scheduler -- it selects tiers based on mode, initializes shared state, and orchestrates execution; it does not contain check logic.
+v25.0 adds 4 new modules and modifies 11 existing modules across the 4-crate structure. No new crate is warranted. The build order is imposed by Rust type dependencies: rc-common must stabilize before consumers compile. Server-side changes (racecontrol) are lower risk than pod-side session logic (rc-agent) and build after.
 
-**Major components:**
-1. **audit.sh** -- entry point, mode selector, tier scheduler; parses `--mode`, detects venue state, initializes SESSION token and output paths; does NOT execute check logic
-2. **audit/phases/tierN/phaseNN.sh** -- one file per phase; sources lib/core.sh; calls `emit_result`; exits 0 always; preserves v3.0 phase numbering exactly; new v4.0 phases start at 61+
-3. **lib/core.sh** -- shared primitives: `emit_result`, `emit_fix`, `http_get` (jq -r plus quote stripping), `safe_remote_exec` (bat-file wrapper for cmd.exe safety), `safe_ssh_capture` (2>/dev/null + structure validation), `get_session_token`, `is_suppressed`, `pod_loop`
-4. **lib/parallel.sh** -- file-based semaphore (`/tmp/audit-sem-$RUN_ID/`); enforces 4-concurrent-pod cap; all background jobs write to per-pod temp files, never to shared stdout
-5. **lib/fixes.sh** -- pre-approved auto-fix whitelist (FIX-01 through FIX-07: sentinel clearing, orphan process kills, duplicate instance kills); every fix gates on `is_pod_idle()` before executing
-6. **lib/delta.sh** -- jq-based join on phase number between previous and current JSON; REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categories; mode-aware and venue-state-aware to avoid false regressions from context changes
-7. **lib/notify.sh** -- comms-link relay (structured JSON) + INBOX.md append (dual-channel standing rule) + WhatsApp via Bono relay; notification failure does NOT abort audit run
-8. **generate-report.sh** -- reads all phase result JSON and delta JSON; produces Markdown report and summary JSON; runs once after all tiers complete
-9. **suppress.json** -- known-issue suppression list; each entry requires: check_id, reason, added date, expires date, owner; 10-entry cap; expired entries auto-unsuppressed
+The critical architectural constraint: verification results travel over the **existing AgentMessage WebSocket channel** and the **existing RecoveryLogger JSONL path**. No new protocol message variants unless no existing variant fits AND both sides are upgraded atomically — rolling pod deploys mean mismatched versions silently drop unknown variants.
 
-**Data flow:** phase scripts emit NDJSON to temp files (per pod/check) -> tier completes -> audit.sh assembles per-tier results with jq -> all tiers complete -> delta.sh compares against latest.json -> generate-report.sh produces .md and -summary.json -> notify.sh dispatches -> audit.sh updates latest.json symlink.
+The hot-path/cold-path distinction is non-negotiable: billing start, game launch, session end, and WS message handling are hot paths — verification must be async fire-and-forget to a ring buffer, never blocking. Config load, allowlist fetch, and periodic health checks are cold paths — synchronous verification is acceptable.
 
----
+**Major components (new):**
+
+1. `rc-common/verification.rs` — `VerificationChain`, `VerificationStep`, `Verdict` types; ~100 LOC; consumed by all three executables
+2. `rc-agent/observable_state.rs` — `StateTransitionKind` enum + `emit_transition()`; ~80 LOC; fires `eprintln!` + `tracing::warn!` before every sentinel write
+3. `rc-agent/boot_resilience.rs` — generic `spawn_periodic_refetch()` scaffold with lifecycle logging (start / first-success / exit); ~60 LOC; formalizes the `821c3031` pattern
+4. `racecontrol/verification_gate.rs` — pre-ship domain-matched gate runner; ~150 LOC; wired into `gate-check.sh` Suite 0
+
+**Modified modules (additive only — no existing behavior removed):**
+
+- `rc-agent`: `startup_log.rs`, `event_loop.rs`, `pre_flight.rs`, `self_monitor.rs`, `process_guard.rs`, `feature_flags.rs`
+- `racecontrol`: `pod_monitor.rs`, `pod_healer.rs`, `config.rs`, `fleet_health.rs`
+- `rc-sentry`: `watchdog.rs` — append to `RecoveryLogger` on Suspect AND Crashed transitions (currently Crashed-only)
 
 ### Critical Pitfalls
 
-Research identified 10 pitfalls, all sourced from confirmed production incidents in this codebase. The top 5 by impact:
+1. **Chain checks the endpoint, not the chain** — All 8 proxy verification incidents used health endpoint probes while intermediate parse steps failed silently (e.g. `"200"` with surrounding quotes failing `u32::parse()` — 4 deploy cycles declared PASS). Prevention: `VerificationChain` must instrument the specific link that failed in each prior incident, not the final endpoint. A failing parse must be visible as `ParseStep::Failed("value='\"200\"'")` without reproducing the full chain from outside.
 
-1. **cmd.exe quoting destroys remote commands** -- rc-agent `/exec` wraps commands with `cmd /C "..."`; any inner `"` truncates the command silently. Prevention: write complex commands as `.bat` files via rc-sentry `/files`, execute the bat by path. Establish `safe_remote_exec()` in lib/core.sh before any check uses the exec endpoint. Address in Phase 1.
+2. **Observable transitions that log but don't alert** — `MAINTENANCE_MODE` was written with no WhatsApp alert; process guard loaded empty allowlist and logged at DEBUG; neither notified staff. Prevention: degraded-state transitions MUST write to WhatsApp via Evolution API OR fleet health dashboard. A passive log line at any level is structurally insufficient — the operator was not watching, and nobody was alerted.
 
-2. **curl output includes surrounding quotes in Git Bash** -- `curl.exe` (Windows binary) sometimes returns `"ok"` instead of `ok` from command substitution; health check comparisons silently fail; confirmed production incident (pod healer flicker, 2 deploy cycles). Prevention: `http_get()` helper always uses `jq -r` and strips surrounding quotes. Address in Phase 1.
+3. **Boot resilience that fetches once and assumes success** — Process guard fetched empty allowlist when server was transiently down at boot, then never re-fetched; 28,749 false violations/day for 2+ days. Prevention: every startup-fetched resource needs a periodic background re-fetch loop AND an observable state transition when self-heal occurs. Boot retry and periodic re-fetch are complementary, not alternatives.
 
-3. **SSH banner output corrupts captured results** -- post-quantum SSH warning prepends to stdout when stderr is merged; racecontrol.toml had 3 banner lines prepended, TOML parser rejected it, process guard ran with empty allowlist for 2+ hours (confirmed 2026-03-24). Prevention: `safe_ssh_capture()` adds `2>/dev/null`, validates structure before parse. Prefer HTTP endpoints over SSH wherever available. Address in Phase 1.
+4. **Pre-ship verification that checks the wrong domain** — Blanking screen deployed 4 times with "health OK, build_id matches" as PASS while the visual output was broken for every customer. Next.js deploys declared healthy from server-side curl while `_next/static/` returned 404. Prevention: domain-matched gate must be a blocking checklist. Visual change = visual check from venue, cannot be substituted by any terminal-accessible probe.
 
-4. **Parallel background jobs produce interleaved output** -- 8 pods writing to shared stdout produce garbled output that no parser can interpret. Prevention: each pod writes to a dedicated temp file; file-based semaphore controls concurrency. Must be established before Phase 2 -- retrofitting after 60 checks are written is prohibitively difficult. Address in Phase 2.
+5. **Bat auditing that reports without fixing** — ConspitLink flickering was fixed 3 times manually same day; each time the fix regressed because `start-rcagent.bat` was not updated. Prevention: bat audit must be closed-loop — detect divergence, deploy canonical bat from git, verify enforcement lines present. Additionally, 4 Windows-specific silent traps exist in bat files (UTF-8 BOM from Write tool, parentheses in if/else, `/dev/null` instead of `nul`, `timeout` in non-interactive context) — auditor must detect "present but broken" enforcement lines, not just missing ones.
 
-5. **Auto-fix kills active billing sessions** -- `taskkill /IM powershell.exe` kills the billing session WebSocket handler along with orphan processes; an active session represents paying customer time. Prevention: `is_pod_idle()` check is the first line of every fix function; PID-targeted kills only; `taskkill /F /IM powershell.exe` banned from the safe-fix whitelist. Address in Phase 3.
+6. **Silent failure sweep that only covers new code** — Building the framework without retroactively fixing the 6 known silent failures leaves the same incident categories open for the next audit cycle. The 6 known failures: `spawn().is_ok()` in rc-sentry `restart_service()`, empty allowlist DEBUG log, config parse before tracing init, MAINTENANCE_MODE 30-min auto-clear gap, feature flag DB unreachable with no alert, SSL/TOML corruption with no detection. Prevention: v25.0 phases must include an explicit retroactive fix pass, not just framework construction.
 
-Additional pitfalls by phase: delta false regressions from mode/venue-state context changes (Phase 4, include `mode` and `venue_state` in every result record), jq not found on fresh Git Bash install (Phase 1 prerequisites check), UTC/IST timestamp confusion in log-based checks (Phase 1, always `date -u +%s`), parallel load overwhelming venue LAN (Phase 2, semaphore plus 200ms stagger), suppression list masking real regressions (Phase 4, mandatory `expires` field and 10-entry cap).
+7. **Verification framework adding latency to the billing hot path** — Synchronous verification steps on billing start delay the session and change timing relative to UDP telemetry; the PlayableSignal gate (v24.0) makes this timing-sensitive. Prevention: all verification on billing/game launch/WS paths must be async fire-and-forget. Measure `billing_start_latency_ms` before and after merging the framework; must be within 5ms of baseline.
 
 ---
 
 ## Implications for Roadmap
 
-Based on combined research, the phase structure follows strict dependency ordering. Retrofitting parallel output coordination, suppression schema, or delta metadata after 60 checks are written is prohibitively expensive.
+Based on combined research, 6 phases are warranted. Build order is imposed by Rust type dependencies (rc-common must stabilize before consumers compile) and operational risk (server-side racecontrol changes are lower risk than pod-side rc-agent session logic).
 
-### Phase 1: Core Runner and Shared Primitives
+### Phase 1: Verification Chain Foundation
 
-**Rationale:** All 60 phase scripts depend on lib/core.sh. Every Windows-specific failure mode must be addressed here before any check is built on top of it. This is the highest-leverage work in the milestone -- getting these primitives right makes every subsequent phase correct by default.
+**Rationale:** All other phases depend on the `VerificationChain` type in rc-common. This must stabilize first so rc-agent and racecontrol can consume it without type churn. The hot-path/cold-path async distinction must be specified in the framework design here — getting it wrong breaks billing latency fleet-wide and requires a rewrite. Also includes the retroactive audit for `tracing::error!` calls before `tracing_subscriber::init()` — the pre-tracing logging gap is a prerequisite for boot resilience phases to be meaningful.
+**Delivers:** `rc-common/verification.rs` (VerificationChain, VerificationStep, Verdict), pre-tracing error buffer pattern in `main.rs`, async fire-and-forget pattern spec for hot paths, retroactive audit of pre-tracing error paths
+**Addresses:** Chain-of-verification helpers (P1), logging initialization gap (Pitfall 6), billing hot path risk (Pitfall 7)
+**Avoids:** Proxy verification failure mode — framework data model must represent each step as a distinct trackable unit before any code path is wrapped
+**Research flag:** Standard patterns — well-defined from codebase analysis; skip `/gsd:research-phase`
 
-**Delivers:**
-- `audit/audit.sh` entry point: mode parsing, venue-open detection, auth token acquisition, prerequisites check (jq/curl/ssh), output directory initialization
-- `audit/lib/core.sh`: `emit_result`, `emit_fix`, `http_get`, `safe_remote_exec`, `safe_ssh_capture`, `get_session_token`, `is_suppressed`, `pod_loop` stubs
-- JSON schema for phase result records including `mode` and `venue_state` fields (required by delta tracking in Phase 4)
-- Structured exit codes (0/1/2)
+### Phase 2: Observable State Transitions
 
-**Addresses:** Single-command invocation, auth token reuse, timeout enforcement, PASS/WARN/FAIL/QUIET per check, venue-open/closed detection, prerequisites validation
+**Rationale:** The highest-impact silent failure eliminations are all in this phase (MAINTENANCE_MODE, config fallback, empty allowlist, sentinel fleet alerts). These are LOW complexity changes with HIGH incident reduction per effort. They must come before boot resilience because observable state transitions are what make boot self-heal events visible when they occur. The retroactive sweep of all existing sentinel write sites belongs here.
+**Delivers:** `rc-agent/observable_state.rs`, `emit_transition()` wired into all 7 sentinel write sites, WhatsApp alert on MAINTENANCE_MODE write, `warn!` on all 6 `unwrap_or("http://127.0.0.1:8080")` sites in `main.rs`, `fleet_alert.rs` integration for sentinel events, retroactive sweep of known silent failures in existing code
+**Addresses:** MAINTENANCE_MODE alert (P1), config fallback observability (P1), sentinel file creation alerts (P1), empty allowlist on boot alert (P1), silent failure sweep (Pitfall 8)
+**Avoids:** Alert-only vs log-only distinction (Pitfall 2) — must wire to WhatsApp/fleet dashboard, not just tracing; alert storm rate limiting required (max 1 alert per sentinel type per pod per 5 minutes)
+**Research flag:** Standard patterns — existing `fleet_alert.rs` channel and WhatsApp integration are well-understood; skip `/gsd:research-phase`
 
-**Avoids:** cmd.exe quoting (Pitfall 1), curl quote artifacts (Pitfall 2), SSH banner corruption (Pitfall 3), UTC/IST timestamp confusion (Pitfall 9), jq not found (Pitfall 7)
+### Phase 3: Boot Resilience Formalization
 
-**Research flag:** Standard patterns -- no phase research needed.
+**Rationale:** The periodic re-fetch scaffold for feature flags follows the `process_guard.rs` reference pattern exactly (commit `821c3031`). Sequenced after Phase 2 so that boot self-heal events ("allowlist recovered after boot failure — 47 entries loaded") have `emit_transition()` available to make them visible. This phase formalizes the pattern as a reusable module and applies it to all remaining startup-fetched resources.
+**Delivers:** `rc-agent/boot_resilience.rs` with `spawn_periodic_refetch()`, feature flags periodic re-fetch (60s), recovery event emitted when re-fetch succeeds after boot failure, retroactive sweep of all `load_or_default()` callsites for missing periodic re-fetch
+**Addresses:** Boot resilience for feature flags (P2), boot-time transient failure category, retroactive sweep of `load_or_default()` sites (Pitfall 3)
+**Avoids:** "Fetch once and assume success" anti-pattern — boot-time retry and periodic re-fetch are complementary; allowlist hysteresis (apply new allowlist only if it has >= 80% of previous entry count) prevents flip-flop from transient server errors
+**Research flag:** Standard patterns — reference implementation is commit `821c3031` in this repo; skip `/gsd:research-phase`
 
----
+### Phase 4: Pre-Ship Verification Gate
 
-### Phase 2: Phase Script Migration (Tiers 1-6, Core Checks)
+**Rationale:** The domain-matched verification gate addresses the single most recurring failure mode in this codebase (8+ proxy verification incidents). It is operational tooling — no Rust compile dependency — and can be developed in parallel with Waves 2-3. Sequenced before bat auditing because the bat deploy step in Phase 5 is itself a deploy that should pass through the gate.
+**Delivers:** Domain-mapped verification table (display/network/parse/billing/config) as a blocking checklist in `gate-check.sh` Suite 0, `racecontrol/verification_gate.rs` for server-side gate runner, integration with existing GSD execute-phase output template
+**Addresses:** Domain-matched verification gate (P1), proxy verification root cause category
+**Avoids:** Terminal-accessible verification for visual changes (Pitfall 4) — gate must explicitly require visual confirmation for display-affecting deploys; "verified" from SSH terminal for a visual change must be a gate failure
+**Research flag:** Standard patterns — change taxonomy maps to existing standing rule categories in CLAUDE.md; skip `/gsd:research-phase`
 
-**Rationale:** Port the 60 v3.0 phases as non-interactive bash functions before adding parallelism. Validate each tier against a live fleet in sequential mode first. Tiers 1-6 cover the daily operations critical path (infrastructure, core services, display/UX, billing, games/hardware, notifications).
+### Phase 5: Startup Bat Auditing
 
-**Delivers:**
-- `audit/phases/tier1/` through `audit/phases/tier6/` with all phase scripts
-- Each script: sources lib/core.sh, calls `emit_result`, exits 0 always, preserves v3.0 phase numbering
-- Sequential execution baseline confirming correctness before parallelism is introduced
+**Rationale:** Bat enforcement is the deepest recurring regression pattern in this codebase (ConspitLink fixed 3 times same day; power plan, USB suspend, process kill list all regressed on subsequent deploys). Sequenced after Phase 4 so the bat deploy step itself goes through the domain-matched gate.
+**Delivers:** `audit/startup/` tier in the v23.0 audit runner, bat hash comparison against canonical in `self_heal.rs`, auto-deploy of canonical bat to divergent pods (4-concurrent cap, 500ms stagger), post-deploy `findstr` verification of enforcement lines, 4-trap detection (BOM, parentheses, `/dev/null`, `timeout`)
+**Addresses:** Startup enforcement bat scanner (P2), bat drift detector in audit (P2), first-scan validation for guards (P2)
+**Avoids:** Report-without-fixing anti-pattern (Pitfall 5) — audit must detect AND deploy AND verify; "present but broken" enforcement lines must be distinguished from missing lines (Pitfall 9)
+**Research flag:** Standard patterns — v23.0 audit framework, rc-sentry /files endpoint, and canonical bat in `self_heal.rs` all exist; skip `/gsd:research-phase`
 
-**Addresses:** All 60 v3.0 phases non-interactive, JSON output file, Markdown report generation
+### Phase 6: Cause Elimination Process Enforcement
 
-**Avoids:** Parallel output interleaving (Pitfall 4) -- sequential execution first
-
-**Research flag:** Tier 3 (display/UX) and Tier 5 (games/hardware) QUIET detection needs live venue testing. Display checks are invisible to API health endpoints -- verify QUIET logic works correctly when venue is closed.
-
----
-
-### Phase 3: Parallel Execution Engine and Tiers 7-12
-
-**Rationale:** Parallelism added after all phase scripts exist and work sequentially. Adding the engine to validated scripts is straightforward; debugging parallel scripts from scratch is not. Tiers 7-12 cover cloud/PWA, security, data/analytics, AI/feature flags, marketing/staff, and OTA/deployment.
-
-**Delivers:**
-- `audit/lib/parallel.sh` with file-based semaphore enforcing 4-connection cap
-- Pod-loop helper in lib/core.sh using semaphore
-- `audit/phases/tier7/` through `audit/phases/tier12/` with remaining phase scripts
-- Audit runtime reduced from ~24 minutes to ~6 minutes
-- 200ms stagger between parallel launches to prevent ARP flood on venue LAN
-
-**Addresses:** Parallel phase execution capped at 4 concurrent, full 60-phase coverage
-
-**Avoids:** Parallel output interleaving (Pitfall 4), parallel load overwhelming network (Pitfall 10)
-
-**Research flag:** Tier 12 (OTA/deployment) -- review AUDIT-PROTOCOL.md Phases 56-60 before porting to confirm check commands are fully specified.
-
----
-
-### Phase 4: Intelligence Layer (Delta, Suppression, Severity, Reports)
-
-**Rationale:** Delta tracking requires JSON output from prior runs. Suppression requires stable check IDs. Both require the `mode` and `venue_state` fields established in Phase 1. Build all three together since they share the same data dependencies and the report generator consumes all three.
-
-**Delivers:**
-- `audit/lib/delta.sh`: jq-based join on phase number; REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categories; mode-aware and venue-state-aware comparison
-- `audit/suppress.json` schema: check_id, reason, added, expires, owner; 10-entry cap; stale-entry (>30 days) warning; expired entries auto-unsuppressed
-- `audit/generate-report.sh`: Markdown report with delta section, failures section, auto-fix log, suppressed section; summary JSON with counts and regression flag
-- `audit/results/index.json`: audit run history (timestamp, mode, P1/P2/P3 counts)
-
-**Addresses:** Delta tracking, known-issue suppression with expiry enforcement, severity scoring, Markdown report generation, audit run history
-
-**Avoids:** Delta false regressions from context changes (Pitfall 6), suppression list masking regressions (Pitfall 8)
-
-**Research flag:** Run at least 3 consecutive audits with mode and venue state variations to verify false-regression suppression before enabling WhatsApp alerting in Phase 5.
-
----
-
-### Phase 5: Auto-Fix and Notifications
-
-**Rationale:** Auto-fix must not be deployed until at least 2 clean audit runs confirm the PASS/FAIL results it acts on are accurate. Notifications depend on delta tracking from Phase 4 to send meaningful summaries rather than raw report dumps.
-
-**Delivers:**
-- `audit/lib/fixes.sh`: FIX-01 through FIX-07 (sentinel clearing, orphan process kills, duplicate instance kills, overlay kills)
-- `is_pod_idle()` as mandatory pre-fix gate (queries fleet health `session_state` field)
-- Per-fix audit log (`audit/results/autofix.log`): timestamp, pod IP, action, session state at time of fix, result
-- `audit/lib/notify.sh`: comms-link relay + INBOX.md dual-channel (standing rule compliance); WhatsApp via Bono relay (P1 FAILs or regressions by default); notification failure does NOT abort audit run
-- Phase-level retry (1 retry, 5s delay) for transient curl failures
-
-**Addresses:** Safe auto-fix for pre-approved operations, comms-link Bono notification, WhatsApp Uday summary, phase-level retry
-
-**Avoids:** Auto-fix kills active billing sessions (Pitfall 5)
-
-**Research flag:** Simulate an active billing session before enabling auto-fix in production. Verify `is_pod_idle()` blocks all 7 fix operations with SKIP_ACTIVE_SESSION. Verify WhatsApp message does not include the auth PIN.
-
----
+**Rationale:** Process enforcement is the lowest-complexity, highest-discipline-leverage change in v25.0. It closes the loop on the "incomplete root cause analysis" category (3+ incidents where a plausible artifact was fixed without testing other hypotheses). Sequenced last so the template is validated against real Phase 1-5 fix work before being enforced on all core binary commits.
+**Delivers:** `fix_log.sh` bash helper with 5-step Cause Elimination template, pre-commit hook that checks for template section in commits touching rc-agent/racecontrol/rc-sentry, `LOGBOOK.md` structured format adoption, emergency bypass field (`emergency: true` with reason, logged for post-incident review)
+**Addresses:** Cause Elimination template enforcement (P1), structured fix log (P2), incomplete root cause analysis category
+**Avoids:** Stopping at "found a crash dump" (Pitfall 10) — template must list ALL hypotheses considered and eliminated, not just the confirmed cause; template must not block urgent hotfixes (emergency bypass exists)
+**Research flag:** Standard patterns — pure process tooling; skip `/gsd:research-phase`
 
 ### Phase Ordering Rationale
 
-- Phase 1 before everything: shared primitives contain all Windows pitfall mitigations; they propagate to all 60 checks automatically
-- Phase 2 sequential before Phase 3 parallel: debugging sequential bash is dramatically simpler; correctness must precede performance
-- Phase 4 after Phase 2: delta tracking and suppression require at least 2 completed audit runs; the JSON schema with `mode`/`venue_state` fields must be established in Phase 1 before any runs happen
-- Phase 5 after Phase 4 is validated: auto-fix must not be enabled until PASS/FAIL signals are known to be accurate; notifications send meaningful content only when delta tracking is working
+- **Wave 1 before Wave 2 (Rust):** `VerificationChain` types in rc-common must compile before rc-agent and racecontrol consume them. Rust type dependencies impose this constraint absolutely — no workaround.
+- **Observable state (Phase 2) before boot resilience (Phase 3):** Boot self-heal events ("allowlist recovered after boot failure") need `emit_transition()` to be visible. Building boot resilience without observability recreates the silent recovery pattern.
+- **Pre-ship gate (Phase 4) before bat auditing (Phase 5):** The bat deploy step in Phase 5 is itself a deploy and must pass through the Phase 4 domain-matched gate. Sequencing ensures the gate is available.
+- **Cause Elimination (Phase 6) last:** Template is validated against real Phase 1-5 fix work before being enforced. Enforcing it before the framework exists adds overhead without the corresponding tooling benefit.
+- **Phases 4-6 parallelize with Waves 2-3:** No Rust compile dependency — bat scripts, gate-check.sh integration, and fix_log.sh can be developed alongside rc-agent/racecontrol work.
 
 ### Research Flags
 
-Phases needing deeper research during planning:
-- **Phase 2:** Tier 3 (display/UX) and Tier 5 (games/hardware) QUIET detection -- venue-closed heuristic needs testing against actual operating hours
-- **Phase 3:** Tier 12 (OTA/deployment) -- review AUDIT-PROTOCOL.md Phases 56-60 to confirm check commands are fully specified before porting
-- **Phase 4:** Delta comparison edge cases -- first run (no baseline), mode switches, venue state switches; need 3+ consecutive test runs before enabling regression alerting
-- **Phase 5:** Auto-fix blast radius review -- each FIX-01 through FIX-07 needs explicit `is_pod_idle()` gate testing against a live pod with an active session
+Phases likely needing deeper research during planning: **None.** All 6 phases build on primitives verified directly in the codebase (existing module code, existing patterns, documented incidents). No phase requires external API research or niche domain knowledge.
 
-Phases with standard patterns (no phase research needed):
-- **Phase 1:** bash primitives, JSON schema design, curl/jq wrappers -- well-documented patterns; direct knowledge of exec endpoints
-- **Phase 3 (parallel engine):** bash background jobs with file-based semaphore -- established pattern
+Phases with standard patterns (skip `/gsd:research-phase`):
+- **Phase 1:** VerificationChain derived from codebase analysis; tracing/tokio patterns are HIGH confidence from existing workspace deps
+- **Phase 2:** Alert channels (`fleet_alert.rs`, WhatsApp Evolution API) are existing and tested infrastructure
+- **Phase 3:** Reference implementation is commit `821c3031` in this repo
+- **Phase 4:** Change taxonomy maps exactly to standing rule categories already in CLAUDE.md
+- **Phase 5:** v23.0 audit framework, rc-sentry /files, and canonical bat in `self_heal.rs` all exist
+- **Phase 6:** Pure process tooling — bash script + commit hook
 
 ---
 
@@ -235,41 +185,52 @@ Phases with standard patterns (no phase research needed):
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All tools verified live on James's machine; jq is the only install needed; bash 5.2 `wait -n` and `declare -A` confirmed; curl/ssh versions confirmed |
-| Features | HIGH | v3.0 protocol is the authoritative source for all 60 check definitions; feature list derived directly from PROJECT.md constraints and production incident history |
-| Architecture | HIGH | Component boundaries derived from direct analysis of AUDIT-PROTOCOL v3.0 and existing integration points (rc-agent :8090, rc-sentry :8091, fleet health :8080); no new ports or services required |
-| Pitfalls | HIGH | Every pitfall documented from a confirmed production incident in this codebase; no hypothetical risks; all have specific CLAUDE.md standing rules and LOGBOOK.md incident records |
+| Stack | HIGH | Workspace Cargo.toml confirmed directly; `notify 8.2.0` verified on docs.rs with Windows platform support (`windows-sys ^0.60`); all other patterns use existing workspace deps with zero new additions |
+| Features | HIGH | Features derived from 11 documented incidents in this exact codebase — not generic research. 7 root cause categories from direct post-mortem. Code inspection confirmed 7 `unwrap_or` fallbacks, empty allowlist DEBUG log, MAINTENANCE_MODE write-without-alert |
+| Architecture | HIGH | Based on direct codebase analysis of all 4 crates: app_state.rs, event_loop.rs, self_monitor.rs, process_guard.rs, feature_flags.rs, protocol.rs, recovery.rs. Component boundaries, data flow, and build order derived from actual source |
+| Pitfalls | HIGH | Every pitfall is sourced from documented production incidents in CLAUDE.md and PROJECT.md. 4 bat syntax traps confirmed from multiple failed deploys. Billing hot path latency risk confirmed from PlayableSignal billing gate timing in v24.0. No hypothetical pitfalls |
 
-**Overall confidence:** HIGH
+**Overall confidence: HIGH**
 
 ### Gaps to Address
 
-- **jq install step:** Must happen before Phase 1 begins. `winget install jqlang.jq` then verify `which jq` in Git Bash specifically (winget installs to Windows PATH, not always Git Bash PATH). Fallback: `scoop install jq`.
-- **Operating hours for venue-closed detection:** Time-of-day heuristic (09:00-22:00 IST) needs confirmation against actual venue schedule. Active billing session check is more reliable but requires working SESSION token. Consider supporting an explicit `--venue-closed` flag as an override.
-- **Tier 12 phase coverage:** Verify AUDIT-PROTOCOL.md Phases 56-60 (OTA/deployment) have fully specified check commands before the Phase 3 porting pass.
-- **WhatsApp recipient for Uday:** project_whatsapp_phone_mapping.md assigns staff phone as 7075778180. Confirm whether Uday's audit summary goes to the staff number or a separate number before wiring notify.sh.
+- **`notify` crate in non-interactive service context:** `notify 8.2.0` uses `ReadDirectoryChangesW` which is confirmed Windows-supported, but behavior when rc-agent runs via HKLM Run (no desktop session, no message pump) needs validation. If it fails in this context, the fallback is a 500ms polling loop — acceptable latency for sentinel detection. Validate during Phase 1 implementation with `cargo test` on Pod 8.
+
+- **`VerificationChain` allocation on billing hot path:** Architecture specifies async fire-and-forget to a ring buffer for hot paths, but the exact ring buffer mechanism needs implementation validation. The existing `RecoveryEventStore` in recovery.rs is a candidate — verify it can accept `VerificationChain` records without blocking the billing path. Measure `billing_start_latency_ms` before and after during Phase 1.
+
+- **WhatsApp alert storm rate limiting:** Observable state transitions could fire rapidly during a crash storm (MAINTENANCE_MODE written repeatedly). The existing `app_health_monitor.rs` alert channel has rate limiting — verify the same rate limiting is applied to new sentinel alerts. Address during Phase 2 wiring. Max 1 alert per sentinel type per pod per 5 minutes is the recommended threshold.
+
+- **Canonical bat comparison method:** `self_heal.rs` embeds canonical bat content, but hash vs line-by-line diff needs a decision before Phase 5. Hash is faster but hides WHICH enforcement lines are missing. Line-by-line diff by category (process kills / power settings / singleton guards / sentinel clears) is recommended — the bat audit value is in the diff, not just pass/fail.
 
 ---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- `racecontrol/AUDIT-PROTOCOL.md` (1928 lines, v3.0) -- authoritative source for all 60 phase check definitions, result recording template, and execution mode definitions
-- `racecontrol/.planning/PROJECT.md` -- v23.0 milestone specification, constraints (pure bash, no daemon, max 4 concurrent pod connections, auto-fix conservatism)
-- `racecontrol/CLAUDE.md` -- standing rules for cmd.exe quoting, SSH banner corruption, curl quote stripping, UTC/IST confusion, session gate, OTA sentinel awareness, JSON in Git Bash -- all derived from production incidents
-- `racecontrol/LOGBOOK.md` -- incident records: pod healer curl bug (2 deploy cycles), SSH banner TOML corruption (2026-03-24), process guard empty allowlist (fleet-wide, 2+ hours)
-- Live tool verification on James's machine: bash 5.2.37, curl 8.18.0, Node v22.22.0, jq NOT installed
-- `comms-link/send-message.js` path verified: `C:/Users/bono/racingpoint/comms-link/send-message.js`
+
+- `crates/rc-agent/src/main.rs` — confirmed 6x `unwrap_or("http://127.0.0.1:8080")` and 1x `unwrap_or("127.0.0.1")` silent fallbacks
+- `crates/rc-agent/src/startup_log.rs` — phase-based startup log, `AtomicBool LOG_INITIALIZED`, crash detection pattern
+- `crates/rc-agent/src/self_heal.rs` — canonical bat content embedded in binary (bat drift detector baseline)
+- `crates/racecontrol/src/process_guard.rs` — "empty allowlist is almost certainly a config loading failure" comment with no enforcement; `821c3031` periodic re-fetch reference
+- `crates/racecontrol/src/fleet_alert.rs` — existing WhatsApp alert channel confirmed for sentinel alert reuse
+- `crates/rc-common/src/recovery.rs` — RecoveryLogger, RecoveryAuthority, JSONL path
+- `crates/rc-common/src/protocol.rs` — AgentMessage / CoreToAgentMessage protocol; new variant introduction constraint
+- `workspace Cargo.toml` — existing dep versions, confirmed absence of `notify`
+- `.planning/PROJECT.md` — v25.0 milestone spec, 7 root cause categories, 11 incidents, avg 2.4 attempts
+- `CLAUDE.md` standing rules — 12 debugging rules each tracing to a specific incident; `eprintln!` rule; bat syntax traps; domain-matched verification rule
 
 ### Secondary (MEDIUM confidence)
-- jq 1.8.1 release notes (github.com/jqlang/jq/releases) -- version features and CVE-2025-49014 fix confirmed
-- bash 5.2 `wait -n` documentation -- parallel job semaphore patterns
-- WebSearch: parallel bash patterns, jq on Windows, delta tracking approaches -- corroborated by live tool verification
+
+- `docs.rs/notify/8.2.0/notify/` — Windows support confirmed (`windows-sys ^0.60`), `RecommendedWatcher` API, `tokio::sync::mpsc` bridge pattern
+- `docs.rs/statig/0.4.1/statig/` — `before_transition`/`after_transition` hooks; not recommended for existing state machines
+- MEMORY.md — 2026-03-24/25 audit records: MAINTENANCE_MODE incident (Pods 5/6/7, 1.5h dark), empty allowlist incident (2+ hours, 28,749 violations/day), SSH banner TOML corruption
 
 ### Tertiary (informational)
-- `PITFALLS-v22.0.md` and `PITFALLS-v17.1.md` -- cmd.exe hostility and spawn/recovery patterns applicable to auto-fix phase design
-- Comparison to generic monitoring tools (Nagios/Zabbix) -- confirms HTTP-exec-based approach is correct for this infrastructure; no new agents needed
+
+- PITFALLS-v17.1-watchdog-ai.md — `spawn().is_ok()` false confirmation, MAINTENANCE_MODE silent block; directly applicable incident records
+- PITFALLS.md (v23.0 audit runner) — cmd.exe quoting traps, SSH banner corruption, curl quote stripping (applicable to bat auditing and verification tooling)
 
 ---
-*Research completed: 2026-03-25 IST*
+
+*Research completed: 2026-03-26 IST*
 *Ready for roadmap: yes*

@@ -1,809 +1,458 @@
 # Architecture Research
 
-**Domain:** Bash-based automated fleet audit system (v23.0 Audit Protocol v4.0)
-**Researched:** 2026-03-25
-**Confidence:** HIGH — based on direct analysis of AUDIT-PROTOCOL v3.0, PROJECT.md milestone spec,
-existing infrastructure (APIs, comms-link relay, WhatsApp alerter), and CLAUDE.md standing rules.
+**Domain:** Rust/Axum fleet management — verification, observability, boot resilience layer (v25.0)
+**Researched:** 2026-03-26
+**Confidence:** HIGH (based on direct codebase analysis of all 4 crates)
+
+## Standard Architecture
+
+### System Overview
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     racecontrol (server :8080)                              │
+│                                                                              │
+│  pod_monitor.rs   pod_healer.rs   fleet_health.rs   app_health_monitor.rs  │
+│  flags.rs         recovery.rs     cloud_sync.rs      ota_pipeline.rs        │
+│       │                │                │                    │              │
+│       └────────────────┴────────────────┴────────────────────┘              │
+│                          state.rs (AppState)                                 │
+│         WatchdogState | RecoveryIntentStore | FeatureFlagRow                 │
+└──────────────────────────────────┬─────────────────────────────────────────┘
+                                   │ WebSocket (AgentMessage / CoreToAgentMessage)
+┌──────────────────────────────────┴─────────────────────────────────────────┐
+│                      rc-agent (each pod :8090)                               │
+│                                                                              │
+│  app_state.rs     event_loop.rs    ws_handler.rs    billing_guard.rs        │
+│  self_monitor.rs  pre_flight.rs    process_guard.rs  startup_log.rs         │
+│  safe_mode.rs     feature_flags.rs failure_monitor.rs game_process.rs       │
+│                                                                              │
+│  AppState (survives WS reconnections — flags, guard_whitelist, safe_mode)   │
+│  ConnectionState (reset per WS connect — intervals, LaunchState, etc.)      │
+└──────────────────────────────────┬─────────────────────────────────────────┘
+                         ┌─────────┴─────────┐
+                         │ UDP telemetry      │ sentinel files / startup logs
+                         │                   │
+┌────────────────────────┴───────────────────┴────────────────────────────────┐
+│                 rc-sentry (each pod :8091) — NO TOKIO, std::net              │
+│                                                                              │
+│  main.rs (4-slot concurrency cap)    watchdog.rs (FSM health polling)       │
+│  tier1_fixes.rs   debug_memory.rs    session1_spawn.rs                      │
+│                                                                              │
+│  WatchdogState: Healthy → Suspect(N) → Crashed                              │
+│  Reads: rc-agent-startup.log, rc-agent-stderr.log after crash               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        rc-common (shared lib, no binary)                     │
+│                                                                              │
+│  protocol.rs (AgentMessage / CoreToAgentMessage enums)                       │
+│  types.rs    recovery.rs (RecoveryAuthority, ProcessOwnership, Logger)       │
+│  exec.rs     watchdog.rs (EscalatingBackoff)   ollama.rs   udp_protocol.rs  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Component Responsibilities
+
+| Component | Responsibility | Key State |
+|-----------|---------------|-----------|
+| `racecontrol/state.rs` | Fleet AppState — server-side shared state hub | WatchdogState, RecoveryIntentStore, FleetHealthStore |
+| `racecontrol/pod_monitor.rs` | Detects pod liveness failures, advances EscalatingBackoff | Owns backoff; does NOT heal |
+| `racecontrol/pod_healer.rs` | Rule-based fixes + AI escalation; reads backoff but does NOT advance it | RecoveryAuthority::PodHealer |
+| `racecontrol/fleet_health.rs` | Aggregates PodFleetStatus, ViolationStore | Serves /api/v1/fleet/health |
+| `racecontrol/app_health_monitor.rs` | Polls admin/kiosk/web health endpoints every 30s; WhatsApp alert on failure | — |
+| `rc-agent/app_state.rs` | Pod AppState — survives WS reconnections | flags, guard_whitelist, safe_mode, heartbeat_status |
+| `rc-agent/event_loop.rs` | Per-connection state machine; ConnectionState reset on each WS connect | LaunchState, CrashRecoveryState, all interval timers |
+| `rc-agent/ws_handler.rs` | Dispatches CoreToAgentMessage to handlers, returns HandleResult | Stateless dispatch |
+| `rc-agent/self_monitor.rs` | Background tokio::spawn — CLOSE_WAIT flood + WS dead detection | Runs every 60s, owns ws_last_connected |
+| `rc-agent/pre_flight.rs` | 3 concurrent checks (HID/ConspitLink/orphan) on BillingStarted | Returns Pass or MaintenanceRequired |
+| `rc-agent/startup_log.rs` | Phased startup log → `rc-agent-startup.log` | AtomicBool LOG_INITIALIZED (truncate-first) |
+| `rc-agent/process_guard.rs` | Periodic scan vs MachineWhitelist; sends ProcessViolation | guard_whitelist Arc<RwLock> in AppState |
+| `rc-agent/feature_flags.rs` | In-memory FeatureFlags cache; updated via FlagSync WS message | Persisted to disk on every update |
+| `rc-sentry/watchdog.rs` | FSM polls rc-agent :8090 every 5s; 3-poll hysteresis; reads crash logs | WatchdogState::Healthy/Suspect(N)/Crashed |
+| `rc-sentry/tier1_fixes.rs` | Deterministic fixes: stale sockets, zombie kill, config repair | Applied before restart attempt |
+| `rc-sentry/debug_memory.rs` | JSON crash pattern memory — instant replay of known fixes | debug-memory.json on disk |
+| `rc-common/recovery.rs` | RecoveryAuthority enum, ProcessOwnership registry, RecoveryLogger, JSONL log | Shared by all 3 executables |
+| `rc-common/exec.rs` | Shared sync/async exec primitive (feature-gated tokio boundary) | Used by rc-sentry + rc-agent |
 
 ---
 
-## What We Are Building
+## Recommended Project Structure for v25.0
 
-AUDIT-PROTOCOL v3.0 is a 1928-line markdown document with 60 phases of copy-paste bash commands.
-Running an audit currently means: open the document, read the description, manually copy each curl
-block, decide whether the output is PASS/FAIL, record results in a separate summary template. A full
-audit takes 45-90 minutes of active operator attention.
-
-v23.0 transforms this into a single command:
-
-```bash
-bash audit/audit.sh --mode standard
-```
-
-That command runs all appropriate phases non-interactively, scores each phase, emits structured JSON,
-generates a Markdown report comparing against the previous audit, applies pre-approved auto-fixes,
-notifies Bono via comms-link, and sends a WhatsApp summary to Uday. Total time: under 5 minutes
-unattended.
-
-The system is pure bash — no new compiled dependencies, no new services, no new ports.
-
----
-
-## System Overview
+New features slot into the existing 4-crate structure. No new crate is needed.
 
 ```
-+------------------------------------------------------------------+
-|  James (.27) — audit runner                                      |
-|                                                                  |
-|  audit/audit.sh  <-- entry point, mode selector, tier scheduler |
-|       |                                                          |
-|       +-- audit/lib/core.sh     -- PASS/WARN/FAIL/QUIET helpers |
-|       +-- audit/lib/parallel.sh -- background job throttle      |
-|       +-- audit/lib/fixes.sh    -- pre-approved auto-fix ops    |
-|       +-- audit/lib/delta.sh    -- diff against last results     |
-|       +-- audit/lib/notify.sh   -- comms-link + WhatsApp output  |
-|       |                                                          |
-|       +-- audit/phases/tier1/   -- 10 phases (infra foundation)  |
-|       +-- audit/phases/tier2/   -- 6 phases  (core services)     |
-|       +-- audit/phases/tier3/   -- 4 phases  (display/UX)        |
-|       +-- audit/phases/tier4/   -- 5 phases  (billing/commerce)  |
-|       +-- audit/phases/tier5/   -- 4 phases  (games/hardware)    |
-|       +-- audit/phases/tier6/   -- 5 phases  (notifications)     |
-|       +-- audit/phases/tier7/   -- 5 phases  (cloud/PWA)         |
-|       +-- audit/phases/tier8/   -- 5 phases  (security/access)   |
-|       +-- audit/phases/tier9/   -- 6 phases  (data/analytics)    |
-|       +-- audit/phases/tier10/  -- 5 phases  (AI/feature flags)  |
-|       +-- audit/phases/tier11/  -- 5 phases  (marketing/staff)   |
-|       +-- audit/phases/tier12/  -- 5 phases  (OTA/deployment)    |
-|       |                                                          |
-|       +-- audit/results/        -- JSON output per run           |
-|       +-- audit/reports/        -- Markdown reports per run      |
-|       +-- audit/suppress.json   -- known-issue suppression list  |
-+------------------------------------------------------------------+
-         |                    |                    |
-         | HTTP APIs          | SSH (Tailscale)    | comms-link relay
-         v                    v                    v
-  Server .23           Bono VPS               WhatsApp
-  :8080/:8090         :8080/:8766             (via Evolution API
-  8 pods :8090/:8091   comms-link relay        on Bono VPS)
+crates/
+├── rc-common/src/
+│   ├── verification.rs        NEW — VerificationChain trait + VerificationStep + Verdict
+│   └── ... (existing unchanged)
+│
+├── rc-agent/src/
+│   ├── boot_resilience.rs     NEW — generic periodic re-fetch scheduler
+│   ├── observable_state.rs    NEW — StateTransitionKind enum + emit_transition()
+│   ├── startup_log.rs         MODIFY — add VerificationStep hooks after write_phase() calls
+│   ├── event_loop.rs          MODIFY — call emit_transition() before each sentinel write
+│   ├── pre_flight.rs          MODIFY — emit observable event on MaintenanceRequired result
+│   ├── self_monitor.rs        MODIFY — add lifecycle logs (start / first-decision / exit)
+│   ├── process_guard.rs       MODIFY — emit observable event on empty allowlist fetch
+│   └── feature_flags.rs       MODIFY — emit observable event on fallback to compiled-in defaults
+│
+├── racecontrol/src/
+│   ├── verification_gate.rs   NEW — pre-ship domain-matched gate runner
+│   ├── config.rs              MODIFY — emit observable event on load_or_default() fallback
+│   ├── pod_monitor.rs         MODIFY — emit observable events on WatchdogState transitions
+│   ├── pod_healer.rs          MODIFY — wrap curl-output parse in VerificationChain
+│   └── fleet_health.rs        MODIFY — surface verification chain failures in health response
+│
+└── rc-sentry/src/
+    └── watchdog.rs            MODIFY — append to RecoveryLogger on every FSM transition
 ```
-
----
-
-## Component Boundaries
-
-### Component 1: audit.sh — Entry Point and Tier Scheduler
-
-**Responsibility:** Single entry point. Parses `--mode` flag, selects which tiers to run, detects
-venue-open/closed state, initializes shared variables (SESSION token, PODS array, RUN_ID, OUTPUT
-paths), schedules tier execution, invokes report and notify steps after tiers complete.
-
-**Does NOT do:** Execute individual phase checks. Parse command output. Apply fixes. Send
-notifications directly.
-
-**Inputs:** `--mode quick|standard|full|pre-ship|post-incident`, optional `--pod N` for single-pod
-focus, optional `--tier N` for single-tier focus.
-
-**Outputs:** Sets `AUDIT_RUN_ID`, `AUDIT_START_IST`, `RESULTS_DIR`, `REPORT_PATH` for all children.
-
-**Mode → Tier mapping:**
-```
-quick:         Tier 1 (infra) + Tier 2 (core services) only — ~10 phases
-standard:      Tiers 1-6 + skip hardware/display (venue-closed aware) — ~40 phases
-full:          All 60 phases
-pre-ship:      All 60 phases + strict severity (WARN treated as FAIL)
-post-incident: All 60 phases + verbose output + no suppression
-```
-
-**Venue-open detection:**
-```bash
-ACTIVE_SESSIONS=$(curl -s http://192.168.31.23:8080/api/v1/billing/sessions/active \
-  -H "x-terminal-session: $SESSION" 2>/dev/null | jq 'length // 0')
-# OR: check time-of-day heuristic (09:00–22:00 IST = likely open)
-```
-
-When venue-closed, Tier 3 (display/UX) and Tier 5 (games/hardware) phases produce QUIET results,
-not FAIL.
-
----
-
-### Component 2: Phase Scripts — audit/phases/tierN/phaseNN.sh
-
-**Responsibility:** Execute the bash commands for exactly one phase. Emit structured JSON result to
-stdout. Apply pre-approved auto-fixes when fix loop triggers are met. Return exit code 0 always
-(errors are encoded in JSON, not bash exit status).
-
-**Each phase script:**
-1. Runs its verification commands (curl, jq, ssh)
-2. Evaluates result against expected values
-3. Emits JSON result block (see Data Flow section)
-4. If `AUTO_FIX=1` and fix loop triggers are met: applies safe fix, emits a second JSON block
-   with `"type": "fix_applied"`
-5. Exits 0
-
-**Phase scripts are thin.** Complex logic (throttling, retries, fix application) lives in lib/.
-Phase scripts source `../lib/core.sh` and call `emit_result`, `emit_fix`, `apply_safe_fix`.
-
-**Naming convention:** `phaseNN.sh` where NN matches v3.0 phase numbers exactly.
-Phase 01 through 60 preserve all v3.0 checks without modification to the commands themselves.
-New v4.0 phases (delta tracking, feature flags) start at 61+.
-
----
-
-### Component 3: lib/core.sh — Shared Primitives
-
-**Responsibility:** Shared bash functions used by every phase script and by audit.sh itself.
-
-**Key functions:**
-
-```bash
-# Emit a phase result as JSON to stdout
-emit_result() {
-  local phase="$1" status="$2" message="$3" severity="$4" detail="$5"
-  # status: PASS | WARN | FAIL | QUIET
-  # severity: P1 | P2 | P3 (only set for FAIL/WARN)
-  printf '{"type":"phase_result","phase":%d,"status":"%s","severity":"%s",
-    "message":"%s","detail":%s,"ts_utc":"%s","run_id":"%s"}\n' \
-    "$phase" "$status" "$severity" "$message" "$detail" \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AUDIT_RUN_ID"
-}
-
-# Emit a fix-applied record
-emit_fix() {
-  local phase="$1" action="$2" result="$3"
-  printf '{"type":"fix_applied","phase":%d,"action":"%s","result":"%s","ts_utc":"%s"}\n' \
-    "$phase" "$action" "$result" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-
-# Pod loop helper — run command on all 8 pods, collect per-pod results
-pod_loop() {
-  # Sources lib/parallel.sh for throttled background execution
-}
-
-# Auth token fetch — called once at startup, reused by all phases
-get_session_token() {
-  SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth \
-    -H "Content-Type: application/json" -d '{"pin":"261121"}' | jq -r '.session')
-  export SESSION
-}
-
-# Suppression check — returns 1 if this phase result is suppressed
-is_suppressed() {
-  local phase="$1" message="$2"
-  jq --arg phase "$phase" --arg msg "$message" \
-    '.[] | select(.phase == ($phase | tonumber) and (.pattern | test($msg)))' \
-    "$SUPPRESS_FILE" | grep -q .
-}
-```
-
----
-
-### Component 4: lib/parallel.sh — Background Job Throttle
-
-**Responsibility:** Run phase scripts for a tier in parallel using bash background jobs, with a
-maximum concurrency limit of 4 concurrent pod-targeting commands (per project constraint: "Parallel
-execution must not overwhelm pods (max 4 concurrent pod queries)").
-
-**Design:**
-- Tier-level parallelism: multiple phase scripts within a tier run concurrently in background.
-- Pod-level throttle: within any phase that loops over pods, a semaphore limits to 4 simultaneous
-  pod requests. This is the critical constraint — 8 pods x unlimited parallel phases could fire 64
-  concurrent requests.
-- Uses file-based semaphore (lockfiles in `/tmp/audit-sem-$AUDIT_RUN_ID/`).
-- All background jobs write JSON to their own temp file; audit.sh collects after tier completes.
-
-**Semaphore pattern:**
-```bash
-acquire_sem() {
-  while true; do
-    local count=$(ls /tmp/audit-sem-$AUDIT_RUN_ID/ 2>/dev/null | wc -l)
-    if [ "$count" -lt 4 ]; then
-      touch "/tmp/audit-sem-$AUDIT_RUN_ID/$$"
-      return 0
-    fi
-    sleep 0.2
-  done
-}
-
-release_sem() {
-  rm -f "/tmp/audit-sem-$AUDIT_RUN_ID/$$"
-}
-```
-
----
-
-### Component 5: lib/fixes.sh — Pre-Approved Auto-Fix Operations
-
-**Responsibility:** A curated, conservative set of fix operations that can be applied without
-operator approval when a fix loop trigger is met. Every fix here was evaluated for reversibility
-and blast radius before being included.
-
-**Design principle:** The fix list is a whitelist. An operation not on the list cannot be applied
-automatically — it must be flagged as requiring manual intervention.
-
-**Pre-approved fixes (initial set):**
-
-| Fix ID | Trigger Condition | Action | Reversibility |
-|--------|------------------|--------|---------------|
-| FIX-01 | MAINTENANCE_MODE file present on pod | `curl -X POST :8091/exec {"cmd":"del C:\\RacingPoint\\MAINTENANCE_MODE"}` then schtasks restart | Reversible: rc-agent restarts cleanly |
-| FIX-02 | GRACEFUL_RELAUNCH or restart sentinel present | Delete sentinel via rc-sentry exec | Reversible |
-| FIX-03 | Orphan PowerShell count > 2 on pod | `taskkill /F /IM powershell.exe` via rc-agent exec | Reversible |
-| FIX-04 | Variable_dump.exe running | `taskkill /F /IM Variable_dump.exe` via rc-agent exec | Reversible |
-| FIX-05 | Overlay process detected (Copilot, NVIDIA overlay, GameBar) | Targeted taskkill by process name | Reversible |
-| FIX-06 | Duplicate rc-agent instances (count > 1) | `taskkill /F /IM rc-agent.exe` + schtasks restart | Reversible via rc-sentry |
-| FIX-07 | Bono comms-link relay health check fails | `curl -X POST /relay/exec/run {"command":"restart_comms_link"}` via relay | Reversible |
-
-**NOT auto-fixable (require manual):** Config file corruption (SSH banner), Tailscale offline,
-NVIDIA Surround resolution collapsed, build_id mismatch (requires rebuild), firewall rules
-missing, registry key issues.
-
----
-
-### Component 6: lib/delta.sh — Diff Against Last Results
-
-**Responsibility:** Load the previous audit's JSON result file, compare with current run, emit
-a structured diff showing: new failures (regressions), resolved failures (improvements), unchanged
-failures (persistent known issues), and unchanged passes.
-
-**Design:**
-- Previous result file: `audit/results/latest.json` (symlink to most recent run).
-- Current run's per-phase results are collected into `audit/results/$AUDIT_RUN_ID.json`.
-- `delta.sh` does a jq-based join on `phase` number between old and new.
-- Outputs a `delta.json` summary consumed by the report generator.
-
-**Delta categories:**
-```
-REGRESSION:   phase was PASS/QUIET in previous run, is FAIL/WARN now
-IMPROVEMENT:  phase was FAIL/WARN in previous run, is PASS now
-PERSISTENT:   phase was FAIL/WARN in previous run, still FAIL/WARN
-NEW_ISSUE:    phase exists in current run but not in previous (newly added phase)
-STABLE:       phase was PASS, still PASS
-```
-
-**First run:** No previous results exist. All phases produce `NEW_ISSUE` delta. Delta summary
-notes "First audit — no baseline available."
-
----
-
-### Component 7: lib/notify.sh — Comms-Link + WhatsApp Output
-
-**Responsibility:** After all tiers complete and report is generated, send notifications.
-
-**Two notification paths:**
-
-Path A — Bono comms-link (structured):
-```bash
-# Send full JSON summary to Bono via relay
-curl -s -X POST http://localhost:8766/relay/exec/run \
-  -H "Content-Type: application/json" \
-  -d "{\"command\":\"receive_audit_result\",\"reason\":\"audit complete\",
-       \"payload\":$(cat $RESULTS_DIR/summary.json)}"
-
-# Also append to INBOX.md (dual-channel rule)
-echo "## $(date '+%Y-%m-%d %H:%M IST') — from james" >> \
-  /c/Users/bono/racingpoint/comms-link/INBOX.md
-echo "Audit $AUDIT_RUN_ID complete: $PASS_COUNT PASS, $FAIL_COUNT FAIL, \
-  $WARN_COUNT WARN, $QUIET_COUNT QUIET. Report: $REPORT_PATH" >> \
-  /c/Users/bono/racingpoint/comms-link/INBOX.md
-```
-
-Path B — WhatsApp to Uday (human-readable summary only):
-```bash
-# Via comms-link relay to Bono, who has Evolution API access
-# (per project_whatsapp_routing.md: marketing/alerts go via Bono VPS)
-curl -s -X POST http://localhost:8766/relay/exec/run \
-  -H "Content-Type: application/json" \
-  -d "{\"command\":\"send_whatsapp\",\"reason\":\"audit summary\",
-       \"payload\":{\"phone\":\"usingh_number\",
-       \"message\":\"$(generate_wa_summary)\"}}"
-```
-
-**Notification triggers (configurable):**
-- Always: Bono comms-link message (structured JSON).
-- Always: Append to INBOX.md (standing rule: dual channel).
-- On FAIL or REGRESSION: WhatsApp to Uday.
-- On PASS with no regressions: WhatsApp only if `--notify-all` flag set (default: skip).
-
-**Failure handling:** If comms-link relay is down (`:8766` unreachable), fall through to:
-1. Append to INBOX.md + git push (will be picked up by Bono on next pull).
-2. Write to `audit/results/$AUDIT_RUN_ID-notify-failed.txt` for manual follow-up.
-Do NOT fail the audit run because notification failed.
-
----
-
-### Component 8: Report Generator — audit/generate-report.sh
-
-**Responsibility:** Read `$RESULTS_DIR/$AUDIT_RUN_ID.json` (all phase results) and
-`$RESULTS_DIR/$AUDIT_RUN_ID-delta.json`, produce a human-readable Markdown report and a machine-
-parseable summary JSON.
-
-**Markdown report structure:**
-```
-# Fleet Audit — YYYY-MM-DD HH:MM IST
-**Mode:** standard | **Run ID:** abc123 | **Duration:** 4m 12s
-
-## Summary
-| Status | Count |
-|--------|-------|
-| PASS   | 47    |
-| WARN   | 3     |
-| FAIL   | 2     |
-| QUIET  | 8     |
-
-## Delta
-### Regressions (new failures since last audit)
-- Phase 07 (Process Guard): PASS -> FAIL — violation_count_24h: 100 on pods 2,3,5
-
-### Improvements (resolved since last audit)
-- Phase 08 (Sentinel Files): FAIL -> PASS — all pods clean
-
-## Failures Requiring Action
-### [P1] Phase 07: Process Guard
-...
-
-## Warnings
-...
-
-## Auto-Fixes Applied
-...
-
-## Suppressed (Known Issues)
-...
-
-## Full Phase Results
-...
-```
-
-**Summary JSON (`$RESULTS_DIR/$AUDIT_RUN_ID-summary.json`):**
-```json
-{
-  "run_id": "abc123",
-  "mode": "standard",
-  "ts_start_utc": "...",
-  "ts_end_utc": "...",
-  "duration_secs": 252,
-  "pass": 47,
-  "warn": 3,
-  "fail": 2,
-  "quiet": 8,
-  "fixes_applied": 1,
-  "regressions": 1,
-  "improvements": 1,
-  "report_path": "audit/reports/2026-03-25-abc123.md"
-}
-```
-
----
-
-### Component 9: suppress.json — Known-Issue Suppression List
-
-**Responsibility:** A JSON array of known issues that should not clutter results. Suppressed issues
-still appear in the report under "Suppressed (Known Issues)" — they are not hidden, just demoted.
-
-**Format:**
-```json
-[
-  {
-    "id": "SUP-001",
-    "phase": 19,
-    "pattern": "Pod 8.*1024x768",
-    "reason": "Pod 8 NVIDIA Surround not configured — needs physical setup",
-    "added": "2026-03-25",
-    "expiry": null
-  },
-  {
-    "id": "SUP-002",
-    "phase": 27,
-    "pattern": "AC server.*DOWN",
-    "reason": "AC server only runs during customer sessions",
-    "added": "2026-03-25",
-    "expiry": null
-  }
-]
-```
-
-**Suppression scope:** Suppressed results still run. They still emit JSON. They still appear in the
-report. They are excluded from the FAIL/WARN counters that trigger WhatsApp notifications. The
-`post-incident` mode bypasses all suppression.
-
----
-
-## Data Flow
-
-### Phase Execution → JSON Results → Report → Notifications
-
-```
-audit.sh
-  |
-  +-- [startup]
-  |     get_session_token() -> $SESSION
-  |     export PODS="192.168.31.89 192.168.31.33 ..."
-  |     export AUDIT_RUN_ID=$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3)
-  |     mkdir -p audit/results/$AUDIT_RUN_ID/
-  |     detect_venue_state() -> $VENUE_OPEN (true/false)
-  |
-  +-- [tier execution loop]
-  |     for TIER in 1 2 3 ... (based on mode):
-  |       [parallel job dispatch]
-  |       for PHASE_SCRIPT in audit/phases/tierN/phase*.sh:
-  |         background: bash $PHASE_SCRIPT > audit/results/$AUDIT_RUN_ID/phase$N.jsonl
-  |         (with semaphore throttle from lib/parallel.sh)
-  |       wait for all background jobs
-  |       [collect tier results]
-  |       cat audit/results/$AUDIT_RUN_ID/phase*.jsonl >> \
-  |           audit/results/$AUDIT_RUN_ID/all.jsonl
-  |
-  +-- [delta computation]
-  |     lib/delta.sh $AUDIT_RUN_ID -> audit/results/$AUDIT_RUN_ID/delta.json
-  |     (compares against audit/results/latest.json)
-  |
-  +-- [suppression filter]
-  |     apply suppress.json rules to all.jsonl
-  |     produces: audit/results/$AUDIT_RUN_ID/filtered.jsonl
-  |
-  +-- [report generation]
-  |     bash audit/generate-report.sh $AUDIT_RUN_ID
-  |     -> audit/reports/YYYY-MM-DD-$AUDIT_RUN_ID.md
-  |     -> audit/results/$AUDIT_RUN_ID-summary.json
-  |
-  +-- [symlink update]
-  |     ln -sf $AUDIT_RUN_ID/all.jsonl audit/results/latest.json
-  |
-  +-- [notification dispatch]
-        lib/notify.sh $AUDIT_RUN_ID
-        -> comms-link relay (structured)
-        -> INBOX.md (fallback + standing rule)
-        -> WhatsApp to Uday (on FAIL or REGRESSION)
-```
-
-### Per-Phase JSON Line Format
-
-Every phase script emits one or more newline-delimited JSON objects (JSONL). All objects share:
-```json
-{
-  "type": "phase_result",
-  "phase": 7,
-  "tier": 1,
-  "phase_name": "Process Guard & Allowlist",
-  "status": "FAIL",
-  "severity": "P1",
-  "message": "violation_count_24h: 100 on pods 2,3,5 — likely empty allowlist",
-  "detail": {
-    "pods_affected": ["192.168.31.33", "192.168.31.28", "192.168.31.86"],
-    "pod_2_count": 100,
-    "pod_3_count": 100,
-    "pod_5_count": 100
-  },
-  "fix_trigger": true,
-  "ts_utc": "2026-03-25T08:30:00Z",
-  "run_id": "20260325-083000-a1b2c3"
-}
-```
-
-Auto-fix records use the same envelope with `"type": "fix_applied"`.
-
----
-
-## Recommended File/Directory Structure
-
-```
-audit/
-+-- audit.sh                      # Entry point, mode selector, tier scheduler
-+-- generate-report.sh            # Markdown + summary JSON generation
-+-- suppress.json                 # Known-issue suppression list
-+-- README.md                     # How to run, mode descriptions, output paths
-|
-+-- lib/
-|   +-- core.sh                   # emit_result, emit_fix, get_session_token, is_suppressed
-|   +-- parallel.sh               # Background job throttle, semaphore primitives
-|   +-- fixes.sh                  # Pre-approved auto-fix operations (FIX-01 through FIX-N)
-|   +-- delta.sh                  # Diff against previous run
-|   +-- notify.sh                 # comms-link + WhatsApp notification
-|
-+-- phases/
-|   +-- tier1/                    # Infrastructure Foundation (phases 01-10)
-|   |   +-- phase01.sh            # Fleet inventory
-|   |   +-- phase02.sh            # Config integrity
-|   |   ...
-|   |   +-- phase10.sh            # AI healer / watchdog
-|   |
-|   +-- tier2/                    # Core Services (phases 11-16)
-|   +-- tier3/                    # Display & UX (phases 17-20) -- QUIET when venue closed
-|   +-- tier4/                    # Billing & Commerce (phases 21-25)
-|   +-- tier5/                    # Games & Hardware (phases 26-29) -- QUIET when venue closed
-|   +-- tier6/                    # Notifications & Marketing (phases 30-34)
-|   +-- tier7/                    # Cloud & PWA (phases 35-39)
-|   +-- tier8/                    # Security & Access (phases 40-44)
-|   +-- tier9/                    # Data & Analytics (phases 45-50)
-|   +-- tier10/                   # AI / Feature Flags (phases 51-55)
-|   +-- tier11/                   # Marketing & Staff Gamification (phases 56-58)
-|   +-- tier12/                   # OTA & Deployment (phases 59-60)
-|
-+-- results/                      # Runtime output (git-ignored)
-|   +-- latest.json               # Symlink to most recent run's all.jsonl
-|   +-- 20260325-083000-a1b2c3/
-|       +-- phase01.jsonl         # Per-phase raw output
-|       +-- phase02.jsonl
-|       +-- ...
-|       +-- all.jsonl             # Concatenated all phases
-|       +-- delta.json            # Diff vs previous run
-|       +-- filtered.jsonl        # After suppression applied
-|       +-- summary.json          # Machine-readable summary
-|
-+-- reports/                      # Human-readable output (git-committed for history)
-    +-- 2026-03-25-a1b2c3.md      # Full audit report
-    +-- 2026-03-25-a1b2c3-delta.md # Delta-only view
-```
-
-**Git strategy:**
-- `audit/phases/`, `audit/lib/`, `audit/audit.sh`, `audit/suppress.json` — committed, versioned.
-- `audit/results/` — git-ignored (raw runtime data, high churn, contains secrets in detail fields).
-- `audit/reports/` — committed (human-readable, no secrets in output, valuable as history).
-
----
-
-## Build Order
-
-The build order is driven by three dependency chains:
-
-**Chain A: Core runtime must exist before phase scripts can be written.**
-Chain B: Phase scripts depend on lib/core.sh functions being stable.
-Chain C: Notification depends on report generator, which depends on result collector.
-
-### Phase 1: Scaffold (audit.sh + lib/core.sh + one tier-1 phase)
-
-Build the skeleton first. audit.sh with mode parsing and tier dispatch. lib/core.sh with `emit_result`
-and `get_session_token`. One working phase (phase01.sh — Fleet Inventory). Verify the pipeline:
-run → JSON out → collected in all.jsonl.
-
-**Deliverable:** `bash audit/audit.sh --mode quick` runs Phase 01, emits valid JSON.
-**Rationale:** All subsequent phases can be written and tested against a working pipeline.
-
-### Phase 2: lib/parallel.sh + semaphore
-
-Add background job dispatch and the 4-concurrent-pod semaphore. Verify: run all 10 tier-1 phases
-in parallel, confirm no more than 4 simultaneous pod requests, confirm all results collected.
-
-**Deliverable:** `bash audit/audit.sh --mode quick` runs all 10 tier-1 phases in parallel within
-the throttle constraint.
-**Rationale:** Without the semaphore, Phase 3 (writing all 60 phases) would create a flood risk.
-
-### Phase 3: All 60 phase scripts (tiers 1-12)
-
-Convert every v3.0 phase bash block into a phaseNN.sh script using `emit_result`. This is
-the bulk work. No new logic — direct translation of existing commands into the script format.
-
-**Deliverable:** All 60 phases runnable. `bash audit/audit.sh --mode full` completes without
-errors (some QUIET/FAIL expected on venue-closed checks).
-**Rationale:** Phase 4 (fixes, delta, report) requires the full phase set to be useful.
-
-### Phase 4: lib/fixes.sh + auto-fix integration
-
-Add the pre-approved fix operations. Wire `fix_trigger` check into each phase script. Add
-`AUTO_FIX=1` flag to audit.sh. Test each fix in isolation before enabling in audit flow.
-
-**Deliverable:** Running with `AUTO_FIX=1` clears MAINTENANCE_MODE on a test pod, kills orphan
-PowerShell, deletes sentinel files — and emits `fix_applied` records.
-**Rationale:** Fixes depend on correct phase detection (Phase 3 must be correct first).
-
-### Phase 5: generate-report.sh + delta.sh
-
-Build the Markdown report generator and delta comparison. Requires at least two audit runs to
-test delta. Run audit twice, verify regression/improvement detection works.
-
-**Deliverable:** `audit/reports/` contains a complete Markdown report with delta section.
-**Rationale:** Report depends on all phase results; this cannot be built until Phase 3 complete.
-
-### Phase 6: lib/notify.sh + suppress.json
-
-Add notification dispatch (comms-link relay + INBOX.md + WhatsApp). Populate suppress.json with
-the known issues from AUDIT-PROTOCOL v3.0 (Pod 8 display, AC server offline, etc.).
-
-**Deliverable:** End-to-end: `bash audit/audit.sh --mode standard` → Bono receives structured
-message → Uday receives WhatsApp summary (on FAIL).
-
-### Phase 7: Venue-closed detection + mode refinement
-
-Implement the venue-open/closed detection and per-mode tier selection. Wire QUIET handling into
-tier-3 and tier-5 phases. Add the `--pod N` and `--tier N` targeting flags.
-
-**Deliverable:** `bash audit/audit.sh --mode standard` at 02:00 IST (venue closed) produces QUIET
-for all display/hardware phases, no false FAIL alerts to Uday.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: JSONL as the Audit Bus
+### Pattern 1: VerificationChain — Wrap Existing Parse/Transform Paths
 
-**What:** Every component writes and reads newline-delimited JSON (JSONL). Phase scripts write JSONL
-to files. delta.sh reads JSONL. The report generator reads JSONL. Notifications read the summary
-JSON. Nothing shares state through environment variables or global bash variables except for the
-handful set at audit.sh startup (SESSION, PODS, AUDIT_RUN_ID).
+**What:** A typed chain that records each step's input, transform, output, and verdict. Not a new execution path — it wraps existing ones at the call site.
 
-**When to use:** All inter-component communication in this system.
+**When to use:** Around any path where a silent wrong value causes downstream failure: curl output parsing, config loading, spawn verification, billing guard decisions.
 
-**Trade-offs:** JSONL requires `jq` to be installed (it is — `jq` is already used extensively in
-v3.0). Slightly more complex than plain text output, but makes the report generator trivially
-grep-able and lets Bono's comms-link relay consume structured data.
+**Trade-offs:** One struct alloc per step. Worth it because the chain produces a structured record readable by rc-sentry's debug_memory and loggable before tracing is fully initialized.
 
-**Example:**
-```bash
-# phase07.sh — emit result
-VIOLATIONS=$(curl -s http://192.168.31.23:8080/api/v1/fleet/health | \
-  jq '[.pods[] | select(.violation_count_24h >= 100)] | length')
+**Example (wrapping existing curl parse in pod_healer):**
 
-if [ "$VIOLATIONS" -gt 0 ]; then
-  emit_result 7 "FAIL" "violation_count_24h: 100 on $VIOLATIONS pods" "P1" \
-    "$(curl -s http://192.168.31.23:8080/api/v1/fleet/health | \
-       jq '.pods[] | {pod_number, violation_count_24h}')"
-else
-  emit_result 7 "PASS" "Process guard: all pods violation count normal" "" "null"
-fi
+```rust
+// rc-common/src/verification.rs
+pub enum Verdict {
+    Pass,
+    Fail(String),
+}
+
+pub struct VerificationStep {
+    pub name: &'static str,
+    pub input: String,
+    pub output: String,
+    pub verdict: Verdict,
+}
+
+pub struct VerificationChain {
+    steps: Vec<VerificationStep>,
+}
+
+impl VerificationChain {
+    pub fn record(&mut self, name: &'static str, input: &str, output: &str, verdict: Verdict) {
+        self.steps.push(VerificationStep {
+            name,
+            input: input.into(),
+            output: output.into(),
+            verdict,
+        });
+    }
+    pub fn passed(&self) -> bool {
+        self.steps.iter().all(|s| matches!(s.verdict, Verdict::Pass))
+    }
+    pub fn first_failure(&self) -> Option<&VerificationStep> {
+        self.steps.iter().find(|s| matches!(s.verdict, Verdict::Fail(_)))
+    }
+}
 ```
 
-### Pattern 2: Phase Scripts Are Idempotent Read-Only by Default
+The chain is populated inline at the call site and discarded after logging. No global state.
 
-**What:** Phase scripts never modify system state unless `AUTO_FIX=1` is set. Running the same
-phase script twice in a row produces the same JSON result and makes no changes. This means audits
-can be safely re-run without side effects.
+---
 
-**When to use:** All 60 v3.0 phases follow this pattern. Auto-fix is opt-in.
+### Pattern 2: Observable State Transitions — Emit-Then-Act
 
-**Trade-offs:** Slightly more code in each script (check `AUTO_FIX` before applying). Prevents
-accidental state modification during `--mode quick` spot checks.
+**What:** Before writing any sentinel file or changing a critical shared flag, emit an observable event: `eprintln!` (pre-tracing-init safety) + `tracing::warn!` + optional `DashboardEvent` WS broadcast. The sentinel write happens after the emit.
 
-### Pattern 3: Tier-Scoped Parallelism with Pod-Level Throttle
+**When to use:** MAINTENANCE_MODE writes, GRACEFUL_RELAUNCH creation, OTA_DEPLOYING, config fallback, empty allowlist fetch, feature flag default fallback.
 
-**What:** Phase scripts within a tier run in parallel (background jobs). Pod-targeting commands
-within a single phase are throttled to max 4 concurrent connections. The two levels are independent:
-the tier-level parallelism runs phase scripts concurrently; the pod-level throttle controls how
-many pods a single phase queries simultaneously.
+**Trade-offs:** One extra tracing call per transition. No shared state required — emit is fire-and-forget.
 
-**When to use:** All tier execution.
+**Integration point:** The existing `rc-agent/event_loop.rs` already writes sentinel files via `fs::write()`. The modification is one line before each write: `observable_state::emit_transition(kind, details)`. The sentinel protocol itself does not change — rc-sentry and pod_monitor continue reading files as before.
 
-**Trade-offs:** File-based semaphores work but have ~200ms poll granularity. Sufficient for this
-use case where pod queries take 1-5 seconds each. Not appropriate for sub-millisecond coordination.
+```rust
+// rc-agent/src/observable_state.rs
+pub enum StateTransitionKind {
+    MaintenanceModeEntered,
+    MaintenanceModeCleared,
+    GracefulRelaunchSentinel,
+    ConfigFallbackActivated,
+    EmptyAllowlistFetched,
+    FeatureFlagDefaultFallback,
+    OtaDeployingStarted,
+}
 
-### Pattern 4: Fix Whitelist with Reversibility Requirement
+pub fn emit_transition(kind: StateTransitionKind, details: &str) {
+    // eprintln! fires even before tracing subscriber is initialized
+    eprintln!("[OBSERVABLE-STATE] {:?}: {}", kind, details);
+    tracing::warn!(target: "observable-state", kind = ?kind, %details, "State transition");
+}
+```
 
-**What:** Every entry in `lib/fixes.sh` must document (a) exact trigger condition, (b) exact action,
-(c) reversibility proof. Any fix without a clear reversal path is not auto-applicable — it goes into
-the report as "manual action required."
+---
 
-**When to use:** Evaluating whether a new fix is safe to add to the auto-fix whitelist.
+### Pattern 3: Boot Resilience — Startup Fetch + Periodic Re-fetch
 
-**Trade-offs:** Conservative — some clearly safe fixes may not be auto-approved on first pass.
-Better to have a human approve once and add to the list than to auto-apply something that takes
-down a billing session.
+**What:** Any resource fetched once at startup (allowlist, config, feature flags) must also be re-fetched on a periodic `tokio::spawn` background loop. The existing `process_guard` allowlist re-fetch (every 300s, implemented in commit `821c3031`) is the reference pattern.
+
+**When to use:** Any `OnceLock` or startup-time fetch that has no retry path. Resources where a transient server-down at boot time would leave the pod in permanent degraded state.
+
+**Trade-offs:** Slightly wider stale window (up to interval_secs) vs permanent failure from a single boot miss. The tradeoff is explicit and correct: 5-minute stale allowlist is better than permanent empty allowlist.
+
+**Integration:** The existing `self_monitor.rs` and the allowlist re-fetch in `process_guard.rs` both use the `tokio::spawn` + `interval` pattern. New `boot_resilience.rs` extracts the shared scaffold and adds the mandatory lifecycle logging (start / first-success / exit).
+
+```rust
+// rc-agent/src/boot_resilience.rs
+pub fn spawn_periodic_refetch<F, Fut>(name: &'static str, interval_secs: u64, fetch_fn: F)
+where
+    F: Fn() -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    tokio::spawn(async move {
+        tracing::info!(target: "boot-resilience", "Periodic re-fetch started: {}", name);
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        let mut first_complete = false;
+        loop {
+            interval.tick().await;
+            fetch_fn().await;
+            if !first_complete {
+                tracing::info!(target: "boot-resilience", "First re-fetch complete: {}", name);
+                first_complete = true;
+            }
+        }
+    });
+}
+```
+
+---
+
+### Pattern 4: Startup Enforcement Audit — Bat File Invariant Scanner
+
+**What:** A bash audit script that reads each `start-rcagent.bat` (via fleet exec or staging copy) and verifies that every known manual fix has a corresponding enforcement line. Not a Rust change — a standalone script in `audit/startup/`.
+
+**When to use:** After any session that applies manual fixes to pods. Wired into pre-ship gate.
+
+**Integration:** The v23.0 `audit/` directory already runs 60 phase scripts across 18 tiers via `audit.sh`. The startup enforcement audit is a new tier that produces pass/fail output consumed by the existing `report.sh` + delta tracker. No new tooling needed.
+
+---
+
+## Data Flow for Verification Chain
+
+### How Verification Results Propagate
+
+```
+rc-agent (pod)
+    │
+    ├─ VerificationChain populated inline at parse/transform site
+    │         │
+    │         ├─ On failure: tracing::error! + chain details written to startup_log.rs
+    │         │
+    │         └─ AgentMessage::AiDebugResult (existing WS path) →
+    │                  racecontrol ws_handler →
+    │                  RecoveryEventStore (ring buffer, fleet alert)
+    │
+    └─ ObservableState emitted before sentinel file writes
+              │
+              ├─ tracing::warn! (captured in racecontrol-*.jsonl rolling log)
+              │
+              └─ DashboardEvent::PodActivity (existing WS broadcast path) →
+                       kiosk :3300 (staff Control Room)
+                       admin :3201 (Control Room page)
+
+rc-sentry (pod)
+    │
+    └─ FSM transition → rc-common RecoveryLogger.append()
+              │
+              └─ JSONL written to C:\RacingPoint\recovery-log.jsonl
+                       (already read by racecontrol/recovery.rs)
+```
+
+The critical constraint: verification results travel over the **existing AgentMessage WebSocket channel** and the **existing RecoveryLogger JSONL path**. No new transport. No new protocol message variants unless an existing variant cannot carry the data.
+
+---
+
+## Component Modification Map
+
+### New Modules (additive, no existing code changed)
+
+| Module | Crate | Responsibility | Size Estimate |
+|--------|-------|---------------|---------------|
+| `rc-common/verification.rs` | rc-common | VerificationChain, VerificationStep, Verdict types | ~100 LOC |
+| `rc-agent/observable_state.rs` | rc-agent | StateTransitionKind enum + emit_transition() | ~80 LOC |
+| `rc-agent/boot_resilience.rs` | rc-agent | Generic periodic re-fetch scheduler with lifecycle logging | ~60 LOC |
+| `racecontrol/verification_gate.rs` | racecontrol | Pre-ship domain-matched gate runner | ~150 LOC |
+
+### Modified Modules (additive changes only — no existing behavior removed)
+
+| Module | Crate | Change | Risk |
+|--------|-------|--------|------|
+| `rc-agent/startup_log.rs` | rc-agent | Add VerificationStep hooks after write_phase() calls | LOW — tracing/logging only |
+| `rc-agent/event_loop.rs` | rc-agent | Call emit_transition() before sentinel file writes | LOW — one line per sentinel |
+| `rc-agent/pre_flight.rs` | rc-agent | Emit observable event on MaintenanceRequired result | LOW — after existing result construction |
+| `rc-agent/self_monitor.rs` | rc-agent | Add lifecycle logs: task started / first decision / exit | LOW — tracing calls only |
+| `rc-agent/process_guard.rs` | rc-agent | Emit observable event when fetched whitelist is empty | LOW — one conditional check |
+| `rc-agent/feature_flags.rs` | rc-agent | Emit observable event on fallback to compiled-in defaults | LOW — one conditional check |
+| `rc-sentry/watchdog.rs` | rc-sentry | Append to RecoveryLogger on every FSM state change (not just Crashed) | LOW — uses existing RecoveryLogger API |
+| `racecontrol/pod_monitor.rs` | racecontrol | Emit observable event on WatchdogState transitions | LOW — one call per transition |
+| `racecontrol/pod_healer.rs` | racecontrol | Wrap curl-output-to-u32 parse in VerificationChain | LOW-MEDIUM — wraps existing parse, not replacing it |
+| `racecontrol/config.rs` | racecontrol | Emit observable event when load_or_default() falls back | LOW — one check at parse time |
+| `racecontrol/fleet_health.rs` | racecontrol | Optionally surface recent verification failures in health response | LOW — additive field |
+
+---
+
+## Build Order
+
+Dependencies must resolve in this order:
+
+**Wave 1 — rc-common (no upstream Rust dependencies)**
+1. `rc-common/verification.rs` — VerificationChain, VerificationStep, Verdict
+   - Blocks: all crates that instrument parse paths
+
+**Wave 2 — rc-agent + rc-sentry (depend on rc-common)**
+2. `rc-agent/observable_state.rs` — StateTransitionKind, emit_transition()
+   - Blocks: event_loop, pre_flight, process_guard, feature_flags modifications
+3. `rc-agent/boot_resilience.rs` — generic periodic re-fetch scheduler
+   - Blocks: wiring into existing allowlist/flags/config re-fetch callsites
+4. Modify rc-agent modules (event_loop, pre_flight, process_guard, feature_flags, self_monitor, startup_log)
+   - All consume items from steps 2-3
+5. Modify `rc-sentry/watchdog.rs`
+   - Consumes rc-common RecoveryLogger (already exists) — can run in parallel with step 4
+
+**Wave 3 — racecontrol (depends on rc-common, observes rc-agent over WS)**
+6. `racecontrol/verification_gate.rs` — pre-ship gate runner
+   - Consumes VerificationChain from Wave 1
+7. Modify racecontrol modules (pod_healer, pod_monitor, config, fleet_health)
+   - All consume VerificationChain from Wave 1
+
+**Wave 4 — Operational tooling (zero Rust compile dependency)**
+8. `audit/startup/` enforcement audit scripts
+9. Cause Elimination Process template integration into gate-check.sh
+   - Can be developed in parallel with Waves 2-3
+
+**Rationale:** rc-common types must stabilize before rc-agent/rc-sentry consume them. Server-side changes (Wave 3) are lower risk — they instrument the server's own state machines rather than pod-side session logic. Bat file / tooling changes (Wave 4) have no compile dependency and can parallelize freely.
+
+---
+
+## Integration with Existing 4-Tier Recovery
+
+```
+Tier 1 — self_monitor.rs (rc-agent)
+    EXISTING: detects CLOSE_WAIT flood, WS dead time, triggers relaunch
+    ADDS: emit_transition(GracefulRelaunchSentinel) before relaunch write
+    ADDS: VerificationChain wraps CLOSE_WAIT netstat parse
+
+Tier 2 — rc-sentry watchdog.rs
+    EXISTING: FSM Healthy → Suspect → Crashed; reads startup_log; tier1_fixes
+    ADDS: RecoveryLogger.append() on Suspect AND Crashed (was Crashed-only)
+    ADDS: VerificationChain wraps health poll HTTP status parse
+
+Tier 3 — pod_monitor.rs + pod_healer.rs (racecontrol)
+    EXISTING: WatchdogState machine, EscalatingBackoff, HealAction decisions
+    ADDS: emit_transition on WatchdogState changes
+    ADDS: VerificationChain wraps curl-output-to-u32 parse in healer
+    EXISTING: RecoveryIntentStore (v17.1) deconflicts rc-sentry and pod_healer
+
+Tier 4 — James AI watchdog (rc-watchdog.exe)
+    NO CHANGE — operates at OS service level, not Rust session code
+```
+
+### Sentinel File Protocol — No Changes to Existing Behavior
+
+The existing sentinels (`MAINTENANCE_MODE`, `GRACEFUL_RELAUNCH`, `OTA_DEPLOYING`) are read by rc-sentry, pod_monitor, and pod_healer exactly as before. The v25.0 change is additive: `emit_transition()` fires before the `fs::write()`. Existing consumers see no difference.
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Post-Hoc Verification as the "Verification Framework"
+
+**What people do:** Add health endpoint checks and build_id comparisons as the verification layer.
+
+**Why it's wrong:** All 8 proxy verification incidents (per PROJECT.md audit) used post-hoc health checks that passed while the actual parse path failed silently. Health OK + build_id match only proves the binary is running — not that the specific transform is correct.
+
+**Do this instead:** Inline VerificationChain at the actual parse/transform site. The chain IS the execution — same call site, same data, same instant as the work being verified.
+
+---
+
+### Anti-Pattern 2: Silent Fallback Without Observable Emit
+
+**What people do:** `load_or_default()` returns empty config, code continues with degraded behavior, no WARN log.
+
+**Why it's wrong:** The SSH banner config corruption incident ran process_guard with 0 allowed entries for 2+ hours. The fallback itself was correct behavior; the silence was the bug. Silent fallback is structurally indistinguishable from correct operation until downstream failures appear.
+
+**Do this instead:** Every `or_default()`, `unwrap_or_default()`, or fallback on a critical config path must call `emit_transition(ConfigFallbackActivated, ...)` before continuing. The emit makes degraded state visible at the moment it occurs.
+
+---
+
+### Anti-Pattern 3: Boot Retry Without Periodic Re-fetch
+
+**What people do:** Add 3-attempt retry with exponential backoff to startup fetch.
+
+**Why it's wrong:** Boot retry succeeds on attempt 3 but then the resource is never re-fetched. The pod runs on stale/empty data until the next reboot. The allowlist incident was exactly this pattern: boot succeeded with empty allowlist, and the empty state persisted until manual restart.
+
+**Do this instead:** Startup fetch (with retry) AND periodic re-fetch loop. The loop heals stale state automatically. The two mechanisms are complementary, not alternatives.
+
+---
+
+### Anti-Pattern 4: New Protocol Message Variant for Observable Events
+
+**What people do:** Add `AgentMessage::StateTransitionEvent` to carry observable state data over WebSocket.
+
+**Why it's wrong:** Protocol changes require simultaneous rc-agent + racecontrol binary upgrade. During the deploy window, mismatched versions drop unknown variants silently. The fleet has 8 pods that may be on different binaries during a rolling deploy.
+
+**Do this instead:** Route observable state through existing `AgentMessage::AiDebugResult` (structured suggestions already carry free-form data) or `DashboardEvent` (already broadcast to UI). Introduce new variants only when no existing variant fits AND both sides will be upgraded atomically.
 
 ---
 
 ## Integration Points
 
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Server :8080 | HTTP GET/POST (curl) | Auth via SESSION token; obtained once at startup |
-| Server :8090 | HTTP POST exec endpoint | No auth; LAN only; used for pod-targeting remote commands |
-| Pod :8090 (rc-agent) | HTTP POST exec endpoint | Direct LAN to each pod IP |
-| Pod :8091 (rc-sentry) | HTTP POST exec endpoint | Used when rc-agent down; sentry still reachable |
-| Bono comms-link relay :8766 | HTTP POST (relay/exec/run) | Structured exec + INBOX.md dual channel |
-| Bono VPS :8080 | HTTP GET (health check) | Verify cloud racecontrol alive |
-| Ollama :11434 | Not directly used in audit | AI healer state is read from watchdog-state.json |
-| go2rtc :1984 | HTTP GET /api/streams | Verify camera streams accessible (Tier 7) |
-| WhatsApp (Evolution API) | Via Bono relay (indirect) | Per project_whatsapp_routing.md: all WA traffic via Bono VPS |
-
 ### Internal Boundaries
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| audit.sh ↔ phase scripts | File (JSONL per phase) | Phase scripts are subprocess children; no shared memory |
-| phase scripts ↔ lib/ | Bash source (`source lib/core.sh`) | lib/ functions are imported, not separate processes |
-| phase scripts ↔ parallel throttle | File semaphore in /tmp | Per-run directory prevents cross-run interference |
-| report generator ↔ results | File (JSONL read by jq) | One-way: generator reads, never writes to results/ |
-| notify ↔ comms-link | HTTP (relay endpoint) | Falls back to file append if relay down |
+| Boundary | Communication Method | Notes |
+|----------|---------------------|-------|
+| rc-agent → racecontrol | WebSocket (AgentMessage enum in rc-common/protocol.rs) | AiDebugResult carries VerificationChain failures |
+| racecontrol → rc-agent | WebSocket (CoreToAgentMessage in rc-common/protocol.rs) | FlagSync, KillSwitch, ConfigPush unchanged |
+| rc-sentry → racecontrol | HTTP POST /api/v1/recovery/events | RecoveryLogger writes JSONL locally; server reads via API |
+| rc-common → all crates | Cargo lib dependency | VerificationChain, RecoveryLogger live here |
+| observable_state → kiosk/admin | DashboardEvent WS broadcast from racecontrol | Staff sees transitions in Control Room page (:3201, :3300) |
+| boot_resilience → AppState | Arc<RwLock<T>> (same pattern as existing guard_whitelist) | Re-fetched values update shared state in-place |
+
+### Operational Integration Points
+
+| System | How v25.0 Touches It | Notes |
+|--------|---------------------|-------|
+| `start-rcagent.bat` (8 pods) | Startup enforcement audit scans + reports missing lines | Bat changes deployed per standing rule: bat sync with binary deploy |
+| `audit/` runner (v23.0) | New `audit/startup/` tier adds startup enforcement checks | Feeds existing report.sh + delta tracker |
+| `gate-check.sh` (v22.0) | Pre-ship gate adds domain-match check | Visual change = visual verification required; wired into Suite 0 |
+| `comms-link` relay | No changes | Verification results travel over existing rc-agent WS channel |
 
 ---
 
-## Anti-Patterns
+## Scalability Considerations
 
-### Anti-Pattern 1: Phase Scripts That Modify State Unconditionally
+This system is venue-scoped: 8 pods, 1 server, fixed topology. Concerns are operational, not load-based.
 
-**What people do:** Write a phase script that kills orphan PowerShell processes as part of the check
-itself (not in an explicit AUTO_FIX block).
-
-**Why it's wrong:** Running `--mode quick` to spot-check fleet health would silently kill processes
-on pods. Audits should be safe to run at any time without side effects. A phase that unexpectedly
-modifies state violates operator trust in the audit tool.
-
-**Do this instead:** All state modification lives in `lib/fixes.sh`. Phase scripts detect and report.
-They call `apply_safe_fix` only when `AUTO_FIX=1` and the specific fix trigger condition is met.
-
-### Anti-Pattern 2: Pod Loop Without Throttle
-
-**What people do:** Write a tier-1 phase that loops all 8 pods in parallel background jobs without
-a semaphore.
-
-**Why it's wrong:** If 5-6 tier-1 phases each loop 8 pods in parallel, that is 40-48 simultaneous
-HTTP connections to pods. Pods run on Windows 11 with rc-agent serving a single exec endpoint. rc-
-agent has a 4-slot concurrency cap (`exec_slots_available`). Flooding it causes exec timeout failures
-which appear as false FAIL results.
-
-**Do this instead:** Source `lib/parallel.sh` and call `acquire_sem`/`release_sem` around each pod
-connection in the loop. The 4-concurrent limit matches rc-agent's capacity.
-
-### Anti-Pattern 3: Hardcoded Phase Numbers in Report Logic
-
-**What people do:** The report generator has `if [ $PHASE -eq 7 ]; then echo "Check process guard"`.
-
-**Why it's wrong:** When phases are reordered, renumbered, or new phases are added, the hardcoded
-references become wrong. Phase 7 in v4.0 may not be Process Guard if phases are renumbered.
-
-**Do this instead:** Phase scripts embed their own metadata in the JSON they emit (`phase_name`,
-`tier`). The report generator reads metadata from the JSON — it never hardcodes phase-to-name
-mappings. The phase number is just an ID; the `phase_name` field is the human-readable label.
-
-### Anti-Pattern 4: Notification Before Report
-
-**What people do:** Send WhatsApp notification immediately when the first FAIL is detected
-(mid-audit, before all phases complete).
-
-**Why it's wrong:** (a) Multiple FAIL phases in the same audit would send multiple WhatsApp
-messages. (b) A FAIL detected in phase 3 may be resolved by an auto-fix applied in phase 3,
-making the notification incorrect. (c) Uday receives an alert at 3 AM and does not know the
-full scope.
-
-**Do this instead:** Notification is the last step, after all tiers, all fixes, delta computation,
-and report generation complete. The notification message includes full summary counts and the
-report path.
-
-### Anti-Pattern 5: Treating QUIET as FAIL
-
-**What people do:** Display/hardware phases return FAIL when venue is closed and Edge kiosk is not
-running.
-
-**Why it's wrong:** At 2 AM when venue is closed, pods are powered down or locked. Edge is not
-running. This is expected. Treating it as FAIL means every overnight audit triggers a P1 alert
-to Uday.
-
-**Do this instead:** Tier 3 (Display/UX) and Tier 5 (Games/Hardware) phase scripts check the
-`$VENUE_OPEN` variable. When `VENUE_OPEN=false`, they emit `status: "QUIET"` rather than
-`status: "FAIL"`. QUIET results are counted separately, never trigger WhatsApp alerts, and appear
-under a separate "Venue-Closed Checks" section in the report.
-
----
-
-## Scaling Considerations
-
-This system has fixed scale: 1 server, 8 pods, 1 Bono VPS. It does not need to scale beyond this.
-The relevant scaling questions are performance (audit duration) and reliability (what happens when
-infrastructure is partially down).
-
-| Concern | Current (8 pods) | If pods expand to 16 | Notes |
-|---------|------------------|----------------------|-------|
-| Audit duration | ~3-5 min (parallel) | ~5-8 min (semaphore bottleneck) | Still well within acceptable range |
-| Semaphore limit | 4 concurrent | Increase to 6-8 | Update `MAX_PARALLEL` constant in parallel.sh |
-| Result file size | ~50KB per audit | ~100KB per audit | Negligible; JSONL gzips well |
-| Report size | ~20KB Markdown | ~40KB Markdown | git-committed history grows slowly |
-
-The more likely scaling pressure is phase count growth (v4.0 adds delta/feature-flag phases beyond
-60). The numbering scheme (61+) handles this without renumbering existing phases.
+| Concern | Current | With v25.0 |
+|---------|---------|-----------|
+| Observable event volume | 0 (all silent) | Low — fires only on state transitions, not on every tick |
+| VerificationChain memory | N/A | Negligible — stack-allocated per call site, freed after log |
+| Periodic re-fetch connections | 1 (allowlist, every 300s) | +2-3 more at 300s each = ~3 extra HTTP GETs per 5 min per pod |
+| Recovery log growth | Unbounded JSONL | Rotate at 512KB — matches existing `rc-bot-events.log` pattern |
 
 ---
 
 ## Sources
 
-- Direct analysis: `racecontrol/AUDIT-PROTOCOL.md` v3.0 (1928 lines, 60 phases, 18 tiers)
-- Direct analysis: `.planning/PROJECT.md` — v23.0 milestone spec (constraints, target features)
-- `CLAUDE.md` standing rules — parallel exec limits, comms-link dual-channel requirement,
-  WhatsApp routing (via Bono VPS), JSONL file format, auto-push requirement
-- `project_whatsapp_routing.md` (memory) — WA traffic routes via Bono Evolution API, not venue tunnel
-- Existing comms-link relay docs (relay/exec/run, relay/chain/run, health endpoint)
-- v22.0 gate-check.sh pattern — existing bash-only gate script this audit runner extends
+- Direct codebase analysis: `crates/rc-agent/src/` — app_state.rs, event_loop.rs, self_monitor.rs, pre_flight.rs, startup_log.rs, process_guard.rs, feature_flags.rs, failure_monitor.rs
+- Direct codebase analysis: `crates/racecontrol/src/` — state.rs, pod_monitor.rs, pod_healer.rs, flags.rs
+- Direct codebase analysis: `crates/rc-sentry/src/` — main.rs, watchdog.rs
+- Direct codebase analysis: `crates/rc-common/src/` — protocol.rs, recovery.rs
+- `.planning/PROJECT.md` — v25.0 goal, target features, constraints, audit evidence
+- `CLAUDE.md` standing rules — known failure modes, incident history, sentinel file protocol
 
 ---
 
-*Architecture research for: v23.0 Automated Fleet Audit System*
-*Researched: 2026-03-25*
+*Architecture research for: v25.0 Debug-First-Time-Right*
+*Researched: 2026-03-26*
