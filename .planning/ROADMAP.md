@@ -2730,10 +2730,13 @@ Plans:
   5. The pipeline state (idle, building, staging, canary, staged-rollout, health-checking, completed, rolling-back) is persisted to deploy-state.json and survives a server restart -- an interrupted deploy can be resumed, not re-run from scratch
   6. rc-sentry, pod_monitor, and WoL all check the ota-in-progress.flag sentinel before triggering restarts during a deploy window -- no recovery system fights the OTA restarter
   7. Binary identity uses SHA256 content hash, not git commit hash -- a docs-only commit does not trigger a redeploy
-**Plans**: 1 plan
+**Plans**: 4 plans
 
 Plans:
-- [ ] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
+- [ ] 179-01-PLAN.md -- ReleaseManifest, PipelineState, SHA256, deploy-state.json persistence
+- [ ] 179-02-PLAN.md -- Wave orchestrator, health gate, session gating
+- [ ] 179-03-PLAN.md -- Auto-rollback, OTA sentinel coordination, check-health.sh extension
+- [ ] 179-04-PLAN.md -- API endpoints, pipeline integration, human verification
 
 ### Phase 180: Admin Dashboard UI
 **Goal**: Operators can toggle feature flags per-pod or fleet-wide and trigger OTA releases from the admin dashboard, with live wave progress, pod drain status, and rollback controls visible without a terminal
