@@ -9,6 +9,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 04:52 IST | James | `d941ff68` | feat(195-03): metrics API handlers — launch_stats_handler + billing_accuracy_handler with sqlx dynamic queries |
+| Mar 26 04:52 IST | James | `6d17f271` | feat(195-03): register /metrics/launch-stats + /metrics/billing-accuracy in public_routes() |
+| Mar 26 04:52 IST | James | `916356c1` | docs(195-03): SUMMARY + STATE + ROADMAP updated (phase 195 complete) |
 | Mar 26 IST | James | `503ef7c0` | feat(195-02): billing_accuracy_events + recovery_events tables with structs and record functions in metrics.rs |
 | Mar 26 IST | James | `2ec92cb5` | feat(195-02): wire billing accuracy event at billing start (billing.rs) and recovery event at crash relaunch (game_launcher.rs) |
 | Mar 26 IST | James | `a19e4780` | docs(195-02): 195-02-SUMMARY + STATE + ROADMAP updated |
