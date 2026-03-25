@@ -284,6 +284,15 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Process guard safe mode:** Do not disable rc-process-guard during testing sessions — use the allowlist override instead.
   _Why: Disabling the guard entirely during a test left the machine unprotected when the session ended without re-enabling it._
 
+### Regression Prevention
+
+- **Every manual fix MUST have code-enforced startup verification.** If you fix a problem by changing an OS setting (power plan, USB suspend, registry key), app config ("Forced update"), or process state (killing duplicates), the fix MUST be encoded in a startup script (start-rcagent.bat, pre-flight check, or rc-agent boot sequence) that runs on every boot. Settings that aren't enforced at boot WILL regress through Windows updates, app auto-updates, deploy cycles, or pod restarts.
+  _Why: ConspitLink flickering was fixed three times in the same day: (1) USB suspend + power plan + forced update set manually, (2) same settings reverted after deploy cycle, (3) process multiplication after restart with stale bat. Only the fourth fix — adding enforcement to start-rcagent.bat — stuck permanently. MAINTENANCE_MODE had the same pattern: cleared manually, came back because no code prevented re-entry. 2026-03-25._
+- **Deploy cycle MUST include bat file sync.** When deploying new rc-agent/rc-sentry binaries, also deploy the current `start-rcagent.bat` and `start-rcsentry.bat` from the repo. Stale bat files on pods cause settings regression, missing process kills, and wrong startup procedures. Add bat download step to the deploy JSON chain.
+  _Why: Pod 1 had a bat file missing 8 bloatware kill lines, the ConspitLink singleton guard, and the power settings enforcement. The stale bat allowed ConspitLink to multiply to 11 instances._
+- **Process multiplication: always kill-all before start-one.** Any process that can be started multiple times (ConspitLink, watchdogs, PowerShell helpers) must have `taskkill /F /IM <name>` BEFORE the `start` command in the bat file. Check `tasklist | findstr <name>` count after deploy to verify singleton.
+  _Why: ConspitLink accumulated 4-11 instances per pod from accumulated restarts. Each instance grabbed the HID device, causing `Bind failed` errors and visible steering wheel flickering._
+
 ### OTA Pipeline
 
 - **Always preserve previous binary before swap.** Rename the current binary to `*-prev.exe` before placing the new one. Never delete the previous binary during the swap step. Manual rollback = rename prev back.

@@ -801,3 +801,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 15:44 IST | James | b6785f8c | feat(192-03): audit suppression engine — suppress.json + suppress.sh (check_suppression, apply_suppressions, get_severity_score) |
 | 2026-03-25 16:02 IST | James | d66227dc | 192-02: create audit/lib/delta.sh — jq delta engine with REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categorization, venue-aware PASS->QUIET=STABLE |
 | 2026-03-25 16:03 IST | James | 98d87691 | docs(192-02): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-25 21:30 IST | James | 0318038e | fix: ConspitLink flicker regression — process multiplication (4-11 instances), stale bat file, missing power enforcement. Updated start-rcagent.bat + deployed to all 8 pods. Standing rule: every manual fix needs code-enforced startup verification. |
