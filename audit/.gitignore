@@ -1,0 +1,4 @@
+# Audit run output — generated at runtime, not committed
+results/*/
+results/latest
+results/latest.txt
