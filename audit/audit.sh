@@ -45,6 +45,10 @@ if [ -f "$SCRIPT_DIR/lib/report.sh" ]; then
   source "$SCRIPT_DIR/lib/report.sh"
 fi
 
+if [ -f "$SCRIPT_DIR/lib/notify.sh" ]; then
+  source "$SCRIPT_DIR/lib/notify.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -480,6 +484,13 @@ fi
 
 echo "--- Intelligence Layer Complete ---"
 echo ""
+
+# ---------------------------------------------------------------------------
+# Notification Layer: send results to Bono + Uday (only when --notify flag set)
+# ---------------------------------------------------------------------------
+if declare -f send_notifications >/dev/null 2>&1; then
+  send_notifications
+fi
 
 # ---------------------------------------------------------------------------
 # Exit code: count FAIL results in result dir
