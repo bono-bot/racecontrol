@@ -281,8 +281,9 @@ async fn main() -> Result<()> {
         .expect("failed to build rolling file appender");
     let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
 
+    // Match both module path (rc_agent::*) and explicit target: "rc-agent" (LOG_TARGET)
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rc_agent=info".into());
+        .unwrap_or_else(|_| "rc_agent=info,rc-agent=info".into());
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

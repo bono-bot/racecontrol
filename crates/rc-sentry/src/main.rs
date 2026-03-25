@@ -143,6 +143,11 @@ fn main() {
                             tier1_fixes::ClearResult::Cleared { reason } => {
                                 tracing::info!(target: "crash-handler",
                                     "MAINTENANCE_MODE cleared: {} — rc-agent restart attempted", reason);
+                                // MAINT-04: Track recurring clears — escalate if threshold exceeded
+                                let clear_count = tier1_fixes::increment_maint_clear_count();
+                                if clear_count >= tier1_fixes::MAINT_RECURRING_THRESHOLD {
+                                    tier1_fixes::alert_recurring_maintenance(clear_count);
+                                }
                                 // Reset tracker so auto-clear doesn't immediately re-enter maintenance
                                 tracker = tier1_fixes::RestartTracker::new();
                                 consecutive_failures = 0;
@@ -196,6 +201,8 @@ fn main() {
                     #[cfg(feature = "tier1-fixes")]
                     if result.spawn_verified {
                         consecutive_failures = 0;
+                        // MAINT-04: rc-agent is healthy after restart — reset recurring clear counter
+                        tier1_fixes::reset_maint_clear_count();
                     } else if result.restarted {
                         consecutive_failures += 1;
                     }

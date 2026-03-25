@@ -23,6 +23,9 @@ const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
 const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 const RCAGENT_SELF_RESTART_SENTINEL: &str = r"C:\RacingPoint\rcagent-restart-sentinel.txt";
 const MAINTENANCE_AUTOCLEAR_TIMEOUT: Duration = Duration::from_secs(1800); // 30 minutes
+const MAINT_CLEAR_COUNT_FILE: &str = r"C:\RacingPoint\MAINT_CLEAR_COUNT";
+/// After this many auto-clear→re-enter cycles, fire a persistent WhatsApp escalation.
+pub const MAINT_RECURRING_THRESHOLD: u32 = 2;
 const WOL_SENT_SENTINEL: &str = r"C:\RacingPoint\WOL_SENT";
 
 // ─── Maintenance Mode Types ───────────────────────────────────────────────────
@@ -770,29 +773,23 @@ pub fn check_and_clear_maintenance() -> ClearResult {
     }
 }
 
-/// After clearing maintenance mode, attempt to restart rc-agent via schtasks.
+/// After clearing maintenance mode, restart rc-agent using the full Session 1 spawn path.
+/// Previous implementation used raw schtasks+CREATE_NO_WINDOW which silently fails in
+/// non-interactive context — causing the MAINTENANCE_MODE infinite loop (2026-03-25 root cause).
 #[cfg(windows)]
 fn attempt_restart_after_clear() {
     #[cfg(test)]
     return;
     #[cfg(not(test))]
     {
-        tracing::info!(target: LOG_TARGET, "attempting rc-agent restart after maintenance clear");
-        let result = std::process::Command::new("schtasks")
-            .args(["/Run", "/TN", "StartRCAgent"])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
-        match result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                tracing::info!(target: LOG_TARGET,
-                    "schtasks StartRCAgent after maintenance clear: status={}, stdout={}",
-                    output.status, stdout.trim());
-            }
-            Err(e) => {
-                tracing::error!(target: LOG_TARGET,
-                    "failed to run schtasks StartRCAgent after maintenance clear: {}", e);
-            }
+        tracing::info!(target: LOG_TARGET, "attempting rc-agent restart after maintenance clear (Session 1 path)");
+        let result = restart_service();
+        if result.success {
+            tracing::info!(target: LOG_TARGET,
+                "rc-agent restart after maintenance clear VERIFIED: {}", result.detail);
+        } else {
+            tracing::error!(target: LOG_TARGET,
+                "rc-agent restart after maintenance clear FAILED: {}", result.detail);
         }
     }
 }
@@ -800,6 +797,67 @@ fn attempt_restart_after_clear() {
 #[cfg(not(windows))]
 fn attempt_restart_after_clear() {
     // No-op on non-Windows (test builds)
+}
+
+/// Increment the maintenance clear counter (persisted to disk).
+/// Returns the new count. Used to detect recurring clear→re-enter cycles (MAINT-04).
+pub fn increment_maint_clear_count() -> u32 {
+    let current = std::fs::read_to_string(MAINT_CLEAR_COUNT_FILE)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    let new_count = current + 1;
+    let _ = std::fs::write(MAINT_CLEAR_COUNT_FILE, new_count.to_string());
+    tracing::info!(target: LOG_TARGET, "MAINT_CLEAR_COUNT incremented to {}", new_count);
+    new_count
+}
+
+/// Reset the maintenance clear counter (called when rc-agent is healthy after a clear).
+pub fn reset_maint_clear_count() {
+    let _ = std::fs::remove_file(MAINT_CLEAR_COUNT_FILE);
+}
+
+/// Fire a persistent WhatsApp alert when MAINTENANCE_MODE keeps recurring (MAINT-04).
+/// This means the pod is stuck in a crash-loop that auto-clear can't fix.
+pub fn alert_recurring_maintenance(clear_count: u32) {
+    let pod_id = get_pod_id();
+    let alert_msg = format!(
+        "RECURRING MAINTENANCE on {} — auto-cleared {} times but rc-agent keeps crashing. \
+         Manual investigation required. Pod is in a crash loop.",
+        pod_id, clear_count
+    );
+    tracing::error!(target: LOG_TARGET, "{}", alert_msg);
+
+    let body = serde_json::json!({
+        "pod_id": pod_id,
+        "message": alert_msg,
+        "severity": "critical"
+    });
+    if let Ok(body_str) = serde_json::to_string(&body) {
+        let request = format!(
+            "POST /api/v1/fleet/alert HTTP/1.0\r\n\
+             Host: 192.168.31.23\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\
+             \r\n{}",
+            body_str.len(), body_str
+        );
+        if let Ok(addr) = SERVER_ADDR.parse::<std::net::SocketAddr>() {
+            match std::net::TcpStream::connect_timeout(&addr, SERVER_CONNECT_TIMEOUT) {
+                Ok(mut stream) => {
+                    if let Err(e) = stream.write_all(request.as_bytes()) {
+                        tracing::warn!(target: LOG_TARGET, "RECURRING MAINTENANCE alert failed (write): {}", e);
+                    } else {
+                        tracing::info!(target: LOG_TARGET, "RECURRING MAINTENANCE WhatsApp alert sent for {}", pod_id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "RECURRING MAINTENANCE alert failed (connect): {}", e);
+                }
+            }
+        }
+    }
 }
 
 /// Check if maintenance mode is active.
