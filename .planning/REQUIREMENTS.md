@@ -32,12 +32,12 @@
 
 - [ ] **INTL-01**: Delta tracking compares current run against previous run's JSON, highlighting regressions (PASS→FAIL) and improvements (FAIL→PASS)
 - [ ] **INTL-02**: Delta is mode-aware and venue-state-aware — PASS→QUIET is NOT flagged as regression
-- [ ] **INTL-03**: Known-issue suppression via `suppress.json` with fields: phase, host_pattern, message_pattern, reason, added_date, expires_date, owner
-- [ ] **INTL-04**: Suppressed issues appear in report as SUPPRESSED with reason, not silently hidden
-- [ ] **INTL-05**: Severity scoring: PASS/WARN/FAIL/QUIET/SUPPRESSED status + P1 (service down) / P2 (degraded) / P3 (cosmetic) severity
+- [x] **INTL-03**: Known-issue suppression via `suppress.json` with fields: phase, host_pattern, message_pattern, reason, added_date, expires_date, owner
+- [x] **INTL-04**: Suppressed issues appear in report as SUPPRESSED with reason, not silently hidden
+- [x] **INTL-05**: Severity scoring: PASS/WARN/FAIL/QUIET/SUPPRESSED status + P1 (service down) / P2 (degraded) / P3 (cosmetic) severity
 - [ ] **INTL-06**: Markdown report with tier summary tables, phase details, delta section, fix actions taken, and overall verdict
 - [ ] **INTL-07**: JSON summary file alongside markdown report for machine consumption
-- [ ] **INTL-08**: Suppression entries with expired `expires_date` are automatically ignored (stale suppression prevention)
+- [x] **INTL-08**: Suppression entries with expired `expires_date` are automatically ignored (stale suppression prevention)
 
 ### Auto-Fix
 
@@ -106,12 +106,12 @@
 | EXEC-07 | Phase 189 | Complete |
 | INTL-01 | Phase 192 | Pending |
 | INTL-02 | Phase 192 | Pending |
-| INTL-03 | Phase 192 | Pending |
-| INTL-04 | Phase 192 | Pending |
-| INTL-05 | Phase 192 | Pending |
+| INTL-03 | Phase 192 | Complete |
+| INTL-04 | Phase 192 | Complete |
+| INTL-05 | Phase 192 | Complete |
 | INTL-06 | Phase 192 | Pending |
 | INTL-07 | Phase 192 | Pending |
-| INTL-08 | Phase 192 | Pending |
+| INTL-08 | Phase 192 | Complete |
 | FIX-01 | Phase 193 | Pending |
 | FIX-02 | Phase 193 | Pending |
 | FIX-03 | Phase 193 | Pending |
