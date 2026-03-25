@@ -37,6 +37,61 @@ run_phase31() {
   fi
   emit_result "$phase" "$tier" "server-23-email-script" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # OAuth token expiry proactive check (CV-04)
+  # Try multiple possible token file names
+  local token_content=""
+  local token_found=false
+  local token_files="gmail-token.json google-credentials.json oauth-token.json"
+  for tf in $token_files; do
+    response=$(safe_remote_exec "192.168.31.23" "8090" \
+      "type C:\\RacingPoint\\${tf} 2>nul" \
+      "$DEFAULT_TIMEOUT")
+    local tf_stdout; tf_stdout=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
+    if [[ -n "$tf_stdout" ]]; then
+      token_content="$tf_stdout"
+      token_found=true
+      break
+    fi
+  done
+
+  if [[ "$token_found" = "true" ]]; then
+    # Extract expiry from token JSON
+    local expiry_raw; expiry_raw=$(printf '%s' "$token_content" | jq -r '.expiry_date // .expires_at // .token_expiry // empty' 2>/dev/null || true)
+    if [[ -n "$expiry_raw" ]]; then
+      local now_secs; now_secs=$(date +%s)
+      local expiry_secs=0
+
+      # Check if epoch milliseconds (13+ digits)
+      if printf '%s' "$expiry_raw" | grep -qE '^[0-9]{13,}$'; then
+        expiry_secs=$(( ${expiry_raw%???} ))  # Drop last 3 digits (ms -> s)
+      # Check if epoch seconds (10 digits)
+      elif printf '%s' "$expiry_raw" | grep -qE '^[0-9]{10}$'; then
+        expiry_secs=$expiry_raw
+      # Try ISO date string
+      elif printf '%s' "$expiry_raw" | grep -qE '^[0-9]{4}-'; then
+        expiry_secs=$(date -d "$expiry_raw" +%s 2>/dev/null || echo "0")
+      fi
+
+      if [[ "$expiry_secs" -gt 0 ]]; then
+        local days_left=$(( (expiry_secs - now_secs) / 86400 ))
+        if [[ "$days_left" -lt 0 ]]; then
+          status="FAIL"; severity="P1"; message="Gmail OAuth token EXPIRED (${days_left} days ago) -- email alerts non-functional"
+        elif [[ "$days_left" -le 7 ]]; then
+          status="WARN"; severity="P2"; message="Gmail OAuth token expires in ${days_left} days -- refresh needed"
+        else
+          status="PASS"; severity="P3"; message="Gmail OAuth token valid (${days_left} days remaining)"
+        fi
+      else
+        status="WARN"; severity="P2"; message="Could not parse OAuth token expiry value: ${expiry_raw}"
+      fi
+    else
+      status="WARN"; severity="P2"; message="Could not determine OAuth token expiry -- verify token file on server"
+    fi
+  else
+    status="PASS"; severity="P3"; message="Email OAuth managed externally (no local token file)"
+  fi
+  emit_result "$phase" "$tier" "server-23-email-oauth-expiry" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   # OAuth/email errors in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
