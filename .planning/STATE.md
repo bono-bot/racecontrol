@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
-milestone: v25.0
-milestone_name: Debug-First-Time-Right
+milestone: v23.1
+milestone_name: Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
 status: in_progress
 stopped_at: Defining requirements
 last_updated: "2026-03-26"
@@ -18,7 +18,7 @@ progress:
 Phase: Not started (defining requirements)
 Plan: —
 Status: Defining requirements
-Last activity: 2026-03-26 — Milestone v25.0 started
+Last activity: 2026-03-26 — Milestone v23.1 started
 
 ## Project Reference
 

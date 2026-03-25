@@ -32,6 +32,29 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
+## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
+
+**Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer (checking infrastructure not the consuming service), Count vs Health (counting items without verifying they work), Missing Config Validation (env vars/credentials unchecked), Missing Dashboard/UI Check (backend passes but user page untested), Missing Cross-Service Dependency (services checked independently but dependency chain unverified).
+
+**Target features:**
+- Fix Phase 19 display resolution (currently a no-op — hardcoded 1920x1080 assumption)
+- Fix Phase 30 WhatsApp Evolution API live connection state verification
+- Fix Phase 10 AI healer Ollama model test query (qwen2.5:3b must be functional, not just installed)
+- Fix Phase 20 kiosk static file serving verification from pod perspective
+- Fix Phase 21 billing endpoint unreachable→PASS false positive
+- Fix Phase 44 rc-sentry-ai cross-service camera check (face-audit.jsonl recency, not just existence)
+- Fix Phase 07 allowlist spot-check (verify known-good process in list, not just count)
+- Fix Phase 02 config value validation (ws_connect_timeout >= 600ms, app_health URLs correct)
+- Fix Phase 09 self-monitor liveness beyond uptime proxy
+- Add go2rtc startup warmup to start-rcsentry-ai.bat (prevents NVR RTSP flood)
+- Cross-service dependency checks for phases 35+36 (sync timestamp delta), 38+46 (relay E2E)
+
+**Constraints:**
+- All fixes are bash edits to existing phase scripts in audit/phases/ — no compiled dependencies
+- rc-sentry-ai staggered startup requires ONNX build env (deferred or bat-based workaround)
+- Must not increase audit runtime beyond 5 minutes (parallel execution preserved)
+- Must maintain 346+ PASS baseline (no regressions)
+
 ## Current Milestone: v25.0 Debug-First-Time-Right — Systematic Debugging Quality
 
 **Goal:** Eliminate the pattern of multi-attempt debugging by building verification frameworks, observable state transitions, boot resilience, and enforced startup verification into the Rust codebase and operational tooling. Born from a retrospective audit of 11 multi-attempt bugs (avg 2.4 attempts each) revealing 7 root cause categories.
