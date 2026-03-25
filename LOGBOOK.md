@@ -9,6 +9,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 10:37 IST | James | `77c2b564` | feat(205-01): VerifyStep trait, ColdVerificationChain, HotVerificationChain, VerificationError (4 variants) added to rc-common |
+| Mar 26 10:40 IST | James | `b6c346d5` | feat(205-01): spawn_periodic_refetch() in boot_resilience.rs — tokio-gated, lifecycle logging, self-heal tracking |
+| Mar 26 10:41 IST | James | `929ed6d1` | docs(205-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS-v25 updated (COV-01, BOOT-01 complete) |
 | Mar 26 04:52 IST | James | `d941ff68` | feat(195-03): metrics API handlers — launch_stats_handler + billing_accuracy_handler with sqlx dynamic queries |
 | Mar 26 04:52 IST | James | `6d17f271` | feat(195-03): register /metrics/launch-stats + /metrics/billing-accuracy in public_routes() |
 | Mar 26 04:52 IST | James | `916356c1` | docs(195-03): SUMMARY + STATE + ROADMAP updated (phase 195 complete) |
