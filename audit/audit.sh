@@ -255,17 +255,58 @@ if [ "$DRY_RUN" = "true" ]; then
 fi
 
 # Detect venue state (open/closed) for context
-VENUE_STATE="unknown"
+VENUE_STATE=$(venue_state_detect 2>/dev/null || echo "unknown")
 export VENUE_STATE
+echo "Venue state: $VENUE_STATE"
 
 # Initialization phase result
-emit_result "00" "0" "james-local" "PASS" "P3" "Audit framework initialized"
+emit_result "00" "0" "james-local" "PASS" "P3" "Audit framework initialized" "$AUDIT_MODE" "$VENUE_STATE"
 
 # ---------------------------------------------------------------------------
-# Phase dispatch (populated by later plans)
+# load_phases: source phase scripts based on mode
 # ---------------------------------------------------------------------------
-# Phases are loaded from audit/phases/tierN/phaseNN.sh by sub-plans.
-# This runner will iterate and source them in order once they exist.
+load_phases() {
+  local mode=$1
+  # Tier 1 phases always included for quick+ mode
+  if [[ -f "$SCRIPT_DIR/phases/tier1/phase01.sh" ]]; then
+    # shellcheck source=audit/phases/tier1/phase01.sh
+    source "$SCRIPT_DIR/phases/tier1/phase01.sh" || {
+      echo "WARN: could not source phase01.sh" >&2
+    }
+  fi
+  # Additional tiers sourced in later plans (Phase 190+)
+}
+
+# ---------------------------------------------------------------------------
+# Phase dispatch
+# ---------------------------------------------------------------------------
+load_phases "$AUDIT_MODE"
+
+if [[ -n "$AUDIT_PHASE" ]]; then
+  # Run only the specified phase function if it exists
+  fn="run_phase${AUDIT_PHASE}"
+  if declare -f "$fn" >/dev/null 2>&1; then
+    "$fn"
+  else
+    echo "WARN: Phase function '$fn' not found (phase script may not be sourced yet)" >&2
+  fi
+elif [[ -n "$AUDIT_TIER" ]]; then
+  # Run all phases in the specified tier
+  case "$AUDIT_TIER" in
+    1) run_phase01 ;;
+    *) echo "WARN: Tier $AUDIT_TIER phases not yet implemented" >&2 ;;
+  esac
+else
+  # Run all phases for the current mode
+  case "$AUDIT_MODE" in
+    quick|standard|full|pre-ship|post-incident)
+      run_phase01
+      ;;
+  esac
+fi
+
+echo ""
+echo "Phase runner complete. Results in: $RESULT_DIR"
 
 # ---------------------------------------------------------------------------
 # Exit code: count FAIL results in result dir
