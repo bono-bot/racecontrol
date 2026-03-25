@@ -28,31 +28,33 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Feature flags (SQLite+cache+WS sync), OTA pipeline (canary→staged→health), admin /flags + /ota pages. Standing rules gate (76 rules classified), gate-check.sh, 7 phases (176-182), 48 requirements.
 
-## Current Milestone: v23.0 Audit Protocol v4.0 — Automated Fleet Audit System
+## Shipped Milestone: v23.0 Audit Protocol v4.0 — Automated Fleet Audit System (2026-03-25)
 
-**Goal:** Transform the manual 60-phase AUDIT-PROTOCOL v3.0 (1928 lines of copy-paste bash commands) into an automated, scriptable audit runner that can be executed with a single command and produces structured, comparable results.
+**Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
+
+## Current Milestone: v24.0 Game Launch & Billing Rework — Self-Improving Launch Engine
+
+**Goal:** Rework the game launcher and billing system to be resilient, accurate, and self-improving. Games must launch flawlessly, billing must start precisely when the car is on-track and controllable (not during loading), and every launch/billing event feeds a metrics foundation that makes the system smarter over time.
 
 **Target features:**
-- Single-command execution: `bash audit.sh --mode quick|standard|full|pre-ship|post-incident`
-- Structured JSON output with severity scoring (PASS/WARN/FAIL/QUIET + P1-P3 severity levels)
-- Venue-open/closed detection with conditional phase execution (skip display/hardware checks when closed)
-- Delta tracking: compare current audit against previous results, highlight regressions and improvements
-- Auto-fix for safe issues: clear sentinel files, kill orphan processes, restart known-safe services
-- Parallel phase execution within tiers using bash background jobs
-- Markdown report generation with diff against last audit results
-- Known-issue suppression list (JSON) so recurring known issues don't clutter results
-- Integration with comms-link to notify Bono of audit results automatically
-- WhatsApp summary notification to Uday on audit completion
-- All 60 phases from v3.0 preserved and runnable non-interactively
+- Resilient game launcher for AC, F1 25, and iRacing with structured error taxonomy and fast crash recovery (<60s)
+- On-track-only billing — PlayableSignal reworked to detect car-controllable state, not just process alive
+- Self-improving metrics foundation — every launch, crash, billing event recorded (SQLite + JSONL)
+- Dynamic timeouts tuned from historical launch data per game/car/track/pod combo
+- Pre-launch health checks informed by past failure causes per pod
+- Combo reliability scores visible in admin dashboard
+- Auto-suggest alternatives when a car/track combo has low success rate
+- Auto-retry (2x) on launch failure with clean state reset, then staff alert
+- Crash pattern learning — track what fails, what fix works, adapt recovery actions
+- Launch gate / deferred billing bug fix (active_timers vs waiting_for_game mismatch)
 
 **Constraints:**
-- Pure bash scripts — no new compiled dependencies (no Rust, no Node for audit logic)
-- Must work from James's machine (.27) targeting server (.23), all 8 pods, and Bono VPS
-- Must preserve every check from AUDIT-PROTOCOL v3.0's 60 phases
-- Auto-fix actions must be conservative — only pre-approved safe operations
-- Parallel execution must not overwhelm pods (max 4 concurrent pod queries)
-- Report format must be parseable by both humans and scripts (JSON + Markdown dual output)
-- Must handle venue-closed state gracefully (QUIET, not FAIL for offline checks)
+- Rust/Axum stack — changes to rc-agent + racecontrol require binary rebuild + fleet deploy
+- Must not break existing billing, lock screen, or session management
+- PlayableSignal rework must cover AC (UDP telemetry), F1 25 (UDP), iRacing (shared memory)
+- Metrics foundation must be extensible for future processes (recovery, pre-flight) in later milestones
+- Pod 8 canary-first testing for all changes
+- Backward compatible with existing kiosk/PWA launch flow
 
 ## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
