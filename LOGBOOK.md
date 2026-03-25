@@ -780,3 +780,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 13:20 IST | James | b24c98e7 | fix: app-health endpoints — dynamic route scanning, static assets detection, kiosk basePath /kiosk/api/health |
 | 2026-03-25 13:25 IST | James | 5f0f77b0 | test: add POS wallet audit E2E test + test data cleanup script |
 | 2026-03-25 13:52 IST | James | 8f5ffc4b | fix: rc-sentry intermittent empty replies — Windows accept() inherits non-blocking flag. 40% failure→0/160. Deployed fleet-wide. |
+| 2026-03-25 14:05 IST | James | fbd04458 | feat: OTP resilience — delivery status, resend endpoint, Evolution health probe, PWA resend button. Deployed server + cloud PWA. |
