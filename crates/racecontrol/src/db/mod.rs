@@ -718,6 +718,117 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────
+
+    // Hiring SJT scenarios
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS hiring_sjts (
+            id TEXT PRIMARY KEY,
+            scenario_text TEXT NOT NULL,
+            options_json TEXT NOT NULL,
+            scoring_json TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await;
+
+    // Job preview content for hiring bot
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS job_preview (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            media_url TEXT,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await;
+
+    // Cialdini campaign templates
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS campaign_templates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            cialdini_principle TEXT NOT NULL,
+            message_template TEXT NOT NULL,
+            target_segment TEXT DEFAULT 'all',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await;
+
+    // Nudge templates (loss-framed review nudges, peak-end timing)
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS nudge_templates (
+            id TEXT PRIMARY KEY,
+            template_type TEXT NOT NULL CHECK(template_type IN ('review', 'winback', 'milestone')),
+            copy_text TEXT NOT NULL,
+            timing_rules_json TEXT DEFAULT '{}',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await;
+
+    // Seed 3 SJT scenarios
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO hiring_sjts (id, scenario_text, options_json, scoring_json) VALUES
+         ('sjt_01', 'A customer is upset because their session ended 5 minutes early due to a technical glitch during peak hours. They are demanding a full refund and becoming increasingly loud. What do you do?',
+          '[\"Immediately offer a full refund to calm them down\",\"Apologize, explain the issue, and offer a complimentary 15-minute extension on their next visit\",\"Tell them to wait while you get the manager\",\"Explain that technical issues happen and offer no compensation\"]',
+          '[2,4,3,1]'),
+         ('sjt_02', 'You notice a child (around 8 years old) wandering near the sim pods unsupervised. The venue is busy and you cannot immediately identify the parent. What do you do?',
+          '[\"Ignore it — not your responsibility\",\"Ask the child where their parent is and escort them to the waiting area while locating the guardian\",\"Tell the child to go sit down\",\"Wait to see if a parent shows up\"]',
+          '[1,4,2,1]'),
+         ('sjt_03', 'Mid-session, a customer reports their steering wheel has stopped responding. Their billing timer is running. What do you do?',
+          '[\"Tell them to restart the game\",\"Immediately pause their billing, apologize, and either fix the issue or move them to another pod\",\"Ask them to finish on the broken pod and offer a discount later\",\"Say you will look into it after the current rush\"]',
+          '[2,4,1,1]')"
+    )
+    .execute(pool)
+    .await;
+
+    // Seed 3 job preview items
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO job_preview (id, title, content, sort_order) VALUES
+         ('jp_01', 'A Typical Day', 'You will greet customers, set up racing simulators, manage billing sessions, and ensure every driver has an amazing experience. Expect busy weekend rushes and quieter weekday mornings.', 1),
+         ('jp_02', 'What We Look For', 'Enthusiasm for motorsport (not required but a plus!), great people skills, ability to stay calm under pressure, and comfort with technology. No prior sim racing experience needed — we will train you.', 2),
+         ('jp_03', 'Perks & Culture', 'Free sim racing during off-hours, team challenges and kudos system, flexible scheduling, and a passionate team that loves what they do. We are a small team — your contributions matter.', 3)"
+    )
+    .execute(pool)
+    .await;
+
+    // Seed 3 Cialdini campaign templates
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO campaign_templates (id, name, cialdini_principle, message_template, target_segment) VALUES
+         ('camp_social_proof', 'Weekly Social Proof', 'social_proof',
+          'Hey {name}! {drivers_this_week} drivers raced at RacingPoint this week. Join them this weekend and see if you can beat the track record!',
+          'all'),
+         ('camp_scarcity', 'Weekend Scarcity', 'scarcity',
+          'Hi {name}, heads up — only {available_slots} slots left for this Saturday! Book now before they fill up. Walk-ins welcome but slots go fast.',
+          'active'),
+         ('camp_commitment', 'Commitment Ladder', 'commitment',
+          'Hey {name}, you have completed {session_count} sessions! You are just {remaining} away from unlocking member benefits. Your next session could be the one!',
+          'returning')"
+    )
+    .execute(pool)
+    .await;
+
+    // Seed loss-framed nudge templates
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO nudge_templates (id, template_type, copy_text, timing_rules_json) VALUES
+         ('nudge_review_loss', 'review', 'Your RacingPoint experience is fresh — share it now before the details fade! Drivers who review within 24 hours help us improve the most.', '{\"delay_hours\":2,\"window_hours\":24}'),
+         ('nudge_winback', 'winback', 'We miss you at RacingPoint! It has been {days_since} days since your last session. Your personal best of {pb_time} is still on the board — come defend it before someone beats it!', '{\"trigger_days\":14}'),
+         ('nudge_milestone', 'milestone', 'You just hit {milestone_name}! Do not lose momentum — your next session keeps the streak alive. Come back this week and keep climbing.', '{\"trigger\":\"post_milestone\"}')"
+    )
+    .execute(pool)
+    .await;
+
     // Migration: add 'consuming' to auth_tokens status CHECK constraint
     // SQLite can't ALTER CHECK constraints, so we rebuild the table
     let needs_rebuild: bool = sqlx::query_scalar::<_, String>(

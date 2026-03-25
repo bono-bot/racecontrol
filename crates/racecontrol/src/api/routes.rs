@@ -419,6 +419,13 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/cafe/promos/{id}/toggle", post(cafe_promos::toggle_cafe_promo))
         // ─── Cafe Marketing ─────────────────────────────────────────────────────
         .route("/cafe/marketing/broadcast", post(cafe_marketing::broadcast_promo))
+        // ─── HR & Hiring Psychology (v14.0 Phase 96) ──────────────────────────
+        .route("/hr/sjts", get(list_hiring_sjts))
+        .route("/hr/sjts/{id}", get(get_hiring_sjt))
+        .route("/hr/job-preview", get(list_job_preview))
+        .route("/hr/campaign-templates", get(list_campaign_templates))
+        .route("/hr/nudge-templates", get(list_nudge_templates))
+        .route("/hr/recognition", get(hr_recognition_data))
         // ─── Staff Gamification (v14.0 Phase 95) ──────────────────────────────
         .route("/staff/{id}/opt-in", post(staff_gamification_opt_in))
         .route("/staff/gamification/leaderboard", get(staff_gamification_leaderboard))
@@ -9272,6 +9279,179 @@ async fn list_staff(
         .collect();
 
     Json(json!({ "staff": staff }))
+}
+
+// ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────
+
+async fn list_hiring_sjts(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, scenario_text, options_json, scoring_json
+         FROM hiring_sjts WHERE is_active = 1 ORDER BY id"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let sjts: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, scenario, options, scoring)| {
+            json!({
+                "id": id,
+                "scenario_text": scenario,
+                "options": serde_json::from_str::<Value>(&options).unwrap_or(json!([])),
+                "scoring": serde_json::from_str::<Value>(&scoring).unwrap_or(json!([])),
+            })
+        })
+        .collect();
+
+    Json(json!({ "sjts": sjts }))
+}
+
+async fn get_hiring_sjt(
+    State(state): State<Arc<AppState>>,
+    Path(sjt_id): Path<String>,
+) -> Json<Value> {
+    let row = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, scenario_text, options_json, scoring_json
+         FROM hiring_sjts WHERE id = ? AND is_active = 1"
+    )
+    .bind(&sjt_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        Some((id, scenario, options, scoring)) => Json(json!({
+            "id": id,
+            "scenario_text": scenario,
+            "options": serde_json::from_str::<Value>(&options).unwrap_or(json!([])),
+            "scoring": serde_json::from_str::<Value>(&scoring).unwrap_or(json!([])),
+        })),
+        None => Json(json!({ "error": "SJT not found" })),
+    }
+}
+
+async fn list_job_preview(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, i64)>(
+        "SELECT id, title, content, media_url, sort_order
+         FROM job_preview ORDER BY sort_order ASC"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, title, content, media_url, sort_order)| {
+            json!({
+                "id": id,
+                "title": title,
+                "content": content,
+                "media_url": media_url,
+                "sort_order": sort_order,
+            })
+        })
+        .collect();
+
+    Json(json!({ "items": items }))
+}
+
+async fn list_campaign_templates(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, bool)>(
+        "SELECT id, name, cialdini_principle, message_template, target_segment, is_active
+         FROM campaign_templates ORDER BY name"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let templates: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, name, principle, template, segment, active)| {
+            json!({
+                "id": id,
+                "name": name,
+                "cialdini_principle": principle,
+                "message_template": template,
+                "target_segment": segment,
+                "is_active": active,
+            })
+        })
+        .collect();
+
+    Json(json!({ "templates": templates }))
+}
+
+async fn list_nudge_templates(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, bool)>(
+        "SELECT id, template_type, copy_text, timing_rules_json, is_active
+         FROM nudge_templates ORDER BY template_type"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let templates: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, ttype, copy, timing, active)| {
+            json!({
+                "id": id,
+                "template_type": ttype,
+                "copy_text": copy,
+                "timing_rules": serde_json::from_str::<Value>(&timing).unwrap_or(json!({})),
+                "is_active": active,
+            })
+        })
+        .collect();
+
+    Json(json!({ "templates": templates }))
+}
+
+async fn hr_recognition_data(State(state): State<Arc<AppState>>) -> Json<Value> {
+    // Combine kudos + badges for recognition page
+    let kudos = sqlx::query_as::<_, (String, String, String, String, String, String)>(
+        "SELECT sk.id, s1.name, s2.name, sk.message, sk.category, sk.created_at
+         FROM staff_kudos sk
+         JOIN staff_members s1 ON s1.id = sk.sender_id
+         JOIN staff_members s2 ON s2.id = sk.receiver_id
+         ORDER BY sk.created_at DESC LIMIT 20"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let kudos_list: Vec<Value> = kudos
+        .into_iter()
+        .map(|(id, sender, receiver, msg, cat, created)| {
+            json!({
+                "id": id, "sender_name": sender, "receiver_name": receiver,
+                "message": msg, "category": cat, "created_at": created,
+            })
+        })
+        .collect();
+
+    // Top badge earners
+    let badge_leaders = sqlx::query_as::<_, (String, i64)>(
+        "SELECT sm.name, COUNT(*) as badge_count
+         FROM staff_earned_badges seb
+         JOIN staff_members sm ON sm.id = seb.staff_id
+         GROUP BY seb.staff_id
+         ORDER BY badge_count DESC LIMIT 10"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let leaders: Vec<Value> = badge_leaders
+        .into_iter()
+        .map(|(name, count)| json!({ "name": name, "badge_count": count }))
+        .collect();
+
+    Json(json!({
+        "recent_kudos": kudos_list,
+        "badge_leaders": leaders,
+    }))
 }
 
 // ─── Staff Gamification (v14.0 Phase 95) ─────────────────────────────────
