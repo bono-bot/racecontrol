@@ -283,6 +283,12 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: rc-agent fetches the allowlist at boot and every 5 min (periodic re-fetch added in `821c3031`). Requiring auth on GET caused 401 → empty allowlist → false violations fleet-wide._
 - **Process guard safe mode:** Do not disable rc-process-guard during testing sessions — use the allowlist override instead.
   _Why: Disabling the guard entirely during a test left the machine unprotected when the session ended without re-enabling it._
+- **Security gate (SEC-GATE-01) must pass before any deploy.** `node comms-link/test/security-check.js` runs 31 static assertions covering auth middleware, route auth coverage, credential leaks, protocol immutability, and deploy pipeline integrity. Integrated into: (1) `run-all.sh` Suite 4, (2) `stage-release.sh` pre-build, (3) `deploy-pod.sh` + `deploy-server.sh` pre-deploy, (4) `gate-check.sh` via Suite 0.
+  _Why: Security fixes were point-in-time patches that regressed across milestones. No automated check existed to prevent new phases from adding unprotected routes, leaking credentials, or removing auth middleware. 22 milestones shipped without security regression tests._
+- **Pre-commit hooks block credential leaks.** Both repos (comms-link + racecontrol) have `.git/hooks/pre-commit` that blocks: private keys, AWS keys, hardcoded passwords, sensitive files (.env.local, racecontrol.toml). Install with `bash comms-link/scripts/install-hooks.sh`. Warns on `.unwrap()` in Rust and `any` in TypeScript.
+  _Why: Credentials and sensitive config files were committed to git multiple times. Pre-commit hooks prevent the leak before it enters version control._
+- **Deploy pipeline enforces security + manifest.** The correct workflow is: `stage-release.sh` (security pre-flight → build → SHA256 → manifest) → `gate-check.sh --pre-deploy` → `deploy-pod.sh` (security gate + manifest check) → `deploy-server.sh` (security gate + manifest check) → `gate-check.sh --post-wave`. Each step is self-verifying. Skipping any step = potential regression.
+  _Why: Deploy scripts previously had no security enforcement. Stale binaries, corrupted downloads, and wrong build_id were caught only by human discipline._
 
 ### Regression Prevention
 

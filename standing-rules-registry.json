@@ -606,5 +606,37 @@
     "type": "AUTO",
     "check_command": "if git diff HEAD~1 --name-only 2>/dev/null | grep -q 'CLAUDE.md'; then grep -q \"$(date +%Y-%m-%d)\" C:/Users/bono/racingpoint/comms-link/INBOX.md 2>/dev/null || exit 1; fi; exit 0",
     "checklist": null
+  },
+  {
+    "id": "SR-SEC-003",
+    "category": "security",
+    "summary": "Security gate (SEC-GATE-01) passes — 31 assertions covering auth, credentials, routes, middleware, protocol, and deploy pipeline",
+    "type": "AUTO",
+    "check_command": "cd C:/Users/bono/racingpoint/comms-link && node test/security-check.js > /dev/null 2>&1",
+    "checklist": null
+  },
+  {
+    "id": "SR-SEC-004",
+    "category": "security",
+    "summary": "Pre-commit hooks installed in both repos — blocks credential leaks, private keys, sensitive files before they enter git",
+    "type": "AUTO",
+    "check_command": "test -x C:/Users/bono/racingpoint/comms-link/.git/hooks/pre-commit && test -x C:/Users/bono/racingpoint/racecontrol/.git/hooks/pre-commit",
+    "checklist": null
+  },
+  {
+    "id": "SR-SEC-005",
+    "category": "security",
+    "summary": "Deploy scripts enforce security gate — stage-release.sh, deploy-pod.sh, deploy-server.sh all run SEC-GATE-01 before proceeding",
+    "type": "AUTO",
+    "check_command": "grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/stage-release.sh && grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/deploy-pod.sh && grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/deploy-server.sh",
+    "checklist": null
+  },
+  {
+    "id": "SR-SEC-006",
+    "category": "security",
+    "summary": "Quality gate (run-all.sh) includes security suite as Suite 4 — blocks shipping if security posture degrades",
+    "type": "AUTO",
+    "check_command": "grep -q 'security-check.js' C:/Users/bono/racingpoint/comms-link/test/run-all.sh && grep -q 'SECURITY_EXIT' C:/Users/bono/racingpoint/comms-link/test/run-all.sh",
+    "checklist": null
   }
 ]

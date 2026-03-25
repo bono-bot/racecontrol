@@ -47,6 +47,30 @@ else
     }
 fi
 
+# ─── Gate: Verify security + manifest before deploying ────────────────
+MANIFEST="${BINARY_DIR}/release-manifest.toml"
+if [ ! -f "$MANIFEST" ]; then
+    fail "release-manifest.toml not found — run ./scripts/stage-release.sh first"
+    exit 1
+fi
+MANIFEST_HASH=$(grep 'git_commit' "$MANIFEST" 2>/dev/null | head -1 | cut -d'"' -f2)
+HEAD_HASH=$(cd "${SCRIPT_DIR}/.." 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+if [ "$MANIFEST_HASH" != "$HEAD_HASH" ]; then
+    echo -e "  ${YELLOW}!!${NC}    Manifest git_commit=${MANIFEST_HASH} vs HEAD=${HEAD_HASH} — staged binary may be stale"
+fi
+
+# Run security check (fast, static — no daemon needed)
+COMMS_ROOT="${SCRIPT_DIR}/../../comms-link"
+if [ -f "${COMMS_ROOT}/test/security-check.js" ]; then
+    info "Running security gate (SEC-GATE-01)..."
+    if node "${COMMS_ROOT}/test/security-check.js" > /dev/null 2>&1; then
+        pass "Security gate passed"
+    else
+        fail "Security gate FAILED — run: node ${COMMS_ROOT}/test/security-check.js"
+        exit 1
+    fi
+fi
+
 deploy_pod() {
     local POD_NAME="$1"
     local POD_IP=$(pod_ip "$POD_NAME")

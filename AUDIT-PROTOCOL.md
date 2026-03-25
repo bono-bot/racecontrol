@@ -1,6 +1,6 @@
 # Racing Point Operations Audit Protocol — 60 Phases
 
-**Version:** 3.0 | **Created:** 2026-03-23 | **Updated:** 2026-03-25 | **Author:** James Vowles
+**Version:** 3.1 | **Created:** 2026-03-23 | **Updated:** 2026-03-25 | **Author:** James Vowles
 **Coverage:** 100% — all 173+ runtime modules, 200+ standing rules, 241 API endpoints, 12 E2E journeys
 **Standing Rule:** Run this audit before shipping any milestone, after major incidents, or weekly during operations.
 
@@ -8,16 +8,26 @@
 - Convert ALL timestamps: racecontrol logs are UTC, operations are IST (UTC+5:30)
 - Exclude your own actions from event counts (deploys, test kills)
 - Fix during audit, don't just catalog — apply smallest reversible fix immediately
-- Obtain auth session token for protected endpoints (used across multiple phases)
+- Obtain auth tokens for protected endpoints (used across multiple phases)
+- **Two auth systems exist:** Terminal session (for /terminal/* routes) and Staff JWT (for all staff/kiosk/admin routes)
 
 ```bash
-# Auth token — reuse across all phases that need it
+# Staff JWT — required for /pods, /games/*, /billing/*, /kiosk/* and all staff routes
+# Uses Authorization: Bearer header. Admin login returns a 12h JWT.
+JWT=$(curl -s -X POST http://192.168.31.23:8080/api/v1/auth/admin-login \
+  -H "Content-Type: application/json" -d '{"pin":"261121"}' | jq -r '.token')
+AUTH="Authorization: Bearer $JWT"
+
+# Terminal session — only for /terminal/* routes (remote command execution, cloud sync)
 SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth \
   -H "Content-Type: application/json" -d '{"pin":"261121"}' | jq -r '.session')
 
 # Pod IP array — reuse everywhere
 PODS="192.168.31.89 192.168.31.33 192.168.31.28 192.168.31.88 192.168.31.86 192.168.31.87 192.168.31.38 192.168.31.91"
 ```
+
+> **IMPORTANT:** Use `$AUTH` (Bearer JWT) for all phases that hit staff-protected endpoints.
+> Use `x-terminal-session: $SESSION` only for /terminal/* and /logs endpoints.
 
 ---
 
@@ -592,13 +602,14 @@ curl -s http://192.168.31.23:8080/api/v1/cafe/promos -H "x-terminal-session: $SE
 
 ## Phase 26: Game Catalog & Launcher
 **What:** All games listed in catalog, launcher can start games on pods.
+**Auth:** Staff JWT (`$AUTH`), not terminal session.
 
 ```bash
-# Game catalog
-curl -s http://192.168.31.23:8080/api/v1/games -H "x-terminal-session: $SESSION" | jq '.[].name'
+# Game catalog (8 games expected: AC, ACE, ACR, iR, LMU, F1, FRZ, FH5)
+curl -s http://192.168.31.23:8080/api/v1/games/catalog -H "$AUTH" | jq '.games[].name'
 
-# Game catalog count (should match configured games)
-curl -s http://192.168.31.23:8080/api/v1/games/catalog -H "x-terminal-session: $SESSION" | jq 'length'
+# Game catalog count (should be 8)
+curl -s http://192.168.31.23:8080/api/v1/games/catalog -H "$AUTH" | jq '.games | length'
 
 # Verify game exe exists on at least one pod (spot check)
 SPOT_POD=$(echo $PODS | awk '{print $1}')
@@ -1635,6 +1646,40 @@ curl -s -m 3 http://localhost:8095/health 2>/dev/null && echo "People tracker :8
 
 ---
 
+## Phase 61: Security Gate & Deploy Pipeline Integrity
+**What:** Verify the automated security regression gate (SEC-GATE-01) and deploy pipeline enforcement are working. This phase ensures security fixes cannot regress across milestones.
+
+```bash
+# Run the security check suite (31 assertions, no daemon needed)
+cd C:/Users/bono/racingpoint/comms-link && node test/security-check.js
+
+# Run the full quality gate (includes security as Suite 4)
+cd C:/Users/bono/racingpoint/comms-link && bash test/run-all.sh
+
+# Verify pre-commit hooks installed in both repos
+test -x C:/Users/bono/racingpoint/comms-link/.git/hooks/pre-commit && echo "comms-link hook: OK" || echo "comms-link hook: MISSING"
+test -x C:/Users/bono/racingpoint/racecontrol/.git/hooks/pre-commit && echo "racecontrol hook: OK" || echo "racecontrol hook: MISSING"
+
+# Verify deploy scripts enforce security gate
+grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/stage-release.sh && echo "stage-release: GATED" || echo "stage-release: UNGATED"
+grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/deploy-pod.sh && echo "deploy-pod: GATED" || echo "deploy-pod: UNGATED"
+grep -q 'security' C:/Users/bono/racingpoint/racecontrol/scripts/deploy-server.sh && echo "deploy-server: GATED" || echo "deploy-server: UNGATED"
+
+# Verify gate-check.sh inherits security suite via run-all.sh
+grep -q 'run-all.sh' C:/Users/bono/racingpoint/racecontrol/test/gate-check.sh && echo "gate-check: INHERITS" || echo "gate-check: BROKEN"
+
+# Test credential leak detection (should block)
+echo '-----BEGIN RSA PRIVATE KEY-----' > /tmp/test-cred-leak.txt
+echo "Test payload for leak detection" >> /tmp/test-cred-leak.txt
+rm /tmp/test-cred-leak.txt
+echo "(Manual: stage a file with a credential, verify pre-commit blocks it)"
+```
+
+**Standing rules verified:** SR-SEC-003 (security gate), SR-SEC-004 (pre-commit hooks), SR-SEC-005 (deploy gate enforcement)
+**Fix loop trigger:** security-check.js fails, pre-commit hooks missing, deploy scripts missing security gate, gate-check.sh not calling run-all.sh.
+
+---
+
 # Audit Summary Template
 
 ```
@@ -1774,9 +1819,14 @@ TIER 18: CROSS-SYSTEM CHAINS (60)
 |---|--------------------------|--------|-------|
 |60 | Cross-System Chain E2E   |        |       |
 
+TIER 19: SECURITY GATES & PIPELINE (61)
+| # | Phase                    | Status | Notes |
+|---|--------------------------|--------|-------|
+|61 | Security Gate & Deploy   |        |       |
+
 OVERALL: PASS / FAIL / PARTIAL
-TIERS PASSED: __ / 18
-PHASES PASSED: __ / 60
+TIERS PASSED: __ / 19
+PHASES PASSED: __ / 61
 ISSUES FOUND: ___
 FIXED DURING AUDIT: ___
 DEFERRED: ___
@@ -1881,9 +1931,14 @@ TIER 11: E2E JOURNEYS (48-50)
 |49 | Staff / POS Journey E2E  |        |       |
 |50 | Security & Auth E2E      |        |       |
 
+TIER 12: SECURITY GATES & PIPELINE (61)
+| # | Phase                    | Status | Notes |
+|---|--------------------------|--------|-------|
+|61 | Security Gate & Deploy   |        |       |
+
 OVERALL: PASS / FAIL / PARTIAL
-TIERS PASSED: __ / 11
-PHASES PASSED: __ / 50
+TIERS PASSED: __ / 12
+PHASES PASSED: __ / 61
 ISSUES FOUND: ___
 FIXED DURING AUDIT: ___
 DEFERRED: ___

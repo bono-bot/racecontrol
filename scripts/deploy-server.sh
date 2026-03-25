@@ -44,6 +44,27 @@ echo "  Binary:  ${BINARY_DIR}/racecontrol.exe"
 echo "=========================================="
 echo ""
 
+# ─── Gate 0: Security + manifest check ────────────────────────────────
+MANIFEST="${BINARY_DIR}/release-manifest.toml"
+if [ ! -f "$MANIFEST" ]; then
+    fail "release-manifest.toml not found — run ./scripts/stage-release.sh first"
+fi
+MANIFEST_HASH=$(grep 'git_commit' "$MANIFEST" 2>/dev/null | head -1 | cut -d'"' -f2)
+HEAD_HASH=$(cd "${SCRIPT_DIR}/.." 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+if [ "$MANIFEST_HASH" != "$HEAD_HASH" ]; then
+    echo -e "  ${YELLOW}!!${NC}    Manifest git_commit=${MANIFEST_HASH} vs HEAD=${HEAD_HASH} — staged binary may be stale"
+fi
+
+COMMS_ROOT="${SCRIPT_DIR}/../../comms-link"
+if [ -f "${COMMS_ROOT}/test/security-check.js" ]; then
+    info "Running security gate (SEC-GATE-01)..."
+    if node "${COMMS_ROOT}/test/security-check.js" > /dev/null 2>&1; then
+        pass "Security gate passed"
+    else
+        fail "Security gate FAILED — run: node ${COMMS_ROOT}/test/security-check.js"
+    fi
+fi
+
 # ─── Gate 1: rc-sentry reachable ─────────────────────────────────────
 info "Checking rc-sentry..."
 SENTRY=$(curl -s --max-time 5 "http://${SERVER_IP}:${SENTRY_PORT}/ping" 2>/dev/null || echo "")

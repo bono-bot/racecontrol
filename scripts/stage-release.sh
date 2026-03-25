@@ -38,6 +38,22 @@ echo "  Staging: ${STAGING_DIR}"
 echo "=========================================="
 echo ""
 
+# ─── Security pre-flight (SEC-GATE-01) ───────────────────────────────
+# Run security check before building — blocks staging if security regresses.
+COMMS_ROOT="${REPO_DIR}/../comms-link"
+if [ -f "${COMMS_ROOT}/test/security-check.js" ]; then
+    info "Running security pre-flight (SEC-GATE-01)..."
+    if node "${COMMS_ROOT}/test/security-check.js" 2>&1 | tail -5; then
+        pass "Security pre-flight passed"
+    else
+        fail "Security pre-flight FAILED — fix security regressions before staging"
+        echo -e "  ${RED}Run: node ${COMMS_ROOT}/test/security-check.js${NC} for details"
+        exit 1
+    fi
+else
+    echo -e "  ${YELLOW}!!${NC}    security-check.js not found — skipping pre-flight"
+fi
+
 # ─── Validate environment ────────────────────────────────────────────
 cd "$REPO_DIR"
 
