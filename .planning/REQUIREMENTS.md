@@ -10,7 +10,7 @@
 - [x] **RUN-01**: Operator can execute full audit with `bash audit.sh --mode <mode>` (quick|standard|full|pre-ship|post-incident)
 - [x] **RUN-02**: Each phase produces structured JSON: `{phase, tier, host, status, severity, message, timestamp, mode, venue_state}`
 - [x] **RUN-03**: Every check has a configurable timeout (default 10s) — one offline pod cannot hang the audit
-- [ ] **RUN-04**: All 60 phases from AUDIT-PROTOCOL v3.0 are ported as non-interactive bash functions
+- [x] **RUN-04**: All 60 phases from AUDIT-PROTOCOL v3.0 are ported as non-interactive bash functions
 - [x] **RUN-05**: Shared library (lib/core.sh) provides `record_result()`, `record_fix()`, `exec_on_pod()`, `exec_on_server()` primitives
 - [x] **RUN-06**: cmd.exe quoting wrapper in exec helpers — prevents the 4+ known quoting pitfalls through rc-agent `/exec`
 - [x] **RUN-07**: curl output sanitization — strips quotes from health endpoint responses (`"200"` → `200`)
@@ -90,7 +90,7 @@
 | RUN-01 | Phase 189 | Complete |
 | RUN-02 | Phase 189 | Complete |
 | RUN-03 | Phase 189 | Complete |
-| RUN-04 | Phase 190 | Pending |
+| RUN-04 | Phase 190 | Complete |
 | RUN-05 | Phase 189 | Complete |
 | RUN-06 | Phase 189 | Complete |
 | RUN-07 | Phase 189 | Complete |
