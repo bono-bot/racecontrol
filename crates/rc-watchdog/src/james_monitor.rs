@@ -36,6 +36,7 @@ pub struct ServiceConfig {
 pub enum ServiceCheck {
     Http(&'static str),    // URL to GET
     HttpJson(&'static str, &'static str), // URL, required JSON field (verifies content, not just 200)
+    HttpMinBytes(&'static str, usize), // URL, minimum response body size — catches "200 OK but empty"
     Process(&'static str), // image name substring
     Command(&'static str, &'static [&'static str], &'static str), // exe, args, expected_substr
 }
@@ -109,8 +110,12 @@ fn services() -> Vec<ServiceConfig> {
         },
         ServiceConfig {
             name: "go2rtc",
-            check: ServiceCheck::Http("http://127.0.0.1:1984/api"),
-            restart_cmd: None, // Runs on James (.27), port 1984 — alert only
+            // Validate snapshot returns >1KB — catches auth failures (200 OK but 0 bytes)
+            check: ServiceCheck::HttpMinBytes("http://127.0.0.1:1984/api/frame.jpeg?src=ch1", 1024),
+            restart_cmd: Some(RestartCmd {
+                exe: r"C:\RacingPoint\go2rtc\start-go2rtc.sh",
+                args: &[],
+            }),
             log_path: Some(r"C:\RacingPoint\go2rtc\go2rtc.log"),
         },
         // === Network connectivity ===
@@ -168,6 +173,28 @@ pub fn check_service_http_json(url: &str, required_field: &str) -> bool {
     }
 }
 
+/// Check HTTP endpoint AND verify response body has at least `min_bytes` bytes.
+/// Catches "200 OK but empty body" (e.g. go2rtc snapshot with bad auth = 0 bytes).
+pub fn check_service_http_min_bytes(url: &str, min_bytes: usize) -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match client.get(url).send() {
+        Ok(resp) => {
+            if let Ok(bytes) = resp.bytes() {
+                bytes.len() >= min_bytes
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 /// Check if a process containing `name_fragment` is running via tasklist.
 pub fn check_service_process(name_fragment: &str) -> bool {
     let mut cmd = std::process::Command::new("tasklist");
@@ -210,6 +237,7 @@ fn is_healthy(svc: &ServiceConfig) -> bool {
     match &svc.check {
         ServiceCheck::Http(url) => check_service_http(url),
         ServiceCheck::HttpJson(url, field) => check_service_http_json(url, field),
+        ServiceCheck::HttpMinBytes(url, min) => check_service_http_min_bytes(url, *min),
         ServiceCheck::Process(name) => check_service_process(name),
         ServiceCheck::Command(exe, args, expected) => check_service_command(exe, args, expected),
     }

@@ -765,33 +765,25 @@ function buildGrid() {
       label.appendChild(nameSpan);
       label.appendChild(dot);
 
-      // Camera tile media — live video via go2rtc MSE/WebRTC
+      // Camera tile media — snapshot image in grid, live video only on fullscreen click
+      // (13 simultaneous WebRTC streams caused lag + NVR overload)
       var vid;
       var isLive = ch != null && camera.status !== 'offline' && camera.status !== 'disconnected';
 
-      if (isLive) {
-        vid = document.createElement('video-stream');
-        vid.style.width = '100%';
-        vid.style.display = 'block';
-        vid.style.aspectRatio = '16/9';
-        vid.style.objectFit = 'cover';
-        vid.style.background = '#000';
-        vid.mode = 'mse,webrtc,mjpeg';
-        vid.media = 'video';
-        vid.background = true;
-        vid.src = 'http://192.168.31.27:1984/api/ws?src=ch' + ch;
-      } else {
-        vid = document.createElement('img');
-        vid.alt = camera.display_name;
-        vid.style.width = '100%';
-        vid.style.display = 'block';
-        vid.style.aspectRatio = '16/9';
-        vid.style.objectFit = 'cover';
-        vid.style.background = '#000';
+      vid = document.createElement('img');
+      vid.alt = camera.display_name;
+      vid.style.width = '100%';
+      vid.style.display = 'block';
+      vid.style.aspectRatio = '16/9';
+      vid.style.objectFit = 'cover';
+      vid.style.background = '#000';
+      if (isLive && ch != null) {
+        vid.src = '/api/v1/cameras/nvr/' + ch + '/snapshot?t=' + Date.now();
+        vid.dataset.ch = ch;
+        vid.className = 'live-snapshot';
       }
 
-      // Transparent click overlay — captures clicks above video-stream
-      // (go2rtc's custom element may consume click events internally)
+      // Click overlay for fullscreen (live video opens only on click)
       if (isLive && ch != null) {
         var clickOverlay = document.createElement('div');
         clickOverlay.className = 'click-overlay';
