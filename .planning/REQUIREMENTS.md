@@ -52,11 +52,11 @@
 ### Standing Rules Codification
 
 - [x] **SR-01**: All 41+ CLAUDE.md standing rules are classified into enforcement types: AUTO (linter/compiler/script), HUMAN-CONFIRM (pipeline pauses for operator checklist), INFORMATIONAL (documented but not gated)
-- [ ] **SR-02**: Pre-deploy gate script (gate-check.sh) runs before any binary leaves staging — checks: cargo test green, no unwrap in diff, static CRT config present, LOGBOOK updated, bat files clean ASCII — blocks deploy on failure
-- [ ] **SR-03**: Post-deploy verification gate runs after each wave — checks: build_id matches manifest, fleet health passes, billing session roundtrip works, no error spike — blocks next wave on failure
+- [x] **SR-02**: Pre-deploy gate script (gate-check.sh) runs before any binary leaves staging — checks: cargo test green, no unwrap in diff, static CRT config present, LOGBOOK updated, bat files clean ASCII — blocks deploy on failure
+- [x] **SR-03**: Post-deploy verification gate runs after each wave — checks: build_id matches manifest, fleet health passes, billing session roundtrip works, no error spike — blocks next wave on failure
 - [ ] **SR-04**: Pipeline has no force-continue or skip-gate commands — the only exit from a failed health check is rollback
 - [x] **SR-05**: New standing rules are added to CLAUDE.md covering: always preserve prev binary, never deploy without manifest, rollback window defined, billing sessions drain before swap, OTA sentinel file protocol, config push never through fleet exec
-- [ ] **SR-06**: HUMAN-CONFIRM rules (visual verification, customer audit, anomaly investigation) cause pipeline to PAUSE with a named operator checklist — pipeline resumes only on explicit operator confirmation
+- [x] **SR-06**: HUMAN-CONFIRM rules (visual verification, customer audit, anomaly investigation) cause pipeline to PAUSE with a named operator checklist — pipeline resumes only on explicit operator confirmation
 - [ ] **SR-07**: Standing rules sync to Bono after any modification — both AIs operate under identical rules
 
 ### Cross-Project Sync (builds on v21.0)
@@ -66,7 +66,7 @@
 - [x] **SYNC-03**: New WebSocket message types (FlagSync, ConfigPush, OtaDownload, etc.) are added to rc-common AND to the shared TypeScript types package — contract tests verify both sides match
 - [ ] **SYNC-04**: Feature flag and config push changes cascade to ALL affected components (racecontrol, rc-agent, kiosk, admin dashboard, API gateway) per the cross-process update standing rule
 - [ ] **SYNC-05**: OTA release manifest includes version compatibility matrix — which rc-agent version works with which racecontrol version, which kiosk build, which config schema
-- [ ] **SYNC-06**: Standing rules gate script (gate-check.sh) extends the v21.0 E2E test framework (run-all.sh) — not a separate test system
+- [x] **SYNC-06**: Standing rules gate script (gate-check.sh) extends the v21.0 E2E test framework (run-all.sh) — not a separate test system
 
 ### Cross-Milestone Integration
 
@@ -142,13 +142,13 @@
 | FF-06 | Phase 180 | Pending |
 | SYNC-04 | Phase 180 | Pending |
 | SR-01 | Phase 181 | Complete |
-| SR-02 | Phase 181 | Pending |
-| SR-03 | Phase 181 | Pending |
+| SR-02 | Phase 181 | Complete |
+| SR-03 | Phase 181 | Complete |
 | SR-04 | Phase 181 | Pending |
 | SR-05 | Phase 181 | Complete |
-| SR-06 | Phase 181 | Pending |
+| SR-06 | Phase 181 | Complete |
 | SR-07 | Phase 181 | Pending |
-| SYNC-06 | Phase 181 | Pending |
+| SYNC-06 | Phase 181 | Complete |
 | XMIL-01 | Phase 182 | Pending |
 | XMIL-02 | Phase 182 | Pending |
 | XMIL-03 | Phase 182 | Pending |

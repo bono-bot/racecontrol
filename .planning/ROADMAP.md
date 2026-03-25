@@ -2799,7 +2799,7 @@ Plans:
 | 178. Agent-Side Consumer | 3/3 | Complete    | 2026-03-24 |
 | 179. OTA Pipeline | 0/TBD | Not started | - |
 | 180. Admin Dashboard UI | 0/TBD | Not started | - |
-| 181. Standing Rules Gate | 1/3 | In Progress|  |
+| 181. Standing Rules Gate | 2/3 | In Progress|  |
 | 182. Cross-Milestone Integration | 0/TBD | Not started | - |
 
 ---
