@@ -25,6 +25,10 @@ else
   get_session_token() { :; }
 fi
 
+if [ -f "$SCRIPT_DIR/lib/parallel.sh" ]; then
+  source "$SCRIPT_DIR/lib/parallel.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -57,12 +61,12 @@ Usage: AUDIT_PIN=<pin> bash audit/audit.sh --mode <MODE> [OPTIONS]
 Modes:
   quick          Fast health sweep (Tiers 1-2, ~5 min)
   standard       Full Tiers 1-9 run (~15 min)
-  full           All tiers + extra probes (~25 min)
+  full           All 18 tiers, 60 phases (~8 min with parallel engine)
   pre-ship       Pre-deployment verification gates
   post-incident  Post-incident investigation sweep
 
 Options:
-  --tier N       Run only a specific tier (1-9)
+  --tier N       Run only a specific tier (1-18)
   --phase N      Run only a specific phase number
   --auto-fix     Apply smallest reversible fixes automatically
   --notify       Send Bono notification on completion
@@ -304,7 +308,17 @@ load_phases() {
       source_tier "tier7"
       source_tier "tier8"
       source_tier "tier9"
-      # Note: Tiers 10-18 loaded in Phase 191 (parallel engine)
+      if [[ "$mode" = "full" ]]; then
+        source_tier "tier10"
+        source_tier "tier11"
+        source_tier "tier12"
+        source_tier "tier13"
+        source_tier "tier14"
+        source_tier "tier15"
+        source_tier "tier16"
+        source_tier "tier17"
+        source_tier "tier18"
+      fi
       ;;
   esac
 }
@@ -345,7 +359,16 @@ elif [[ -n "$AUDIT_TIER" ]]; then
     7)  run_phase35; run_phase36; run_phase37; run_phase38 ;;
     8)  run_phase39; run_phase40; run_phase41; run_phase42 ;;
     9)  run_phase43; run_phase44 ;;
-    *)  echo "WARN: Tier $AUDIT_TIER phases not yet implemented (Tiers 10-18 in Phase 191)" >&2 ;;
+    10) run_phase45; run_phase46; run_phase47 ;;
+    11) run_phase48; run_phase49; run_phase50 ;;
+    12) run_phase51; run_phase52; run_phase53 ;;
+    13) run_phase54 ;;
+    14) run_phase55; run_phase56 ;;
+    15) run_phase57 ;;
+    16) run_phase58 ;;
+    17) run_phase59 ;;
+    18) run_phase60 ;;
+    *)  echo "WARN: Invalid tier $AUDIT_TIER. Valid: 1-18" >&2 ;;
   esac
 
 else
@@ -364,6 +387,17 @@ else
     run_phase39; run_phase40; run_phase41; run_phase42
     run_phase43; run_phase44
   }
+  run_tier_10_to_18() {
+    run_phase45; run_phase46; run_phase47
+    run_phase48; run_phase49; run_phase50
+    run_phase51; run_phase52; run_phase53
+    run_phase54
+    run_phase55; run_phase56
+    run_phase57
+    run_phase58
+    run_phase59
+    run_phase60
+  }
 
   case "$AUDIT_MODE" in
     quick)
@@ -376,9 +410,10 @@ else
       run_tier_3_to_9
       ;;
     full)
-      echo "Mode: full — running Tiers 1-9 (phases 01-44, Tiers 10-18 in Phase 191)"
+      echo "Mode: full — running All 18 tiers, phases 01-60"
       run_tier_1_to_2
       run_tier_3_to_9
+      run_tier_10_to_18
       ;;
     pre-ship)
       echo "Mode: pre-ship — critical subset (Tiers 1-2 + targeted checks)"
