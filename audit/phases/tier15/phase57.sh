@@ -23,7 +23,7 @@ run_phase57() {
     status="WARN"; severity="P2"; message="smoke.sh not found at ${smoke_sh} — E2E smoke test cannot run"
   else
     local smoke_exit; smoke_exit=0
-    timeout 60 bash "$smoke_sh" >/dev/null 2>&1 || smoke_exit=$?
+    RC_BASE_URL="http://192.168.31.23:8080/api/v1" timeout 60 bash "$smoke_sh" >/dev/null 2>&1 || smoke_exit=$?
     if [[ "$smoke_exit" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="E2E smoke.sh passed (exit 0)"
     elif [[ "$smoke_exit" -eq 124 ]]; then

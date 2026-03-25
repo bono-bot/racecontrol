@@ -17,7 +17,7 @@ run_phase48() {
 
   # --- Check 1: Kiosk HTML loads with Next.js markers ---
   local kiosk_html; kiosk_html=$(curl -s -m 10 "http://192.168.31.23:3300/kiosk" 2>/dev/null || echo "")
-  local kiosk_ok; kiosk_ok=$(printf '%s' "$kiosk_html" | grep -c "__NEXT" 2>/dev/null)
+  local kiosk_ok; kiosk_ok=$(printf '%s' "$kiosk_html" | grep -ci "__next" 2>/dev/null)
   if [[ "${kiosk_ok:-0}" -gt 0 ]]; then
     status="PASS"; severity="P3"; message="Kiosk HTML loads with Next.js markers (${kiosk_ok} found)"
   else
@@ -27,7 +27,7 @@ run_phase48() {
 
   # --- Check 2: Dashboard HTML loads ---
   local dash_html; dash_html=$(curl -s -m 10 "http://192.168.31.23:3200" 2>/dev/null || echo "")
-  local dash_ok; dash_ok=$(printf '%s' "$dash_html" | grep -c "__NEXT" 2>/dev/null)
+  local dash_ok; dash_ok=$(printf '%s' "$dash_html" | grep -ci "__next" 2>/dev/null)
   if [[ "${dash_ok:-0}" -gt 0 ]]; then
     status="PASS"; severity="P3"; message="Dashboard HTML loads with Next.js markers (${dash_ok} found)"
   else
@@ -37,7 +37,7 @@ run_phase48() {
 
   # --- Check 3: Admin HTML loads (port 3201 per CLAUDE.md) ---
   local admin_html; admin_html=$(curl -s -m 10 "http://192.168.31.23:3201" 2>/dev/null || echo "")
-  local admin_ok; admin_ok=$(printf '%s' "$admin_html" | grep -c "__NEXT" 2>/dev/null)
+  local admin_ok; admin_ok=$(printf '%s' "$admin_html" | grep -ci "__next" 2>/dev/null)
   if [[ "${admin_ok:-0}" -gt 0 ]]; then
     status="PASS"; severity="P3"; message="Admin HTML loads with Next.js markers (${admin_ok} found)"
   else

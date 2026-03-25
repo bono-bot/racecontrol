@@ -15,15 +15,15 @@ run_phase54() {
   local response status severity message
 
   # --- Check 1: Registry endpoint reachable and returns valid JSON with keys ---
-  local registry_response; registry_response=$(http_get "http://localhost:8766/relay/registry" 5)
-  local key_count; key_count=$(printf '%s' "$registry_response" | jq 'keys | length' 2>/dev/null)
+  local registry_response; registry_response=$(http_get "http://localhost:8766/relay/commands" 5)
+  local key_count; key_count=$(printf '%s' "$registry_response" | jq '.commands | length' 2>/dev/null)
   key_count="${key_count//[[:space:]]/}"
   if [[ -z "$registry_response" || "$registry_response" = *"curl"* ]]; then
-    status="FAIL"; severity="P1"; message="Registry endpoint http://localhost:8766/relay/registry is DOWN or unreachable"
+    status="FAIL"; severity="P1"; message="Commands endpoint http://localhost:8766/relay/commands is DOWN or unreachable"
   elif [[ "${key_count:-0}" -gt 0 ]] 2>/dev/null; then
-    status="PASS"; severity="P3"; message="Registry endpoint UP — ${key_count} commands registered"
+    status="PASS"; severity="P3"; message="Commands endpoint UP — ${key_count} commands registered"
   else
-    status="FAIL"; severity="P1"; message="Registry endpoint responded but returned invalid JSON or no keys"
+    status="FAIL"; severity="P1"; message="Commands endpoint responded but returned invalid JSON or no commands"
   fi
   emit_result "$phase" "$tier" "james-registry-endpoint" "$status" "$severity" "$message" "$mode" "$venue_state"
 
@@ -32,7 +32,7 @@ run_phase54() {
   local check_count=0
   for CMD in git_pull git_status node_version health_check pm2_status uptime; do
     check_count=$((check_count + 1))
-    if ! printf '%s' "$registry_response" | jq -e ".\"${CMD}\"" >/dev/null 2>&1; then
+    if ! printf '%s' "$registry_response" | jq -e ".commands[] | select(.name == \"${CMD}\")" >/dev/null 2>&1; then
       missing_cmds="${missing_cmds} ${CMD}"
     fi
   done
@@ -56,8 +56,8 @@ run_phase54() {
   rm -f "$tmpfile"
 
   # Verify it appears in the registry
-  local verify_response; verify_response=$(http_get "http://localhost:8766/relay/registry" 5)
-  local found; found=$(printf '%s' "$verify_response" | jq -e '.audit_test' >/dev/null 2>&1 && echo "YES" || echo "NO")
+  local verify_response; verify_response=$(http_get "http://localhost:8766/relay/commands" 5)
+  local found; found=$(printf '%s' "$verify_response" | jq -e '.commands[] | select(.name == "audit_test")' >/dev/null 2>&1 && echo "YES" || echo "NO")
 
   # Cleanup: delete the test registration
   curl -s -m 5 -X DELETE "http://localhost:8766/relay/registry/audit_test" >/dev/null 2>&1 || true

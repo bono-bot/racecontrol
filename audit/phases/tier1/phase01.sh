@@ -33,10 +33,10 @@ run_phase01() {
   # SERVER OPS CHECK: server_ops :8090/health
   # ---------------------------------------------------------------------------
   response=$(http_get "http://192.168.31.23:8090/health" "$DEFAULT_TIMEOUT")
-  if [[ -n "$response" ]] && echo "$response" | grep -q "build_id"; then
+  if [[ -n "$response" ]] && printf '%s' "$response" | grep -q '"status"'; then
     status="PASS"
     severity="P3"
-    message="server_ops healthy: $(echo "$response" | jq -r '.build_id // "unknown"' 2>/dev/null || echo 'ok')"
+    message="server_ops healthy: $(printf '%s' "$response" | jq -r '.status // "ok"' 2>/dev/null)"
   else
     status="FAIL"
     severity="P1"

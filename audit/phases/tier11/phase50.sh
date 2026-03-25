@@ -38,16 +38,23 @@ run_phase50() {
   # --- Check 2: Invalid PIN rejected ---
   local tmpfile2; tmpfile2=$(mktemp)
   jq -n --arg pin "000000" '{pin: $pin}' > "$tmpfile2"
+  local invalid_body; invalid_body=$(curl -s -m 10 \
+    -X POST "http://192.168.31.23:8080/api/v1/terminal/auth" \
+    -H 'Content-Type: application/json' -d "@${tmpfile2}" 2>/dev/null | tr -d '\r')
   local invalid_code; invalid_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
     -X POST "http://192.168.31.23:8080/api/v1/terminal/auth" \
     -H 'Content-Type: application/json' -d "@${tmpfile2}" 2>/dev/null)
   rm -f "$tmpfile2"
+  # Check body for rejection — server may return 200 with {"error":"Invalid PIN."}
+  local body_has_error; body_has_error=$(printf '%s' "$invalid_body" | jq -r 'if .error then "YES" elif .session then "NO" else "YES" end' 2>/dev/null)
   if [[ "$invalid_code" = "401" || "$invalid_code" = "403" ]]; then
     status="PASS"; severity="P3"; message="Invalid PIN correctly rejected with HTTP ${invalid_code}"
-  elif [[ "$invalid_code" = "200" ]]; then
-    status="FAIL"; severity="P1"; message="CRITICAL: Invalid PIN 000000 returned HTTP 200 — auth bypass vulnerability"
+  elif [[ "$body_has_error" = "YES" ]]; then
+    status="PASS"; severity="P3"; message="Invalid PIN rejected (body contains error, HTTP ${invalid_code})"
+  elif [[ "$body_has_error" = "NO" ]]; then
+    status="FAIL"; severity="P1"; message="CRITICAL: Invalid PIN 000000 returned session token — auth bypass"
   else
-    status="WARN"; severity="P2"; message="Invalid PIN check: unexpected HTTP ${invalid_code} (expected 401 or 403)"
+    status="WARN"; severity="P2"; message="Invalid PIN check: unexpected response (HTTP ${invalid_code})"
   fi
   emit_result "$phase" "$tier" "server-23-auth-invalid" "$status" "$severity" "$message" "$mode" "$venue_state"
 

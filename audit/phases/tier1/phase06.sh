@@ -19,10 +19,9 @@ run_phase06() {
     host="pod-$(printf '%s' "$ip" | sed 's/192\.168\.31\.//')"
 
     # PowerShell count (should be 0-1)
-    response=$(safe_remote_exec "$ip" "8090" \
-      'tasklist /NH | find /C "powershell.exe"' \
-      "$DEFAULT_TIMEOUT")
-    local ps_count; ps_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
+    response=$(safe_remote_exec "$ip" "8090" 'tasklist /FO CSV /NH' "$DEFAULT_TIMEOUT")
+    local tasklist_out; tasklist_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)
+    local ps_count; ps_count=$(printf '%s' "$tasklist_out" | grep -ic "powershell.exe")
     if [[ "${ps_count:-0}" -le 1 ]]; then
       status="PASS"; severity="P3"; message="Orphan PowerShell count: ${ps_count:-0} (normal)"
     else
@@ -48,11 +47,8 @@ run_phase06() {
     fi
     emit_result "$phase" "$tier" "${host}-variable-dump" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-    # Duplicate rc-agent (must be exactly 1)
-    response=$(safe_remote_exec "$ip" "8090" \
-      'tasklist /NH | find /C "rc-agent.exe"' \
-      "$DEFAULT_TIMEOUT")
-    local agent_count; agent_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
+    # Duplicate rc-agent (must be exactly 1) — reuse tasklist_out from above
+    local agent_count; agent_count=$(printf '%s' "$tasklist_out" | grep -ic "rc-agent.exe")
     if [[ "${agent_count:-0}" -eq 1 ]]; then
       status="PASS"; severity="P3"; message="Exactly 1 rc-agent.exe running"
     elif [[ "${agent_count:-0}" -eq 0 ]]; then
@@ -67,10 +63,9 @@ run_phase06() {
   done
 
   # Server .23 -- orphan watchdog PowerShell (should be 0-2: singleton mutex)
-  response=$(safe_remote_exec "192.168.31.23" "8090" \
-    'tasklist /NH | find /C "powershell.exe"' \
-    "$DEFAULT_TIMEOUT")
-  local server_ps; server_ps=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
+  response=$(safe_remote_exec "192.168.31.23" "8090" 'tasklist /FO CSV /NH' "$DEFAULT_TIMEOUT")
+  local server_tasklist; server_tasklist=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)
+  local server_ps; server_ps=$(printf '%s' "$server_tasklist" | grep -ic "powershell.exe")
   if [[ "${server_ps:-0}" -le 2 ]]; then
     status="PASS"; severity="P3"; message="Server .23 PowerShell count: ${server_ps:-0} (watchdog singleton OK)"
   else

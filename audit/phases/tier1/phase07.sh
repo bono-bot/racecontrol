@@ -35,7 +35,7 @@ run_phase07() {
   local n
   for n in 1 2 3 4 5 6 7 8; do
     response=$(http_get "http://192.168.31.23:8080/api/v1/guard/whitelist/pod-${n}" "$DEFAULT_TIMEOUT")
-    local wl_count; wl_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
+    local wl_count; wl_count=$(printf '%s' "$response" | jq '.processes | length' 2>/dev/null)
     if [[ "${wl_count:-0}" -ge 100 ]]; then
       status="PASS"; severity="P3"; message="Pod ${n} allowlist: ${wl_count} entries (populated)"
     elif [[ "${wl_count:-0}" -ge 10 ]]; then

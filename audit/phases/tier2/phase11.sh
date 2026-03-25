@@ -17,7 +17,7 @@ run_phase11() {
   # Fleet health -- must return pods array with real data
   response=$(http_get "http://192.168.31.23:8080/api/v1/fleet/health" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
-    local pod_count; pod_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
+    local pod_count; pod_count=$(printf '%s' "$response" | jq 'if type == "array" then length elif .pods then .pods | length else 0 end' 2>/dev/null)
     if [[ "${pod_count:-0}" -ge 8 ]]; then
       status="PASS"; severity="P3"; message="Fleet health: ${pod_count} pods in response"
     elif [[ "${pod_count:-0}" -ge 1 ]]; then

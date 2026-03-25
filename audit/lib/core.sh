@@ -28,7 +28,7 @@ export -f ist_now
 http_get() {
   local url=$1
   local timeout=${2:-${DEFAULT_TIMEOUT:-10}}
-  curl -s -m "$timeout" "$url" 2>/dev/null | tr -d '"\r'
+  curl -s -m "$timeout" "$url" 2>/dev/null | tr -d '\r'
 }
 export -f http_get
 

@@ -48,8 +48,8 @@ run_phase02() {
       'type C:\RacingPoint\rc-agent.toml' \
       "$DEFAULT_TIMEOUT")
     local stdout; stdout=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
-    if printf '%s' "$stdout" | grep -q "pod_number"; then
-      status="PASS"; severity="P3"; message="rc-agent.toml present with pod_number key"
+    if printf '%s' "$stdout" | grep -qE "(pod_number|^\s*number\s*=)"; then
+      status="PASS"; severity="P3"; message="rc-agent.toml present with pod number config"
     elif [[ -z "$stdout" ]]; then
       status="WARN"; severity="P2"; message="rc-agent.toml: could not read (pod offline or exec failed)"
     else
