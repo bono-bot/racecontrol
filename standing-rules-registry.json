@@ -1,0 +1,610 @@
+[
+  {
+    "id": "SR-ULTIMATE-001",
+    "category": "ultimate",
+    "summary": "Three verification layers before shipping (Quality Gate + E2E + Standing Rules)",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Quality Gate (comms-link test/run-all.sh) passed?", "E2E live round-trip (exec, chain, health) verified?", "Standing rules compliance checked (auto-push, Bono synced, watchdog, rules categorized)?"]
+  },
+  {
+    "id": "SR-ULTIMATE-002",
+    "category": "ultimate",
+    "summary": "Visual verification for display-affecting deploys",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Screens showing correctly on all affected pods?", "No flicker/misalignment/rendering issues?", "Asked user to physically verify?"]
+  },
+  {
+    "id": "SR-DEPLOY-001",
+    "category": "deploy",
+    "summary": "Remote deploy sequence via RCAGENT_SELF_RESTART sentinel",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-002",
+    "category": "deploy",
+    "summary": "Never taskkill + start rc-agent in same exec chain",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-003",
+    "category": "deploy",
+    "summary": "Server deploy (racecontrol) 7-step procedure",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-004",
+    "category": "deploy",
+    "summary": "Never run pod binaries on James PC",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-005",
+    "category": "deploy",
+    "summary": "Test before upload — cargo test + Pod 8 canary first",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["cargo test passed?", "Binary size reasonable?", "Deployed to Pod 8 canary first?", "Pod 8 verified healthy before fleet-wide?"]
+  },
+  {
+    "id": "SR-DEPLOY-006",
+    "category": "deploy",
+    "summary": "touch build.rs before release builds after new commits",
+    "type": "AUTO",
+    "check_command": "test $(git log --oneline -1 --format='%H' -- crates/*/build.rs) = $(git log --oneline -1 --format='%H') || echo 'WARNING: build.rs not touched after last commit'",
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-007",
+    "category": "deploy",
+    "summary": "Smallest reversible fix first for production issues",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-008",
+    "category": "deploy",
+    "summary": "Have a rollback plan before deploying critical paths",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Rollback command prepared?", "Previous binary preserved?", "Tailscale SSH fallback tested?"]
+  },
+  {
+    "id": "SR-DEPLOY-009",
+    "category": "deploy",
+    "summary": "Tailscale SSH fallback for pod recovery when rc-agent is dead",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-010",
+    "category": "deploy",
+    "summary": "Deploy staging path is C:\\Users\\bono\\racingpoint\\deploy-staging",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-011",
+    "category": "deploy",
+    "summary": "Pendrive install via D:\\pod-deploy\\install.bat",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-012",
+    "category": "deploy",
+    "summary": "Rebuild + redeploy after functional code commits",
+    "type": "AUTO",
+    "check_command": "git log $(curl -sf http://192.168.31.23:8080/api/v1/health 2>/dev/null | node -pe 'JSON.parse(require(\"fs\").readFileSync(\"/dev/stdin\",\"utf8\")).build_id' 2>/dev/null || echo 'unknown')..HEAD -- 'crates/racecontrol/src/**/*.rs' 2>/dev/null | head -1",
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-013",
+    "category": "deploy",
+    "summary": "Server binary swap via rename, never overwrite running exe",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEPLOY-014",
+    "category": "deploy",
+    "summary": "Single-binary-tier policy — all pods run same binary, feature selection at runtime",
+    "type": "AUTO",
+    "check_command": "ls deploy-staging/rc-agent*.exe 2>/dev/null | wc -l | grep -q '^[01]$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-COMMS-001",
+    "category": "comms",
+    "summary": "Bono INBOX.md dual channel — git push + WS message",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-COMMS-002",
+    "category": "comms",
+    "summary": "Auto-push + notify atomic sequence after every commit",
+    "type": "AUTO",
+    "check_command": "git log --oneline -1 origin/main..main 2>/dev/null | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-COMMS-003",
+    "category": "comms",
+    "summary": "Bono VPS exec via comms-link relay, not SSH",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-COMMS-004",
+    "category": "comms",
+    "summary": "Standing Rules Sync to Bono after CLAUDE.md modifications",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["CLAUDE.md changes synced to Bono via comms-link?", "Both AIs operating under same rules?"]
+  },
+  {
+    "id": "SR-QUALITY-001",
+    "category": "code-quality",
+    "summary": "No .unwrap() in production Rust code",
+    "type": "AUTO",
+    "check_command": "grep -rn '\\.unwrap()' $(git diff --name-only HEAD~1 -- '*.rs' 2>/dev/null) 2>/dev/null | grep -v test | grep -v '#\\[cfg(test)\\]' | grep -v '#\\[test\\]' | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-002",
+    "category": "code-quality",
+    "summary": "No any type in TypeScript code",
+    "type": "AUTO",
+    "check_command": "grep -rn ': any' $(git diff --name-only HEAD~1 -- '*.ts' '*.tsx' 2>/dev/null) 2>/dev/null | grep -v node_modules | grep -v '.d.ts' | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-003",
+    "category": "code-quality",
+    "summary": ".bat files must be clean ASCII + CRLF, no parentheses in if/else",
+    "type": "AUTO",
+    "check_command": "file deploy-staging/*.bat start-*.bat 2>/dev/null | grep -v ASCII | grep -v empty | grep -v 'No such' | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-004",
+    "category": "code-quality",
+    "summary": "Static CRT config present in .cargo/config.toml",
+    "type": "AUTO",
+    "check_command": "grep -q 'crt-static' .cargo/config.toml",
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-005",
+    "category": "code-quality",
+    "summary": "Cascade updates recursive — update ALL linked references when changing a process",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-006",
+    "category": "code-quality",
+    "summary": "Next.js hydration — never read sessionStorage/localStorage in useState initializer",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-007",
+    "category": "code-quality",
+    "summary": "Git Bash JSON — write payloads to file, then curl -d @file",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-008",
+    "category": "code-quality",
+    "summary": "Never pipe SSH output into config files — use scp",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-QUALITY-009",
+    "category": "code-quality",
+    "summary": "UI must reflect config truth — no hardcoded camera lists, names, or layouts",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-001",
+    "category": "process",
+    "summary": "Refactor Second — characterization tests first, verify green, then refactor",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-002",
+    "category": "process",
+    "summary": "Cross-Process Updates — update ALL apps and ALL environments when changing a feature",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["rc-agent updated?", "racecontrol updated?", "PWA/Admin/Dashboard updated?", "Venue + Cloud + James all deployed?"]
+  },
+  {
+    "id": "SR-PROCESS-003",
+    "category": "process",
+    "summary": "DB migrations must cover ALL consumers with ALTER TABLE",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-004",
+    "category": "process",
+    "summary": "Review parallel session commits against standing rules before deploying",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["git show <hash> reviewed against standing rules?", "No bat parentheses, missing verification, or stale references?"]
+  },
+  {
+    "id": "SR-PROCESS-005",
+    "category": "process",
+    "summary": "Convert timestamps UTC->IST before counting events",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-006",
+    "category": "process",
+    "summary": "First-run verification after enabling any guard/filter/blocklist",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["First scan result checked immediately?", "Expected number of items flagged (not 'everything' or 'nothing')?"]
+  },
+  {
+    "id": "SR-PROCESS-007",
+    "category": "process",
+    "summary": "No Fake Data — use TEST_ONLY or 0000000000",
+    "type": "AUTO",
+    "check_command": "git diff HEAD~1 2>/dev/null | grep -iE '(john doe|jane doe|test@test\\.com|555-|123-456)' | grep -v TEST_ONLY | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-008",
+    "category": "process",
+    "summary": "Prompt Quality Check — ask one focused question before acting on ambiguous prompts",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-009",
+    "category": "process",
+    "summary": "Links and References = Apply Now — apply shared references to current problem first",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-010",
+    "category": "process",
+    "summary": "Learn From Past Fixes — check LOGBOOK + commit history before re-investigating",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-PROCESS-011",
+    "category": "process",
+    "summary": "LOGBOOK entry after every commit",
+    "type": "AUTO",
+    "check_command": "git diff HEAD~1 -- LOGBOOK.md | grep -q '^+'",
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-001",
+    "category": "testing",
+    "summary": "Verify the EXACT behavior path, not proxy metrics like build_id or health OK",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Tested the EXACT data flow that was broken?", "Not just health endpoint or build_id?"]
+  },
+  {
+    "id": "SR-TESTING-002",
+    "category": "testing",
+    "summary": "Removed means removed from EVERY machine (server, pods, James)",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Verified removal on server .23?", "Verified removal on all 8 pods?", "Verified removal on James .27?"]
+  },
+  {
+    "id": "SR-TESTING-003",
+    "category": "testing",
+    "summary": "Never move on from a failed operation — fix NOW or explicitly tell user",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-004",
+    "category": "testing",
+    "summary": "Audit what the CUSTOMER sees, not what the API returns",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Window titles checked via tasklist /V?", "No overlay popups visible on screens?", "Physical screen verified?"]
+  },
+  {
+    "id": "SR-TESTING-005",
+    "category": "testing",
+    "summary": "Investigate anomalies, don't dismiss them",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Anomaly root cause verified, not assumed 'expected behavior'?"]
+  },
+  {
+    "id": "SR-TESTING-006",
+    "category": "testing",
+    "summary": "NEVER restart explorer.exe on pods with NVIDIA Surround",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-007",
+    "category": "testing",
+    "summary": "Test display changes on ONE pod (Pod 8 canary) before fleet-wide",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Change tested on Pod 8 canary first?", "Display verified visually before other pods?"]
+  },
+  {
+    "id": "SR-TESTING-008",
+    "category": "testing",
+    "summary": "Screenshot verification triggers taskbar auto-hide — verify physically instead",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-009",
+    "category": "testing",
+    "summary": "Fix during audit, don't just catalog issues",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-010",
+    "category": "testing",
+    "summary": "Context switches kill open investigations — park explicitly before switching",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-011",
+    "category": "testing",
+    "summary": "git log before calling builds old — different hash does not mean outdated",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-012",
+    "category": "testing",
+    "summary": "cmd.exe is hostile to quoting — use PID targeting or batch files instead",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-013",
+    "category": "testing",
+    "summary": "Verify monitoring targets against running system (netstat/tasklist), not docs",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["netstat/tasklist confirmed host:port for monitoring target?", "Not copied from stale docs?"]
+  },
+  {
+    "id": "SR-TESTING-014",
+    "category": "testing",
+    "summary": ".spawn().is_ok() does NOT mean child started — verify alive after spawn",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-015",
+    "category": "testing",
+    "summary": "Non-interactive Windows context cannot launch interactive processes directly",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-016",
+    "category": "testing",
+    "summary": "MAINTENANCE_MODE sentinel is a silent pod killer — always clear before debugging",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-017",
+    "category": "testing",
+    "summary": "Session start — check for MAINTENANCE_MODE on all pods",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["All pods checked for MAINTENANCE_MODE sentinel?", "Pods with ws_connected:false investigated?"]
+  },
+  {
+    "id": "SR-TESTING-018",
+    "category": "testing",
+    "summary": "Audit changes must be cascade-audited before closing session",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["All changes listed?", "Downstream consumers identified for each change?", "Each consumer tested for correct output?", "Pending restarts documented?"]
+  },
+  {
+    "id": "SR-DEBUGGING-001",
+    "category": "debugging",
+    "summary": "Cross-Process Recovery Awareness — recovery systems must not fight each other",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Self-restart distinguishable from crash?", "MAINTENANCE_MODE checked?", "WoL coordination verified?", "Recovery tested against server downtime?"]
+  },
+  {
+    "id": "SR-DEBUGGING-002",
+    "category": "debugging",
+    "summary": "Allowlist Auth RESOLVED — GET endpoints public, POST/DELETE require staff JWT",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEBUGGING-003",
+    "category": "debugging",
+    "summary": "Process guard allowlist — fetch-at-boot + 5-min periodic re-fetch",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEBUGGING-004",
+    "category": "debugging",
+    "summary": "Shipped means works for the user — runtime verification, not just compilation",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["Binary running (not just compiled)?", "API endpoints return correct data?", "UI pages render and are interactive?", "Frontend verified from non-server browser?", "All NEXT_PUBLIC_ vars have values?"]
+  },
+  {
+    "id": "SR-DEBUGGING-005",
+    "category": "debugging",
+    "summary": "Long-lived tokio::spawn tasks must log lifecycle (start, first item, exit)",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-DEBUGGING-006",
+    "category": "debugging",
+    "summary": "Cause Elimination Before Fix — 5-step process, never jump symptom to fix",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-SECURITY-001",
+    "category": "security",
+    "summary": "Allowlist endpoints — GET public, POST/DELETE require staff auth",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-SECURITY-002",
+    "category": "security",
+    "summary": "Process guard safe mode — use allowlist override, never disable entirely",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-OTA-001",
+    "category": "ota-pipeline",
+    "summary": "Always preserve previous binary (*-prev.exe) before swap",
+    "type": "AUTO",
+    "check_command": "ls C:/RacingPoint/rc-agent-prev.exe 2>/dev/null || echo 'no prev binary'",
+    "checklist": null
+  },
+  {
+    "id": "SR-OTA-002",
+    "category": "ota-pipeline",
+    "summary": "Never deploy without a signed release manifest",
+    "type": "AUTO",
+    "check_command": "test -f deploy-staging/release-manifest.toml && node -e \"const t=require('fs').readFileSync('deploy-staging/release-manifest.toml','utf8'); if(!t.includes('rc_agent_sha256')) process.exit(1)\"",
+    "checklist": null
+  },
+  {
+    "id": "SR-OTA-003",
+    "category": "ota-pipeline",
+    "summary": "Billing sessions must drain before binary swap on any pod",
+    "type": "HUMAN-CONFIRM",
+    "check_command": null,
+    "checklist": ["All pods with active billing sessions drained or checkpointed?", "No customer session interrupted?"]
+  },
+  {
+    "id": "SR-OTA-004",
+    "category": "ota-pipeline",
+    "summary": "OTA sentinel file protocol — write OTA_DEPLOYING at start, clear on complete/rollback",
+    "type": "AUTO",
+    "check_command": "if [ -f C:/RacingPoint/OTA_DEPLOYING ]; then echo 'OTA in progress or stale sentinel'; exit 1; fi; exit 0",
+    "checklist": null
+  },
+  {
+    "id": "SR-OTA-005",
+    "category": "ota-pipeline",
+    "summary": "Config push NEVER through fleet exec endpoint — use ConfigPush WS channel",
+    "type": "AUTO",
+    "check_command": "grep -rn 'fleet.*exec.*config\\|exec.*config.*push' crates/ 2>/dev/null | grep -v test | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-OTA-006",
+    "category": "ota-pipeline",
+    "summary": "Rollback window — previous binary preserved for 72 hours minimum",
+    "type": "INFORMATIONAL",
+    "check_command": null,
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-019",
+    "category": "testing",
+    "summary": "No hardcoded IPs in new code (except network_map/config/README/CLAUDE)",
+    "type": "AUTO",
+    "check_command": "git diff HEAD~1 -- '*.rs' '*.ts' 2>/dev/null | grep -E '192\\.168\\.[0-9]+\\.[0-9]+' | grep -v 'network_map\\|config\\|README\\|CLAUDE\\|test' | wc -l | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-020",
+    "category": "testing",
+    "summary": "No force push to main branch",
+    "type": "AUTO",
+    "check_command": "git log --walk-reflogs --format='%gs' refs/heads/main 2>/dev/null | grep -c 'forced-update' | grep -q '^0$'",
+    "checklist": null
+  },
+  {
+    "id": "SR-TESTING-021",
+    "category": "testing",
+    "summary": "Git config correct (james@racingpoint.in)",
+    "type": "AUTO",
+    "check_command": "git config user.email | grep -q 'racingpoint.in'",
+    "checklist": null
+  },
+  {
+    "id": "SR-COMMS-005",
+    "category": "comms",
+    "summary": "Standing rules synced to Bono after CLAUDE.md modifications",
+    "type": "AUTO",
+    "check_command": "if git diff HEAD~1 --name-only 2>/dev/null | grep -q 'CLAUDE.md'; then grep -q \"$(date +%Y-%m-%d)\" C:/Users/bono/racingpoint/comms-link/INBOX.md 2>/dev/null || exit 1; fi; exit 0",
+    "checklist": null
+  }
+]
