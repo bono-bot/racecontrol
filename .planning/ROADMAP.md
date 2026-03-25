@@ -249,7 +249,7 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 - [x] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
  (completed 2026-03-21)
 - [x] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language (completed 2026-03-21)
-- [ ] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof
+- [x] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof (completed 2026-03-24)
 - [ ] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition
 - [ ] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition
 
@@ -1217,8 +1217,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 94-01-PLAN.md — Backend: pricing display + social proof endpoints, DB migration, commitment ladder logic
-- [ ] 94-02-PLAN.md — Frontend: kiosk PricingDisplay + ScarcityBanner, web /book page with social proof
+- [x] 94-01-PLAN.md — Backend: pricing display + social proof endpoints, DB migration, commitment ladder logic
+- [x] 94-02-PLAN.md — Frontend: kiosk PricingDisplay + ScarcityBanner, web /book page with social proof
 ### Phase 95: Staff Gamification
 **Goal**: Staff who opt in can see performance, earn badges, participate in team challenges, and give recognition
 **Depends on**: Phase 89
@@ -1358,7 +1358,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 91. Session Experience | 2/2 | Complete | 2026-03-21 |
 | 92. Retention Loops | 2/2 | Complete   | 2026-03-21 | - |
 | 93. Community & Tribal Identity | 2/2 | Complete   | 2026-03-21 | - |
-| 94. Pricing & Conversion | v14.0 | 0/? | Not started | - |
+| 94. Pricing & Conversion | v14.0 | 2/2 | Complete | 2026-03-24 |
 | 95. Staff Gamification | v14.0 | 0/? | Not started | - |
 | 96. HR & Hiring Psychology | v14.0 | 0/? | Not started | - |
 # Roadmap: v11.1 Pre-Flight Session Checks
