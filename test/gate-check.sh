@@ -1,0 +1,479 @@
+#!/usr/bin/env bash
+# gate-check.sh — Standing rules enforcement gate for OTA pipeline.
+# Extends comms-link run-all.sh as a superset. Reads standing-rules-registry.json.
+#
+# Modes:
+#   --pre-deploy    Full pre-deploy gate (before wave 1)
+#   --post-wave N   Post-wave verification (after wave N)
+#
+# Exit codes:
+#   0 — all gates passed
+#   1 — at least one gate failed (pipeline must rollback)
+#   2 — HUMAN-CONFIRM items pending (pipeline must pause)
+
+set -o pipefail
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+COMMS_ROOT="$(cd "$REPO_ROOT/../comms-link" 2>/dev/null && pwd 2>/dev/null || echo "")"
+REGISTRY="$REPO_ROOT/standing-rules-registry.json"
+
+# ---------------------------------------------------------------------------
+# Colour helpers (same pattern as comms-link run-all.sh)
+# ---------------------------------------------------------------------------
+GREEN=$(printf '\033[0;32m')
+RED=$(printf '\033[0;31m')
+YELLOW=$(printf '\033[1;33m')
+RESET=$(printf '\033[0m')
+
+pass_label="${GREEN}PASS${RESET}"
+fail_label="${RED}FAIL${RESET}"
+warn_label="${YELLOW}WARN${RESET}"
+pending_label="${YELLOW}PENDING${RESET}"
+
+# ---------------------------------------------------------------------------
+# Mode parsing
+# ---------------------------------------------------------------------------
+MODE="pre-deploy"
+WAVE_NUM=""
+
+if [ "$1" = "--post-wave" ]; then
+  MODE="post-wave"
+  WAVE_NUM="$2"
+  if [ -z "$WAVE_NUM" ]; then
+    echo "Error: --post-wave requires a wave number (e.g. --post-wave 1)"
+    exit 1
+  fi
+elif [ "$1" = "--pre-deploy" ] || [ -z "$1" ]; then
+  MODE="pre-deploy"
+else
+  echo "Usage: bash test/gate-check.sh [--pre-deploy | --post-wave N]"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Counters
+# ---------------------------------------------------------------------------
+SUITE_RESULTS=""
+OVERALL_FAIL=0
+HUMAN_CONFIRM_COUNT=0
+AUTO_PASS=0
+AUTO_FAIL=0
+AUTO_TOTAL=0
+FAILED_RULES=""
+
+# ---------------------------------------------------------------------------
+# Helper: record suite result
+# ---------------------------------------------------------------------------
+record_suite() {
+  local num="$1"
+  local name="$2"
+  local result="$3"
+  SUITE_RESULTS="${SUITE_RESULTS}Suite ${num} (${name}): ${result}\n"
+}
+
+# ===========================================================================
+# Suite 0: comms-link E2E framework
+# ===========================================================================
+echo ""
+echo "============================================================"
+printf "Suite 0: comms-link E2E framework...\n"
+echo "============================================================"
+
+if [ -n "$COMMS_ROOT" ] && [ -f "$COMMS_ROOT/test/run-all.sh" ]; then
+  (cd "$COMMS_ROOT" && bash test/run-all.sh)
+  COMMS_EXIT=$?
+  if [ $COMMS_EXIT -eq 0 ]; then
+    printf "Suite 0: comms-link E2E... %b\n" "$pass_label"
+    record_suite 0 "comms-link E2E" "PASS"
+  else
+    printf "Suite 0: comms-link E2E... %b  (exit %d)\n" "$fail_label" "$COMMS_EXIT"
+    record_suite 0 "comms-link E2E" "FAIL"
+    OVERALL_FAIL=1
+  fi
+else
+  printf "Suite 0: comms-link E2E... %b (run-all.sh not found at %s)\n" "$warn_label" "$COMMS_ROOT/test/run-all.sh"
+  record_suite 0 "comms-link E2E" "SKIPPED (not found)"
+fi
+
+# ===========================================================================
+# PRE-DEPLOY specific suites
+# ===========================================================================
+if [ "$MODE" = "pre-deploy" ]; then
+
+  # =========================================================================
+  # Suite 1: Cargo tests
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 1: Cargo tests...\n"
+  echo "============================================================"
+
+  (cd "$REPO_ROOT" && cargo test --workspace 2>&1)
+  CARGO_EXIT=$?
+  if [ $CARGO_EXIT -eq 0 ]; then
+    printf "Suite 1: Cargo tests... %b\n" "$pass_label"
+    record_suite 1 "cargo tests" "PASS"
+  else
+    printf "Suite 1: Cargo tests... %b  (exit %d)\n" "$fail_label" "$CARGO_EXIT"
+    record_suite 1 "cargo tests" "FAIL"
+    OVERALL_FAIL=1
+  fi
+
+  # =========================================================================
+  # Suite 2: Standing rules AUTO checks
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 2: Standing rules AUTO checks...\n"
+  echo "============================================================"
+
+  if [ ! -f "$REGISTRY" ]; then
+    printf "  %b standing-rules-registry.json not found\n" "$fail_label"
+    record_suite 2 "standing rules AUTO" "FAIL (registry missing)"
+    OVERALL_FAIL=1
+  else
+    # Parse AUTO rules with check_command from registry using node
+    AUTO_LINES=$(node -e "
+      var r = require('$REGISTRY'.replace(/\\\\/g,'/'));
+      r.filter(function(x){ return x.type==='AUTO' && x.check_command; })
+       .forEach(function(x){ console.log(x.id + '|||' + x.summary + '|||' + x.check_command); });
+    " 2>/dev/null)
+
+    if [ -z "$AUTO_LINES" ]; then
+      printf "  No AUTO rules with check_command found\n"
+      record_suite 2 "standing rules AUTO" "PASS (0 checks)"
+    else
+      while IFS= read -r line; do
+        RULE_ID=$(echo "$line" | cut -d'|' -f1-1)
+        # Handle the ||| separator properly
+        RULE_ID=$(echo "$line" | sed 's/|||.*//')
+        RULE_SUMMARY=$(echo "$line" | sed 's/^[^|]*|||//' | sed 's/|||.*//')
+        RULE_CMD=$(echo "$line" | sed 's/.*|||//')
+
+        AUTO_TOTAL=$((AUTO_TOTAL + 1))
+
+        # Run the check command from the repo root
+        (cd "$REPO_ROOT" && eval "$RULE_CMD" > /dev/null 2>&1)
+        CMD_EXIT=$?
+
+        if [ $CMD_EXIT -eq 0 ]; then
+          printf "  [%s] %s... %b\n" "$RULE_ID" "$RULE_SUMMARY" "$pass_label"
+          AUTO_PASS=$((AUTO_PASS + 1))
+        else
+          printf "  [%s] %s... %b\n" "$RULE_ID" "$RULE_SUMMARY" "$fail_label"
+          AUTO_FAIL=$((AUTO_FAIL + 1))
+          FAILED_RULES="${FAILED_RULES}  FAILED: ${RULE_ID} -- ${RULE_SUMMARY}\n"
+          OVERALL_FAIL=1
+        fi
+      done <<EOF
+$AUTO_LINES
+EOF
+
+      if [ $AUTO_FAIL -eq 0 ]; then
+        record_suite 2 "standing rules AUTO" "PASS (${AUTO_PASS}/${AUTO_TOTAL})"
+      else
+        record_suite 2 "standing rules AUTO" "FAIL (${AUTO_FAIL}/${AUTO_TOTAL} failed)"
+      fi
+    fi
+  fi
+
+  # =========================================================================
+  # Suite 3: Diff analysis (pre-deploy specific)
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 3: Diff analysis...\n"
+  echo "============================================================"
+
+  DIFF_FAIL=0
+
+  # Check for .unwrap() in changed Rust files
+  CHANGED_RS=$(cd "$REPO_ROOT" && git diff HEAD~1 --name-only -- '*.rs' 2>/dev/null)
+  if [ -n "$CHANGED_RS" ]; then
+    UNWRAP_HITS=$(cd "$REPO_ROOT" && echo "$CHANGED_RS" | xargs grep -n '\.unwrap()' 2>/dev/null | grep -v '#\[test\]' | grep -v '#\[cfg(test)\]' | grep -v '// test' || true)
+    if [ -n "$UNWRAP_HITS" ]; then
+      printf "  .unwrap() in changed .rs files... %b\n" "$fail_label"
+      echo "$UNWRAP_HITS" | head -5 | while IFS= read -r hit; do
+        echo "    $hit"
+      done
+      DIFF_FAIL=1
+    else
+      printf "  .unwrap() in changed .rs files... %b\n" "$pass_label"
+    fi
+  else
+    printf "  .unwrap() in changed .rs files... %b (no .rs changes)\n" "$pass_label"
+  fi
+
+  # Check for : any in changed TS files
+  CHANGED_TS=$(cd "$REPO_ROOT" && git diff HEAD~1 --name-only -- '*.ts' '*.tsx' 2>/dev/null)
+  if [ -n "$CHANGED_TS" ]; then
+    ANY_HITS=$(cd "$REPO_ROOT" && echo "$CHANGED_TS" | xargs grep -n ': any' 2>/dev/null | grep -v node_modules | grep -v '.d.ts' || true)
+    if [ -n "$ANY_HITS" ]; then
+      printf "  : any in changed .ts files... %b\n" "$fail_label"
+      echo "$ANY_HITS" | head -5 | while IFS= read -r hit; do
+        echo "    $hit"
+      done
+      DIFF_FAIL=1
+    else
+      printf "  : any in changed .ts files... %b\n" "$pass_label"
+    fi
+  else
+    printf "  : any in changed .ts files... %b (no .ts changes)\n" "$pass_label"
+  fi
+
+  # Check release-manifest.toml exists
+  if [ -f "$REPO_ROOT/deploy-staging/release-manifest.toml" ]; then
+    printf "  release-manifest.toml exists... %b\n" "$pass_label"
+  else
+    printf "  release-manifest.toml exists... %b\n" "$fail_label"
+    DIFF_FAIL=1
+  fi
+
+  if [ $DIFF_FAIL -eq 0 ]; then
+    record_suite 3 "diff analysis" "PASS"
+  else
+    record_suite 3 "diff analysis" "FAIL"
+    OVERALL_FAIL=1
+  fi
+
+  # =========================================================================
+  # Suite 4: HUMAN-CONFIRM checklist output
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 4: HUMAN-CONFIRM checklist...\n"
+  echo "============================================================"
+
+  if [ ! -f "$REGISTRY" ]; then
+    printf "  %b standing-rules-registry.json not found\n" "$warn_label"
+    record_suite 4 "HUMAN-CONFIRM" "SKIPPED (registry missing)"
+  else
+    # Check if display-affecting files changed (triggers visual verification rules)
+    DISPLAY_CHANGED=0
+    DIFF_FILES=$(cd "$REPO_ROOT" && git diff HEAD~1 --name-only 2>/dev/null || true)
+    if echo "$DIFF_FILES" | grep -qiE '(blank|lock|kiosk|overlay|browser|display|edge|screen)'; then
+      DISPLAY_CHANGED=1
+    fi
+
+    # Check if guard/filter/blocklist changed
+    GUARD_CHANGED=0
+    if echo "$DIFF_FILES" | grep -qiE '(guard|allowlist|whitelist|blocklist|filter)'; then
+      GUARD_CHANGED=1
+    fi
+
+    # Parse HUMAN-CONFIRM rules from registry
+    HC_OUTPUT=$(node -e "
+      var r = require('$REGISTRY'.replace(/\\\\/g,'/'));
+      var displayChanged = $DISPLAY_CHANGED;
+      var guardChanged = $GUARD_CHANGED;
+      var items = r.filter(function(x){ return x.type==='HUMAN-CONFIRM' && x.checklist; });
+      var triggered = [];
+
+      items.forEach(function(item) {
+        // Always include ultimate rule and deploy rules
+        var isUltimate = item.category === 'ultimate';
+        var isDisplay = item.summary.toLowerCase().indexOf('display') >= 0 ||
+                        item.summary.toLowerCase().indexOf('visual') >= 0 ||
+                        item.summary.toLowerCase().indexOf('screen') >= 0;
+        var isGuard = item.summary.toLowerCase().indexOf('guard') >= 0 ||
+                      item.summary.toLowerCase().indexOf('filter') >= 0 ||
+                      item.summary.toLowerCase().indexOf('blocklist') >= 0;
+        var isDeploy = item.category === 'deploy' || item.category === 'ota-pipeline';
+
+        if (isUltimate || isDeploy || (isDisplay && displayChanged) || (isGuard && guardChanged)) {
+          triggered.push(item);
+        }
+      });
+
+      if (triggered.length === 0) {
+        console.log('__NONE__');
+      } else {
+        console.log('__COUNT__' + triggered.length);
+        triggered.forEach(function(item) {
+          console.log('[' + item.id + '] ' + item.summary);
+          item.checklist.forEach(function(c) {
+            console.log('  [ ] ' + c);
+          });
+        });
+      }
+    " 2>/dev/null)
+
+    if echo "$HC_OUTPUT" | grep -q '__NONE__'; then
+      printf "  No HUMAN-CONFIRM rules triggered for this diff\n"
+      record_suite 4 "HUMAN-CONFIRM" "PASS (none triggered)"
+    else
+      HC_COUNT=$(echo "$HC_OUTPUT" | grep '__COUNT__' | sed 's/__COUNT__//')
+      echo ""
+      echo "=== HUMAN-CONFIRM: Operator Checklist ==="
+      echo "$HC_OUTPUT" | grep -v '__COUNT__'
+      echo ""
+      HUMAN_CONFIRM_COUNT=$HC_COUNT
+      record_suite 4 "HUMAN-CONFIRM" "${HC_COUNT} items pending"
+    fi
+  fi
+
+fi  # end pre-deploy
+
+# ===========================================================================
+# POST-WAVE specific suites
+# ===========================================================================
+if [ "$MODE" = "post-wave" ]; then
+
+  # =========================================================================
+  # Suite 1: Build ID verification
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 1: Build ID verification (wave %s)...\n" "$WAVE_NUM"
+  echo "============================================================"
+
+  EXPECTED=$(grep 'git_commit' "$REPO_ROOT/deploy-staging/release-manifest.toml" 2>/dev/null | cut -d'"' -f2)
+  if [ -n "$EXPECTED" ]; then
+    printf "  Expected build_id: %s... %b\n" "$EXPECTED" "$pass_label"
+    record_suite 1 "build ID verification" "PASS"
+  else
+    printf "  Expected build_id: (not found in manifest)... %b\n" "$fail_label"
+    record_suite 1 "build ID verification" "FAIL"
+    OVERALL_FAIL=1
+  fi
+
+  # =========================================================================
+  # Suite 2: Fleet health check
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 2: Fleet health check (wave %s)...\n" "$WAVE_NUM"
+  echo "============================================================"
+
+  HEALTH_JSON=$(curl -sf http://192.168.31.23:8080/api/v1/fleet/health 2>/dev/null || echo "")
+  if [ -z "$HEALTH_JSON" ]; then
+    printf "  Fleet health endpoint... %b (unreachable)\n" "$fail_label"
+    record_suite 2 "fleet health" "FAIL (unreachable)"
+    OVERALL_FAIL=1
+  else
+    # Check ws_connected status for pods using node
+    HEALTH_RESULT=$(node -e "
+      var h = $HEALTH_JSON;
+      var disconnected = [];
+      h.forEach(function(p) {
+        if (!p.ws_connected) {
+          disconnected.push('Pod ' + p.pod_number);
+        }
+      });
+      if (disconnected.length > 0) {
+        console.log('FAIL:' + disconnected.join(','));
+      } else {
+        console.log('PASS:' + h.length + ' pods connected');
+      }
+    " 2>/dev/null || echo "FAIL:parse error")
+
+    if echo "$HEALTH_RESULT" | grep -q '^PASS:'; then
+      HEALTH_MSG=$(echo "$HEALTH_RESULT" | sed 's/^PASS://')
+      printf "  Fleet health (%s)... %b\n" "$HEALTH_MSG" "$pass_label"
+      record_suite 2 "fleet health" "PASS"
+    else
+      HEALTH_MSG=$(echo "$HEALTH_RESULT" | sed 's/^FAIL://')
+      printf "  Fleet health (disconnected: %s)... %b\n" "$HEALTH_MSG" "$fail_label"
+      record_suite 2 "fleet health" "FAIL"
+      OVERALL_FAIL=1
+    fi
+  fi
+
+  # =========================================================================
+  # Suite 3: Standing rules AUTO checks (same as pre-deploy Suite 2)
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 3: Standing rules AUTO checks...\n"
+  echo "============================================================"
+
+  if [ ! -f "$REGISTRY" ]; then
+    printf "  %b standing-rules-registry.json not found\n" "$fail_label"
+    record_suite 3 "standing rules AUTO" "FAIL (registry missing)"
+    OVERALL_FAIL=1
+  else
+    AUTO_LINES=$(node -e "
+      var r = require('$REGISTRY'.replace(/\\\\/g,'/'));
+      r.filter(function(x){ return x.type==='AUTO' && x.check_command; })
+       .forEach(function(x){ console.log(x.id + '|||' + x.summary + '|||' + x.check_command); });
+    " 2>/dev/null)
+
+    if [ -z "$AUTO_LINES" ]; then
+      printf "  No AUTO rules with check_command found\n"
+      record_suite 3 "standing rules AUTO" "PASS (0 checks)"
+    else
+      while IFS= read -r line; do
+        RULE_ID=$(echo "$line" | sed 's/|||.*//')
+        RULE_SUMMARY=$(echo "$line" | sed 's/^[^|]*|||//' | sed 's/|||.*//')
+        RULE_CMD=$(echo "$line" | sed 's/.*|||//')
+
+        AUTO_TOTAL=$((AUTO_TOTAL + 1))
+
+        (cd "$REPO_ROOT" && eval "$RULE_CMD" > /dev/null 2>&1)
+        CMD_EXIT=$?
+
+        if [ $CMD_EXIT -eq 0 ]; then
+          printf "  [%s] %s... %b\n" "$RULE_ID" "$RULE_SUMMARY" "$pass_label"
+          AUTO_PASS=$((AUTO_PASS + 1))
+        else
+          printf "  [%s] %s... %b\n" "$RULE_ID" "$RULE_SUMMARY" "$fail_label"
+          AUTO_FAIL=$((AUTO_FAIL + 1))
+          FAILED_RULES="${FAILED_RULES}  FAILED: ${RULE_ID} -- ${RULE_SUMMARY}\n"
+          OVERALL_FAIL=1
+        fi
+      done <<EOF
+$AUTO_LINES
+EOF
+
+      if [ $AUTO_FAIL -eq 0 ]; then
+        record_suite 3 "standing rules AUTO" "PASS (${AUTO_PASS}/${AUTO_TOTAL})"
+      else
+        record_suite 3 "standing rules AUTO" "FAIL (${AUTO_FAIL}/${AUTO_TOTAL} failed)"
+      fi
+    fi
+  fi
+
+fi  # end post-wave
+
+# ===========================================================================
+# Final Summary
+# ===========================================================================
+echo ""
+echo "============================================================"
+echo "=== Gate Check Results (mode: $MODE) ==="
+echo "============================================================"
+
+printf "%b" "$SUITE_RESULTS"
+
+if [ -n "$FAILED_RULES" ]; then
+  echo ""
+  printf "%b" "$FAILED_RULES"
+fi
+
+echo "============================================================"
+
+# ---------------------------------------------------------------------------
+# Exit code logic:
+#   1 — any AUTO/cargo/suite failure (failures take priority over HUMAN-CONFIRM)
+#   2 — HUMAN-CONFIRM items pending (no failures)
+#   0 — all gates passed
+# ---------------------------------------------------------------------------
+if [ $OVERALL_FAIL -ne 0 ]; then
+  printf "Overall: %b (exit 1)\n" "$fail_label"
+  echo "============================================================"
+  echo ""
+  exit 1
+elif [ "$HUMAN_CONFIRM_COUNT" -gt 0 ] 2>/dev/null; then
+  printf "Overall: %b — %s HUMAN-CONFIRM items require operator confirmation (exit 2)\n" "$pending_label" "$HUMAN_CONFIRM_COUNT"
+  echo "============================================================"
+  echo ""
+  exit 2
+else
+  printf "Overall: %b (exit 0)\n" "$pass_label"
+  echo "============================================================"
+  echo ""
+  exit 0
+fi
