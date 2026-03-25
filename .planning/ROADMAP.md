@@ -3228,10 +3228,79 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 194. Pod ID Normalization | 1/1 | Complete    | 2026-03-25 |
-| 195. Metrics Foundation | 0/0 | Not started | - |
+| 195. Metrics Foundation | 1/3 | In Progress|  |
 | 196. Game Launcher Structural Rework | 0/0 | Not started | - |
 | 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
 | 198. On-Track Billing | 0/0 | Not started | - |
 | 199. Crash Recovery | 0/0 | Not started | - |
 | 200. Self-Improving Intelligence | 0/0 | Not started | - |
 | 201. Frontend Integration & Type Sync | 0/0 | Not started | - |
+
+---
+
+## v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
+
+**Milestone Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Every audit phase script that currently gives false PASSes gets fixed to verify the actual consuming service, not just infrastructure proxies.
+
+**Phases:** 202-204
+**Requirements:** 22 (WL-01..04, CH-01..04, CV-01..04, UI-01..03, XS-01..02, SF-01..03, OP-01)
+
+### Phases
+
+- [ ] **Phase 202: Config Validation & Structural Fixes** - Fix false PASSes from unchecked configs, hardcoded assumptions, and wrong severity levels
+- [ ] **Phase 203: Deep Service Verification** - Replace shallow liveness/count checks with real service health verification
+- [ ] **Phase 204: Cross-Service & UI End-to-End** - Verify dependency chains and user-facing pages render correctly
+
+### Phase Details
+
+### Phase 202: Config Validation & Structural Fixes
+**Goal**: Audit phase scripts that currently produce false PASSes due to unchecked config values, hardcoded assumptions, or wrong severity levels are fixed to detect real misconfigurations
+**Depends on**: Nothing (first phase — all edits are independent bash script fixes)
+**Requirements**: CV-01, CV-02, CV-03, CV-04, SF-01, SF-02, SF-03, OP-01
+**Success Criteria** (what must be TRUE):
+  1. Running audit Phase 02 with ws_connect_timeout=200ms in racecontrol.toml produces WARN (not PASS) — the check validates the value is >= 600ms
+  2. Running audit Phase 02 with incorrect app_health monitoring ports produces WARN — the check validates URLs contain correct ports (:3201 for admin, :3300 for kiosk)
+  3. Running audit Phase 30 WhatsApp check tests Evolution API connection state and returns FAIL when the API is unreachable (not just checking if the URL is configured)
+  4. Running audit Phase 31 email check reports WARN when OAuth token expires within 7 days
+  5. Running audit Phase 19 display resolution queries the actual resolution from the pod via rc-agent exec (not hardcoded 1920x1080)
+  6. Running audit Phase 21 billing endpoint check returns WARN (not PASS) when the endpoint is unreachable during venue hours
+  7. Running audit Phase 53 watchdog check returns WARN when ps_count=0 (watchdog dead) instead of silently passing
+  8. go2rtc warmup step exists in start-rcsentry-ai.bat and executes before rc-sentry-ai starts
+**Plans**: TBD
+
+### Phase 203: Deep Service Verification
+**Goal**: Audit phase scripts that currently check infrastructure proxies (process count, uptime, HTTP 200) are upgraded to verify the actual consuming service is functional
+**Depends on**: Phase 202 (config validation must be correct before service checks are meaningful)
+**Requirements**: WL-01, WL-02, WL-03, WL-04, CH-01, CH-02, CH-03, CH-04
+**Success Criteria** (what must be TRUE):
+  1. Audit Phase 09 self-monitor check verifies log recency (entries within last 5 minutes) or a dedicated health field — not just uptime seconds
+  2. Audit Phase 10 AI healer check sends a test query to Ollama qwen2.5:3b and verifies a parseable response (not just that /api/tags lists the model)
+  3. Audit Phase 15 preflight check queries rc-agent's preflight subsystem status endpoint — not just overall health=ok
+  4. Audit Phase 44 face detection check verifies face-audit.jsonl has entries within the last 10 minutes (not just that the file exists)
+  5. Audit Phase 07 allowlist check spot-verifies that svchost.exe is present in the allowlist (not just that count >= 100)
+  6. Audit Phase 25 menu check verifies at least one menu item has available=true (not just that items exist)
+  7. Audit Phase 39 feature flags check verifies at least one flag with enabled=true exists (not just that the flags endpoint returns 200)
+  8. Audit Phase 56 OpenAPI check spot-verifies 3-5 critical endpoint names (app-health, flags, guard/whitelist) are present in the spec
+**Plans**: TBD
+
+### Phase 204: Cross-Service & UI End-to-End
+**Goal**: Audit phase scripts verify end-to-end dependency chains and user-facing page rendering — the final layer that catches breakages invisible to individual service checks
+**Depends on**: Phase 203 (individual service checks must be correct before cross-service validation is meaningful)
+**Requirements**: XS-01, XS-02, UI-01, UI-02, UI-03
+**Success Criteria** (what must be TRUE):
+  1. Audit Phase 35+36 cloud sync check compares venue and cloud driver updated_at timestamps and flags WARN when delta exceeds 5 minutes
+  2. Audit Phase 07+09 cross-check verifies the allowlist background task ran recently when safe_mode is inactive — catches the "allowlist exists but never refreshed" gap
+  3. Audit Phase 20 kiosk check verifies _next/static/ returns HTTP 200 from the pod's perspective (not just that the kiosk process is running)
+  4. Audit Phase 26 game catalog check verifies the kiosk game selection page renders the expected game count (not just that the API returns games)
+  5. Audit Phase 44 cameras check verifies the Next.js cameras page at :3200/cameras loads successfully (not just that go2rtc is running)
+**Plans**: TBD
+
+## v23.1 Progress
+
+**Execution Order:** 202 -> 203 -> 204
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 202. Config Validation & Structural Fixes | 0/0 | Not started | - |
+| 203. Deep Service Verification | 0/0 | Not started | - |
+| 204. Cross-Service & UI End-to-End | 0/0 | Not started | - |
