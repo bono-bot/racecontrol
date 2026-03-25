@@ -63,13 +63,35 @@
 
 ## Traceability
 
-Updated during roadmap creation.
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CV-01 | Phase 202 | Pending |
+| CV-02 | Phase 202 | Pending |
+| CV-03 | Phase 202 | Pending |
+| CV-04 | Phase 202 | Pending |
+| SF-01 | Phase 202 | Pending |
+| SF-02 | Phase 202 | Pending |
+| SF-03 | Phase 202 | Pending |
+| OP-01 | Phase 202 | Pending |
+| WL-01 | Phase 203 | Pending |
+| WL-02 | Phase 203 | Pending |
+| WL-03 | Phase 203 | Pending |
+| WL-04 | Phase 203 | Pending |
+| CH-01 | Phase 203 | Pending |
+| CH-02 | Phase 203 | Pending |
+| CH-03 | Phase 203 | Pending |
+| CH-04 | Phase 203 | Pending |
+| XS-01 | Phase 204 | Pending |
+| XS-02 | Phase 204 | Pending |
+| UI-01 | Phase 204 | Pending |
+| UI-02 | Phase 204 | Pending |
+| UI-03 | Phase 204 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 22
+- Mapped to phases: 22/22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after 19-gap audit analysis*
+*Last updated: 2026-03-26 — traceability added after roadmap creation*
