@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: planning
-stopped_at: Completed 195-03-PLAN.md
-last_updated: "2026-03-25T23:23:24.730Z"
+stopped_at: Completed 202-01-PLAN.md
+last_updated: "2026-03-25T23:25:45.868Z"
 last_activity: 2026-03-26 — Roadmap created (6 phases, 26 requirements mapped)
 progress:
   total_phases: 165
   completed_phases: 124
   total_plans: 301
-  completed_plans: 295
+  completed_plans: 296
   percent: 0
 ---
 
@@ -50,6 +50,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
   - [Phase 195-02]: RecoveryOutcome::Success records action taken, not game success
 - [Phase 195-03]: Routes placed in public_routes() — consistent with fleet/health pattern, admin dashboard needs unauthenticated SSR access
 - [Phase 195-03]: P95 computed by sorted-fetch + index — SQLite lacks NTILE window function, approach works for expected event volumes
+- [Phase 202]: ws_connect_timeout threshold at 600ms, billing checks venue-state-aware, ps_count=0 is WARN (watchdog dead)
 
 ### Pending Todos
 
@@ -61,6 +62,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T23:23:24.717Z
-Stopped at: Completed 195-03-PLAN.md
+Last session: 2026-03-25T23:25:45.848Z
+Stopped at: Completed 202-01-PLAN.md
 Resume file: None
