@@ -25,7 +25,7 @@ pub struct AppHealthEntry {
 
 /// App targets to probe (name, health URL).
 const APP_TARGETS: &[(&str, &str)] = &[
-    ("admin", "http://192.168.31.23:3200/api/health"),
+    ("admin", "http://192.168.31.23:3201/api/health"),
     ("kiosk", "http://192.168.31.23:3300/api/health"),
     ("web", "http://192.168.31.23:3200/api/health"),
 ];

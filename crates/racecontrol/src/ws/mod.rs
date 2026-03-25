@@ -418,13 +418,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     let elapsed_ms = sent_at.elapsed().as_millis();
                                     let fallback_label = format!("conn_{}", conn_id);
                                     let label = registered_pod_id.as_deref().unwrap_or(&fallback_label);
-                                    if elapsed_ms > 200 {
+                                    if elapsed_ms > 600 {
                                         let agent_info = match agent_delay_us {
                                             Some(us) => format!(", agent_process={}us", us),
                                             None => String::new(),
                                         };
                                         tracing::warn!(
-                                            "WS round-trip slow: {} took {}ms (threshold 200ms{})",
+                                            "WS round-trip slow: {} took {}ms (threshold 600ms{})",
                                             label, elapsed_ms, agent_info
                                         );
                                     } else {
