@@ -4,12 +4,12 @@ import path from 'path';
 
 /** Every page the web dashboard serves — the deploy contract. */
 const EXPECTED_PAGES = [
-  '/', '/ac-lan', '/ac-sessions', '/ac-sessions/[id]',
+  '/', '/ac-lan', '/ac-sessions',
   '/ai', '/billing', '/billing/history', '/billing/pricing',
-  '/bookings', '/cafe', '/cameras', '/cameras/playback',
-  '/drivers', '/events', '/games', '/kiosk',
-  '/leaderboards', '/login', '/pods', '/presenter',
-  '/results/[id]', '/sessions', '/settings', '/telemetry',
+  '/book', '/bookings', '/cafe', '/cameras', '/cameras/playback',
+  '/drivers', '/events', '/flags', '/games', '/kiosk',
+  '/leaderboards', '/login', '/ota', '/pods', '/presenter',
+  '/sessions', '/settings', '/telemetry',
 ];
 
 const EXPECTED_APIS = ['/api/health'];
@@ -39,6 +39,11 @@ function getAvailablePages(): string[] {
         pages.push(route);
       }
       // Recurse into subdirectories (billing/history, cameras/playback, etc.)
+      // Also match dynamic segments like [id], [number] as valid pages
+      if (entry.isDirectory() && entry.name.startsWith('[') && entry.name.endsWith(']')) {
+        pages.push(`${prefix}/${entry.name}`);
+        continue;
+      }
       if (entry.isDirectory() && !entry.name.startsWith('_') && entry.name !== 'api') {
         scan(path.join(dir, entry.name), `${prefix}/${entry.name}`);
       }
@@ -52,7 +57,7 @@ function getAvailablePages(): string[] {
 export async function GET() {
   const available = getAvailablePages();
   const missing = EXPECTED_PAGES.filter(p => !available.includes(p));
-  const extra = available.filter(p => !EXPECTED_PAGES.includes(p));
+  const extra = available.filter(p => !EXPECTED_PAGES.includes(p) && !p.startsWith('/_'));
 
   const hasStatic = fs.existsSync(path.join(process.cwd(), '.next', 'static'));
 

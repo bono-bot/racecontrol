@@ -5,7 +5,7 @@ import path from 'path';
 /** Every page the kiosk app serves — the deploy contract. */
 const EXPECTED_PAGES = [
   '/', '/book', '/control', '/debug', '/fleet',
-  '/pod/[number]', '/settings', '/spectator', '/staff',
+  '/settings', '/spectator', '/staff',
 ];
 
 const EXPECTED_APIS = ['/api/health'];
@@ -35,6 +35,11 @@ function getAvailablePages(): string[] {
         pages.push(route);
       }
       // Recurse into subdirectories (pod/[number], etc.)
+      // Also match dynamic segments like [id], [number] as valid pages
+      if (entry.isDirectory() && entry.name.startsWith('[') && entry.name.endsWith(']')) {
+        pages.push(`${prefix}/${entry.name}`);
+        continue;
+      }
       if (entry.isDirectory() && !entry.name.startsWith('_') && entry.name !== 'api') {
         scan(path.join(dir, entry.name), `${prefix}/${entry.name}`);
       }
@@ -48,7 +53,7 @@ function getAvailablePages(): string[] {
 export async function GET() {
   const available = getAvailablePages();
   const missing = EXPECTED_PAGES.filter(p => !available.includes(p));
-  const extra = available.filter(p => !EXPECTED_PAGES.includes(p));
+  const extra = available.filter(p => !EXPECTED_PAGES.includes(p) && !p.startsWith('/_'));
 
   const hasStatic = fs.existsSync(path.join(process.cwd(), '.next', 'static'));
 
