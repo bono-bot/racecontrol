@@ -2960,12 +2960,12 @@ Plans:
   3. `audit/lib/core.sh` functions `emit_result`, `http_get`, `safe_remote_exec`, and `safe_ssh_capture` are callable from a test script and produce correctly structured JSON output
   4. When venue-closed state is detected (no active billing session + outside 09:00-22:00 IST fallback), a phase that checks pod display hardware emits `status: QUIET` instead of `status: FAIL` in its JSON result
   5. Every phase result JSON record contains `mode`, `venue_state`, `timestamp` (IST), `phase`, `tier`, `host`, `status`, and `message` fields — the schema required by delta tracking in Phase 192 is established from the first run
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 189-01-PLAN.md — audit.sh entry point: mode parsing, prerequisites check, auth token acquisition, output directory initialization, structured exit codes 0/1/2
-- [ ] 189-02-PLAN.md — lib/core.sh: emit_result, emit_fix, http_get (curl quote stripping), safe_remote_exec (bat-file wrapper), safe_ssh_capture (2>/dev/null + structure validation), get_session_token, is_suppressed, pod_loop stubs
-- [ ] 189-03-PLAN.md — JSON schema definition, venue-open/closed detection (fleet health API + time-of-day fallback), QUIET logic for closed-venue hardware tiers, UTC to IST timestamp conversion
+- [ ] 189-01-PLAN.md — audit.sh entry point + stub lib/core.sh: mode parsing, prereq checks (jq/curl/AUDIT_PIN), IST result dir init, auth acquisition, exit codes 0/1/2
+- [ ] 189-02-PLAN.md — lib/core.sh full implementation: emit_result (9-field JSON), http_get (quote strip), safe_remote_exec (temp file pattern), safe_ssh_capture (banner protection), get_session_token (AUDIT_PIN from env), venue_state_detect, ist_now
+- [ ] 189-03-PLAN.md — Phase 01 Fleet Inventory proof-of-concept: phase01.sh (server+pods health), QUIET logic for closed venue, audit.sh phase runner wiring, end-to-end validation
 
 ### Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)
 **Goal**: All v3.0 phases 1-34 (tiers 1-9) run non-interactively in sequential mode and produce correct PASS/WARN/FAIL/QUIET results — verified against the live fleet before parallelism is introduced
