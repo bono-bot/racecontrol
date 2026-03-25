@@ -786,3 +786,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 13:52 IST | James | 8f5ffc4b | fix: rc-sentry intermittent empty replies — Windows accept() inherits non-blocking flag. 40% failure→0/160. Deployed fleet-wide. |
 | 2026-03-25 14:05 IST | James | fbd04458 | feat: OTP resilience — delivery status, resend endpoint, Evolution health probe, PWA resend button. Deployed server + cloud PWA. |
 | 2026-03-25 18:20 IST | James | 50c88fd5 | fix: POS-01 lock screen browser gate — POS was showing blanking screen instead of billing UI. Added LockScreenConfig.enabled (default true), gated launch_browser() choke point. Deployed to POS, verified health d6f813c3. |
+| 2026-03-25 19:46 IST | James | ba0b919c | feat(190-02): Tier 4 billing phase scripts 21-25 — pricing, wallet, reservations, accounting, cafe menu all with SESSION_TOKEN auth |
+| 2026-03-25 19:47 IST | James | 5f44663f | feat(190-02): Tier 5 games/hardware phase scripts 26-29 — game catalog, AC server+telemetry, FFB wheelbase detection (QUIET when closed), multiplayer |
+| 2026-03-25 19:47 IST | James | 5f44663f | feat(190-02): Tier 6 notifications phase scripts 30-34 — WhatsApp, email, Discord, cafe marketing, psychology/gamification |
+| 2026-03-25 19:48 IST | James | f0566583 | docs(190-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated, RUN-04 complete |
