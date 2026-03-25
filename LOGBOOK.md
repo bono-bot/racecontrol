@@ -13,6 +13,10 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 25 03:48 IST | James | `6f57e3cf` | docs(187-01): SUMMARY + STATE + ROADMAP updated (phase 187 Complete) |
 | Mar 25 IST | James | `1962154d` | feat(188-01): move ollama.rs to rc-common, wire rc-sentry and james_monitor to shared module, add spawn verification |
 | Mar 25 IST | James | `7c06a364` | feat(188-01): sentry breadcrumb grace window (30s) + spawn verification (500ms/10s) in rc-watchdog service |
+| Mar 25 13:29 IST | James | `cc35a48c` | chore(189-01): audit/ directory skeleton with .gitkeep sentinels |
+| Mar 25 13:29 IST | James | `a94cb94b` | test(189-01): TDD RED — 14 behavioral tests for audit/audit.sh |
+| Mar 25 13:33 IST | James | `6ab2b96d` | feat(189-01): audit/audit.sh entry point — arg parsing, prereqs, IST result dir, auth, exit codes |
+| Mar 25 13:34 IST | James | `e1eca5ca` | docs(189-01): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated — RUN-01/03/08 complete |
 
 ## 2026-03-23
 
