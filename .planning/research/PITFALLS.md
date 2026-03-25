@@ -1,319 +1,296 @@
 # Pitfalls Research
 
-**Domain:** OTA update pipeline, feature flag registry, and config push for Windows sim racing fleet — v22.0 Feature Management & OTA Pipeline
-**Researched:** 2026-03-23
-**Confidence:** HIGH — pitfalls derived directly from live incidents documented in CLAUDE.md and PROJECT.md for this codebase, supplemented by OTA fleet management literature (MEDIUM confidence for general patterns)
+**Domain:** Automated fleet audit system — bash-based, Windows Git Bash origin, targeting Windows servers/pods via HTTP exec endpoints, with parallel execution, JSON output, delta tracking, auto-remediation, and known-issue suppression (v23.0 Audit Protocol v4.0)
+**Researched:** 2026-03-25
+**Confidence:** HIGH — all critical pitfalls sourced from actual incidents documented in CLAUDE.md standing rules, LOGBOOK.md, PROJECT.md, and the v3.0 AUDIT-PROTOCOL.md for this exact codebase. No hypothetical pitfalls.
 
 ---
 
-## Context: What Makes This System Uniquely Dangerous to Update
+## Context: Why This Audit System Is Especially Hazardous to Build
 
-Before cataloguing pitfalls, understand the properties of this environment that make standard OTA/feature-flag playbooks fail:
+Before cataloguing pitfalls, understand the properties of this environment that make generic bash audit tooling fail in novel ways:
 
-1. **Pods can go offline at any time.** Power loss, network drop, Windows Update reboot — any pod can vanish mid-deploy. The system must handle partial fleet state without human intervention.
-2. **Active billing sessions must never be interrupted.** A restart that kills a billing session is a financial loss and a customer experience failure. No OTA action is worth interrupting a paying customer.
-3. **Four independent recovery systems exist.** self_monitor, rc-sentry, pod_monitor, and WoL all respond to "pod offline" independently. A deploy that makes a pod appear offline for 15 seconds will trigger all four simultaneously, potentially fighting the deploy.
-4. **cmd.exe is hostile to quoting.** Every remote command goes through `cmd /C`. JSON payloads, file paths with spaces, environment variables — all get mangled. This has caused four separate production incidents already.
-5. **Static CRT.** Binaries are self-contained. The update system cannot assume shared runtime libraries. Every build must be validated for static linkage before deploy.
-6. **Manual TOML files are the current source of truth.** Staff has edited these during incidents. Any config push system that silently overwrites a manual emergency fix creates a secondary incident.
-
-Every pitfall below exploits one or more of these properties.
+1. **Git Bash on Windows is not bash on Linux.** Path separators, line endings, process substitution, background job signals, and `wait` semantics all behave differently. Scripts that work perfectly in WSL or Linux CI silently produce wrong results on Git Bash.
+2. **Every remote command passes through cmd.exe.** The rc-agent `/exec` endpoint wraps commands with `cmd /C`. This is the single most dangerous property of this system. Quoting, variables, backslashes — all get mangled before the command runs.
+3. **curl output on Windows includes quoted strings.** `curl.exe` response bodies sometimes include surrounding quotes in certain Git Bash contexts. A JSON field parsed as `"200"` (with quotes) breaks `u32::parse()` silently — this exact bug caused 2 deploy cycles of pod healer flicker.
+4. **SSH banners corrupt piped output.** The post-quantum SSH warning and MOTD go to stderr, but some wrappers merge streams. A config file written via `ssh ... "cat file" > local` has been silently prepended with banner garbage in production.
+5. **Eight pods in parallel saturate the network.** The venue LAN is consumer-grade. Firing 8 simultaneous curl probes overwhelms the NVR/switch and produces false FAIL results that look like real failures.
+6. **Auto-fix operates on production infrastructure.** There are no test pods. An auto-fix that kills the wrong process takes down a paying customer's session. The cost of a false-positive fix is higher than a false-negative miss.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Update Interrupts Active Billing Session
+### Pitfall 1: cmd.exe Quoting Destroys Remote Commands
 
 **What goes wrong:**
-OTA pipeline triggers a binary swap or rc-agent restart on a pod mid-session. The billing timer keeps running on the server but rc-agent restarts, losing in-memory session state. Session end never fires cleanly. Customer is charged for dead time, or the session remains "active" in the DB permanently. In the worst case, the pod reboots during a game save.
+The audit script builds a command string in bash and sends it to rc-agent's `/exec` endpoint. rc-agent wraps it with `cmd /C "<your command>"`. Any `"` in the original command becomes a nested quote inside the outer `cmd /C "..."` wrapper — cmd.exe terminates the string at the first unescaped inner quote. The command is truncated silently.
 
-The pipeline checks `pod.ws_connected == true` and assumes the pod is idle. Connected does not mean idle. A pod running a 45-minute session is fully connected and fully billing.
+Examples that fail:
+- `taskkill /F /IM "GoPro Webcam.exe"` — the `"` around the image name breaks the outer wrapper
+- `powershell -Command "$result = ..."` — the `$` is interpreted by bash before transmission, arrives as empty string
+- `findstr /C:"enabled" file.toml` — nested quote in `/C:` arg breaks parsing
+- Any Windows path with spaces: `C:\Program Files\...` — space inside cmd.exe string terminates early
 
 **Why it happens:**
-OTA logic is designed to find "available" pods. The natural availability proxy is connectivity. Developers add the billing session check as a post-launch hardening item — and it never gets added. The billing state lives in rc-agent's memory, not in a field that fleet health polls return by default.
+Developers test commands locally in cmd.exe where they work correctly. When the same command goes through the exec endpoint, an outer `cmd /C "..."` wrapper is added. The command was never designed to nest inside another cmd invocation.
 
 **How to avoid:**
-- Add `session_state: Idle | Active | Ending` to the `PodFleetStatus` struct (returned by `/api/v1/fleet/health`). The OTA coordinator must read this field before queuing a pod for any destructive step.
-- Gate all destructive OTA actions (binary swap, service restart, pod reboot) on `session_state == Idle`. If a session starts mid-rollout on a pod already in the queue, remove that pod from the current wave immediately.
-- Hot-reload config changes and feature flag updates over the existing WebSocket without restarting rc-agent. Binary restarts are only needed for binary-only changes. Treat them as the heavyweight option of last resort.
-- Do not re-queue a pod after its session ends during a deploy wave. Re-queue it for the next scheduled deployment window. A deploy that started while a session was active is a signal to try again later, not to pounce the moment the session ends.
+- Write complex commands as `.bat` files on the pod (`echo @echo off > C:\RacingPoint\audit-check.bat`), then execute the bat file by path. Bat files do not get wrapped in outer cmd quoting.
+- Use PID-based targeting for process operations: `tasklist /FI "IMAGENAME eq rc-agent.exe" /FO CSV /NH` then parse PIDs from response, then `taskkill /F /PID <pid>`.
+- Never embed `"` in remote commands. Use `%COMSPEC%`, `findstr /C:key file` (no quotes), or write the arg to a file first.
+- For PowerShell: escape `$` as `^$` or use `-EncodedCommand` with base64.
+- Write remote commands to a temp `.bat` file, execute the bat, then clean up.
 
 **Warning signs:**
-- OTA system logs "deploy started" and "deploy complete" without querying `billing_state`
-- Pipeline only checks `ws_connected`, not `session_active`
-- `PodFleetStatus` struct has no `session_state` field
+- Remote command returns exit code 0 but produces no output
+- Output is truncated mid-string
+- `tasklist` output shows process still running after kill command "succeeded"
+- JSON payload to `/exec` contains backslashes that arrive as single-backslash on the receiving end
 
-**Phase to address:** OTA pipeline — session gate must be the first gate, enforced before canary selection, not added later as a safety net
+**Phase to address:** Phase 1 (audit runner core) — establish a safe remote execution wrapper function that escapes or avoids cmd.exe quoting before building any audit check on top of it.
 
 ---
 
-### Pitfall 2: Recovery Systems Fight the OTA Restarter
+### Pitfall 2: SSH Banner Output Corrupts Captured Results
 
 **What goes wrong:**
-The OTA pipeline sends `RCAGENT_SELF_RESTART` to begin a binary swap. The swap takes 8–15 seconds. rc-sentry's health poller (polling `localhost:8090/health` every 5s) sees rc-agent go offline during the swap window and restarts rc-agent using the OLD binary. The pod is now running the old binary. The OTA system gets a successful ack from the restart command and thinks deploy succeeded. `build_id` on `/health` is wrong. The deploy is silently rolled back by the watchdog.
+The audit script runs `ssh root@<host> "command" > result.txt` to capture remote output. The SSH connection prints a post-quantum upgrade warning and MOTD to stderr. In some terminal configurations and CI runners, stderr and stdout are merged by the shell redirect. `result.txt` starts with 2–3 lines of SSH banner text, then the actual command output. Any downstream parser expecting JSON or a specific format fails silently by reading the first line.
 
-Variant 2: The server-side `pod_monitor` triggers a WoL packet because the pod appeared offline during the swap. WoL wakes a pod that was deliberately taken offline for pre-deploy maintenance, creating an offline-restart-offline loop.
-
-Variant 3: All four recovery systems (self_monitor, rc-sentry, pod_monitor, WoL) simultaneously try to recover the same pod during a 30-second binary swap. The pod restarts 3 times in 30 seconds. rc-agent comes back on an inconsistent state.
+Confirmed production incident (2026-03-24): `racecontrol.toml` had 3 SSH banner lines prepended. TOML parser rejected from line 1. `load_or_default()` fell back to empty defaults. Process guard ran with 0 allowed entries for 2+ hours. No operator noticed.
 
 **Why it happens:**
-rc-sentry, pod_monitor, and the OTA pipeline are independent systems with no shared state. Each acts on "pod offline" without knowing why the pod is offline. This is the exact failure mode documented in CLAUDE.md standing rule "Cross-Process Recovery Awareness" — but that rule was written for crash recovery, not OTA.
+`ssh` sends banner content to stderr. The bash redirect `>` captures stdout only — BUT when the ssh client is invoked interactively or via certain Git Bash versions, stderr and stdout are merged. The audit developer tests in an environment where banners are absent (LAN, no MOTD) and the bug only appears on the remote Bono VPS or when the SSH client version changes.
 
 **How to avoid:**
-- Before any OTA deploy step, write a sentinel file to the pod at a known path: `C:\RacingPoint\ota-in-progress.flag` with content `{ "started_at": "<timestamp>", "expected_offline_seconds": 30 }`. rc-sentry must check for this file before triggering a restart — if the flag exists and is fresh (< 60s old), rc-sentry backs off.
-- The OTA coordinator must push a `DeployInProgress { pod_id, expected_duration_secs }` message to the server's `AppState` before beginning each pod's deploy. `pod_monitor` must check this state before sending WoL.
-- After deploy completes, delete the sentinel file AND verify `build_id` matches the manifest. If they disagree, the old binary is running (the watchdog won). Alert and retry.
-- The sentinel file approach is the minimum viable coordination. It requires only that rc-sentry reads a local file before restarting — this is already within rc-sentry's capability.
+- Always add `2>/dev/null` to SSH command captures: `ssh host "command" 2>/dev/null > result.txt`
+- After every SSH capture, validate the first line: `head -1 result.txt | grep -q '^\{' || echo "CORRUPTED: $host"`. JSON must start with `{`. TOML sections start with `[`. Validate before parsing.
+- For the audit system: never parse SSH output directly. Always validate structure first.
+- Prefer HTTP health endpoints over SSH wherever available — they do not have banner contamination.
 
 **Warning signs:**
-- rc-sentry has no concept of "expected restart" vs "crash restart"
-- `pod_monitor` has no suppression input from the OTA coordinator
-- Deploy logs show `build_id` correct but rc-sentry logs show an additional restart within the same deploy window
-- WoL triggers fire during a deploy wave
+- `jq` returns `parse error` on SSH-captured output
+- First line of captured output contains "Warning:", "Notice:", or "MOTD:"
+- Audit reports a FAIL for a service that is actually healthy (validator rejected due to banner)
 
-**Past incident (direct precedent):** Pod 5 was offline 2+ minutes during v17.0 deploy because taskkill killed rc-agent before the restart command ran. rc-sentry eventually recovered it — but rc-sentry recovering with the OLD binary is the silent failure mode of this pitfall.
-
-**Phase to address:** OTA coordination phase — must be built before canary rollout phase, not after
+**Phase to address:** Phase 1 (audit runner core) — wrap all SSH capture calls in a `safe_ssh_capture()` function that adds `2>/dev/null` and validates output structure. Apply universally before any phase-specific checks are written.
 
 ---
 
-### Pitfall 3: Build ID Mismatch Triggers False Fleet-Wide Redeploy
+### Pitfall 3: curl Output Includes Surrounding Quotes in Git Bash
 
 **What goes wrong:**
-The OTA system compares `fleet_health.build_id` against the manifest's expected build ID. A docs-only commit — LOGBOOK.md, CLAUDE.md, a comment fix — changes the git hash. The OTA system builds a new binary, sees all 8 pods on the old hash, and redeploys the entire fleet. The new binary is byte-for-byte identical to the old one. 8 pods restart unnecessarily, including those with active sessions.
+In certain Git Bash contexts, `curl.exe` (Windows native) vs `curl` (Git Bash cygwin version) behave differently with response bodies. The Windows `curl.exe` binary sometimes wraps string values in quotes when its output is captured via bash command substitution: `STATUS=$(curl.exe -s http://host/health | jq -r '.status')` returns `"ok"` (with quotes) instead of `ok`. When the audit script compares `[ "$STATUS" = "ok" ]`, it fails. The pod appears DOWN when it is healthy.
 
-Variant: The reverse. A real bugfix commit ships a new binary. The git hash advances. But the binary was already manually deployed to all pods via `scp` before the OTA system ran. The OTA system sees "old hash" and tries to redeploy an already-correct fleet.
+Confirmed production incident: Pod healer curl fix deployed twice — both times declared "fixed" based on health endpoint. The actual stdout was `"200"` (with quotes), which failed `u32::parse()`. Healer still thought lock screen was down. `ForceRelaunchBrowser` spam continued through two deploy cycles.
 
 **Why it happens:**
-`build_id = git rev-parse --short HEAD`. Any commit advances the hash. The OTA system uses hash equality as a proxy for binary identity. CLAUDE.md explicitly flags this: "git log before calling builds 'old'" — but this standing rule is for human debugging, not automated pipeline design.
+Git Bash uses its own `curl` (linked against cygwin) for `curl` but `curl.exe` invokes the Windows binary. The PATH order determines which binary runs. Scripts written assuming one behave incorrectly with the other. The Windows binary is used in rc-agent's exec endpoint; the cygwin binary runs in the audit script's local shell. Comparisons between local processing and remote output can be checking different things.
 
 **How to avoid:**
-- Use a content-addressed binary identity: `sha256sum rc-agent.exe | cut -c1-16`. This only changes when the binary actually changes. A docs commit produces the same binary and the same SHA256.
-- Store both in the manifest: `{ "git_hash": "abc123", "binary_sha256": "d4e5f6..." }`. Deploy gates use `binary_sha256` for equality. `git_hash` is for auditability and rollback navigation only.
-- Gate CI build triggers on path-filtered changes: only rebuild when files under `crates/rc-agent/` or `crates/rc-common/` changed. Commits that only touch `docs/`, `LOGBOOK.md`, `CLAUDE.md`, or `.planning/` never trigger a binary build or deploy.
+- In audit bash scripts, always specify `curl.exe` explicitly when calling Windows hosts — or `curl` explicitly when processing locally — to lock binary selection.
+- Strip surrounding quotes from all captured values: `STATUS=$(echo "$RAW" | tr -d '"')` before comparison.
+- Use `jq -r` (raw output) for all JSON field extraction. `-r` removes surrounding quotes from string values.
+- When comparing HTTP status codes, strip whitespace AND quotes: `CODE=$(echo "$CODE" | tr -d '" ')`.
 
 **Warning signs:**
-- CI builds a new binary on every push regardless of changed paths
-- OTA manifest uses only `git_hash` for version identity
-- Fleet redeploy runs after a LOGBOOK.md commit
-- OTA system logs "all pods outdated" after a docs-only commit
+- `[ "$STATUS" = "ok" ]` fails but `echo "$STATUS"` shows `"ok"` (with visible quotes in terminal)
+- Audit marks healthy pods as FAIL with no error details
+- jq successfully parses a field but string comparison fails on the extracted value
 
-**Past incident (direct precedent):** All 8 pods on `82bea1eb` were called "old build" — git log showed zero functional rc-agent code changes since that commit. Pods were on the correct build. (Documented in CLAUDE.md standing rules.)
-
-**Phase to address:** CI build triggers and binary identity — must be established before any canary or staged rollout is built on top of it
+**Phase to address:** Phase 1 (audit runner core) — establish a `http_get()` helper function that always uses `jq -r` and strips quotes from extracted values. Every audit check must go through this helper.
 
 ---
 
-### Pitfall 4: Config Push Overwrites Manual TOML During Outage Recovery
+### Pitfall 4: Parallel Background Jobs Produce Interleaved Output
 
 **What goes wrong:**
-Staff manually edits `C:\RacingPoint\rc-agent.toml` on a pod to work around an incident while the server is offline. Server comes back online. The config push system sees the pod's config hash differs from the canonical server-side config and pushes the server version — silently overwriting the manual emergency fix. The incident recurs. The manual fix is gone with no log entry.
+The audit script fires pod checks in parallel using `&` background jobs: `check_pod $IP & `. Each background job writes directly to stdout. With 8 pods running concurrently, their output interleaves — partial lines from one pod appear in the middle of another pod's output block. The result log has garbled content that no parser can interpret. Worse, `wait` collects all exit codes but provides no mapping between job PID and which pod it checked, making failure attribution impossible.
 
-Variant: The server's stored config is itself broken (the incident was caused by a bad server-side config change). Staff fixed the pod manually. Config push reapplies the broken server config.
+Secondary failure: bash `wait` with exit code capture only works correctly in bash 4.3+ (`wait -n` for the first-to-finish, `wait $pid` for specific jobs). Git Bash on Windows ships an older bash version where `wait` behavior differs. `$!` captures only the last background process PID, losing earlier jobs.
 
 **Why it happens:**
-Config push systems treat the server as the single source of truth. Manual edits are "drift" to be corrected. This is correct in steady state but wrong during recovery — the manual edit IS the correct state and the server config is the broken one.
+Developers write parallel loops thinking stdout buffering will keep lines atomic. Shell stdout is line-buffered in interactive mode but fully buffered when redirected. Even line buffering doesn't prevent interleaved multi-line blocks. There is no locking primitive for shell stdout.
 
 **How to avoid:**
-- Track config version with a monotonic integer counter, not just a hash. Any write to `rc-agent.toml` — whether from config push or manual edit — must increment the counter. If a pod's counter is greater than the server's stored version for that pod, config push must NOT overwrite. It must alert: "Pod 3 config is newer than server config — manual edit detected, review before pushing."
-- Config push must log at WARN level whenever it overwrites an on-pod config, including the old hash and new hash. Silently overwriting is not acceptable.
-- On reconnect, the push system compares the pod's current config hash against the last-pushed hash stored server-side. If they differ and the server config hasn't changed since last push, the difference is a manual edit. This triggers a review prompt, not an automatic push.
-- The standing rule "smallest reversible fix first" applies here: the config push system should default to read-only (report drift) during the first week of operation, then enable write mode only after the version tracking is validated.
+- Write each pod's result to a dedicated temp file: `check_pod $IP > /tmp/audit-pod-$IP.json 2>&1 &`. Collect PIDs. Use `wait` to drain. Then read and merge the per-pod files.
+- Use a result directory: `RESULT_DIR=$(mktemp -d)`. Each pod writes to `$RESULT_DIR/pod-$IP.json`. After all `wait`, merge with `jq -s '.'`.
+- Enforce concurrency limit: maximum 4 pods at once (per PROJECT.md constraint). Use a semaphore pattern: track active PID count, wait for one to finish before launching the next when at the limit.
+- Never write to shared stdout from background jobs. All per-pod output goes to files.
 
 **Warning signs:**
-- Config push system has no concept of "who made the last change" or config version counter
-- Server outage + manual pod edit + server recovery produces no alert
-- Config push completion is logged as success without noting what was overwritten
+- Audit log contains lines like `=== 192.168.31.89 === PASS=== 192.168.31.33 ===` (interleaved)
+- jq fails to parse the result log with "unexpected character" errors
+- Some pods always show correct results while others show garbage (timing-dependent)
+- The same run produces different results on consecutive executions
 
-**Phase to address:** Config push protocol design — the version tracking model must be specified before implementation
+**Phase to address:** Phase 2 (parallel execution engine) — the temp-file-per-target pattern must be established before any parallel check is added. Retrofitting after 60 checks are written is prohibitively difficult.
 
 ---
 
-### Pitfall 5: Partial Rollout Leaves Fleet in Permanent Mixed Feature State
+### Pitfall 5: Auto-Remediation Kills Active Billing Sessions
 
 **What goes wrong:**
-Canary rollout deploys feature flag `telemetry_v2_format = true` to Pod 8. Pod 8 sends a new telemetry wire format. The server handles both formats. Pods 1–7 send the old format. Three weeks later, "canary succeeded, rollout is done" is the assumed state. A new phase removes the old format handler from the server because "we're on telemetry_v2 now." Pods 1–7 silently drop all telemetry.
+The audit script detects "orphan PowerShell processes" (one of the v3.0 audit checks) and auto-fixes by running `taskkill /F /IM powershell.exe` on the pod. There are currently 15 legitimate PowerShell processes on each pod — including the rc-agent relaunch chain and the pod's billing session WebSocket handler. `taskkill /IM` kills ALL matching processes. The billing session terminates mid-race. The customer's time is lost. Manual reconciliation is required.
 
-The trap: canary succeeded, rollout paused because pods were busy, nobody completed it, the mixed state became the de facto baseline, and code evolved on top of the false assumption.
+Variant: Auto-fix detects "rc-agent running outside RacingPoint directory" (stale PID check) and kills it. But the pod has an active session. Session end never fires.
 
 **Why it happens:**
-Staged rollouts have clear start gates but no completion obligation. The canary pod is the exciting milestone. The remaining 7 pods are "just a rollout, we'll do it when convenient." Under any time pressure, "when convenient" becomes never.
+Auto-fix logic is written when the venue is closed and pods are empty. The fix is validated on idle pods. It ships. The first time it runs during business hours, the "safe" assumption (idle pods) is wrong.
 
 **How to avoid:**
-- Every staged rollout manifest must include a `complete_by: <timestamp>` field. After that timestamp, the pipeline either: (a) auto-completes the rollout to remaining idle pods (if health metrics are green), or (b) fires an alert requiring an explicit operator decision: "complete rollout" or "roll back." No action is not an option.
-- Server-side dual-path handlers (old format + new format) must be coupled to the rollout completion state. The old handler can only be removed in a subsequent release where the manifest marks `rollout_complete: true`.
-- Feature flags that affect wire protocol or data format are a different class than UI toggles. They must be explicitly tagged as `breaking_protocol_change: true` in the manifest. These flags require all pods to converge before any old code path can be removed.
+- Every auto-fix action must check `has_active_session` before executing. Query `GET /api/v1/fleet/health` → check `session_state` field for the target pod. If not `Idle`, skip the fix and emit `SKIP_ACTIVE_SESSION`.
+- Maintain an explicit whitelist of auto-fix-safe actions in a config file (`audit-safe-fixes.json`). Any action not on the whitelist requires human approval — the audit script only flags it.
+- Safe-fix whitelist for v23.0: clear sentinel files, kill known orphan images that are NOT powershell/rc-agent/racecontrol, restart services that have been `DOWN` for > 5 minutes with no session. Nothing else is auto-fix-safe.
+- Log every auto-fix attempt with: timestamp, pod IP, action, session state at time of fix, result. Write to `audit-autofix.log` separate from the main audit results.
 
 **Warning signs:**
-- A canary pod has been on a different feature flag value than the rest of the fleet for more than 7 days
-- Server has dual-path handlers for the same data format with no scheduled removal date
-- Rollout percentage is stuck at 12.5% (1/8 pods) with no pipeline progress and no alert
+- Auto-fix list includes `taskkill /IM powershell.exe` — this is never safe
+- Auto-fix list includes any kill command targeting rc-agent or racecontrol
+- No `has_active_session` check before any auto-fix action
+- Auto-fix is tested only on idle pods
 
-**Phase to address:** Staged rollout design — completion policy must be designed alongside the rollout mechanism, not left implicit
+**Phase to address:** Phase 3 (auto-remediation) — session gate must be the first line of every fix function. Establish `is_pod_idle()` as a required prerequisite before any fix action is created.
 
 ---
 
-### Pitfall 6: Rollback Loses Active Billing Session State
+### Pitfall 6: Delta Tracking Produces False Regressions on Venue-Closed Checks
 
 **What goes wrong:**
-A one-command fleet rollback reverts all 8 pods to the previous binary. Three pods have active sessions. rc-agent restarts with the old binary. Billing guard's in-memory session state is gone. The server's `BillingManager` still has the sessions as active. When rc-agent reconnects, the server sends a `SessionSync` message. The old binary's `SessionSync` handler was written before the new session struct was added. It drops unknown fields. Session end never fires cleanly. Billing is unsound.
+The delta tracker compares current audit results against the previous run. The previous run was executed while the venue was open — so Phase 45 (kiosk browser check) returned `PASS`. The current run is executed at 02:00 when the venue is closed — Phase 45 returns `QUIET` (venue closed, hardware check skipped). The delta tracker sees `PASS → QUIET` and flags a regression. Uday gets a WhatsApp alert at 02:00 about a regression that does not exist.
+
+Variant: Previous run was a `--mode full` run. Current run is `--mode quick`. Quick mode skips phases that full mode runs. Delta comparison shows dozens of "regressions" because checks are missing from the current run, not because anything broke.
 
 **Why it happens:**
-Rollback is designed for speed under pressure: "get to known-good NOW." Session state preservation feels like an edge case. It only matters when pods are actively billing during a rollback — exactly the scenario where you're already under maximum pressure and least likely to be careful.
+Delta logic compares result status by check ID without normalizing for execution context. `QUIET` and `PASS` are not equivalent, but they are also not a regression — they represent different execution conditions. Mode-aware comparison is not built into the naive diff.
 
 **How to avoid:**
-- Before any rollback: query all pods for `session_state`. Any pod with `session_state == Active` must first have its session ended cleanly via the `BillingStop` server API. Only after a confirmed clean session end does rollback proceed on that pod.
-- The server must persist session state to DB (not just in-memory BillingManager) before rollback begins. The rollback coordinator verifies DB persistence of active sessions before sending `RCAGENT_SELF_RESTART`.
-- Rollback must follow the same session-gated sequence as the forward deploy. It must be per-pod with session checks, not a simultaneous fleet-wide blast.
-- Keep the session wire protocol backward-compatible across at least two consecutive versions. An rc-agent N-1 binary must be able to receive a `SessionSync` message from a server running N without data loss. Design session structs with `#[serde(default)]` on all new fields.
+- Each result record must include: `{ "check_id": "...", "status": "...", "mode": "quick|full", "venue_state": "open|closed", "timestamp": "..." }`.
+- Delta comparison rules: `PASS → QUIET` is NOT a regression (venue state changed). `PASS → FAIL` IS a regression. `QUIET → FAIL` is a regression only if `venue_state == "open"` in both runs. `PASS → SKIP` (mode change) is NOT a regression.
+- Before sending a regression alert, verify both runs were in the same mode and venue state. If they differ, label the delta as `CONTEXT_CHANGE`, not `REGRESSION`.
+- Store enough metadata with each run to make comparisons mode-aware and venue-state-aware.
 
 **Warning signs:**
-- Rollback command is a single script that hits all pods simultaneously without checking session state
-- Session data lives only in rc-agent memory, not persisted to server DB before rollback
-- Session protocol structs use `#[serde(deny_unknown_fields)]` — incompatible with rollback across versions
+- Delta shows regressions on hardware/display checks during off-hours runs
+- Consecutive quick→full runs show dozens of "new failures"
+- Alert suppression list grows rapidly because regressions are actually context changes
 
-**Phase to address:** Rollback system design — session-gated rollback must be a first-class requirement, not a post-launch hardening
+**Phase to address:** Phase 4 (delta tracking) — result schema must include execution context before any delta comparison logic is written. Retrofitting context into stored results requires re-running historical audits.
 
 ---
 
-### Pitfall 7: cmd.exe Quoting Breaks Config Push Commands
+### Pitfall 7: jq Not Available or Wrong Version on Target Path
 
 **What goes wrong:**
-The config push system sends a command to pods via the fleet exec endpoint `POST /api/v1/fleet/exec`. The payload contains feature flag values as a JSON string: `{"flags":{"process_guard":true,"pod_label":"Pod 3"}}`. The value `Pod 3` has a space. rc-agent passes this through `cmd /C`. cmd.exe mangles the quoting. The update silently fails — rc-agent returns exit code 0 because cmd.exe didn't error, it just misinterpreted the string. The pod continues running with the old config. The push system sees a 200 and logs "success."
+The audit script uses `jq` heavily for JSON processing. Git Bash on Windows does not include `jq` by default. If `jq` is not in PATH, every JSON parse silently returns empty string (if using `$(jq ... 2>/dev/null)`) or crashes the script with an error that is caught by `set -e` and exits the entire audit mid-run, leaving results incomplete.
 
-Variant: The config value contains a Windows path `C:\RacingPoint\` with a backslash. cmd.exe interprets `\R` as an escape. The path is corrupted. rc-agent writes a broken TOML file and crashes on next startup.
+Variant: `jq` is available but the version in Git Bash PATH is different from the system-installed version. Version differences affect filter syntax for complex queries.
 
 **Why it happens:**
-This is the most-documented class of bug in this codebase. CLAUDE.md has an explicit standing rule for it. But new code written by a developer unfamiliar with the constraint will naturally reach for the fleet exec endpoint for config delivery — it already exists, it already works for commands, why not use it for config values?
+The audit developer has `jq` installed via scoop or chocolatey and never notices it is not part of the default Git Bash installation. Scripts work in development, fail on the first run on a fresh James workstation or after a Git for Windows reinstall.
 
 **How to avoid:**
-- Config push must NEVER route through the fleet exec endpoint. Config push must go over the existing WebSocket as a dedicated typed message: a `ConfigPush { version: u32, flags: HashMap<String, FlagValue> }` enum variant. This path never touches cmd.exe.
-- If a fallback shell path is ever needed (it should not be), config values must be written to a temp file first, and the command references only the file path — never inline config values in any string passed through cmd.exe.
-- Integration test before any config push phase ships: push a config value containing a space (`Pod 3`), a backslash (`C:\RacingPoint\`), and a dollar sign (`$100`). Read back the value from the pod's TOML. Verify byte-for-byte match.
+- Add a `prerequisites_check()` function at the top of `audit.sh` that verifies all external tools before running any check: `command -v jq >/dev/null || { echo "FATAL: jq not found. Install: scoop install jq"; exit 1; }`.
+- Check for: `jq`, `curl`, `ssh`, `nc` (for port checks). Fail fast with installation instructions.
+- Do not use `jq` features that differ between versions. Stick to `jq -r '.field'`, `.[] | select(.key == "value")`, and `jq -s '.'` — these are stable across jq 1.5+.
+- Consider embedding a minimal JSON parser as a bash function for critical single-field extractions, as a fallback: `json_get() { echo "$1" | grep -o '"'"$2"'":"[^"]*"' | cut -d'"' -f4; }`. Fragile but zero-dependency.
 
 **Warning signs:**
-- Config push implementation uses `fleet/exec` with the config JSON as the command field
-- No integration test for config values containing spaces, backslashes, or special characters
-- Pod acknowledges config push with HTTP 200 but the on-disk TOML value differs from what was sent
+- `jq: command not found` in audit output
+- All JSON fields return empty string with no error
+- Script exits at first JSON parse without completing remaining checks
 
-**Past incidents (direct precedent):**
-- PowerShell `$r` variable stripped by cmd.exe caused the original pod healer flicker bug — 4 deploy rounds declared "fixed"
-- `taskkill /F /IM "GoPro Webcam.exe"` failed because the space in the exe name broke cmd.exe quote parsing
-- All documented in CLAUDE.md: "cmd.exe is hostile to quoting"
-
-**Phase to address:** Config push protocol design — WebSocket typed message must be the primary and only path for config data; fleet exec must be explicitly prohibited for this use
+**Phase to address:** Phase 1 (audit runner core) — prerequisites check is the first function, called before any other execution.
 
 ---
 
-### Pitfall 8: Standing Rules That Cannot Be Automated Still Get Automated
+### Pitfall 8: Known-Issue Suppression List Masks Real Regressions
 
 **What goes wrong:**
-The v22.0 goal is to codify all 41+ standing rules as automated pipeline gates. Some rules are machine-checkable (build_id match, test pass/fail, binary SHA256). Some rules are only detectable by a human at the venue (screen rendering, physical hardware state, customer experience). If a human-observable rule is auto-passed by a terminal check, the gate is green and the rule is violated.
+The suppression list (`known-issues.json`) is populated during initial audit development when several checks fail because of pre-existing issues. Check `audit-42` (CCBootClient in autostart) is added to the suppression list. Six months later, CCBootClient is removed from the suppression list when the issue is fixed. But someone re-adds it to the suppression list because it appeared again — without realizing the re-appearance is a new regression (something reactivated CCBootClient). The suppression list silently hides the new incident.
 
-The specific failure: the rule "visual verification for display-affecting deploys" is implemented as a health endpoint check. `health_status == ok` passes the gate. The screens are flickering. The pipeline reports PASS. This is the exact failure mode from v17.0 — four rounds of "PASS" while the flicker was visible to anyone in the venue.
+Variant: The suppression list grows unbounded because adding to it is easy and removing from it requires investigation. After 3 months, 40 checks are suppressed. The audit effectively covers only 20 of its 60 checks.
 
 **Why it happens:**
-All rules look the same in a checklist. Under schedule pressure, every rule gets mapped to an automated check to keep the pipeline moving. The distinction between "machine-checkable" and "human-observable" is not documented, so it doesn't get enforced.
+Suppression is operationally convenient — it clears the noise without requiring a fix. There is no review gate, no expiry, and no count of how long an issue has been suppressed.
 
 **How to avoid:**
-Before writing any automation, classify every standing rule into exactly one of three categories:
-
-| Category | Definition | Pipeline handling |
-|----------|-----------|-------------------|
-| AUTO | Fully machine-verifiable | Block pipeline on failure; auto-pass on success |
-| HUMAN-CONFIRM | Observable only at the venue or requires judgment | Pipeline PAUSES; issues named checklist to operator; cannot proceed without explicit `CONFIRM <rule-id>` |
-| INFORMATIONAL | Context that must be acknowledged, no pass/fail | Logged to release notes; no gate |
-
-Known HUMAN-CONFIRM rules from this codebase (these must remain human gates, never auto-passed):
-- "Visual verification for display-affecting deploys" — someone must look at the screens
-- "Verify what the CUSTOMER sees, not what the API returns" — window titles, overlay rendering
-- "Investigate anomalies, don't dismiss them" — requires judgment about whether a spike is expected
-- Any standing rule that uses the word "verify visually" or "check the screen"
+- Each suppression entry must include: `{ "check_id": "...", "reason": "...", "added": "YYYY-MM-DD", "expires": "YYYY-MM-DD", "owner": "james|bono|uday" }`.
+- Suppression entries expire automatically — if `expires` is in the past, the check runs unsuppressed. No silent permanent suppressions.
+- Maximum 10 active suppression entries. Exceeding this generates a `SUPPRESSION_OVERFLOW` warning in the audit header.
+- Monthly review: any entry older than 30 days without an expiry date generates a `SUPPRESSION_STALE` warning.
+- Log suppressed checks in the audit output — they appear as `SUPPRESSED (known-issue: ID)` not as invisible skips.
 
 **Warning signs:**
-- All 41 rules map to automated checks with no HUMAN-CONFIRM category
-- Visual verification rule implemented as `health_endpoint == 200`
-- Pipeline has no PAUSE state — it either blocks or proceeds
+- Suppression list has entries with no `expires` field
+- Suppression list has more than 10 entries
+- Entries are older than 30 days
+- A check that was previously PASS now requires suppression (potential regression hidden by suppression)
 
-**Past incident (direct precedent):** v17.0 browser watchdog caused screen flicker on all pods. Four deploy rounds declared "fixed" without anyone looking at the screens. The flicker was obvious to anyone in the venue. Build IDs, fleet health, and cargo tests all passed. (CLAUDE.md: "Visual verification for display-affecting deploys.")
-
-**Phase to address:** Standing rules codification — classification phase must precede any automation implementation
+**Phase to address:** Phase 5 (known-issue suppression) — suppression schema must include expiry and owner before the suppression system is built. Suppressions without expiry are a maintenance trap.
 
 ---
 
-### Pitfall 9: Process Guard Empty Allowlist After Config Push During Server Startup
+### Pitfall 9: Timestamp Confusion — UTC Logs Reported as IST
 
 **What goes wrong:**
-Config push queues a config update for offline pods. The server restarts (or comes online after an outage). Before the server's feature flag registry is fully initialized, a pod reconnects and receives the queued config update — which was generated from a partially-initialized registry with an empty or incomplete allowlist. Process guard now enforces an empty allowlist on that pod. Every process is flagged as a violation. `violation_count_24h` hits 100 across all 8 pods. This was dismissed as "expected behavior in report_only mode" without investigating why whitelisted processes (svchost.exe) were being flagged.
+The audit script reads racecontrol's JSONL log files to check for recent errors (a common audit check). The logs are in UTC. The audit reports "3 ERROR events in the last hour." But the events occurred at 03:30 UTC (09:00 IST, within business hours) and it is currently 09:45 IST (04:15 UTC). The script calculated "last hour" using the local system time (IST) against UTC timestamps — so it finds zero events in the "last hour" when there are actually 3 recent errors.
+
+Confirmed production incident: "5 unexplained restarts" turned out to be 1 post-reboot startup + 4 of our own deploys. UTC 03:28 was misread as IST instead of IST 08:58. The Event Viewer check that would have caught this in 30 seconds was deferred for hours.
 
 **Why it happens:**
-Config push queuing is a good pattern — offline pods should receive updates when they reconnect. But the queue does not validate whether the enqueued config was generated from a fully initialized, healthy server state. A server in the middle of startup pushes a broken config, and the pod faithfully applies it.
+The audit script uses `date +%s` for "current time" which returns local system time. The log timestamps are UTC. No conversion is applied. The comparison is wrong. This produces both false positives (events appear outside the window) and false negatives (events inside the window appear outside it).
 
 **How to avoid:**
-- Config push messages must include a server-state field: `{ "config_version": 42, "server_healthy": true, "registry_initialized": true, ... }`. Pods must reject any push where `registry_initialized == false`.
-- The config push queue must only accept messages after the server passes its own startup health check gate. Messages generated during startup or recovery are quarantined until the server reports `registry_initialized`.
-- Alert on `violation_count_24h > 20` across more than 4 pods simultaneously. This pattern is a fleet-wide signal (server-side config push bug), not per-pod noise. It must never be silently dismissed.
+- All timestamp comparisons in the audit script must normalize to UTC: `date -u +%s` for the current time reference.
+- When parsing racecontrol JSONL logs, treat all timestamps as UTC. When displaying in audit reports, convert to IST by adding 19800 seconds (5h30m).
+- Add a comment at the top of every time-based check: `# NOTE: racecontrol logs are UTC. date -u +%s used for comparison.`
+- In the audit report header, print both UTC and IST: `Audit run: $(date -u +%Y-%m-%dT%H:%M:%SZ) (UTC) / $(date +%Y-%m-%dT%H:%M:%S IST)`
 
 **Warning signs:**
-- All pods simultaneously showing elevated violation counts after a server restart
-- Config push queue has no "was the server healthy when this was enqueued?" field
-- `violation_count_24h: 100` on all pods is dismissed as "expected report_only behavior"
+- Audit shows "0 errors in last hour" but log file contains recent ERROR entries
+- Audit shows events from 5.5 hours ago as "recent" (IST→UTC offset confusion)
+- Time-based checks pass at all times of day regardless of actual log content
 
-**Past incident (direct precedent):** Process guard had empty whitelist on all pods. Fetched config when server was down. Svchost.exe was being flagged. Dismissed as expected without checking WHY whitelisted processes were flagged. (CLAUDE.md: "Investigate anomalies, don't dismiss them.")
-
-**Phase to address:** Config push + process guard integration
+**Phase to address:** Phase 1 (audit runner core) — time utilities must be established before any log-based check is written. A single wrong `date` call breaks every time-based check.
 
 ---
 
-### Pitfall 10: Cargo Feature Gates Create Deployment Topology Debt
+### Pitfall 10: Parallel Load Overwhelms Pod Network and Produces False FAILs
 
 **What goes wrong:**
-`rc-agent` is compiled with `--features telemetry,ai_debugger` for pods 1–7 and `--features telemetry,ai_debugger,process_guard` for Pod 8 (canary). The fleet now has two distinct binaries. When a bug is found in shared telemetry code, it must be fixed in both builds, released as both binaries, and deployed in two passes. The "single fleet binary" assumption — built into fleet health comparison, rollback, and canary analysis — breaks everywhere.
+The audit script fires health checks to all 8 pods simultaneously. The venue LAN is consumer-grade hardware (DHCP from a home-grade router). Eight concurrent curl requests with a 2-second timeout to the same /24 subnet can produce connection timeouts on pods that are actually healthy — the switch's ARP table fills, or the router's connection tracking is saturated. The audit reports 3 pods as DOWN when they are running correctly. Auto-fix attempts to restart them, but they are not down.
 
-Over time: 3 features × per-pod runtime variance = up to 8 binary variants in steady state. The OTA system must track which pod gets which binary. Rollback requires knowing which variant each pod was on. The pipeline complexity grows combinatorially.
-
-**Why it happens:**
-Cargo feature gates are elegant for compile-time inclusion. The trap is using them for per-pod runtime configuration rather than for broad capability tiers (debug vs. production). Per-pod configuration belongs in runtime config, not compile-time flags.
-
-**How to avoid:**
-- Use Cargo feature gates ONLY for broad capability tiers that are fleet-wide: `debug` (AI debugger symbols, verbose logging, extra diagnostics) vs. `production` (minimal footprint, stripped symbols). All pods get the same tier binary.
-- Use the runtime feature flag registry for per-pod enablement: `{ "pod_id": 3, "flags": { "process_guard": false, "ai_debugger": true } }`. The binary compiles all code; the flag registry gates execution at runtime.
-- The only legitimate compile-time per-pod variation: code that is physically unsafe to include (e.g., anti-cheat-triggering debug APIs). This is a rare exception, not the general pattern.
-- Document the binary matrix policy explicitly before the Cargo feature gate phase ships: "How many distinct production binaries does the fleet support?" The answer must be 1 in steady state, 2 temporarily during canary.
-
-**Warning signs:**
-- Deploy system has a `build_config` field with per-pod Cargo feature flag combinations
-- Different pods have different binary SHA256 hashes in steady state (not just during canary)
-- A bugfix requires building N > 2 binaries
-- The OTA manifest tracks "which feature set goes to which pod" rather than "which binary version"
-
-**Phase to address:** Cargo feature gates design — this decision locks in deployment topology for all subsequent phases; it cannot be changed after canary infrastructure is built on top of it
-
----
-
-### Pitfall 11: Feature Flag Registry Is an Auth-Unprotected Write Endpoint
-
-**What goes wrong:**
-The feature flag registry endpoint `POST /api/v1/flags` allows toggling features per-pod. Process guard can be disabled. Billing can be paused. The AI debugger can be enabled. If this endpoint does not require auth, any device on the 192.168.31.x LAN can call it. A pod or a kiosk with a compromised browser can hit the endpoint from within the network. Process guard gets disabled fleet-wide.
-
-The existing `/api/v1/config/kiosk-allowlist` endpoint already has this bug: it requires auth but rc-agent calls it without auth, resulting in 401 responses that silently fall back to the hardcoded local allowlist. The flag registry endpoint will be built by the same team and will likely repeat the same oversight.
+Confirmed constraint from PROJECT.md: "Parallel execution must not overwhelm pods (max 4 concurrent pod queries)."
 
 **Why it happens:**
-Internal LAN endpoints get lower security scrutiny. "It's not exposed to the internet" is treated as sufficient protection. The existing allowlist auth bug demonstrates this pattern is already present in the codebase.
+The constraint is documented but easy to violate when adding a new check. A developer adds check_pod_process() and adds it to the parallel loop without checking the concurrency limit. The limit is an informal convention, not enforced by code.
 
 **How to avoid:**
-- Feature flag registry write endpoints must require admin authentication (same auth as the admin dashboard).
-- rc-agent, if it reads from the flag registry, must do so with a pre-shared API key specific to pod-to-server reads (read-only token, not admin token).
-- Gate flag changes that disable safety systems (process guard, billing guard) behind a second confirmation step: the admin must explicitly confirm "disable safety system on Pod N" rather than a single API call.
-- Document the auth requirement in the OpenAPI spec before implementation begins. Auth is easier to add at design time than to retrofit.
+- Implement a semaphore in the parallel execution engine: maintain an active job count, increment on launch, decrement in the wait loop, block new launches when count = 4.
+- Pattern:
+  ```bash
+  MAX_PARALLEL=4
+  active=0
+  for IP in $PODS; do
+    while [ $active -ge $MAX_PARALLEL ]; do
+      wait -n 2>/dev/null || wait
+      active=$((active - 1))
+    done
+    check_pod "$IP" "$RESULT_DIR" &
+    active=$((active + 1))
+  done
+  wait
+  ```
+- Add a distinct timeout for each curl: `--max-time 5 --connect-timeout 3`. Do not rely on default curl timeout (300 seconds) — it hangs the entire parallel batch.
+- Stagger launches by 200ms (`sleep 0.2`) to prevent simultaneous ARP floods.
 
 **Warning signs:**
-- Flag registry endpoint is in the same router group as unauthenticated fleet health endpoints
-- rc-agent fetches flags using no auth header
-- No distinction between "read flags" (pod, authenticated with read token) and "write flags" (admin, authenticated with admin token)
+- Audit runs faster than expected (all checks completing in < 1 second suggests timeout is too short or connections are refused)
+- Pods alternate between PASS and FAIL on consecutive runs (network saturation is timing-dependent)
+- Router admin shows connection table saturation during audit runs
 
-**Phase to address:** Feature flag registry design — auth model must be specified before the endpoint is implemented
+**Phase to address:** Phase 2 (parallel execution engine) — concurrency limit must be enforced in the engine itself, not by convention. Before any check is added to the parallel loop, the limit must already be in place.
 
 ---
 
@@ -321,14 +298,12 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Deploy OTA binary via fleet exec endpoint (existing path) | No new protocol | cmd.exe quoting mangling; exit codes unreliable for binary writes | Never — binary deploy must use RCAGENT_SELF_RESTART + HTTP download pattern |
-| Feature flags stored only in racecontrol.toml | Simple, no new infrastructure | Manual TOML editing survives config push; drift undetectable | Never for v22.0 — defeats the purpose of config push |
-| Single fleet-wide rollback command (all pods simultaneously) | Fast, simple DX | Hits pods with active billing sessions simultaneously | Never without pre-rollback session drain per pod |
-| Skip canary for "small" flag changes | Saves 10 minutes | Feature flag with side effects (enabling process guard, changing billing rate logic) can silently break pods | Never — canary cost is ~10 minutes; incident cost is 45+ minutes |
-| Auto-pass visual verification rules | Green pipeline faster | Screen flicker ships undetected; exact failure mode of v17.0 | Never |
-| Use git hash as binary identity for deploy gating | One field, simple | Docs-only commits trigger unnecessary 8-pod redeploy | Never for deploy gating — use binary SHA256 |
-| Feature flags with no expiry or cleanup date | Flags accumulate easily | Server accumulates permanent dual-path handlers that can never be removed | Acceptable in MVP; must have a cleanup story before the flag count exceeds ~20 |
-| Per-pod Cargo feature builds | Enables per-pod capability differences | Binary topology debt; rollback complexity grows combinatorially | Never for runtime configuration — use runtime flag registry instead |
+| `set -e` without per-command error handling | Script exits on first failure | Partial audit — results are missing for all checks after the first failure | Never for an audit runner — use `|| echo "FAIL"` per check instead |
+| Hardcoded pod IPs in check functions | Simple to write | Update in N places when pod IPs change; already happened once (Pod .28 → reassigned) | Never — use `$PODS` array from a single config source |
+| `sleep 5` between checks for "stability" | Avoids timing issues | Audit takes 20+ minutes for 60 phases | Never — use `--connect-timeout` on curl instead |
+| Parse HTML/text output from Windows commands | Works for the common case | Format changes between Windows versions; `tasklist` output format differs on Server 2022 vs Windows 11 | Only if CSV format (`/FO CSV`) is unavailable |
+| Store audit results as plain text | Fast to implement | Cannot do structured delta comparison or machine-readable suppression | Never — use JSON from the start |
+| Single monolithic `audit.sh` | Easy to deploy | Untestable, unmaintainable, impossible to run individual checks in isolation | Acceptable for initial prototype only — refactor to modular structure before phase 3 |
 
 ---
 
@@ -336,14 +311,13 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Fleet exec → config push | Sending JSON config as a command string through `cmd /C` | WebSocket `ConfigPush` typed message with Rust enum variant — never through exec endpoint |
-| OTA coordinator → rc-sentry | Not suppressing rc-sentry restart during expected binary swap offline window | Write `ota-in-progress.flag` on pod before swap; rc-sentry checks flag before restarting |
-| Config push → process guard | Pushing partial config during server startup or recovery | Gate config push on `server_health.registry_initialized == true` |
-| Feature flag changes → billing guard | Changing billing-related flags mid-session | Billing flags apply at next session start only; current session is immune to flag changes |
-| Rollback coordinator → BillingManager | Rolling back binary with active sessions in memory | Persist session to DB, send BillingStop, verify DB ack, then rollback — never rollback a pod with `session_state != Idle` |
-| Staged rollout → server dual-path handlers | Removing old handler after canary without completing fleet rollout | Couple handler removal to `rollout_complete` flag in manifest — removal ships only when `rollout_complete == true` |
-| Standing rules enforcement → human-observable rules | Implementing a HUMAN-CONFIRM rule as a health endpoint check | Classify rules before automating — HUMAN-CONFIRM rules must pause the pipeline; they cannot auto-pass |
-| OTA binary download → LAN saturation | All 8 pods download new binary simultaneously | Stage-gate download: Pod 8 canary downloads first, verify, then 2-pod waves with 30-second gaps |
+| rc-agent `/exec` endpoint | Sending raw shell strings with quotes | Write commands to temp `.bat` file, execute bat by path, clean up |
+| racecontrol `/api/v1/fleet/health` | Using array index as pod number | Filter by `pod_number` field: `jq -r '.[] \| select(.pod_number == 3)'` |
+| comms-link relay | Using `curl` without `-H "Content-Type: application/json"` | Always include Content-Type header — relay rejects requests without it |
+| Bono VPS SSH | Piping `cat` output through SSH into local files | Use `scp` for file transfer; SSH only for commands. Add `2>/dev/null` to all SSH captures |
+| WhatsApp notification (Evolution API) | Sending raw report text with special characters | Escape `*`, `_`, and newlines before sending; WhatsApp formatting syntax mangling |
+| racecontrol JSONL logs | Using local `date +%s` for UTC log comparison | Always use `date -u +%s` for reference timestamp when comparing against UTC log entries |
+| Tailscale SSH to pods | Assuming Tailscale is up before every audit | Pre-check `tailscale status` in prerequisites; fall back to LAN IP if Tailscale shows pod as offline |
 
 ---
 
@@ -351,11 +325,11 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Config push on every pod reconnect | 8 pods reconnect after server restart → 8 simultaneous config pushes → server spike | Rate-limit config push to 1 pod per 2 seconds on reconnect burst | On any server restart when all pods reconnect simultaneously |
-| Feature flag polling (pull model) | 8 pods polling `/api/v1/flags` every 5s = 96 req/min for flag reads alone | Push-only model over existing WebSocket — server pushes on change; pods do not poll | Immediately visible at 8 pods; catastrophic at scale |
-| Manifest + binary download during peak hours | 8 pods downloading simultaneously saturates the 192.168.31.x LAN | Stage downloads: canary first, then 2-pod waves; add inter-wave delay | Any time a release coincides with a busy session period |
-| Post-deploy health check hammering pods | OTA system polling all 8 pods every 1s for 30s = 240 requests | Use the existing `/api/v1/fleet/health` aggregate endpoint; poll once per 5s | Immediately on first OTA with health verification enabled |
-| OTA pipeline holding fleet health lock during deploy | Other systems (dashboard, alerting) time out waiting for fleet health response | OTA state is a separate struct from fleet health; deploy does not block health queries | Any deploy that takes longer than the health endpoint timeout |
+| Sequential pod checks (8 pods, 2s each) | Full audit takes 20+ minutes | Parallel execution with concurrency limit of 4 | Immediately on first full run |
+| `wait` without timeout on pod checks | Audit hangs indefinitely if a pod is completely offline (no TCP RST) | `--max-time 5` on all curl calls; `timeout 10 <command>` wrapper for non-curl checks | When any pod is powered off completely |
+| Storing delta history as growing flat file | Delta comparison scans entire history file | Retain only last N runs (configurable, default 10); rotate on each run | After 50+ runs, comparison is slow |
+| Generating Markdown report on every check | I/O overhead per check | Collect all results in memory (bash arrays or temp JSON), write report once at end | At 60+ checks, per-check writes add 2+ minutes |
+| Calling `/api/v1/fleet/health` separately for each check | 60 HTTP calls to the same endpoint | Cache fleet health at audit start, reuse for all phase checks that need it | Immediately — fleet health is the most-called endpoint |
 
 ---
 
@@ -363,27 +337,26 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Feature flag registry write endpoint lacks auth | Any LAN device can disable process guard, billing guard, or enable unsafe features | Require admin auth on all flag write endpoints; read endpoints use pod-specific read-only token |
-| OTA manifest served over plain HTTP from James (:9998) | MITM on LAN can serve a malicious binary | Sign the manifest with a pre-shared key; rc-agent verifies signature before executing the swap |
-| Rollback manifest contains rollback command as a composed string | Injection via malformed version string in manifest | Rollback is a typed Rust command, not a string composed from manifest fields |
-| Config push broadcasts to all pods with no pod-specific verification | Server compromise → push malicious config to all 8 pods at once | Config push includes pod-specific HMAC; each pod verifies using its pre-shared key before applying |
-| Feature flag enabling process guard bypass is ungated | Single API call can disable a safety system across the fleet | Safety-system flags (process_guard, billing_guard) require a second admin confirmation before applying |
+| Logging the auth PIN in audit output | PIN visible in audit logs and WhatsApp reports | Store in env var (`AUDIT_PIN`), never log it, redact from all output with `sed 's/261121/[REDACTED]/g'` |
+| Auto-fix running `taskkill /F /IM powershell.exe` | Kills rc-agent relaunch chain, billing WebSocket, and any other PowerShell process | This specific command is banned from the safe-fix whitelist. Use PID-targeted kills only |
+| Sending full JSON audit results to WhatsApp | Report may contain internal IP addresses, process lists, config values | WhatsApp notification contains only: severity summary, FAIL count, top 3 failures. No raw data |
+| Executing audit with hardcoded credentials in script | Credentials in git history | Use env vars: `AUDIT_PIN`, `AUDIT_PSK`. Script reads from env, never hardcodes |
+| Auto-fix running during business hours without session check | Kills active billing sessions | All auto-fix actions gated on `is_pod_idle()` — absolute requirement |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **OTA Session Gate:** Build ID is updated on all pods — verify `session_state` was checked BEFORE each pod's restart, not just fleet health after the full deploy completes.
-- [ ] **Recovery System Coordination:** OTA deploys cleanly on idle pods — verify the same deploy works when rc-sentry is actively running and polling. Check rc-sentry logs during deploy to confirm it did NOT trigger a restart.
-- [ ] **Config Push Delivery:** Server shows config pushed successfully — verify the pod's actual on-disk `rc-agent.toml` (or feature flag cache) matches the pushed values byte-for-byte, not just that the HTTP endpoint returned 200.
-- [ ] **Rollback Billing Safety:** Rollback completes cleanly on idle pods — verify rollback behavior when exactly one pod has an active session. It must gate on that pod, not abort the entire rollback.
-- [ ] **Standing Rules Gate:** Pipeline shows "all rules PASS" — verify at least the four known HUMAN-CONFIRM rules show as PAUSE (requiring operator confirmation), not AUTO-PASS.
-- [ ] **Binary Identity:** Fleet shows all pods on the latest `build_id` — verify using binary SHA256 against the manifest, not just git hash equality.
-- [ ] **Process Guard After Config Push:** Config push delivers feature flags — immediately check `violation_count_24h` across all pods. If it spiked, the allowlist was empty or partial.
-- [ ] **Partial Rollout Completion:** Canary (Pod 8) shows the new feature flag active — verify a `complete_by` timestamp exists in the manifest and the pipeline has a scheduled next wave for pods 1–7.
-- [ ] **Cargo Feature Gate Topology:** Feature gate design is finalized — verify all pods in steady state produce the same binary SHA256 (only one production binary variant exists).
-- [ ] **Visual Verification:** All automated OTA checks pass — verify someone physically in the venue confirmed screens are showing correctly after the first deploy to a billing-capable pod.
-- [ ] **cmd.exe Config Integrity:** Config push with a value containing a space, a backslash, and a dollar sign has been integration-tested — verify the pod's TOML shows the exact bytes sent, not a cmd.exe-mangled version.
+- [ ] **Parallel execution:** Verify temp files are being created per-pod, not written to shared stdout. Run with 8 pods and check for interleaved output.
+- [ ] **Delta tracking:** Verify QUIET != regression. Run back-to-back with venue_state toggled and confirm no false regression alert.
+- [ ] **Auto-fix session gate:** Simulate an active billing session (`curl -X POST .../billing/start`). Verify auto-fix skips the pod with `SKIP_ACTIVE_SESSION` log.
+- [ ] **Suppression expiry:** Set an entry's `expires` to yesterday. Verify the check runs unsuppressed on next audit.
+- [ ] **jq prerequisite check:** Remove jq from PATH temporarily. Verify audit exits cleanly with installation instructions, not silently with all JSON results empty.
+- [ ] **UTC timestamp:** Set system clock to IST. Run a log-based check against a log file with UTC timestamps from 30 minutes ago. Verify the check finds the entries.
+- [ ] **Concurrency limit:** Instrument the parallel loop to log when it blocks. Verify no more than 4 background jobs run simultaneously.
+- [ ] **SSH banner robustness:** Add a test SSH connection to a host with a known banner. Verify `safe_ssh_capture()` strips banner and returns valid JSON.
+- [ ] **WhatsApp PIN redaction:** Run a full audit and search the WhatsApp message for "261121". Must not appear.
+- [ ] **Rollback on auto-fix failure:** If an auto-fix action fails (non-zero exit), verify the audit marks the check as `FIX_FAILED`, not `PASS`.
 
 ---
 
@@ -391,14 +364,13 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Update interrupted active billing session | MEDIUM | Call `BillingStop` via server API for the affected pod → reconcile session end time manually with staff → restart rc-agent → verify session closed in DB → credit customer if session was short |
-| Recovery systems fight OTA (rc-sentry restarts old binary) | MEDIUM | Write `ota-in-progress.flag` manually via Tailscale SSH to the affected pod → redeploy that pod → verify `build_id` matches manifest → delete flag |
-| Build ID mismatch false redeploy triggered | LOW | Binary SHA256 is correct even if git hash differs — verify SHA256 first before accepting "all pods outdated" → add SHA256 check to verification, no redeploy needed |
-| Config push overwrote manual TOML fix | HIGH | Restore manual fix from git history → push corrected config from server → immediately add version counter to prevent recurrence → inform staff what changed |
-| Partial rollout stuck in mixed feature state | LOW | Push feature flag to remaining pods via admin UI → verify all pods show the same flag value → mark rollout complete in manifest |
-| Rollback lost billing session | HIGH | Query billing DB for sessions with no `end_time` → manually reconcile with venue staff → issue credit if applicable → add rollback session-drain to pipeline before any future rollback |
-| Process guard empty allowlist after config push | MEDIUM | Push correct config with full allowlist immediately → verify `violation_count_24h` drops toward zero within 5 minutes → audit server startup sequence for empty-registry config push |
-| Cargo feature gate binary proliferation discovered | HIGH | Freeze all new feature gate additions → audit which pods have which binary variant → consolidate to a single binary with runtime flags → this is a design rewrite, not a hotfix |
+| cmd.exe quoting destroyed a command mid-audit | LOW | Identify the failed command in audit log, rewrite as a `.bat` file, re-run the specific phase |
+| SSH banner corrupted a captured config | HIGH | Re-fetch config with `scp` instead of SSH pipe. Compare against known-good backup in git. Validate first line. |
+| Parallel output interleaved — results corrupt | LOW | Delete temp result files, re-run the audit. The parallel engine should be idempotent. |
+| Auto-fix killed an active session | HIGH | Check billing log for orphaned session, manually close it via `/api/v1/billing/sessions/<id>/end`. Refund customer time. Add session to known-issues suppression. |
+| Delta shows 40 false regressions after mode change | LOW | Add `mode` and `venue_state` to comparison filter. Re-run delta against corrected schema. |
+| Suppression list grew to 40 entries | MEDIUM | Audit the suppression list: test each suppressed check manually, remove entries for fixed issues, add expiry to remaining. Takes 2–3 hours. |
+| jq not found mid-audit | LOW | Install jq via `scoop install jq`, re-run. Should not happen if prerequisite check is in place. |
 
 ---
 
@@ -406,33 +378,29 @@ Internal LAN endpoints get lower security scrutiny. "It's not exposed to the int
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Update interrupts billing session | OTA pipeline — session gate | Integration test: start billing session on Pod 8, trigger OTA, verify pod is skipped; session completes cleanly |
-| Recovery systems fight OTA restarter | OTA coordination — sentinel file design | Test: deploy to Pod 8 while rc-sentry is running; verify rc-sentry logs show it backed off during the swap window |
-| Build ID mismatch false redeploy | CI build triggers — path-gated builds + binary SHA256 identity | Commit docs-only change; verify CI does NOT trigger a binary build or fleet deploy |
-| Config push overwrites manual TOML | Config push protocol — version counter | Manually edit pod TOML, disconnect/reconnect pod, verify server does NOT overwrite without operator alert |
-| Partial rollout permanent mixed state | Staged rollout — completion policy | Verify manifest has `complete_by` field; verify pipeline fires alert after it expires with no completion |
-| Rollback loses billing session | Rollback system design — session-gated drain | Integration test: active session on one pod, trigger rollback, verify `BillingStop` fires before binary swap |
-| cmd.exe quoting breaks config push | Config push protocol — WebSocket typed message | Integration test: push config with space + backslash + dollar sign; verify pod TOML exact match |
-| Standing rules resist automation | Rules classification — HUMAN-CONFIRM category | Audit: 4 known HUMAN-CONFIRM rules exist as PAUSE gates, not AUTO gates |
-| Process guard empty allowlist from partial config | Config push + process guard integration | After server restart, push config; immediately check `violation_count_24h < 5` on all pods |
-| Cargo features deployment topology debt | Feature gates design | Verify: all pods in steady state have the same binary SHA256 |
-| Feature flag registry auth gap | Feature flag registry design | Verify: unauthenticated call to `POST /api/v1/flags` returns 401, not 200 |
+| cmd.exe quoting destroys remote commands | Phase 1 (runner core) | Run a command with spaces and quotes through the exec wrapper. Verify correct output. |
+| SSH banner corrupts output | Phase 1 (runner core) | Test `safe_ssh_capture()` against a host with a known banner. Assert first line is valid JSON/TOML. |
+| curl output includes quotes | Phase 1 (runner core) | Extract a string field from a health endpoint. Assert no surrounding quotes in result. |
+| Parallel output interleaved | Phase 2 (parallel engine) | Run 8 parallel checks and verify temp files have clean per-pod JSON. |
+| Auto-fix kills active sessions | Phase 3 (auto-remediation) | Simulate active session. Verify `SKIP_ACTIVE_SESSION` is logged and fix does not execute. |
+| Delta false regressions from context change | Phase 4 (delta tracking) | Run two audits with different modes. Verify no regressions flagged for skipped checks. |
+| jq not available | Phase 1 (runner core) | Run with jq removed from PATH. Verify fast-fail with install instructions. |
+| Suppression list hides real regressions | Phase 5 (suppression) | Set expiry to past date. Verify check runs unsuppressed. |
+| UTC/IST timestamp confusion | Phase 1 (runner core) | Run log-based check with UTC log. Verify correct event count. |
+| Parallel load overwhelms network | Phase 2 (parallel engine) | Monitor active job count during run. Assert never exceeds 4. |
 
 ---
 
 ## Sources
 
-- `CLAUDE.md` standing rules — live incident register for this codebase (HIGH confidence — all cited incidents are real and documented)
-- `PROJECT.md` milestone context — v17.0 incident triggers, v17.1 recovery system conflicts, v12.1 process guard empty whitelist (HIGH confidence)
-- `MEMORY.md` — Pod 5 offline 2+ minutes v17.0, Pod 6 down 4 times self-restart, screen flicker 4 rounds, build_id false positive, process guard violation_count_24h 100 (HIGH confidence)
-- [OTA Update Checklist for Embedded Devices — Memfault](https://memfault.com/blog/ota-update-checklist-for-embedded-devices/) (MEDIUM — general embedded OTA; staged rollout patterns)
-- [Firmware OTA Design Patterns and Pitfalls — Arshon](https://arshon.com/blog/firmware-over-the-air-ota-updates-design-patterns-pitfalls-and-a-playbook-you-can-ship/) (MEDIUM — canary progression and kill switch patterns)
-- [OTA Best Practices for Industrial IoT — Mender](https://mender.io/resources/reports-and-guides/ota-updates-best-practices) (MEDIUM — offline device handling, partial fleet state)
-- [self-replace crate — crates.io](https://crates.io/crates/self-replace/1.3.6) (HIGH — Windows binary replacement: file locking, rename-before-replace requirement)
-- [Feature Toggles — Martin Fowler](https://martinfowler.com/articles/feature-toggles.html) (HIGH — flag lifecycle, permanent partial rollout trap, protocol-change flag classification)
-- [WebSocket Reconnection State Sync — WebSocket.org](https://websocket.org/guides/reconnection/) (MEDIUM — config push queue on reconnect, sequence number for replay)
-- [Challenges With Device OTA Updates — SoftServe](https://www.softserveinc.com/en-us/blog/challenges-with-device-ota-updates) (MEDIUM — maintenance window scheduling, version support windows)
+- CLAUDE.md standing rules (this codebase) — cmd.exe quoting, SSH banner corruption, curl quote stripping, UTC/IST confusion, session gate — all documented from live incidents
+- PROJECT.md v23.0 milestone context — "max 4 concurrent pod queries" constraint, auto-fix conservatism requirement
+- AUDIT-PROTOCOL.md v3.0 — 60-phase manual audit that v23.0 automates, showing all check patterns that need safe remote execution
+- LOGBOOK.md — incident records: pod healer curl bug (2 deploy cycles), SSH banner TOML corruption (2026-03-24), process guard empty allowlist (all 8 pods, 2+ hours)
+- PITFALLS.md v22.0 — cmd.exe hostility and recovery system interference patterns (directly applicable to auto-remediation phase)
+- PITFALLS-v17.1.md — `spawn().is_ok()` does not mean started; non-interactive context failures (applicable to any auto-fix that spawns processes)
+- Personal experience (HIGH confidence): every pitfall in this document corresponds to an incident that has already occurred in this codebase
 
 ---
-*Pitfalls research for: v22.0 Feature Management & OTA Pipeline — Windows sim racing fleet (8 pods)*
-*Researched: 2026-03-23 IST*
+*Pitfalls research for: automated fleet audit system (bash, Windows Git Bash, HTTP exec, parallel, JSON, delta, auto-remediation)*
+*Researched: 2026-03-25*

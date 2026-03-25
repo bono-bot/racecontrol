@@ -1,241 +1,174 @@
 # Stack Research
 
-**Domain:** AI-driven watchdog recovery — v17.1 additions to existing Rust/Axum fleet ops platform (8 Windows 11 pods).
-**Researched:** 2026-03-25
-**Confidence:** HIGH (codebase read directly; versions confirmed against existing Cargo.toml; integration points traced through rc-sentry/rc-agent/rc-common source)
+**Domain:** Bash-based automated fleet audit runner — v23.0 Audit Protocol v4.0
+**Researched:** 2026-03-25 IST
+**Confidence:** HIGH (tools verified live on James's machine; integration points traced through existing codebase; parallel execution patterns confirmed against bash 5.2 docs)
 
 ---
 
-## Context: What Already Exists (Do Not Re-research)
+## Context: The Constraint
 
-The v17.1 milestone is NOT starting from scratch. Substantial watchdog infrastructure already ships:
+Pure bash. No new compiled dependencies. No new Node packages for audit logic. Runs on James's machine (Windows 11, Git Bash) targeting server (.23), 8 pods, Bono VPS via HTTP APIs and SSH. The constraint is real and workable — this stack leans into what bash already does well.
 
-| Component | Location | Status |
-|-----------|----------|--------|
-| Watchdog FSM (Healthy/Suspect/Crashed, 3-poll hysteresis) | `rc-sentry/src/watchdog.rs` | DONE |
-| Tier 1 deterministic fixes (kill zombies, port wait, close wait, config repair, shader cache) | `rc-sentry/src/tier1_fixes.rs` | DONE |
-| RestartTracker (3-in-10min escalation + 5s/15s/30s/60s/5min backoff) | `rc-sentry/src/tier1_fixes.rs` | DONE |
-| Pattern memory (debug-memory-sentry.json, instant_fix, hit_count pruning) | `rc-sentry/src/debug_memory.rs` | DONE |
-| Tier 3 Ollama (TcpStream raw HTTP, fire-and-forget, qwen2.5:3b) | `rc-sentry/src/ollama.rs` | DONE |
-| Recovery authority registry (ProcessOwnership, RecoveryAuthority enum) | `rc-common/src/recovery.rs` | DONE |
-| RecoveryDecision JSONL log (timestamp, machine, process, authority, action, reason) | `rc-common/src/recovery.rs` | DONE |
-| EscalatingBackoff state machine (30s/2m/10m/30m) | `rc-common/src/watchdog.rs` | DONE |
-| Spawn verification (schtasks /Run + 20s health poll loop) | `rc-sentry/src/tier1_fixes.rs` | DONE |
-| Graceful restart sentinel (GRACEFUL_RELAUNCH, RCAGENT_SELF_RESTART) | `rc-sentry/src/tier1_fixes.rs` | DONE |
-| MAINTENANCE_MODE sentinel (3 restarts in 10min = stop all restarts) | `rc-sentry/src/tier1_fixes.rs` | DONE |
-| rc-watchdog Windows Service (pod mode) + James daemon (standalone mode) | `rc-watchdog/src/` | DONE |
-| windows-service 0.8 | `rc-watchdog/Cargo.toml` | DONE |
-| rc-agent ai_debugger (Tier 1/2/3 for game crashes, billing-gated destructive fixes) | `rc-agent/src/ai_debugger.rs` | DONE |
-| Feature flags (sentry-flags.json, kill_watchdog_restart kill switch) | `rc-sentry/src/watchdog.rs` | DONE |
+**What's already available on James's machine (verified live):**
 
-**Implication:** The core 4-tier architecture and most low-level machinery already exists. v17.1 is integration and consolidation, not greenfield implementation.
+| Tool | Version | Available |
+|------|---------|-----------|
+| bash | 5.2.37 (x86_64-pc-msys) | YES — Git Bash |
+| curl | 8.18.0 (mingw32 / Schannel) | YES |
+| ssh | OpenSSH (via Git Bash) | YES |
+| scp | OpenSSH (via Git Bash) | YES |
+| diff | GNU diff | YES |
+| awk | GNU awk | YES |
+| sed | GNU sed | YES |
+| mktemp | GNU coreutils | YES |
+| date | GNU coreutils | YES |
+| node | v22.22.0 | YES — for helpers only |
+| python3 | 3.13.12 | YES — for helpers only |
+| jq | NOT INSTALLED | NEEDS INSTALL |
 
 ---
 
-## What v17.1 Actually Needs (Gap Analysis)
+## Recommended Stack
 
-Reading the PROJECT.md v17.1 goals against the existing code:
+### Core Technologies
 
-| Goal | Gap | Status |
-|------|-----|--------|
-| Replace rc-sentry blind restart with AI healer pattern memory + graduated response | Pattern memory + Tier 1 exist; need to wire Tier 2 (memory lookup) into the crash handler loop before Tier 3 Ollama | PARTIAL |
-| Merge pod_monitor server-side WoL + restart into AI healer with context-aware recovery | pod_monitor.rs exists on racecontrol server; RecoveryAuthority::PodHealer exists; coordination logic not yet written | PARTIAL |
-| Replace james_watchdog.ps1 blind 2min service check with AI debugger + pattern memory | rc-watchdog james_monitor.rs runs the check loop; Ollama query missing from james monitor path | PARTIAL |
-| Single recovery authority per machine, prevent fighting between self_monitor / rc-sentry / pod_monitor / WoL | ProcessOwnership registry exists in rc-common; not yet enforced at runtime (ownership check not called before restart) | PARTIAL |
-| Distinguish crash vs deliberate shutdown | GRACEFUL_RELAUNCH and RCAGENT_SELF_RESTART sentinels exist; pod_monitor does not yet check sentinels before WoL | GAP |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| bash | 5.2 (existing) | Audit runner language | Already installed, all 60 phases already written in bash, zero new dependency. `wait -n` (bash 4.3+) enables safe bounded parallelism without external tools. |
+| jq | 1.8.1 | JSON assembly, parsing, delta comparison | The only missing tool. Single static binary, no runtime deps, winget-installable. Without jq, JSON output requires fragile string concatenation — every consumer breaks. With jq, structured output is safe and diff-able. `jq --arg` handles escaping so bash never touches JSON strings directly. |
+| curl | 8.18.0 (existing) | HTTP health checks, API queries, comms-link relay calls | Already used throughout AUDIT-PROTOCOL v3.0. Schannel TLS on Windows — no openssl dep. Use `-s --max-time N --connect-timeout N` on every call to prevent hangs from offline pods. |
+| ssh | OpenSSH (existing) | Fallback exec when HTTP endpoints are down | Already in Git Bash. Tailscale mesh gives Tailscale IPs as fallback path. Use only when HTTP unreachable — matches existing standing rule. |
+| diff | GNU diff (existing) | Delta tracking between audit runs | `diff --unified=0` on previous/current JSON produces machine-readable change lines. `diff -q` for pass/fail. No new tool needed for delta tracking. |
 
----
+### Supporting Libraries / Patterns
 
-## Recommended Stack (New Additions for v17.1)
+| Library / Pattern | Version | Purpose | When to Use |
+|-------------------|---------|---------|-------------|
+| `wait -n` (bash builtin) | bash 4.3+ | Bounded parallel execution — wait for any one job to finish before launching next | Use in all tier loops that target multiple pods: `(check_pod "$IP") & pids+=($!); [[ ${#pids[@]} -ge 4 ]] && wait -n` |
+| `mktemp -d` (coreutils) | existing | Temp directory for per-run JSON output fragments before assembly | Each parallel phase writes to `$TMPDIR/<phase>_<host>.json`; assembler merges with jq. Avoids stdout interleaving from background jobs. |
+| `trap ... EXIT` (bash builtin) | existing | Cleanup temp files and kill stray background jobs on script exit/signal | Required for any script with background jobs — `trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$TMPDIR"' EXIT INT TERM` |
+| `tee` (coreutils) | existing | Dual output: JSON to file + human-readable to stdout simultaneously | Use for report generation: `generate_report | tee audit-report.md` so operator sees progress while file is written |
+| Node.js (v22, existing) | v22.22.0 | One-off helpers: comms-link WS notify, WhatsApp summary dispatch | NOT for audit logic. Only for the two integration points that require it: comms-link send-message.js and WhatsApp. Never replace bash control flow with Node. |
+| `set -euo pipefail` (bash) | bash 5.x | Fail-fast: exit on unset variable, propagate pipe failures | Use in every sourced library file. The main runner MUST NOT use `set -e` — it needs to collect FAIL results without aborting. Child subshells use `set -e` so individual check failures are captured, not propagated up. |
 
-### No New Crates Required
+### Development Tools
 
-All capability gaps can be closed using existing dependencies. This is the key finding of this research. Adding crates for v17.1 would be over-engineering — the primitives are already present.
-
-**Existing stack covers everything:**
-
-| Need | Existing Solution |
-|------|------------------|
-| Process supervision (spawn + verify) | `tier1_fixes::restart_service()` + `verify_service_started()` — already polls health endpoint for 20s post-spawn |
-| Crash pattern memory/matching | `debug_memory::DebugMemory::instant_fix()` + `derive_pattern_key()` — already in rc-sentry |
-| Tier 2 memory lookup before Tier 3 LLM | `debug_memory.rs` API is ready; just not called from `handle_crash()` before `ollama` |
-| Graduated response (Tier 1 → 2 → 3 → 4) | Tier 1 in `tier1_fixes.rs`, Tier 3 in `ollama.rs`; needs wiring into main crash handler |
-| Recovery authority coordination | `recovery::ProcessOwnership` + `RecoveryAuthority` enum — registry exists |
-| Windows service lifecycle | `windows-service = "0.8"` already in rc-watchdog/Cargo.toml |
-| Deliberate shutdown detection | `GRACEFUL_RELAUNCH` + `RCAGENT_SELF_RESTART` sentinels already exist |
-| Crash diagnosis reporting to server | `CrashDiagResult` type in rc-common; fleet API endpoints in racecontrol |
-| Alert escalation (Tier 4) | `bono_alert.rs` in rc-watchdog; WhatsApp via existing comms-link relay |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| `winget install jqlang.jq` | Install jq 1.8.1 on James's machine | One-time setup. After install, `jq --version` should show `jq-1.8.1`. Verify jq is on PATH in Git Bash: `which jq`. |
+| `bash -n script.sh` | Syntax check audit scripts without running them | Run in CI (comms-link test/run-all.sh gate) to prevent deploying broken audit scripts. |
+| `shellcheck` (optional) | Static analysis for bash scripts | Not required, but catches `[[ ]]` vs `[ ]` misuse, unquoted variables, and SC2086/SC2046 glob expansion bugs. Available via winget or scoop if needed. |
 
 ---
 
-## Integration Points: What to Wire Up
+## Installation
 
-### 1. Wire Tier 2 Into rc-sentry Crash Handler
+```bash
+# One-time setup — jq (the only missing tool)
+winget install jqlang.jq
 
-**Location:** `crates/rc-sentry/src/tier1_fixes.rs` — `handle_crash()` function.
+# Verify in Git Bash after install
+jq --version   # expect: jq-1.8.1
 
-The current `handle_crash()` runs Tier 1 fixes then goes straight to `restart_service()`. Before calling Ollama (Tier 3), it should check pattern memory:
-
-```rust
-// Current flow (abbreviated):
-handle_crash(ctx, tracker) → [tier1 fixes] → restart_service()
-
-// v17.1 flow:
-handle_crash(ctx, tracker)
-  → [tier1 fixes]
-  → derive_pattern_key(ctx) → DebugMemory::instant_fix(key)
-       → if known pattern: apply recorded fix (Tier 2 instant replay)
-       → if unknown: query_ollama(ctx) async (Tier 3)
-            → on result: record fix in DebugMemory
-  → restart_service()
+# All other tools already present — no installs needed
+bash --version | head -1
+curl --version | head -1
+ssh -V 2>&1
+diff --version | head -1
 ```
 
-**No new types needed.** `CrashIncident.fix_type` already stores the fix type string. Map fix_type strings to the existing `fix_*` function dispatch.
+---
 
-### 2. Enforce Recovery Authority Before Any Restart
+## Alternatives Considered
 
-**Location:** `crates/rc-common/src/recovery.rs` — `ProcessOwnership` registry.
-
-The registry exists but is not enforced at call sites. Each recovery authority (rc-sentry, pod_healer, james_monitor) should call `ownership.owner_of(process)` before attempting a restart. If a different authority owns the process, log and skip — do not fight.
-
-**Pattern:**
-
-```rust
-// In rc-sentry tier1_fixes.rs before restart_service():
-if let Some(owner) = ownership.owner_of("rc-agent.exe") {
-    if owner != RecoveryAuthority::RcSentry {
-        // Another authority is handling this — skip our restart
-        return (results, false);
-    }
-}
-```
-
-The `ProcessOwnership` struct is not `Sync` by itself. Wrap in `Arc<Mutex<ProcessOwnership>>` in AppState-equivalents where shared across threads (rc-sentry is pure std threads, so `std::sync::Mutex` — already in use for other guards in the codebase).
-
-### 3. Sentinel Check in pod_monitor Before WoL
-
-**Location:** `crates/racecontrol/src/` — pod_monitor or pod_healer module.
-
-pod_monitor currently uses `RecoveryAuthority::PodHealer`. Before sending WoL or triggering restart, it should check for sentinel files on the pod via rc-sentry `/files` endpoint (already exists as a 6th endpoint on rc-sentry):
-
-- `C:\RacingPoint\MAINTENANCE_MODE` — pod deliberately stopped, do NOT WoL
-- `C:\RacingPoint\GRACEFUL_RELAUNCH` — self-monitor restart in progress, skip WoL
-- `C:\RacingPoint\rcagent-restart-sentinel.txt` — deploy restart in progress, skip WoL
-
-This is the missing "distinguish crash vs deliberate shutdown" logic. No new API needed — rc-sentry already serves `/files` which can read sentinel paths.
-
-### 4. James Monitor Tier 3 Path
-
-**Location:** `crates/rc-watchdog/src/james_monitor.rs`
-
-The james_monitor runs a 2-min check loop (confirmed in main.rs). Currently it checks services are alive. v17.1 adds:
-
-1. On failure detection: check james debug memory (`C:\Users\bono\racingpoint\recovery-log.jsonl`) for past incidents
-2. If no known pattern: query Ollama at 192.168.31.27:11434 (same host — low latency, no network dependency)
-3. Log decision to `RECOVERY_LOG_JAMES` constant already defined in recovery.rs
-
-The Ollama query path is already implemented in `rc-sentry/src/ollama.rs`. Extract `query_crash()` into `rc-common` or use it directly from rc-watchdog by referencing rc-sentry source. The cleaner approach: move `ollama.rs` content to `rc-common/src/ollama.rs` so both rc-sentry and rc-watchdog share it without code duplication.
-
-**Cargo change needed:**
-
-```toml
-# crates/rc-common/Cargo.toml — add (for ollama module):
-# No new crates — TcpStream HTTP is already used in rc-common exec.rs
-# ollama.rs uses std::net::TcpStream + serde_json — both already in rc-common
-```
-
-### 5. Tier 4 Escalation: WhatsApp Alert
-
-**Existing path:** `bono_alert.rs` in rc-watchdog uses the comms-link relay at `localhost:8766`.
-
-This is already the Tier 4 escalation path for james_monitor. For pod-side escalation (rc-sentry reaching Tier 4), the path is: rc-sentry → fleet API on racecontrol (`POST /api/v1/fleet/alert`) → racecontrol → comms-link relay → WhatsApp. This indirect path is correct — pods do not have direct comms-link access.
-
-No new crates. The fleet API alert endpoint may need to be added to racecontrol if not already present (verify against existing routes before adding).
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| Pure bash + jq | Python script (python3 available) | When you need complex data structures (dicts, sets, sorting) that bash+jq cannot express cleanly. For this audit, jq handles all JSON needs; Python would add a different interpreter context with different error handling. |
+| `wait -n` bounded parallelism | GNU Parallel (`parallel`) | GNU Parallel is more ergonomic for complex fan-out patterns, but it is NOT installed on James's machine and requires a separate download. `wait -n` + PID arrays achieve the same 4-concurrent-pod limit with zero new deps. |
+| `diff` for delta tracking | `jd` (JSON diff tool) | `jd` (github.com/josephburnett/jd) provides semantic JSON diff — better for nested structure changes. Use it if pure field-level diff proves insufficient. Requires Go binary download. Start with `diff` + jq field extraction; upgrade to jd only if regression detection needs path-level granularity. |
+| curl for all HTTP | Node fetch / axios | Node is available but adding Node to the audit control path means Node errors look like audit errors. Keep curl as the HTTP tool — it returns exit codes that bash can test directly. |
+| comms-link relay for Bono notifications | Direct SSH to Bono VPS | comms-link relay is the standing rule default. SSH is fallback only. Audit completion notification MUST go through relay so there is an audit trail. |
+| Temp dir + jq merge for parallel output | Named pipes / mkfifo | Named pipes are elegant but fragile on Windows Git Bash — FIFO semantics differ from Linux. Temp files are reliable, predictable, and debuggable (you can inspect them after a failed run). |
 
 ---
 
-## Confirmed Existing Crates (rc-watchdog Cargo.toml)
-
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| windows-service | 0.8 | Windows SYSTEM service lifecycle (SCM registration, stop signal handling) |
-| reqwest | 0.12 blocking | HTTP crash reports to racecontrol fleet API |
-| winapi 0.3 | wtsapi32, processthreadsapi, winbase, handleapi, securitybaseapi, userenv, winnt, errhandlingapi | Session 1 process launch (launching GUI processes from SYSTEM service context) |
-
-The `winapi` features already selected in rc-watchdog cover all Windows process supervision needs for v17.1 — no additional winapi features needed.
-
----
-
-## What NOT to Add
+## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `sysinfo` for process inspection in watchdog | Anti-cheat constraint — EAC and iRacing ban process enumeration APIs; sysinfo uses CreateToolhelp32Snapshot | Health endpoint polling (already used) — pure TCP, anti-cheat safe |
-| `tokio` in rc-sentry | rc-sentry is deliberately pure std::net — zero shared runtime deps with the process it's watching; tokio in both creates crash coupling | std::thread + std::sync::mpsc (already in place) |
-| A new "watchdog coordinator" binary | Would require new port, new process, new auth, new deploy; coordination is a data problem not a process problem | rc-common ProcessOwnership registry + sentinel files (already exist) |
-| External pattern matching library (regex, etc.) | Pattern keys are derived from structured fields (panic message, exit code, startup phase) — substring matching is sufficient and anti-cheat safe | `String::contains()` + `derive_pattern_key()` (already in debug_memory.rs) |
-| `anyhow` in rc-sentry | rc-sentry currently has no anyhow dep — error handling is manual match; adding anyhow for a minor ergonomics win would increase binary size | Manual `match` + `tracing::warn!` (established pattern) |
-| Persistent SQLite for pattern memory | debug-memory.json atomic write is already implemented, simple, and sufficient for 50 patterns with hit_count pruning | debug-memory-sentry.json (already in debug_memory.rs) |
-| HTTP client library (reqwest) in rc-sentry | rc-sentry uses raw TcpStream HTTP on purpose — no tokio runtime, no TLS, minimal binary; reqwest would pull in tokio + hyper | std::net::TcpStream HTTP (established pattern in watchdog.rs and ollama.rs) |
-| Separate crash log aggregator | 8 pods, each with local JSONL log, served via existing rc-sentry /files endpoint | RecoveryLogger JSONL (already in rc-common/recovery.rs) |
+| `set -e` in the main audit runner | The runner MUST collect FAIL results without aborting. `set -e` would exit on the first pod that returns non-200, discarding all subsequent results. | Explicit exit code capture: `result=$(curl ... 2>&1); exit_code=$?; [[ $exit_code -ne 0 ]] && record_fail ...` |
+| Inline JSON string concatenation in bash | Bash string escaping is hostile to JSON. Double quotes, backslashes, newlines in log messages will corrupt the output silently. Already a standing rule: "Git Bash JSON: write JSON payloads to a file". | `jq -n --arg key "$value"` always. Never `echo '{"key":"'$value'"}'`. |
+| `xargs -P` for pod parallelism | xargs mangles arguments with spaces and special characters. Pod IPs are safe, but xargs passes all args as one string to the command — the callback function can't receive structured results. | `for IP in $PODS; do (check_pod "$IP") & pids+=($!); done; wait` with temp file output collection. |
+| `eval` for dynamic command construction | Audit scripts will compose commands from pod IPs, phase names, and fix commands. `eval` with any external input is a security hole and makes debugging impossible. | Arrays: `cmd=("curl" "-s" "--max-time" "5" "http://$IP:8090/health"); "${cmd[@]}"` |
+| Unbounded background jobs | Running all 60 phases × 8 pods simultaneously = 480 background processes. Git Bash has a ~256 process limit; Windows kernel has overhead per process. Exceeds constraint: "max 4 concurrent pod queries". | `wait -n` semaphore: check `jobs | wc -l` or track PID count before launching next job. |
+| `timeout` command for curl timeouts | `timeout` behavior differs between GNU coreutils (Linux) and Git Bash on Windows. It exists but can behave unexpectedly with subshells. | curl native timeout flags: `--max-time 10 --connect-timeout 5`. Always set both. Never rely on process-level timeout for HTTP calls. |
+| SaltStack / Ansible / Puppet | v6.0 was blocked by BIOS AMD-V. Fleet management via HTTP APIs + SSH is the proven, working path. These tools add new compiled deps contradicting the constraint. | Existing rc-agent exec endpoint (:8090) + SSH via Tailscale. |
+| Writing `.bat` files as the audit format | .bat files are CRLF-sensitive, cmd.exe hostile to quoting, and cannot produce structured JSON output. All standing rules about .bat file pitfalls apply. | Pure bash scripts that call the rc-agent HTTP exec endpoint for anything that needs to run on the pod. |
 
 ---
 
-## Cargo.toml Changes for v17.1
+## Stack Patterns by Variant
 
-The only Cargo change needed is moving the Ollama module to rc-common for sharing:
+**For quick mode (Phases 1-16, daily health check):**
+- Run all 8 pods in parallel (8 concurrent — safe for quick health polls)
+- Use `wait` (not `wait -n`) — simpler, all 8 complete before summary
+- Target: <5 minutes wall clock
 
-```toml
-# crates/rc-common/Cargo.toml — no new external dependencies
-# ollama.rs uses: serde_json (workspace), std::net::TcpStream — both present
-# Move src from rc-sentry/src/ollama.rs → rc-common/src/ollama.rs
-# Add pub mod ollama; to rc-common/src/lib.rs
-# Update rc-sentry to use rc_common::ollama::query_crash()
-# rc-watchdog uses rc-common (workspace) — gets ollama module for free
-```
+**For standard/full mode (all 50-60 phases):**
+- Max 4 concurrent pod queries at any time (`wait -n` semaphore)
+- Tier ordering preserved: complete tier N before starting tier N+1
+- Target: <20 minutes automated vs 90-120 minutes manual
 
-**Total new crates for v17.1: 0**
+**For pre-ship mode (critical subset only):**
+- Phases 1, 51, 53, 57, 46, 48-50, 58 (as defined in AUDIT-PROTOCOL v3.0)
+- Run sequentially within each phase — pre-ship needs deterministic ordering for audit trail
+- Emit pass/fail summary to comms-link + WhatsApp on completion
+
+**For post-incident mode:**
+- Skip QUIET phases (venue-closed hardware checks)
+- Run Tier 1 (infrastructure) + the tier most relevant to the incident
+- Emit delta: compare against last pre-incident audit JSON
+
+**For venue-closed state (QUIET detection):**
+- Check `GET /api/v1/fleet/health` — if all pods `ws_connected: false` AND `http_reachable: false`, venue is closed
+- Mark hardware/display/kiosk-browser phases as QUIET rather than FAIL
+- Still run all server, cloud, comms-link, and static analysis phases
 
 ---
 
-## Session 1 Process Launch (Critical Windows Constraint)
+## Integration Points: Existing Infrastructure
 
-The existing rc-watchdog `winapi` setup already handles the primary Windows constraint for v17.1: launching GUI processes (Edge, lock screen) from a SYSTEM service context requires a Session 1 token. This is already solved in `rc-watchdog/src/session.rs` via `WTSQueryUserToken` + `CreateProcessAsUser`.
-
-For v17.1, any NEW process launches triggered by AI recovery actions (e.g., relaunching Edge, relaunching lock screen) must use the same `session.rs` path — do not use `std::process::Command` directly from the watchdog service context for GUI processes.
-
-**Rule:** `std::process::Command` = console/background processes (rc-agent, schtasks). Session 1 launch = GUI processes (Edge, lock screen). Mixing these causes the "launches but nothing appears on screen" failure mode.
+| Integration | How | Notes |
+|-------------|-----|-------|
+| Fleet health check | `curl -s --max-time 10 http://192.168.31.23:8080/api/v1/fleet/health` | Returns array of PodFleetStatus. Parse with jq: `.[] | select(.pod_number == N)` |
+| Pod exec | `curl -s -X POST http://<POD_IP>:8090/exec -d '{"cmd":"..."}'` | Write cmd to temp file, use `-d @file` per standing rule on JSON in Git Bash |
+| Pod exec via rc-sentry | `curl -s -X POST http://<POD_IP>:8091/exec -d @file.json` | Fallback when rc-agent is down. rc-sentry :8091 has 6 endpoints including /files |
+| Server exec | `curl -s -X POST http://192.168.31.23:8090/exec -d @file.json` | Server :8090 is server_ops (part of racecontrol binary) |
+| Auth token | `SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth -H "Content-Type: application/json" -d '{"pin":"261121"}' \| jq -r '.session')` | Reuse single token across all authenticated phases |
+| Comms-link Bono notify | `cd C:/Users/bono/racingpoint/comms-link && COMMS_PSK="..." COMMS_URL="ws://..." node send-message.js "audit complete: N pass, M fail"` | Node-based — call from audit runner at completion. Not bash, called as subprocess. |
+| WhatsApp Uday summary | `curl -s -X POST http://localhost:8766/relay/exec/run -H "Content-Type: application/json" -d @whatsapp-payload.json` | comms-link relay exec. The relay handles WhatsApp dispatch. |
+| SSH fallback | `ssh -o StrictHostKeyChecking=no User@<tailscale_ip> "command"` | Only when HTTP unreachable. Per standing rule: SSH only as fallback. |
+| OTA sentinel awareness | Check `C:\RacingPoint\OTA_DEPLOYING` via rc-sentry /files before any fix action | Standing rule: never restart during OTA. Audit auto-fix MUST check this sentinel. |
+| MAINTENANCE_MODE awareness | Check `C:\RacingPoint\MAINTENANCE_MODE` before recording pod as FAIL | Pod with MAINTENANCE_MODE sentinel is deliberately stopped — report as QUIET/WARN, not FAIL |
 
 ---
 
-## Recovery Coordination Protocol (No New Crate — Sentinel + JSONL)
+## Output Format Strategy
 
-The v17.1 "single recovery authority per machine" requirement is solved by two existing mechanisms:
-
-**Sentinel files** (coarse lock — prevents two systems restarting simultaneously):
+Two files per audit run — human + machine:
 
 ```
-C:\RacingPoint\GRACEFUL_RELAUNCH        — rc-agent self_monitor restart in progress
-C:\RacingPoint\rcagent-restart-sentinel.txt — deploy restart in progress
-C:\RacingPoint\MAINTENANCE_MODE         — all restarts blocked
+audit-results/
+  YYYY-MM-DD_HHMMIST_quick.json      # Structured: all results, severity, timestamps
+  YYYY-MM-DD_HHMMIST_quick.md        # Human: tier summaries, delta from previous, auto-fix log
+  latest-quick.json                  # Symlink / copy to latest — used for delta comparison
+  latest-standard.json
+  latest-full.json
+  suppression.json                   # Known issues: {phase, host, pattern} → suppress if matches
 ```
 
-**RecoveryDecision JSONL** (audit trail — what happened and why):
-
-```
-C:\RacingPoint\recovery-log.jsonl       — pod + server decisions (RECOVERY_LOG_POD)
-C:\Users\bono\racingpoint\recovery-log.jsonl — james decisions (RECOVERY_LOG_JAMES)
-```
-
-**ProcessOwnership registry** (runtime — prevents authority conflicts):
-
-```rust
-// rc-common::recovery::ProcessOwnership
-// Checked before any restart action
-// Single source of truth: "who owns rc-agent.exe?"
-```
-
-These three together provide the coordination without any new infrastructure.
+Delta logic: `diff <(jq -S '.' latest-full.json) <(jq -S '.' current-full.json)` produces a unified diff. Extract regressions (new FAILs) with jq: `.results[] | select(.status == "FAIL")` compared against previous run's same field.
 
 ---
 
@@ -243,27 +176,27 @@ These three together provide the coordination without any new infrastructure.
 
 | Package | Version | Notes |
 |---------|---------|-------|
-| windows-service | 0.8 | Existing; handles Windows SCM contract correctly |
-| winapi | 0.3 | Existing; WTSQueryUserToken for Session 1 launch |
-| reqwest | 0.12 blocking | Existing in rc-watchdog; blocking feature required (no tokio in watchdog) |
-| serde/serde_json | 1 (workspace) | debug-memory.json, recovery-log.jsonl serialization |
-| chrono | 0.4 (workspace) | RecoveryDecision UTC timestamps |
-| tracing | 0.1 (workspace) | All structured logging |
-
-No version conflicts — all additions use existing workspace versions.
+| bash | 5.2.37 | `wait -n` requires bash 4.3+. `declare -A` associative arrays require bash 4.0+. Both confirmed available. |
+| jq | 1.8.1 | Latest stable as of 2026-03. Fixes CVE-2025-49014 heap use-after-free. Use `jq -e` for exit-code-based failure detection (exits non-zero if result is false/null). |
+| curl | 8.18.0 | Schannel TLS (Windows native). No `--cacert` needed for HTTPS to known hosts. `--max-time` and `--connect-timeout` both supported. `-w "%{http_code}"` for status code extraction. |
+| ssh | OpenSSH (Git Bash) | `StrictHostKeyChecking=no` required for pod Tailscale IPs (host keys not pre-registered). Already used in standing rules. |
+| Node.js | v22.22.0 LTS | Used ONLY for send-message.js (comms-link WS) and WhatsApp relay calls. Not imported into audit logic. |
 
 ---
 
 ## Sources
 
-- `crates/rc-sentry/src/` (watchdog.rs, tier1_fixes.rs, debug_memory.rs, ollama.rs, main.rs) — read directly: HIGH confidence
-- `crates/rc-common/src/` (recovery.rs, watchdog.rs, exec.rs) — read directly: HIGH confidence
-- `crates/rc-watchdog/Cargo.toml` and `src/main.rs` — read directly: HIGH confidence
-- `crates/rc-agent/src/ai_debugger.rs` — read directly: HIGH confidence
-- PROJECT.md v17.1 milestone goals — read directly: HIGH confidence
-- CLAUDE.md standing rules (spawn verification, non-interactive context, Session 1 constraint) — read directly: HIGH confidence
+- bash 5.2 `wait -n` docs — HIGH confidence (builtin, verified on James's machine)
+- jq 1.8.1 release notes (github.com/jqlang/jq/releases) — HIGH confidence (latest stable June 2025, CVE fix in 1.8.1)
+- jq official docs (jqlang.org) — HIGH confidence
+- curl 8.18.0 (verified live: `curl --version`) — HIGH confidence
+- AUDIT-PROTOCOL.md v3.0 (1928 lines, read directly) — HIGH confidence
+- CLAUDE.md standing rules (JSON in Git Bash, cmd.exe quoting, OTA sentinel, SSH fallback) — HIGH confidence
+- PROJECT.md v23.0 milestone spec (read directly) — HIGH confidence
+- comms-link send-message.js (verified path: `C:/Users/bono/racingpoint/comms-link/send-message.js`) — HIGH confidence
+- WebSearch: parallel bash patterns, jq on Windows, delta tracking approaches — MEDIUM confidence (corroborated by live tool verification)
 
 ---
 
-*Stack research for: v17.1 Watchdog-to-AI Migration — AI-driven recovery on Windows, 8-pod fleet*
+*Stack research for: v23.0 Audit Protocol v4.0 — bash automated fleet audit runner*
 *Researched: 2026-03-25 IST*

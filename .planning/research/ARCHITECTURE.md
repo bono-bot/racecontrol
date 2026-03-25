@@ -1,632 +1,809 @@
 # Architecture Research
 
-**Domain:** AI-driven recovery integration into rc-sentry / rc-agent / racecontrol
+**Domain:** Bash-based automated fleet audit system (v23.0 Audit Protocol v4.0)
 **Researched:** 2026-03-25
-**Confidence:** HIGH — based on direct code analysis of all affected crates
+**Confidence:** HIGH — based on direct analysis of AUDIT-PROTOCOL v3.0, PROJECT.md milestone spec,
+existing infrastructure (APIs, comms-link relay, WhatsApp alerter), and CLAUDE.md standing rules.
 
 ---
 
-## Current State Inventory
+## What We Are Building
 
-Before defining the target architecture, the existing recovery actors must be fully mapped. The
-codebase already has significant structure that v17.1 must extend, not replace.
+AUDIT-PROTOCOL v3.0 is a 1928-line markdown document with 60 phases of copy-paste bash commands.
+Running an audit currently means: open the document, read the description, manually copy each curl
+block, decide whether the output is PASS/FAIL, record results in a separate summary template. A full
+audit takes 45-90 minutes of active operator attention.
 
-### Existing Recovery Actors (as of 2026-03-25)
+v23.0 transforms this into a single command:
 
-| Actor | Binary | Location | Scope | Mechanism |
-|-------|--------|----------|-------|-----------|
-| `rc-sentry watchdog` | `rc-sentry.exe` | Pod :8091 | rc-agent health | 5s HTTP poll, 3-poll hysteresis FSM, `CrashContext` build |
-| `rc-sentry tier1_fixes` | `rc-sentry.exe` | Pod :8091 | rc-agent crash | kill zombies, port wait, CLOSE_WAIT clean, config repair, restart via schtasks |
-| `rc-sentry debug_memory` | `rc-sentry.exe` | Pod :8091 | crash pattern replay | `debug-memory-sentry.json`, `derive_pattern_key`, instant fix lookup |
-| `rc-agent self_monitor` | `rc-agent.exe` | Pod :8090 | self-recovery | 60s check, CLOSE_WAIT threshold, WS dead 5min, PowerShell+DETACHED_PROCESS relaunch |
-| `pod_monitor` | `racecontrol.exe` | Server :8080 | heartbeat detection | pure detector, flags `PodStatus::Offline`, delegates ALL repair to pod_healer |
-| `pod_healer` | `racecontrol.exe` | Server :8080 | graduated recovery | `PodRecoveryTracker` (Waiting→TierOneRestart→AiEscalation→AlertStaff), cascadeGuard |
-| `cascade_guard` | `racecontrol.exe` | Server :8080 | anti-cascade | 60s window, 3 cross-authority actions = 5min pause + WhatsApp alert |
-| `rc-watchdog service` | `rc-watchdog.exe` | Pod SYSTEM | rc-agent process | Windows Service, tasklist poll every 5s, session1 spawn on miss |
-| `james_monitor` | `rc-watchdog.exe` | James :27 | James-side services | 10 services (ollama, comms-link, go2rtc, racecontrol, kiosk, dashboard...), 4-step graduated AI recovery |
-| `RecoveryAuthority` | `rc-common` | shared lib | ownership registry | `ProcessOwnership` map: RcSentry, PodHealer, JamesMonitor registered as exclusive owners |
-
-### Ownership Already Defined in rc-common
-
-`rc_common::recovery::RecoveryAuthority` establishes three registered authorities. The
-`ProcessOwnership` registry prevents double-registration with `OwnershipConflict`. The
-`RecoveryDecision` / `RecoveryLogger` JSONL pipeline logs every action to
-`C:\RacingPoint\recovery-log.jsonl` (pods/server) or `C:\Users\bono\racingpoint\recovery-log.jsonl`
-(James).
-
-This means the coordination scaffolding already exists at the type level. v17.1 fills in behavior,
-not new infrastructure.
-
----
-
-## The Conflict Map
-
-Before defining the target architecture, the exact conflicts must be named.
-
+```bash
+bash audit/audit.sh --mode standard
 ```
-Per-pod: Three actors compete for rc-agent.exe recovery authority
 
-  rc-sentry watchdog    rc-agent self_monitor    rc-watchdog service
-  (external, :8091)     (internal task,          (SYSTEM svc,
-  15s hysteresis +      60s check, WS dead)      tasklist 5s poll,
-  tier1 + schtasks                               session1 spawn)
-       |                        |                        |
-       +------------------------+------------------------+
-                                |
-                    All three can restart rc-agent
-                    independently, with no coordination.
-                    Race condition: two processes try to
-                    bind port 8090 simultaneously.
+That command runs all appropriate phases non-interactively, scores each phase, emits structured JSON,
+generates a Markdown report comparing against the previous audit, applies pre-approved auto-fixes,
+notifies Bono via comms-link, and sends a WhatsApp summary to Uday. Total time: under 5 minutes
+unattended.
 
-Server side: Two actors compete for pod restart decisions
-
-  pod_monitor (detector)  ------>  pod_healer (PodRecoveryTracker)
-  (heartbeat timeout,              Waiting -> TierOneRestart ->
-  marks pod Offline)               AiEscalation -> AlertStaff
-                                          |
-                                    cascade_guard
-                                    (multi-authority detection
-                                    -- but pod_healer never
-                                    knows about rc-sentry's
-                                    actions on the same pod)
-
-WoL gap: pod_healer cannot distinguish crash vs deliberate shutdown
-
-  Pod offline (MAINTENANCE_MODE active)
-    -> pod_healer -> WoL
-    -> rc-agent starts
-    -> rc-sentry sees MAINTENANCE_MODE -> skips restart
-    -> pod stays dead
-    -> pod_healer fires WoL again
-    -> infinite loop
-```
+The system is pure bash — no new compiled dependencies, no new services, no new ports.
 
 ---
 
 ## System Overview
 
-### Target Architecture: Single Authority Per Machine
-
 ```
-+-------------------------------------------------------------------+
-|  JAMES (.27)                                                      |
-|  james_monitor (rc-watchdog james mode)                           |
-|  Authority: JamesMonitor over ollama, comms-link, go2rtc,        |
-|             webterm, racecontrol, kiosk, dashboard, tailscale    |
-|  NOT an authority over pod internals (that is RcSentry's domain) |
-+-------------------------------------------------------------------+
-         | monitors racecontrol health via HTTP
-         v
-+-------------------------------------------------------------------+
-|  SERVER (.23) -- racecontrol.exe                                  |
-|  pod_monitor: detector only, no actions                           |
-|  pod_healer:  PodHealer authority -- server-level recovery ONLY   |
-|  cascade_guard: cross-authority anti-cascade                      |
-|  Recovery log: C:\RacingPoint\recovery-log.jsonl                  |
-+----------------------+--------------------------------------------+
-                       | WS + HTTP
-       +---------------+----------------+
-       v                                v
-+------------------+         +------------------+
-|  POD N (.xx)     |   ...   |  POD 8 (.91)     |
-|                  |         |  (canary)        |
-|  rc-sentry       |         |  rc-sentry       |
-|  :8091           |         |  :8091           |
-|  RcSentry        |         |  RcSentry        |
-|  AUTHORITY       |         |  AUTHORITY       |
-|                  |         |                  |
-|  rc-agent        |         |  rc-agent        |
-|  self_monitor    |         |  self_monitor    |
-|  yields to       |         |  yields to       |
-|  RcSentry        |         |  RcSentry        |
-|  :8090           |         |  :8090           |
-|                  |         |                  |
-|  rc-watchdog     |         |  rc-watchdog     |
-|  SYSTEM svc      |         |  SYSTEM svc      |
-|  last-resort     |         |  last-resort     |
-|  only            |         |  only            |
-+------------------+         +------------------+
++------------------------------------------------------------------+
+|  James (.27) — audit runner                                      |
+|                                                                  |
+|  audit/audit.sh  <-- entry point, mode selector, tier scheduler |
+|       |                                                          |
+|       +-- audit/lib/core.sh     -- PASS/WARN/FAIL/QUIET helpers |
+|       +-- audit/lib/parallel.sh -- background job throttle      |
+|       +-- audit/lib/fixes.sh    -- pre-approved auto-fix ops    |
+|       +-- audit/lib/delta.sh    -- diff against last results     |
+|       +-- audit/lib/notify.sh   -- comms-link + WhatsApp output  |
+|       |                                                          |
+|       +-- audit/phases/tier1/   -- 10 phases (infra foundation)  |
+|       +-- audit/phases/tier2/   -- 6 phases  (core services)     |
+|       +-- audit/phases/tier3/   -- 4 phases  (display/UX)        |
+|       +-- audit/phases/tier4/   -- 5 phases  (billing/commerce)  |
+|       +-- audit/phases/tier5/   -- 4 phases  (games/hardware)    |
+|       +-- audit/phases/tier6/   -- 5 phases  (notifications)     |
+|       +-- audit/phases/tier7/   -- 5 phases  (cloud/PWA)         |
+|       +-- audit/phases/tier8/   -- 5 phases  (security/access)   |
+|       +-- audit/phases/tier9/   -- 6 phases  (data/analytics)    |
+|       +-- audit/phases/tier10/  -- 5 phases  (AI/feature flags)  |
+|       +-- audit/phases/tier11/  -- 5 phases  (marketing/staff)   |
+|       +-- audit/phases/tier12/  -- 5 phases  (OTA/deployment)    |
+|       |                                                          |
+|       +-- audit/results/        -- JSON output per run           |
+|       +-- audit/reports/        -- Markdown reports per run      |
+|       +-- audit/suppress.json   -- known-issue suppression list  |
++------------------------------------------------------------------+
+         |                    |                    |
+         | HTTP APIs          | SSH (Tailscale)    | comms-link relay
+         v                    v                    v
+  Server .23           Bono VPS               WhatsApp
+  :8080/:8090         :8080/:8766             (via Evolution API
+  8 pods :8090/:8091   comms-link relay        on Bono VPS)
 ```
 
 ---
 
-## Component Responsibilities
+## Component Boundaries
 
-### After v17.1
+### Component 1: audit.sh — Entry Point and Tier Scheduler
 
-| Component | Responsibility | Does NOT Do |
-|-----------|----------------|-------------|
-| `rc-sentry watchdog` | Single recovery authority for rc-agent on the pod. Detects crash via HTTP poll (15s hysteresis). Applies Tier 1 fixes. Checks pattern memory. Queries Ollama if pattern unknown. Restarts via schtasks. Reports to server. | Process inspection (anti-cheat). WoL. Server-level restart. James-side services. |
-| `rc-agent self_monitor` | Detects WS-dead / CLOSE_WAIT floods as signals to report to rc-sentry. Writes GRACEFUL_RELAUNCH sentinel before self-restart. Does NOT restart independently after rc-sentry is running. | Acting as recovery authority. Triggering independent restarts (conflicts with rc-sentry). |
-| `rc-watchdog.exe (pod mode)` | Last-resort only: catches rc-agent crash if rc-sentry itself has died. Wraps restart in grace window so rc-sentry can run first. Reports crash count to server. | First-responder restarts. AI diagnosis. Pattern memory. Tier 1 fixes. |
-| `pod_monitor` | Pure detector. Marks pods Offline on heartbeat timeout. Delegates all repair to pod_healer. | Any restart or WoL decisions. |
-| `pod_healer` | Server-level graduated recovery: WoL if pod OS offline, alert staff after N attempts. Receives rc-sentry recovery events via server API to distinguish "rc-agent crashed but pod is alive" from "entire pod is offline". | rc-agent-level restarts (that is rc-sentry's job). Tier 1 fixes on pods (rc-sentry is closer). |
-| `cascade_guard` | Detects multi-authority conflict (RcSentry + PodHealer both firing in 60s window). Pauses recovery + alerts Uday. | Deciding who is right in a conflict. |
-| `james_monitor` | Monitors James-local and server-level services. Graduated AI recovery for its owned services. | Pod internals. rc-agent restart. |
+**Responsibility:** Single entry point. Parses `--mode` flag, selects which tiers to run, detects
+venue-open/closed state, initializes shared variables (SESSION token, PODS array, RUN_ID, OUTPUT
+paths), schedules tier execution, invokes report and notify steps after tiers complete.
+
+**Does NOT do:** Execute individual phase checks. Parse command output. Apply fixes. Send
+notifications directly.
+
+**Inputs:** `--mode quick|standard|full|pre-ship|post-incident`, optional `--pod N` for single-pod
+focus, optional `--tier N` for single-tier focus.
+
+**Outputs:** Sets `AUDIT_RUN_ID`, `AUDIT_START_IST`, `RESULTS_DIR`, `REPORT_PATH` for all children.
+
+**Mode → Tier mapping:**
+```
+quick:         Tier 1 (infra) + Tier 2 (core services) only — ~10 phases
+standard:      Tiers 1-6 + skip hardware/display (venue-closed aware) — ~40 phases
+full:          All 60 phases
+pre-ship:      All 60 phases + strict severity (WARN treated as FAIL)
+post-incident: All 60 phases + verbose output + no suppression
+```
+
+**Venue-open detection:**
+```bash
+ACTIVE_SESSIONS=$(curl -s http://192.168.31.23:8080/api/v1/billing/sessions/active \
+  -H "x-terminal-session: $SESSION" 2>/dev/null | jq 'length // 0')
+# OR: check time-of-day heuristic (09:00–22:00 IST = likely open)
+```
+
+When venue-closed, Tier 3 (display/UX) and Tier 5 (games/hardware) phases produce QUIET results,
+not FAIL.
 
 ---
 
-## The Core Design Decisions
+### Component 2: Phase Scripts — audit/phases/tierN/phaseNN.sh
 
-### Decision 1: rc-sentry is the single recovery authority per pod
+**Responsibility:** Execute the bash commands for exactly one phase. Emit structured JSON result to
+stdout. Apply pre-approved auto-fixes when fix loop triggers are met. Return exit code 0 always
+(errors are encoded in JSON, not bash exit status).
 
-**Rationale:** rc-sentry is the external survivor -- it outlives rc-agent crashes by design. It
-already has the full recovery pipeline: watchdog FSM -> tier1_fixes -> debug_memory -> ollama ->
-restart_service (verified via health poll).
+**Each phase script:**
+1. Runs its verification commands (curl, jq, ssh)
+2. Evaluates result against expected values
+3. Emits JSON result block (see Data Flow section)
+4. If `AUTO_FIX=1` and fix loop triggers are met: applies safe fix, emits a second JSON block
+   with `"type": "fix_applied"`
+5. Exits 0
 
-The `self_monitor` inside rc-agent has a fundamental flaw: it dies with the patient. Its only
-remaining role is to write the `GRACEFUL_RELAUNCH` sentinel (already done) and to detect CLOSE_WAIT
-floods as an early warning signal. It should NOT act as a restart authority.
+**Phase scripts are thin.** Complex logic (throttling, retries, fix application) lives in lib/.
+Phase scripts source `../lib/core.sh` and call `emit_result`, `emit_fix`, `apply_safe_fix`.
 
-**Enforcement:** `self_monitor.rs relaunch_self()` must be gated: only trigger if rc-sentry is
-unreachable (`:8091` health check fails). If rc-sentry is up, self_monitor writes a sentinel and
-does NOT relaunch -- it trusts rc-sentry to observe the crash and restart cleanly.
-
-### Decision 2: rc-watchdog.exe pod service becomes last-resort fallback
-
-**Current problem:** rc-watchdog polls via `tasklist` every 5s and restarts via
-`session::spawn_in_session1()`. This is blind -- it does not know if rc-sentry already fired, does
-not write any sentinel, does not check MAINTENANCE_MODE. It will fight rc-sentry.
-
-**Target behavior:** rc-watchdog pod service adds a 30s grace window after any
-`C:\RacingPoint\sentry-restart-breadcrumb.txt` write. If rc-sentry has acted in the last 30s,
-rc-watchdog skips its restart. It becomes the backstop: if rc-sentry itself crashes (extremely
-rare), rc-watchdog picks up.
-
-### Decision 3: pod_healer must know when rc-sentry has handled a crash
-
-**Current problem:** pod_healer's `PodRecoveryTracker` operates on `PodStatus::Offline` only. It
-does not know that rc-sentry already restarted rc-agent at the process level. If rc-agent crashes
-and restarts in 20s, pod_healer may still fire WoL (30s Waiting -> TierOneRestart).
-
-**Target behavior:** rc-sentry reports successful restarts to the server's recovery API endpoint.
-pod_healer checks this log before escalating. If rc-sentry already restarted rc-agent within the
-last 60s, pod_healer skips WoL and TierOneRestart (the restart already happened at the right tier).
-
-### Decision 4: MAINTENANCE_MODE must have an auto-clear path
-
-**Current problem:** `enter_maintenance_mode()` writes `C:\RacingPoint\MAINTENANCE_MODE` and nothing
-clears it automatically. pod_healer's WoL revives the pod -> rc-agent tries to start -> rc-sentry
-sees MAINTENANCE_MODE -> skips restart -> pod stays dead permanently until manual intervention.
-
-**Target behavior:** rc-sentry checks MAINTENANCE_MODE age at every crash event. If it is older than
-30 minutes AND the pod has received a WoL (server writes `C:\RacingPoint\WOL_SENT` via rc-sentry
-exec before sending WoL), MAINTENANCE_MODE is cleared and recovery is allowed once more.
-
-### Decision 5: spawn success verification is mandatory everywhere
-
-**Current problem (known):** `Command::spawn().is_ok()` is a lie on Windows non-interactive
-contexts. rc-sentry's `restart_service()` already implements the correct pattern: `schtasks /Run`
-via `run_cmd_sync()` (cmd.exe /C), then polls `:8090/health` for 20s to verify.
-
-**This pattern must not regress.** Any new restart path -- in rc-watchdog, self_monitor, or
-pod_healer -- must include a health poll verification step. A restart that returns `success: true`
-without a health poll is a known-false positive.
+**Naming convention:** `phaseNN.sh` where NN matches v3.0 phase numbers exactly.
+Phase 01 through 60 preserve all v3.0 checks without modification to the commands themselves.
+New v4.0 phases (delta tracking, feature flags) start at 61+.
 
 ---
 
-## Data Flow: Recovery Pipeline
+### Component 3: lib/core.sh — Shared Primitives
 
-### Happy path: rc-agent crashes, rc-sentry handles it
+**Responsibility:** Shared bash functions used by every phase script and by audit.sh itself.
 
-```
-rc-agent crash
-    |
-    v  (5s x 3 polls = 15s hysteresis)
-rc-sentry watchdog FSM: Healthy -> Suspect(1) -> Suspect(2) -> Crashed
-    |
-    v
-build_crash_context() -- reads startup_log + stderr_log
-    |
-    +-> GRACEFUL_RELAUNCH sentinel? -> skip escalation counter, clear, restart
-    |
-    +-> RCAGENT_SELF_RESTART sentinel? -> skip escalation counter, clear, restart
-    |
-    +-> MAINTENANCE_MODE? -> check age:
-    |       age < 30min: skip restart (still in cool-down)
-    |       age > 30min AND WOL_SENT file exists: clear both, allow restart
-    |
-    +-> debug_memory.instant_fix(pattern_key) hit? -> apply known Tier 1 fix, skip Ollama
-    |
-    +-> Tier 1 fixes: kill_zombies -> wait_for_port -> close_wait -> config_repair -> shader_cache
-    |
-    +-> Ollama query (James :11434) if pattern unknown -> get RESTART/DIAGNOSE/BLOCK decision
-    |
-    v
-restart_service() via schtasks run_cmd_sync -> poll :8090/health 20s to verify
-    |
-    +-> verified: record in debug_memory, POST to /api/v1/recovery/events, reset tracker
-    +-> not verified: increment tracker -> escalate after 3 failures -> MAINTENANCE_MODE
-```
+**Key functions:**
 
-### Conflict path: rc-agent graceful self-restart (self_monitor)
+```bash
+# Emit a phase result as JSON to stdout
+emit_result() {
+  local phase="$1" status="$2" message="$3" severity="$4" detail="$5"
+  # status: PASS | WARN | FAIL | QUIET
+  # severity: P1 | P2 | P3 (only set for FAIL/WARN)
+  printf '{"type":"phase_result","phase":%d,"status":"%s","severity":"%s",
+    "message":"%s","detail":%s,"ts_utc":"%s","run_id":"%s"}\n' \
+    "$phase" "$status" "$severity" "$message" "$detail" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AUDIT_RUN_ID"
+}
 
-```
-self_monitor detects: WS dead 5min OR CLOSE_WAIT flood >= 5 strikes
-    |
-    +-> rc-sentry reachable (:8091/health)?
-    |       YES -> write GRACEFUL_RELAUNCH sentinel, log event, exit rc-agent
-    |              rc-sentry observes health drop, sees sentinel, restarts cleanly
-    |       NO  -> rc-sentry is down, self_monitor acts as fallback:
-    |              PowerShell+DETACHED_PROCESS (existing path, unchanged)
-    |
-    v
-rc-sentry watchdog sees health drop -> reads GRACEFUL_RELAUNCH sentinel
-    -> skips escalation counter, clears sentinel, restarts rc-agent
-    -> reports to server: action=restart reason=graceful_relaunch authority=rc_sentry
-```
+# Emit a fix-applied record
+emit_fix() {
+  local phase="$1" action="$2" result="$3"
+  printf '{"type":"fix_applied","phase":%d,"action":"%s","result":"%s","ts_utc":"%s"}\n' \
+    "$phase" "$action" "$result" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
 
-### Conflict path: pod_healer vs rc-sentry
+# Pod loop helper — run command on all 8 pods, collect per-pod results
+pod_loop() {
+  # Sources lib/parallel.sh for throttled background execution
+}
 
-```
-rc-agent crash on pod-N:
-  t=0s:  rc-sentry detects crash (15s hysteresis)
-  t=15s: rc-sentry fires tier1 -> restarts rc-agent -> health verified at t=35s
-  t=35s: rc-sentry POSTs to /api/v1/recovery/events:
-         {pod_id, authority=rc_sentry, action=restart, verified=true, ts}
+# Auth token fetch — called once at startup, reused by all phases
+get_session_token() {
+  SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth \
+    -H "Content-Type: application/json" -d '{"pin":"261121"}' | jq -r '.session')
+  export SESSION
+}
 
-pod_healer cycle runs every 120s:
-  If pod_healer sees pod-N Offline at t=90s:
-    Check recovery events for pod-N in last 60s
-    -> rc_sentry restarted at t=35s (55s ago, verified=true)
-    -> pod is likely recovering -- skip WoL, reset PodRecoveryTracker to Waiting
-    -> next cycle: pod should be back online, reset tracker fully
-
-  If pod_healer sees pod-N STILL Offline at t=210s (3min after rc-sentry action):
-    Check recovery events: last rc-sentry action at t=35s (175s ago)
-    -> rc-sentry attempted and failed (pod offline > 3min since restart)
-    -> pod_healer escalates to WoL (entire pod OS may be down, not just rc-agent)
-```
-
-### Conflict path: cascade_guard intervention
-
-```
-rc-sentry fires on pod-2, pod-3, pod-5 in the same 60s window:
-  cascade_guard sees 3 RcSentry actions
-  -> same authority burst (all RcSentry) -> NOT a multi-authority cascade
-  -> server_startup_recovery exemption: if pods reconnecting after server restart -> no alert
-
-rc-sentry fires on pod-2 + pod_healer fires WoL on pod-2 in same 60s:
-  cascade_guard sees RcSentry + PodHealer on same pod
-  -> TWO different authorities acting on same target
-  -> THIS is a cascade -> pause 5min + WhatsApp alert to Uday
-```
-
----
-
-## New vs Modified Components
-
-### Modified components (no new files unless listed in New section)
-
-| Component | File | Change | Scope |
-|-----------|------|--------|-------|
-| `rc-sentry/watchdog.rs` | existing | No functional change -- FSM is correct. | NONE |
-| `rc-sentry/tier1_fixes.rs` | existing | Add MAINTENANCE_MODE auto-clear logic (age check + WOL_SENT sentinel). | Small |
-| `rc-agent/self_monitor.rs` | existing | Gate `relaunch_self()` behind rc-sentry availability check (`:8091/health`). If sentry is up, write sentinel and exit -- do not spawn PowerShell. | Medium |
-| `rc-watchdog/service.rs` | existing | Add grace window: read `sentry-restart-breadcrumb.txt` modified time; skip if < 30s old. Also add health poll after spawn. | Small |
-| `racecontrol/pod_healer.rs` | existing | Before WoL, query recovery events API for pod. Skip WoL if rc-sentry restarted recently (< 60s, verified=true). Write WOL_SENT sentinel via rc-sentry /exec before WoL. | Medium |
-| `racecontrol/cascade_guard.rs` | existing | Already handles same-authority bursts correctly per code review. | NONE |
-
-### New components
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| Recovery events API | `racecontrol/api/recovery.rs` | `POST /api/v1/recovery/events` -- rc-sentry reports restart actions to server. `GET /api/v1/recovery/events?pod_id=N&since_secs=60` -- pod_healer queries before WoL. |
-| Recovery events store | `racecontrol/state.rs` (extension) | `recovery_events: Arc<RwLock<VecDeque<RecoveryEvent>>>` with 200-item cap. In-memory only -- no DB. |
-
----
-
-## Recommended Project Structure
-
-No new crates required. All changes go into existing files, plus one new API file.
-
-```
-crates/
-+-- rc-common/src/
-|   +-- recovery.rs             # No changes -- types are sufficient
-|
-+-- rc-sentry/src/
-|   +-- watchdog.rs             # No change -- FSM is correct
-|   +-- tier1_fixes.rs          # + MAINTENANCE_MODE auto-clear (age check + WOL_SENT file)
-|   +-- debug_memory.rs         # No change -- pattern memory is complete
-|   +-- main.rs                 # Add: POST recovery event to server after successful restart
-|
-+-- rc-agent/src/
-|   +-- self_monitor.rs         # Gate relaunch_self() behind rc-sentry availability check
-|
-+-- rc-watchdog/src/
-|   +-- service.rs              # + sentry breadcrumb grace window + health poll after spawn
-|
-+-- racecontrol/src/
-    +-- api/
-    |   +-- recovery.rs         # NEW: POST + GET /api/v1/recovery/events
-    +-- state.rs                # + recovery_events VecDeque in AppState
-    +-- pod_healer.rs           # + query recovery events before WoL, write WOL_SENT sentinel
-```
-
----
-
-## Architectural Patterns
-
-### Pattern 1: Sentinel File Coordination
-
-**What:** A zero-size or small text file at a well-known path signals state between processes that
-cannot share memory. rc-sentry and rc-agent already use this for `GRACEFUL_RELAUNCH`,
-`RCAGENT_SELF_RESTART`, `MAINTENANCE_MODE`, `sentry-restart-breadcrumb.txt`.
-
-**When to use:** Any cross-process state signal that must survive a process crash (cannot use IPC).
-
-**Trade-offs:** Race conditions possible if two processes check and write simultaneously. Mitigated
-by: single writer per sentinel, consumer clears after reading (consuming semantics), atomic write
-(tmp+rename for JSON files).
-
-**For v17.1:**
-- `WOL_SENT` sentinel: written by racecontrol (via rc-sentry /exec) to pod before WoL send. Allows
-  tier1_fixes to detect WoL and auto-clear MAINTENANCE_MODE.
-- `SENTRY_PRESENT` sentinel: not needed -- self_monitor uses HTTP health check instead (more reliable).
-
-### Pattern 2: Authority-Scoped Recovery with JSONL Audit Log
-
-**What:** `RecoveryDecision` written to JSONL on every action (restart, skip, alert). Single
-canonical log per machine. Already mandatory via `RecoveryLogger`.
-
-**For v17.1:** rc-sentry must call `RecoveryLogger` after every restart attempt (success or
-failure). pod_healer reads server-side recovery events (in-memory VecDeque, fed from API endpoint)
-before escalating.
-
-### Pattern 3: Graduated Response with Pattern Memory
-
-**What:** First try instant fix from memory. Then Tier 1 deterministic. Then AI escalation. Then
-staff alert. Each step escalates only if the previous failed.
-
-This pattern already exists in both james_monitor (4 steps) and rc-sentry (3 steps). v17.1 connects
-them via the recovery events API so the server knows what pod-level recovery has already occurred.
-
-### Pattern 4: Verified Restart (spawn success != child alive)
-
-**What:** After every restart call, poll the target's health endpoint for up to 20s. Only report
-`success: true` after receiving HTTP 200. Already implemented in `tier1_fixes::restart_service()`.
-
-**For v17.1:** rc-watchdog pod service must adopt the same pattern -- currently it fires
-`spawn_in_session1()` without verifying. Add poll after spawn.
-
----
-
-## Data Flow: Recovery Events API
-
-### POST /api/v1/recovery/events (called by rc-sentry after restart)
-
-```json
-{
-  "pod_id": "pod-3",
-  "authority": "rc_sentry",
-  "action": "restart",
-  "reason": "health_poll_failed_3x",
-  "context": "panic:overflow exit:101",
-  "verified": true,
-  "timestamp": "2026-03-25T10:30:00Z"
+# Suppression check — returns 1 if this phase result is suppressed
+is_suppressed() {
+  local phase="$1" message="$2"
+  jq --arg phase "$phase" --arg msg "$message" \
+    '.[] | select(.phase == ($phase | tonumber) and (.pattern | test($msg)))' \
+    "$SUPPRESS_FILE" | grep -q .
 }
 ```
 
-Server: push to recovery_events VecDeque (cap 200), retain last 24h.
-Auth: None required -- internal LAN only (same as rc-sentry /exec).
-Non-blocking send: if server is unreachable, log warn and continue.
+---
 
-### GET /api/v1/recovery/events?pod_id=pod-3&since_secs=60 (called by pod_healer)
+### Component 4: lib/parallel.sh — Background Job Throttle
 
+**Responsibility:** Run phase scripts for a tier in parallel using bash background jobs, with a
+maximum concurrency limit of 4 concurrent pod-targeting commands (per project constraint: "Parallel
+execution must not overwhelm pods (max 4 concurrent pod queries)").
+
+**Design:**
+- Tier-level parallelism: multiple phase scripts within a tier run concurrently in background.
+- Pod-level throttle: within any phase that loops over pods, a semaphore limits to 4 simultaneous
+  pod requests. This is the critical constraint — 8 pods x unlimited parallel phases could fire 64
+  concurrent requests.
+- Uses file-based semaphore (lockfiles in `/tmp/audit-sem-$AUDIT_RUN_ID/`).
+- All background jobs write JSON to their own temp file; audit.sh collects after tier completes.
+
+**Semaphore pattern:**
+```bash
+acquire_sem() {
+  while true; do
+    local count=$(ls /tmp/audit-sem-$AUDIT_RUN_ID/ 2>/dev/null | wc -l)
+    if [ "$count" -lt 4 ]; then
+      touch "/tmp/audit-sem-$AUDIT_RUN_ID/$$"
+      return 0
+    fi
+    sleep 0.2
+  done
+}
+
+release_sem() {
+  rm -f "/tmp/audit-sem-$AUDIT_RUN_ID/$$"
+}
+```
+
+---
+
+### Component 5: lib/fixes.sh — Pre-Approved Auto-Fix Operations
+
+**Responsibility:** A curated, conservative set of fix operations that can be applied without
+operator approval when a fix loop trigger is met. Every fix here was evaluated for reversibility
+and blast radius before being included.
+
+**Design principle:** The fix list is a whitelist. An operation not on the list cannot be applied
+automatically — it must be flagged as requiring manual intervention.
+
+**Pre-approved fixes (initial set):**
+
+| Fix ID | Trigger Condition | Action | Reversibility |
+|--------|------------------|--------|---------------|
+| FIX-01 | MAINTENANCE_MODE file present on pod | `curl -X POST :8091/exec {"cmd":"del C:\\RacingPoint\\MAINTENANCE_MODE"}` then schtasks restart | Reversible: rc-agent restarts cleanly |
+| FIX-02 | GRACEFUL_RELAUNCH or restart sentinel present | Delete sentinel via rc-sentry exec | Reversible |
+| FIX-03 | Orphan PowerShell count > 2 on pod | `taskkill /F /IM powershell.exe` via rc-agent exec | Reversible |
+| FIX-04 | Variable_dump.exe running | `taskkill /F /IM Variable_dump.exe` via rc-agent exec | Reversible |
+| FIX-05 | Overlay process detected (Copilot, NVIDIA overlay, GameBar) | Targeted taskkill by process name | Reversible |
+| FIX-06 | Duplicate rc-agent instances (count > 1) | `taskkill /F /IM rc-agent.exe` + schtasks restart | Reversible via rc-sentry |
+| FIX-07 | Bono comms-link relay health check fails | `curl -X POST /relay/exec/run {"command":"restart_comms_link"}` via relay | Reversible |
+
+**NOT auto-fixable (require manual):** Config file corruption (SSH banner), Tailscale offline,
+NVIDIA Surround resolution collapsed, build_id mismatch (requires rebuild), firewall rules
+missing, registry key issues.
+
+---
+
+### Component 6: lib/delta.sh — Diff Against Last Results
+
+**Responsibility:** Load the previous audit's JSON result file, compare with current run, emit
+a structured diff showing: new failures (regressions), resolved failures (improvements), unchanged
+failures (persistent known issues), and unchanged passes.
+
+**Design:**
+- Previous result file: `audit/results/latest.json` (symlink to most recent run).
+- Current run's per-phase results are collected into `audit/results/$AUDIT_RUN_ID.json`.
+- `delta.sh` does a jq-based join on `phase` number between old and new.
+- Outputs a `delta.json` summary consumed by the report generator.
+
+**Delta categories:**
+```
+REGRESSION:   phase was PASS/QUIET in previous run, is FAIL/WARN now
+IMPROVEMENT:  phase was FAIL/WARN in previous run, is PASS now
+PERSISTENT:   phase was FAIL/WARN in previous run, still FAIL/WARN
+NEW_ISSUE:    phase exists in current run but not in previous (newly added phase)
+STABLE:       phase was PASS, still PASS
+```
+
+**First run:** No previous results exist. All phases produce `NEW_ISSUE` delta. Delta summary
+notes "First audit — no baseline available."
+
+---
+
+### Component 7: lib/notify.sh — Comms-Link + WhatsApp Output
+
+**Responsibility:** After all tiers complete and report is generated, send notifications.
+
+**Two notification paths:**
+
+Path A — Bono comms-link (structured):
+```bash
+# Send full JSON summary to Bono via relay
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d "{\"command\":\"receive_audit_result\",\"reason\":\"audit complete\",
+       \"payload\":$(cat $RESULTS_DIR/summary.json)}"
+
+# Also append to INBOX.md (dual-channel rule)
+echo "## $(date '+%Y-%m-%d %H:%M IST') — from james" >> \
+  /c/Users/bono/racingpoint/comms-link/INBOX.md
+echo "Audit $AUDIT_RUN_ID complete: $PASS_COUNT PASS, $FAIL_COUNT FAIL, \
+  $WARN_COUNT WARN, $QUIET_COUNT QUIET. Report: $REPORT_PATH" >> \
+  /c/Users/bono/racingpoint/comms-link/INBOX.md
+```
+
+Path B — WhatsApp to Uday (human-readable summary only):
+```bash
+# Via comms-link relay to Bono, who has Evolution API access
+# (per project_whatsapp_routing.md: marketing/alerts go via Bono VPS)
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d "{\"command\":\"send_whatsapp\",\"reason\":\"audit summary\",
+       \"payload\":{\"phone\":\"usingh_number\",
+       \"message\":\"$(generate_wa_summary)\"}}"
+```
+
+**Notification triggers (configurable):**
+- Always: Bono comms-link message (structured JSON).
+- Always: Append to INBOX.md (standing rule: dual channel).
+- On FAIL or REGRESSION: WhatsApp to Uday.
+- On PASS with no regressions: WhatsApp only if `--notify-all` flag set (default: skip).
+
+**Failure handling:** If comms-link relay is down (`:8766` unreachable), fall through to:
+1. Append to INBOX.md + git push (will be picked up by Bono on next pull).
+2. Write to `audit/results/$AUDIT_RUN_ID-notify-failed.txt` for manual follow-up.
+Do NOT fail the audit run because notification failed.
+
+---
+
+### Component 8: Report Generator — audit/generate-report.sh
+
+**Responsibility:** Read `$RESULTS_DIR/$AUDIT_RUN_ID.json` (all phase results) and
+`$RESULTS_DIR/$AUDIT_RUN_ID-delta.json`, produce a human-readable Markdown report and a machine-
+parseable summary JSON.
+
+**Markdown report structure:**
+```
+# Fleet Audit — YYYY-MM-DD HH:MM IST
+**Mode:** standard | **Run ID:** abc123 | **Duration:** 4m 12s
+
+## Summary
+| Status | Count |
+|--------|-------|
+| PASS   | 47    |
+| WARN   | 3     |
+| FAIL   | 2     |
+| QUIET  | 8     |
+
+## Delta
+### Regressions (new failures since last audit)
+- Phase 07 (Process Guard): PASS -> FAIL — violation_count_24h: 100 on pods 2,3,5
+
+### Improvements (resolved since last audit)
+- Phase 08 (Sentinel Files): FAIL -> PASS — all pods clean
+
+## Failures Requiring Action
+### [P1] Phase 07: Process Guard
+...
+
+## Warnings
+...
+
+## Auto-Fixes Applied
+...
+
+## Suppressed (Known Issues)
+...
+
+## Full Phase Results
+...
+```
+
+**Summary JSON (`$RESULTS_DIR/$AUDIT_RUN_ID-summary.json`):**
+```json
+{
+  "run_id": "abc123",
+  "mode": "standard",
+  "ts_start_utc": "...",
+  "ts_end_utc": "...",
+  "duration_secs": 252,
+  "pass": 47,
+  "warn": 3,
+  "fail": 2,
+  "quiet": 8,
+  "fixes_applied": 1,
+  "regressions": 1,
+  "improvements": 1,
+  "report_path": "audit/reports/2026-03-25-abc123.md"
+}
+```
+
+---
+
+### Component 9: suppress.json — Known-Issue Suppression List
+
+**Responsibility:** A JSON array of known issues that should not clutter results. Suppressed issues
+still appear in the report under "Suppressed (Known Issues)" — they are not hidden, just demoted.
+
+**Format:**
 ```json
 [
   {
-    "pod_id": "pod-3",
-    "authority": "rc_sentry",
-    "action": "restart",
-    "verified": true,
-    "age_secs": 35
+    "id": "SUP-001",
+    "phase": 19,
+    "pattern": "Pod 8.*1024x768",
+    "reason": "Pod 8 NVIDIA Surround not configured — needs physical setup",
+    "added": "2026-03-25",
+    "expiry": null
+  },
+  {
+    "id": "SUP-002",
+    "phase": 27,
+    "pattern": "AC server.*DOWN",
+    "reason": "AC server only runs during customer sessions",
+    "added": "2026-03-25",
+    "expiry": null
   }
 ]
 ```
 
-pod_healer logic:
-- Any event with `verified=true` AND `age_secs < 60`: skip WoL, wait next cycle.
-- Any event with `verified=false` AND `age_secs < 120`: rc-sentry tried and failed, WoL appropriate.
-- No events: pod_healer acts normally (WoL at step 2 of PodRecoveryTracker).
+**Suppression scope:** Suppressed results still run. They still emit JSON. They still appear in the
+report. They are excluded from the FAIL/WARN counters that trigger WhatsApp notifications. The
+`post-incident` mode bypasses all suppression.
+
+---
+
+## Data Flow
+
+### Phase Execution → JSON Results → Report → Notifications
+
+```
+audit.sh
+  |
+  +-- [startup]
+  |     get_session_token() -> $SESSION
+  |     export PODS="192.168.31.89 192.168.31.33 ..."
+  |     export AUDIT_RUN_ID=$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3)
+  |     mkdir -p audit/results/$AUDIT_RUN_ID/
+  |     detect_venue_state() -> $VENUE_OPEN (true/false)
+  |
+  +-- [tier execution loop]
+  |     for TIER in 1 2 3 ... (based on mode):
+  |       [parallel job dispatch]
+  |       for PHASE_SCRIPT in audit/phases/tierN/phase*.sh:
+  |         background: bash $PHASE_SCRIPT > audit/results/$AUDIT_RUN_ID/phase$N.jsonl
+  |         (with semaphore throttle from lib/parallel.sh)
+  |       wait for all background jobs
+  |       [collect tier results]
+  |       cat audit/results/$AUDIT_RUN_ID/phase*.jsonl >> \
+  |           audit/results/$AUDIT_RUN_ID/all.jsonl
+  |
+  +-- [delta computation]
+  |     lib/delta.sh $AUDIT_RUN_ID -> audit/results/$AUDIT_RUN_ID/delta.json
+  |     (compares against audit/results/latest.json)
+  |
+  +-- [suppression filter]
+  |     apply suppress.json rules to all.jsonl
+  |     produces: audit/results/$AUDIT_RUN_ID/filtered.jsonl
+  |
+  +-- [report generation]
+  |     bash audit/generate-report.sh $AUDIT_RUN_ID
+  |     -> audit/reports/YYYY-MM-DD-$AUDIT_RUN_ID.md
+  |     -> audit/results/$AUDIT_RUN_ID-summary.json
+  |
+  +-- [symlink update]
+  |     ln -sf $AUDIT_RUN_ID/all.jsonl audit/results/latest.json
+  |
+  +-- [notification dispatch]
+        lib/notify.sh $AUDIT_RUN_ID
+        -> comms-link relay (structured)
+        -> INBOX.md (fallback + standing rule)
+        -> WhatsApp to Uday (on FAIL or REGRESSION)
+```
+
+### Per-Phase JSON Line Format
+
+Every phase script emits one or more newline-delimited JSON objects (JSONL). All objects share:
+```json
+{
+  "type": "phase_result",
+  "phase": 7,
+  "tier": 1,
+  "phase_name": "Process Guard & Allowlist",
+  "status": "FAIL",
+  "severity": "P1",
+  "message": "violation_count_24h: 100 on pods 2,3,5 — likely empty allowlist",
+  "detail": {
+    "pods_affected": ["192.168.31.33", "192.168.31.28", "192.168.31.86"],
+    "pod_2_count": 100,
+    "pod_3_count": 100,
+    "pod_5_count": 100
+  },
+  "fix_trigger": true,
+  "ts_utc": "2026-03-25T08:30:00Z",
+  "run_id": "20260325-083000-a1b2c3"
+}
+```
+
+Auto-fix records use the same envelope with `"type": "fix_applied"`.
+
+---
+
+## Recommended File/Directory Structure
+
+```
+audit/
++-- audit.sh                      # Entry point, mode selector, tier scheduler
++-- generate-report.sh            # Markdown + summary JSON generation
++-- suppress.json                 # Known-issue suppression list
++-- README.md                     # How to run, mode descriptions, output paths
+|
++-- lib/
+|   +-- core.sh                   # emit_result, emit_fix, get_session_token, is_suppressed
+|   +-- parallel.sh               # Background job throttle, semaphore primitives
+|   +-- fixes.sh                  # Pre-approved auto-fix operations (FIX-01 through FIX-N)
+|   +-- delta.sh                  # Diff against previous run
+|   +-- notify.sh                 # comms-link + WhatsApp notification
+|
++-- phases/
+|   +-- tier1/                    # Infrastructure Foundation (phases 01-10)
+|   |   +-- phase01.sh            # Fleet inventory
+|   |   +-- phase02.sh            # Config integrity
+|   |   ...
+|   |   +-- phase10.sh            # AI healer / watchdog
+|   |
+|   +-- tier2/                    # Core Services (phases 11-16)
+|   +-- tier3/                    # Display & UX (phases 17-20) -- QUIET when venue closed
+|   +-- tier4/                    # Billing & Commerce (phases 21-25)
+|   +-- tier5/                    # Games & Hardware (phases 26-29) -- QUIET when venue closed
+|   +-- tier6/                    # Notifications & Marketing (phases 30-34)
+|   +-- tier7/                    # Cloud & PWA (phases 35-39)
+|   +-- tier8/                    # Security & Access (phases 40-44)
+|   +-- tier9/                    # Data & Analytics (phases 45-50)
+|   +-- tier10/                   # AI / Feature Flags (phases 51-55)
+|   +-- tier11/                   # Marketing & Staff Gamification (phases 56-58)
+|   +-- tier12/                   # OTA & Deployment (phases 59-60)
+|
++-- results/                      # Runtime output (git-ignored)
+|   +-- latest.json               # Symlink to most recent run's all.jsonl
+|   +-- 20260325-083000-a1b2c3/
+|       +-- phase01.jsonl         # Per-phase raw output
+|       +-- phase02.jsonl
+|       +-- ...
+|       +-- all.jsonl             # Concatenated all phases
+|       +-- delta.json            # Diff vs previous run
+|       +-- filtered.jsonl        # After suppression applied
+|       +-- summary.json          # Machine-readable summary
+|
++-- reports/                      # Human-readable output (git-committed for history)
+    +-- 2026-03-25-a1b2c3.md      # Full audit report
+    +-- 2026-03-25-a1b2c3-delta.md # Delta-only view
+```
+
+**Git strategy:**
+- `audit/phases/`, `audit/lib/`, `audit/audit.sh`, `audit/suppress.json` — committed, versioned.
+- `audit/results/` — git-ignored (raw runtime data, high churn, contains secrets in detail fields).
+- `audit/reports/` — committed (human-readable, no secrets in output, valuable as history).
 
 ---
 
 ## Build Order
 
-The build order is driven by two constraints: shared infrastructure precedes consumers, and the
-recovery events API must be deployed to the server before rc-sentry starts reporting to it.
+The build order is driven by three dependency chains:
 
-### Phase 1 -- racecontrol: Recovery Events API
+**Chain A: Core runtime must exist before phase scripts can be written.**
+Chain B: Phase scripts depend on lib/core.sh functions being stable.
+Chain C: Notification depends on report generator, which depends on result collector.
 
-Add `api/recovery.rs` with `POST /api/v1/recovery/events` and `GET /api/v1/recovery/events`.
-Add `recovery_events: Arc<RwLock<VecDeque<RecoveryEvent>>>` to `AppState`.
-Register routes in `main.rs`.
+### Phase 1: Scaffold (audit.sh + lib/core.sh + one tier-1 phase)
 
-**Crate:** `racecontrol`
-**Deploy:** Server rebuild + deploy. This must land BEFORE Phase 2.
-**Verification:** `curl -X POST http://192.168.31.23:8080/api/v1/recovery/events -d '{"pod_id":"pod-8","authority":"rc_sentry","action":"restart","reason":"test","verified":true}'` returns 200.
+Build the skeleton first. audit.sh with mode parsing and tier dispatch. lib/core.sh with `emit_result`
+and `get_session_token`. One working phase (phase01.sh — Fleet Inventory). Verify the pipeline:
+run → JSON out → collected in all.jsonl.
 
-### Phase 2 -- rc-sentry: Report to recovery events API
+**Deliverable:** `bash audit/audit.sh --mode quick` runs Phase 01, emits valid JSON.
+**Rationale:** All subsequent phases can be written and tested against a working pipeline.
 
-After `restart_service()` returns (success or failure), POST to the recovery events endpoint.
-Non-blocking: `run_cmd_sync` with 3s timeout. Server unreachable -> log warn, continue.
-Also: read GRACEFUL_RELAUNCH and RCAGENT_SELF_RESTART sentinels correctly (already done).
+### Phase 2: lib/parallel.sh + semaphore
 
-**Crate:** `rc-sentry`
-**Deploy:** Pod rebuild + fleet deploy. Start from Pod 8 canary.
-**Verification:** Kill rc-agent on Pod 8 manually. Confirm event appears in `GET /api/v1/recovery/events?pod_id=pod-8&since_secs=60`.
+Add background job dispatch and the 4-concurrent-pod semaphore. Verify: run all 10 tier-1 phases
+in parallel, confirm no more than 4 simultaneous pod requests, confirm all results collected.
 
-### Phase 3 -- racecontrol: pod_healer WoL coordination
+**Deliverable:** `bash audit/audit.sh --mode quick` runs all 10 tier-1 phases in parallel within
+the throttle constraint.
+**Rationale:** Without the semaphore, Phase 3 (writing all 60 phases) would create a flood risk.
 
-Modify `run_graduated_recovery()` in `pod_healer.rs`:
-- Before WoL: query recovery events API for the pod.
-- If rc-sentry restarted within 60s with `verified=true`: skip WoL, stay in Waiting step.
-- Before WoL send: write `WOL_SENT` to pod via rc-sentry `/exec` (`echo WOL_SENT > C:\RacingPoint\WOL_SENT`).
+### Phase 3: All 60 phase scripts (tiers 1-12)
 
-**Crate:** `racecontrol`
-**Deploy:** Server rebuild + deploy.
-**Verification:** Kill rc-agent on Pod 8. Observe: rc-sentry restarts within 20s. pod_healer skips WoL. Check `recovery-log.jsonl` on pod and server.
+Convert every v3.0 phase bash block into a phaseNN.sh script using `emit_result`. This is
+the bulk work. No new logic — direct translation of existing commands into the script format.
 
-### Phase 4 -- rc-sentry: MAINTENANCE_MODE auto-clear
+**Deliverable:** All 60 phases runnable. `bash audit/audit.sh --mode full` completes without
+errors (some QUIET/FAIL expected on venue-closed checks).
+**Rationale:** Phase 4 (fixes, delta, report) requires the full phase set to be useful.
 
-In `tier1_fixes::handle_crash()`, when MAINTENANCE_MODE is active: check file age via
-`std::fs::metadata(MAINTENANCE_FILE).modified()`. If older than 30min AND
-`C:\RacingPoint\WOL_SENT` exists: delete both sentinel files and proceed with restart.
+### Phase 4: lib/fixes.sh + auto-fix integration
 
-This ends the WoL infinite loop by giving MAINTENANCE_MODE a 30-minute TTL post-WoL.
+Add the pre-approved fix operations. Wire `fix_trigger` check into each phase script. Add
+`AUTO_FIX=1` flag to audit.sh. Test each fix in isolation before enabling in audit flow.
 
-**Crate:** `rc-sentry`
-**Deploy:** Pod rebuild + fleet deploy (can batch with Phase 2 if timing allows).
-**Verification:** Simulate MAINTENANCE_MODE scenario: write the file, age it, write WOL_SENT, trigger crash. Confirm MAINTENANCE_MODE is cleared and restart proceeds.
+**Deliverable:** Running with `AUTO_FIX=1` clears MAINTENANCE_MODE on a test pod, kills orphan
+PowerShell, deletes sentinel files — and emits `fix_applied` records.
+**Rationale:** Fixes depend on correct phase detection (Phase 3 must be correct first).
 
-### Phase 5 -- rc-agent: self_monitor coordination
+### Phase 5: generate-report.sh + delta.sh
 
-Modify `self_monitor.rs relaunch_self()`:
-1. Try TCP connect to `:8091` with 2s timeout.
-2. If rc-sentry responds: write `GRACEFUL_RELAUNCH` sentinel, log event, call `std::process::exit(0)`.
-   Do NOT spawn PowerShell. rc-sentry will pick up the crash within 15s.
-3. If rc-sentry NOT reachable: fall through to existing PowerShell+DETACHED_PROCESS path.
-   This is the fallback for when rc-sentry itself has crashed.
+Build the Markdown report generator and delta comparison. Requires at least two audit runs to
+test delta. Run audit twice, verify regression/improvement detection works.
 
-**Crate:** `rc-agent`
-**Deploy:** Pod rebuild + fleet deploy.
-**Verification on Pod 8:**
-1. Kill rc-sentry (confirm sentry is down).
-2. Kill rc-agent (WS dead simulation). Observe self_monitor fires PowerShell path.
-3. Restart rc-sentry.
-4. Kill rc-agent again. Observe self_monitor uses sentinel path (no PowerShell spawn, sentry handles restart within 15s).
+**Deliverable:** `audit/reports/` contains a complete Markdown report with delta section.
+**Rationale:** Report depends on all phase results; this cannot be built until Phase 3 complete.
 
-### Phase 6 -- rc-watchdog: sentry breadcrumb grace window
+### Phase 6: lib/notify.sh + suppress.json
 
-Modify `service.rs` poll loop:
-1. After detecting rc-agent absent: read `C:\RacingPoint\sentry-restart-breadcrumb.txt` modified time.
-2. If modified within last 30s: skip restart attempt, log "grace window active", wait one cycle.
-3. After `spawn_in_session1()` succeeds: add health poll -- connect to `:8090/health` for up to 15s.
-   If no response, log warn. If response: log verified.
+Add notification dispatch (comms-link relay + INBOX.md + WhatsApp). Populate suppress.json with
+the known issues from AUDIT-PROTOCOL v3.0 (Pod 8 display, AC server offline, etc.).
 
-**Crate:** `rc-watchdog`
-**Deploy:** Pod binary + Windows Service update (requires service stop/start).
-**Verification:** Confirm rc-watchdog does not fire within 30s of a rc-sentry restart attempt.
+**Deliverable:** End-to-end: `bash audit/audit.sh --mode standard` → Bono receives structured
+message → Uday receives WhatsApp summary (on FAIL).
+
+### Phase 7: Venue-closed detection + mode refinement
+
+Implement the venue-open/closed detection and per-mode tier selection. Wire QUIET handling into
+tier-3 and tier-5 phases. Add the `--pod N` and `--tier N` targeting flags.
+
+**Deliverable:** `bash audit/audit.sh --mode standard` at 02:00 IST (venue closed) produces QUIET
+for all display/hardware phases, no false FAIL alerts to Uday.
 
 ---
 
-## Integration Points with Existing Crates
+## Architectural Patterns
 
-| Point | Consumer | Provider | Interface |
-|-------|----------|----------|-----------|
-| Recovery events write | rc-sentry (after restart) | racecontrol REST | `POST /api/v1/recovery/events` (JSON, no auth) |
-| Recovery events read | pod_healer (before WoL) | racecontrol state | In-process: `state.recovery_events.read().await` |
-| WOL_SENT sentinel write | pod_healer (via rc-sentry exec) | tier1_fixes (reads) | File: `C:\RacingPoint\WOL_SENT` |
-| GRACEFUL_RELAUNCH sentinel | self_monitor (writes) | tier1_fixes (reads + clears) | File: `C:\RacingPoint\GRACEFUL_RELAUNCH` -- already working |
-| sentry breadcrumb | tier1_fixes (writes) | rc-watchdog (reads) | File: `C:\RacingPoint\sentry-restart-breadcrumb.txt` -- already written |
-| Ollama (Tier 3 AI) | rc-sentry ollama.rs | James .27 :11434 | HTTP POST `/api/generate` -- already wired |
-| Pattern memory | rc-sentry debug_memory.rs | rc-sentry itself | `C:\RacingPoint\debug-memory-sentry.json` -- already working |
-| Recovery JSONL audit | All authorities | RecoveryLogger | Append-only JSONL -- already wired for all 3 authorities |
-| cascade_guard | pod_healer | racecontrol AppState | In-process `state.cascade_guard` -- unchanged |
+### Pattern 1: JSONL as the Audit Bus
+
+**What:** Every component writes and reads newline-delimited JSON (JSONL). Phase scripts write JSONL
+to files. delta.sh reads JSONL. The report generator reads JSONL. Notifications read the summary
+JSON. Nothing shares state through environment variables or global bash variables except for the
+handful set at audit.sh startup (SESSION, PODS, AUDIT_RUN_ID).
+
+**When to use:** All inter-component communication in this system.
+
+**Trade-offs:** JSONL requires `jq` to be installed (it is — `jq` is already used extensively in
+v3.0). Slightly more complex than plain text output, but makes the report generator trivially
+grep-able and lets Bono's comms-link relay consume structured data.
+
+**Example:**
+```bash
+# phase07.sh — emit result
+VIOLATIONS=$(curl -s http://192.168.31.23:8080/api/v1/fleet/health | \
+  jq '[.pods[] | select(.violation_count_24h >= 100)] | length')
+
+if [ "$VIOLATIONS" -gt 0 ]; then
+  emit_result 7 "FAIL" "violation_count_24h: 100 on $VIOLATIONS pods" "P1" \
+    "$(curl -s http://192.168.31.23:8080/api/v1/fleet/health | \
+       jq '.pods[] | {pod_number, violation_count_24h}')"
+else
+  emit_result 7 "PASS" "Process guard: all pods violation count normal" "" "null"
+fi
+```
+
+### Pattern 2: Phase Scripts Are Idempotent Read-Only by Default
+
+**What:** Phase scripts never modify system state unless `AUTO_FIX=1` is set. Running the same
+phase script twice in a row produces the same JSON result and makes no changes. This means audits
+can be safely re-run without side effects.
+
+**When to use:** All 60 v3.0 phases follow this pattern. Auto-fix is opt-in.
+
+**Trade-offs:** Slightly more code in each script (check `AUTO_FIX` before applying). Prevents
+accidental state modification during `--mode quick` spot checks.
+
+### Pattern 3: Tier-Scoped Parallelism with Pod-Level Throttle
+
+**What:** Phase scripts within a tier run in parallel (background jobs). Pod-targeting commands
+within a single phase are throttled to max 4 concurrent connections. The two levels are independent:
+the tier-level parallelism runs phase scripts concurrently; the pod-level throttle controls how
+many pods a single phase queries simultaneously.
+
+**When to use:** All tier execution.
+
+**Trade-offs:** File-based semaphores work but have ~200ms poll granularity. Sufficient for this
+use case where pod queries take 1-5 seconds each. Not appropriate for sub-millisecond coordination.
+
+### Pattern 4: Fix Whitelist with Reversibility Requirement
+
+**What:** Every entry in `lib/fixes.sh` must document (a) exact trigger condition, (b) exact action,
+(c) reversibility proof. Any fix without a clear reversal path is not auto-applicable — it goes into
+the report as "manual action required."
+
+**When to use:** Evaluating whether a new fix is safe to add to the auto-fix whitelist.
+
+**Trade-offs:** Conservative — some clearly safe fixes may not be auto-approved on first pass.
+Better to have a human approve once and add to the list than to auto-apply something that takes
+down a billing session.
 
 ---
 
-## Windows Process Management: Known Constraints
+## Integration Points
 
-These are production-proven constraints from the codebase. Any code that launches processes must
-respect all of them.
+### External Services
 
-| Constraint | Impact | Resolution |
-|------------|--------|------------|
-| `spawn().is_ok()` != child alive | Silent false restarts | Always poll health endpoint after spawn (20s) |
-| Non-interactive context blocks Session 1 launch | `schtasks /Run` via direct `Command::new` silently fails | Route through `run_cmd_sync()` (cmd.exe /C) -- proven working path |
-| MAINTENANCE_MODE has no TTL | Permanent pod death after 3 crashes in 10min | Phase 4: add 30min auto-clear on WoL detection |
-| DETACHED_PROCESS leaks PowerShell (~90MB/restart) | RAM creep on self_monitor restarts | Phase 5: self_monitor defers to rc-sentry, PowerShell path becomes rare fallback |
-| `tasklist /FI "IMAGENAME"` returns empty on filter miss | False "process dead" detection | Prefer TCP health connect over process name scan |
-| Windows holds .exe file lock while running | `move /Y` fails on live binary | Rename trick: ren old.exe -> old-bak.exe, ren new.exe -> old.exe, then kill+start |
-| `schtasks /Run` fails from SYSTEM context (non-interactive) | rc-watchdog service cannot restart rc-agent directly | `run_cmd_sync()` routes through cmd.exe which has different creation context |
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| Server :8080 | HTTP GET/POST (curl) | Auth via SESSION token; obtained once at startup |
+| Server :8090 | HTTP POST exec endpoint | No auth; LAN only; used for pod-targeting remote commands |
+| Pod :8090 (rc-agent) | HTTP POST exec endpoint | Direct LAN to each pod IP |
+| Pod :8091 (rc-sentry) | HTTP POST exec endpoint | Used when rc-agent down; sentry still reachable |
+| Bono comms-link relay :8766 | HTTP POST (relay/exec/run) | Structured exec + INBOX.md dual channel |
+| Bono VPS :8080 | HTTP GET (health check) | Verify cloud racecontrol alive |
+| Ollama :11434 | Not directly used in audit | AI healer state is read from watchdog-state.json |
+| go2rtc :1984 | HTTP GET /api/streams | Verify camera streams accessible (Tier 7) |
+| WhatsApp (Evolution API) | Via Bono relay (indirect) | Per project_whatsapp_routing.md: all WA traffic via Bono VPS |
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| audit.sh ↔ phase scripts | File (JSONL per phase) | Phase scripts are subprocess children; no shared memory |
+| phase scripts ↔ lib/ | Bash source (`source lib/core.sh`) | lib/ functions are imported, not separate processes |
+| phase scripts ↔ parallel throttle | File semaphore in /tmp | Per-run directory prevents cross-run interference |
+| report generator ↔ results | File (JSONL read by jq) | One-way: generator reads, never writes to results/ |
+| notify ↔ comms-link | HTTP (relay endpoint) | Falls back to file append if relay down |
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Self-Monitor Acting as Recovery Authority
+### Anti-Pattern 1: Phase Scripts That Modify State Unconditionally
 
-**What people do:** `self_monitor.rs` calls `relaunch_self()` unconditionally whenever WS is dead or
-CLOSE_WAIT floods.
+**What people do:** Write a phase script that kills orphan PowerShell processes as part of the check
+itself (not in an explicit AUTO_FIX block).
 
-**Why it's wrong:** self_monitor is inside the patient (rc-agent). If rc-sentry is also watching,
-both systems independently decide to restart rc-agent at different offsets. rc-sentry's schtasks
-path waits 5s for port to clear; self_monitor's PowerShell waits 3s. Both fire, both try to bind
-:8090, one fails silently, pod stays dead even though both watchdogs logged "success".
+**Why it's wrong:** Running `--mode quick` to spot-check fleet health would silently kill processes
+on pods. Audits should be safe to run at any time without side effects. A phase that unexpectedly
+modifies state violates operator trust in the audit tool.
 
-**Do this instead:** self_monitor checks rc-sentry health first (TCP to :8091, 2s timeout). If
-sentry is alive, write GRACEFUL_RELAUNCH and exit. Let sentry own the restart.
+**Do this instead:** All state modification lives in `lib/fixes.sh`. Phase scripts detect and report.
+They call `apply_safe_fix` only when `AUTO_FIX=1` and the specific fix trigger condition is met.
 
-### Anti-Pattern 2: WoL Without MAINTENANCE_MODE Check
+### Anti-Pattern 2: Pod Loop Without Throttle
 
-**What people do:** pod_healer sends WoL when pod appears offline, regardless of why.
+**What people do:** Write a tier-1 phase that loops all 8 pods in parallel background jobs without
+a semaphore.
 
-**Why it's wrong:** A pod in MAINTENANCE_MODE went offline intentionally (3+ crashes in 10min). WoL
-revives it. rc-agent starts. rc-sentry sees MAINTENANCE_MODE -> skips restart. Pod goes offline
-again immediately. WoL fires again. Infinite loop until manual intervention.
+**Why it's wrong:** If 5-6 tier-1 phases each loop 8 pods in parallel, that is 40-48 simultaneous
+HTTP connections to pods. Pods run on Windows 11 with rc-agent serving a single exec endpoint. rc-
+agent has a 4-slot concurrency cap (`exec_slots_available`). Flooding it causes exec timeout failures
+which appear as false FAIL results.
 
-**Do this instead:** Before WoL, query rc-sentry `/files` endpoint to check if MAINTENANCE_MODE
-exists. If it does and is recent (< 30min), skip WoL and alert staff instead. Write WOL_SENT first
-if WoL is appropriate (allows tier1_fixes to auto-clear on the other side).
+**Do this instead:** Source `lib/parallel.sh` and call `acquire_sem`/`release_sem` around each pod
+connection in the loop. The 4-concurrent limit matches rc-agent's capacity.
 
-### Anti-Pattern 3: Tasklist-Based Process Detection as Primary Signal
+### Anti-Pattern 3: Hardcoded Phase Numbers in Report Logic
 
-**What people do:** rc-watchdog uses `tasklist /FI "IMAGENAME eq rc-agent.exe"` as the only signal
-for crash detection.
+**What people do:** The report generator has `if [ $PHASE -eq 7 ]; then echo "Check process guard"`.
 
-**Why it's wrong:** `tasklist /FI` returns empty output (not error) when the filter matches nothing
-on some Windows configurations. The conservative fallback (`assume_running=true` on error) is
-correct but the filter-miss case is the same as "process absent" -- indistinguishable.
+**Why it's wrong:** When phases are reordered, renumbered, or new phases are added, the hardcoded
+references become wrong. Phase 7 in v4.0 may not be Process Guard if phases are renumbered.
 
-**Do this instead:** Prefer HTTP health poll (`/health` endpoint, TCP connect to :8090) as the
-ground truth. tasklist is a secondary signal only. The health endpoint is exactly what rc-sentry
-watchdog uses and it works reliably.
+**Do this instead:** Phase scripts embed their own metadata in the JSON they emit (`phase_name`,
+`tier`). The report generator reads metadata from the JSON — it never hardcodes phase-to-name
+mappings. The phase number is just an ID; the `phase_name` field is the human-readable label.
 
-### Anti-Pattern 4: Non-Interactive Spawn Without Verification
+### Anti-Pattern 4: Notification Before Report
 
-**What people do:** `Command::new("schtasks").args(["/Run", ...]).spawn()` returns Ok -- code
-assumes child started.
+**What people do:** Send WhatsApp notification immediately when the first FAIL is detected
+(mid-audit, before all phases complete).
 
-**Why it's wrong:** On Windows, `spawn()` returning Ok means `CreateProcess` was accepted, not that
-the child executed successfully. In non-interactive contexts (SYSTEM service, rc-sentry without
-attached console), `schtasks /Run` and `PowerShell Start-Process` silently fail to launch into
-Session 1. This is documented in CLAUDE.md standing rules and confirmed by rc-sentry's
-DEBUG-RESTART-ISSUE investigation.
+**Why it's wrong:** (a) Multiple FAIL phases in the same audit would send multiple WhatsApp
+messages. (b) A FAIL detected in phase 3 may be resolved by an auto-fix applied in phase 3,
+making the notification incorrect. (c) Uday receives an alert at 3 AM and does not know the
+full scope.
 
-**Do this instead:** Use `run_cmd_sync("schtasks /Run /TN StartRCAgent", ...)` (routes through
-`cmd.exe /C`), then poll the health endpoint for 20s before declaring success. This is the proven
-working pattern already in `tier1_fixes::restart_service()`.
+**Do this instead:** Notification is the last step, after all tiers, all fixes, delta computation,
+and report generation complete. The notification message includes full summary counts and the
+report path.
 
-### Anti-Pattern 5: Uncoordinated Parallel Recovery (Standing Rule 10 Violation)
+### Anti-Pattern 5: Treating QUIET as FAIL
 
-**What people do:** Add a new watchdog or health check without checking what else is watching the
-same process.
+**What people do:** Display/hardware phases return FAIL when venue is closed and Edge kiosk is not
+running.
 
-**Why it's wrong:** Every new recovery actor watching rc-agent adds another independent restart
-source. Three actors with different delays and different methods create a race that none of them
-can win cleanly. The port :8090 cannot be bound by two processes simultaneously.
+**Why it's wrong:** At 2 AM when venue is closed, pods are powered down or locked. Edge is not
+running. This is expected. Treating it as FAIL means every overnight audit triggers a P1 alert
+to Uday.
 
-**Do this instead:** Before adding any restart logic, check `RecoveryAuthority` ownership map. If
-a process is already owned by an authority, new code must either coordinate via sentinel files or
-the recovery events API, or act only as a last-resort fallback that yields to the primary owner.
+**Do this instead:** Tier 3 (Display/UX) and Tier 5 (Games/Hardware) phase scripts check the
+`$VENUE_OPEN` variable. When `VENUE_OPEN=false`, they emit `status: "QUIET"` rather than
+`status: "FAIL"`. QUIET results are counted separately, never trigger WhatsApp alerts, and appear
+under a separate "Venue-Closed Checks" section in the report.
+
+---
+
+## Scaling Considerations
+
+This system has fixed scale: 1 server, 8 pods, 1 Bono VPS. It does not need to scale beyond this.
+The relevant scaling questions are performance (audit duration) and reliability (what happens when
+infrastructure is partially down).
+
+| Concern | Current (8 pods) | If pods expand to 16 | Notes |
+|---------|------------------|----------------------|-------|
+| Audit duration | ~3-5 min (parallel) | ~5-8 min (semaphore bottleneck) | Still well within acceptable range |
+| Semaphore limit | 4 concurrent | Increase to 6-8 | Update `MAX_PARALLEL` constant in parallel.sh |
+| Result file size | ~50KB per audit | ~100KB per audit | Negligible; JSONL gzips well |
+| Report size | ~20KB Markdown | ~40KB Markdown | git-committed history grows slowly |
+
+The more likely scaling pressure is phase count growth (v4.0 adds delta/feature-flag phases beyond
+60). The numbering scheme (61+) handles this without renumbering existing phases.
 
 ---
 
 ## Sources
 
-- Direct code analysis: `crates/rc-sentry/src/{watchdog.rs, tier1_fixes.rs, debug_memory.rs, main.rs}` (2026-03-25)
-- Direct code analysis: `crates/rc-agent/src/self_monitor.rs` (2026-03-25)
-- Direct code analysis: `crates/racecontrol/src/{pod_healer.rs, pod_monitor.rs, cascade_guard.rs, wol.rs}` (2026-03-25)
-- Direct code analysis: `crates/rc-watchdog/src/{main.rs, service.rs, james_monitor.rs}` (2026-03-25)
-- Direct code analysis: `crates/rc-common/src/recovery.rs` (2026-03-25)
-- `.planning/PROJECT.md` -- v17.1 milestone context, incident history, known constraints
-- `CLAUDE.md` standing rules -- `.spawn().is_ok()` warning, MAINTENANCE_MODE silent killer,
-  non-interactive context limits, DETACHED_PROCESS PowerShell leak, cascade guard rule (#10)
+- Direct analysis: `racecontrol/AUDIT-PROTOCOL.md` v3.0 (1928 lines, 60 phases, 18 tiers)
+- Direct analysis: `.planning/PROJECT.md` — v23.0 milestone spec (constraints, target features)
+- `CLAUDE.md` standing rules — parallel exec limits, comms-link dual-channel requirement,
+  WhatsApp routing (via Bono VPS), JSONL file format, auto-push requirement
+- `project_whatsapp_routing.md` (memory) — WA traffic routes via Bono Evolution API, not venue tunnel
+- Existing comms-link relay docs (relay/exec/run, relay/chain/run, health endpoint)
+- v22.0 gate-check.sh pattern — existing bash-only gate script this audit runner extends
 
 ---
 
-*Architecture research for: v17.1 Watchdog-to-AI Migration*
+*Architecture research for: v23.0 Automated Fleet Audit System*
 *Researched: 2026-03-25*
