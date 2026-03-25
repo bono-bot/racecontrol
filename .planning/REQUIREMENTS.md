@@ -94,6 +94,37 @@
 - [ ] **STATE-05**: Fix inconsistent state between game_launcher tracker and pod info (game_launcher.rs:328-339) — update both under a single lock scope or use a transactional update pattern. Currently a reader between the two updates sees inconsistent state
 - [ ] **STATE-06**: Add `broadcast_error` to all dashboard_tx sends — replace `let _ = state.dashboard_tx.send(...)` with logged error if channel is full/broken. At minimum `warn!` on failure, consider retry for critical events (billing state changes)
 
+### Type Sync & Contract Testing (SYNC)
+
+- [ ] **SYNC-01**: Update `packages/shared-types/src/billing.ts` BillingSessionStatus to include ALL Rust variants: add `waiting_for_game`, `paused_disconnect`, `paused_game_pause`. Remove `expired` if Rust never sends it. Remove `paused_idle` if Rust uses `paused_disconnect` instead
+- [ ] **SYNC-02**: Delete kiosk's local `BillingStatus` type redefinition (`kiosk/src/lib/types.ts` line 48) — re-export from `@racingpoint/types` instead. Kiosk currently only knows 7 of 10 billing states
+- [ ] **SYNC-03**: Add TypeScript types for `LaunchDiagnostics` interface in shared-types: `cm_attempted`, `cm_exit_code`, `cm_log_errors`, `fallback_used`, `direct_exit_code`, error taxonomy enum
+- [ ] **SYNC-04**: Add TypeScript types for `DashboardEvent` WebSocket message variants — at minimum `BillingTick`, `BillingSessionChanged`, `GameStateChanged`, `BillingWarning` payload shapes
+- [ ] **SYNC-05**: Update OpenAPI spec `BillingSessionStatus` enum to match Rust (10 variants). Add new metrics endpoints (`/metrics/launch-stats`, `/metrics/billing-accuracy`, `/games/alternatives`, `/admin/launch-matrix`)
+- [ ] **SYNC-06**: Add contract tests for WebSocket DashboardEvent messages — `BillingTick` with all 10 status variants, `GameStateChanged` with all 6 game states + LaunchDiagnostics, `BillingWarning` payload shape
+- [ ] **SYNC-07**: Add pre-commit hook or CI check that validates BillingSessionStatus variant count in Rust matches TypeScript shared-types — fail build on drift
+
+### Kiosk Integration (KIOSK)
+
+- [ ] **KIOSK-01**: Kiosk staff panel recognizes ALL billing states for live session display — expand from `["active", "paused_manual"]` to all non-terminal states including `waiting_for_game`, `paused_disconnect`, `paused_game_pause`
+- [ ] **KIOSK-02**: SessionTimer shows "Loading..." when `billing.status === "waiting_for_game"` — countdown timer NOT ticking, display text "Game Loading..." with spinner
+- [ ] **KIOSK-03**: SessionTimer shows "Paused (Game Crashed)" when `billing.status === "paused_game_pause"` — timer frozen, amber background, "Relaunching..." text if auto-recovery active
+- [ ] **KIOSK-04**: Game crash banner shows auto-recovery status — "Relaunching... (attempt 1/2)" instead of just "Game Crashed" with manual Relaunch button. Show Relaunch button only after auto-recovery exhausted
+- [ ] **KIOSK-05**: Launch reliability warning displayed when staff selects a combo with <70% success rate — amber banner "This combination has X% success rate" with "Suggest Alternative" button
+
+### Web Dashboard Integration (WEB)
+
+- [ ] **WEB-01**: Billing card handles `waiting_for_game` status — show "Loading..." badge, hide End/Pause buttons (can't end a session that hasn't started billing yet)
+- [ ] **WEB-02**: Billing card handles `paused_game_pause` and `paused_disconnect` statuses — show appropriate badge color and text, show Resume button only for `paused_manual`
+- [ ] **WEB-03**: StatusBadge.tsx handles all 10 BillingSessionStatus variants with distinct colors — currently missing 4 variants that render as default grey
+
+### Admin Dashboard Integration (ADMIN)
+
+- [ ] **ADMIN-01**: Billing pages (live, history, analytics) render `waiting_for_game` badge with distinct color (purple). All 10 BillingSessionStatus variants have badge styling
+- [ ] **ADMIN-02**: Games page active games table includes `game_state` column with color-coded badges (idle=grey, launching=blue, running=green, stopping=amber, error=red)
+- [ ] **ADMIN-03**: New admin page: Launch Reliability Matrix — table of game/pod combos with success rates, avg launch times, failure mode distribution. Red highlight for combos <70%. Data from `GET /api/v1/admin/launch-matrix`
+- [ ] **ADMIN-04**: New admin API client `src/lib/api/metrics.ts` with methods for `getLaunchStats()`, `getBillingAccuracy()`, `getLaunchMatrix()`, `getAlternatives()`
+
 ## v25.0+ Requirements (Future)
 
 ### Extended Self-Improving Processes
@@ -183,11 +214,30 @@
 | INTEL-03 | Phase 200 | Pending |
 | INTEL-04 | Phase 200 | Pending |
 | INTEL-05 | Phase 200 | Pending |
+| SYNC-01 | Phase 201 | Pending |
+| SYNC-02 | Phase 201 | Pending |
+| SYNC-03 | Phase 201 | Pending |
+| SYNC-04 | Phase 201 | Pending |
+| SYNC-05 | Phase 201 | Pending |
+| SYNC-06 | Phase 201 | Pending |
+| SYNC-07 | Phase 201 | Pending |
+| KIOSK-01 | Phase 201 | Pending |
+| KIOSK-02 | Phase 201 | Pending |
+| KIOSK-03 | Phase 201 | Pending |
+| KIOSK-04 | Phase 201 | Pending |
+| KIOSK-05 | Phase 201 | Pending |
+| WEB-01 | Phase 201 | Pending |
+| WEB-02 | Phase 201 | Pending |
+| WEB-03 | Phase 201 | Pending |
+| ADMIN-01 | Phase 201 | Pending |
+| ADMIN-02 | Phase 201 | Pending |
+| ADMIN-03 | Phase 201 | Pending |
+| ADMIN-04 | Phase 201 | Pending |
 
 **Coverage:**
-- v24.0 requirements: 63 total (corrected from initial estimate of 52)
-- Categories: METRICS (7), PODID (3), LAUNCH (19), AC (4), BILL (12), RECOVER (7), INTEL (5), STATE (6)
-- Mapped to phases: 63/63
+- v24.0 requirements: 82 total
+- Categories: METRICS (7), PODID (3), LAUNCH (19), AC (4), BILL (12), RECOVER (7), INTEL (5), STATE (6), SYNC (7), KIOSK (5), WEB (3), ADMIN (4)
+- Mapped to phases: 82/82
 - Unmapped: 0
 
 ---

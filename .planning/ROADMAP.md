@@ -3056,7 +3056,7 @@ Plans:
 
 **Milestone Goal:** Rework the game launcher and billing system to be resilient, accurate, and self-improving. Games launch flawlessly, billing starts precisely when the car is on-track and controllable, and every launch/billing event feeds a metrics foundation that makes the system smarter over time.
 
-**Phases:** 194-200 (7 phases, 63 requirements)
+**Phases:** 194-201 (8 phases, 82 requirements)
 **Started:** 2026-03-26
 
 ### v24.0 Phases
@@ -3068,6 +3068,7 @@ Plans:
 - [ ] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes
 - [ ] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
 - [ ] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning
+- [ ] **Phase 201: Frontend Integration & Type Sync** - Shared types parity (Rust↔TS), kiosk/web/admin UI updates for new states, contract tests, drift prevention, rebuild + deploy all 3 Next.js apps
 
 ## v24.0 Phase Details
 
@@ -3190,9 +3191,33 @@ Plans:
   9. **AUTO-TUNING PROOF**: After 20 new launches, dynamic timeout for the combo changes from default 120s to historical-derived value. Pre-launch health check adapts (if 80% of failures on this pod are disk-related, disk check runs first). Verify: no manual config changes needed, system computes from data
 **Plans**: TBD
 
+### Phase 201: Frontend Integration & Type Sync
+**Goal**: All 4 frontend apps (kiosk, web dashboard, admin, PWA) correctly handle new billing states, game states, and metrics — with type safety enforced by contract tests and CI. No customer-facing UI breaks when the backend ships new states.
+**Depends on**: Phase 198 (new billing states exist), Phase 200 (metrics APIs exist)
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, SYNC-07, KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04, KIOSK-05, WEB-01, WEB-02, WEB-03, ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04
+**Success Criteria** (what must be TRUE):
+  1. **TYPE PARITY**: `packages/shared-types/src/billing.ts` BillingSessionStatus has EXACTLY the same variants as Rust `rc-common/src/types.rs` BillingSessionStatus. Verify: contract test passes comparing variant counts
+  2. **KIOSK LOCAL TYPE REMOVED**: `grep "BillingStatus" kiosk/src/lib/types.ts` returns ZERO local definitions — only re-exports from `@racingpoint/types`. Verify: kiosk handles all 10 billing states
+  3. **KIOSK PANEL — ALL STATES**: Set billing status to each of `waiting_for_game`, `paused_disconnect`, `paused_game_pause` via WS → kiosk panel shows live session view (not setup wizard). Verify: panel mode is `live_session` for all non-terminal states
+  4. **KIOSK LOADING STATE**: Trigger game launch with deferred billing → kiosk timer shows "Game Loading..." with spinner, NOT countdown. After PlayableSignal → timer switches to countdown. Verify: screenshot shows "Loading..." during load phase
+  5. **KIOSK CRASH RECOVERY**: Game crashes during billing → kiosk shows "Relaunching... (attempt 1/2)" with amber background. After 2 failed retries → shows "Session Paused — Staff Notified" with Relaunch button. Verify: WS message `paused_game_pause` renders correctly
+  6. **KIOSK RELIABILITY WARNING**: Staff selects combo with <70% success → amber banner "40% success rate" appears. Staff taps "Suggest Alternative" → modal shows top 3 alternatives from API. Verify: warning visible before launch confirmation
+  7. **WEB WAITING_FOR_GAME**: Set billing status to `waiting_for_game` → billing card shows "Loading..." badge, End/Pause buttons HIDDEN. Verify: no clickable buttons that would error against server
+  8. **WEB ALL PAUSED STATES**: Set status to `paused_game_pause` → card shows "Game Crashed" badge (yellow). `paused_disconnect` → "Disconnected" badge (orange). `paused_manual` → "Paused" badge (blue). Verify: 3 distinct visual treatments
+  9. **STATUS BADGE COMPLETE**: `StatusBadge.tsx` renders ALL 10 BillingSessionStatus variants with distinct colors. Verify: no variant renders as default grey
+  10. **ADMIN BILLING BADGES**: All 10 billing statuses have badge colors in admin. `waiting_for_game` = purple badge. Verify: billing history page shows correct colors for all session types
+  11. **ADMIN GAME STATE**: Games page active games table shows `game_state` column. Color-coded: launching=blue, running=green, error=red. Verify: screenshot of games page with game_state visible
+  12. **ADMIN LAUNCH MATRIX**: New page at `/games/reliability` shows per-pod/per-game success rates. Combos <70% highlighted red. Data from `/api/v1/admin/launch-matrix`. Verify: page loads, data populates from real metrics
+  13. **ADMIN METRICS CLIENT**: `src/lib/api/metrics.ts` exports `getLaunchStats()`, `getBillingAccuracy()`, `getLaunchMatrix()`, `getAlternatives()`. All methods call racecontrol via `/api/rc/` proxy. Verify: each method returns typed data
+  14. **OPENAPI UPDATED**: `docs/openapi.yaml` BillingSessionStatus enum has 10 variants (not 8). New endpoints documented: `/metrics/launch-stats`, `/metrics/billing-accuracy`, `/games/alternatives`, `/admin/launch-matrix`
+  15. **CONTRACT TESTS**: `billing.contract.test.ts` validates all 10 BillingSessionStatus variants. New `ws-dashboard.contract.test.ts` validates BillingTick and GameStateChanged payload shapes including LaunchDiagnostics. Verify: `npm test` passes with new tests
+  16. **DRIFT PREVENTION**: Pre-commit hook or CI check compares BillingSessionStatus variant count in Rust vs TypeScript. Adding a Rust variant without TS update → build fails. Verify: add fake variant to Rust only → CI fails
+  17. **KIOSK + WEB + ADMIN REBUILD**: All 3 Next.js apps rebuilt with updated shared-types. `NEXT_PUBLIC_` vars set correctly. Static files serving verified (`curl _next/static/` returns 200). Verify: health endpoints + static file check on all 3 apps
+**Plans**: TBD
+
 ## v24.0 Progress
 
-**Execution Order:** 194 -> 195 -> 196 -> 197 -> 198 -> 199 -> 200
+**Execution Order:** 194 -> 195 -> 196 -> 197 -> 198 -> 199 -> 200 -> 201
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -3203,3 +3228,4 @@ Plans:
 | 198. On-Track Billing | 0/0 | Not started | - |
 | 199. Crash Recovery | 0/0 | Not started | - |
 | 200. Self-Improving Intelligence | 0/0 | Not started | - |
+| 201. Frontend Integration & Type Sync | 0/0 | Not started | - |
