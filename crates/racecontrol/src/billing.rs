@@ -536,6 +536,9 @@ pub async fn handle_game_status_update(
 
                         tracing::info!("All {} pods live in group {} — starting billing for all", entries.len(), gid);
                         for e in entries {
+                            let delta_ms = e.waiting_since.elapsed().as_millis() as i64;
+                            let sim_str = e.sim_type.as_ref().map(|s| format!("{}", s));
+                            let ep_id = e.pod_id.clone();
                             match start_billing_session(
                                 state,
                                 e.pod_id.clone(),
@@ -549,6 +552,23 @@ pub async fn handle_game_status_update(
                             ).await {
                                 Ok(session_id) => {
                                     tracing::info!("Multiplayer billing started for pod {} (session {})", e.pod_id, session_id);
+                                    // Record billing accuracy event (METRICS-03)
+                                    let billing_start_at = chrono::Utc::now()
+                                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                                        .to_string();
+                                    let ba_event = crate::metrics::BillingAccuracyEvent {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        session_id: session_id.clone(),
+                                        pod_id: ep_id.clone(),
+                                        sim_type: sim_str,
+                                        event_type: "start".to_string(),
+                                        launch_command_at: None,
+                                        playable_signal_at: Some(billing_start_at.clone()),
+                                        billing_start_at: Some(billing_start_at),
+                                        delta_ms: Some(delta_ms),
+                                        details: Some("multiplayer".to_string()),
+                                    };
+                                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
                                 }
                                 Err(err) => {
                                     tracing::error!("Failed to start multiplayer billing for pod {}: {}", e.pod_id, err);
@@ -564,6 +584,8 @@ pub async fn handle_game_status_update(
                     }
                 } else {
                     // ── Single-player: start billing immediately (existing behavior) ──
+                    let delta_ms = entry.waiting_since.elapsed().as_millis() as i64;
+                    let sim_str = entry.sim_type.as_ref().map(|s| format!("{}", s));
                     match start_billing_session(
                         state,
                         entry.pod_id,
@@ -577,6 +599,23 @@ pub async fn handle_game_status_update(
                     ).await {
                         Ok(session_id) => {
                             tracing::info!("Billing started on LIVE for pod {} (session {})", pod_id, session_id);
+                            // Record billing accuracy event (METRICS-03)
+                            let billing_start_at = chrono::Utc::now()
+                                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                                .to_string();
+                            let ba_event = crate::metrics::BillingAccuracyEvent {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                session_id: session_id.clone(),
+                                pod_id: pod_id.to_string(),
+                                sim_type: sim_str,
+                                event_type: "start".to_string(),
+                                launch_command_at: None,
+                                playable_signal_at: Some(billing_start_at.clone()),
+                                billing_start_at: Some(billing_start_at),
+                                delta_ms: Some(delta_ms),
+                                details: None,
+                            };
+                            crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
                         }
                         Err(e) => {
                             tracing::error!("Failed to start billing on LIVE for pod {}: {}", pod_id, e);

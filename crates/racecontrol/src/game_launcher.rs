@@ -532,6 +532,9 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     "race_engineer",
                 );
 
+                // Capture crash detection time for recovery duration measurement
+                let crash_detected_at = std::time::Instant::now();
+
                 // Delayed relaunch (5s) — verify billing still active + game still in Error
                 tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -567,6 +570,23 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                 })
                                 .await;
                         }
+                        drop(senders);
+
+                        // Record recovery event — relaunch initiated (METRICS-04)
+                        let recovery_duration_ms = crash_detected_at.elapsed().as_millis() as i64;
+                        let recovery_event = metrics::RecoveryEvent {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            pod_id: pod_id_owned.clone(),
+                            sim_type: Some(sim_name.clone()),
+                            car: None,
+                            track: None,
+                            failure_mode: "game_crash".to_string(),
+                            recovery_action_tried: format!("auto_relaunch_attempt_{}", attempt),
+                            recovery_outcome: metrics::RecoveryOutcome::Success,
+                            recovery_duration_ms: Some(recovery_duration_ms),
+                            error_details: None,
+                        };
+                        metrics::record_recovery_event(&state_clone.db, &recovery_event).await;
                     }
                 });
             } else {
@@ -594,6 +614,24 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                         );
                     }
                 }
+                drop(timers);
+
+                // Record recovery event — relaunch exhausted (METRICS-04)
+                let recovery_event = metrics::RecoveryEvent {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pod_id: pod_id.to_string(),
+                    sim_type: Some(format!("{}", info.sim_type)),
+                    car: None,
+                    track: None,
+                    failure_mode: "game_crash".to_string(),
+                    recovery_action_tried: "auto_relaunch_exhausted".to_string(),
+                    recovery_outcome: metrics::RecoveryOutcome::Failed,
+                    recovery_duration_ms: None,
+                    error_details: Some(
+                        "Max relaunch attempts (2) reached. Billing paused.".to_string(),
+                    ),
+                };
+                metrics::record_recovery_event(&state.db, &recovery_event).await;
             }
         }
     }
