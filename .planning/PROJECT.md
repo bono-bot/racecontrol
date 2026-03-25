@@ -24,31 +24,35 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - E2E tests require both POS (:3200) and Kiosk (:8000/:3300) running
 - Contract tests must not break existing APIs — additive only
 
-## Current Milestone: v22.0 Feature Management & OTA Pipeline
+## Shipped Milestone: v22.0 Feature Management & OTA Pipeline (2026-03-25)
 
-**Goal:** Full feature lifecycle management across the RaceControl stack — toggle features on/off per-pod from the admin dashboard, compile-time Cargo feature gates for major modules, server-central config push over WebSocket, and an automated OTA pipeline (build → canary → staged rollout → health check → auto-rollback) for binaries + config + frontends as atomic versioned releases. Every standing rule codified as an automated enforcement gate at every pipeline step. New standing rules created for the OTA system itself.
+**Delivered:** Feature flags (SQLite+cache+WS sync), OTA pipeline (canary→staged→health), admin /flags + /ota pages. Standing rules gate (76 rules classified), gate-check.sh, 7 phases (176-182), 48 requirements.
+
+## Current Milestone: v23.0 Audit Protocol v4.0 — Automated Fleet Audit System
+
+**Goal:** Transform the manual 60-phase AUDIT-PROTOCOL v3.0 (1928 lines of copy-paste bash commands) into an automated, scriptable audit runner that can be executed with a single command and produces structured, comparable results.
 
 **Target features:**
-- Runtime feature flag registry in racecontrol server with per-pod override support
-- Admin dashboard UI for toggling features per-pod, per-service with live status
-- Server-to-pod config push over existing WebSocket (no manual TOML editing)
-- Cargo feature gates for rc-agent (AI debugger, process guard) and rc-sentry (watchdog, tier1-fixes, ai-diagnosis) — compile-time inclusion/exclusion. Telemetry excluded from gates: too deeply woven into billing/game state machine.
-- Hot-reload for runtime config changes without binary restart where possible
-- Full OTA release pipeline: CI build → canary (Pod 8) → staged rollout → health verification → auto-rollback on failure
-- Atomic versioned releases: binaries + config + frontends bundled with manifest
-- All 41+ CLAUDE.md standing rules codified as automated checks — pipeline blocks until ALL pass at every step
-- New standing rules for: OTA pipeline safety, feature toggle rollback, config push verification, release versioning
-- Rollback system: one-command revert to previous known-good release across entire fleet
-- Components in scope: racecontrol, rc-agent, rc-sentry (watchdog), rc-sentry-ai (camera AI), cloud services (API gateway, admin, bots)
+- Single-command execution: `bash audit.sh --mode quick|standard|full|pre-ship|post-incident`
+- Structured JSON output with severity scoring (PASS/WARN/FAIL/QUIET + P1-P3 severity levels)
+- Venue-open/closed detection with conditional phase execution (skip display/hardware checks when closed)
+- Delta tracking: compare current audit against previous results, highlight regressions and improvements
+- Auto-fix for safe issues: clear sentinel files, kill orphan processes, restart known-safe services
+- Parallel phase execution within tiers using bash background jobs
+- Markdown report generation with diff against last audit results
+- Known-issue suppression list (JSON) so recurring known issues don't clutter results
+- Integration with comms-link to notify Bono of audit results automatically
+- WhatsApp summary notification to Uday on audit completion
+- All 60 phases from v3.0 preserved and runnable non-interactively
 
 **Constraints:**
-- Must not reduce current deployment reliability — OTA must be at least as reliable as manual scp + restart
-- Standing rules enforcement must be fully automated — no human bypass option
-- Feature toggles must work over existing WebSocket agent connection (no new ports/protocols)
-- Config push must handle pod offline gracefully (queue + retry when pod reconnects)
-- Rollback must preserve billing session state — never lose active session data during rollback
-- Cross-process update standing rule applies: feature changes must cascade to ALL affected components
-- Static CRT constraint remains — all binaries must be self-contained
+- Pure bash scripts — no new compiled dependencies (no Rust, no Node for audit logic)
+- Must work from James's machine (.27) targeting server (.23), all 8 pods, and Bono VPS
+- Must preserve every check from AUDIT-PROTOCOL v3.0's 60 phases
+- Auto-fix actions must be conservative — only pre-approved safe operations
+- Parallel execution must not overwhelm pods (max 4 concurrent pod queries)
+- Report format must be parseable by both humans and scripts (JSON + Markdown dual output)
+- Must handle venue-closed state gracefully (QUIET, not FAIL for offline checks)
 
 ## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
