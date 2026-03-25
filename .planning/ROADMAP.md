@@ -2942,7 +2942,8 @@ Plans:
 
 ## Phases
 
-- [x] **Phase 189: Core Scaffold and Shared Primitives** - audit.sh entry point, lib/core.sh with all safe wrapper functions, JSON schema, auth token acquisition, prerequisites check (completed 2026-03-25)
+- [x] **Phase 189: Core Scaffold and Shared Primitives** - audit.sh entry point, lib/core.sh with all safe wrapper functions, JSON schema, auth token acquisition, prerequisites check
+ (completed 2026-03-25)
 - [ ] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors
 - [ ] **Phase 191: Parallel Engine and Phase Scripts Tiers 10-18** - lib/parallel.sh with file-based semaphore; port v3.0 phases 35-60; audit runtime reduced from ~24 min to ~6 min
 - [ ] **Phase 192: Intelligence Layer** - Delta tracking, known-issue suppression with expiry, severity scoring, Markdown report generation, results storage
@@ -2977,7 +2978,7 @@ Plans:
   3. `bash audit/audit.sh --phase 07` runs only phase 07 and exits — phase selector works correctly
   4. Every phase script in audit/phases/tier1/ through audit/phases/tier9/ exits 0 always — errors are encoded in the JSON result, never as bash exit codes that would abort the runner
   5. A phase checking a service on server .23 produces a result within 10 seconds even when .23 is unreachable — timeout enforcement works and no single offline host blocks the audit
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 190-01-PLAN.md — Tiers 1-3: infrastructure checks (server health, build IDs, network), core services (racecontrol, rc-agent, rc-sentry), display/UX (lock screen, Edge, blanking)
