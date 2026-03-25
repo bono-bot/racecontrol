@@ -4,6 +4,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use tokio::sync::RwLock;
 
+use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
@@ -424,6 +425,8 @@ pub async fn defer_billing_start(
     split_duration_minutes: Option<u32>,
     group_session_id: Option<String>,
 ) -> Result<(), String> {
+    // Normalize pod_id to canonical form (pod_N) at entry
+    let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
     let entry = WaitingForGameEntry {
         pod_id: pod_id.clone(),
         driver_id,
@@ -458,6 +461,9 @@ pub async fn handle_game_status_update(
     sim_type: Option<rc_common::types::SimType>,
     _cmd_tx: &tokio::sync::mpsc::Sender<CoreToAgentMessage>,
 ) {
+    // Normalize pod_id to canonical form (pod_N) at entry
+    let pod_id_normalized = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
+    let pod_id = pod_id_normalized.as_str();
     use rc_common::types::AcStatus;
     match ac_status {
         AcStatus::Live => {
@@ -1492,6 +1498,7 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
             split_count,
             split_duration_minutes,
         } => {
+            let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
             let _ = start_billing_session(
                 state,
                 pod_id,
@@ -1548,6 +1555,8 @@ pub async fn start_billing_session(
     split_count: Option<u32>,
     split_duration_minutes: Option<u32>,
 ) -> Result<String, String> {
+    // Normalize pod_id to canonical form (pod_N) at entry
+    let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
     // Check no active session on this pod
     {
         let timers = state.billing.active_timers.read().await;
@@ -2733,6 +2742,9 @@ pub async fn update_driving_state(
 /// If so, stop the AC server associated with the group.
 /// Called after each billing end (both tick-expired and manual stop).
 pub async fn check_and_stop_multiplayer_server(state: &Arc<AppState>, pod_id: &str) {
+    // Normalize pod_id to canonical form (pod_N) at entry
+    let pod_id_normalized = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
+    let pod_id = pod_id_normalized.as_str();
     // Look up the group_session_id for this pod's billing session
     let group_info = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT gs.id, gs.ac_session_id
