@@ -3672,15 +3672,15 @@ async fn relay_game_launch_to_venue(
         Some(n) => n,
         None => {
             // Try parsing pod_id as "pod-N" format
-            pod_id.strip_prefix("pod-")
-                .and_then(|n| n.parse::<u32>().ok())
-                .unwrap_or(0)
+            match pod_id.strip_prefix("pod-").and_then(|n| n.parse::<u32>().ok()) {
+                Some(n) if n > 0 => n,
+                _ => {
+                    tracing::warn!("Venue relay: cannot resolve pod_id '{}' to pod number — pod not found in registry and id format unrecognized", pod_id);
+                    return Json(json!({ "ok": false, "error": format!("Cannot resolve pod_id '{}' to pod number for venue relay. Pod may be offline or not registered.", pod_id) }));
+                }
+            }
         }
     };
-
-    if pod_number == 0 {
-        return Json(json!({ "ok": false, "error": format!("Cannot resolve pod_id '{}' to pod number", pod_id) }));
-    }
 
     let track = body.get("launch_args")
         .and_then(|v| v.as_str())

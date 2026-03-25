@@ -114,7 +114,9 @@ pub fn cleanup_orphaned_games() -> u32 {
     }
 
     if cleaned > 0 {
-        tracing::info!(target: LOG_TARGET, "Cleaned up {} orphaned game processes on startup", cleaned);
+        tracing::info!(target: LOG_TARGET, "Cleaned up {} orphaned game process(es) on startup", cleaned);
+    } else {
+        tracing::info!(target: LOG_TARGET, "Orphan game scan complete — no stale game processes found");
     }
     cleaned
 }

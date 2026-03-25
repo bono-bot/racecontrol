@@ -499,7 +499,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     }
 }
 
-/// Periodic health check: detect stale Launching states (timeout after 60s)
+/// Periodic health check: detect stale Launching states.
+/// AC with CSP mods can take 90s+ to load; use 120s timeout for AC, 60s for others.
 pub async fn check_game_health(state: &Arc<AppState>) {
     let now = Utc::now();
     let mut timed_out = Vec::new();
@@ -510,25 +511,30 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             if tracker.game_state == GameState::Launching {
                 if let Some(launched_at) = tracker.launched_at {
                     let elapsed = now.signed_duration_since(launched_at);
-                    if elapsed.num_seconds() > 60 {
-                        timed_out.push((pod_id.clone(), tracker.sim_type));
+                    let timeout_secs = match tracker.sim_type {
+                        SimType::AssettoCorsa => 120,
+                        _ => 60,
+                    };
+                    if elapsed.num_seconds() > timeout_secs {
+                        timed_out.push((pod_id.clone(), tracker.sim_type, timeout_secs));
                     }
                 }
             }
         }
     }
 
-    for (pod_id, sim_type) in timed_out {
-        tracing::warn!("Game launch timed out on pod {}", pod_id);
-        log_pod_activity(state, &pod_id, "game", "Launch Timeout", &format!("{} failed to start within 60s", sim_type), "core");
+    for (pod_id, sim_type, timeout_secs) in timed_out {
+        tracing::warn!("Game launch timed out on pod {} ({}s limit for {:?})", pod_id, timeout_secs, sim_type);
+        log_pod_activity(state, &pod_id, "game", "Launch Timeout", &format!("{} failed to start within {}s", sim_type, timeout_secs), "core");
 
+        let timeout_msg = format!("Launch timed out ({}s)", timeout_secs);
         let info = GameLaunchInfo {
             pod_id: pod_id.clone(),
             sim_type,
             game_state: GameState::Error,
             pid: None,
             launched_at: None,
-            error_message: Some("Launch timed out (60s)".to_string()),
+            error_message: Some(timeout_msg.clone()),
             diagnostics: None,
         };
 
@@ -541,7 +547,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             .get_mut(&pod_id)
         {
             tracker.game_state = GameState::Error;
-            tracker.error_message = Some("Launch timed out (60s)".to_string());
+            tracker.error_message = Some(timeout_msg);
         }
 
         // Log and broadcast

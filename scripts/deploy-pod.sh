@@ -6,6 +6,10 @@
 # rc-sentry is independent of both racecontrol and rc-agent — it never
 # loses connectivity during deploys.
 #
+# VERIFICATION (v2): Records expected build_id before deploy, verifies
+# post-deploy that the pod reports the correct build_id. Preserves
+# rollback binary. Compares SHA256 of staged vs downloaded binary.
+#
 # Usage:
 #   ./deploy-pod.sh pod-8                 # deploy to Pod 8 only
 #   ./deploy-pod.sh all                   # deploy to all 8 pods
@@ -21,7 +25,7 @@ SERVE_PORT=18889
 BINARY_DIR="${BINARY_DIR:-$(cd "${SCRIPT_DIR}/../racingpoint/deploy-staging" 2>/dev/null && pwd || echo "$HOME/racingpoint/deploy-staging")}"
 BINARY_DIR="${BINARY_DIR:-$HOME/racingpoint/deploy-staging}"
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 pass() { echo -e "  ${GREEN}OK${NC}    $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}  $1"; FAILURES=$((FAILURES+1)); }
 info() { echo -e "  ${YELLOW}...${NC}   $1"; }
@@ -73,12 +77,37 @@ deploy_pod() {
     fi
     pass "$POD_NAME: Downloaded (${DL_SIZE} bytes)"
 
+    # SHA256 verification: compare staged binary hash with downloaded binary on pod
+    info "$POD_NAME: Verifying SHA256..."
+    REMOTE_HASH=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"certutil -hashfile C:/RacingPoint/rc-agent-new.exe SHA256 | findstr /v hash | findstr /v Cert"}' 2>/dev/null || echo "")
+    REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d '[:space:]' | head -c 64)
+    if [ -n "$LOCAL_SHA256" ] && [ -n "$REMOTE_HASH" ] && [ "$LOCAL_SHA256" != "$REMOTE_HASH" ]; then
+        fail "$POD_NAME: SHA256 mismatch! Local=${LOCAL_SHA256:0:12}... Remote=${REMOTE_HASH:0:12}..."
+        # Clean up bad download
+        curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd":"del C:/RacingPoint/rc-agent-new.exe 2>nul"}' > /dev/null 2>&1
+        return
+    elif [ -n "$LOCAL_SHA256" ] && [ -n "$REMOTE_HASH" ]; then
+        pass "$POD_NAME: SHA256 verified (${REMOTE_HASH:0:12}...)"
+    else
+        info "$POD_NAME: SHA256 check skipped (hash unavailable)"
+    fi
+
     # Stop rc-agent (kill bat wrapper first to prevent auto-relaunch, then kill process)
     info "$POD_NAME: Stopping rc-agent..."
     curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"taskkill /F /FI \"WINDOWTITLE eq RC*Agent*\" 2>nul & taskkill /F /IM rc-agent.exe 2>nul & echo KILLED"}' > /dev/null 2>&1
     sleep 3
+
+    # Preserve rollback binary before swap
+    info "$POD_NAME: Preserving rollback binary..."
+    curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"if exist C:\\RacingPoint\\rc-agent.exe (copy /Y C:\\RacingPoint\\rc-agent.exe C:\\RacingPoint\\rc-agent-prev.exe >nul & echo PRESERVED) else (echo SKIP)"}' > /dev/null 2>&1
 
     # Swap
     SWAP=$(curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
@@ -94,13 +123,19 @@ deploy_pod() {
         -H "Content-Type: application/json" \
         -d '{"cmd":"start \"rc-agent\" C:/RacingPoint/start-rcagent.bat & echo STARTED"}' > /dev/null 2>&1
 
-    # Verify
+    # Verify: ping + build_id
     sleep 5
-    PING=$(curl -s --max-time 5 "http://${POD_IP}:8090/ping" 2>/dev/null || echo "")
-    if [ "$PING" = "pong" ]; then
-        pass "$POD_NAME: rc-agent is UP"
-    else
+    HEALTH_BODY=$(curl -s --max-time 5 "http://${POD_IP}:8090/health" 2>/dev/null || echo "")
+    ACTUAL_BUILD=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "")
+
+    if [ -z "$ACTUAL_BUILD" ]; then
         info "$POD_NAME: rc-agent not yet responding (may need more time)"
+    elif [ -n "$EXPECTED_BUILD_ID" ] && [ "$ACTUAL_BUILD" != "$EXPECTED_BUILD_ID" ]; then
+        fail "$POD_NAME: build_id MISMATCH — expected ${EXPECTED_BUILD_ID}, got ${ACTUAL_BUILD}. Rollback: rename rc-agent-prev.exe back."
+    elif [ -n "$EXPECTED_BUILD_ID" ]; then
+        pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} matches expected"
+    else
+        pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} (no expected build_id to compare)"
     fi
 }
 
@@ -119,6 +154,37 @@ if [ ! -f "${BINARY_DIR}/rc-agent.exe" ]; then
 fi
 BINARY_SIZE=$(stat -c%s "${BINARY_DIR}/rc-agent.exe" 2>/dev/null || wc -c < "${BINARY_DIR}/rc-agent.exe" 2>/dev/null || echo "0")
 pass "rc-agent.exe binary valid (${BINARY_SIZE} bytes)"
+
+# Compute local SHA256 for verification
+LOCAL_SHA256=$(sha256sum "${BINARY_DIR}/rc-agent.exe" 2>/dev/null | awk '{print $1}' || certutil -hashfile "${BINARY_DIR}/rc-agent.exe" SHA256 2>/dev/null | grep -v hash | grep -v Cert | tr -d '[:space:]' || echo "")
+if [ -n "$LOCAL_SHA256" ]; then
+    pass "Local SHA256: ${LOCAL_SHA256:0:16}..."
+fi
+
+# Record expected build_id from git HEAD (if inside a git repo)
+EXPECTED_BUILD_ID=""
+REPO_DIR=$(cd "${SCRIPT_DIR}/.." 2>/dev/null && pwd || echo "")
+if [ -d "${REPO_DIR}/.git" ]; then
+    EXPECTED_BUILD_ID=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+    if [ -n "$EXPECTED_BUILD_ID" ]; then
+        echo -e "  ${CYAN}>>>${NC}   Expected build_id: ${EXPECTED_BUILD_ID}"
+    fi
+
+    # Staleness check: compare binary mtime vs latest commit time
+    BINARY_MTIME=$(stat -c%Y "${BINARY_DIR}/rc-agent.exe" 2>/dev/null || echo "0")
+    LATEST_COMMIT_TIME=$(git -C "$REPO_DIR" log -1 --format=%ct -- crates/rc-agent/ 2>/dev/null || echo "0")
+    if [ "$LATEST_COMMIT_TIME" -gt "$BINARY_MTIME" ] 2>/dev/null; then
+        echo -e "  ${RED}!!${NC}    ${RED}WARNING: Staged binary is OLDER than latest rc-agent commit!${NC}"
+        echo -e "  ${RED}!!${NC}    ${RED}Run ./scripts/stage-release.sh first to rebuild.${NC}"
+        echo ""
+        read -p "  Continue anyway? (y/N) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted."
+            exit 1
+        fi
+    fi
+fi
 
 # Start HTTP server
 info "Starting HTTP file server on :${SERVE_PORT}..."
@@ -142,6 +208,7 @@ if [ "$FAILURES" -eq 0 ]; then
     echo -e "${GREEN}Deploy complete — 0 failures${NC}"
 else
     echo -e "${RED}Deploy complete — ${FAILURES} failure(s)${NC}"
+    echo -e "${YELLOW}Rollback: On failed pods, rename rc-agent-prev.exe → rc-agent.exe via rc-sentry${NC}"
 fi
 echo "=========================================="
 exit $FAILURES

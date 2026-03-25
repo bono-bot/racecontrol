@@ -12,6 +12,9 @@
 #   4. Verify new binary size matches local before starting.
 #   5. Health-poll with 60s timeout before declaring success.
 #
+# VERIFICATION (v2): Records expected build_id, verifies post-deploy match.
+# Preserves rollback binary. Compares SHA256.
+#
 # Based on: deploy-staging/RaceControl.bat pattern + Phase 55 rc-sentry deploys.
 #
 # Usage:
@@ -21,6 +24,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SERVER_IP="${SERVER_IP:-192.168.31.23}"
 JAMES_IP="${JAMES_IP:-192.168.31.27}"
 SENTRY_PORT=8091
@@ -28,7 +32,7 @@ HEALTH_PORT=8080
 SERVE_PORT=18888
 BINARY_DIR="${BINARY_DIR:-$HOME/racingpoint/deploy-staging}"
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 pass() { echo -e "  ${GREEN}OK${NC}    $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}  $1"; exit 1; }
 info() { echo -e "  ${YELLOW}...${NC}   $1"; }
@@ -58,6 +62,43 @@ if [ "$LOCAL_SIZE" -lt 1000000 ]; then
 fi
 pass "Binary valid (${LOCAL_SIZE} bytes)"
 
+# ─── Gate 3: SHA256 of local binary ──────────────────────────────────
+LOCAL_SHA256=$(sha256sum "${BINARY_DIR}/racecontrol.exe" 2>/dev/null | awk '{print $1}' || certutil -hashfile "${BINARY_DIR}/racecontrol.exe" SHA256 2>/dev/null | grep -v hash | grep -v Cert | tr -d '[:space:]' || echo "")
+if [ -n "$LOCAL_SHA256" ]; then
+    pass "Local SHA256: ${LOCAL_SHA256:0:16}..."
+fi
+
+# ─── Gate 4: Expected build_id from git HEAD ─────────────────────────
+EXPECTED_BUILD_ID=""
+REPO_DIR=$(cd "${SCRIPT_DIR}/.." 2>/dev/null && pwd || echo "")
+if [ -d "${REPO_DIR}/.git" ]; then
+    EXPECTED_BUILD_ID=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+    if [ -n "$EXPECTED_BUILD_ID" ]; then
+        echo -e "  ${CYAN}>>>${NC}   Expected build_id: ${EXPECTED_BUILD_ID}"
+    fi
+
+    # Staleness check
+    BINARY_MTIME=$(stat -c%Y "${BINARY_DIR}/racecontrol.exe" 2>/dev/null || echo "0")
+    LATEST_COMMIT_TIME=$(git -C "$REPO_DIR" log -1 --format=%ct -- crates/racecontrol/ 2>/dev/null || echo "0")
+    if [ "$LATEST_COMMIT_TIME" -gt "$BINARY_MTIME" ] 2>/dev/null; then
+        echo -e "  ${RED}!!${NC}    ${RED}WARNING: Staged binary is OLDER than latest racecontrol commit!${NC}"
+        echo -e "  ${RED}!!${NC}    ${RED}Run ./scripts/stage-release.sh first to rebuild.${NC}"
+        echo ""
+        read -p "  Continue anyway? (y/N) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted."
+            exit 1
+        fi
+    fi
+fi
+
+# ─── Gate 5: Record pre-deploy build_id ──────────────────────────────
+info "Recording pre-deploy server state..."
+PRE_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
+PRE_BUILD=$(echo "$PRE_HEALTH" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+echo -e "  ${CYAN}>>>${NC}   Pre-deploy build_id: ${PRE_BUILD}"
+
 # ─── Step 1: Serve binary via HTTP ───────────────────────────────────
 info "Starting HTTP file server on :${SERVE_PORT}..."
 cd "${BINARY_DIR}"
@@ -79,9 +120,23 @@ if [ "$REMOTE_SIZE" -lt 1000000 ]; then
 fi
 pass "Downloaded to server (${REMOTE_SIZE} bytes)"
 
+# ─── Step 2b: SHA256 verification on server ──────────────────────────
+if [ -n "$LOCAL_SHA256" ]; then
+    info "Verifying SHA256 on server..."
+    REMOTE_HASH=$(curl -s --max-time 30 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"certutil -hashfile C:/RacingPoint/racecontrol-new.exe SHA256 | findstr /v hash | findstr /v Cert"}' 2>/dev/null || echo "")
+    REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d '[:space:]' | head -c 64)
+    if [ -n "$REMOTE_HASH" ] && [ "$LOCAL_SHA256" != "$REMOTE_HASH" ]; then
+        fail "SHA256 mismatch! Local=${LOCAL_SHA256:0:12}... Remote=${REMOTE_HASH:0:12}... — binary corrupted during transfer."
+    elif [ -n "$REMOTE_HASH" ]; then
+        pass "SHA256 verified (${REMOTE_HASH:0:12}...)"
+    else
+        info "SHA256 check skipped (remote hash unavailable)"
+    fi
+fi
+
 # ─── Step 3: Stop racecontrol via bat window kill ────────────────────
-# RaceControl.bat runs in a cmd.exe with title "RaceControl Server" and auto-relaunches.
-# Kill the WRAPPER first (prevents auto-relaunch), which also kills the child racecontrol.exe.
 info "Stopping racecontrol (killing bat wrapper + process)..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
@@ -89,7 +144,12 @@ curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
 sleep 3
 pass "racecontrol stopped"
 
-# ─── Step 4: Swap binary ────────────────────────────────────────────
+# ─── Step 4: Preserve rollback binary, then swap ─────────────────────
+info "Preserving rollback binary (racecontrol-prev.exe)..."
+curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"if exist C:\\RacingPoint\\racecontrol.exe (copy /Y C:\\RacingPoint\\racecontrol.exe C:\\RacingPoint\\racecontrol-prev.exe >nul & echo PRESERVED) else (echo SKIP)"}' > /dev/null 2>&1
+
 info "Swapping binary..."
 SWAP=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
@@ -97,7 +157,7 @@ SWAP=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
 if ! echo "$SWAP" | grep -q "SWAPPED"; then
     fail "Swap failed: $SWAP"
 fi
-pass "Binary swapped"
+pass "Binary swapped (rollback: racecontrol-prev.exe)"
 
 # ─── Step 5: Start racecontrol ──────────────────────────────────────
 info "Starting racecontrol..."
@@ -105,19 +165,36 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
 
-# ─── Step 6: Health check with retry ────────────────────────────────
+# ─── Step 6: Health check with build_id verification ─────────────────
 info "Waiting for server health..."
 for i in $(seq 1 12); do
     sleep 5
     HEALTH_BODY=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
     if echo "$HEALTH_BODY" | grep -q '"status":"ok"'; then
-        BUILD_ID=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
-        pass "Server healthy — build_id: ${BUILD_ID}"
+        ACTUAL_BUILD=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+
+        if [ -n "$EXPECTED_BUILD_ID" ] && [ "$ACTUAL_BUILD" != "$EXPECTED_BUILD_ID" ]; then
+            echo ""
+            echo -e "  ${RED}!!${NC}    ${RED}build_id MISMATCH: expected ${EXPECTED_BUILD_ID}, got ${ACTUAL_BUILD}${NC}"
+            echo -e "  ${RED}!!${NC}    ${RED}Cargo may have cached a stale build. Run:${NC}"
+            echo -e "  ${RED}!!${NC}    ${RED}  touch crates/racecontrol/build.rs && cargo build --release${NC}"
+            echo -e "  ${RED}!!${NC}    ${RED}Rollback: rename racecontrol-prev.exe → racecontrol.exe on server${NC}"
+            exit 1
+        fi
+
+        pass "Server healthy — build_id: ${ACTUAL_BUILD}"
+        if [ -n "$EXPECTED_BUILD_ID" ]; then
+            pass "build_id matches expected (${EXPECTED_BUILD_ID})"
+        fi
         echo ""
         echo -e "${GREEN}=== Deploy successful! ===${NC}"
+        echo -e "${YELLOW}NOTE: Verify the EXACT fix, not just health. Test the specific endpoint/behavior that changed.${NC}"
         exit 0
     fi
     echo "    Attempt $i/12 — waiting..."
 done
 
-fail "Server did not come up after 60 seconds. Check logs on server."
+echo ""
+echo -e "${RED}Server did not come up after 60 seconds.${NC}"
+echo -e "${YELLOW}Rollback: via rc-sentry exec, rename racecontrol-prev.exe → racecontrol.exe, then schtasks /Run /TN StartRCTemp${NC}"
+exit 1

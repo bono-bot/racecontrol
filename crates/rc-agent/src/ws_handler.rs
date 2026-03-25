@@ -327,7 +327,9 @@ pub async fn handle_ws_message(
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
 
                 let params: ac_launcher::AcLaunchParams = match &launch_args {
-                    Some(args) => serde_json::from_str(args).unwrap_or_else(|_| ac_launcher::AcLaunchParams {
+                    Some(args) => serde_json::from_str(args).unwrap_or_else(|e| {
+                        tracing::warn!(target: LOG_TARGET, "Failed to parse AC launch_args, using defaults (car=ks_ferrari_sf15t, track=spa): {}", e);
+                        ac_launcher::AcLaunchParams {
                         car: "ks_ferrari_sf15t".to_string(), track: "spa".to_string(),
                         driver: "Driver".to_string(), track_config: String::new(), skin: String::new(),
                         transmission: "manual".to_string(), ffb: "medium".to_string(),
@@ -337,7 +339,7 @@ pub async fn handle_ws_message(
                         session_type: "practice".to_string(), ai_cars: Vec::new(),
                         starting_position: 1, formation_lap: false,
                         weekend_practice_minutes: 0, weekend_qualify_minutes: 0,
-                    }),
+                    }}),
                     None => ac_launcher::AcLaunchParams {
                         car: "ks_ferrari_sf15t".to_string(), track: "spa".to_string(),
                         driver: "Driver".to_string(), track_config: String::new(), skin: String::new(),
