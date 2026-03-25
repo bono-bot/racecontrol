@@ -2765,10 +2765,12 @@ Plans:
   5. HUMAN-CONFIRM rules cause the pipeline to pause and emit a named operator checklist; the pipeline resumes only after explicit operator confirmation of each checklist item
   6. CLAUDE.md has a new OTA Pipeline standing rules section covering: always preserve prev binary, never deploy without manifest, billing sessions drain before swap, OTA sentinel file protocol, config push never through fleet exec endpoint -- Bono receives these rules via standing rules sync
   7. gate-check.sh extends the v21.0 run-all.sh E2E framework as a superset -- it does not create a parallel test system
-**Plans**: 1 plan
+**Plans**: 3 plans
 
 Plans:
-- [ ] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
+- [ ] 181-01-PLAN.md -- Standing rules registry + OTA Pipeline rules in CLAUDE.md
+- [ ] 181-02-PLAN.md -- gate-check.sh pre-deploy and post-wave gate script
+- [ ] 181-03-PLAN.md -- Pipeline integration (Paused state) + Bono sync
 
 ### Phase 182: Cross-Milestone Integration
 **Goal**: All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push — overlapping phases superseded or merged, future phases gain v22.0 as a dependency
