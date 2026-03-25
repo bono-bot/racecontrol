@@ -3,19 +3,19 @@ gsd_state_version: 1.0
 milestone: v22.0
 milestone_name: Feature Management & OTA Pipeline
 status: in_progress
-stopped_at: Phase 179 research started
-last_updated: "2026-03-25T08:30:00.000Z"
+stopped_at: Phase 179 complete, Phase 180 next
+last_updated: "2026-03-25T14:00:00+05:30"
 progress:
-  total_phases: 5
-  completed_phases: 3
-  total_plans: 12
-  completed_plans: 9
-  percent: 75
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 16
+  completed_plans: 13
+  percent: 57
 context:
-  current_phase: 179
-  phase_name: OTA Pipeline
-  next_action: Execute Phase 179 — full OTA state machine
-  phases_defined: 176-180
+  current_phase: 180
+  phase_name: Admin Dashboard UI
+  next_action: Plan and execute Phase 180 — Admin Dashboard UI for feature flags + OTA
+  phases_defined: 176-182
   archived: v6.0 Salt Fleet Management (DEPRECATED, superseded by v22.0)
 ---
 
