@@ -12,6 +12,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 wait-timeout = "0.2"
 
 [dependencies.tokio]

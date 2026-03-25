@@ -7,3 +7,6 @@ pub mod exec;
 pub mod recovery;
 pub mod ollama;
 pub mod pod_id;
+pub mod verification;
+#[cfg(feature = "tokio")]
+pub mod boot_resilience;
