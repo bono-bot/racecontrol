@@ -3044,7 +3044,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 189. Core Scaffold and Shared Primitives | 3/3 | Complete    | 2026-03-25 |
-| 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 1/3 | In Progress|  |
+| 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 2/3 | In Progress|  |
 | 191. Parallel Engine and Phase Scripts Tiers 10-18 | 0/3 | Not started | - |
 | 192. Intelligence Layer | 0/4 | Not started | - |
 | 193. Auto-Fix, Notifications, and Results Management | 0/3 | Not started | - |
