@@ -3048,3 +3048,158 @@ Plans:
 | 191. Parallel Engine and Phase Scripts Tiers 10-18 | 3/3 | Complete    | 2026-03-25 |
 | 192. Intelligence Layer | 4/4 | Complete    | 2026-03-25 |
 | 193. Auto-Fix, Notifications, and Results Management | 3/3 | Complete    | 2026-03-25 |
+
+
+---
+
+## v24.0 Game Launch & Billing Rework -- Self-Improving Launch Engine
+
+**Milestone Goal:** Rework the game launcher and billing system to be resilient, accurate, and self-improving. Games launch flawlessly, billing starts precisely when the car is on-track and controllable, and every launch/billing event feeds a metrics foundation that makes the system smarter over time.
+
+**Phases:** 194-200 (7 phases, 63 requirements)
+**Started:** 2026-03-26
+
+### v24.0 Phases
+
+- [ ] **Phase 194: Pod ID Normalization** - Canonical pod ID format everywhere, eliminating billing_alt_id and inconsistent lookups
+- [ ] **Phase 195: Metrics Foundation** - SQLite + JSONL dual storage for every launch, billing, and crash event with queryable APIs
+- [ ] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation
+- [ ] **Phase 197: Launch Resilience & AC Hardening** - Dynamic timeouts, pre-launch checks, auto-retry, error taxonomy, AC polling-based waits, and arg parsing fixes
+- [ ] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes
+- [ ] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
+- [ ] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning
+
+## v24.0 Phase Details
+
+### Phase 194: Pod ID Normalization
+**Goal**: Every system component uses one canonical pod ID format -- no more billing_alt_id workarounds, no more lookups failing because game_launcher uses "pod-1" while billing uses "pod_1"
+**Depends on**: Nothing (foundation for all v24.0 work)
+**Requirements**: PODID-01, PODID-02, PODID-03
+**Success Criteria** (what must be TRUE):
+  1. **FORMAT TEST**: `POST /api/v1/games/launch` with pod_id="pod-1", "pod_1", "POD_1", "Pod-1" all resolve to the same billing session and game tracker -- run 4 curl requests, all return same session_id
+  2. **GREP CLEAN**: `grep -rn "billing_alt_id\|replace.*pod.*-.*_\|replace.*pod.*_.*-" crates/` returns ZERO hits -- all alt-format workarounds removed
+  3. **UNIT TEST**: `normalize_pod_id()` function has tests for: "pod-1"→canonical, "pod_1"→canonical, "POD_1"→canonical, "Pod-1"→canonical, "pod-99"→canonical, ""→error, "garbage"→error
+  4. **CROSS-MAP CONSISTENCY**: Start billing for "pod_1", launch game for "pod-1", check game_state for "POD_1" -- all three operations reference the same in-memory state. Verified by: billing timer lookup succeeds, game tracker lookup succeeds, agent_senders lookup succeeds
+  5. **REGRESSION**: All existing `cargo test` pass after normalization changes -- zero test regressions
+**Plans**: TBD
+
+### Phase 195: Metrics Foundation
+**Goal**: Every game launch, billing event, and crash recovery is recorded in dual storage (SQLite for queries, JSONL for immutable audit) with queryable APIs -- the data backbone that powers dynamic timeouts, intelligence, and debugging
+**Depends on**: Phase 194 (metrics must use canonical pod IDs)
+**Requirements**: METRICS-01, METRICS-02, METRICS-03, METRICS-04, METRICS-05, METRICS-06, METRICS-07
+**Success Criteria** (what must be TRUE):
+  1. **LAUNCH RECORDING**: After a game launch on Pod 8, `SELECT * FROM launch_events WHERE pod_id='pod-8' ORDER BY created_at DESC LIMIT 1` returns a row with: pod_id, sim_type, car, track, outcome, error_taxonomy, duration_to_playable_ms, attempt_number -- all fields populated, none NULL
+  2. **DUAL WRITE**: Same launch event appears in both SQLite and `launch-events.jsonl` -- line count in JSONL matches row count in SQLite for same time window
+  3. **JSONL FALLBACK**: Simulate DB failure (rename DB file), trigger a launch event -- event appears in JSONL file with `"db_fallback": true` flag. Restore DB, next event writes to both. Zero events lost
+  4. **BILLING ACCURACY**: After launch + PlayableSignal, `SELECT launch_command_at, playable_signal_at, billing_start_at, (billing_start_at - launch_command_at) as delta_ms FROM billing_events WHERE session_id='X'` returns non-null timestamps with measurable delta -- timing gap is quantified per session
+  5. **CRASH RECORDING**: After a game crash + recovery, `SELECT failure_mode, recovery_action, recovery_outcome, recovery_duration_ms FROM recovery_events WHERE pod_id='pod-8' ORDER BY created_at DESC LIMIT 1` returns: taxonomy enum (not "unknown"), action tried, outcome (success/fail), duration in ms
+  6. **STATS API**: `GET /api/v1/metrics/launch-stats?pod=pod-8&game=assetto_corsa` returns JSON with: `success_rate` (float 0-1), `avg_time_to_track_ms` (int), `p95_time_to_track_ms` (int), `total_launches` (int), `common_failure_modes` (array of {mode, count}) -- all computed from actual launch_events data
+  7. **BILLING API**: `GET /api/v1/metrics/billing-accuracy` returns: `avg_delta_ms`, `max_delta_ms`, `sessions_with_zero_delta` (count), `false_playable_signals` (count) -- computed from billing_events data
+  8. **ERROR LOGGING**: `log_game_event()` DB insert failure produces a `tracing::error!` log entry AND writes to JSONL fallback -- grep server logs for "launch_event insert failed" confirms error is visible
+**Plans**: TBD
+
+### Phase 196: Game Launcher Structural Rework
+**Goal**: The monolithic launch_game() is decomposed into per-game trait implementations with correct billing gates, state machine transitions, and error propagation -- structural bugs fixed before adding resilience features
+**Depends on**: Phase 194 (normalized pod IDs used in all billing checks)
+**Requirements**: LAUNCH-01, LAUNCH-02, LAUNCH-03, LAUNCH-04, LAUNCH-05, LAUNCH-06, LAUNCH-07, STATE-01, STATE-02, STATE-03, STATE-04, STATE-05, STATE-06
+**Success Criteria** (what must be TRUE):
+  1. **TRAIT ARCHITECTURE**: `grep -rn "impl GameLauncher for" crates/racecontrol/` shows AcLauncher, F1Launcher, IRacingLauncher -- three separate implementations. Each has `launch()`, `validate_args()`, `cleanup()` methods
+  2. **BILLING GATE — DEFERRED**: Start a deferred billing session (waiting_for_game), then call launch_game() -- launch SUCCEEDS (currently fails because gate only checks active_timers). Verify: game reaches Launching state
+  3. **BILLING GATE — PAUSED**: Pause an active billing session, then call launch_game() -- launch REJECTED with error "billing session is paused". Verify: HTTP 400 response with clear message
+  4. **BILLING GATE — TOCTOU**: End billing session during launch validation (simulated timing) -- launch fails cleanly with "billing session expired" instead of proceeding with orphaned game
+  5. **DOUBLE LAUNCH — STOPPING**: Set game state to Stopping, then send launch request -- REJECTED with "game still stopping on pod". Verify: no new tracker created
+  6. **STOPPING TIMEOUT**: Set game state to Stopping, wait 30 seconds without agent confirmation -- state auto-transitions to Error. Verify: `game_state == Error` after 30s, dashboard broadcast sent
+  7. **DISCONNECTED AGENT**: Disconnect agent for pod-8, send launch request -- tracker transitions to Error IMMEDIATELY (not after 120s). Dashboard shows Error state within 1 second
+  8. **FEATURE FLAG BLOCK**: Disable game_launch flag on pod-8, send launch request -- server receives explicit `GameStateUpdate { state: Error, message: "game_launch feature disabled" }`. Tracker state is Error, not stuck in Launching
+  9. **INVALID JSON**: Send launch_args with malformed JSON `{"corrupt` -- launch REJECTED with parse error. Content validation NOT bypassed. Verify: HTTP 400, no game tracker created
+  10. **BROADCAST RELIABILITY**: dashboard_tx.send() failure logged at warn level -- `grep "dashboard broadcast failed" server.log` shows warning when channel is full. Event not silently dropped
+  11. **EXTERNALLY TRACKED**: Restart server while game is running on pod -- agent reports Running, tracker created with `externally_tracked=true` and `launch_args=None`. Auto-relaunch knows it cannot retry this game
+**Plans**: TBD
+
+### Phase 197: Launch Resilience & AC Hardening
+**Goal**: Game launches are resilient with dynamic timeouts tuned from historical data, pre-launch health checks, structured error taxonomy, auto-retry with clean state reset, and AC-specific reliability improvements -- launch failures recover automatically in under 60 seconds
+**Depends on**: Phase 195 (dynamic timeouts query launch_events), Phase 196 (per-game launchers provide clean extension points)
+**Requirements**: LAUNCH-08, LAUNCH-09, LAUNCH-10, LAUNCH-11, LAUNCH-12, LAUNCH-13, LAUNCH-14, LAUNCH-15, LAUNCH-16, LAUNCH-17, LAUNCH-18, LAUNCH-19, AC-01, AC-02, AC-03, AC-04
+**Success Criteria** (what must be TRUE):
+  1. **DYNAMIC TIMEOUT**: Insert 10 launch_events for AC/ks_ferrari_sf15t/spa/pod-8 with avg 25s duration. Next launch timeout = median(25s) + 2*stdev ≈ 35-40s, NOT hardcoded 120s. Verify: `grep "dynamic timeout" server.log` shows computed value
+  2. **DEFAULT TIMEOUT**: First-ever launch on a new combo (no history) uses 120s for AC, 90s for F1/iRacing. Verify: `grep "default timeout" server.log` shows game-specific default
+  3. **PRE-LAUNCH HEALTH**: Before AC launch, pre-flight checks verify: no orphan acs.exe (tasklist), disk > 1GB (wmic), no MAINTENANCE_MODE sentinel, no OTA_DEPLOYING sentinel. Any failure → launch rejected with specific error. Verify: create MAINTENANCE_MODE file, attempt launch → rejected with "MAINTENANCE_MODE active"
+  4. **CLEAN STATE RESET**: Kill acs.exe mid-launch, trigger crash detection → system kills ALL 13 game exe names, deletes game.pid, clears shared memory adapter. Verify: `tasklist /FI "IMAGENAME eq acs.exe"` returns empty, game.pid absent, launch state reset to Idle
+  5. **AUTO-RETRY**: After clean state reset, auto-retry fires with same launch_args (same car/track/session). Verify: server log shows "Race Engineer: relaunching AC on pod-8 (attempt 1/2)" with matching launch_args JSON hash
+  6. **ERROR TAXONOMY**: Game crashes with exit code 0xC0000005 (access violation) → error classified as `ProcessCrash(3221225477)`, not "unknown". Verify: `SELECT error_taxonomy FROM launch_events ORDER BY created_at DESC LIMIT 1` returns "ProcessCrash" with exit code
+  7. **NO MAINTENANCE_MODE**: Crash game 5 times rapidly on pod-8 → MAINTENANCE_MODE sentinel NOT created by game launcher. Verify: `test -f C:\RacingPoint\MAINTENANCE_MODE` returns false. Launch crash counter is separate from pod health counter
+  8. **STAFF ALERT**: After 2 failed auto-retries → WhatsApp sent to Uday with: pod number, game, car, track, error taxonomy, exit codes, "suggested action: try different car" (if history shows this car fails often). Verify: WhatsApp message received with structured content
+  9. **RELAUNCH FIX — NULL ARGS**: Tracker with launch_args=None (externally tracked) → manual relaunch rejected with "original launch args unavailable, please relaunch from kiosk". Not silent failure with empty args
+  10. **RACE ENGINEER ATOMIC**: Rapid duplicate errors on pod-8 (2 Error events in <100ms) → counter increments ONCE atomically (single write lock). Only 1 relaunch spawned, not 2. Verify: server log shows exactly "attempt 1/2", not two "attempt 1/2" entries
+  11. **TIMEOUT → RELAUNCH**: Game stuck in Launching for dynamic_timeout seconds → timeout fires → Race Engineer auto-relaunch triggered (not just Error state with no recovery). Verify: server log shows timeout THEN relaunch attempt
+  12. **AC POLLING WAITS**: AC launch post-kill wait polls for acs.exe absence (max 5s) instead of hardcoded 2s sleep. AC load wait polls for AC window handle (max 30s) instead of 8s sleep. Verify: `grep "sleep\|Sleep" ac_launcher.rs` returns zero hits for the old hardcoded values
+  13. **CM TIMEOUT**: Content Manager timeout increased to 30s with 5s progress logging. Verify: server log shows "CM progress: checking acs.exe..." at 5s, 10s, 15s, 20s, 25s intervals
+  14. **CM FRESH PID**: After CM failure → direct acs.exe fallback → `find_game_pid()` called for fresh PID. Verify: tracker PID matches actual acs.exe PID from tasklist, not stale CM PID
+  15. **STOP LOGGING**: `stop_game()` logs sim_type (not empty string ""). Verify: `SELECT sim_type FROM game_launch_events WHERE event_type='stopping'` returns non-empty value
+  16. **ARG PARSING**: Launch args with spaces in path (`C:\Program Files\Steam\steamapps\common\F1 25\F1_25.exe`) handled correctly. Verify: game launches, no "file not found" from split_whitespace bug
+**Plans**: TBD
+
+### Phase 198: On-Track Billing
+**Goal**: Billing starts only when the customer car is on-track and controllable, pauses on crash, resumes on successful relaunch -- customers are never charged for loading screens, shader compilation, or crashed games
+**Depends on**: Phase 196 (correct billing gates), Phase 197 (launch resilience provides clean state for billing transitions)
+**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05, BILL-06, BILL-07, BILL-08, BILL-09, BILL-10, BILL-11, BILL-12
+**Success Criteria** (what must be TRUE):
+  1. **AC ON-TRACK**: Launch AC on Pod 8 → during shader compilation (status=LOADING), query billing timer → `driving_seconds == 0`, status shows "WaitingForGame". After car reaches track (status=LIVE + speedKmh > 0) → `driving_seconds` starts incrementing. Delta between launch and billing start = actual load time, NOT zero
+  2. **AC FALSE LIVE**: AC reports AcStatus::Live but speed stays 0 and no steering input for 5s (stuck in replay/menu) → billing does NOT start. PlayableSignal requires Live + (speed > 0 OR steerAngle != 0) within 5s window
+  3. **F1 25 ON-TRACK**: Launch F1 25 → billing does NOT start during menu/loading. After UDP telemetry on port 20777 shows m_sessionType > 0 AND m_speed > 0 → billing starts. Verify: `billing_events` shows `playable_signal_at` timestamp AFTER `launch_command_at` with measurable delta
+  4. **iRACING ON-TRACK**: Launch iRacing → billing starts when shared memory IsOnTrack=true AND IsOnTrackCar=true. Verify: billing delta matches actual load time to track
+  5. **KIOSK LOADING STATE**: During game load, kiosk WebSocket receives `BillingSessionStatus::WaitingForGame` → kiosk timer displays "Loading..." (not countdown). After PlayableSignal → status changes to Active → countdown begins. Verify: kiosk WS message sequence shows WaitingForGame → Active transition
+  6. **FAILED PLAYABLE**: Launch game, kill it before PlayableSignal fires → billing NEVER starts. `SELECT * FROM billing_sessions WHERE pod_id='pod-8' ORDER BY created_at DESC LIMIT 1` shows status='cancelled_no_playable'. Staff alert sent. Customer charged ₹0
+  7. **CRASH PAUSE/RESUME**: Game running + billing active → crash game → billing status changes to PausedGamePause immediately (same tick). Relaunch game → PlayableSignal fires → billing resumes. Verify: `total_paused_seconds` in billing_sessions shows exact crash recovery duration. Customer NOT charged for recovery time
+  8. **90S FALLBACK GUARD**: For EVO/WRC/Forza (no telemetry), if game CRASHES before 90s → false Live NOT emitted. Verify: `game.is_running()` returns false → Error emitted instead of Live. Billing NOT started for crashed game
+  9. **AC TIMER SYNC**: Dynamic threshold from historical launch data replaces hardcoded 120s. DB UPDATE uses single Utc::now() call (not two separate calls). billing_alt_id removed (uses canonical pod ID). Failed DB UPDATE logged at error level. Verify: server log shows "AC timer sync: threshold=Xs from historical data"
+  10. **MULTIPLAYER SILENT DOWNGRADE**: group_session_members DB query fails → billing start REJECTED with logged error, NOT silently treated as single-player. Verify: `grep "group_session_members query failed" server.log` shows error. No billing session created
+  11. **ORPHAN CLEANUP**: Multiplayer 60s timeout evicts non-connected pods → their WaitingForGameEntry is REMOVED from map. If pod comes online at T+61 → it does NOT start billing as accidental solo session. Verify: `waiting_for_game.len()` decreases after timeout cleanup
+  12. **CONFIGURABLE TIMEOUTS**: All billing timeouts in racecontrol.toml: `multiplayer_wait_timeout_secs = 60`, `pause_auto_end_timeout_secs = 600`, `launch_timeout_per_attempt_secs = 180`, `idle_drift_threshold_secs = 300`, `offline_grace_secs = 300`. Change multiplayer_wait to 90 → restart server → multiplayer wait is 90s. Verify: `grep "multiplayer timeout" server.log` shows 90s
+**Plans**: TBD
+
+### Phase 199: Crash Recovery
+**Goal**: When a game crashes during launch or mid-session, the system performs a full clean-slate reset and relaunches within 60 seconds total, with recovery actions informed by historical success data -- the customer session continues with minimal interruption
+**Depends on**: Phase 197 (clean state reset logic), Phase 198 (billing pause/resume on crash)
+**Requirements**: RECOVER-01, RECOVER-02, RECOVER-03, RECOVER-04, RECOVER-05, RECOVER-06, RECOVER-07
+**Success Criteria** (what must be TRUE):
+  1. **CLEANUP SPEED**: Crash AC on Pod 8 → measure time from crash detection to "all processes killed + PID cleared + state reset to Idle" → must be <10 seconds. Verify: `grep "clean state reset complete" agent.log` shows timestamp within 10s of crash
+  2. **RELAUNCH SPEED**: Full cycle: crash → cleanup → relaunch → game process spawned → must be <60 seconds total. Verify: `SELECT duration_ms FROM recovery_events ORDER BY created_at DESC LIMIT 1` returns <60000
+  3. **PRESERVED ARGS**: Crash AC mid-session → auto-relaunch uses SAME car, track, session_type, difficulty, AI count. Verify: compare launch_args JSON hash from original launch and relaunch attempt — must match
+  4. **NULL ARGS GUARD**: Tracker with launch_args=None → crash → auto-relaunch SKIPPED with log "cannot auto-relaunch: no launch_args". Staff alerted. Verify: no LaunchGame message sent, dashboard shows "Manual relaunch required"
+  5. **HISTORY-INFORMED**: Insert 20 recovery_events for AC/pod-8: "kill+clean+relaunch" succeeds 18/20, "clean_shader_cache+relaunch" succeeds 2/20. Next crash on same combo → system chooses "kill+clean+relaunch" as Tier 1. Verify: `grep "recovery action selected" server.log` shows "kill_clean_relaunch (90% historical success)"
+  6. **BILLING PAUSE NOTIFICATION**: After 2 failed auto-retries → billing paused → DashboardEvent::BillingPaused broadcast + WhatsApp alert with: pod, game, error taxonomy, 2 exit codes, suggested alternative combo. Verify: kiosk shows "Session paused — staff notified". WhatsApp received with structured message
+  7. **EXIT GRACE GUARD**: Crash game during recovery (attempt 1 running) → exit grace timer (30s) NOT armed because crash_recovery != Idle. Verify: `grep "exit grace armed" agent.log` returns ZERO hits during recovery window. No premature AcStatus::Off
+  8. **SAFE MODE PERSISTENCE**: Crash protected game (AC) → safe mode stays ACTIVE throughout recovery (attempt 1 + attempt 2). Verify: `grep "safe mode deactivated" agent.log` returns ZERO hits between crash and recovery completion. Process guard scans suppressed during entire recovery
+  9. **CONCURRENT PROTECTION**: Two rapid crashes on same pod (<100ms apart) → only ONE recovery sequence initiated. Counter increments once. Verify: server log shows exactly one "Race Engineer: relaunching" entry, not two
+**Plans**: TBD
+
+### Phase 200: Self-Improving Intelligence
+**Goal**: The system uses accumulated launch data to warn about unreliable combos, suggest alternatives, and display reliability insights to staff -- every launch makes the system smarter without manual threshold tuning
+**Depends on**: Phase 195 (metrics data), Phase 197 (dynamic timeouts consume intelligence), Phase 199 (recovery actions consume intelligence)
+**Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
+**Success Criteria** (what must be TRUE):
+  1. **RELIABILITY TABLE**: `SELECT * FROM combo_reliability WHERE game='assetto_corsa' AND pod='pod-8'` shows rows with: combo_hash, success_rate (0.0-1.0), avg_time_to_track_ms, p95_time_to_track_ms, total_launches, common_failure_modes (JSON), last_updated. Updated after every launch (check last_updated matches latest launch timestamp)
+  2. **LOW SUCCESS WARNING**: Insert 10 launch_events for AC/ks_ferrari_sf15t/nurburgring/pod-5 with 4 successes (40% rate). Call `POST /api/v1/games/launch` for same combo → response includes `"warning": "This combination has a 40% success rate on this pod (4/10 launches)"`. Verify: warning field present in JSON response
+  3. **NO WARNING FOR GOOD COMBOS**: Same launch but for AC/ks_ferrari_sf15t/spa/pod-8 with 95% success rate → response has NO warning field. Verify: warning field absent or null
+  4. **MINIMUM LAUNCHES**: Combo with only 3 launches (below 5 minimum) → no warning regardless of success rate. Verify: insufficient data, system uses defaults
+  5. **ALTERNATIVES API**: `GET /api/v1/games/alternatives?game=assetto_corsa&car=ks_ferrari_sf15t&track=nurburgring&pod=pod-5` returns JSON array of top 3 alternatives with: `{car, track, success_rate, avg_time_ms, total_launches}` sorted by success_rate DESC, all >90%. Verify: each alternative has success_rate > 0.90
+  6. **ALTERNATIVES SIMILARITY**: Alternatives prefer same-track-different-car OR same-car-different-track over random combos. Verify: at least 1 of top 3 shares either the same car or same track as the request
+  7. **ADMIN MATRIX**: `GET /api/v1/admin/launch-matrix?game=assetto_corsa` returns per-pod rows with: pod_id, total_launches, success_rate, avg_time_ms, top_3_failure_modes, flagged (boolean: success_rate < 0.70). Verify: pods with <70% are flagged=true
+  8. **ROLLING WINDOW**: Insert old launch_events (45 days ago) with 100% success, recent events (last 7 days) with 50% success → combo_reliability reflects recent 30-day window (50%), not all-time (75%). Verify: success_rate matches 30-day window calculation
+  9. **AUTO-TUNING PROOF**: After 20 new launches, dynamic timeout for the combo changes from default 120s to historical-derived value. Pre-launch health check adapts (if 80% of failures on this pod are disk-related, disk check runs first). Verify: no manual config changes needed, system computes from data
+**Plans**: TBD
+
+## v24.0 Progress
+
+**Execution Order:** 194 -> 195 -> 196 -> 197 -> 198 -> 199 -> 200
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 194. Pod ID Normalization | 0/0 | Not started | - |
+| 195. Metrics Foundation | 0/0 | Not started | - |
+| 196. Game Launcher Structural Rework | 0/0 | Not started | - |
+| 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
+| 198. On-Track Billing | 0/0 | Not started | - |
+| 199. Crash Recovery | 0/0 | Not started | - |
+| 200. Self-Improving Intelligence | 0/0 | Not started | - |

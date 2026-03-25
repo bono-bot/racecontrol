@@ -120,15 +120,77 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| PODID-01 | Phase 194 | Pending |
+| PODID-02 | Phase 194 | Pending |
+| PODID-03 | Phase 194 | Pending |
+| METRICS-01 | Phase 195 | Pending |
+| METRICS-02 | Phase 195 | Pending |
+| METRICS-03 | Phase 195 | Pending |
+| METRICS-04 | Phase 195 | Pending |
+| METRICS-05 | Phase 195 | Pending |
+| METRICS-06 | Phase 195 | Pending |
+| METRICS-07 | Phase 195 | Pending |
+| LAUNCH-01 | Phase 196 | Pending |
+| LAUNCH-02 | Phase 196 | Pending |
+| LAUNCH-03 | Phase 196 | Pending |
+| LAUNCH-04 | Phase 196 | Pending |
+| LAUNCH-05 | Phase 196 | Pending |
+| LAUNCH-06 | Phase 196 | Pending |
+| LAUNCH-07 | Phase 196 | Pending |
+| STATE-01 | Phase 196 | Pending |
+| STATE-02 | Phase 196 | Pending |
+| STATE-03 | Phase 196 | Pending |
+| STATE-04 | Phase 196 | Pending |
+| STATE-05 | Phase 196 | Pending |
+| STATE-06 | Phase 196 | Pending |
+| LAUNCH-08 | Phase 197 | Pending |
+| LAUNCH-09 | Phase 197 | Pending |
+| LAUNCH-10 | Phase 197 | Pending |
+| LAUNCH-11 | Phase 197 | Pending |
+| LAUNCH-12 | Phase 197 | Pending |
+| LAUNCH-13 | Phase 197 | Pending |
+| LAUNCH-14 | Phase 197 | Pending |
+| LAUNCH-15 | Phase 197 | Pending |
+| LAUNCH-16 | Phase 197 | Pending |
+| LAUNCH-17 | Phase 197 | Pending |
+| LAUNCH-18 | Phase 197 | Pending |
+| LAUNCH-19 | Phase 197 | Pending |
+| AC-01 | Phase 197 | Pending |
+| AC-02 | Phase 197 | Pending |
+| AC-03 | Phase 197 | Pending |
+| AC-04 | Phase 197 | Pending |
+| BILL-01 | Phase 198 | Pending |
+| BILL-02 | Phase 198 | Pending |
+| BILL-03 | Phase 198 | Pending |
+| BILL-04 | Phase 198 | Pending |
+| BILL-05 | Phase 198 | Pending |
+| BILL-06 | Phase 198 | Pending |
+| BILL-07 | Phase 198 | Pending |
+| BILL-08 | Phase 198 | Pending |
+| BILL-09 | Phase 198 | Pending |
+| BILL-10 | Phase 198 | Pending |
+| BILL-11 | Phase 198 | Pending |
+| BILL-12 | Phase 198 | Pending |
+| RECOVER-01 | Phase 199 | Pending |
+| RECOVER-02 | Phase 199 | Pending |
+| RECOVER-03 | Phase 199 | Pending |
+| RECOVER-04 | Phase 199 | Pending |
+| RECOVER-05 | Phase 199 | Pending |
+| RECOVER-06 | Phase 199 | Pending |
+| RECOVER-07 | Phase 199 | Pending |
+| INTEL-01 | Phase 200 | Pending |
+| INTEL-02 | Phase 200 | Pending |
+| INTEL-03 | Phase 200 | Pending |
+| INTEL-04 | Phase 200 | Pending |
+| INTEL-05 | Phase 200 | Pending |
 
 **Coverage:**
-- v24.0 requirements: 52 total
+- v24.0 requirements: 63 total (corrected from initial estimate of 52)
 - Categories: METRICS (7), PODID (3), LAUNCH (19), AC (4), BILL (12), RECOVER (7), INTEL (5), STATE (6)
-- Mapped to phases: 0
-- Unmapped: 52
+- Mapped to phases: 63/63
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-26*
 *Audit basis: game_launcher.rs, billing.rs, ws_handler.rs, event_loop.rs, ac_launcher.rs, game_process.rs, billing_guard.rs*
-*Last updated: 2026-03-26 after full code audit*
+*Last updated: 2026-03-26 -- roadmap created, all requirements mapped to phases 194-200*

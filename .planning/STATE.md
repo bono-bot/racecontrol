@@ -1,16 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v24.0
-milestone_name: Game Launch & Billing Rework — Self-Improving Launch Engine
+milestone_name: "Game Launch & Billing Rework -- Self-Improving Launch Engine"
 status: in_progress
-stopped_at: Defining requirements
+stopped_at: Roadmap created, ready to plan Phase 194
 last_updated: "2026-03-26"
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
+  progress_bar: "[..........] 0%"
+context:
+  current_phase: 194
+  phase_name: Pod ID Normalization
+  next_action: "/gsd:plan-phase 194"
 ---
 
 ---
