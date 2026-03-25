@@ -251,7 +251,7 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 - [x] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language (completed 2026-03-21)
 - [x] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof (completed 2026-03-24)
 - [x] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition (completed 2026-03-24)
-- [ ] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition
+- [x] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition (completed 2026-03-24)
 
 ## v17.0 Cloud Platform (Phases 120–129)
 
@@ -1247,8 +1247,7 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 96-01: TBD
-- [ ] 96-02: TBD
+- [x] 96-01-PLAN.md — Backend: SJT/job preview/campaign/nudge tables + seed data + API endpoints + Admin recognition page
 
 ## Progress
 
@@ -1359,7 +1358,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 93. Community & Tribal Identity | 2/2 | Complete   | 2026-03-21 | - |
 | 94. Pricing & Conversion | v14.0 | 2/2 | Complete | 2026-03-24 |
 | 95. Staff Gamification | v14.0 | 1/1 | Complete | 2026-03-24 |
-| 96. HR & Hiring Psychology | v14.0 | 0/? | Not started | - |
+| 96. HR & Hiring Psychology | v14.0 | 1/1 | Complete | 2026-03-24 |
 # Roadmap: v11.1 Pre-Flight Session Checks
 
 ## Overview
