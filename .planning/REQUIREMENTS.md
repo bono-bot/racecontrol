@@ -87,54 +87,62 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RUN-01 | — | Pending |
-| RUN-02 | — | Pending |
-| RUN-03 | — | Pending |
-| RUN-04 | — | Pending |
-| RUN-05 | — | Pending |
-| RUN-06 | — | Pending |
-| RUN-07 | — | Pending |
-| RUN-08 | — | Pending |
-| RUN-09 | — | Pending |
-| RUN-10 | — | Pending |
-| EXEC-01 | — | Pending |
-| EXEC-02 | — | Pending |
-| EXEC-03 | — | Pending |
-| EXEC-04 | — | Pending |
-| EXEC-05 | — | Pending |
-| EXEC-06 | — | Pending |
-| EXEC-07 | — | Pending |
-| INTL-01 | — | Pending |
-| INTL-02 | — | Pending |
-| INTL-03 | — | Pending |
-| INTL-04 | — | Pending |
-| INTL-05 | — | Pending |
-| INTL-06 | — | Pending |
-| INTL-07 | — | Pending |
-| INTL-08 | — | Pending |
-| FIX-01 | — | Pending |
-| FIX-02 | — | Pending |
-| FIX-03 | — | Pending |
-| FIX-04 | — | Pending |
-| FIX-05 | — | Pending |
-| FIX-06 | — | Pending |
-| FIX-07 | — | Pending |
-| FIX-08 | — | Pending |
-| NOTF-01 | — | Pending |
-| NOTF-02 | — | Pending |
-| NOTF-03 | — | Pending |
-| NOTF-04 | — | Pending |
-| NOTF-05 | — | Pending |
-| RSLT-01 | — | Pending |
-| RSLT-02 | — | Pending |
-| RSLT-03 | — | Pending |
-| RSLT-04 | — | Pending |
+| RUN-01 | Phase 189 | Pending |
+| RUN-02 | Phase 189 | Pending |
+| RUN-03 | Phase 189 | Pending |
+| RUN-04 | Phase 190 | Pending |
+| RUN-05 | Phase 189 | Pending |
+| RUN-06 | Phase 189 | Pending |
+| RUN-07 | Phase 189 | Pending |
+| RUN-08 | Phase 189 | Pending |
+| RUN-09 | Phase 189 | Pending |
+| RUN-10 | Phase 189 | Pending |
+| EXEC-01 | Phase 189 | Pending |
+| EXEC-02 | Phase 189 | Pending |
+| EXEC-03 | Phase 191 | Pending |
+| EXEC-04 | Phase 191 | Pending |
+| EXEC-05 | Phase 190 | Pending |
+| EXEC-06 | Phase 190 | Pending |
+| EXEC-07 | Phase 189 | Pending |
+| INTL-01 | Phase 192 | Pending |
+| INTL-02 | Phase 192 | Pending |
+| INTL-03 | Phase 192 | Pending |
+| INTL-04 | Phase 192 | Pending |
+| INTL-05 | Phase 192 | Pending |
+| INTL-06 | Phase 192 | Pending |
+| INTL-07 | Phase 192 | Pending |
+| INTL-08 | Phase 192 | Pending |
+| FIX-01 | Phase 193 | Pending |
+| FIX-02 | Phase 193 | Pending |
+| FIX-03 | Phase 193 | Pending |
+| FIX-04 | Phase 193 | Pending |
+| FIX-05 | Phase 193 | Pending |
+| FIX-06 | Phase 193 | Pending |
+| FIX-07 | Phase 193 | Pending |
+| FIX-08 | Phase 193 | Pending |
+| NOTF-01 | Phase 193 | Pending |
+| NOTF-02 | Phase 193 | Pending |
+| NOTF-03 | Phase 193 | Pending |
+| NOTF-04 | Phase 193 | Pending |
+| NOTF-05 | Phase 193 | Pending |
+| RSLT-01 | Phase 192 | Pending |
+| RSLT-02 | Phase 192 | Pending |
+| RSLT-03 | Phase 193 | Pending |
+| RSLT-04 | Phase 192 | Pending |
 
 **Coverage:**
 - v1 requirements: 42 total
-- Mapped to phases: 0
-- Unmapped: 42 ⚠️
+- Mapped to phases: 42
+- Unmapped: 0 ✓
+
+| Phase | Requirements |
+|-------|-------------|
+| Phase 189 | RUN-01, RUN-02, RUN-03, RUN-05, RUN-06, RUN-07, RUN-08, RUN-09, RUN-10, EXEC-01, EXEC-02, EXEC-07 (12 requirements) |
+| Phase 190 | RUN-04, EXEC-05, EXEC-06 (3 requirements) |
+| Phase 191 | EXEC-03, EXEC-04 (2 requirements) |
+| Phase 192 | INTL-01, INTL-02, INTL-03, INTL-04, INTL-05, INTL-06, INTL-07, INTL-08, RSLT-01, RSLT-02, RSLT-04 (11 requirements) |
+| Phase 193 | FIX-01, FIX-02, FIX-03, FIX-04, FIX-05, FIX-06, FIX-07, FIX-08, NOTF-01, NOTF-02, NOTF-03, NOTF-04, NOTF-05, RSLT-03 (14 requirements) |
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after milestone v23.0 initialization*
+*Last updated: 2026-03-25 after roadmap created for v23.0*
