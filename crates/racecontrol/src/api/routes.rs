@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+use super::metrics;
 use crate::ac_server;
 use crate::accounting;
 use crate::fleet_alert;
@@ -115,6 +116,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Pricing psychology (v14.0 Phase 94) — public for customer-facing /book page
         .route("/pricing/display", get(pricing_display_handler))
         .route("/pricing/social-proof", get(pricing_social_proof_handler))
+        // Metrics API (METRICS-05, METRICS-06) — operational metrics for admin dashboard + intelligence
+        .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
+        .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
