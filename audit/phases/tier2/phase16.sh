@@ -17,7 +17,7 @@ run_phase16() {
   # Cascade guard logs -- look for trigger count
   response=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=100" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
-    local cascade_count; cascade_count=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "cascade_guard" || echo "0")
+    local cascade_count; cascade_count=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "cascade_guard")
     if [[ "${cascade_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No cascade_guard triggers in recent logs"
     elif [[ "${cascade_count:-0}" -le 3 ]]; then
@@ -32,7 +32,7 @@ run_phase16() {
 
   # Pod healer -- check for recent healing
   if [[ -n "$response" ]]; then
-    local healer_count; healer_count=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "pod_healer" || echo "0")
+    local healer_count; healer_count=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "pod_healer")
     if [[ "${healer_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No pod_healer actions in recent logs"
     else

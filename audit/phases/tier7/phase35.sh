@@ -15,7 +15,7 @@ run_phase35() {
   # Recent sync activity in venue logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local sync_entries; sync_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "sync push\|sync pull\|upserted" || echo "0")
+    local sync_entries; sync_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "sync push\|sync pull\|upserted")
     if [[ "${sync_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Cloud sync activity in recent logs (${sync_entries} entries)"
     else

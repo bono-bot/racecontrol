@@ -16,7 +16,7 @@ run_phase12() {
 
   # Dashboard WS endpoint -- must return 400 (upgrade required), not 404
   local ws_code; ws_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    "http://192.168.31.23:8080/ws/dashboard" 2>/dev/null || echo "000")
+    "http://192.168.31.23:8080/ws/dashboard" 2>/dev/null)
   if [[ "$ws_code" = "400" || "$ws_code" = "101" ]]; then
     status="PASS"; severity="P3"; message="Dashboard WS endpoint present (HTTP ${ws_code})"
   elif [[ "$ws_code" = "404" ]]; then
@@ -28,7 +28,7 @@ run_phase12() {
 
   # Agent WS endpoint -- must return 400 (upgrade required), not 404
   ws_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    "http://192.168.31.23:8080/ws/agent" 2>/dev/null || echo "000")
+    "http://192.168.31.23:8080/ws/agent" 2>/dev/null)
   if [[ "$ws_code" = "400" || "$ws_code" = "101" ]]; then
     status="PASS"; severity="P3"; message="Agent WS endpoint present (HTTP ${ws_code})"
   elif [[ "$ws_code" = "404" ]]; then
@@ -42,7 +42,7 @@ run_phase12() {
   response=$(http_get "http://192.168.31.23:8080/api/v1/fleet/health" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
     local ws_false; ws_false=$(printf '%s' "$response" | \
-      jq '[.[] | select(.ws_connected==false or .ws_connected==null)] | length' 2>/dev/null || echo "0")
+      jq '[.[] | select(.ws_connected==false or .ws_connected==null)] | length' 2>/dev/null)
     if [[ "${ws_false:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="All pods ws_connected=true"
     elif [[ "${ws_false:-0}" -le 2 ]]; then

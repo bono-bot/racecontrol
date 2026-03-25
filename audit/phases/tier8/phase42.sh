@@ -15,7 +15,7 @@ run_phase42() {
   # Error aggregator logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=100" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local agg_entries; agg_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "error_aggregator\|error_rate" || echo "0")
+    local agg_entries; agg_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "error_aggregator\|error_rate")
     if [[ "${agg_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Error aggregator active in logs (${agg_entries} entries)"
     else
@@ -28,7 +28,7 @@ run_phase42() {
 
   # Fleet alert dispatch
   if [[ -n "$log_resp" ]]; then
-    local alert_entries; alert_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "fleet_alert.*dispatch\|fleet_alert.*send" || echo "0")
+    local alert_entries; alert_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "fleet_alert.*dispatch\|fleet_alert.*send")
     if [[ "${alert_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Fleet alert dispatch entries found (${alert_entries})"
     else
@@ -42,7 +42,7 @@ run_phase42() {
   # Current error rate from filtered logs endpoint
   local err_resp; err_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?level=error&lines=1" "$DEFAULT_TIMEOUT")
   if [[ -n "$err_resp" ]]; then
-    local filtered_count; filtered_count=$(printf '%s' "$err_resp" | jq -r '.filtered // 0' 2>/dev/null || echo "0")
+    local filtered_count; filtered_count=$(printf '%s' "$err_resp" | jq -r '.filtered // 0' 2>/dev/null)
     if [[ "${filtered_count:-0}" -le 10 ]]; then
       status="PASS"; severity="P3"; message="Error rate: ${filtered_count}/hour (threshold: < 10)"
     elif [[ "${filtered_count:-0}" -le 50 ]]; then

@@ -16,7 +16,7 @@ run_phase59() {
 
   # --- Check 1: QR Registration page loads (/register) ---
   local qr_response; qr_response=$(curl -s -m 10 "http://192.168.31.23:8080/register" 2>/dev/null || echo "")
-  local qr_count; qr_count=$(printf '%s' "$qr_response" | grep -ci "html\|DOCTYPE\|register" 2>/dev/null || echo 0)
+  local qr_count; qr_count=$(printf '%s' "$qr_response" | grep -ci "html\|DOCTYPE\|register" 2>/dev/null)
   qr_count="${qr_count//[[:space:]]/}"
   if [[ "${qr_count:-0}" -gt 0 ]] 2>/dev/null; then
     status="PASS"; severity="P3"; message="QR registration page /register loads with HTML content"
@@ -36,7 +36,7 @@ run_phase59() {
     -X POST \
     -H "Content-Type: application/json" \
     "http://192.168.31.23:8080/api/v1/customer/redeem-pin" \
-    -d @"$pin_tmpfile" 2>/dev/null || echo "000")
+    -d @"$pin_tmpfile" 2>/dev/null)
   rm -f "$pin_tmpfile"
   pin_status="${pin_status//[[:space:]]/}"
 
@@ -56,7 +56,7 @@ run_phase59() {
   local menu_response; menu_response=$(curl -s -m 10 \
     -H "x-terminal-session: ${token:-}" \
     "http://192.168.31.23:8080/api/v1/cafe/menu" 2>/dev/null || echo "")
-  local menu_length; menu_length=$(printf '%s' "$menu_response" | jq 'length' 2>/dev/null || echo "0")
+  local menu_length; menu_length=$(printf '%s' "$menu_response" | jq 'length' 2>/dev/null)
   menu_length="${menu_length//[[:space:]]/}"
 
   if [[ "${menu_length:-0}" -gt 0 ]] 2>/dev/null; then
@@ -78,7 +78,7 @@ run_phase59() {
     -H "Content-Type: application/json" \
     -H "x-terminal-session: ${token:-}" \
     "http://192.168.31.23:8080/api/v1/cafe/orders" \
-    -d @"$order_tmpfile" 2>/dev/null || echo "000")
+    -d @"$order_tmpfile" 2>/dev/null)
   rm -f "$order_tmpfile"
   order_status="${order_status//[[:space:]]/}"
 

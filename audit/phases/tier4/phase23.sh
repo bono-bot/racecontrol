@@ -28,7 +28,7 @@ run_phase23() {
   # Check for expired reservations not cleaned up
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local expired; expired=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "reservation.*expir" || echo "0")
+    local expired; expired=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "reservation.*expir")
     if [[ "${expired:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No expired reservation cleanup errors in logs"
     else

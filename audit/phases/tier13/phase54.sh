@@ -16,7 +16,7 @@ run_phase54() {
 
   # --- Check 1: Registry endpoint reachable and returns valid JSON with keys ---
   local registry_response; registry_response=$(http_get "http://localhost:8766/relay/registry" 5)
-  local key_count; key_count=$(printf '%s' "$registry_response" | jq 'keys | length' 2>/dev/null || echo "0")
+  local key_count; key_count=$(printf '%s' "$registry_response" | jq 'keys | length' 2>/dev/null)
   key_count="${key_count//[[:space:]]/}"
   if [[ -z "$registry_response" || "$registry_response" = *"curl"* ]]; then
     status="FAIL"; severity="P1"; message="Registry endpoint http://localhost:8766/relay/registry is DOWN or unreachable"

@@ -28,7 +28,7 @@ run_phase24() {
   # Refund and accounting errors in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local err_count; err_count=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "refund.*error\|accounting.*mismatch" || echo "0")
+    local err_count; err_count=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "refund.*error\|accounting.*mismatch")
     if [[ "${err_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No accounting/refund errors in recent logs"
     else

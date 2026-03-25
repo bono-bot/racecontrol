@@ -20,7 +20,7 @@ run_phase13() {
 
     # Exec test: hostname command
     response=$(safe_remote_exec "$ip" "8090" "hostname" "$DEFAULT_TIMEOUT")
-    local exit_code; exit_code=$(printf '%s' "$response" | jq -r '.exit_code // 1' 2>/dev/null || echo "1")
+    local exit_code; exit_code=$(printf '%s' "$response" | jq -r '.exit_code // 1' 2>/dev/null)
     local stdout; stdout=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null | tr -d '[:space:]' || true)
     if [[ "${exit_code:-1}" -eq 0 ]] && [[ -n "$stdout" ]]; then
       status="PASS"; severity="P3"; message="Exec capability OK, hostname=${stdout:0:20}"

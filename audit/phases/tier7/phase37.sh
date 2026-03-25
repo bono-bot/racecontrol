@@ -16,7 +16,7 @@ run_phase37() {
   response=$(safe_remote_exec "192.168.31.23" "8090" \
     "sqlite3 C:\\RacingPoint\\data\\racecontrol.db \"SELECT COUNT(*) FROM activity_log WHERE created_at > datetime('now', '-24 hours')\" 2>nul || echo 0" \
     "$DEFAULT_TIMEOUT")
-  local act_count; act_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+' || echo "0")
+  local act_count; act_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
   if [[ "${act_count:-0}" -ge 1 ]]; then
     status="PASS"; severity="P3"; message="Activity log: ${act_count} entries in last 24h"
   else
@@ -27,7 +27,7 @@ run_phase37() {
   # PII check: phone numbers in log output (should NOT appear in plaintext)
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=100" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local pii_count; pii_count=$(printf '%s' "$log_resp" | grep -oE "[0-9]{10}" | wc -l | tr -d '[:space:]' || echo "0")
+    local pii_count; pii_count=$(printf '%s' "$log_resp" | grep -oE "[0-9]{10}" | wc -l | tr -d '[:space:]')
     if [[ "${pii_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No 10-digit phone numbers in plaintext log output"
     else

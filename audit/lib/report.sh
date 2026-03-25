@@ -57,8 +57,15 @@ generate_report() {
   # ---------------------------------------------------------------------------
   # Part A: Gather data
   # ---------------------------------------------------------------------------
-  local all_results
-  all_results=$(jq -s '.' "$result_dir"/phase-*.json 2>/dev/null || echo '[]')
+  # Merge all phase results into a single temp file to avoid ARG_MAX and variable size issues
+  local tmp_all; tmp_all=$(mktemp)
+  # For loop avoids ARG_MAX: bash handles glob internally, each cat is one file
+  for _f in "$result_dir"/phase-*.json; do
+    [ -f "$_f" ] && cat "$_f"
+  done | jq -s '.' > "$tmp_all" 2>/dev/null || true
+  if [ ! -s "$tmp_all" ]; then
+    printf '[]' > "$tmp_all"
+  fi
 
   local delta
   delta=$(cat "$result_dir/delta.json" 2>/dev/null || echo '{"has_previous":false,"entries":[]}')
@@ -76,15 +83,15 @@ generate_report() {
   generated_at=$(ist_now 2>/dev/null || TZ=Asia/Kolkata date '+%Y-%m-%dT%H:%M:%S+05:30')
 
   # ---------------------------------------------------------------------------
-  # Extract counts from all_results
+  # Extract counts from temp file (avoids piping 100KB+ through bash variables)
   # ---------------------------------------------------------------------------
   local pass_count warn_count fail_count quiet_count suppressed_count total_count
-  pass_count=$(printf '%s' "$all_results" | jq '[.[] | select(.status=="PASS")] | length' 2>/dev/null || echo 0)
-  warn_count=$(printf '%s' "$all_results" | jq '[.[] | select(.status=="WARN")] | length' 2>/dev/null || echo 0)
-  fail_count=$(printf '%s' "$all_results" | jq '[.[] | select(.status=="FAIL")] | length' 2>/dev/null || echo 0)
-  quiet_count=$(printf '%s' "$all_results" | jq '[.[] | select(.status=="QUIET")] | length' 2>/dev/null || echo 0)
-  suppressed_count=$(printf '%s' "$all_results" | jq '[.[] | select(.status=="SUPPRESSED")] | length' 2>/dev/null || echo 0)
-  total_count=$(printf '%s' "$all_results" | jq 'length' 2>/dev/null || echo 0)
+  pass_count=$(jq '[.[] | select(.status=="PASS")] | length' "$tmp_all" 2>/dev/null)
+  warn_count=$(jq '[.[] | select(.status=="WARN")] | length' "$tmp_all" 2>/dev/null)
+  fail_count=$(jq '[.[] | select(.status=="FAIL")] | length' "$tmp_all" 2>/dev/null)
+  quiet_count=$(jq '[.[] | select(.status=="QUIET")] | length' "$tmp_all" 2>/dev/null)
+  suppressed_count=$(jq '[.[] | select(.status=="SUPPRESSED")] | length' "$tmp_all" 2>/dev/null)
+  total_count=$(jq 'length' "$tmp_all" 2>/dev/null)
 
   # ---------------------------------------------------------------------------
   # Determine verdict: FAIL if any FAIL, WARN if any WARN, else PASS
@@ -102,11 +109,12 @@ generate_report() {
   # Extract delta counts
   # ---------------------------------------------------------------------------
   local has_previous delta_regression delta_improvement delta_persistent delta_new_issue
-  has_previous=$(printf '%s' "$delta" | jq -r '.has_previous // false' 2>/dev/null || echo "false")
-  delta_regression=$(printf '%s' "$delta" | jq '.counts.regression // 0' 2>/dev/null || echo 0)
-  delta_improvement=$(printf '%s' "$delta" | jq '.counts.improvement // 0' 2>/dev/null || echo 0)
-  delta_persistent=$(printf '%s' "$delta" | jq '.counts.persistent // 0' 2>/dev/null || echo 0)
-  delta_new_issue=$(printf '%s' "$delta" | jq '.counts.new_issue // 0' 2>/dev/null || echo 0)
+  has_previous=$(printf '%s' "$delta" | jq -r '.has_previous // false' 2>/dev/null)
+  has_previous=${has_previous:-false}
+  delta_regression=$(printf '%s' "$delta" | jq '.counts.regression // 0' 2>/dev/null)
+  delta_improvement=$(printf '%s' "$delta" | jq '.counts.improvement // 0' 2>/dev/null)
+  delta_persistent=$(printf '%s' "$delta" | jq '.counts.persistent // 0' 2>/dev/null)
+  delta_new_issue=$(printf '%s' "$delta" | jq '.counts.new_issue // 0' 2>/dev/null)
 
   # ---------------------------------------------------------------------------
   # Part B: Generate audit-summary.json
@@ -207,12 +215,13 @@ generate_report() {
 
   # Get unique tier numbers present in results, sorted numerically
   local tiers
-  tiers=$(printf '%s' "$all_results" | jq -r '[.[].tier] | unique | sort_by(. | tonumber) | .[]' 2>/dev/null || echo "")
+  tiers=$(jq -r '[.[].tier] | unique | sort_by(. | tonumber) | .[]' "$tmp_all" 2>/dev/null || echo "")
 
   if [ -z "$tiers" ]; then
     printf '_No phase results found._\n\n' >> "$tmp_report"
   else
     while IFS= read -r tier; do
+      tier=$(printf '%s' "$tier" | tr -d '\r')
       [ -z "$tier" ] && continue
       local tier_name
       tier_name=$(_tier_name "$tier")
@@ -224,11 +233,11 @@ generate_report() {
       } >> "$tmp_report"
 
       # Extract all results for this tier, sorted by phase then host
-      printf '%s' "$all_results" | jq -r \
+      jq -r \
         --arg tier "$tier" \
         '[.[] | select(.tier == $tier)] | sort_by(.phase, .host) | .[] |
-          "| " + .phase + " | " + .host + " | " + .status + " | " + .severity + " | " + (.message | gsub("|"; "\\|")) + " |"
-        ' 2>/dev/null >> "$tmp_report"
+          "| " + .phase + " | " + .host + " | " + .status + " | " + .severity + " | " + (.message | gsub("[|]"; "\\|")) + " |"
+        ' "$tmp_all" 2>/dev/null >> "$tmp_report"
 
       printf '\n' >> "$tmp_report"
     done <<< "$tiers"
@@ -309,10 +318,10 @@ generate_report() {
   } >> "$tmp_report"
 
   local suppressed_rows
-  suppressed_rows=$(printf '%s' "$all_results" | jq -r \
+  suppressed_rows=$(jq -r \
     '[.[] | select(.status == "SUPPRESSED")] | sort_by(.phase, .host) | .[] |
-     "| " + .phase + " | " + .host + " | " + (.suppression_reason // "N/A") + " | " + (.message | gsub("|"; "\\|")) + " |"
-    ' 2>/dev/null || echo "")
+     "| " + .phase + " | " + .host + " | " + (.suppression_reason // "N/A") + " | " + (.message | gsub("[|]"; "\\|")) + " |"
+    ' "$tmp_all" 2>/dev/null || echo "")
 
   if [ -n "$suppressed_rows" ]; then
     {
@@ -353,7 +362,7 @@ generate_report() {
 
   # Footer
   {
-    printf '---\n'
+    printf '%s\n' '---'
     printf '_Generated by Racing Point Audit v23.0 at %s_\n' "$generated_at"
   } >> "$tmp_report"
 
@@ -367,6 +376,7 @@ generate_report() {
     echo "WARN: generate_report — failed to write audit-report.md" >&2
   fi
 
+  rm -f "$tmp_all"
   return 0
 }
 export -f generate_report

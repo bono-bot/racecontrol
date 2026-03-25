@@ -28,7 +28,7 @@ export -f ist_now
 http_get() {
   local url=$1
   local timeout=${2:-${DEFAULT_TIMEOUT:-10}}
-  curl -s -m "$timeout" "$url" 2>/dev/null | tr -d '"'
+  curl -s -m "$timeout" "$url" 2>/dev/null | tr -d '"\r'
 }
 export -f http_get
 
@@ -92,7 +92,8 @@ safe_remote_exec() {
   result=$(curl -s -m "$timeout" -X POST "http://${host}:${port}/exec" \
     -H 'Content-Type: application/json' -d "@${tmpfile}" 2>/dev/null)
   rm -f "$tmpfile"
-  printf '%s' "${result:-{}}"
+  # Strip \r from Windows HTTP responses to prevent arithmetic errors downstream
+  printf '%s' "${result:-{}}" | tr -d '\r'
 }
 export -f safe_remote_exec
 

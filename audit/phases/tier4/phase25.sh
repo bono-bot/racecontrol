@@ -19,7 +19,7 @@ run_phase25() {
     "http://192.168.31.23:8080/api/v1/cafe/menu" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
   if [[ -n "$response" ]]; then
-    local item_count; item_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local item_count; item_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${item_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Cafe menu: ${item_count} items loaded"
     else
@@ -44,7 +44,7 @@ run_phase25() {
   # Inventory/cafe errors in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local inv_err; inv_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_alert\|low.stock\|inventory.*error" || echo "0")
+    local inv_err; inv_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_alert\|low.stock\|inventory.*error")
     if [[ "${inv_err:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No cafe inventory/alert errors in recent logs"
     else

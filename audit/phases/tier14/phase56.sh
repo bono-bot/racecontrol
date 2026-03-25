@@ -42,11 +42,11 @@ run_phase56() {
   fi
 
   # --- Check 2: OpenAPI spec freshness vs routes.rs ---
-  local spec_count; spec_count=$(grep -c '^\s\+/' "${REPO_DIR}/docs/openapi.yaml" 2>/dev/null || echo 0)
+  local spec_count; spec_count=$(grep -c '^\s\+/' "${REPO_DIR}/docs/openapi.yaml" 2>/dev/null)
   spec_count="${spec_count//[[:space:]]/}"
 
   local code_count; code_count=$(grep -c '\.route\|\.get\|\.post\|\.put\|\.delete' \
-    "${REPO_DIR}/crates/racecontrol/src/api/routes.rs" 2>/dev/null || echo 0)
+    "${REPO_DIR}/crates/racecontrol/src/api/routes.rs" 2>/dev/null)
   code_count="${code_count//[[:space:]]/}"
 
   if [[ "${spec_count:-0}" -ge "${code_count:-0}" ]] 2>/dev/null; then

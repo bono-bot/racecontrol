@@ -44,14 +44,14 @@ _build_summary_text() {
   # Parse audit-summary.json fields
   local verdict pass_count fail_count warn_count quiet_count p1_count p2_count p3_count fix_count
   verdict=$(jq -r '.verdict // "UNKNOWN"' "$summary_file" 2>/dev/null || echo "UNKNOWN")
-  pass_count=$(jq -r '.counts.pass // 0' "$summary_file" 2>/dev/null || echo "0")
-  fail_count=$(jq -r '.counts.fail // 0' "$summary_file" 2>/dev/null || echo "0")
-  warn_count=$(jq -r '.counts.warn // 0' "$summary_file" 2>/dev/null || echo "0")
-  quiet_count=$(jq -r '.counts.quiet // 0' "$summary_file" 2>/dev/null || echo "0")
-  p1_count=$(jq -r '.p1_count // 0' "$summary_file" 2>/dev/null || echo "0")
-  p2_count=$(jq -r '.p2_count // 0' "$summary_file" 2>/dev/null || echo "0")
-  p3_count=$(jq -r '.p3_count // 0' "$summary_file" 2>/dev/null || echo "0")
-  fix_count=$(jq -r '.fix_count // 0' "$summary_file" 2>/dev/null || echo "0")
+  pass_count=$(jq -r '.counts.pass // 0' "$summary_file" 2>/dev/null)
+  fail_count=$(jq -r '.counts.fail // 0' "$summary_file" 2>/dev/null)
+  warn_count=$(jq -r '.counts.warn // 0' "$summary_file" 2>/dev/null)
+  quiet_count=$(jq -r '.counts.quiet // 0' "$summary_file" 2>/dev/null)
+  p1_count=$(jq -r '.p1_count // 0' "$summary_file" 2>/dev/null)
+  p2_count=$(jq -r '.p2_count // 0' "$summary_file" 2>/dev/null)
+  p3_count=$(jq -r '.p3_count // 0' "$summary_file" 2>/dev/null)
+  fix_count=$(jq -r '.fix_count // 0' "$summary_file" 2>/dev/null)
 
   # Core summary text
   local text
@@ -65,9 +65,9 @@ Fixes applied: ${fix_count}"
     local has_previous regressions improvements new_issues
     has_previous=$(jq -r '.has_previous // false' "$delta_file" 2>/dev/null || echo "false")
     if [ "$has_previous" = "true" ]; then
-      regressions=$(jq -r '.summary.regressions // 0' "$delta_file" 2>/dev/null || echo "0")
-      improvements=$(jq -r '.summary.improvements // 0' "$delta_file" 2>/dev/null || echo "0")
-      new_issues=$(jq -r '.summary.new_issues // 0' "$delta_file" 2>/dev/null || echo "0")
+      regressions=$(jq -r '.summary.regressions // 0' "$delta_file" 2>/dev/null)
+      improvements=$(jq -r '.summary.improvements // 0' "$delta_file" 2>/dev/null)
+      new_issues=$(jq -r '.summary.new_issues // 0' "$delta_file" 2>/dev/null)
       text="${text}
 Delta: ${regressions} regressions, ${improvements} improvements, ${new_issues} new issues"
       if [ "${regressions:-0}" -gt 0 ]; then

@@ -40,7 +40,7 @@ run_phase31() {
   # OAuth/email errors in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local email_err; email_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "email.*error\|gmail.*token\|smtp.*fail" || echo "0")
+    local email_err; email_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "email.*error\|gmail.*token\|smtp.*fail")
     if [[ "${email_err:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No email/Gmail errors in recent logs"
     else

@@ -37,7 +37,7 @@ run_phase27() {
   # Recent lap data in server logs
   response=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
-    local lap_entries; lap_entries=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "lap_tracker\|telemetry\|lap_time" || echo "0")
+    local lap_entries; lap_entries=$(printf '%s' "$response" | jq -r '.' 2>/dev/null | grep -ci "lap_tracker\|telemetry\|lap_time")
     if [[ "${lap_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Lap/telemetry data in recent logs (${lap_entries} entries)"
     else

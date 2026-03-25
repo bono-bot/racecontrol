@@ -35,7 +35,7 @@ run_phase17() {
       local edge_count_resp; edge_count_resp=$(safe_remote_exec "$ip" "8090" \
         'tasklist /NH | find /C "msedge.exe"' \
         "$DEFAULT_TIMEOUT")
-      local edge_count; edge_count=$(printf '%s' "$edge_count_resp" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+' || echo "0")
+      local edge_count; edge_count=$(printf '%s' "$edge_count_resp" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
       if [[ "${edge_count:-0}" -gt 5 ]]; then
         status="WARN"; severity="P2"; message="Edge stacking: ${edge_count} msedge.exe processes (> 5)"
       else

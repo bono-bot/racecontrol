@@ -35,7 +35,7 @@ run_phase38() {
     -H "Content-Type: application/json" -d "@${exec_payload}" 2>/dev/null || true)
   rm -f "$exec_payload"
   if [[ -n "$exec_resp" ]]; then
-    local exit_code; exit_code=$(printf '%s' "$exec_resp" | jq -r '.exitCode // 1' 2>/dev/null || echo "1")
+    local exit_code; exit_code=$(printf '%s' "$exec_resp" | jq -r '.exitCode // 1' 2>/dev/null)
     if [[ "${exit_code:-1}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="Bono relay exec bidirectional test: PASS"
     else

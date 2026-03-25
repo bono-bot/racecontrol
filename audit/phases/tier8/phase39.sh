@@ -18,7 +18,7 @@ run_phase39() {
     "http://192.168.31.23:8080/api/v1/flags" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
   if [[ -n "$response" ]]; then
-    local flag_count; flag_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local flag_count; flag_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${flag_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Feature flags endpoint: ${flag_count} flags"
     else
@@ -33,7 +33,7 @@ run_phase39() {
   response=$(safe_remote_exec "192.168.31.23" "8090" \
     'sqlite3 C:\RacingPoint\data\racecontrol.db "SELECT COUNT(*) FROM feature_flags" 2>nul || echo 0' \
     "$DEFAULT_TIMEOUT")
-  local db_count; db_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+' || echo "0")
+  local db_count; db_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
   if [[ "${db_count:-0}" -ge 1 ]]; then
     status="PASS"; severity="P3"; message="Feature flags DB: ${db_count} flag(s) in table"
   else

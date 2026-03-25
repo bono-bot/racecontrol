@@ -57,7 +57,7 @@ run_phase45() {
   done
 
   # --- Check 3: James rc-sentry-ai log size ---
-  local sentry_size; sentry_size=$(stat -c %s C:/RacingPoint/rc-sentry-ai.log 2>/dev/null || echo "0")
+  local sentry_size; sentry_size=$(stat -c %s C:/RacingPoint/rc-sentry-ai.log 2>/dev/null)
   if [[ "$sentry_size" = "0" ]]; then
     status="WARN"; severity="P2"; message="rc-sentry-ai.log missing or empty on James"
   elif [[ "$sentry_size" -gt 50000000 ]]; then
@@ -70,7 +70,7 @@ run_phase45() {
   # --- Check 4: Error rate from server log API ---
   response=$(http_get "http://192.168.31.23:8080/api/v1/logs?level=error&lines=1" 10)
   if [[ -n "$response" ]]; then
-    local error_count; error_count=$(printf '%s' "$response" | jq -r '.filtered // 0' 2>/dev/null || echo "0")
+    local error_count; error_count=$(printf '%s' "$response" | jq -r '.filtered // 0' 2>/dev/null)
     if [[ "${error_count:-0}" -lt 10 ]]; then
       status="PASS"; severity="P3"; message="Error rate: ${error_count} (< 10 threshold)"
     else

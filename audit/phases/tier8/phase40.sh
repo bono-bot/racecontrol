@@ -15,7 +15,7 @@ run_phase40() {
   # Scheduler activity in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=100" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local sched_entries; sched_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "scheduler.*execute\|scheduler.*tick\|action_queue" || echo "0")
+    local sched_entries; sched_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "scheduler.*execute\|scheduler.*tick\|action_queue")
     if [[ "${sched_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Scheduler/action_queue activity in logs (${sched_entries} entries)"
     else
@@ -44,7 +44,7 @@ run_phase40() {
   response=$(safe_remote_exec "192.168.31.23" "8090" \
     "sqlite3 C:\\RacingPoint\\data\\racecontrol.db \"SELECT COUNT(*) FROM action_queue WHERE status='pending' AND created_at < datetime('now', '-1 hour')\" 2>nul || echo 0" \
     "$DEFAULT_TIMEOUT")
-  local stale_count; stale_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+' || echo "0")
+  local stale_count; stale_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
   if [[ "${stale_count:-0}" -eq 0 ]]; then
     status="PASS"; severity="P3"; message="No stale action_queue items (> 1h old)"
   elif [[ "${stale_count:-0}" -le 10 ]]; then

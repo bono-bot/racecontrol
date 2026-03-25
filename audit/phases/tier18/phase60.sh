@@ -53,7 +53,7 @@ run_phase60() {
   # --- Check 2: Game/telemetry chain evidence in logs ---
   local game_logs; game_logs=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=200" 10)
   local game_count; game_count=$(printf '%s' "$game_logs" \
-    | grep -ci "game.*launch\|telemetry.*frame\|lap.*record\|leaderboard" 2>/dev/null || echo 0)
+    | grep -ci "game.*launch\|telemetry.*frame\|lap.*record\|leaderboard" 2>/dev/null)
   game_count="${game_count//[[:space:]]/}"
   if [[ "${game_count:-0}" -gt 0 ]] 2>/dev/null; then
     status="PASS"; severity="P3"; message="Game/telemetry chain: ${game_count} log entries found (game.*launch | telemetry.*frame | lap.*record | leaderboard)"

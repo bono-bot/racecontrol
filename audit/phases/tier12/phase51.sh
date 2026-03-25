@@ -22,7 +22,7 @@ run_phase51() {
     "${RC_BASE}/crates/rc-agent/src/" \
     "${RC_BASE}/crates/rc-common/src/" \
     --include="*.rs" 2>/dev/null \
-    | grep -v "test.rs" | grep -v "tests/" | wc -l || echo "0")
+    | grep -v "test.rs" | grep -v "tests/" | wc -l)
   unwrap_count="${unwrap_count//[[:space:]]/}"
   if [[ "${unwrap_count:-0}" -eq 0 ]]; then
     status="PASS"; severity="P3"; message="No .unwrap() violations in production Rust code"
@@ -37,7 +37,7 @@ run_phase51() {
     "${RC_BASE}/pwa/src/" \
     "${RC_BASE}/web/src/" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
-    | grep -v "node_modules" | grep -v "\.d\.ts" | wc -l || echo "0")
+    | grep -v "node_modules" | grep -v "\.d\.ts" | wc -l)
   any_count="${any_count//[[:space:]]/}"
   if [[ "${any_count:-0}" -eq 0 ]]; then
     status="PASS"; severity="P3"; message="No TypeScript 'any' violations found"
@@ -51,7 +51,7 @@ run_phase51() {
     | grep -iE '\.env$|credential|\.secret|\.key$|token\.json' \
     | grep -v '\.env\.example' \
     | grep -v '\.env\.local\.example' \
-    | wc -l || echo "0")
+    | wc -l)
   secret_files="${secret_files//[[:space:]]/}"
   if [[ "${secret_files:-0}" -eq 0 ]]; then
     status="PASS"; severity="P3"; message="No secret files committed to git (SEC-03 compliant)"

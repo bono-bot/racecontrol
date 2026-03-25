@@ -19,7 +19,7 @@ run_phase21() {
     "http://192.168.31.23:8080/api/v1/pricing" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
   if [[ -n "$response" ]]; then
-    local tier_count; tier_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local tier_count; tier_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${tier_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Pricing tiers loaded: ${tier_count} tier(s)"
     else

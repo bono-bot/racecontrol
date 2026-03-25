@@ -19,7 +19,7 @@ run_phase26() {
     "http://192.168.31.23:8080/api/v1/games" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
   if [[ -n "$response" ]]; then
-    local game_count; game_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local game_count; game_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${game_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Game catalog: ${game_count} game(s) in /games"
     else
@@ -35,7 +35,7 @@ run_phase26() {
     "http://192.168.31.23:8080/api/v1/games/catalog" \
     -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
   if [[ -n "$response" ]]; then
-    local cat_count; cat_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local cat_count; cat_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${cat_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Game catalog v2: ${cat_count} game(s) in /games/catalog"
     else

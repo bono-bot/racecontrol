@@ -17,7 +17,7 @@ run_phase11() {
   # Fleet health -- must return pods array with real data
   response=$(http_get "http://192.168.31.23:8080/api/v1/fleet/health" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
-    local pod_count; pod_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local pod_count; pod_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${pod_count:-0}" -ge 8 ]]; then
       status="PASS"; severity="P3"; message="Fleet health: ${pod_count} pods in response"
     elif [[ "${pod_count:-0}" -ge 1 ]]; then
@@ -49,7 +49,7 @@ run_phase11() {
   # App health endpoint (v20.1)
   response=$(http_get "http://192.168.31.23:8080/api/v1/app-health" "$DEFAULT_TIMEOUT")
   if [[ -n "$response" ]]; then
-    local ok_count; ok_count=$(printf '%s' "$response" | jq '[.[] | select(.status=="ok")] | length' 2>/dev/null || echo "0")
+    local ok_count; ok_count=$(printf '%s' "$response" | jq '[.[] | select(.status=="ok")] | length' 2>/dev/null)
     status="PASS"; severity="P3"; message="App health endpoint responding (${ok_count} apps ok)"
   else
     status="WARN"; severity="P2"; message="App health endpoint not responding (added in v20.1)"

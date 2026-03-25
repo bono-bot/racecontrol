@@ -15,7 +15,7 @@ run_phase41() {
   # Config push logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local cp_entries; cp_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "config_push\|ota_pipeline" || echo "0")
+    local cp_entries; cp_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "config_push\|ota_pipeline")
     if [[ "${cp_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Config push/OTA pipeline activity in logs (${cp_entries} entries)"
     else
@@ -28,7 +28,7 @@ run_phase41() {
 
   # OTA state transitions
   if [[ -n "$log_resp" ]]; then
-    local ota_stuck; ota_stuck=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "ota.*stuck\|ota.*timeout\|ota.*error" || echo "0")
+    local ota_stuck; ota_stuck=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "ota.*stuck\|ota.*timeout\|ota.*error")
     if [[ "${ota_stuck:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No OTA stuck/timeout/error entries in recent logs"
     else

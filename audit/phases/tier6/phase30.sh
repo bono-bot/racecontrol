@@ -28,7 +28,7 @@ run_phase30() {
   # WhatsApp send errors in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local wa_err; wa_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "whatsapp.*error\|evolution.*error\|wa_send.*fail" || echo "0")
+    local wa_err; wa_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "whatsapp.*error\|evolution.*error\|wa_send.*fail")
     if [[ "${wa_err:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No WhatsApp send errors in recent logs"
     else

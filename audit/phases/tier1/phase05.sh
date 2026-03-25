@@ -20,7 +20,7 @@ run_phase05() {
     response=$(http_get "http://${ip}:8090/health" "$DEFAULT_TIMEOUT")
     if [[ -n "$response" ]] && printf '%s' "$response" | grep -q "build_id"; then
       # Check uptime for unexpected recent reboots (< 300s)
-      local uptime_secs; uptime_secs=$(printf '%s' "$response" | jq -r '.uptime_secs // "9999"' 2>/dev/null || echo "9999")
+      local uptime_secs; uptime_secs=$(printf '%s' "$response" | jq -r '.uptime_secs // "9999"' 2>/dev/null)
       if [[ "${uptime_secs:-9999}" -lt 300 ]]; then
         status="WARN"; severity="P2"; message="Pod UP but recently rebooted: uptime=${uptime_secs}s (< 5 min)"
       else

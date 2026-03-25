@@ -27,7 +27,7 @@ run_phase49() {
   emit_result "$phase" "$tier" "pos-20-rcagent" "$status" "$severity" "$message" "$mode" "$venue_state"
 
   # --- Check 2: Dashboard HTTP status ---
-  local dash_code; dash_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://192.168.31.23:3200" 2>/dev/null || echo "000")
+  local dash_code; dash_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://192.168.31.23:3200" 2>/dev/null)
   if [[ "$dash_code" = "200" ]]; then
     status="PASS"; severity="P3"; message="Dashboard :3200 HTTP 200 OK"
   else
@@ -36,7 +36,7 @@ run_phase49() {
   emit_result "$phase" "$tier" "server-23-dashboard-http" "$status" "$severity" "$message" "$mode" "$venue_state"
 
   # --- Check 3: Admin HTTP status (port 3201 per CLAUDE.md) ---
-  local admin_code; admin_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://192.168.31.23:3201" 2>/dev/null || echo "000")
+  local admin_code; admin_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://192.168.31.23:3201" 2>/dev/null)
   if [[ "$admin_code" = "200" ]]; then
     status="PASS"; severity="P3"; message="Admin :3201 HTTP 200 OK"
   else

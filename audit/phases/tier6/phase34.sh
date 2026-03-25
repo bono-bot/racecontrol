@@ -16,7 +16,7 @@ run_phase34() {
   # Psychology engine logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=100" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local psych_entries; psych_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "psychology\|badge.*award\|streak\|reward" || echo "0")
+    local psych_entries; psych_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "psychology\|badge.*award\|streak\|reward")
     if [[ "${psych_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Psychology engine active (${psych_entries} entries)"
     else
@@ -29,7 +29,7 @@ run_phase34() {
 
   # Badge/notification dispatch
   if [[ -n "$log_resp" ]]; then
-    local badge_entries; badge_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "notification.*dispatch\|badge.*criteria" || echo "0")
+    local badge_entries; badge_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "notification.*dispatch\|badge.*criteria")
     if [[ "${badge_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Badge criteria/notification dispatch in logs (${badge_entries} entries)"
     else
@@ -42,7 +42,7 @@ run_phase34() {
 
   # Bot coordinator (orchestrates WhatsApp/Discord/email)
   if [[ -n "$log_resp" ]]; then
-    local bot_entries; bot_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "bot_coordinator" || echo "0")
+    local bot_entries; bot_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "bot_coordinator")
     if [[ "${bot_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Bot coordinator active (${bot_entries} entries)"
     else

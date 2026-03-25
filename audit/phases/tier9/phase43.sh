@@ -16,7 +16,7 @@ run_phase43() {
   # go2rtc stream count on James :1984
   response=$(http_get "http://localhost:1984/api/streams" 5)
   if [[ -n "$response" ]]; then
-    local stream_count; stream_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null || echo "0")
+    local stream_count; stream_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
     if [[ "${stream_count:-0}" -ge 13 ]]; then
       status="PASS"; severity="P3"; message="go2rtc: ${stream_count} streams active (>= 13 cameras)"
     elif [[ "${stream_count:-0}" -ge 1 ]]; then
@@ -33,7 +33,7 @@ run_phase43() {
   emit_result "$phase" "$tier" "james-go2rtc-streams" "$status" "$severity" "$message" "$mode" "$venue_state"
 
   # NVR reachable (192.168.31.18)
-  local nvr_code; nvr_code=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "http://192.168.31.18" 2>/dev/null || echo "000")
+  local nvr_code; nvr_code=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "http://192.168.31.18" 2>/dev/null)
   if [[ "$nvr_code" != "000" && -n "$nvr_code" ]]; then
     status="PASS"; severity="P3"; message="NVR .18 reachable (HTTP ${nvr_code})"
   else

@@ -21,7 +21,7 @@ run_phase15() {
       'findstr /C:"preflight" /C:"FAIL" C:\RacingPoint\rc-agent-*.jsonl 2>nul' \
       "$DEFAULT_TIMEOUT")
     local pf_out; pf_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
-    local fail_count; fail_count=$(printf '%s' "$pf_out" | grep -c "FAIL" 2>/dev/null || echo "0")
+    local fail_count; fail_count=$(printf '%s' "$pf_out" | grep -c "FAIL" 2>/dev/null)
     if [[ "${fail_count:-0}" -eq 0 ]]; then
       if [[ -z "$pf_out" ]]; then
         status="WARN"; severity="P2"; message="No preflight log entries found (logs may be rotated or pod just started)"

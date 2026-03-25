@@ -31,8 +31,8 @@ run_phase19() {
       'wmic path Win32_VideoController get CurrentHorizontalResolution,CurrentVerticalResolution /value' \
       "$DEFAULT_TIMEOUT")
     local res_out; res_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
-    local horiz; horiz=$(printf '%s' "$res_out" | grep -i "CurrentHorizontalResolution" | grep -oE '[0-9]+' | head -1 || echo "0")
-    local vert; vert=$(printf '%s' "$res_out" | grep -i "CurrentVerticalResolution" | grep -oE '[0-9]+' | head -1 || echo "0")
+    local horiz; horiz=$(printf '%s' "$res_out" | grep -i "CurrentHorizontalResolution" | grep -oE '[0-9]+' | head -1)
+    local vert; vert=$(printf '%s' "$res_out" | grep -i "CurrentVerticalResolution" | grep -oE '[0-9]+' | head -1)
 
     if [[ "${horiz:-0}" -eq 7680 && "${vert:-0}" -eq 1440 ]]; then
       status="PASS"; severity="P3"; message="NVIDIA Surround 7680x1440 active"

@@ -48,8 +48,8 @@ compute_delta() {
   fi
 
   # Bail out if there are no phase JSON files in either directory
-  local curr_files; curr_files=$(ls "$result_dir"/phase-*.json 2>/dev/null | wc -l)
-  local prev_files; prev_files=$(ls "$prev_dir"/phase-*.json 2>/dev/null | wc -l)
+  local curr_files; curr_files=$(find "$result_dir" -maxdepth 1 -name 'phase-*.json' 2>/dev/null | wc -l)
+  local prev_files; prev_files=$(find "$prev_dir" -maxdepth 1 -name 'phase-*.json' 2>/dev/null | wc -l)
   if [ "$curr_files" -eq 0 ]; then
     jq -n '{has_previous: false, entries: []}' > "$result_dir/delta.json" 2>/dev/null
     echo "Delta: no current phase results found"
@@ -61,11 +61,15 @@ compute_delta() {
   tmp_current=$(mktemp)
   tmp_previous=$(mktemp)
 
-  # Merge all phase-*.json into arrays
-  jq -s '.' "$result_dir"/phase-*.json > "$tmp_current" 2>/dev/null
+  # For loop avoids ARG_MAX: bash handles glob internally, each cat is one file
+  for _f in "$result_dir"/phase-*.json; do
+    [ -f "$_f" ] && cat "$_f"
+  done | jq -s '.' > "$tmp_current" 2>/dev/null
 
   if [ "$prev_files" -gt 0 ]; then
-    jq -s '.' "$prev_dir"/phase-*.json > "$tmp_previous" 2>/dev/null
+    for _f in "$prev_dir"/phase-*.json; do
+      [ -f "$_f" ] && cat "$_f"
+    done | jq -s '.' > "$tmp_previous" 2>/dev/null
   else
     printf '[]' > "$tmp_previous"
   fi
@@ -146,10 +150,10 @@ JQ
 
   # Print summary line to stdout
   local reg imp per new
-  reg=$(jq '.counts.regression'  "$result_dir/delta.json" 2>/dev/null || echo 0)
-  imp=$(jq '.counts.improvement' "$result_dir/delta.json" 2>/dev/null || echo 0)
-  per=$(jq '.counts.persistent'  "$result_dir/delta.json" 2>/dev/null || echo 0)
-  new=$(jq '.counts.new_issue'   "$result_dir/delta.json" 2>/dev/null || echo 0)
+  reg=$(jq '.counts.regression'  "$result_dir/delta.json" 2>/dev/null)
+  imp=$(jq '.counts.improvement' "$result_dir/delta.json" 2>/dev/null)
+  per=$(jq '.counts.persistent'  "$result_dir/delta.json" 2>/dev/null)
+  new=$(jq '.counts.new_issue'   "$result_dir/delta.json" 2>/dev/null)
   echo "Delta: ${reg} regressions, ${imp} improvements, ${per} persistent, ${new} new issues"
 
   return 0

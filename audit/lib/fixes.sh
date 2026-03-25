@@ -85,7 +85,7 @@ kill_orphan_powershell() {
   local count_result
   count_result=$(safe_remote_exec "$pod_ip" 8090 "tasklist /FI \"IMAGENAME eq powershell.exe\" /NH 2>/dev/null | findstr /I powershell | find /C /V \"\"" 10)
   local count
-  count=$(printf "%s" "$count_result" | jq -r ".stdout // .output // .result // \"\"" 2>/dev/null | tr -d "[:space:]" | grep -oE "^[0-9]+" || echo "0")
+  count=$(printf "%s" "$count_result" | jq -r ".stdout // .output // .result // \"\"" 2>/dev/null | tr -d "[:space:]" | grep -oE "^[0-9]+")
   count="${count:-0}"
   if [[ "$count" -le 1 ]]; then return 0; fi
   local before_state="powershell_count=${count}"

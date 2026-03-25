@@ -17,7 +17,7 @@ run_phase10() {
   # Watchdog state file
   local watchdog_state="C:/Users/bono/.claude/watchdog-state.json"
   if [[ -f "$watchdog_state" ]]; then
-    local failure_count; failure_count=$(jq '[.[] | .failure_count // 0] | max' "$watchdog_state" 2>/dev/null || echo "0")
+    local failure_count; failure_count=$(jq '[.[] | .failure_count // 0] | max' "$watchdog_state" 2>/dev/null)
     if [[ "${failure_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="AI healer: no services in failure state"
     elif [[ "${failure_count:-0}" -le 3 ]]; then
@@ -33,7 +33,7 @@ run_phase10() {
   # Ollama responding
   response=$(http_get "http://localhost:11434/api/tags" 5)
   if [[ -n "$response" ]]; then
-    local model_count; model_count=$(printf '%s' "$response" | jq '.models | length' 2>/dev/null || echo "0")
+    local model_count; model_count=$(printf '%s' "$response" | jq '.models | length' 2>/dev/null)
     if [[ "${model_count:-0}" -ge 2 ]]; then
       status="PASS"; severity="P3"; message="Ollama responding with ${model_count} models"
     elif [[ "${model_count:-0}" -ge 1 ]]; then

@@ -47,7 +47,7 @@ run_phase58() {
   # --- Check 3: Cloud sync evidence (venue logs) ---
   local logs_response; logs_response=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=30" 10)
   local sync_count; sync_count=$(printf '%s' "$logs_response" \
-    | grep -ci "sync.*push\|cloud.*upsert\|sync.*pull\|fetched.*drivers\|fetched.*pricing" 2>/dev/null || echo 0)
+    | grep -ci "sync.*push\|cloud.*upsert\|sync.*pull\|fetched.*drivers\|fetched.*pricing" 2>/dev/null)
   sync_count="${sync_count//[[:space:]]/}"
   if [[ "${sync_count:-0}" -gt 0 ]] 2>/dev/null; then
     status="PASS"; severity="P3"; message="Cloud sync active: ${sync_count} sync log entries in last 30 lines"

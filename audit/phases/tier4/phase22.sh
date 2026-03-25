@@ -28,7 +28,7 @@ run_phase22() {
   # Check for stuck debit_intents in logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local stuck; stuck=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "debit_intent.*pending\|wallet.*error" || echo "0")
+    local stuck; stuck=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "debit_intent.*pending\|wallet.*error")
     if [[ "${stuck:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No stuck debit_intents or wallet errors in recent logs"
     else

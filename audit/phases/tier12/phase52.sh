@@ -62,7 +62,7 @@ run_phase52() {
     || true)
   if [[ -n "$kiosk_path" ]]; then
     local kiosk_static; kiosk_static=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
-      "http://192.168.31.23:3300${kiosk_path}" 2>/dev/null || echo "000")
+      "http://192.168.31.23:3300${kiosk_path}" 2>/dev/null)
     if [[ "$kiosk_static" = "200" ]]; then
       status="PASS"; severity="P3"; message="Kiosk static file serving OK (${kiosk_path} returned 200)"
     else
@@ -82,7 +82,7 @@ run_phase52() {
     || true)
   if [[ -n "$web_path" ]]; then
     local web_static; web_static=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
-      "http://192.168.31.23:3200${web_path}" 2>/dev/null || echo "000")
+      "http://192.168.31.23:3200${web_path}" 2>/dev/null)
     if [[ "$web_static" = "200" ]]; then
       status="PASS"; severity="P3"; message="Web dashboard static file serving OK (${web_path} returned 200)"
     else
@@ -102,7 +102,7 @@ run_phase52() {
     || true)
   if [[ -n "$admin_path" ]]; then
     local admin_static; admin_static=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
-      "http://192.168.31.23:3201${admin_path}" 2>/dev/null || echo "000")
+      "http://192.168.31.23:3201${admin_path}" 2>/dev/null)
     if [[ "$admin_static" = "200" ]]; then
       status="PASS"; severity="P3"; message="Admin static file serving OK (${admin_path} returned 200)"
     else

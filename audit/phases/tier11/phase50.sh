@@ -40,7 +40,7 @@ run_phase50() {
   jq -n --arg pin "000000" '{pin: $pin}' > "$tmpfile2"
   local invalid_code; invalid_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
     -X POST "http://192.168.31.23:8080/api/v1/terminal/auth" \
-    -H 'Content-Type: application/json' -d "@${tmpfile2}" 2>/dev/null || echo "000")
+    -H 'Content-Type: application/json' -d "@${tmpfile2}" 2>/dev/null)
   rm -f "$tmpfile2"
   if [[ "$invalid_code" = "401" || "$invalid_code" = "403" ]]; then
     status="PASS"; severity="P3"; message="Invalid PIN correctly rejected with HTTP ${invalid_code}"
@@ -53,7 +53,7 @@ run_phase50() {
 
   # --- Check 3: Protected endpoint without auth must return 401 ---
   local protected_code; protected_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
-    "http://192.168.31.23:8080/api/v1/billing/sessions/active" 2>/dev/null || echo "000")
+    "http://192.168.31.23:8080/api/v1/billing/sessions/active" 2>/dev/null)
   if [[ "$protected_code" = "401" ]]; then
     status="PASS"; severity="P3"; message="Protected endpoint /billing/sessions/active correctly returns 401 without auth"
   elif [[ "$protected_code" = "200" ]]; then
@@ -65,7 +65,7 @@ run_phase50() {
 
   # --- Check 4: Public health endpoint accessible without auth ---
   local health_code; health_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
-    "http://192.168.31.23:8080/api/v1/health" 2>/dev/null || echo "000")
+    "http://192.168.31.23:8080/api/v1/health" 2>/dev/null)
   if [[ "$health_code" = "200" ]]; then
     status="PASS"; severity="P3"; message="Public health endpoint /api/v1/health returns 200 without auth"
   else

@@ -27,7 +27,7 @@ run_phase44() {
   # Face audit log: line count and recency
   local audit_log="C:/RacingPoint/logs/face-audit.jsonl"
   if [[ -f "$audit_log" ]]; then
-    local line_count; line_count=$(wc -l < "$audit_log" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    local line_count; line_count=$(wc -l < "$audit_log" 2>/dev/null | tr -d '[:space:]')
     if [[ "${line_count:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Face audit log: ${line_count} entries"
     else

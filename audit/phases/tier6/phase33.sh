@@ -16,7 +16,7 @@ run_phase33() {
   # Cafe marketing logs
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local mkt_entries; mkt_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_marketing\|png.*generat\|broadcast" || echo "0")
+    local mkt_entries; mkt_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_marketing\|png.*generat\|broadcast")
     if [[ "${mkt_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Cafe marketing/broadcast activity in recent logs (${mkt_entries} entries)"
     else
@@ -29,7 +29,7 @@ run_phase33() {
 
   # Promo engine evaluation
   if [[ -n "$log_resp" ]]; then
-    local promo_entries; promo_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_promo.*evaluat\|promo.*applied" || echo "0")
+    local promo_entries; promo_entries=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "cafe_promo.*evaluat\|promo.*applied")
     if [[ "${promo_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Cafe promo evaluation entries found (${promo_entries})"
     else
