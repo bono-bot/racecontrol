@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::activity_log::log_pod_activity;
 use crate::catalog;
+use crate::metrics;
 use crate::state::AppState;
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
@@ -137,6 +138,10 @@ async fn launch_game(
         .await
         .insert(pod_id.to_string(), tracker);
 
+    // Extract launch fields for metrics BEFORE consuming launch_args in the send
+    let (launch_car, launch_track, launch_session_type, launch_args_hash) =
+        extract_launch_fields(&launch_args);
+
     // Send command to agent (canonical pod_id guaranteed by normalization at entry)
     let senders = state.agent_senders.read().await;
     if let Some(tx) = senders.get(pod_id) {
@@ -173,8 +178,29 @@ async fn launch_game(
         .dashboard_tx
         .send(DashboardEvent::GameStateChanged(info));
 
-    // Log event to DB
+    // Log event to DB (legacy table, backward compat)
     log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None).await;
+
+    // Rich launch event recording to new launch_events table + JSONL
+    {
+        let launch_event = metrics::LaunchEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            pod_id: pod_id.to_string(),
+            sim_type: sim_type.to_string(),
+            car: launch_car,
+            track: launch_track,
+            session_type: launch_session_type,
+            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            outcome: metrics::LaunchOutcome::Success,
+            error_taxonomy: None,
+            duration_to_playable_ms: None,
+            error_details: None,
+            launch_args_hash,
+            attempt_number: 1,
+            db_fallback: None,
+        };
+        metrics::record_launch_event(&state.db, &launch_event).await;
+    }
     Ok(())
 }
 
@@ -220,6 +246,10 @@ pub async fn relaunch_game(
         }
     }
 
+    // Extract launch fields for metrics BEFORE consuming launch_args in the send
+    let (relaunch_car, relaunch_track, relaunch_session_type, relaunch_args_hash) =
+        extract_launch_fields(&launch_args);
+
     // Send LaunchGame to agent (canonical pod_id guaranteed by normalization at entry)
     let senders = state.agent_senders.read().await;
     let tx = senders.get(pod_id).ok_or("Pod not connected")?;
@@ -232,6 +262,27 @@ pub async fn relaunch_game(
 
     // Log + broadcast
     log_game_event(state, pod_id, &sim_type.to_string(), "relaunched", None, Some("Manual relaunch from kiosk")).await;
+
+    // Rich launch event recording for relaunch
+    {
+        let relaunch_event = metrics::LaunchEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            pod_id: pod_id.to_string(),
+            sim_type: sim_type.to_string(),
+            car: relaunch_car,
+            track: relaunch_track,
+            session_type: relaunch_session_type,
+            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            outcome: metrics::LaunchOutcome::Success,
+            error_taxonomy: None,
+            duration_to_playable_ms: None,
+            error_details: Some("Manual relaunch from kiosk".to_string()),
+            launch_args_hash: relaunch_args_hash,
+            attempt_number: 2,
+            db_fallback: None,
+        };
+        metrics::record_launch_event(&state.db, &relaunch_event).await;
+    }
     let info = {
         let games = state.game_launcher.active_games.read().await;
         games.get(pod_id).map(|t| t.to_info())
@@ -275,12 +326,34 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
         }
 
         // Broadcast to dashboards
+        let sim_type_str = info.sim_type.to_string();
         let _ = state
             .dashboard_tx
             .send(DashboardEvent::GameStateChanged(info));
 
-        // Log event
-        log_game_event(state, pod_id, "", "stopping", None, None).await;
+        // Log event (legacy table)
+        log_game_event(state, pod_id, &sim_type_str, "stopping", None, None).await;
+
+        // Rich stop event recording
+        {
+            let stop_event = metrics::LaunchEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                pod_id: pod_id.to_string(),
+                sim_type: sim_type_str,
+                car: None,
+                track: None,
+                session_type: None,
+                timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                outcome: metrics::LaunchOutcome::Success,
+                error_taxonomy: None,
+                duration_to_playable_ms: None,
+                error_details: Some("Graceful stop".to_string()),
+                launch_args_hash: None,
+                attempt_number: 1,
+                db_fallback: None,
+            };
+            metrics::record_launch_event(&state.db, &stop_event).await;
+        }
     }
 }
 
@@ -348,7 +421,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         GameState::Stopping => "stopping",
     };
 
-    // Log to DB
+    // Log to DB (legacy table)
     log_game_event(
         state,
         pod_id,
@@ -358,6 +431,33 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         info.error_message.as_deref(),
     )
     .await;
+
+    // Rich state update event recording (only for Error/Crash states — informational states covered by launch/relaunch)
+    if matches!(info.game_state, GameState::Error) {
+        let (outcome, taxonomy) = if info.game_state == GameState::Error {
+            let tax = classify_error_taxonomy(info.error_message.as_deref());
+            (metrics::LaunchOutcome::Crash, Some(tax))
+        } else {
+            (metrics::LaunchOutcome::Error, None)
+        };
+        let state_event = metrics::LaunchEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            pod_id: pod_id.to_string(),
+            sim_type: info.sim_type.to_string(),
+            car: None,
+            track: None,
+            session_type: None,
+            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            outcome,
+            error_taxonomy: taxonomy,
+            duration_to_playable_ms: None,
+            error_details: info.error_message.clone(),
+            launch_args_hash: None,
+            attempt_number: 1,
+            db_fallback: None,
+        };
+        metrics::record_launch_event(&state.db, &state_event).await;
+    }
 
     // Broadcast to dashboards
     let _ = state
@@ -550,8 +650,30 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             tracker.error_message = Some(timeout_msg);
         }
 
-        // Log and broadcast
+        // Log and broadcast (legacy table)
         log_game_event(&state, &pod_id, &sim_type.to_string(), "timeout", None, None).await;
+
+        // Rich timeout event recording
+        {
+            let timeout_event = metrics::LaunchEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                pod_id: pod_id.clone(),
+                sim_type: sim_type.to_string(),
+                car: None,
+                track: None,
+                session_type: None,
+                timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                outcome: metrics::LaunchOutcome::Timeout,
+                error_taxonomy: Some(metrics::ErrorTaxonomy::LaunchTimeout),
+                duration_to_playable_ms: Some(timeout_secs * 1000),
+                error_details: Some(format!("Launch timed out after {}s", timeout_secs)),
+                launch_args_hash: None,
+                attempt_number: 1,
+                db_fallback: None,
+            };
+            metrics::record_launch_event(&state.db, &timeout_event).await;
+        }
+
         let _ = state
             .dashboard_tx
             .send(DashboardEvent::GameStateChanged(info));
@@ -567,9 +689,12 @@ async fn log_game_event(
     error_message: Option<&str>,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
-    let _ = sqlx::query(
-        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message)
-         VALUES (?, ?, ?, ?, ?, ?)",
+    let now = chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    let result = sqlx::query(
+        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(pod_id)
@@ -577,8 +702,84 @@ async fn log_game_event(
     .bind(event_type)
     .bind(pid.map(|p| p as i64))
     .bind(error_message)
+    .bind(&now)
     .execute(&state.db)
     .await;
+
+    if let Err(e) = result {
+        tracing::error!("game_launch_event insert failed for pod {pod_id}: {e}");
+        // JSONL fallback — write to launch-events.jsonl so the event is never lost
+        let fallback_event = crate::metrics::LaunchEvent {
+            id,
+            pod_id: pod_id.to_string(),
+            sim_type: sim_type.to_string(),
+            car: None,
+            track: None,
+            session_type: None,
+            timestamp: now,
+            outcome: crate::metrics::LaunchOutcome::Error,
+            error_taxonomy: None,
+            duration_to_playable_ms: None,
+            error_details: error_message.map(|s| s.to_string()),
+            launch_args_hash: None,
+            attempt_number: 1,
+            db_fallback: Some(true),
+        };
+        crate::metrics::record_launch_event_jsonl_only(&fallback_event).await;
+    }
+}
+
+/// Extract car, track, session_type, and a hash from an optional launch_args JSON string.
+/// Returns (car, track, session_type, hash) — all None if args absent or unparseable.
+fn extract_launch_fields(
+    launch_args: &Option<String>,
+) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+    let Some(args_json) = launch_args else {
+        return (None, None, None, None);
+    };
+    let hash = Some(metrics::hash_launch_args(args_json));
+    match serde_json::from_str::<serde_json::Value>(args_json) {
+        Ok(v) => {
+            let car = v.get("car").and_then(|x| x.as_str()).map(str::to_string);
+            let track = v.get("track").and_then(|x| x.as_str()).map(str::to_string);
+            let session_type = v
+                .get("session_type")
+                .and_then(|x| x.as_str())
+                .map(str::to_string);
+            (car, track, session_type, hash)
+        }
+        Err(_) => (None, None, None, hash),
+    }
+}
+
+/// Classify an error message into a structured ErrorTaxonomy entry.
+/// Uses simple heuristics — no heavy parsing needed at this phase.
+fn classify_error_taxonomy(error_message: Option<&str>) -> metrics::ErrorTaxonomy {
+    let Some(msg) = error_message else {
+        return metrics::ErrorTaxonomy::Unknown;
+    };
+    let msg_lower = msg.to_ascii_lowercase();
+    if msg_lower.contains("shader") || msg_lower.contains("shader compilation") {
+        metrics::ErrorTaxonomy::ShaderCompilationFail
+    } else if msg_lower.contains("out of memory") || msg_lower.contains("oom") {
+        metrics::ErrorTaxonomy::OutOfMemory
+    } else if msg_lower.contains("anticheat") || msg_lower.contains("anti-cheat") {
+        metrics::ErrorTaxonomy::AntiCheatKick
+    } else if msg_lower.contains("config") && msg_lower.contains("corrupt") {
+        metrics::ErrorTaxonomy::ConfigCorrupt
+    } else if msg_lower.contains("timeout") || msg_lower.contains("timed out") {
+        metrics::ErrorTaxonomy::LaunchTimeout
+    } else if msg_lower.contains("content manager") || msg_lower.contains("hang") {
+        metrics::ErrorTaxonomy::ContentManagerHang
+    } else if msg_lower.contains("missing") || msg_lower.contains("not found") {
+        metrics::ErrorTaxonomy::MissingDependency
+    } else if msg_lower.contains("billing") {
+        metrics::ErrorTaxonomy::BillingGateRejected
+    } else if msg_lower.contains("agent") || msg_lower.contains("disconnected") {
+        metrics::ErrorTaxonomy::AgentDisconnected
+    } else {
+        metrics::ErrorTaxonomy::Unknown
+    }
 }
 
 #[cfg(test)]
