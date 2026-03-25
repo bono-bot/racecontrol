@@ -76,38 +76,38 @@ Requirements for v25.0 milestone. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OBS-01 | TBD | Pending |
-| OBS-02 | TBD | Pending |
-| OBS-03 | TBD | Pending |
-| OBS-04 | TBD | Pending |
-| OBS-05 | TBD | Pending |
-| COV-01 | TBD | Pending |
-| COV-02 | TBD | Pending |
-| COV-03 | TBD | Pending |
-| COV-04 | TBD | Pending |
-| COV-05 | TBD | Pending |
-| GATE-01 | TBD | Pending |
-| GATE-02 | TBD | Pending |
-| GATE-03 | TBD | Pending |
-| GATE-04 | TBD | Pending |
-| GATE-05 | TBD | Pending |
-| BOOT-01 | TBD | Pending |
-| BOOT-02 | TBD | Pending |
-| BOOT-03 | TBD | Pending |
-| BOOT-04 | TBD | Pending |
-| BAT-01 | TBD | Pending |
-| BAT-02 | TBD | Pending |
-| BAT-03 | TBD | Pending |
-| BAT-04 | TBD | Pending |
-| AUDIT-01 | TBD | Pending |
-| AUDIT-02 | TBD | Pending |
-| AUDIT-03 | TBD | Pending |
+| COV-01 | Phase 205 | Pending |
+| BOOT-01 | Phase 205 | Pending |
+| OBS-01 | Phase 206 | Pending |
+| OBS-02 | Phase 206 | Pending |
+| OBS-03 | Phase 206 | Pending |
+| OBS-04 | Phase 206 | Pending |
+| OBS-05 | Phase 206 | Pending |
+| BOOT-02 | Phase 207 | Pending |
+| BOOT-03 | Phase 207 | Pending |
+| BOOT-04 | Phase 207 | Pending |
+| COV-02 | Phase 208 | Pending |
+| COV-03 | Phase 208 | Pending |
+| COV-04 | Phase 208 | Pending |
+| COV-05 | Phase 208 | Pending |
+| GATE-01 | Phase 209 | Pending |
+| GATE-02 | Phase 209 | Pending |
+| GATE-03 | Phase 209 | Pending |
+| GATE-04 | Phase 209 | Pending |
+| GATE-05 | Phase 209 | Pending |
+| BAT-01 | Phase 210 | Pending |
+| BAT-02 | Phase 210 | Pending |
+| BAT-03 | Phase 210 | Pending |
+| BAT-04 | Phase 210 | Pending |
+| AUDIT-01 | Phase 210 | Pending |
+| AUDIT-02 | Phase 210 | Pending |
+| AUDIT-03 | Phase 210 | Pending |
 
 **Coverage:**
 - v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after v25.0 milestone initialization*
+*Last updated: 2026-03-26 — traceability complete after roadmap creation*
