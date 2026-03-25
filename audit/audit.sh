@@ -62,7 +62,7 @@ Modes:
   post-incident  Post-incident investigation sweep
 
 Options:
-  --tier N       Run only a specific tier (1-5)
+  --tier N       Run only a specific tier (1-9)
   --phase N      Run only a specific phase number
   --auto-fix     Apply smallest reversible fixes automatically
   --notify       Send Bono notification on completion
@@ -263,44 +263,137 @@ echo "Venue state: $VENUE_STATE"
 emit_result "00" "0" "james-local" "PASS" "P3" "Audit framework initialized" "$AUDIT_MODE" "$VENUE_STATE"
 
 # ---------------------------------------------------------------------------
-# load_phases: source phase scripts based on mode
+# load_phases: source phase scripts by mode (EXEC-05)
+# Each tier directory contains phaseNN.sh files defining run_phaseNN functions.
+# Mode determines which tiers are loaded:
+#   quick        -> Tiers 1-2  (phases 01-16)
+#   standard     -> Tiers 1-9  (phases 01-44)
+#   full         -> Tiers 1-9  (phases 01-44, Tiers 10-18 added in Phase 191)
+#   pre-ship     -> Tiers 1-2 + selected (Phase 191 completes this)
+#   post-incident-> Tiers 1-2 + Tier 8  (sentinel/recovery focused)
 # ---------------------------------------------------------------------------
 load_phases() {
-  local mode=$1
-  # Tier 1 phases always included for quick+ mode
-  if [[ -f "$SCRIPT_DIR/phases/tier1/phase01.sh" ]]; then
-    # shellcheck source=audit/phases/tier1/phase01.sh
-    source "$SCRIPT_DIR/phases/tier1/phase01.sh" || {
-      echo "WARN: could not source phase01.sh" >&2
-    }
-  fi
-  # Additional tiers sourced in later plans (Phase 190+)
+  local mode="$1"
+
+  # Helper: source all .sh files in a tier directory
+  source_tier() {
+    local tier_dir="$SCRIPT_DIR/phases/$1"
+    if [[ -d "$tier_dir" ]]; then
+      for f in "$tier_dir"/phase*.sh; do
+        [[ -f "$f" ]] || continue
+        # shellcheck disable=SC1090
+        source "$f" 2>/dev/null || echo "WARN: could not source ${f##*/}" >&2
+      done
+    fi
+  }
+
+  # Tiers always loaded for quick+ (infrastructure foundation + core services)
+  source_tier "tier1"
+  source_tier "tier2"
+
+  case "$mode" in
+    quick)
+      # Tiers 1-2 only -- already loaded above
+      ;;
+    standard|full|pre-ship|post-incident)
+      # Tiers 3-9 for standard/full
+      source_tier "tier3"
+      source_tier "tier4"
+      source_tier "tier5"
+      source_tier "tier6"
+      source_tier "tier7"
+      source_tier "tier8"
+      source_tier "tier9"
+      # Note: Tiers 10-18 loaded in Phase 191 (parallel engine)
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
-# Phase dispatch
+# load_phases: source phase scripts based on mode
 # ---------------------------------------------------------------------------
 load_phases "$AUDIT_MODE"
 
+# ---------------------------------------------------------------------------
+# Phase dispatch: --phase N | --tier N | mode-based all phases
+# ---------------------------------------------------------------------------
 if [[ -n "$AUDIT_PHASE" ]]; then
-  # Run only the specified phase function if it exists
-  fn="run_phase${AUDIT_PHASE}"
+  # Pad to 2 digits: "7" -> "07"
+  phase_padded=$(printf '%02d' "${AUDIT_PHASE#0}" 2>/dev/null || printf '%s' "$AUDIT_PHASE")
+  fn="run_phase${phase_padded}"
   if declare -f "$fn" >/dev/null 2>&1; then
+    echo "Running single phase: $fn"
     "$fn"
   else
-    echo "WARN: Phase function '$fn' not found (phase script may not be sourced yet)" >&2
+    echo "WARN: Phase function '$fn' not found. Was phase script sourced for this mode?" >&2
+    emit_result "$phase_padded" "?" "james-local" "FAIL" "P2" \
+      "Phase function $fn not loaded — check --mode includes this phase's tier" \
+      "$AUDIT_MODE" "$VENUE_STATE"
   fi
+
 elif [[ -n "$AUDIT_TIER" ]]; then
   # Run all phases in the specified tier
+  echo "Running tier: $AUDIT_TIER"
   case "$AUDIT_TIER" in
-    1) run_phase01 ;;
-    *) echo "WARN: Tier $AUDIT_TIER phases not yet implemented" >&2 ;;
+    1)  run_phase01; run_phase02; run_phase03; run_phase04; run_phase05
+        run_phase06; run_phase07; run_phase08; run_phase09; run_phase10 ;;
+    2)  run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16 ;;
+    3)  run_phase17; run_phase18; run_phase19; run_phase20 ;;
+    4)  run_phase21; run_phase22; run_phase23; run_phase24; run_phase25 ;;
+    5)  run_phase26; run_phase27; run_phase28; run_phase29 ;;
+    6)  run_phase30; run_phase31; run_phase32; run_phase33; run_phase34 ;;
+    7)  run_phase35; run_phase36; run_phase37; run_phase38 ;;
+    8)  run_phase39; run_phase40; run_phase41; run_phase42 ;;
+    9)  run_phase43; run_phase44 ;;
+    *)  echo "WARN: Tier $AUDIT_TIER phases not yet implemented (Tiers 10-18 in Phase 191)" >&2 ;;
   esac
+
 else
-  # Run all phases for the current mode
+  # Mode-based full run
+  run_tier_1_to_2() {
+    run_phase01; run_phase02; run_phase03; run_phase04; run_phase05
+    run_phase06; run_phase07; run_phase08; run_phase09; run_phase10
+    run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16
+  }
+  run_tier_3_to_9() {
+    run_phase17; run_phase18; run_phase19; run_phase20
+    run_phase21; run_phase22; run_phase23; run_phase24; run_phase25
+    run_phase26; run_phase27; run_phase28; run_phase29
+    run_phase30; run_phase31; run_phase32; run_phase33; run_phase34
+    run_phase35; run_phase36; run_phase37; run_phase38
+    run_phase39; run_phase40; run_phase41; run_phase42
+    run_phase43; run_phase44
+  }
+
   case "$AUDIT_MODE" in
-    quick|standard|full|pre-ship|post-incident)
-      run_phase01
+    quick)
+      echo "Mode: quick — running Tiers 1-2 (phases 01-16)"
+      run_tier_1_to_2
+      ;;
+    standard)
+      echo "Mode: standard — running Tiers 1-9 (phases 01-44)"
+      run_tier_1_to_2
+      run_tier_3_to_9
+      ;;
+    full)
+      echo "Mode: full — running Tiers 1-9 (phases 01-44, Tiers 10-18 in Phase 191)"
+      run_tier_1_to_2
+      run_tier_3_to_9
+      ;;
+    pre-ship)
+      echo "Mode: pre-ship — critical subset (Tiers 1-2 + targeted checks)"
+      run_tier_1_to_2
+      # Phases 35 (cloud sync), 39 (flags) as critical pre-ship checks
+      declare -f run_phase35 >/dev/null 2>&1 && run_phase35
+      declare -f run_phase39 >/dev/null 2>&1 && run_phase39
+      ;;
+    post-incident)
+      echo "Mode: post-incident — Tiers 1-2 + Tier 8 (advanced systems/recovery)"
+      run_tier_1_to_2
+      declare -f run_phase39 >/dev/null 2>&1 && run_phase39
+      declare -f run_phase40 >/dev/null 2>&1 && run_phase40
+      declare -f run_phase41 >/dev/null 2>&1 && run_phase41
+      declare -f run_phase42 >/dev/null 2>&1 && run_phase42
       ;;
   esac
 fi
