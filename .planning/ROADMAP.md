@@ -3012,7 +3012,7 @@ Plans:
   3. Adding a suppress.json entry for a known failing phase causes that phase to appear as SUPPRESSED (with reason) in subsequent reports — not silently hidden and not as a FAIL
   4. A suppress.json entry whose `expires_date` is in the past is automatically ignored — the phase reverts to its actual status without manual cleanup
   5. `audit/results/YYYY-MM-DD_HH-MM/` contains both a `-report.md` and a `-summary.json` file after every audit run — dual output format works for both human reading and machine parsing
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
 - [ ] 192-01-PLAN.md — Results storage: audit/results/YYYY-MM-DD_HH-MM/ directory, latest symlink, results/index.json audit run history (RSLT-01, RSLT-02, RSLT-04)
@@ -3045,6 +3045,6 @@ Plans:
 |-------|----------------|--------|-----------|
 | 189. Core Scaffold and Shared Primitives | 3/3 | Complete    | 2026-03-25 |
 | 190. Phase Scripts Tiers 1-9 (Sequential Baseline) | 3/3 | Complete    | 2026-03-25 |
-| 191. Parallel Engine and Phase Scripts Tiers 10-18 | 3/3 | Complete   | 2026-03-25 |
+| 191. Parallel Engine and Phase Scripts Tiers 10-18 | 3/3 | Complete    | 2026-03-25 |
 | 192. Intelligence Layer | 0/4 | Not started | - |
 | 193. Auto-Fix, Notifications, and Results Management | 0/3 | Not started | - |
