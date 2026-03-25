@@ -55,6 +55,7 @@ interface PodKioskViewProps {
   mode: "standalone" | "control";
   onSelectExperience?: (experienceId: string) => void;
   onEndSession?: () => void;
+  onRelaunchGame?: () => void;
   warning?: BillingWarning;
 }
 
@@ -70,6 +71,7 @@ export function PodKioskView({
   mode,
   onSelectExperience,
   onEndSession,
+  onRelaunchGame,
   warning,
 }: PodKioskViewProps) {
   const state = deriveKioskState(pod, billing, gameInfo, authToken);
@@ -105,6 +107,7 @@ export function PodKioskView({
           gameInfo={gameInfo}
           isStandalone={isStandalone}
           onEndSession={onEndSession}
+          onRelaunchGame={onRelaunchGame}
           warning={warning}
         />
       )}
@@ -349,6 +352,7 @@ function InSessionView({
   gameInfo,
   isStandalone,
   onEndSession,
+  onRelaunchGame,
   warning,
 }: {
   billing: BillingSession;
@@ -356,6 +360,7 @@ function InSessionView({
   gameInfo?: GameLaunchInfo;
   isStandalone: boolean;
   onEndSession?: () => void;
+  onRelaunchGame?: () => void;
   warning?: BillingWarning;
 }) {
   const trackName = telemetry?.track || "";
@@ -384,6 +389,34 @@ function InSessionView({
 
       {/* Timer */}
       <SessionTimer billing={billing} hasWarning={hasWarning} />
+
+      {/* Game Crashed Banner */}
+      {gameInfo?.game_state === "error" && (
+        <div className={`bg-red-900/30 border border-red-600/50 rounded-xl text-center ${
+          isStandalone ? "px-6 py-5 mt-4" : "px-3 py-2 mt-2"
+        }`}>
+          <span className={`text-red-400 font-bold uppercase tracking-wider ${
+            isStandalone ? "text-lg" : "text-xs"
+          }`}>
+            Game Crashed
+          </span>
+          {gameInfo.error_message && (
+            <p className={`text-red-400/70 mt-1 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+              {gameInfo.error_message}
+            </p>
+          )}
+          {onRelaunchGame && (
+            <button
+              onClick={onRelaunchGame}
+              className={`mt-3 w-full bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl transition-colors ${
+                isStandalone ? "py-3 text-base" : "py-1.5 text-xs"
+              }`}
+            >
+              Relaunch Game
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Telemetry */}
       {telemetry && (

@@ -22,7 +22,6 @@ interface KioskPodCardProps {
   warning?: BillingWarning;
   gameInfo?: GameLaunchInfo;
   authToken?: AuthTokenInfo;
-  walletBalance?: number; // paise
   compact?: boolean;
   isSelected?: boolean;
   onSelect?: (podId: string) => void;
@@ -37,7 +36,6 @@ interface KioskPodCardProps {
   onRetryJoin?: (podId: string) => void;
   acSessionId?: string; // Active AC server session ID — presence means this pod is in a multiplayer group
   onStartNow?: (authToken: AuthTokenInfo) => void;
-  onTopUp?: (driverId: string) => void;
   onWakePod?: (podId: string) => void;
   onRestartPod?: (podId: string) => void;
   onShutdownPod?: (podId: string) => void;
@@ -138,8 +136,6 @@ export const KioskPodCard = React.memo(function KioskPodCard({
   onRetryJoin,
   acSessionId,
   onStartNow,
-  walletBalance,
-  onTopUp,
   onWakePod,
   onRestartPod,
   onShutdownPod,

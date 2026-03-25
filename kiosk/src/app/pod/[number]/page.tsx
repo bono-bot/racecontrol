@@ -58,7 +58,19 @@ export default function PodKioskPage() {
   const warning = billingWarnings.find((w) => w.podId === pod.id);
 
   const handleSelectExperience = async (experienceId: string) => {
-    await api.podLaunchExperience(pod.id, experienceId);
+    try {
+      await api.podLaunchExperience(pod.id, experienceId);
+    } catch (err) {
+      console.error("Failed to launch experience:", err);
+    }
+  };
+
+  const handleRelaunchGame = async () => {
+    try {
+      await api.relaunchGame(pod.id);
+    } catch (err) {
+      console.error("Failed to relaunch game:", err);
+    }
   };
 
   return (
@@ -71,6 +83,7 @@ export default function PodKioskPage() {
       experiences={experiences}
       mode="standalone"
       onSelectExperience={handleSelectExperience}
+      onRelaunchGame={handleRelaunchGame}
       warning={warning}
     />
   );

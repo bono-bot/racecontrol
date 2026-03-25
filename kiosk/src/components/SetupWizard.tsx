@@ -56,7 +56,6 @@ export function SetupWizard({
   const [tiers, setTiers] = useState<PricingTier[]>([]);
   const [catalog, setCatalog] = useState<AcCatalog | null>(null);
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
-  const [walletCache, setWalletCache] = useState<Map<string, number>>(new Map());
 
   // Split options
   const [splitOptions, setSplitOptions] = useState<{ count: number; duration_minutes: number; label: string }[]>([]);
@@ -95,20 +94,6 @@ export function SetupWizard({
           (d.phone && d.phone.includes(searchQuery))
       )
     : [];
-
-  // Fetch wallet balances for search results
-  const filteredDriverIds = useMemo(() => filteredDrivers.map((d) => d.id).join(","), [filteredDrivers]);
-  useEffect(() => {
-    for (const d of filteredDrivers) {
-      if (!walletCache.has(d.id)) {
-        api.getWallet(d.id).then((res) => {
-          if (res.wallet) {
-            setWalletCache((prev) => new Map(prev).set(d.id, res.wallet!.balance_paise));
-          }
-        }).catch(() => {});
-      }
-    }
-  }, [filteredDriverIds, filteredDrivers, walletCache]);
 
   // Filtered tracks
   const filteredTracks = useMemo(() => {
@@ -259,22 +244,16 @@ export function SetupWizard({
               {filteredDrivers.length > 0 && (
                 <div className="mt-1 max-h-48 overflow-y-auto border border-rp-border rounded bg-rp-surface">
                   {filteredDrivers.slice(0, 8).map((d) => {
-                    const bal = walletCache.get(d.id);
                     const last4 = d.phone ? d.phone.slice(-4) : null;
                     return (
                       <button
                         key={d.id}
                         data-testid={`driver-result-${d.id}`}
                         onClick={() => handleSelectDriver(d)}
-                        className="w-full text-left px-3 py-2 hover:bg-rp-red/10 text-sm flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 hover:bg-rp-red/10 text-sm"
                       >
-                        <div>
-                          <span className="text-white">{d.name}</span>
-                          {last4 && <span className="text-rp-grey text-xs ml-2">****{last4}</span>}
-                        </div>
-                        <span className={`text-xs font-medium ${bal !== undefined && bal > 0 ? "text-emerald-400" : "text-rp-grey"}`}>
-                          {bal !== undefined ? `${(bal / 100).toFixed(0)} cr` : "\u2014"}
-                        </span>
+                        <span className="text-white">{d.name}</span>
+                        {last4 && <span className="text-rp-grey text-xs ml-2">****{last4}</span>}
                       </button>
                     );
                   })}
@@ -938,50 +917,9 @@ export function SetupWizard({
               )}
             </div>
 
-            {/* Payment & Discount */}
-            <div className="bg-rp-surface border border-rp-border rounded-xl p-4 space-y-3">
-              <h4 className="text-xs text-rp-grey uppercase tracking-wider">Payment</h4>
-              <div className="flex gap-2">
-                {(["wallet", "cash", "upi", "card"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setField("paymentMethod", m)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      ws.paymentMethod === m
-                        ? "bg-rp-red text-white"
-                        : "border border-rp-border text-rp-grey hover:text-white"
-                    }`}
-                  >
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-rp-grey whitespace-nowrap">Discount (cr)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={ws.discountCredits || ""}
-                  onChange={(e) => setField("discountCredits", Math.max(0, parseInt(e.target.value) || 0))}
-                  placeholder="0"
-                  className="w-20 bg-zinc-800 border border-rp-border rounded px-2 py-1 text-sm text-white text-right"
-                />
-              </div>
-              {ws.discountCredits > 0 && (
-                <input
-                  type="text"
-                  value={ws.discountReason}
-                  onChange={(e) => setField("discountReason", e.target.value)}
-                  placeholder="Discount reason (required)"
-                  className="w-full bg-zinc-800 border border-rp-border rounded px-2 py-1 text-sm text-white placeholder:text-zinc-500"
-                />
-              )}
-            </div>
-
             <button
               data-testid="launch-btn"
               onClick={handleLaunch}
-              disabled={ws.discountCredits > 0 && !ws.discountReason.trim()}
               className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               LAUNCH

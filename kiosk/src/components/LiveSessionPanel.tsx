@@ -17,14 +17,12 @@ interface LiveSessionPanelProps {
   billing: BillingSession;
   warning?: BillingWarning;
   gameInfo?: GameLaunchInfo;
-  walletBalance?: number;
   onEndSession: (billingSessionId: string) => void;
   onPauseSession: (billingSessionId: string) => void;
   onResumeSession: (billingSessionId: string) => void;
   onExtendSession: (billingSessionId: string) => void;
   onLaunchGame?: (podId: string) => void;
   onRelaunchGame?: (podId: string) => void;
-  onTopUp?: (driverId: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -39,14 +37,12 @@ export function LiveSessionPanel({
   billing,
   warning,
   gameInfo,
-  walletBalance,
   onEndSession,
   onPauseSession,
   onResumeSession,
   onExtendSession,
   onLaunchGame,
   onRelaunchGame,
-  onTopUp,
 }: LiveSessionPanelProps) {
   const hasWarning = !!warning;
 
@@ -103,11 +99,6 @@ export function LiveSessionPanel({
                 {billing.driving_state === "active" ? "Driving" : billing.driving_state === "idle" ? "Idle" : "No Device"}
               </span>
             </div>
-            {walletBalance !== undefined && (
-              <p className="text-xs text-rp-grey mt-1">
-                Wallet: <span className="text-white font-medium">{(walletBalance / 100).toFixed(0)} cr</span>
-              </p>
-            )}
           </div>
         </div>
 
@@ -214,7 +205,7 @@ export function LiveSessionPanel({
           <FfbTogglePanel podId={pod.id} />
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {billing.status === "active" && (
             <button
               onClick={() => onPauseSession(billing.id)}
@@ -237,14 +228,6 @@ export function LiveSessionPanel({
           >
             +10 min
           </button>
-          {onTopUp && (
-            <button
-              onClick={() => onTopUp(billing.driver_id)}
-              className="py-2.5 border border-emerald-600/50 text-emerald-400 hover:bg-emerald-600/10 rounded-lg text-sm transition-colors"
-            >
-              Top Up
-            </button>
-          )}
         </div>
 
         <button

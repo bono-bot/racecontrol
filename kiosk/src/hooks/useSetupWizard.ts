@@ -46,10 +46,6 @@ export interface WizardState {
   serverPort: string;
   serverHttpPort: string;
   serverPassword: string;
-  // Billing options
-  paymentMethod: "wallet" | "cash" | "upi" | "card";
-  discountCredits: number;
-  discountReason: string;
 }
 
 const INITIAL_STATE: WizardState = {
@@ -76,9 +72,6 @@ const INITIAL_STATE: WizardState = {
   serverPort: "",
   serverHttpPort: "",
   serverPassword: "",
-  paymentMethod: "wallet",
-  discountCredits: 0,
-  discountReason: "",
 };
 
 // Derive aids map from shared DIFFICULTY_PRESETS

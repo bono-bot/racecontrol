@@ -8,7 +8,6 @@ import { KioskPodCard } from "@/components/KioskPodCard";
 import { SidePanel } from "@/components/SidePanel";
 import { SetupWizard } from "@/components/SetupWizard";
 import { LiveSessionPanel } from "@/components/LiveSessionPanel";
-import { WalletTopupPanel } from "@/components/WalletTopupPanel";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
 import { GamePickerPanel } from "@/components/GamePickerPanel";
@@ -85,13 +84,6 @@ export default function StaffTerminal() {
     driver_name: string;
   } | null>(null);
 
-  // Wallet topup state
-  const [topUpDriverId, setTopUpDriverId] = useState<string | null>(null);
-  const [topUpDriverName, setTopUpDriverName] = useState("");
-  const [topUpBalance, setTopUpBalance] = useState(0);
-
-  // Wallet balances cache: driver_id → balance_paise
-  const [walletBalances, setWalletBalances] = useState<Map<string, number>>(new Map());
 
   // Recent sessions + refund state
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
@@ -100,36 +92,6 @@ export default function StaffTerminal() {
 
   // Setup wizard hook
   const wizard = useSetupWizard();
-
-  // Fetch wallet balances for active billing sessions
-  const fetchWalletBalances = useCallback(async () => {
-    const driverIds = new Set<string>();
-    billingTimers.forEach((billing) => {
-      if (billing.driver_id) driverIds.add(billing.driver_id);
-    });
-
-    for (const driverId of driverIds) {
-      try {
-        const res = await api.getWallet(driverId);
-        if (res.wallet) {
-          setWalletBalances((prev) => {
-            const next = new Map(prev);
-            next.set(driverId, res.wallet!.balance_paise);
-            return next;
-          });
-        }
-      } catch (err) {
-        // Wallet balance is supplementary — poll retries every 15s
-        console.warn("Wallet fetch failed:", err);
-      }
-    }
-  }, [billingTimers]);
-
-  useEffect(() => {
-    fetchWalletBalances();
-    const interval = setInterval(fetchWalletBalances, 15000);
-    return () => clearInterval(interval);
-  }, [fetchWalletBalances]);
 
   // Fetch recent completed sessions
   const fetchRecentSessions = useCallback(async () => {
@@ -184,7 +146,6 @@ export default function StaffTerminal() {
     setSelectedPodId(null);
     setPanelMode(null);
     setPendingAssign(null);
-    setTopUpDriverId(null);
   };
 
   // ─── Split Continuation ──────────────────────────────────────────────
@@ -233,19 +194,11 @@ export default function StaffTerminal() {
       const tier = wizard.state.selectedTier;
       if (driver && tier) {
         try {
-          const discountPaise = wizard.state.discountCredits > 0
-            ? wizard.state.discountCredits * 100
-            : undefined;
           const result = await api.startBilling({
             pod_id: selectedPodId,
             driver_id: driver.id,
             pricing_tier_id: tier.id,
             staff_id: staffId || undefined,
-            payment_method: wizard.state.paymentMethod,
-            ...(discountPaise && {
-              staff_discount_paise: discountPaise,
-              discount_reason: wizard.state.discountReason,
-            }),
             ...(wizard.state.splitCount > 1 && {
               split_count: wizard.state.splitCount,
               split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
@@ -336,34 +289,6 @@ export default function StaffTerminal() {
     dismissAssistance(podId);
   };
 
-  const handleTopUp = (driverId: string) => {
-    let name = "Customer";
-    let balance = 0;
-    billingTimers.forEach((billing) => {
-      if (billing.driver_id === driverId) {
-        name = billing.driver_name;
-      }
-    });
-    balance = walletBalances.get(driverId) || 0;
-    setTopUpDriverId(driverId);
-    setTopUpDriverName(name);
-    setTopUpBalance(balance);
-    setPanelMode("wallet_topup");
-  };
-
-  const handleTopUpSuccess = (newBalance: number) => {
-    if (topUpDriverId) {
-      setWalletBalances((prev) => {
-        const next = new Map(prev);
-        next.set(topUpDriverId!, newBalance);
-        return next;
-      });
-    }
-    // Go back to live session
-    setTopUpDriverId(null);
-    setPanelMode("live_session");
-  };
-
   const handleOpenRefund = (session: RecentSession) => {
     setRefundTarget(session);
     setSelectedPodId(session.pod_id);
@@ -388,8 +313,6 @@ export default function StaffTerminal() {
         return `Live Session — Pod ${selectedPod.number}`;
       case "waiting":
         return `Waiting — Pod ${selectedPod.number}`;
-      case "wallet_topup":
-        return `Top Up Wallet`;
       case "refund":
         return `Refund Session`;
       case "game_picker":
@@ -468,7 +391,6 @@ export default function StaffTerminal() {
                     warning={billingWarnings.find((w) => w.podId === pod.id)}
                     gameInfo={gameStates.get(pod.id)}
                     authToken={pendingAuthTokens.get(pod.id)}
-                    walletBalance={driverId ? walletBalances.get(driverId) : undefined}
                     compact={isPanelOpen}
                     isSelected={selectedPodId === pod.id}
                     onSelect={handlePodSelect}
@@ -491,7 +413,6 @@ export default function StaffTerminal() {
                       }
                     }}
                     onStartNow={handleStartNow}
-                    onTopUp={handleTopUp}
                     onWakePod={handleWakePod}
                     onRestartPod={handleRestartPod}
                     onShutdownPod={handleShutdownPod}
@@ -578,11 +499,6 @@ export default function StaffTerminal() {
               billing={billingTimers.get(selectedPodId!)!}
               warning={billingWarnings.find((w) => w.podId === selectedPodId)}
               gameInfo={gameStates.get(selectedPodId!)}
-              walletBalance={
-                billingTimers.get(selectedPodId!)?.driver_id
-                  ? walletBalances.get(billingTimers.get(selectedPodId!)!.driver_id)
-                  : undefined
-              }
               onEndSession={handleEndSession}
               onPauseSession={handlePauseSession}
               onResumeSession={handleResumeSession}
@@ -599,7 +515,6 @@ export default function StaffTerminal() {
                   toastError(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
                 }
               }}
-              onTopUp={handleTopUp}
             />
           )}
 
@@ -609,17 +524,6 @@ export default function StaffTerminal() {
               authToken={pendingAuthTokens.get(selectedPodId!)!}
               onStartNow={handleStartNow}
               onCancel={handleCancelAssignment}
-            />
-          )}
-
-          {/* Wallet Top-Up */}
-          {panelMode === "wallet_topup" && topUpDriverId && (
-            <WalletTopupPanel
-              driverId={topUpDriverId}
-              driverName={topUpDriverName}
-              currentBalance={topUpBalance}
-              onClose={() => setPanelMode("live_session")}
-              onSuccess={handleTopUpSuccess}
             />
           )}
 

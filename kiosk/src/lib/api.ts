@@ -69,9 +69,6 @@ export const api = {
     driver_id: string;
     pricing_tier_id: string;
     staff_id?: string;
-    payment_method?: "wallet" | "cash" | "upi" | "card";
-    staff_discount_paise?: number;
-    discount_reason?: string;
     split_count?: number;
     split_duration_minutes?: number;
   }) =>
