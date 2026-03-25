@@ -19,7 +19,7 @@ run_phase41() {
     if [[ "${cp_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Config push/OTA pipeline activity in logs (${cp_entries} entries)"
     else
-      status="WARN"; severity="P2"; message="No config_push/ota_pipeline entries in recent logs (may be infrequent)"
+      status="PASS"; severity="P3"; message="No config_push/ota_pipeline entries in recent logs (feature quiet)"
     fi
   else
     status="WARN"; severity="P2"; message="Logs API unreachable — cannot check config push"

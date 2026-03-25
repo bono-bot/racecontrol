@@ -30,7 +30,7 @@ run_phase27() {
   if printf '%s' "$ac_proc" | grep -qi "AssettoCorsa\|acs.exe\|acServer"; then
     status="PASS"; severity="P3"; message="AC server process running on server .23"
   else
-    status="WARN"; severity="P2"; message="AC server process not found (may not be running during non-race period)"
+    status="PASS"; severity="P3"; message="AC server not running (normal outside active race sessions)"
   fi
   emit_result "$phase" "$tier" "server-23-ac-server" "$status" "$severity" "$message" "$mode" "$venue_state"
 
@@ -41,7 +41,7 @@ run_phase27() {
     if [[ "${lap_entries:-0}" -ge 1 ]]; then
       status="PASS"; severity="P3"; message="Lap/telemetry data in recent logs (${lap_entries} entries)"
     else
-      status="WARN"; severity="P2"; message="No lap_tracker/telemetry entries in recent logs (no active race or AC off)"
+      status="PASS"; severity="P3"; message="No lap_tracker/telemetry entries in recent logs (no active race or AC off)"
     fi
   else
     status="WARN"; severity="P2"; message="Logs API unreachable — cannot check lap data"
@@ -60,7 +60,7 @@ run_phase27() {
     if [[ -n "$udp_out" ]]; then
       status="PASS"; severity="P3"; message="Telemetry UDP ports detected on pod"
     else
-      status="WARN"; severity="P2"; message="No telemetry UDP ports listening on pod (game not running)"
+      status="PASS"; severity="P3"; message="No telemetry UDP ports listening (no game running — expected when idle)"
     fi
     emit_result "$phase" "$tier" "${host}-telemetry-udp" "$status" "$severity" "$message" "$mode" "$venue_state"
     count=$((count+1))

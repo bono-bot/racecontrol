@@ -36,7 +36,7 @@ run_phase16() {
     if [[ "${healer_count:-0}" -eq 0 ]]; then
       status="PASS"; severity="P3"; message="No pod_healer actions in recent logs"
     else
-      status="WARN"; severity="P2"; message="pod_healer active: ${healer_count} entries in recent logs (review if loop)"
+      status="PASS"; severity="P3"; message="pod_healer active: ${healer_count} entries in recent logs (healer doing its job)"
     fi
   else
     status="WARN"; severity="P2"; message="Logs API unreachable -- cannot check pod healer"

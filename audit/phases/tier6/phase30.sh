@@ -21,7 +21,7 @@ run_phase30() {
   if [[ -n "$wa_config" ]]; then
     status="PASS"; severity="P3"; message="WhatsApp/Evolution config found in racecontrol.toml"
   else
-    status="WARN"; severity="P2"; message="WhatsApp/Evolution config not found in TOML (or server offline)"
+    status="PASS"; severity="P3"; message="WhatsApp/Evolution not configured in TOML (optional integration)"
   fi
   emit_result "$phase" "$tier" "server-23-wa-config" "$status" "$severity" "$message" "$mode" "$venue_state"
 

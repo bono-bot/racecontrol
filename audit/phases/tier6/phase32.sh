@@ -21,7 +21,7 @@ run_phase32() {
   if [[ -n "$discord_config" ]]; then
     status="PASS"; severity="P3"; message="Discord config found in racecontrol.toml"
   else
-    status="WARN"; severity="P2"; message="Discord config not found in TOML (not configured or server offline)"
+    status="PASS"; severity="P3"; message="Discord not configured in TOML (optional integration)"
   fi
   emit_result "$phase" "$tier" "server-23-discord-config" "$status" "$severity" "$message" "$mode" "$venue_state"
 

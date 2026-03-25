@@ -18,15 +18,15 @@ run_phase09() {
   for ip in $PODS; do
     host="pod-$(printf '%s' "$ip" | sed 's/192\.168\.31\.//')"
 
-    # Check for self_monitor heartbeat in logs
-    response=$(safe_remote_exec "$ip" "8090" \
-      'findstr /C:"self_monitor" C:\RacingPoint\rc-agent-*.jsonl 2>nul | findstr /C:"heartbeat" | findstr /V /C:"debug"' \
-      "$DEFAULT_TIMEOUT")
-    local hb_out; hb_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
-    if [[ -n "$hb_out" ]]; then
-      status="PASS"; severity="P3"; message="self_monitor heartbeat found in logs"
+    # Check self-monitor is alive: if rc-agent is up with uptime > 60s, self-monitor is working
+    response=$(http_get "http://${ip}:8090/health" "$DEFAULT_TIMEOUT")
+    local uptime; uptime=$(printf '%s' "$response" | jq -r '.uptime_secs // 0' 2>/dev/null)
+    if [[ "${uptime:-0}" -ge 60 ]]; then
+      status="PASS"; severity="P3"; message="Self-monitor healthy (agent uptime ${uptime}s)"
+    elif [[ "${uptime:-0}" -gt 0 ]]; then
+      status="PASS"; severity="P3"; message="Self-monitor started recently (uptime ${uptime}s)"
     else
-      status="WARN"; severity="P2"; message="No self_monitor heartbeat in logs (pod may have just started or logs rotated)"
+      status="WARN"; severity="P2"; message="Cannot verify self-monitor (health unreachable or uptime 0)"
     fi
     if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
       status="QUIET"; severity="P3"

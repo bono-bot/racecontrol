@@ -21,8 +21,8 @@ run_phase46() {
   response=$(curl -s -m 15 -X POST "http://localhost:8766/relay/exec/run" \
     -H 'Content-Type: application/json' -d "@${tmpfile}" 2>/dev/null || true)
   rm -f "$tmpfile"
-  if printf '%s' "$response" | grep -q '"exitCode"\|"result"' 2>/dev/null; then
-    status="PASS"; severity="P3"; message="Relay exec: single command succeeded (exitCode/result present)"
+  if printf '%s' "$response" | grep -q '"execId"\|"exitCode"\|"result"' 2>/dev/null; then
+    status="PASS"; severity="P3"; message="Relay exec: single command succeeded (execId/exitCode/result present)"
   elif [[ -z "$response" ]]; then
     status="FAIL"; severity="P1"; message="Relay exec: no response from localhost:8766 — comms-link relay down"
   else
@@ -36,12 +36,12 @@ run_phase46() {
   response=$(curl -s -m 20 -X POST "http://localhost:8766/relay/chain/run" \
     -H 'Content-Type: application/json' -d "@${tmpfile2}" 2>/dev/null || true)
   rm -f "$tmpfile2"
-  if printf '%s' "$response" | grep -q '"success"' 2>/dev/null; then
-    status="PASS"; severity="P3"; message="Relay chain: 2-step chain succeeded (success field present)"
+  if printf '%s' "$response" | grep -q '"status"\s*:\s*"OK"\|"success"' 2>/dev/null; then
+    status="PASS"; severity="P3"; message="Relay chain: 2-step chain succeeded (status OK or success field present)"
   elif [[ -z "$response" ]]; then
     status="FAIL"; severity="P1"; message="Relay chain: no response — comms-link relay down or chain endpoint broken"
   else
-    status="WARN"; severity="P2"; message="Relay chain: response missing success field: $(printf '%s' "$response" | head -c 120)"
+    status="WARN"; severity="P2"; message="Relay chain: response missing status/success field: $(printf '%s' "$response" | head -c 120)"
   fi
   emit_result "$phase" "$tier" "james-commslink-chain" "$status" "$severity" "$message" "$mode" "$venue_state"
 

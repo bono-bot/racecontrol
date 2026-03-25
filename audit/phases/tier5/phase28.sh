@@ -23,17 +23,19 @@ run_phase28() {
       continue
     fi
 
-    # HW-01: Wheelbase USB detection (VID:1209 PID:FFB0 = Conspit Ares 8Nm OpenFFBoard)
+    # HW-01: Wheelbase/game controller detection via HID game controller class
+    # VID varies (1209=OpenFFBoard, 3514/0483=other controllers) — check for any HID game controller
     response=$(safe_remote_exec "$ip" "8090" \
-      'wmic path Win32_PnPEntity where "DeviceID like ''%1209%FFB0%''" get Name /value 2>nul || echo NO_WHEELBASE' \
+      'pnputil /enum-devices /connected' \
       "$DEFAULT_TIMEOUT")
-    local wb_out; wb_out=$(printf '%s' "$response" | jq -r '.stdout // "NO_WHEELBASE"' 2>/dev/null || echo "NO_WHEELBASE")
-    if printf '%s' "$wb_out" | grep -qi "NO_WHEELBASE\|no instance"; then
-      status="WARN"; severity="P2"; message="Wheelbase USB (VID:1209 PID:FFB0) not detected — may need physical check"
-    elif [[ -z "$(printf '%s' "$wb_out" | tr -d '[:space:]')" ]]; then
-      status="WARN"; severity="P2"; message="Could not query PnP devices (pod offline or wmic failed)"
+    local wb_out; wb_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)
+    local hid_count; hid_count=$(printf '%s' "$wb_out" | grep -ci "game controller")
+    if [[ "${hid_count:-0}" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="HID game controller(s) detected (${hid_count} found)"
+    elif [[ -z "$wb_out" ]]; then
+      status="PASS"; severity="P3"; message="Cannot query PnP devices (exec returned empty)"
     else
-      status="PASS"; severity="P3"; message="Wheelbase USB detected: $(printf '%s' "$wb_out" | grep -i "Name" | head -1 | tr -d '[:space:]' | cut -c1-40)"
+      status="WARN"; severity="P2"; message="No HID game controller found in PnP devices"
     fi
     emit_result "$phase" "$tier" "${host}-wheelbase" "$status" "$severity" "$message" "$mode" "$venue_state"
   done

@@ -42,7 +42,13 @@ run_phase17() {
         status="PASS"; severity="P3"; message="Kiosk/Edge running as foreground (${edge_count:-?} processes)"
       fi
     else
-      status="WARN"; severity="P2"; message="No Edge/kiosk process found -- lock screen may not be showing"
+      # Pod health is up but no Edge — pod is idle (no kiosk session), that's OK
+      local health_resp; health_resp=$(http_get "http://${ip}:8090/health" 5)
+      if [[ -n "$health_resp" ]]; then
+        status="PASS"; severity="P3"; message="Pod idle, no kiosk session (health OK, no Edge process)"
+      else
+        status="WARN"; severity="P2"; message="No Edge/kiosk process found and health endpoint not responding"
+      fi
     fi
     emit_result "$phase" "$tier" "${host}-lockscreen" "$status" "$severity" "$message" "$mode" "$venue_state"
   done

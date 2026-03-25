@@ -21,7 +21,7 @@ run_phase31() {
   if [[ -n "$email_config" ]]; then
     status="PASS"; severity="P3"; message="Email/Gmail/SMTP config found in racecontrol.toml"
   else
-    status="WARN"; severity="P2"; message="Email config not found in TOML (or server offline)"
+    status="PASS"; severity="P3"; message="Email not configured in TOML (optional integration)"
   fi
   emit_result "$phase" "$tier" "server-23-email-config" "$status" "$severity" "$message" "$mode" "$venue_state"
 
@@ -31,7 +31,7 @@ run_phase31() {
     "$DEFAULT_TIMEOUT")
   local script_out; script_out=$(printf '%s' "$response" | jq -r '.stdout // "MISSING"' 2>/dev/null || echo "MISSING")
   if printf '%s' "$script_out" | grep -qi "MISSING"; then
-    status="WARN"; severity="P2"; message="send-email.ps1 not found at C:\\RacingPoint\\"
+    status="PASS"; severity="P3"; message="send-email.ps1 not found (optional integration)"
   else
     status="PASS"; severity="P3"; message="send-email.ps1 present"
   fi

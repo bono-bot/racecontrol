@@ -22,10 +22,10 @@ run_phase06() {
     response=$(safe_remote_exec "$ip" "8090" 'tasklist /FO CSV /NH' "$DEFAULT_TIMEOUT")
     local tasklist_out; tasklist_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)
     local ps_count; ps_count=$(printf '%s' "$tasklist_out" | grep -ic "powershell.exe")
-    if [[ "${ps_count:-0}" -le 1 ]]; then
-      status="PASS"; severity="P3"; message="Orphan PowerShell count: ${ps_count:-0} (normal)"
+    if [[ "${ps_count:-0}" -le 2 ]]; then
+      status="PASS"; severity="P3"; message="Orphan PowerShell count: ${ps_count:-0} (normal — 1 watchdog + 1 monitoring expected)"
     else
-      status="WARN"; severity="P2"; message="Orphan PowerShell count: ${ps_count} (> 1 -- memory leak risk, ~90MB/process)"
+      status="WARN"; severity="P2"; message="Orphan PowerShell count: ${ps_count} (> 2 -- memory leak risk, ~90MB/process)"
     fi
     if [[ "$venue_state" = "closed" ]] && [[ "$status" = "FAIL" || "$status" = "WARN" ]]; then
       status="QUIET"; severity="P3"

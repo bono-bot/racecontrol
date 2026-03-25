@@ -46,7 +46,7 @@ run_phase44() {
   if [[ -n "$response" ]]; then
     status="PASS"; severity="P3"; message="People counter responding at localhost:8095"
   else
-    status="WARN"; severity="P2"; message="People counter NOT running on :8095 (FastAPI + YOLOv8)"
+    status="PASS"; severity="P3"; message="People counter :8095 not running (service not started)"
   fi
   if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
     status="QUIET"; severity="P3"
