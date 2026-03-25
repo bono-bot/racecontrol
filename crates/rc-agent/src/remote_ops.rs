@@ -89,6 +89,13 @@ pub fn init_binary_sha256() {
 /// Checked by RCAGENT_SELF_RESTART to prevent deploys during active billing sessions.
 pub static BILLING_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// RCAGENT_BLANK_SCREEN sentinel flag. Set by exec handler, consumed by event_loop.
+/// Bypasses WS command channel (which can silently die while heartbeats still work).
+pub static BLANK_SCREEN_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// RCAGENT_CLEAR_SCREEN sentinel flag. Set by exec handler, consumed by event_loop.
+pub static CLEAR_SCREEN_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Middleware that adds `Connection: close` to every response.
 /// Prevents keep-alive socket accumulation (CLOSE_WAIT flood) caused by
 /// racecontrol's fleet_health polling hitting :8090 repeatedly.
@@ -530,6 +537,29 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
             ));
         }
     };
+
+    // RCAGENT_BLANK_SCREEN / RCAGENT_CLEAR_SCREEN sentinels:
+    // Set atomic flags that the event loop checks. Bypasses WS command channel.
+    if req.cmd.trim() == "RCAGENT_BLANK_SCREEN" {
+        BLANK_SCREEN_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(target: LOG_TARGET, "RCAGENT_BLANK_SCREEN sentinel — flag set");
+        return Ok(Json(ExecResponse {
+            success: true,
+            exit_code: Some(0),
+            stdout: "blank_screen_requested".to_string(),
+            stderr: String::new(),
+        }));
+    }
+    if req.cmd.trim() == "RCAGENT_CLEAR_SCREEN" {
+        CLEAR_SCREEN_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(target: LOG_TARGET, "RCAGENT_CLEAR_SCREEN sentinel — flag set");
+        return Ok(Json(ExecResponse {
+            success: true,
+            exit_code: Some(0),
+            stdout: "clear_screen_requested".to_string(),
+            stderr: String::new(),
+        }));
+    }
 
     // RCAGENT_SELF_RESTART sentinel: directly calls relaunch_self() in Rust.
     // Bypasses cmd.exe, start-rcagent.bat, and PowerShell interpretation.

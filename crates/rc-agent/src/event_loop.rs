@@ -161,6 +161,20 @@ pub async fn run(
     loop {
         tokio::select! {
             _ = conn.heartbeat_interval.tick() => {
+                // Check exec sentinel flags (bypasses WS command channel)
+                if crate::remote_ops::BLANK_SCREEN_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+                    if !billing_on && state.lock_screen.is_idle_or_blanked() {
+                        tracing::info!(target: LOG_TARGET, "Blanking screen via exec sentinel");
+                        state.lock_screen.show_blank_screen();
+                    }
+                }
+                if crate::remote_ops::CLEAR_SCREEN_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    tracing::info!(target: LOG_TARGET, "Clearing screen via exec sentinel");
+                    state.overlay.deactivate();
+                    state.lock_screen.clear();
+                }
+
                 let hb = AgentMessage::Heartbeat(PodInfo {
                     status: PodStatus::Idle,
                     last_seen: Some(Utc::now()),
