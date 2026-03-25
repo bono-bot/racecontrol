@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use crate::activity_log::log_pod_activity;
 use crate::catalog;
 use crate::state::AppState;
+use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType};
 
@@ -76,6 +77,10 @@ async fn launch_game(
     sim_type: SimType,
     launch_args: Option<String>,
 ) -> Result<(), String> {
+    // Normalize pod_id to canonical form (pod_N) at function entry
+    let pod_id_owned = normalize_pod_id(pod_id).map_err(|e| format!("Invalid pod ID: {}", e))?;
+    let pod_id = pod_id_owned.as_str();
+
     // Validate launch combo against pod's content manifest
     if let Some(ref args_json) = launch_args {
         if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) {
@@ -91,15 +96,9 @@ async fn launch_game(
     }
 
     // LIFE-02: Reject launch if no active billing session
-    // Try both pod-N and pod_N formats for billing lookup
-    let billing_alt_id = if pod_id.contains('-') {
-        pod_id.replace('-', "_")
-    } else {
-        pod_id.replace('_', "-")
-    };
     {
         let timers = state.billing.active_timers.read().await;
-        if !timers.contains_key(pod_id) && !timers.contains_key(&billing_alt_id) {
+        if !timers.contains_key(pod_id) {
             tracing::warn!("Launch rejected for pod {}: no active billing session", pod_id);
             return Err(format!("Pod {} has no active billing session", pod_id));
         }
@@ -108,7 +107,7 @@ async fn launch_game(
     // LIFE-04: Check if a game is currently launching or running (avoid double-launch)
     {
         let games = state.game_launcher.active_games.read().await;
-        if let Some(tracker) = games.get(pod_id).or_else(|| games.get(&billing_alt_id)) {
+        if let Some(tracker) = games.get(pod_id) {
             if matches!(tracker.game_state, GameState::Launching | GameState::Running) {
                 return Err(format!("Pod {} already has a game active", pod_id));
             }
@@ -138,15 +137,9 @@ async fn launch_game(
         .await
         .insert(pod_id.to_string(), tracker);
 
-    // Send command to agent
-    // Try both pod-N and pod_N formats (agents register with underscore, API may receive hyphen)
+    // Send command to agent (canonical pod_id guaranteed by normalization at entry)
     let senders = state.agent_senders.read().await;
-    let alt_id = if pod_id.contains('-') {
-        pod_id.replace('-', "_")
-    } else {
-        pod_id.replace('_', "-")
-    };
-    if let Some(tx) = senders.get(pod_id).or_else(|| senders.get(&alt_id)) {
+    if let Some(tx) = senders.get(pod_id) {
         let cmd = CoreToAgentMessage::LaunchGame {
             sim_type,
             launch_args,
@@ -191,6 +184,10 @@ pub async fn relaunch_game(
     state: &Arc<AppState>,
     pod_id: &str,
 ) -> Result<(), String> {
+    // Normalize pod_id to canonical form at function entry
+    let pod_id_owned = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
+    let pod_id = pod_id_owned.as_str();
+
     // Get stored launch info from tracker
     let (sim_type, launch_args) = {
         let games = state.game_launcher.active_games.read().await;
@@ -223,10 +220,9 @@ pub async fn relaunch_game(
         }
     }
 
-    // Send LaunchGame to agent (try both pod-N and pod_N formats)
+    // Send LaunchGame to agent (canonical pod_id guaranteed by normalization at entry)
     let senders = state.agent_senders.read().await;
-    let relaunch_alt = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
-    let tx = senders.get(pod_id).or_else(|| senders.get(&relaunch_alt)).ok_or("Pod not connected")?;
+    let tx = senders.get(pod_id).ok_or("Pod not connected")?;
     tx.send(CoreToAgentMessage::LaunchGame {
         sim_type,
         launch_args,
@@ -252,6 +248,10 @@ pub async fn relaunch_game(
 }
 
 async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
+    // Normalize pod_id to canonical form at function entry
+    let pod_id_owned = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
+    let pod_id = pod_id_owned.as_str();
+
     // Update tracker to Stopping
     let info = {
         let mut games = state.game_launcher.active_games.write().await;
@@ -266,10 +266,9 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
     if let Some(info) = info {
         log_pod_activity(state, pod_id, "game", "Game Stopping", "", "core");
 
-        // Send command to agent (try both pod-N and pod_N formats)
+        // Send command to agent (canonical pod_id guaranteed by normalization at entry)
         let senders = state.agent_senders.read().await;
-        let stop_alt = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
-        if let Some(tx) = senders.get(pod_id).or_else(|| senders.get(&stop_alt)) {
+        if let Some(tx) = senders.get(pod_id) {
             if let Err(e) = tx.send(CoreToAgentMessage::StopGame).await {
                 tracing::error!("Failed to send StopGame to pod {}: {}", pod_id, e);
             }
@@ -287,7 +286,8 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
 
 /// Called when agent reports a game state update
 pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInfo) {
-    let pod_id = &info.pod_id;
+    let pod_id_normalized = normalize_pod_id(&info.pod_id).unwrap_or_else(|_| info.pod_id.clone());
+    let pod_id = &pod_id_normalized;
 
     // Update in-memory tracker
     {

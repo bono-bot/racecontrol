@@ -37,6 +37,7 @@ use crate::scheduler;
 use crate::wallet;
 use crate::state::{AppState, VenueConfigSnapshot};
 use crate::wol;
+use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreToAgentMessage, DashboardEvent};
 
@@ -1123,11 +1124,11 @@ async fn pod_self_test(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
-    // 1. Get the WS sender for this pod (try both pod-N and pod_N formats)
-    let alt_id = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
+    // 1. Get the WS sender for this pod (normalize to canonical pod_N format)
+    let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
     let sender = {
         let senders = state.agent_senders.read().await;
-        senders.get(&pod_id).or_else(|| senders.get(&alt_id)).cloned()
+        senders.get(&pod_id).cloned()
     };
     let Some(sender) = sender else {
         return (

@@ -34,6 +34,7 @@ fn pod_mac_address(pod_id: &str) -> Option<String> {
         _ => None,
     }
 }
+use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{
     AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
@@ -160,27 +161,29 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 Ok(agent_msg) => {
                     match &agent_msg {
                         AgentMessage::Register(pod_info) => {
+                            // Normalize pod_id to canonical form (pod_N) at registration entry
+                            let canonical_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
                             tracing::info!("Pod {} registered (conn_id={}): {}", pod_info.number, conn_id, pod_info.name);
-                            registered_pod_id = Some(pod_info.id.clone());
-                            log_pod_activity(&state, &pod_info.id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
+                            registered_pod_id = Some(canonical_id.clone());
+                            log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
 
-                            // Store agent sender and connection ID for this pod
+                            // Store agent sender and connection ID for this pod (using canonical id)
                             state
                                 .agent_senders
                                 .write()
                                 .await
-                                .insert(pod_info.id.clone(), cmd_tx.clone());
+                                .insert(canonical_id.clone(), cmd_tx.clone());
                             state
                                 .agent_conn_ids
                                 .write()
                                 .await
-                                .insert(pod_info.id.clone(), conn_id);
+                                .insert(canonical_id.clone(), conn_id);
 
                             state
                                 .pods
                                 .write()
                                 .await
-                                .insert(pod_info.id.clone(), pod_info.clone());
+                                .insert(canonical_id.clone(), pod_info.clone());
 
                             let _ = state
                                 .dashboard_tx
@@ -193,13 +196,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 match pod_game_state {
                                     GameState::Running | GameState::Launching | GameState::Loading => {
                                         // Pod reports a game is active — ensure tracker exists
-                                        if let Some(tracker) = games.get_mut(&pod_info.id) {
+                                        if let Some(tracker) = games.get_mut(&canonical_id) {
                                             tracker.game_state = pod_game_state;
                                         } else if let Some(sim) = pod_info.current_game {
                                             games.insert(
-                                                pod_info.id.clone(),
+                                                canonical_id.clone(),
                                                 game_launcher::GameTracker {
-                                                    pod_id: pod_info.id.clone(),
+                                                    pod_id: canonical_id.clone(),
                                                     sim_type: sim,
                                                     game_state: pod_game_state,
                                                     pid: None,
@@ -214,7 +217,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                     GameState::Idle | GameState::Stopping | GameState::Error => {
                                         // Pod reports idle — remove any stale tracker
-                                        if games.remove(&pod_info.id).is_some() {
+                                        if games.remove(&canonical_id).is_some() {
                                             tracing::info!("Removed stale game tracker for pod {} on reconnect", pod_info.number);
                                         }
                                     }
@@ -225,7 +228,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             {
                                 let resync = {
                                     let timers = state.billing.active_timers.read().await;
-                                    timers.get(&pod_info.id).map(|timer| (
+                                    timers.get(&canonical_id).map(|timer| (
                                         timer.session_id.clone(),
                                         timer.driver_name.clone(),
                                         timer.allocated_seconds,
@@ -253,7 +256,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     // Restore pod state (agent Register overwrites with Idle)
                                     {
                                         let mut pods = state.pods.write().await;
-                                        if let Some(pod) = pods.get_mut(&pod_info.id) {
+                                        if let Some(pod) = pods.get_mut(&canonical_id) {
                                             pod.billing_session_id = Some(session_id.clone());
                                             pod.current_driver = Some(driver_name.clone());
                                             pod.status = rc_common::types::PodStatus::InSession;
