@@ -774,3 +774,8 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-25 03:15 IST | James | f8d63cd7 | docs(185-02): SUMMARY.md + STATE.md + ROADMAP.md — phase 185 Complete |
 | 2026-03-25 07:30 IST | James | 2fef1d3a | feat(186-01): JSON maintenance mode + auto-clear + WhatsApp alert — MaintenanceModePayload, ClearResult, check_and_clear_maintenance, enter_maintenance_mode writes JSON+fires fleet/alert |
 | 2026-03-25 07:35 IST | James | c7501edf | feat(186-01): crash handler thread uses recv_timeout(60s) — periodic auto-clear check, tracker reset on Cleared, fix mtime .ok() chain; 64 tests pass, release build ok |
+| 2026-03-25 13:25 IST | James | cfd132d1 | feat(pwa): replace Razorpay payment gateway with Contact Staff flow. Deployed to app.racingpoint.cloud. Evolution tunnel re-enabled on server. |
+| 2026-03-25 12:20 IST | James | 662f4f80 | feat: add RCAGENT_BLANK_SCREEN exec sentinel to bypass WS command channel |
+| 2026-03-25 12:50 IST | James | f02ba822 | fix: admin health URL wrong port (:3200→:3201) + WS latency threshold 200→600ms |
+| 2026-03-25 13:20 IST | James | b24c98e7 | fix: app-health endpoints — dynamic route scanning, static assets detection, kiosk basePath /kiosk/api/health |
+| 2026-03-25 13:25 IST | James | 5f0f77b0 | test: add POS wallet audit E2E test + test data cleanup script |
