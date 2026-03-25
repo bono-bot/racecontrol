@@ -663,7 +663,13 @@ export interface RemoteReservation {
 export const api = {
   // Auth
   login: (phone: string) =>
-    fetchApi<{ status?: string; error?: string }>("/customer/login", {
+    fetchApi<{ status?: string; delivered?: boolean; error?: string }>("/customer/login", {
+      method: "POST",
+      body: JSON.stringify({ phone }),
+    }),
+
+  resendOtp: (phone: string) =>
+    fetchApi<{ status?: string; delivered?: boolean; error?: string }>("/customer/resend-otp", {
       method: "POST",
       body: JSON.stringify({ phone }),
     }),

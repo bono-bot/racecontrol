@@ -974,7 +974,14 @@ pub fn verify_jwt(token: &str, secret: &str) -> Result<String, String> {
 
 // ─── OTP ───────────────────────────────────────────────────────────────────
 
-pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, String> {
+/// Result of an OTP send attempt. `driver_id` is always set on success;
+/// `delivered` indicates whether the WhatsApp message actually reached the API.
+pub struct OtpSendResult {
+    pub driver_id: String,
+    pub delivered: bool,
+}
+
+pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendResult, String> {
     // Find or create driver by phone (lookup via HMAC hash)
     let phone_hash = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String)>(
@@ -1036,42 +1043,120 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
         .map_err(|e| format!("DB error storing OTP: {}", e))?;
 
     // Send OTP via WhatsApp (Evolution API)
-    if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
+    let delivered = send_otp_whatsapp(state, phone, &otp_str).await;
+
+    Ok(OtpSendResult { driver_id, delivered })
+}
+
+/// Send OTP message via WhatsApp Evolution API.
+/// Returns `true` if the API accepted the message, `false` on any failure.
+/// Uses the shared HTTP client from AppState with a 5-second timeout.
+async fn send_otp_whatsapp(state: &Arc<AppState>, phone: &str, otp_str: &str) -> bool {
+    let (evo_url, evo_key, evo_instance) = match (
         &state.config.auth.evolution_url,
         &state.config.auth.evolution_api_key,
         &state.config.auth.evolution_instance,
     ) {
-        let wa_phone = if phone.starts_with('+') {
-            phone[1..].to_string()
-        } else if phone.len() == 10 {
-            format!("91{}", phone)
-        } else {
-            phone.to_string()
-        };
+        (Some(u), Some(k), Some(i)) => (u.clone(), k.clone(), i.clone()),
+        _ => {
+            tracing::info!("OTP generated for {} (Evolution API not configured)", redact_phone(phone));
+            return false;
+        }
+    };
 
-        let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
-        let body = serde_json::json!({
-            "number": wa_phone,
-            "text": format!("🏎️ *RacingPoint*\n\nYour login code is: *{}*\n\nValid for {} minutes.", otp_str, state.config.auth.otp_expiry_secs / 60)
-        });
+    let wa_phone = if phone.starts_with('+') {
+        phone[1..].to_string()
+    } else if phone.len() == 10 {
+        format!("91{}", phone)
+    } else {
+        phone.to_string()
+    };
 
-        let client = reqwest::Client::new();
-        match client.post(&url).header("apikey", evo_key).json(&body).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                tracing::info!("OTP sent via WhatsApp to {}", redact_phone(&wa_phone));
-            }
-            Ok(resp) => {
-                tracing::warn!("Evolution API returned {}: OTP for {}", resp.status(), redact_phone(phone));
-            }
-            Err(e) => {
-                tracing::warn!("Failed to send OTP via WhatsApp: {}. OTP for {}", e, redact_phone(phone));
+    let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+    let body = serde_json::json!({
+        "number": wa_phone,
+        "text": format!("\u{1f3ce}\u{fe0f} *RacingPoint*\n\nYour login code is: *{}*\n\nValid for {} minutes.", otp_str, state.config.auth.otp_expiry_secs / 60)
+    });
+
+    match state.http_client
+        .post(&url)
+        .header("apikey", &evo_key)
+        .timeout(std::time::Duration::from_secs(5))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!("OTP sent via WhatsApp to {}", redact_phone(&wa_phone));
+            true
+        }
+        Ok(resp) => {
+            tracing::error!("Evolution API returned {} for OTP to {}", resp.status(), redact_phone(phone));
+            false
+        }
+        Err(e) => {
+            tracing::error!("Failed to send OTP via WhatsApp: {}. OTP for {}", e, redact_phone(phone));
+            false
+        }
+    }
+}
+
+/// Resend OTP for a phone number. Reuses the existing OTP if still valid,
+/// otherwise generates a fresh one. Returns delivery status.
+pub async fn resend_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendResult, String> {
+    let phone_hash = state.field_cipher.hash_phone(phone);
+    let driver = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+        "SELECT id, otp_code, otp_expires_at FROM drivers WHERE phone_hash = ?",
+    )
+    .bind(&phone_hash)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Phone number not found. Please start login again.".to_string())?;
+
+    let (driver_id, existing_otp, expires_at) = driver;
+
+    // Reuse existing OTP if still valid (>30s remaining), otherwise generate new
+    let otp_str = match (&existing_otp, &expires_at) {
+        (Some(otp), Some(exp)) if !otp.is_empty() => {
+            if let Ok(exp_dt) = chrono::DateTime::parse_from_rfc3339(exp) {
+                if exp_dt > chrono::Utc::now() + chrono::Duration::seconds(30) {
+                    otp.clone()
+                } else {
+                    // Almost expired — generate new
+                    let new_otp = generate_and_store_otp(state, &driver_id).await?;
+                    new_otp
+                }
+            } else {
+                let new_otp = generate_and_store_otp(state, &driver_id).await?;
+                new_otp
             }
         }
-    } else {
-        tracing::info!("OTP sent for {} (Evolution API not configured)", redact_phone(phone));
-    }
+        _ => {
+            let new_otp = generate_and_store_otp(state, &driver_id).await?;
+            new_otp
+        }
+    };
 
-    Ok(driver_id)
+    let delivered = send_otp_whatsapp(state, phone, &otp_str).await;
+    Ok(OtpSendResult { driver_id, delivered })
+}
+
+/// Generate a new 6-digit OTP and store it in the driver record.
+async fn generate_and_store_otp(state: &Arc<AppState>, driver_id: &str) -> Result<String, String> {
+    let otp: u32 = rand::thread_rng().gen_range(100000..=999999);
+    let otp_str = format!("{:06}", otp);
+    let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
+
+    sqlx::query("UPDATE drivers SET otp_code = ?, otp_expires_at = ? WHERE id = ?")
+        .bind(&otp_str)
+        .bind(expires_at.to_rfc3339())
+        .bind(driver_id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("DB error storing OTP: {}", e))?;
+
+    Ok(otp_str)
 }
 
 pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result<String, String> {

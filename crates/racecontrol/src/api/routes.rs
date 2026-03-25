@@ -62,6 +62,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 fn auth_rate_limited_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/customer/login", post(customer_login))
+        .route("/customer/resend-otp", post(customer_resend_otp))
         .route("/customer/verify-otp", post(customer_verify_otp))
         .route("/auth/validate-pin", post(validate_pin))
         .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
@@ -490,13 +491,37 @@ fn service_routes() -> Router<Arc<AppState>> {
 
 const BUILD_ID: &str = env!("GIT_HASH");
 
-async fn health() -> Json<Value> {
+async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    // Check Evolution API (WhatsApp) reachability — non-blocking, 2s timeout
+    let whatsapp_status = check_evolution_health(&state).await;
+
     Json(json!({
         "status": "ok",
         "service": "racecontrol",
         "version": env!("CARGO_PKG_VERSION"),
         "build_id": BUILD_ID,
+        "whatsapp": whatsapp_status,
     }))
+}
+
+/// Probe Evolution API health. Returns "ok", "unreachable", or "not_configured".
+async fn check_evolution_health(state: &Arc<AppState>) -> &'static str {
+    let evo_url = match &state.config.auth.evolution_url {
+        Some(u) => u.clone(),
+        None => return "not_configured",
+    };
+
+    // Probe the base URL — Evolution API returns 200 on GET /
+    match state.http_client
+        .get(&evo_url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 401 => "ok",
+        Ok(_) => "ok", // Any HTTP response means Evolution is reachable
+        Err(_) => "unreachable",
+    }
 }
 
 /// GET /api/v1/debug/db-stats — AI debugger database statistics (public, no auth).
@@ -4756,7 +4781,23 @@ async fn customer_login(
     Json(req): Json<CustomerLoginRequest>,
 ) -> Json<Value> {
     match auth::send_otp(&state, &req.phone).await {
-        Ok(_driver_id) => Json(json!({ "status": "otp_sent" })),
+        Ok(result) => Json(json!({
+            "status": "otp_sent",
+            "delivered": result.delivered
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn customer_resend_otp(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CustomerLoginRequest>,
+) -> Json<Value> {
+    match auth::resend_otp(&state, &req.phone).await {
+        Ok(result) => Json(json!({
+            "status": "otp_sent",
+            "delivered": result.delivered
+        })),
         Err(e) => Json(json!({ "error": e })),
     }
 }

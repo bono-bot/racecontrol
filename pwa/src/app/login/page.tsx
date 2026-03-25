@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api, setToken } from "@/lib/api";
 
@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [deliveryFailed, setDeliveryFailed] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Registration fields
   const [name, setName] = useState("");
@@ -34,14 +36,54 @@ export default function LoginPage() {
     setIsMinor(age < 18);
   }, [dob]);
 
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const startResendCooldown = useCallback(() => {
+    setResendCooldown(30);
+  }, []);
+
   const handleSendOtp = async () => {
     if (phone.length < 10) { setError("Enter a valid phone number"); return; }
     setLoading(true);
     setError("");
+    setDeliveryFailed(false);
     try {
       const formatted = phone.startsWith("+") ? phone : `+91${phone}`;
       const res = await api.login(formatted);
-      if (res.error) { setError(res.error); } else { setStep("otp"); }
+      if (res.error) {
+        setError(res.error);
+      } else {
+        setStep("otp");
+        startResendCooldown();
+        if (res.delivered === false) {
+          setDeliveryFailed(true);
+        }
+      }
+    } catch { setError("Network error. Try again."); }
+    finally { setLoading(false); }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || loading) return;
+    setLoading(true);
+    setError("");
+    setDeliveryFailed(false);
+    try {
+      const formatted = phone.startsWith("+") ? phone : `+91${phone}`;
+      const res = await api.resendOtp(formatted);
+      if (res.error) {
+        setError(res.error);
+      } else {
+        startResendCooldown();
+        if (res.delivered === false) {
+          setDeliveryFailed(true);
+        }
+      }
     } catch { setError("Network error. Try again."); }
     finally { setLoading(false); }
   };
@@ -147,15 +189,24 @@ export default function LoginPage() {
             <p className="text-neutral-400 text-sm mb-3">
               Enter the 6-digit code sent to your WhatsApp
             </p>
-            <p className="text-neutral-500 text-sm mb-10">
+            <p className="text-neutral-500 text-sm mb-6">
               +91 {phone}{" "}
               <button
-                onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
+                onClick={() => { setStep("phone"); setOtp(""); setError(""); setDeliveryFailed(false); }}
                 className="text-rp-red font-medium"
               >
                 Change
               </button>
             </p>
+
+            {/* Delivery failure warning */}
+            {deliveryFailed && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+                <p className="text-amber-400 text-sm">
+                  WhatsApp delivery may have failed. If you don&apos;t receive the code, tap Resend below.
+                </p>
+              </div>
+            )}
 
             <label className="block text-sm font-medium text-neutral-400 mb-3">
               Verification code
@@ -165,7 +216,7 @@ export default function LoginPage() {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="6-digit code"
-              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-4 text-lg text-center tracking-[0.5em] text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-8"
+              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-4 text-lg text-center tracking-[0.5em] text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-4"
               autoFocus
               inputMode="numeric"
             />
@@ -175,9 +226,20 @@ export default function LoginPage() {
             <button
               onClick={handleVerifyOtp}
               disabled={loading || otp.length !== 6}
-              className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors text-lg"
+              className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors text-lg mb-3"
             >
               {loading ? "Verifying..." : "Verify & Sign In"}
+            </button>
+
+            {/* Resend OTP button */}
+            <button
+              onClick={handleResendOtp}
+              disabled={resendCooldown > 0 || loading}
+              className="w-full text-sm font-medium text-rp-grey hover:text-white disabled:text-zinc-600 transition-colors py-2"
+            >
+              {resendCooldown > 0
+                ? `Resend OTP in ${resendCooldown}s`
+                : "Resend OTP"}
             </button>
           </>
         )}
