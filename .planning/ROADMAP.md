@@ -3099,7 +3099,11 @@ Plans:
   6. **STATS API**: `GET /api/v1/metrics/launch-stats?pod=pod-8&game=assetto_corsa` returns JSON with: `success_rate` (float 0-1), `avg_time_to_track_ms` (int), `p95_time_to_track_ms` (int), `total_launches` (int), `common_failure_modes` (array of {mode, count}) -- all computed from actual launch_events data
   7. **BILLING API**: `GET /api/v1/metrics/billing-accuracy` returns: `avg_delta_ms`, `max_delta_ms`, `sessions_with_zero_delta` (count), `false_playable_signals` (count) -- computed from billing_events data
   8. **ERROR LOGGING**: `log_game_event()` DB insert failure produces a `tracing::error!` log entry AND writes to JSONL fallback -- grep server logs for "launch_event insert failed" confirms error is visible
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 195-01-PLAN.md — Launch events schema, metrics module, JSONL writer, fix log_game_event error swallowing
+- [ ] 195-02-PLAN.md — Billing accuracy events and recovery events tables + recording functions
+- [ ] 195-03-PLAN.md — REST API endpoints for launch-stats and billing-accuracy queries
 
 ### Phase 196: Game Launcher Structural Rework
 **Goal**: The monolithic launch_game() is decomposed into per-game trait implementations with correct billing gates, state machine transitions, and error propagation -- structural bugs fixed before adding resilience features
