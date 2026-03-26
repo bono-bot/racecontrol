@@ -19,6 +19,7 @@ use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
 use crate::wol;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryIntent, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
 
@@ -1265,6 +1266,58 @@ async fn check_memory(
     Ok((8192, 32768)) // default: assume 8GB free / 32GB total
 }
 
+// ─── Verification chain steps for curl parse (COV-02) ────────────────────────
+
+struct StepRawStdout;
+impl VerifyStep for StepRawStdout {
+    type Input = String;  // raw exec output
+    type Output = String; // same, but verified non-empty
+    fn name(&self) -> &str { "raw_stdout_check" }
+    fn run(&self, input: String) -> Result<String, VerificationError> {
+        if input.trim().is_empty() {
+            return Err(VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("(empty, len={})", input.len()),
+            });
+        }
+        Ok(input)
+    }
+}
+
+struct StepTrimQuotes;
+impl VerifyStep for StepTrimQuotes {
+    type Input = String;
+    type Output = String;
+    fn name(&self) -> &str { "trim_quotes" }
+    fn run(&self, input: String) -> Result<String, VerificationError> {
+        let trimmed = input.trim().trim_matches('"').to_string();
+        Ok(trimmed)
+    }
+}
+
+struct StepParseU32;
+impl VerifyStep for StepParseU32 {
+    type Input = String;
+    type Output = u32;
+    fn name(&self) -> &str { "parse_http_code" }
+    fn run(&self, input: String) -> Result<u32, VerificationError> {
+        input.parse::<u32>().map_err(|_| VerificationError::InputParseError {
+            step: self.name().to_string(),
+            raw_value: input,
+        })
+    }
+}
+
+struct StepCheckHttp200;
+impl VerifyStep for StepCheckHttp200 {
+    type Input = u32;
+    type Output = bool;
+    fn name(&self) -> &str { "check_http_200" }
+    fn run(&self, input: u32) -> Result<bool, VerificationError> {
+        Ok(input == 200)
+    }
+}
+
 /// Check if rc-agent lock screen is responsive.
 /// The lock screen binds to 127.0.0.1:18923, so we must check from the pod
 /// itself via pod-agent exec rather than connecting directly to the pod's network IP.
@@ -1278,8 +1331,32 @@ async fn check_rc_agent_health(
     let cmd = r#"curl.exe -s -o NUL -w %{http_code} http://127.0.0.1:18923/ --max-time 3"#;
     match exec_on_pod(state, pod_ip, cmd).await {
         Ok(output) => {
-            let code: u32 = output.trim().trim_matches('"').parse().unwrap_or(0);
-            Ok(code == 200)
+            let chain = ColdVerificationChain::new("pod_healer_curl");
+            match chain.execute_step(&StepRawStdout, output.clone()) {
+                Ok(raw) => match chain.execute_step(&StepTrimQuotes, raw) {
+                    Ok(trimmed) => match chain.execute_step(&StepParseU32, trimmed) {
+                        Ok(code) => match chain.execute_step(&StepCheckHttp200, code) {
+                            Ok(healthy) => Ok(healthy),
+                            Err(e) => {
+                                tracing::warn!(target: "pod_healer", error = %e, "verification chain failed");
+                                Ok(false)
+                            }
+                        },
+                        Err(e) => {
+                            tracing::warn!(target: "pod_healer", error = %e, "curl output parse failed — raw value logged in chain step");
+                            Ok(false)
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!(target: "pod_healer", error = %e, "trim step failed");
+                        Ok(false)
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(target: "pod_healer", error = %e, "raw stdout check failed");
+                    Ok(false)
+                }
+            }
         }
         Err(_) => Ok(true), // if pod-agent exec fails, assume healthy (safe default)
     }
