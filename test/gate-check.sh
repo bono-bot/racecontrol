@@ -46,10 +46,12 @@ if [ "$1" = "--post-wave" ]; then
     echo "Error: --post-wave requires a wave number (e.g. --post-wave 1)"
     exit 1
   fi
+elif [ "$1" = "--domain-check" ]; then
+  MODE="domain-check"
 elif [ "$1" = "--pre-deploy" ] || [ -z "$1" ]; then
   MODE="pre-deploy"
 else
-  echo "Usage: bash test/gate-check.sh [--pre-deploy | --post-wave N]"
+  echo "Usage: bash test/gate-check.sh [--pre-deploy | --post-wave N | --domain-check]"
   exit 1
 fi
 
@@ -72,6 +74,120 @@ record_suite() {
   local name="$2"
   local result="$3"
   SUITE_RESULTS="${SUITE_RESULTS}Suite ${num} (${name}): ${result}\n"
+}
+
+# ---------------------------------------------------------------------------
+# Domain detection function (used by Suite 5 and --domain-check mode)
+# ---------------------------------------------------------------------------
+DOMAIN_DISPLAY=0
+DOMAIN_NETWORK=0
+DOMAIN_PARSE=0
+DOMAIN_BILLING=0
+DOMAIN_CONFIG=0
+DETECTED_DOMAINS=()
+DOMAIN_FILES_DISPLAY=""
+DOMAIN_FILES_NETWORK=""
+DOMAIN_FILES_PARSE=""
+DOMAIN_FILES_BILLING=""
+DOMAIN_FILES_CONFIG=""
+
+detect_domains() {
+  # Reset flags
+  DOMAIN_DISPLAY=0
+  DOMAIN_NETWORK=0
+  DOMAIN_PARSE=0
+  DOMAIN_BILLING=0
+  DOMAIN_CONFIG=0
+  DETECTED_DOMAINS=()
+  DOMAIN_FILES_DISPLAY=""
+  DOMAIN_FILES_NETWORK=""
+  DOMAIN_FILES_PARSE=""
+  DOMAIN_FILES_BILLING=""
+  DOMAIN_FILES_CONFIG=""
+
+  # Get changed files: staged first, then HEAD~1 diff
+  local changed_files
+  changed_files=$(cd "$REPO_ROOT" && git diff --cached --name-only 2>/dev/null)
+  if [ -z "$changed_files" ]; then
+    changed_files=$(cd "$REPO_ROOT" && git diff HEAD~1 --name-only 2>/dev/null)
+  fi
+
+  if [ -z "$changed_files" ]; then
+    echo "  No changed files detected"
+    return
+  fi
+
+  # Display domain: path patterns + CSS/HTML in app dirs
+  local display_matches
+  display_matches=$(echo "$changed_files" | grep -iE '(lock_screen|blanking|overlay|kiosk|Edge|browser|display|screen)' || true)
+  local display_css_html
+  display_css_html=$(echo "$changed_files" | grep -iE '^(apps/admin|apps/kiosk|apps/web|src/).*\.(css|html)$' || true)
+  if [ -n "$display_matches" ] || [ -n "$display_css_html" ]; then
+    DOMAIN_DISPLAY=1
+    DETECTED_DOMAINS+=("display")
+    DOMAIN_FILES_DISPLAY=$(printf "%s\n%s" "$display_matches" "$display_css_html" | grep -v '^$' | sort -u | paste -sd ', ' -)
+  fi
+
+  # Network domain: path patterns
+  local network_matches
+  network_matches=$(echo "$changed_files" | grep -iE '(ws_handler|fleet_exec|cloud_sync|http|api/v1|websocket|WebSocket)' || true)
+  if [ -n "$network_matches" ]; then
+    DOMAIN_NETWORK=1
+    DETECTED_DOMAINS+=("network")
+    DOMAIN_FILES_NETWORK=$(echo "$network_matches" | sort -u | paste -sd ', ' -)
+  fi
+
+  # Parse domain: path patterns + diff content patterns
+  local parse_path_matches
+  parse_path_matches=$(echo "$changed_files" | grep -iE '(parse|from_str|serde|toml|config.*load)' || true)
+  local parse_diff_matches=""
+  if [ -z "$parse_path_matches" ]; then
+    # Check diff content for parse-related function changes
+    local diff_content
+    diff_content=$(cd "$REPO_ROOT" && git diff HEAD~1 2>/dev/null || true)
+    if echo "$diff_content" | grep -qiE '(parse|from_str|toml::from_str|u32::parse|trim)'; then
+      parse_diff_matches="(detected in diff content)"
+    fi
+  fi
+  if [ -n "$parse_path_matches" ] || [ -n "$parse_diff_matches" ]; then
+    DOMAIN_PARSE=1
+    DETECTED_DOMAINS+=("parse")
+    if [ -n "$parse_path_matches" ]; then
+      DOMAIN_FILES_PARSE=$(echo "$parse_path_matches" | sort -u | paste -sd ', ' -)
+    else
+      DOMAIN_FILES_PARSE="$parse_diff_matches"
+    fi
+  fi
+
+  # Billing domain: path patterns
+  local billing_matches
+  billing_matches=$(echo "$changed_files" | grep -iE '(billing|session.*start|session.*stop|rate.*calc|wallet)' || true)
+  if [ -n "$billing_matches" ]; then
+    DOMAIN_BILLING=1
+    DETECTED_DOMAINS+=("billing")
+    DOMAIN_FILES_BILLING=$(echo "$billing_matches" | sort -u | paste -sd ', ' -)
+  fi
+
+  # Config domain: path patterns
+  local config_matches
+  config_matches=$(echo "$changed_files" | grep -iE '\.(toml|bat)$|registry' || true)
+  if [ -n "$config_matches" ]; then
+    DOMAIN_CONFIG=1
+    DETECTED_DOMAINS+=("config")
+    DOMAIN_FILES_CONFIG=$(echo "$config_matches" | sort -u | paste -sd ', ' -)
+  fi
+
+  # Print detected domains
+  if [ ${#DETECTED_DOMAINS[@]} -gt 0 ]; then
+    echo "  Detected domains:"
+    [ $DOMAIN_DISPLAY -eq 1 ] && echo "    display: $DOMAIN_FILES_DISPLAY"
+    [ $DOMAIN_NETWORK -eq 1 ] && echo "    network: $DOMAIN_FILES_NETWORK"
+    [ $DOMAIN_PARSE -eq 1 ] && echo "    parse: $DOMAIN_FILES_PARSE"
+    [ $DOMAIN_BILLING -eq 1 ] && echo "    billing: $DOMAIN_FILES_BILLING"
+    [ $DOMAIN_CONFIG -eq 1 ] && echo "    config: $DOMAIN_FILES_CONFIG"
+  else
+    echo "  No domain-specific changes detected"
+  fi
 }
 
 # ===========================================================================
@@ -102,6 +218,9 @@ fi
 # PRE-DEPLOY specific suites
 # ===========================================================================
 if [ "$MODE" = "pre-deploy" ]; then
+
+  # Run domain detection early so Suite 5 has results
+  detect_domains
 
   # =========================================================================
   # Suite 1: Cargo tests
