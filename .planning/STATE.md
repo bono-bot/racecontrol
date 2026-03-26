@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 214 plan 02 shipped — COORD-02 Tailscale confirmation + COORD-03 recovery handoff in bono-auto-detect.sh
-stopped_at: Completed 214-bono-coordination/214-02-PLAN.md
-last_updated: "2026-03-26T08:53:06.806Z"
+stopped_at: Completed 199-crash-recovery/199-02-PLAN.md
+last_updated: "2026-03-26T09:05:54.767Z"
 last_activity: 2026-03-26 — Phase 214-02 complete (bono-auto-detect three-phase startup + write_bono_findings handoff)
 progress:
   total_phases: 172
-  completed_phases: 141
-  total_plans: 338
-  completed_plans: 333
+  completed_phases: 142
+  total_plans: 342
+  completed_plans: 334
   percent: 98
 ---
 
@@ -114,6 +114,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 214-02]: tailscale ping --c 1 --timeout 5s 100.125.108.37 is authoritative for offline confirmation; icmp ping is not used
 - [Phase 214-02]: write_bono_findings() pushes to INBOX.md via git to satisfy dual-channel comms standing rule
 - [Phase 214-02]: Recovery check placed post-summary so Bono completes full run first, then checks if James relay came back
+- [Phase 199-crash-recovery]: Safe mode cooldown suppression re-arms timer for 30s during PausedWaitingRelaunch — prevents safe mode from expiring mid-recovery (RECOVER-07)
+- [Phase 199-crash-recovery]: force_clean in event_loop.rs satisfied via documentation comments — Plan 01 correctly placed implementation in ws_handler.rs; event_loop.rs delegates to ws_handler
 
 ### Pending Todos
 
@@ -127,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T08:46:30Z
-Stopped at: Completed 214-bono-coordination/214-02-PLAN.md
+Last session: 2026-03-26T09:05:54.753Z
+Stopped at: Completed 199-crash-recovery/199-02-PLAN.md
 Resume file: None
