@@ -908,3 +908,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 09:23 IST | James | a0882cce | 215-04: self-patch.sh — CE methodology loop, scope-gated to detectors/healing, auto-revert, LEARN-07/08/09 |
 | 2026-03-26 09:32 IST | James | ce4550db | test(200-01): combo_reliability DB table migration + 5 TDD tests (upsert, rate, minimum, rolling window, NULL fields) |
 | 2026-03-26 09:37 IST | James | 161c929a | feat(200-01): combo_reliability query/update functions, warning injection in launch API, max_auto_relaunch tuning |
+| 2026-03-26 15:29 IST | James | 174d16c2 | feat(216-01): 10 fixture files for all 6 detectors in audit/test/fixtures/ |
+| 2026-03-26 15:29 IST | James | e253c7d0 | feat(216-01): test-auto-detect.sh 18/18 pass + grep -oP portability fix in 3 detectors |
+| 2026-03-26 15:29 IST | James | 62417b12 | docs(216-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated |
