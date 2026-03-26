@@ -392,7 +392,8 @@ elif [[ -n "$AUDIT_TIER" ]]; then
     16) run_phase58 ;;
     17) run_phase59 ;;
     18) run_phase60 ;;
-    *)  echo "WARN: Invalid tier $AUDIT_TIER. Valid: 1-18" >&2 ;;
+    19) run_phase66 ;;
+    *)  echo "WARN: Invalid tier $AUDIT_TIER. Valid: 1-19" >&2 ;;
   esac
 
 else
@@ -413,7 +414,7 @@ else
     run_phase39; run_phase40; run_phase41; run_phase42
     run_phase43; run_phase44
   }
-  run_tier_10_to_18() {
+  run_tier_10_to_19() {
     run_phase45; run_phase46; run_phase47
     run_phase48; run_phase49; run_phase50
     run_phase51; run_phase52; run_phase53
@@ -423,6 +424,7 @@ else
     run_phase58
     run_phase59
     run_phase60
+    run_phase66
   }
 
   case "$AUDIT_MODE" in
@@ -431,15 +433,16 @@ else
       run_tier_1_to_2
       ;;
     standard)
-      echo "Mode: standard — running Tiers 1-9 (phases 01-44)"
+      echo "Mode: standard — running Tiers 1-9 + Tier 19 (phases 01-44, 66)"
       run_tier_1_to_2
       run_tier_3_to_9
+      run_phase66
       ;;
     full)
-      echo "Mode: full — running All 18 tiers, phases 01-60"
+      echo "Mode: full — running All 19 tiers, phases 01-66"
       run_tier_1_to_2
       run_tier_3_to_9
-      run_tier_10_to_18
+      run_tier_10_to_19
       ;;
     pre-ship)
       echo "Mode: pre-ship — critical subset (Tiers 1-2 + targeted checks)"
