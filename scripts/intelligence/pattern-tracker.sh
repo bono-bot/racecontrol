@@ -135,3 +135,17 @@ update_pattern_db() {
 }
 
 export -f update_pattern_db
+
+# LEARN-06: relay exec alias — 'get_suggestions' command returns pending proposals as JSON
+get_suggestions() {
+  if [[ $(type -t get_suggestions_json) == "function" ]]; then
+    get_suggestions_json
+  else
+    # Load suggestion-engine if not already sourced
+    local _dir
+    _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "$_dir/suggestion-engine.sh" 2>/dev/null || { echo '[]'; return 0; }
+    get_suggestions_json
+  fi
+}
+export -f get_suggestions
