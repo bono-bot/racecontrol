@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 200 plan 01 shipped — combo reliability scoring foundation
-stopped_at: Completed 201-frontend-integration-type-sync/201-03-PLAN.md
-last_updated: "2026-03-26T11:04:57.235Z"
+stopped_at: Completed 201-frontend-integration-type-sync/201-02-PLAN.md
+last_updated: "2026-03-26T11:07:19.933Z"
 last_activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 progress:
   total_phases: 172
-  completed_phases: 145
+  completed_phases: 146
   total_plans: 349
-  completed_plans: 344
+  completed_plans: 345
   percent: 98
 ---
 
@@ -141,6 +141,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 201-01]: Parity script uses indexOf + brace-counting for Rust enum parsing (not regex) — more reliable for multi-line enums with doc comments
 - [Phase 201-03]: StatusBadge uses flat COLORS Record covering all known status strings — single source of truth, no per-page color maps
 - [Phase 201-03]: Metrics types declared locally in web/src/lib/api/metrics.ts — avoids @racingpoint/types build-time dependency in web package, kept in sync via parity script
+- [Phase 201-02]: Local BillingStatus 6-variant type removed from kiosk/src/lib/types.ts; BillingSessionStatus imported into scope via import type for RecentSession.status
+- [Phase 201-02]: billing.status takes priority over gameInfo.game_state in derivePodState — waiting_for_game mapped before game_state checks; countdown guard changed from paused_manual exclusion to active-only
 
 ### Pending Todos
 
@@ -154,6 +156,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T11:04:50.858Z
-Stopped at: Completed 201-frontend-integration-type-sync/201-03-PLAN.md
+Last session: 2026-03-26T11:07:19.913Z
+Stopped at: Completed 201-frontend-integration-type-sync/201-02-PLAN.md
 Resume file: None

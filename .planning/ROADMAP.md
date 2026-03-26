@@ -3070,7 +3070,7 @@ Plans:
 - [x] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
  (completed 2026-03-26)
 - [x] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning (completed 2026-03-26)
-- [ ] **Phase 201: Frontend Integration & Type Sync** - Shared types parity (Rust↔TS), kiosk/web/admin UI updates for new states, contract tests, drift prevention, rebuild + deploy all 3 Next.js apps
+- [x] **Phase 201: Frontend Integration & Type Sync** - Shared types parity (Rust↔TS), kiosk/web/admin UI updates for new states, contract tests, drift prevention, rebuild + deploy all 3 Next.js apps (completed 2026-03-26)
 
 ## v24.0 Phase Details
 
@@ -3256,7 +3256,7 @@ Plans:
 | 198. On-Track Billing | 3/3 | Complete    | 2026-03-26 |
 | 199. Crash Recovery | 2/2 | Complete    | 2026-03-26 |
 | 200. Self-Improving Intelligence | 2/2 | Complete    | 2026-03-26 |
-| 201. Frontend Integration & Type Sync | 2/3 | In Progress|  |
+| 201. Frontend Integration & Type Sync | 3/3 | Complete   | 2026-03-26 |
 
 ---
 
@@ -3367,7 +3367,7 @@ Plans:
   2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
   3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
