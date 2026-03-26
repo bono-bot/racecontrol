@@ -887,3 +887,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 13:00 IST | James | df25fa0f | feat(212-02): DET-04 crash loop (JSONL timestamps, 3/30min) + DET-05 flag desync (comm diff, Pitfall 3 fleet-empty) detectors |
 | 2026-03-26 13:00 IST | James | ee8e6ece | feat(212-02): DET-06 schema gap (6 table:column pairs, venue :8090 + cloud SSH, no such column detect) + pipeline dry-run validated |
 | 2026-03-26 13:01 IST | James | 5e259f7d | docs(212-02): 212-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (DET-04/05/06 complete) |
+| 2026-03-26 07:38 IST | James | 92547b71 | fix(212): close verification gaps — app_health, 1h window, double-count |
