@@ -3470,7 +3470,7 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
 - [x] **Phase 213: Self-Healing & Escalation** - Expanded APPROVED_FIXES whitelist (WoL, MAINTENANCE_MODE auto-clear, bat replacement); 5-tier escalation ladder (retry to restart to WoL to cloud failover to Uday); sentinel checks on every tier before acting; WhatsApp silence conditions; post-fix re-check verification; Audit Protocol Cause Elimination methodology; live-sync fixes (apply on detection not batch); global auto_fix_enabled toggle (completed 2026-03-26)
 - [x] **Phase 214: Bono Coordination** - AUTO_DETECT_ACTIVE mutex via relay (James + Bono both check); Bono failover gated on confirmed Tailscale offline (not relay timeout); delegation protocol (Bono checks James alive first); post-recovery sync (Bono deactivates cloud failover, syncs findings); simultaneous dry-run verification confirming only one agent writes lock (completed 2026-03-26)
 - [x] **Phase 215: Self-Improving Intelligence** - suggestions.jsonl pattern tracker (bug type, frequency, fix applied, success); suggestion engine with evidence + confidence score; 6-category auto-classification; trend analysis (statistical outliers per pod vs fleet average); approved-sync to standing-rules-registry.json / suppress.json / APPROVED_FIXES; suggestion inbox API or Markdown report; self-patch loop (modify own scripts + commit + push + notify); self-patch Cause Elimination methodology + auto-revert on failed verification; self_patch_enabled toggle independent of auto_fix_enabled (completed 2026-03-26)
-- [ ] **Phase 216: Pipeline Self-Test Suite** - Integration tests for each of the 6 auto-detect.sh steps independently; injected anomaly fixtures (fake config drift, fake log anomaly, fake build mismatch) per detector; escalation ladder test with mocked pod responses verifying tier progression; Bono coordination test verifying mutex acquisition and delegation protocol
+- [x] **Phase 216: Pipeline Self-Test Suite** - Integration tests for each of the 6 auto-detect.sh steps independently; injected anomaly fixtures (fake config drift, fake log anomaly, fake build mismatch) per detector; escalation ladder test with mocked pod responses verifying tier progression; Bono coordination test verifying mutex acquisition and delegation protocol (completed 2026-03-26)
 
 ## Phase Details (v26.0)
 
@@ -3594,4 +3594,4 @@ Plans:
 | 213. Self-Healing & Escalation | 2/2 | Complete    | 2026-03-26 |
 | 214. Bono Coordination | 2/2 | Complete    | 2026-03-26 |
 | 215. Self-Improving Intelligence | 4/4 | Complete    | 2026-03-26 |
-| 216. Pipeline Self-Test Suite | 1/2 | In Progress|  |
+| 216. Pipeline Self-Test Suite | 2/2 | Complete   | 2026-03-26 |
