@@ -2,5 +2,7 @@
   "auto_fix_enabled": true,
   "wol_enabled": false,
   "created": "2026-03-26",
-  "notes": "auto_fix_enabled: false = detect only, no fixes applied. wol_enabled: false until manual test on 2 pods."
+  "notes": "auto_fix_enabled: false = detect only, no fixes applied. wol_enabled: false until manual test on 2 pods.",
+  "self_patch_enabled": false,
+  "self_patch_notes": "LEARN-09: independent of auto_fix_enabled. Set to true to enable script self-modification. Default false — requires explicit enable."
 }

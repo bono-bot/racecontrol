@@ -71,6 +71,7 @@ fi
 source "$REPO_ROOT/scripts/intelligence/pattern-tracker.sh" 2>/dev/null || true
 source "$REPO_ROOT/scripts/intelligence/trend-analyzer.sh" 2>/dev/null || true
 source "$REPO_ROOT/scripts/intelligence/suggestion-engine.sh" 2>/dev/null || true
+source "$REPO_ROOT/scripts/intelligence/self-patch.sh" 2>/dev/null || true
 FLEET_HEALTH_ENDPOINT="${SERVER_URL}/api/v1/fleet/health"
 export FLEET_HEALTH_ENDPOINT
 
@@ -629,6 +630,11 @@ Full report: $RESULT_DIR/auto-detect.log"
   # LEARN-02/03: Generate improvement proposals from accumulated patterns
   if [[ $(type -t run_suggestion_engine) == "function" ]]; then
     run_suggestion_engine || log WARN "[LEARN-02] suggestion engine failed (non-fatal)"
+  fi
+
+  # LEARN-07/08/09: Self-patch loop — modifies own detector/healing scripts when approved
+  if [[ $(type -t self_patch_loop) == "function" ]]; then
+    self_patch_loop || log WARN "[LEARN-07] self-patch loop failed (non-fatal)"
   fi
 
   # Return appropriate exit code
