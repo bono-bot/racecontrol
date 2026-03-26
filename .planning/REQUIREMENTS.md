@@ -139,10 +139,10 @@
 
 ### Self-Improving Intelligence (LEARN)
 
-- [ ] **LEARN-01**: Detection pattern tracker logs findings across runs to suggestions.jsonl (bug type, frequency, pod, fix applied, success)
+- [x] **LEARN-01**: Detection pattern tracker logs findings across runs to suggestions.jsonl (bug type, frequency, pod, fix applied, success)
 - [ ] **LEARN-02**: Suggestion engine analyzes patterns and generates improvement proposals with evidence + confidence score
 - [ ] **LEARN-03**: Suggestions auto-categorized: "new audit check", "threshold tune", "new auto-fix candidate", "standing rule gap", "cascade coverage gap", "self-patch"
-- [ ] **LEARN-04**: Trend analysis flags statistical outliers (e.g. "Pod 3 has 4x more sentinel clears than fleet average")
+- [x] **LEARN-04**: Trend analysis flags statistical outliers (e.g. "Pod 3 has 4x more sentinel clears than fleet average")
 - [ ] **LEARN-05**: Approved suggestions sync to standing-rules-registry.json, suppress.json, or APPROVED_FIXES and pushed to both AIs
 - [ ] **LEARN-06**: Suggestion inbox viewable via API endpoint or Markdown report
 - [ ] **LEARN-07**: Self-patch loop — the system can modify its own v26.0 scripts (auto-detect.sh, cascade.sh, fixes.sh, detectors) to improve detection accuracy, fix coverage, or threshold tuning, then commit + push + notify
@@ -200,10 +200,10 @@
 | COORD-02 | Phase 214 | Complete |
 | COORD-03 | Phase 214 | Complete |
 | COORD-04 | Phase 214 | Complete |
-| LEARN-01 | Phase 215 | Pending |
+| LEARN-01 | Phase 215 | Complete |
 | LEARN-02 | Phase 215 | Pending |
 | LEARN-03 | Phase 215 | Pending |
-| LEARN-04 | Phase 215 | Pending |
+| LEARN-04 | Phase 215 | Complete |
 | LEARN-05 | Phase 215 | Pending |
 | LEARN-06 | Phase 215 | Pending |
 | LEARN-07 | Phase 215 | Pending |

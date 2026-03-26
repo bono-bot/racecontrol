@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 214 plan 02 shipped — COORD-02 Tailscale confirmation + COORD-03 recovery handoff in bono-auto-detect.sh
-stopped_at: Completed 199-crash-recovery/199-02-PLAN.md
-last_updated: "2026-03-26T09:05:54.767Z"
+stopped_at: Completed 215-self-improving-intelligence/215-01-PLAN.md
+last_updated: "2026-03-26T09:07:47.508Z"
 last_activity: 2026-03-26 — Phase 214-02 complete (bono-auto-detect three-phase startup + write_bono_findings handoff)
 progress:
   total_phases: 172
   completed_phases: 142
   total_plans: 342
-  completed_plans: 334
+  completed_plans: 335
   percent: 98
 ---
 
@@ -116,6 +116,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 214-02]: Recovery check placed post-summary so Bono completes full run first, then checks if James relay came back
 - [Phase 199-crash-recovery]: Safe mode cooldown suppression re-arms timer for 30s during PausedWaitingRelaunch — prevents safe mode from expiring mid-recovery (RECOVER-07)
 - [Phase 199-crash-recovery]: force_clean in event_loop.rs satisfied via documentation comments — Plan 01 correctly placed implementation in ws_handler.rs; event_loop.rs delegates to ws_handler
+- [Phase 215-self-improving-intelligence]: SUGGESTIONS_JSONL at audit/results/suggestions.jsonl — shared between pattern-tracker and trend-analyzer
+- [Phase 215-self-improving-intelligence]: TREND_OUTLIER entries excluded from analysis input via jq select to prevent feedback loop inflating pod counts
 
 ### Pending Todos
 
@@ -129,6 +131,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T09:05:54.753Z
-Stopped at: Completed 199-crash-recovery/199-02-PLAN.md
+Last session: 2026-03-26T09:07:47.491Z
+Stopped at: Completed 215-self-improving-intelligence/215-01-PLAN.md
 Resume file: None
