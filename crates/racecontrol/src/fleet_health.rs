@@ -13,7 +13,7 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,6 +66,10 @@ pub struct FleetHealthStore {
     pub idle_health_fail_count: u32,
     /// Phase 138: Check names from the most recent IdleHealthFailed message (e.g. ["lock_screen_http", "window_rect"]).
     pub idle_health_failures: Vec<String>,
+    /// Phase 206 (OBS-04): Currently active sentinel files on this pod.
+    /// Keyed by file name, value is the action that made it active ("created").
+    /// Cleared entry on "deleted". Serialized as a Vec<String> for API response.
+    pub active_sentinels: Vec<String>,
 }
 
 /// Per-pod violation history. Capped at 100 entries (FIFO eviction).
@@ -151,6 +155,10 @@ pub struct PodFleetStatus {
     pub idle_health_fail_count: u32,
     /// Phase 138: Check names from most recent IdleHealthFailed.
     pub idle_health_failures: Vec<String>,
+    /// Phase 206 (OBS-04): Currently active sentinel files on this pod.
+    /// Empty if no sentinels are active. Populated from SentinelChange WS events.
+    #[serde(default)]
+    pub active_sentinels: Vec<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -196,6 +204,32 @@ pub fn clear_on_disconnect(store: &mut FleetHealthStore) {
     // Disconnected pods are offline, not "in maintenance" from the server's perspective.
     store.in_maintenance = false;
     store.maintenance_failures.clear();
+    // Do NOT clear active_sentinels on disconnect — sentinel files persist on disk.
+    // They will re-sync when the agent reconnects and sentinel_watcher detects the files.
+}
+
+/// Phase 206 (OBS-04): Update sentinel file state for a pod.
+///
+/// Called from the WS handler when a `SentinelChange` message is received.
+/// Adds the file name to `active_sentinels` on "created", removes it on "deleted".
+pub fn update_sentinel(store: &mut FleetHealthStore, file: &str, action: &str) {
+    match action {
+        "created" => {
+            if !store.active_sentinels.contains(&file.to_string()) {
+                store.active_sentinels.push(file.to_string());
+            }
+        }
+        "deleted" => {
+            store.active_sentinels.retain(|s| s != file);
+        }
+        _ => {} // unknown action — ignore
+    }
+}
+
+/// Phase 206 (OBS-04): Returns a snapshot of active sentinel files for a pod.
+/// Used by the fleet_health_handler to populate active_sentinels in PodFleetStatus.
+pub fn get_active_sentinels(store: &FleetHealthStore) -> Vec<String> {
+    store.active_sentinels.clone()
 }
 
 /// Spawns the background HTTP probe loop.
@@ -316,6 +350,7 @@ pub async fn fleet_health_handler(
                     ip_address: None,
                     last_seen: None,
                     last_http_check: None,
+                    active_sentinels: vec![],
                     in_maintenance: false,
                     maintenance_failures: vec![],
                     violation_count_24h: 0,
@@ -366,6 +401,7 @@ pub async fn fleet_health_handler(
 
                 let idle_health_fail_count = store.map(|s| s.idle_health_fail_count).unwrap_or(0);
                 let idle_health_failures = store.map(|s| s.idle_health_failures.clone()).unwrap_or_default();
+                let active_sentinels = store.map(|s| s.active_sentinels.clone()).unwrap_or_default();
 
                 result.push(PodFleetStatus {
                     pod_number,
@@ -385,6 +421,7 @@ pub async fn fleet_health_handler(
                     last_violation_at,
                     idle_health_fail_count,
                     idle_health_failures,
+                    active_sentinels,
                 });
             }
         }
