@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 209-pre-ship-gate-and-process-tooling/209-03-PLAN.md
-last_updated: "2026-03-26T06:40:42.505Z"
+stopped_at: Completed 211.1-venue-shutdown-button/211.1-01-PLAN.md
+last_updated: "2026-03-26T06:44:08.376Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 135
-  total_plans: 325
-  completed_plans: 318
+  total_plans: 326
+  completed_plans: 319
   percent: 98
 ---
 
@@ -83,6 +83,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 209]: Domain detection uses git diff --cached first (staged), falls back to HEAD~1; display/parse are blocking, billing/config informational
 - [Phase 197-launch-resilience-ac-hardening]: Pre-launch checks: testable via check_sentinel_files_in_dir(dir) with injectable path; PID-stability polling for AC readiness; parse_launch_args for space-safe arg passing
 - [Phase 209]: Used curl Upgrade headers for WS handshake test instead of wscat dependency
+- [Phase 211.1-01]: SSH from server to James for audit trigger (relay /exec/run goes to Bono VPS not James local)
+- [Phase 211.1-01]: Billing drain checks both active_timers AND waiting_for_game -- deferred billing sessions must block shutdown
 
 ### Pending Todos
 
@@ -96,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:34:32.078Z
-Stopped at: Completed 209-pre-ship-gate-and-process-tooling/209-03-PLAN.md
+Last session: 2026-03-26T06:44:08.357Z
+Stopped at: Completed 211.1-venue-shutdown-button/211.1-01-PLAN.md
 Resume file: None
