@@ -920,3 +920,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 16:26 IST | James | 70750e4e | feat(201-01): BillingSessionStatus 10 variants, metrics.ts, BillingTick/GameStateChanged WS types |
 | 2026-03-26 16:26 IST | James | 20b3229a | feat(201-01): contract tests (51 pass), ws-dashboard fixture, parity script, OpenAPI 4 new endpoints |
 | 2026-03-26 16:26 IST | James | 3f66a20c | docs(201-01): SUMMARY, STATE, ROADMAP updated |
+| 2026-03-26 11:06 IST | James | fa5d467e | fix(audit): phase 66 jq false/null + tier19 sourcing |
