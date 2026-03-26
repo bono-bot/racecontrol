@@ -3212,7 +3212,7 @@ Plans:
   9. **AUTO-TUNING PROOF**: After 20 new launches, dynamic timeout for the combo changes from default 120s to historical-derived value. Pre-launch health check adapts (if 80% of failures on this pod are disk-related, disk check runs first). Verify: no manual config changes needed, system computes from data
 **Plans**: 2 plans
 Plans:
-- [ ] 200-01-PLAN.md — Combo reliability table, query/update functions, warning injection in launch response, auto-retry cap tuning
+- [x] 200-01-PLAN.md — Combo reliability table, query/update functions, warning injection in launch response, auto-retry cap tuning
 - [ ] 200-02-PLAN.md — Alternatives suggestion API + admin launch matrix endpoint
 
 ### Phase 201: Frontend Integration & Type Sync

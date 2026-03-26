@@ -906,3 +906,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 09:13 IST | James | fef8d791 | docs(215-02): complete suggestion engine plan — SUMMARY, STATE, ROADMAP updated |
 | 2026-03-26 09:18 IST | James | 5c63ecc8 | feat(215-03): approval-sync.sh — approve_suggestion + apply_approved_suggestion for 6 proposal categories |
 | 2026-03-26 09:23 IST | James | a0882cce | 215-04: self-patch.sh — CE methodology loop, scope-gated to detectors/healing, auto-revert, LEARN-07/08/09 |
+| 2026-03-26 09:32 IST | James | ce4550db | test(200-01): combo_reliability DB table migration + 5 TDD tests (upsert, rate, minimum, rolling window, NULL fields) |
+| 2026-03-26 09:37 IST | James | 161c929a | feat(200-01): combo_reliability query/update functions, warning injection in launch API, max_auto_relaunch tuning |

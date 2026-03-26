@@ -1,25 +1,25 @@
 ---
 gsd_state_version: 1.0
-milestone: v7.0
-milestone_name: E2E Test Suite
-status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
-stopped_at: Completed 215-self-improving-intelligence/215-04-PLAN.md
-last_updated: "2026-03-26T09:26:55.523Z"
-last_activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
+milestone: v26.0
+milestone_name: Autonomous Bug Detection & Self-Healing
+status: Phase 200 plan 01 shipped — combo reliability scoring foundation
+stopped_at: Completed 200-self-improving-intelligence/200-01-PLAN.md
+last_updated: "2026-03-26T09:58:00Z"
+last_activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 progress:
   total_phases: 172
   completed_phases: 143
-  total_plans: 344
-  completed_plans: 338
+  total_plans: 345
+  completed_plans: 339
   percent: 98
 ---
 
 ## Current Position
 
-Phase: 215-self-improving-intelligence
-Plan: 02 complete
-Status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
-Last activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
+Phase: 200-self-improving-intelligence
+Plan: 01 complete
+Status: Phase 200 plan 01 shipped — combo reliability scoring foundation
+Last activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 
 Progress: [██████████] 98%
 
@@ -38,6 +38,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ### Decisions
 
+- [Phase 200-01]: No COALESCE in PRIMARY KEY (SQLite limitation) — used UNIQUE INDEX on COALESCE(car,'') + COALESCE(track,'') with DELETE+INSERT upsert pattern
+- [Phase 200-01]: FailureMode defined locally in metrics.rs to avoid circular import with api::metrics module
+- [Phase 200-01]: Used crate::metrics:: prefix in routes.rs to disambiguate from local super::metrics (api::metrics)
 - 6 phases derived from 37 requirements across 5 natural categories (SCHED, DET, HEAL, COORD, LEARN, TEST)
 - Phase numbering starts at 211 (v23.1 occupies 202-204, v25.0 occupies 205-210)
 - Phase 211 (safety gates) must ship before any scheduled execution fires on live infrastructure — no "add safety later" option at 2:30 AM
