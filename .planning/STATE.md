@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: executing
-stopped_at: Completed 208-02-PLAN.md
-last_updated: "2026-03-26T05:51:18.563Z"
+stopped_at: Completed 208-01-PLAN.md
+last_updated: "2026-03-26T05:51:38.851Z"
 last_activity: 2026-03-26 — Phase 208-02 complete (ColdVerificationChain wrapping allowlist enforcement + spawn verification)
 progress:
   total_phases: 171
@@ -69,6 +69,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 211-safe-scheduling-foundation]: PID file at /tmp/auto-detect.pid -- host-local, survives git clean, no repo pollution (SCHED-03)
 - [Phase 211-safe-scheduling-foundation]: Cooldown keyed per pod_ip:issue_type (not fleet-level) -- prevents storm suppression from hiding different issues on same pod (SCHED-04)
 - [Phase 211-safe-scheduling-foundation]: WhatsApp send deferred to Phase 213 -- cooldown infrastructure wired now, Phase 213 adds send call only
+- [Phase 208]: StepValidateCriticalFields returns Ok even on defaults — warn-only, not fatal
+- [Phase 208]: rc-agent load_config tries next path on parse failure instead of returning error immediately
 
 ### Pending Todos
 
@@ -82,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T05:49:00Z
-Stopped at: Completed 208-02-PLAN.md
+Last session: 2026-03-26T05:51:38.834Z
+Stopped at: Completed 208-01-PLAN.md
 Resume file: None
