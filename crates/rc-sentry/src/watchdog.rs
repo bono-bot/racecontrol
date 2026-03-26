@@ -16,6 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_POD};
+
 use crate::sentry_config;
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -188,6 +190,11 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
             tracing::info!(target: LOG_TARGET, "watchdog started — polling {} ({}) every {:?}", cfg.service_name, cfg.health_addr, POLL_INTERVAL);
             let mut state = WatchdogState::Healthy;
 
+            // OBS-05: RecoveryLogger for FSM transition logging
+            // Created here (inside watchdog thread) so it's independent of the crash-handler logger.
+            let recovery_logger = RecoveryLogger::new(RECOVERY_LOG_POD);
+            let machine = sysinfo::System::host_name().unwrap_or_else(|| "pod-unknown".to_string());
+
             loop {
                 if shutdown.load(Ordering::Acquire) {
                     tracing::info!(target: LOG_TARGET, "watchdog shutting down");
@@ -220,13 +227,30 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
 
                     // Healthy and poll failed → enter suspect
                     (WatchdogState::Healthy, false) => {
+                        tracing::warn!(target: "state", prev = "Healthy", next = "Suspect(1)", "FSM transition: Healthy -> Suspect(1)");
                         tracing::warn!(target: LOG_TARGET, "poll failed (1/{HYSTERESIS_THRESHOLD}) — entering suspect state");
+                        let _ = recovery_logger.log(&RecoveryDecision::new(
+                            machine.clone(),
+                            "rc-agent.exe",
+                            RecoveryAuthority::RcSentry,
+                            RecoveryAction::AlertStaff,
+                            "fsm:Healthy->Suspect(1)",
+                        ));
                         WatchdogState::Suspect(1)
                     }
 
                     // Suspect and poll passed → back to healthy
                     (WatchdogState::Suspect(n), true) => {
+                        let prev_state = format!("Suspect({})", n);
+                        tracing::info!(target: "state", prev = %prev_state, next = "Healthy", "FSM transition: Suspect -> Healthy");
                         tracing::info!(target: LOG_TARGET, "poll recovered after {} failures — back to healthy", n);
+                        let _ = recovery_logger.log(&RecoveryDecision::new(
+                            machine.clone(),
+                            "rc-agent.exe",
+                            RecoveryAuthority::RcSentry,
+                            RecoveryAction::AlertStaff,
+                            format!("fsm:Suspect({})->Healthy", n),
+                        ));
                         WatchdogState::Healthy
                     }
 
@@ -234,10 +258,29 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     (WatchdogState::Suspect(n), false) => {
                         let next = n + 1;
                         if next >= HYSTERESIS_THRESHOLD {
+                            let prev_state = format!("Suspect({})", n);
+                            tracing::error!(target: "state", prev = %prev_state, next = "Crashed", "FSM transition: Suspect -> Crashed");
                             tracing::error!(target: LOG_TARGET, "poll failed ({next}/{HYSTERESIS_THRESHOLD}) — rc-agent CRASHED");
+                            let _ = recovery_logger.log(&RecoveryDecision::new(
+                                machine.clone(),
+                                "rc-agent.exe",
+                                RecoveryAuthority::RcSentry,
+                                RecoveryAction::Restart,
+                                format!("fsm:Suspect({})->Crashed", n),
+                            ));
                             WatchdogState::Crashed
                         } else {
+                            let prev_state = format!("Suspect({})", n);
+                            let next_state = format!("Suspect({})", next);
+                            tracing::warn!(target: "state", prev = %prev_state, next = %next_state, "FSM transition: Suspect(n) -> Suspect(n+1)");
                             tracing::warn!(target: LOG_TARGET, "poll failed ({next}/{HYSTERESIS_THRESHOLD}) — still suspect");
+                            let _ = recovery_logger.log(&RecoveryDecision::new(
+                                machine.clone(),
+                                "rc-agent.exe",
+                                RecoveryAuthority::RcSentry,
+                                RecoveryAction::AlertStaff,
+                                format!("fsm:Suspect({})->Suspect({})", n, next),
+                            ));
                             WatchdogState::Suspect(next)
                         }
                     }

@@ -34,6 +34,8 @@ const MAX_LOG_BYTES: u64 = 512 * 1024;    // rotate at 512KB
 /// Spawn the self-monitor background task.
 pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
     tokio::spawn(async move {
+        // OBS-05: Lifecycle event — task started
+        tracing::info!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Self-monitor task started (check interval: {}s)", CHECK_INTERVAL_SECS);
         // Give rc-agent 60s to fully start before first check
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -43,6 +45,8 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
         let mut ws_last_connected = Instant::now();
         // Count consecutive checks with CLOSE_WAIT flood (Ollama may be unavailable)
         let mut close_wait_strikes: u32 = 0;
+        // OBS-05: Track first decision for lifecycle logging
+        let mut first_decision_logged = false;
 
         loop {
             interval.tick().await;
@@ -70,12 +74,23 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             }
 
             if issues.is_empty() {
+                // OBS-05: Log first decision (healthy)
+                if !first_decision_logged {
+                    first_decision_logged = true;
+                    tracing::info!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: first_decision");
+                }
                 tracing::debug!(
                     target: LOG_TARGET,
                     "OK (close_wait={}, ws_dead={}s)",
                     close_wait, ws_dead_secs
                 );
                 continue;
+            }
+
+            // OBS-05: Log first decision (issue detected)
+            if !first_decision_logged {
+                first_decision_logged = true;
+                tracing::info!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: first_decision");
             }
 
             tracing::warn!(target: LOG_TARGET, "Issues: {}", issues.join("; "));
@@ -149,6 +164,8 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             }
             } // end #[cfg(feature = "ai-debugger")]
         }
+        // OBS-05: Lifecycle event — task exit (loop broke, unexpected)
+        tracing::warn!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: exit");
     });
 }
 
@@ -277,6 +294,8 @@ pub fn relaunch_self() {
             "rc-sentry reachable on :{} — writing sentinel and exiting (sentry will restart us)",
             SENTRY_PORT
         );
+        // OBS-05: Log sentinel file write before creating it
+        tracing::warn!(target: "state", sentinel = "GRACEFUL_RELAUNCH", action = "create", path = GRACEFUL_RELAUNCH_SENTINEL, "sentinel file write: graceful relaunch via sentry");
         if let Err(e) = std::fs::write(
             GRACEFUL_RELAUNCH_SENTINEL,
             "self_monitor relaunch — sentry will restart\n",
@@ -297,6 +316,8 @@ pub fn relaunch_self() {
     log_event("RELAUNCH_POWERSHELL: sentry unreachable, using PowerShell fallback");
 
     // Write sentinel BEFORE exiting so rc-sentry sees it if it comes back
+    // OBS-05: Log sentinel file write before creating it
+    tracing::warn!(target: "state", sentinel = "GRACEFUL_RELAUNCH", action = "create", path = GRACEFUL_RELAUNCH_SENTINEL, "sentinel file write: graceful relaunch fallback (sentry unreachable)");
     if let Err(e) = std::fs::write(GRACEFUL_RELAUNCH_SENTINEL, "self_monitor relaunch\n") {
         tracing::warn!(target: LOG_TARGET, "Failed to write graceful relaunch sentinel: {}", e);
     }
