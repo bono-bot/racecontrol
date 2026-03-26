@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -551,6 +552,62 @@ fn resolve_jwt_secret(config_value: &str) -> String {
     hex_key
 }
 
+// ─── Verification chain steps for config TOML load (COV-03) ──────────────────
+
+struct StepConfigFileReadable;
+impl VerifyStep for StepConfigFileReadable {
+    type Input = String;   // file path
+    type Output = (String, String);  // (file content, path)
+    fn name(&self) -> &str { "file_readable" }
+    fn run(&self, input: String) -> Result<(String, String), VerificationError> {
+        std::fs::read_to_string(&input)
+            .map(|content| (content, input.clone()))
+            .map_err(|e| VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("path={} error={}", input, e),
+            })
+    }
+}
+
+struct StepConfigTomlParse;
+impl VerifyStep for StepConfigTomlParse {
+    type Input = (String, String);  // (content, path)
+    type Output = Config;
+    fn name(&self) -> &str { "toml_parse" }
+    fn run(&self, input: (String, String)) -> Result<Config, VerificationError> {
+        let (content, path) = input;
+        toml::from_str::<Config>(&content).map_err(|e| {
+            // COV-03: Log first 3 lines to help diagnose SSH banner corruption
+            let first_3_lines: String = content.lines().take(3).collect::<Vec<_>>().join(" | ");
+            VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("path={} error={} first_3_lines=[{}]", path, e, first_3_lines),
+            }
+        })
+    }
+}
+
+struct StepValidateCriticalFields;
+impl VerifyStep for StepValidateCriticalFields {
+    type Input = Config;
+    type Output = Config;
+    fn name(&self) -> &str { "validate_critical_fields" }
+    fn run(&self, input: Config) -> Result<Config, VerificationError> {
+        // Check that critical fields are not at their default values
+        let default = Config::default_config();
+        let mut fallbacks = Vec::new();
+        if input.database.path == default.database.path {
+            fallbacks.push("database.path");
+        }
+        if !fallbacks.is_empty() {
+            // Log warning but don't fail — field-level validation is best-effort
+            // Using eprintln because tracing may not be initialized during config load
+            eprintln!("[config_validate] fields at default values: {:?}", fallbacks);
+        }
+        Ok(input)
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -579,21 +636,37 @@ impl Config {
         paths.push("/etc/racecontrol/racecontrol.toml".to_string());
 
         for path in &paths {
-            match Self::load(path) {
-                Ok(config) => {
-                    // eprintln so it's visible even before tracing is initialized
-                    eprintln!("[config] Loaded config from {}", path);
-                    tracing::info!("Loaded config from {}", path);
-                    return config;
-                }
-                Err(e) => {
-                    // Only log as warn if the file exists but failed to parse — missing file is expected
-                    if std::path::Path::new(path.as_str()).exists() {
-                        // OBS-02: Structured warn with field/source/error — parse failure may be SSH banner corruption
-                        let msg = format!("[config_parse] field=config_parse source={} error={} fallback=Config::default() — config file parse failed, using defaults — possible SSH banner corruption", path, e);
-                        eprintln!("{}", msg);
-                        tracing::warn!(target: "state", field = "config_parse", source = %path, error = %e, fallback = "Config::default()", "config file parse failed, using defaults — possible SSH banner corruption");
+            let chain = ColdVerificationChain::new("config_load");
+            // Step 1: Check file is readable
+            match chain.execute_step(&StepConfigFileReadable, path.clone()) {
+                Ok((content, path_display)) => {
+                    // Step 2: Parse TOML
+                    match chain.execute_step(&StepConfigTomlParse, (content, path_display.clone())) {
+                        Ok(mut config) => {
+                            config.apply_env_overrides();
+                            // Step 3: Validate critical fields
+                            match chain.execute_step(&StepValidateCriticalFields, config) {
+                                Ok(config) => {
+                                    eprintln!("[config] Loaded config from {}", path_display);
+                                    tracing::info!("Loaded config from {}", path_display);
+                                    return config;
+                                }
+                                Err(e) => {
+                                    // Field validation is warn-only, not fatal — fall through to try next path
+                                    tracing::warn!(target: "state", error = %e, "config field validation failed — trying next path");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // COV-03: VerificationError includes first 3 lines of file for SSH banner diagnosis
+                            let msg = format!("[config_parse] field=config_parse source={} error={} fallback=Config::default() — config file parse failed via verification chain", path_display, e);
+                            eprintln!("{}", msg);
+                            tracing::warn!(target: "state", field = "config_parse", source = %path_display, error = %e, fallback = "Config::default()", "config file parse failed via verification chain — possible SSH banner corruption");
+                        }
                     }
+                }
+                Err(_) => {
+                    // File not readable — expected for most search paths, skip silently
                 }
             }
         }

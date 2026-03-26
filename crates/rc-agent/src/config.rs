@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
+use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 const LOG_TARGET: &str = "config";
 
@@ -308,15 +309,63 @@ pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     paths
 }
 
+// ─── Verification chain steps for agent config TOML load (COV-03) ────────────
+
+struct StepAgentFileRead;
+impl VerifyStep for StepAgentFileRead {
+    type Input = std::path::PathBuf;
+    type Output = (String, String);  // (content, path_display)
+    fn name(&self) -> &str { "agent_file_read" }
+    fn run(&self, input: std::path::PathBuf) -> Result<(String, String), VerificationError> {
+        let path_str = input.display().to_string();
+        std::fs::read_to_string(&input)
+            .map(|c| (c, path_str.clone()))
+            .map_err(|e| VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("path={} error={}", path_str, e),
+            })
+    }
+}
+
+struct StepAgentTomlParse;
+impl VerifyStep for StepAgentTomlParse {
+    type Input = (String, String);  // (content, path)
+    type Output = AgentConfig;
+    fn name(&self) -> &str { "agent_toml_parse" }
+    fn run(&self, input: (String, String)) -> Result<AgentConfig, VerificationError> {
+        let (content, path) = input;
+        toml::from_str::<AgentConfig>(&content).map_err(|e| {
+            let first_3_lines: String = content.lines().take(3).collect::<Vec<_>>().join(" | ");
+            VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("path={} error={} first_3_lines=[{}]", path, e, first_3_lines),
+            }
+        })
+    }
+}
+
 pub fn load_config() -> Result<AgentConfig> {
     let search_paths = config_search_paths();
+    let chain = ColdVerificationChain::new("agent_config_load");
 
     for path in &search_paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let config: AgentConfig = toml::from_str(&content)?;
-            tracing::info!(target: LOG_TARGET, "Loaded config from {}", path.display());
-            validate_config(&config)?;
-            return Ok(config);
+        match chain.execute_step(&StepAgentFileRead, path.clone()) {
+            Ok((content, path_display)) => {
+                match chain.execute_step(&StepAgentTomlParse, (content, path_display.clone())) {
+                    Ok(config) => {
+                        tracing::info!(target: LOG_TARGET, "Loaded config from {}", path_display);
+                        validate_config(&config)?;
+                        return Ok(config);
+                    }
+                    Err(e) => {
+                        // COV-03: Chain already logged first 3 lines in verification span
+                        tracing::warn!(target: LOG_TARGET, error = %e, "config parse failed via verification chain");
+                        // Don't return error — try next path
+                        continue;
+                    }
+                }
+            }
+            Err(_) => continue, // file not readable, try next
         }
     }
 
