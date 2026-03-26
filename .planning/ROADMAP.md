@@ -3148,7 +3148,10 @@ Plans:
   14. **CM FRESH PID**: After CM failure → direct acs.exe fallback → `find_game_pid()` called for fresh PID. Verify: tracker PID matches actual acs.exe PID from tasklist, not stale CM PID
   15. **STOP LOGGING**: `stop_game()` logs sim_type (not empty string ""). Verify: `SELECT sim_type FROM game_launch_events WHERE event_type='stopping'` returns non-empty value
   16. **ARG PARSING**: Launch args with spaces in path (`C:\Program Files\Steam\steamapps\common\F1 25\F1_25.exe`) handled correctly. Verify: game launches, no "file not found" from split_whitespace bug
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 197-01-PLAN.md — Server-side: dynamic timeout, error taxonomy, atomic Race Engineer, WhatsApp alert, stop_game fix
+- [ ] 197-02-PLAN.md — Agent-side: pre-launch checks, AC polling waits, CM timeout, fresh PID, arg parsing fix
 
 ### Phase 198: On-Track Billing
 **Goal**: Billing starts only when the customer car is on-track and controllable, pauses on crash, resumes on successful relaunch -- customers are never charged for loading screens, shader compilation, or crashed games
