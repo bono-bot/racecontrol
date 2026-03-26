@@ -176,49 +176,48 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHED-01 | TBD | Pending |
-| SCHED-02 | TBD | Pending |
-| SCHED-03 | TBD | Pending |
-| SCHED-04 | TBD | Pending |
-| SCHED-05 | TBD | Pending |
-| DET-01 | TBD | Pending |
-| DET-02 | TBD | Pending |
-| DET-03 | TBD | Pending |
-| DET-04 | TBD | Pending |
-| DET-05 | TBD | Pending |
-| DET-06 | TBD | Pending |
-| DET-07 | TBD | Pending |
-| HEAL-01 | TBD | Pending |
-| HEAL-02 | TBD | Pending |
-| HEAL-03 | TBD | Pending |
-| HEAL-04 | TBD | Pending |
-| HEAL-05 | TBD | Pending |
-| COORD-01 | TBD | Pending |
-| COORD-02 | TBD | Pending |
-| COORD-03 | TBD | Pending |
-| COORD-04 | TBD | Pending |
-| LEARN-01 | TBD | Pending |
-| LEARN-02 | TBD | Pending |
-| LEARN-03 | TBD | Pending |
-| LEARN-04 | TBD | Pending |
-| LEARN-05 | TBD | Pending |
-| LEARN-06 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
-
-| HEAL-06 | TBD | Pending |
-| HEAL-07 | TBD | Pending |
-| HEAL-08 | TBD | Pending |
-| LEARN-07 | TBD | Pending |
-| LEARN-08 | TBD | Pending |
-| LEARN-09 | TBD | Pending |
+| SCHED-01 | Phase 211 | Pending |
+| SCHED-02 | Phase 211 | Pending |
+| SCHED-03 | Phase 211 | Pending |
+| SCHED-04 | Phase 211 | Pending |
+| SCHED-05 | Phase 211 | Pending |
+| DET-01 | Phase 212 | Pending |
+| DET-02 | Phase 212 | Pending |
+| DET-03 | Phase 212 | Pending |
+| DET-04 | Phase 212 | Pending |
+| DET-05 | Phase 212 | Pending |
+| DET-06 | Phase 212 | Pending |
+| DET-07 | Phase 212 | Pending |
+| HEAL-01 | Phase 213 | Pending |
+| HEAL-02 | Phase 213 | Pending |
+| HEAL-03 | Phase 213 | Pending |
+| HEAL-04 | Phase 213 | Pending |
+| HEAL-05 | Phase 213 | Pending |
+| HEAL-06 | Phase 213 | Pending |
+| HEAL-07 | Phase 213 | Pending |
+| HEAL-08 | Phase 213 | Pending |
+| COORD-01 | Phase 214 | Pending |
+| COORD-02 | Phase 214 | Pending |
+| COORD-03 | Phase 214 | Pending |
+| COORD-04 | Phase 214 | Pending |
+| LEARN-01 | Phase 215 | Pending |
+| LEARN-02 | Phase 215 | Pending |
+| LEARN-03 | Phase 215 | Pending |
+| LEARN-04 | Phase 215 | Pending |
+| LEARN-05 | Phase 215 | Pending |
+| LEARN-06 | Phase 215 | Pending |
+| LEARN-07 | Phase 215 | Pending |
+| LEARN-08 | Phase 215 | Pending |
+| LEARN-09 | Phase 215 | Pending |
+| TEST-01 | Phase 216 | Pending |
+| TEST-02 | Phase 216 | Pending |
+| TEST-03 | Phase 216 | Pending |
+| TEST-04 | Phase 216 | Pending |
 
 **Coverage:**
 - v1 requirements: 37 total
-- Mapped to phases: 0 (awaiting roadmap)
-- Unmapped: 37
+- Mapped to phases: 37/37
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-26*

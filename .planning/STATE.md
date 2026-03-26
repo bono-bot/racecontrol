@@ -1,81 +1,75 @@
 ---
 gsd_state_version: 1.0
-milestone: v7.0
-milestone_name: E2E Test Suite
-status: Defining requirements for v26.0 Autonomous Bug Detection & Self-Healing
-stopped_at: Completed 196-02-PLAN.md
-last_updated: "2026-03-26T04:30:40.614Z"
-last_activity: 2026-03-26 — Milestone v26.0 started, foundation scripts already built (auto-detect.sh + bono-auto-detect.sh)
+milestone: v26.0
+milestone_name: Autonomous Bug Detection & Self-Healing
+status: Roadmap created — ready to plan Phase 211
+stopped_at: Roadmap written (Phases 211-216)
+last_updated: "2026-03-26T05:00:00.000Z"
+last_activity: 2026-03-26 — v26.0 roadmap created, 6 phases (211-216), 37 requirements mapped
 progress:
-  total_phases: 165
+  total_phases: 171
   completed_phases: 130
   total_plans: 310
   completed_plans: 306
-  percent: 99
+  percent: 76
 ---
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 211 (not started)
 Plan: —
-Status: Defining requirements for v26.0 Autonomous Bug Detection & Self-Healing
-Last activity: 2026-03-26 — Milestone v26.0 started, foundation scripts already built (auto-detect.sh + bono-auto-detect.sh)
+Status: Roadmap created — ready to plan Phase 211
+Last activity: 2026-03-26 — v26.0 roadmap created. Foundation scripts already built (auto-detect.sh + bono-auto-detect.sh). 6 phases mapped across 37 requirements.
 
-Progress: [██████████] 99%
+Progress: [████████░░] 76%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Fully autonomous infrastructure health — detect, fix, cascade, and notify without human intervention
-**Current focus:** v26.0 Autonomous Bug Detection & Self-Healing
+**Current focus:** v26.0 Autonomous Bug Detection & Self-Healing — Phase 211: Safe Scheduling Foundation
 
 ## Accumulated Context
 
 ### Decisions
 
-- 6 phases derived from 26 requirements across 6 natural categories (OBS, COV, BOOT, GATE, BAT, AUDIT)
-- Phase numbering starts at 205 (v23.1 occupies 202-204)
-- Phase 205 (rc-common types) must stabilize before Phases 206, 207, 208 can compile
-- Phase 209 (bash tooling) has zero Rust compile dependency — can develop in parallel with 206-208
-- Phase 210 (fleet audit) depends on all prior phases providing verifiable outputs
-- COV-01 and BOOT-01 co-located in Phase 205 — both are rc-common foundation modules
-- notify 8.2.0 is the only new Cargo dependency (OBS-04 sentinel file watching via ReadDirectoryChangesW)
-- Hot-path/cold-path distinction is non-negotiable: billing/WS chains async fire-and-forget, config/allowlist chains synchronous
-- All 8 pods canary-first on Pod 8 for any rc-agent/rc-sentry binary changes
+- 6 phases derived from 37 requirements across 5 natural categories (SCHED, DET, HEAL, COORD, LEARN, TEST)
+- Phase numbering starts at 211 (v23.1 occupies 202-204, v25.0 occupies 205-210)
+- Phase 211 (safety gates) must ship before any scheduled execution fires on live infrastructure — no "add safety later" option at 2:30 AM
+- Phase 212 (detection) inherits Phase 211 safety infrastructure via source-module composition
+- Phase 213 (healing) grouped with HEAL-06/07/08 (Audit Protocol methodology, live-sync, toggle) — they modify the fix engine architecture, same phase
+- Phase 214 (Bono coordination) gates on Phase 213 — coordination is only needed when both agents have fix capability
+- Phase 215 (self-patch loop LEARN-07/08/09) depends on detection + fixing being stable — placed after Phase 213+214
+- Phase 216 (tests) is last — tests should validate stable behavior, not planned behavior
+- Foundation scripts already exist: auto-detect.sh (6-step pipeline), bono-auto-detect.sh (Bono-side failover)
+- Config drift (DET-01) has upstream Rust API dependency — plan Phase 212 to decide: build GET /api/v1/config/health-params endpoint OR use SCP fallback with first-line TOML validation
+- Log anomaly thresholds (DET-03) should use pattern-based triggers for Phase 212 launch — rate-based thresholds need 7-day calibration window
+- Bono cron schedule needs verification before Phase 211 work: current may be 0 2 * * * (UTC 02:00 = IST 07:30) but target is IST 02:35 (UTC 21:05)
+- WoL escalation tier (HEAL-01/02) requires manual test on at least 2 pods before autonomous activation — not blocking Phase 213 but must happen before WoL tier is enabled in whitelist
 - Previous milestone context preserved:
-  - [Phase 195-01]: launch_events table separate from game_launch_events for backward compat
-  - [Phase 195-01]: DB errors logged via tracing::error with JSONL fallback
-  - [Phase 195-02]: delta_ms from waiting_since.elapsed() for launch-command to billing-start gap
-  - [Phase 195-02]: RecoveryOutcome::Success records action taken, not game success
-- [Phase 195-03]: Routes placed in public_routes() — consistent with fleet/health pattern, admin dashboard needs unauthenticated SSR access
-- [Phase 195-03]: P95 computed by sorted-fetch + index — SQLite lacks NTILE window function, approach works for expected event volumes
-- [Phase 202]: ws_connect_timeout threshold at 600ms, billing checks venue-state-aware, ps_count=0 is WARN (watchdog dead)
-- [Phase 202]: Used Get-CimInstance Win32_VideoController for pod resolution query (safer cmd.exe quoting)
-- [Phase 202]: Evolution API connection check uses /api/instance/connectionState/racingpoint endpoint with TOML URL extraction fallback
-- [Phase 205-verification-chain-foundation]: verification.rs not feature-gated — VerificationError and VerifyStep needed by all crates including rc-sentry
-- [Phase 205-verification-chain-foundation]: boot_resilience.rs feature-gated behind tokio — rc-sentry has no async runtime
-- [Phase 205-verification-chain-foundation]: ColdVerificationChain uses execute_step() per-call method pattern — avoids Rust variadic generic limitations
-- [Phase 203-02]: Content sub-checks added alongside existing count checks (not replacing them)
-- [Phase 203-02]: Phase 39 unreachable endpoint changed from false PASS to WARN
-- [Phase 203-02]: Phase 25 covers three boolean field variants (available, in_stock, is_available) for API flexibility
-- [Phase 203-02]: Phase 56 uses 5 critical endpoints for spot-check: app-health, flags, guard/whitelist, fleet/health, cafe/menu
-- [Phase 206]: All config fallback sites in rc-agent main.rs are after tracing init — use tracing::warn! directly without pre-init buffer
-- [Phase 206]: Empty allowlist detection writes override directly to MachineWhitelist under write lock — all downstream scan paths see report_only
-- [Phase 206]: RecoveryLogger for FSM transitions created inside watchdog thread pointing to RECOVERY_LOG_POD — safe JSONL append without coordination
-- [Phase 196-01]: validate_args called before billing gate — invalid JSON rejected before touching shared state
-- [Phase 196-01]: launcher_for() returns static dyn ref (ZST impls) — no heap allocation in hot launch path
-- [Phase 196-01]: Billing gate checks both active_timers AND waiting_for_game — deferred billing sessions now pass launch gate
-- [Phase 206-02]: sentinel_watcher uses std::thread::spawn (not tokio) — notify RecommendedWatcher requires sync recv loop; blocking_send bridges to async tokio channel
-- [Phase 206-02]: SentinelChange routed via ws_exec_result_tx (existing AgentMessage mpsc) — no new channel needed
-- [Phase 206-02]: active_sentinels NOT cleared on WS disconnect — sentinel files persist on disk; clear would cause stale "no sentinels" until next change event
-- [Phase 206-02]: DashboardEvent::SentinelChanged is a new dedicated variant (not PodUpdate reuse) — carries sentinel-specific fields for dashboard real-time reaction
-- [Phase 196-02]: Stopping timeout tested via check_game_health() — tokio::time::pause() breaks SQLite pool timeout in make_state()
-- [Phase 196-02]: Feature flag 'game_launch' defaults to enabled (unwrap_or(true)) when missing — prevents Pitfall 6 regression
+  - [Phase 202]: ws_connect_timeout threshold at 600ms, billing checks venue-state-aware, ps_count=0 is WARN (watchdog dead)
+  - [Phase 205-verification-chain-foundation]: verification.rs not feature-gated — VerificationError and VerifyStep needed by all crates including rc-sentry
+  - [Phase 205-verification-chain-foundation]: boot_resilience.rs feature-gated behind tokio — rc-sentry has no async runtime
+  - [Phase 203-02]: Content sub-checks added alongside existing count checks (not replacing them)
+  - [Phase 206]: All config fallback sites in rc-agent main.rs are after tracing init — use tracing::warn! directly without pre-init buffer
+  - [Phase 206]: Empty allowlist detection writes override directly to MachineWhitelist under write lock — all downstream scan paths see report_only
+  - [Phase 206]: RecoveryLogger for FSM transitions created inside watchdog thread pointing to RECOVERY_LOG_POD — safe JSONL append without coordination
+  - [Phase 196-01]: validate_args called before billing gate — invalid JSON rejected before touching shared state
+  - [Phase 196-01]: launcher_for() returns static dyn ref (ZST impls) — no heap allocation in hot launch path
+  - [Phase 196-01]: Billing gate checks both active_timers AND waiting_for_game — deferred billing sessions now pass launch gate
+  - [Phase 206-02]: sentinel_watcher uses std::thread::spawn (not tokio) — notify RecommendedWatcher requires sync recv loop; blocking_send bridges to async tokio channel
+  - [Phase 206-02]: SentinelChange routed via ws_exec_result_tx (existing AgentMessage mpsc) — no new channel needed
+  - [Phase 206-02]: active_sentinels NOT cleared on WS disconnect — sentinel files persist on disk; clear would cause stale "no sentinels" until next change event
+  - [Phase 206-02]: DashboardEvent::SentinelChanged is a new dedicated variant (not PodUpdate reuse) — carries sentinel-specific fields for dashboard real-time reaction
+  - [Phase 196-02]: Stopping timeout tested via check_game_health() — tokio::time::pause() breaks SQLite pool timeout in make_state()
+  - [Phase 196-02]: Feature flag 'game_launch' defaults to enabled (unwrap_or(true)) when missing — prevents Pitfall 6 regression
 
 ### Pending Todos
 
-None yet.
+- Verify Bono cron schedule before Phase 211: `ssh root@100.70.177.44 "crontab -l | grep auto-detect"` — target is 21:05 UTC (= 02:35 IST)
+- WoL manual test on at least 2 pods before HEAL-01 WoL tier is enabled in APPROVED_FIXES
+- Decide Phase 212 config-drift.sh path: build GET /api/v1/config/health-params Rust endpoint OR use SCP fallback — document decision before writing the script
 
 ### Blockers/Concerns
 
@@ -83,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T04:25:10.302Z
-Stopped at: Completed 196-02-PLAN.md
+Last session: 2026-03-26T05:00:00.000Z
+Stopped at: Roadmap written (Phases 211-216)
 Resume file: None

@@ -3431,3 +3431,105 @@ Plans:
 | 208. Chain Verification Integration | 0/0 | Not started | - |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
 | 210. Startup Enforcement and Fleet Audit | 0/0 | Not started | - |
+
+---
+
+## v26.0 Autonomous Bug Detection & Self-Healing
+
+Build order constraint: Phase 211 (safety gates) must ship before scheduling fires on live infrastructure. Phase 212 (detection) builds on the safe foundation. Phase 213 (healing) extends detection with fix engine. Phase 214 (coordination) must be verified before self-patch loop activates. Phase 215 (intelligence) depends on detection + fixing being stable. Phase 216 (tests) builds last when the detection feature set is stable.
+
+Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-detect.sh`.
+
+## Phases (v26.0)
+
+- [ ] **Phase 211: Safe Scheduling Foundation** - Register James Task Scheduler (02:30 IST) and correct Bono cron (02:35 IST); idempotent run guard (PID file lock); sentinel-aware execution gate (OTA_DEPLOYING, MAINTENANCE_MODE, GRACEFUL_RELAUNCH); escalation cooldown (per-pod, per-alert-type, 6-hour window); venue-state-aware timing; WhatsApp silence on clean runs; AUTO_DETECT_ACTIVE lock file
+- [ ] **Phase 212: Detection Expansion** - cascade.sh (build drift, pod consistency, cloud-venue sync); log-anomaly.sh (ERROR/PANIC rate per pod); config-drift.sh (TOML key validation via API or SCP fallback); bat file drift detection (certutil checksums vs repo canonical); feature flag sync (8-pod identical set check); schema drift detection; DET-07 cascade module sources into auto-detect.sh sharing env
+- [ ] **Phase 213: Self-Healing & Escalation** - Expanded APPROVED_FIXES whitelist (WoL, MAINTENANCE_MODE auto-clear, bat replacement); 5-tier escalation ladder (retry to restart to WoL to cloud failover to Uday); sentinel checks on every tier before acting; WhatsApp silence conditions; post-fix re-check verification; Audit Protocol Cause Elimination methodology; live-sync fixes (apply on detection not batch); global auto_fix_enabled toggle
+- [ ] **Phase 214: Bono Coordination** - AUTO_DETECT_ACTIVE mutex via relay (James + Bono both check); Bono failover gated on confirmed Tailscale offline (not relay timeout); delegation protocol (Bono checks James alive first); post-recovery sync (Bono deactivates cloud failover, syncs findings); simultaneous dry-run verification confirming only one agent writes lock
+- [ ] **Phase 215: Self-Improving Intelligence** - suggestions.jsonl pattern tracker (bug type, frequency, fix applied, success); suggestion engine with evidence + confidence score; 6-category auto-classification; trend analysis (statistical outliers per pod vs fleet average); approved-sync to standing-rules-registry.json / suppress.json / APPROVED_FIXES; suggestion inbox API or Markdown report; self-patch loop (modify own scripts + commit + push + notify); self-patch Cause Elimination methodology + auto-revert on failed verification; self_patch_enabled toggle independent of auto_fix_enabled
+- [ ] **Phase 216: Pipeline Self-Test Suite** - Integration tests for each of the 6 auto-detect.sh steps independently; injected anomaly fixtures (fake config drift, fake log anomaly, fake build mismatch) per detector; escalation ladder test with mocked pod responses verifying tier progression; Bono coordination test verifying mutex acquisition and delegation protocol
+
+## Phase Details (v26.0)
+
+### Phase 211: Safe Scheduling Foundation
+**Goal**: The auto-detect pipeline runs on schedule without human intervention and is safe from its first execution — no fix action fires without checking billing state, sentinel files, and escalation cooldown
+**Depends on**: Nothing (first v26.0 phase; foundation scripts already exist)
+**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05
+**Success Criteria** (what must be TRUE):
+  1. At 02:30 IST James machine starts auto-detect.sh via Task Scheduler without any human trigger — confirmed by next-morning log entry in the result directory
+  2. A second manual trigger while auto-detect is already running exits immediately with "already running" and does not start a parallel execution — the PID lock file is the only gate required
+  3. When OTA_DEPLOYING or MAINTENANCE_MODE sentinels are present, no fix action fires against any pod — auto-detect logs "sentinel active, skipping fix" and continues to the detection-only report
+  4. After a WhatsApp alert fires for a given pod+issue combination, the same combination does not produce another alert for 6 hours — confirmed by triggering the same issue twice within the window
+  5. When triggered during venue-open hours, auto-detect runs in quick mode with shorter per-pod timeouts and does not attempt fix actions that require pod idle state
+**Plans**: TBD
+
+### Phase 212: Detection Expansion
+**Goal**: The auto-detect pipeline detects config drift, bat file regression, log anomalies, crash loops, flag desync, and schema gaps — every detection traces to a documented historical incident
+**Depends on**: Phase 211 (detection modules sourced into auto-detect.sh inherit Phase 211 safety infrastructure)
+**Requirements**: DET-01, DET-02, DET-03, DET-04, DET-05, DET-06, DET-07
+**Success Criteria** (what must be TRUE):
+  1. When a pod racecontrol.toml has ws_connect_timeout below 600ms or an incorrect app_health URL port, config-drift.sh reports a FAIL finding with the specific key and observed vs expected values — not just "config mismatch"
+  2. When a pod start-rcagent.bat checksum differs from the repo canonical version, bat drift detection flags that pod with the specific hash mismatch — a deliberately stale bat on Pod 8 produces a finding before the fleet-wide check
+  3. When a pod JSONL log has more than 10 ERROR or PANIC lines in the last hour, log-anomaly.sh flags that pod — a test file with 15 injected ERROR lines triggers detection; a file with 5 does not
+  4. A pod with more than 3 rc-agent restarts in 30 minutes is flagged as crash-loop — the detection reads JSONL restart timestamps, not process count alone
+  5. When any two pods have a different set of enabled feature flags, DET-05 reports the specific flag name and which pods diverge — not just "flags out of sync"
+**Plans**: TBD
+
+### Phase 213: Self-Healing & Escalation
+**Goal**: Detected issues trigger graduated, sentinel-aware fix attempts ending in human escalation only when automation is exhausted — and every fix action is verifiable, togglable, and follows documented methodology
+**Depends on**: Phase 212 (fix engine operates on detection outputs; detection modules must be stable first)
+**Requirements**: HEAL-01, HEAL-02, HEAL-03, HEAL-04, HEAL-05, HEAL-06, HEAL-07, HEAL-08
+**Success Criteria** (what must be TRUE):
+  1. A pod failing health checks progresses through retry, restart, WoL, cloud failover in sequence — each tier logs its action and outcome before advancing; no tier is skipped
+  2. Before any escalation tier fires, the system checks OTA_DEPLOYING and MAINTENANCE_MODE sentinels — a pod with MAINTENANCE_MODE active stops escalation at the current tier with a "sentinel block" log entry
+  3. Uday receives a WhatsApp message only when: (a) a fix attempt failed after all automated tiers, or (b) 3+ pods are affected simultaneously — clean runs and QUIET findings produce no message
+  4. Every auto-fix is followed within 60 seconds by a re-check of the specific condition that triggered it — the fix log entry shows both "fix applied" and "verification: PASS/FAIL"
+  5. Setting auto_fix_enabled = false causes the next auto-detect run to produce a full detection report with no fix actions applied — the toggle is honored without restarting the pipeline
+**Plans**: TBD
+
+### Phase 214: Bono Coordination
+**Goal**: James and Bono never fix the same pod concurrently — Bono acts independently only when James is confirmed down, and re-coordinates the moment James recovers
+**Depends on**: Phase 213 (coordination is only needed when both agents have fix capability — detect-only Bono failover was already safe before Phase 213)
+**Requirements**: COORD-01, COORD-02, COORD-03, COORD-04
+**Success Criteria** (what must be TRUE):
+  1. When James is running auto-detect with AUTO_DETECT_ACTIVE written, Bono reads that lock via relay and defers its run — confirmed by a test where both are triggered within the same window and only one AUTO_DETECT_ACTIVE entry appears in the relay log
+  2. Bono failover activation requires confirmed Tailscale offline status — a relay timeout alone without pinging 100.125.108.37 does not trigger independent fix actions; Bono logs "relay timeout, confirming Tailscale" before deciding
+  3. When James completes a run, Bono next check reads the completion marker and skips its own run — the completion marker is visible in INBOX.md or a relay-accessible state file
+  4. After James recovers from a downtime window where Bono acted independently, Bono writes its findings to the shared findings channel and stops cloud-side fixes — the handoff is confirmed by a log entry on both sides
+**Plans**: TBD
+
+### Phase 215: Self-Improving Intelligence
+**Goal**: Every auto-detect run contributes to a growing record of patterns that the system uses to propose and autonomously apply improvements to its own detection and fix coverage
+**Depends on**: Phase 213 (self-patch modifies detection + fix scripts; those must be stable and verified first); Phase 214 (self-patch commits and pushes — Bono coordination must be in place before the system self-modifies)
+**Requirements**: LEARN-01, LEARN-02, LEARN-03, LEARN-04, LEARN-05, LEARN-06, LEARN-07, LEARN-08, LEARN-09
+**Success Criteria** (what must be TRUE):
+  1. After 5 consecutive runs, suggestions.jsonl contains entries with bug type, pod, frequency, fix applied, and success fields — the file grows by at least one entry per run when findings exist
+  2. A pod that has had its MAINTENANCE_MODE sentinel cleared 4x more than the fleet average appears as a TREND_OUTLIER finding in the suggestion report — the threshold is configurable in the detection config
+  3. An approved suggestion with category "threshold_tune" is applied to the relevant detector script, committed, pushed, and a notification sent — confirmed by checking git log after approval
+  4. The suggestion inbox is readable via the relay exec API with command get_suggestions or equivalent — returns current pending suggestions as JSON
+  5. When self-patch modifies a detector script and the re-run does not confirm the fix works, the change is automatically reverted and a "self-patch reverted" log entry is written — the revert is confirmed by checking git log showing the revert commit
+**Plans**: TBD
+
+### Phase 216: Pipeline Self-Test Suite
+**Goal**: Every detector and escalation tier can be verified against known-good and known-bad inputs without touching live infrastructure — the test suite confirms that detection is correct before each production run
+**Depends on**: Phase 215 (tests validate stable behavior; building tests before detection functions are finalized causes constant test churn)
+**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04
+**Success Criteria** (what must be TRUE):
+  1. Running `bash audit/test/test-auto-detect.sh` executes tests for each of the 6 auto-detect.sh pipeline steps and reports PASS/FAIL per step — a deliberate break in one step fails only that step test, not the whole suite
+  2. Injecting a fake JSONL file with 15 ERROR lines triggers the log-anomaly detector in test mode; injecting one with 5 does not — both cases produce the correct PASS/FAIL classification without touching a real pod
+  3. The escalation ladder test confirms that a mocked pod that never recovers progresses through all 5 tiers in order — the test verifies tier ordering, not just that "escalation ran"
+  4. The Bono coordination test verifies that when both agents attempt to acquire AUTO_DETECT_ACTIVE simultaneously, exactly one succeeds and the other logs "deferred to active agent" — race condition protection confirmed without a live Bono instance
+**Plans**: TBD
+
+## v26.0 Progress
+
+**Execution Order:** 211 -> 212 -> 213 -> 214 -> 215 -> 216
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 211. Safe Scheduling Foundation | 0/0 | Not started | - |
+| 212. Detection Expansion | 0/0 | Not started | - |
+| 213. Self-Healing & Escalation | 0/0 | Not started | - |
+| 214. Bono Coordination | 0/0 | Not started | - |
+| 215. Self-Improving Intelligence | 0/0 | Not started | - |
+| 216. Pipeline Self-Test Suite | 0/0 | Not started | - |
