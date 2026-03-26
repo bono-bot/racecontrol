@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 212-detection-expansion/212-02-PLAN.md
-last_updated: "2026-03-26T07:38:16.847Z"
+stopped_at: Completed 198-on-track-billing/198-03-PLAN.md
+last_updated: "2026-03-26T07:44:40.911Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
-  completed_phases: 138
+  completed_phases: 139
   total_plans: 332
-  completed_plans: 327
+  completed_plans: 328
   percent: 98
 ---
 
@@ -99,6 +99,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 198-on-track-billing]: BILL-10 error path drops mp lock before acquiring waiting_for_game — consistent lock ordering prevents deadlock
 - [Phase 212-detection-expansion]: DET-04 reads JSONL (not startup.log) -- startup.log truncates on restart making historical restart count impossible
 - [Phase 212-detection-expansion]: DET-06 cloud DB check uses SSH (not relay) -- relay dispatches to registered commands only, not raw shell exec
+- [Phase 198-on-track-billing]: 4 billing tests for BILL-05/06/10/12: waiting_for_game_tick_broadcasts, cancelled_no_playable_on_timeout, multiplayer_db_query_failure_preserves_waiting_entry, configurable_billing_timeouts — all 82 billing tests pass
 
 ### Pending Todos
 
@@ -112,6 +113,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T07:30:23.199Z
-Stopped at: Completed 212-detection-expansion/212-02-PLAN.md
+Last session: 2026-03-26T07:44:40.897Z
+Stopped at: Completed 198-on-track-billing/198-03-PLAN.md
 Resume file: None
