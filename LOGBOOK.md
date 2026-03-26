@@ -912,3 +912,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 15:29 IST | James | e253c7d0 | feat(216-01): test-auto-detect.sh 18/18 pass + grep -oP portability fix in 3 detectors |
 | 2026-03-26 15:29 IST | James | 62417b12 | docs(216-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated |
 | 2026-03-26 15:40 IST | James | 8d99bf70 | feat(200-02): alternatives + launch matrix API endpoints (INTEL-03, INTEL-04) — GET /api/v1/games/alternatives + GET /api/v1/admin/launch-matrix, 6 TDD tests, 556 suite pass |
+| 2026-03-26 15:54 IST | James | d0eda730 | test(216-02): test-escalation.sh -- 6 tier ordering tests (TEST-03) |
+| 2026-03-26 15:54 IST | James | 3a612807 | test(216-02): test-coordination.sh + test-auto-detect.sh --all (TEST-04) |
+| 2026-03-26 15:54 IST | James | bc4955e0 | docs(216-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated |
