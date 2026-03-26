@@ -3565,7 +3565,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 211. Safe Scheduling Foundation | 2/2 | Complete    | 2026-03-26 |
-| 212. Detection Expansion | 0/0 | Not started | - |
+| 212. Detection Expansion | 1/2 | In Progress|  |
 | 213. Self-Healing & Escalation | 0/0 | Not started | - |
 | 214. Bono Coordination | 0/0 | Not started | - |
 | 215. Self-Improving Intelligence | 0/0 | Not started | - |
