@@ -3237,7 +3237,7 @@ Plans:
 | 194. Pod ID Normalization | 1/1 | Complete    | 2026-03-25 |
 | 195. Metrics Foundation | 3/3 | Complete    | 2026-03-25 |
 | 196. Game Launcher Structural Rework | 2/2 | Complete    | 2026-03-26 |
-| 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
+| 197. Launch Resilience & AC Hardening | 1/2 | In Progress|  |
 | 198. On-Track Billing | 0/0 | Not started | - |
 | 199. Crash Recovery | 0/0 | Not started | - |
 | 200. Self-Improving Intelligence | 0/0 | Not started | - |
@@ -3351,7 +3351,7 @@ Plans:
   2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
   3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
-**Plans:** 2/2 plans complete
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
@@ -3393,10 +3393,11 @@ Plans:
   2. rc-agent loading a TOML file with an SSH banner prepended logs the first 3 lines of the file alongside a VerificationError::TransformError -- not a silent fallback to defaults
   3. Process guard fetching an empty allowlist from /api/v1/guard/whitelist/pod-{N} produces VerificationError::InputParseError("empty allowlist with guard enabled") and auto-switches to report_only -- the error names the HTTP step that succeeded but the semantic validation that failed
   4. rc-sentry spawn() returning Ok for rc-agent relaunch is followed by a 500ms PID liveness check and a 10s health endpoint poll -- if either fails, VerificationError::ActionError is logged and spawn is retried
-**Plans:** 2/2 plans complete
+**Plans:** 3 plans (2 complete + 1 gap closure)
 Plans:
 - [ ] 208-01-PLAN.md -- Pod healer curl parse chain + config TOML load chains (COV-02, COV-03)
 - [ ] 208-02-PLAN.md -- Allowlist enforcement chain + spawn verification chain (COV-04, COV-05)
+- [ ] 208-03-PLAN.md -- Gap closure: config TransformError on default fallback (COV-03) + spawn retry on failure (COV-05)
 
 ### Phase 209: Pre-Ship Gate and Process Tooling
 **Goal**: Every deploy passes through a domain-matched verification gate that cannot be satisfied by health endpoints alone for visual or parse changes -- and every non-trivial bug fix follows the Cause Elimination Process before being declared fixed
