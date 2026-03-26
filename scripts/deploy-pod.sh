@@ -142,6 +142,30 @@ deploy_pod() {
         return
     fi
 
+    # Sync canonical bat files (BAT-04: deploy-pod.sh includes bat sync step)
+    info "$POD_NAME: Syncing bat files..."
+    if [ -f "${BINARY_DIR}/start-rcagent.bat" ]; then
+        local BAT_DL
+        BAT_DL=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "Content-Type: application/json" \
+            -d "{\"cmd\":\"curl -s -o C:/RacingPoint/start-rcagent.bat http://${JAMES_IP}:${SERVE_PORT}/start-rcagent.bat & echo BAT_SYNCED\"}" 2>/dev/null || echo "")
+        if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
+            pass "$POD_NAME: start-rcagent.bat synced"
+        else
+            info "$POD_NAME: start-rcagent.bat sync failed (non-fatal)"
+        fi
+    fi
+    if [ -f "${BINARY_DIR}/start-rcsentry.bat" ]; then
+        BAT_DL=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "Content-Type: application/json" \
+            -d "{\"cmd\":\"curl -s -o C:/RacingPoint/start-rcsentry.bat http://${JAMES_IP}:${SERVE_PORT}/start-rcsentry.bat & echo BAT_SYNCED\"}" 2>/dev/null || echo "")
+        if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
+            pass "$POD_NAME: start-rcsentry.bat synced"
+        else
+            info "$POD_NAME: start-rcsentry.bat sync failed (non-fatal)"
+        fi
+    fi
+
     # Start
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
         -H "Content-Type: application/json" \
@@ -160,6 +184,17 @@ deploy_pod() {
         pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} matches expected"
     else
         pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} (no expected build_id to compare)"
+    fi
+
+    # Verify bat sync (post-deploy)
+    if [ -f "${SCRIPT_DIR}/bat-scanner.sh" ]; then
+        source "${SCRIPT_DIR}/bat-scanner.sh" 2>/dev/null
+        local POD_NUM="${POD_NAME#pod-}"
+        if bat_scan_pod "$POD_NUM" "start-rcagent.bat" "${SCRIPT_DIR}/deploy/start-rcagent.bat" >/dev/null 2>&1; then
+            pass "$POD_NAME: bat file verified (post-deploy match)"
+        else
+            info "$POD_NAME: bat file verification skipped or drift detected"
+        fi
     fi
 }
 
@@ -209,6 +244,10 @@ if [ -d "${REPO_DIR}/.git" ]; then
         fi
     fi
 fi
+
+# Copy canonical bat files to serve directory for bat sync during deploy
+cp "${SCRIPT_DIR}/deploy/start-rcagent.bat" "${BINARY_DIR}/" 2>/dev/null || true
+cp "${SCRIPT_DIR}/deploy/start-rcsentry.bat" "${BINARY_DIR}/" 2>/dev/null || true
 
 # Start HTTP server
 info "Starting HTTP file server on :${SERVE_PORT}..."

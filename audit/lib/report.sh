@@ -360,6 +360,63 @@ generate_report() {
     printf '_No auto-fix actions taken._\n\n' >> "$tmp_report"
   fi
 
+  # v25.0 Debug Quality section (phases 61-65)
+  {
+    printf '## v25.0 Debug Quality\n\n'
+  } >> "$tmp_report"
+
+  # Check if any phase 61-65 results exist
+  local has_debug_phases
+  has_debug_phases=$(jq '[.[] | select(.phase == "61" or .phase == "62" or .phase == "63" or .phase == "64" or .phase == "65")] | length' "$tmp_all" 2>/dev/null || echo "0")
+
+  if [ "${has_debug_phases:-0}" -gt 0 ]; then
+    {
+      printf '| Pod | Bat Drift | Config Fallback | Boot Resilience | Sentinel Wiring | Verification Chains |\n'
+      printf '|-----|-----------|-----------------|-----------------|-----------------|---------------------|\n'
+    } >> "$tmp_report"
+
+    local fully_instrumented=0
+    for _pod_num in 1 2 3 4 5 6 7 8; do
+      local bat_status config_status boot_status sentinel_status chain_status
+      # Phase 61: bat drift (per-pod host = pod-N-bat-drift)
+      bat_status=$(jq -r --arg host "pod-${_pod_num}-bat-drift" \
+        '[.[] | select(.phase == "61" and .host == $host)] | .[0].status // "N/A"' "$tmp_all" 2>/dev/null || echo "N/A")
+      # Phase 62: config fallback (per-pod host = pod-<ip_suffix>-config-fallback)
+      local _ip_suffix
+      case "$_pod_num" in
+        1) _ip_suffix="89" ;; 2) _ip_suffix="33" ;; 3) _ip_suffix="28" ;; 4) _ip_suffix="88" ;;
+        5) _ip_suffix="86" ;; 6) _ip_suffix="87" ;; 7) _ip_suffix="38" ;; 8) _ip_suffix="91" ;;
+      esac
+      config_status=$(jq -r --arg host "pod-${_ip_suffix}-config-fallback" \
+        '[.[] | select(.phase == "62" and .host == $host)] | .[0].status // "N/A"' "$tmp_all" 2>/dev/null || echo "N/A")
+      # Phase 63: boot resilience (per-pod host = pod-<ip_suffix>-boot-resilience)
+      boot_status=$(jq -r --arg host "pod-${_ip_suffix}-boot-resilience" \
+        '[.[] | select(.phase == "63" and .host == $host)] | .[0].status // "N/A"' "$tmp_all" 2>/dev/null || echo "N/A")
+      # Phase 64: sentinel wiring (fleet-level, not per-pod)
+      sentinel_status=$(jq -r \
+        '[.[] | select(.phase == "64")] | .[0].status // "N/A"' "$tmp_all" 2>/dev/null || echo "N/A")
+      # Phase 65: verification chains (server-level, not per-pod)
+      chain_status=$(jq -r \
+        '[.[] | select(.phase == "65")] | .[0].status // "N/A"' "$tmp_all" 2>/dev/null || echo "N/A")
+
+      printf '| %s   | %s      | %s            | %s            | %s            | %s                |\n' \
+        "$_pod_num" "$bat_status" "$config_status" "$boot_status" "$sentinel_status" "$chain_status" >> "$tmp_report"
+
+      # Count fully instrumented pods (all 5 checks PASS)
+      if [ "$bat_status" = "PASS" ] && [ "$config_status" = "PASS" ] && [ "$boot_status" = "PASS" ] \
+         && [ "$sentinel_status" = "PASS" ] && [ "$chain_status" = "PASS" ]; then
+        fully_instrumented=$((fully_instrumented + 1))
+      fi
+    done
+
+    {
+      printf '\n'
+      printf 'Debug Quality: %s/8 pods fully instrumented\n\n' "$fully_instrumented"
+    } >> "$tmp_report"
+  else
+    printf '_No v25.0 debug quality results (phases 61-65 not executed in this run)._\n\n' >> "$tmp_report"
+  fi
+
   # Footer
   {
     printf '%s\n' '---'
