@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub venue: VenueConfig,
     pub server: ServerConfig,
@@ -51,7 +51,7 @@ pub struct GmailConfig {
 
 fn default_gmail_from() -> String { "james@racingpoint.in".to_string() }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct VenueConfig {
     pub name: String,
     #[serde(default = "default_location")]
@@ -60,7 +60,7 @@ pub struct VenueConfig {
     pub timezone: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     #[serde(default = "default_host")]
     pub host: String,
@@ -77,13 +77,13 @@ pub struct ServerConfig {
     pub key_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
     #[serde(default = "default_db_path")]
     pub path: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CloudConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -115,7 +115,7 @@ pub struct CloudConfig {
     pub origin_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PodsConfig {
     #[serde(default = "default_pod_count")]
     pub count: u32,
@@ -141,7 +141,7 @@ impl Default for PodsConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct StaticPodConfig {
     pub number: u32,
     pub name: String,
@@ -149,7 +149,7 @@ pub struct StaticPodConfig {
     pub sim: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct BrandingConfig {
     pub logo: Option<String>,
     #[serde(default = "default_color")]
@@ -158,7 +158,7 @@ pub struct BrandingConfig {
     pub theme: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct IntegrationsConfig {
     #[serde(default)]
     pub discord: DiscordConfig,
@@ -166,13 +166,13 @@ pub struct IntegrationsConfig {
     pub whatsapp: WhatsAppConfig,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct DiscordConfig {
     pub webhook_url: Option<String>,
     pub results_channel: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct WhatsAppConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -187,7 +187,7 @@ pub struct WhatsAppConfig {
     pub marketing_instance: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AiDebuggerConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -224,7 +224,7 @@ impl Default for AiDebuggerConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AcServerConfig {
     #[serde(default = "default_acserver_path")]
     pub acserver_path: String,
@@ -243,7 +243,7 @@ impl Default for AcServerConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AuthConfig {
     #[serde(default = "default_jwt_secret")]
     pub jwt_secret: String,
@@ -319,7 +319,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct WatchdogConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -361,7 +361,7 @@ impl Default for WatchdogConfig {
 }
 
 /// Configuration for server-side monitoring and alerting.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MonitoringConfig {
     /// Number of ERROR events in window that triggers alert (default: 5)
     #[serde(default = "default_error_rate_threshold")]
@@ -393,7 +393,7 @@ impl Default for MonitoringConfig {
 }
 
 /// Configuration for WhatsApp P0 alerting to Uday.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AlertingConfig {
     /// Enable WhatsApp P0 alerting (default: false)
     #[serde(default)]
@@ -410,7 +410,7 @@ fn default_alert_cooldown() -> u64 { 1800 }
 // ─── Cafe Config ─────────────────────────────────────────────────────────────
 
 /// Configuration for cafe-related features.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CafeConfig {
     /// Path to the Node.js thermal receipt print script.
     /// If None, thermal printing is silently skipped.
@@ -495,7 +495,7 @@ fn default_violation_action() -> String { "report_only".to_string() }
 
 /// Configuration for the Bono relay: event push to Bono's VPS over Tailscale mesh,
 /// and inbound relay endpoint for commands from Bono's cloud.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct BonoConfig {
     /// Set to true to enable Bono event push and relay endpoint.
     #[serde(default)]
@@ -600,9 +600,14 @@ impl VerifyStep for StepValidateCriticalFields {
             fallbacks.push("database.path");
         }
         if !fallbacks.is_empty() {
-            // Log warning but don't fail — field-level validation is best-effort
-            // Using eprintln because tracing may not be initialized during config load
+            // COV-03: Emit TransformError through chain for tracing span capture.
+            // Config is still usable — caller catches this as non-fatal warning.
+            // Using eprintln as well because tracing may not be initialized during config load.
             eprintln!("[config_validate] fields at default values: {:?}", fallbacks);
+            return Err(VerificationError::TransformError {
+                step: self.name().to_string(),
+                raw_value: format!("fields_at_default={:?}", fallbacks),
+            });
         }
         Ok(input)
     }
@@ -644,16 +649,20 @@ impl Config {
                     match chain.execute_step(&StepConfigTomlParse, (content, path_display.clone())) {
                         Ok(mut config) => {
                             config.apply_env_overrides();
-                            // Step 3: Validate critical fields
-                            match chain.execute_step(&StepValidateCriticalFields, config) {
+                            // Step 3: Validate critical fields (non-fatal — TransformError means config is usable but has defaults)
+                            let validated_config = chain.execute_step(&StepValidateCriticalFields, config.clone());
+                            match validated_config {
                                 Ok(config) => {
                                     eprintln!("[config] Loaded config from {}", path_display);
                                     tracing::info!("Loaded config from {}", path_display);
                                     return config;
                                 }
                                 Err(e) => {
-                                    // Field validation is warn-only, not fatal — fall through to try next path
-                                    tracing::warn!(target: "state", error = %e, "config field validation failed — trying next path");
+                                    // COV-03: TransformError flows through chain tracing span for structured logging.
+                                    // Config is still usable — proceed with it but warn.
+                                    tracing::warn!(target: "state", error = %e, path = %path_display, "config field validation detected default fallbacks — using config anyway");
+                                    eprintln!("[config] Loaded config from {} (with field validation warnings)", path_display);
+                                    return config;
                                 }
                             }
                         }
