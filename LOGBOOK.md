@@ -881,3 +881,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 12:30 IST | James | e9558961 | feat(198-01): AC False-Live guard (5s speed+steer) + process fallback crash guard (BILL-01/02/08) |
 | 2026-03-26 12:30 IST | James | d10ae5f6 | docs(198-01): 198-01-SUMMARY.md + STATE.md + ROADMAP.md - Phase 198 Plan 01 complete |
 2026-03-26 07:25 IST | James | 73e1e22f | 212-01: cascade.sh DET-07 framework + DET-01/02/03 detector scripts wired into auto-detect.sh step 4
+| 2026-03-26 12:46 IST | James | f5189125 | feat(198-02): WaitingForGame BillingTick broadcast + cancelled_no_playable records + PausedGamePause sync (BILL-05/06/07) |
+| 2026-03-26 12:47 IST | James | f9b7be6b | feat(198-02): single Utc::now(), multiplayer DB error rejection, configurable timeouts (BILL-09/10/11/12) |
+| 2026-03-26 12:48 IST | James | f2dc6b28 | docs(198-02): 198-02-SUMMARY.md + STATE.md + ROADMAP.md - Phase 198 Plan 02 complete |
