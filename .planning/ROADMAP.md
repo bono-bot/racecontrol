@@ -2944,7 +2944,8 @@ Plans:
 
 - [x] **Phase 189: Core Scaffold and Shared Primitives** - audit.sh entry point, lib/core.sh with all safe wrapper functions, JSON schema, auth token acquisition, prerequisites check
  (completed 2026-03-25)
-- [x] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors (completed 2026-03-25)
+- [x] **Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)** - Port v3.0 phases 1-34 as non-interactive bash functions; sequential execution baseline; mode and tier selectors
+ (completed 2026-03-25)
 - [x] **Phase 191: Parallel Engine and Phase Scripts Tiers 10-18** - lib/parallel.sh with file-based semaphore; port v3.0 phases 35-60; audit runtime reduced from ~24 min to ~6 min (completed 2026-03-25)
 - [x] **Phase 192: Intelligence Layer** - Delta tracking, known-issue suppression with expiry, severity scoring, Markdown report generation, results storage (completed 2026-03-25)
 - [x] **Phase 193: Auto-Fix, Notifications, and Results Management** - Safe auto-fix engine with whitelist, Bono/WhatsApp notifications, git commit of results (completed 2026-03-25)
@@ -3355,7 +3356,10 @@ Plans:
   3. Starting rc-agent with process_guard enabled but an empty allowlist produces an `error!` log via eprintln! before tracing init, writes EMPTY_ALLOWLIST to startup_log, and auto-switches to report_only mode -- verified by starting with a fresh DB
   4. Creating or deleting any sentinel file in C:\RacingPoint\ causes a SentinelChange WebSocket message to arrive at racecontrol, and /api/v1/fleet/health response includes active_sentinels field listing current sentinels -- verified via curl after writing a test sentinel
   5. rc-sentry watchdog.rs FSM transitions from Healthy to Suspect(N) produce a RecoveryLogger entry on EVERY transition (not just on Crashed) -- verified by reading JSONL after triggering a suspect count increment
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 206-01-PLAN.md -- Config fallback logging, empty allowlist auto-response, FSM transition logging
+- [ ] 206-02-PLAN.md -- Sentinel file watcher, SentinelChange WS protocol, fleet health active_sentinels, MAINTENANCE_MODE WhatsApp alert
 
 ### Phase 207: Boot Resilience
 **Goal**: Any resource fetched at startup that fails to load due to server transience self-heals within one re-fetch cycle -- no resource stays at its boot-time default indefinitely
@@ -3410,7 +3414,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
-| 206. Observable State Transitions | 0/0 | Not started | - |
+| 206. Observable State Transitions | 0/2 | Planning complete | - |
 | 207. Boot Resilience | 0/0 | Not started | - |
 | 208. Chain Verification Integration | 0/0 | Not started | - |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
