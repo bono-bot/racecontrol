@@ -873,3 +873,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 IST | James | 78ee25fc | feat(211.1-02): VenueShutdownResponse type + api.venueShutdown() method with 150s timeout |
 | 2026-03-26 IST | James | 250defa2 | feat(211.1-02): /shutdown kiosk page -- PIN gate, state machine (6 states), audit progress, blocked/error UI, nav from /staff |
 | 2026-03-26 IST | James | 1f84deb5 | docs(211.1-02): SUMMARY + STATE updated, 211.1 plan progress 2/3 |
+| 2026-03-26 06:54 IST | James | aa3fbc54 | feat(211.1-03): boot-time-fix.sh - reads pre-shutdown findings, applies APPROVED_FIXES, notifies Bono |
+| 2026-03-26 06:54 IST | James | 41a2154a | feat(211.1-03): Bono fallback in venue_shutdown_handler - James offline -> Bono relay -> pod shutdown -> server self-shutdown |
+| 2026-03-26 06:54 IST | James | 7938db0c | docs(211.1-03): SUMMARY.md + STATE.md + ROADMAP.md - Phase 211.1 Complete 3/3 |
