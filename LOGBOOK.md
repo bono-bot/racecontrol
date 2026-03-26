@@ -870,3 +870,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 12:12 IST | James | 57125543 | feat(211.1-01): POST /api/v1/venue/shutdown -- billing drain + SSH audit gate + ordered shutdown trigger |
 | 2026-03-26 12:12 IST | James | db6df3b1 | feat(211.1-01): venue-shutdown.sh -- pods parallel -> POS SSH -> server Tailscale SSH -> Bono notify |
 | 2026-03-26 12:12 IST | James | 5b04bfa9 | docs(211.1-01): SUMMARY + STATE updated, 211.1 plan progress 1/3 |
+| 2026-03-26 IST | James | 78ee25fc | feat(211.1-02): VenueShutdownResponse type + api.venueShutdown() method with 150s timeout |
+| 2026-03-26 IST | James | 250defa2 | feat(211.1-02): /shutdown kiosk page -- PIN gate, state machine (6 states), audit progress, blocked/error UI, nav from /staff |
+| 2026-03-26 IST | James | 1f84deb5 | docs(211.1-02): SUMMARY + STATE updated, 211.1 plan progress 2/3 |
