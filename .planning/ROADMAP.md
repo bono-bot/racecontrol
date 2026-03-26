@@ -3122,7 +3122,10 @@ Plans:
   9. **INVALID JSON**: Send launch_args with malformed JSON `{"corrupt` -- launch REJECTED with parse error. Content validation NOT bypassed. Verify: HTTP 400, no game tracker created
   10. **BROADCAST RELIABILITY**: dashboard_tx.send() failure logged at warn level -- `grep "dashboard broadcast failed" server.log` shows warning when channel is full. Event not silently dropped
   11. **EXTERNALLY TRACKED**: Restart server while game is running on pod -- agent reports Running, tracker created with `externally_tracked=true` and `launch_args=None`. Auto-relaunch knows it cannot retry this game
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 196-01-PLAN.md — GameLauncherImpl trait + billing gate fixes + JSON validation
+- [ ] 196-02-PLAN.md — State machine fixes + broadcast reliability + feature flag gate
 
 ### Phase 197: Launch Resilience & AC Hardening
 **Goal**: Game launches are resilient with dynamic timeouts tuned from historical data, pre-launch health checks, structured error taxonomy, auto-retry with clean state reset, and AC-specific reliability improvements -- launch failures recover automatically in under 60 seconds
@@ -3230,7 +3233,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 194. Pod ID Normalization | 1/1 | Complete    | 2026-03-25 |
 | 195. Metrics Foundation | 3/3 | Complete    | 2026-03-25 |
-| 196. Game Launcher Structural Rework | 0/0 | Not started | - |
+| 196. Game Launcher Structural Rework | 0/2 | Planning complete | - |
 | 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
 | 198. On-Track Billing | 0/0 | Not started | - |
 | 199. Crash Recovery | 0/0 | Not started | - |
@@ -3309,7 +3312,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 202. Config Validation & Structural Fixes | 2/2 | Complete    | 2026-03-26 |
-| 203. Deep Service Verification | 2/2 | Complete   | 2026-03-26 |
+| 203. Deep Service Verification | 2/2 | Complete    | 2026-03-26 |
 | 204. Cross-Service & UI End-to-End | 0/0 | Not started | - |
 
 
