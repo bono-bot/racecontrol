@@ -328,6 +328,7 @@ pub async fn run(
                                         // Off: clear False-Live guard, arm 30s grace timer
                                         conn.ac_live_since = None;
                                         conn.ac_live_has_input = false;
+                                        // EXIT-GRACE-GUARD-1/2: verified — crash recovery blocks exit grace (RECOVER-07)
                                         if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
                                             tracing::info!(target: LOG_TARGET, "AcStatus::Off detected — arming 30s exit grace timer (AC)");
                                             conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
@@ -645,6 +646,7 @@ pub async fn run(
                                 tracing::info!(target: LOG_TARGET, "Game exited with no active billing — enforcing safe state");
                                 // Arm exit grace timer so server gets AcStatus::Off after 30s
                                 // (handles non-AC sims that don't have shared memory Off signal)
+                                // EXIT-GRACE-GUARD-2/2: verified — crash recovery blocks exit grace (RECOVER-07)
                                 if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
                                     let exited_sim = conn.current_sim_type;
                                     if exited_sim != Some(rc_common::types::SimType::AssettoCorsa) {
@@ -1126,10 +1128,20 @@ pub async fn run(
 
             // ─── Safe Mode: cooldown expiry timer (SAFE-03) ─────────────────
             _ = &mut state.safe_mode_cooldown_timer, if state.safe_mode_cooldown_armed => {
-                state.safe_mode_cooldown_armed = false;
-                state.safe_mode.exit();
-                state.safe_mode_active.store(false, std::sync::atomic::Ordering::Relaxed);
-                tracing::info!(target: LOG_TARGET, "Safe mode cooldown expired — safe mode DEACTIVATED");
+                // RECOVER-07: Do not deactivate safe mode while crash recovery is in progress.
+                // Re-arm the cooldown for another 30s — will re-check when it fires again.
+                // cooldown suppressed — crash recovery in progress
+                if matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
+                    tracing::info!(target: LOG_TARGET, "Safe mode cooldown suppressed — crash recovery in progress (PausedWaitingRelaunch)");
+                    state.safe_mode_cooldown_timer.as_mut().reset(
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(30)
+                    );
+                } else {
+                    state.safe_mode_cooldown_armed = false;
+                    state.safe_mode.exit();
+                    state.safe_mode_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                    tracing::info!(target: LOG_TARGET, "Safe mode cooldown expired — safe mode DEACTIVATED");
+                }
             }
 
             _ = &mut conn.exit_grace_timer, if conn.exit_grace_armed => {
@@ -1434,6 +1446,10 @@ pub async fn run(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         tracing::debug!(target: LOG_TARGET, "Received from core: {}", text);
+                        // WS messages dispatched to ws_handler::handle_ws_message.
+                        // RECOVER-01: LaunchGame { force_clean: true } triggers clean_state_reset()
+                        // before game spawn — see ws_handler.rs CoreToAgentMessage::LaunchGame arm.
+                        // force_clean is set by Race Engineer and relaunch_game() paths only.
                         match crate::ws_handler::handle_ws_message(
                             &text,
                             state,
