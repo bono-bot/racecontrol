@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 210-startup-enforcement-and-fleet-audit/210-01-PLAN.md
-last_updated: "2026-03-26T06:53:08.550Z"
+stopped_at: Completed 211.1-venue-shutdown-button/211.1-03-PLAN.md
+last_updated: "2026-03-26T06:54:00.207Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
-  completed_phases: 135
-  total_plans: 328
-  completed_plans: 321
+  completed_phases: 136
+  total_plans: 329
+  completed_plans: 322
   percent: 98
 ---
 
@@ -88,6 +88,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 211.1-venue-shutdown-button]: Shutdown page blocks on api.venueShutdown() (up to 150s timeout) while audit runs server-side — no polling, single long request
 - [Phase 211.1-venue-shutdown-button]: audit_blocked reason field drives user-facing message: billing_active shows session count, audit_failed shows truncated output, james_offline directs to Bono
 - [Phase 210]: timeout /nobreak not flagged (works in HKLM Run context); ConspitLink added to bloatware skip list
+- [Phase 211.1-venue-shutdown-button]: Bono fallback uses HTTP relay not SSH; both-offline returns actionable error; boot-time-fix archives findings with mv not delete
 
 ### Pending Todos
 
@@ -101,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:53:08.527Z
-Stopped at: Completed 210-startup-enforcement-and-fleet-audit/210-01-PLAN.md
+Last session: 2026-03-26T06:54:00.189Z
+Stopped at: Completed 211.1-venue-shutdown-button/211.1-03-PLAN.md
 Resume file: None
