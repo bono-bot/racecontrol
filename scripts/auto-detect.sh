@@ -61,6 +61,12 @@ if [[ -f "$SCRIPT_DIR/healing/escalation-engine.sh" ]]; then
   # shellcheck source=/dev/null
   source "$SCRIPT_DIR/healing/escalation-engine.sh"
 fi
+# COORD-01/04: Source coordination state module
+COORD_SOURCE="$SCRIPT_DIR/coordination/coord-state.sh"
+if [[ -f "$COORD_SOURCE" ]]; then
+  # shellcheck source=scripts/coordination/coord-state.sh
+  source "$COORD_SOURCE"
+fi
 FLEET_HEALTH_ENDPOINT="${SERVER_URL}/api/v1/fleet/health"
 export FLEET_HEALTH_ENDPOINT
 
@@ -109,6 +115,13 @@ _acquire_run_lock() {
 # shellcheck disable=SC2064
 trap "rm -f $PID_FILE" EXIT
 _acquire_run_lock
+# COORD-01: Write AUTO_DETECT_ACTIVE coordination lock
+if [[ $(type -t write_active_lock) == "function" ]]; then
+  write_active_lock
+fi
+# Extend trap to also clear coord lock on exit (replaces the initial trap above)
+# shellcheck disable=SC2064
+trap "rm -f $PID_FILE; clear_active_lock 2>/dev/null || true" EXIT
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log() {
@@ -591,6 +604,12 @@ Full report: $RESULT_DIR/auto-detect.log"
         done
       fi
     fi
+  fi
+
+  # COORD-04: Write completion marker for Bono skip-if-recent logic
+  if [[ $(type -t write_completion_marker) == "function" ]]; then
+    write_completion_marker "$verdict" "$BUGS_FOUND" "$BUGS_FIXED"
+    log INFO "Completion marker written: verdict=$verdict"
   fi
 
   # Return appropriate exit code
