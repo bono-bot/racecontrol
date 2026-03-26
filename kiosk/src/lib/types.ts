@@ -472,3 +472,13 @@ export interface DebugActivityData {
     error_message?: string;
   }[];
 }
+
+// --- Venue Shutdown ---
+export interface VenueShutdownResponse {
+  status: "shutting_down" | "blocked" | "error";
+  reason?: "billing_active" | "audit_failed" | "james_offline";
+  message: string;
+  active_sessions?: number;
+  exit_code?: number;
+  output?: string;
+}

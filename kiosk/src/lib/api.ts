@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse } from "./types";
 import type { RedeemPinResponse } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -410,6 +410,10 @@ export const api = {
     fetchApi<{ ok: boolean }>(`/pods/${id}/enable`, { method: "POST" }),
   disablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/disable`, { method: "POST" }),
+
+  // Venue Shutdown
+  venueShutdown: () =>
+    fetchApi<VenueShutdownResponse>("/venue/shutdown", { method: "POST" }),
 
   // Maintenance
   clearMaintenance: (podId: string) =>
