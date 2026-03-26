@@ -55,6 +55,28 @@ pub fn spawn(
             machine_id
         );
 
+        // OBS-03: Empty allowlist auto-response — detect misconfiguration before first scan
+        // If process_guard.enabled=true but the fetched whitelist has no allowed processes,
+        // auto-switch to report_only to prevent mass kills on a misconfigured pod.
+        {
+            let mut wl = whitelist.write().await;
+            if wl.processes.is_empty() && wl.autostart_keys.is_empty() && wl.violation_action == "kill_and_report" {
+                eprintln!("[process_guard] ERROR: process_guard.enabled=true but allowlist is EMPTY — auto-switching to report_only");
+                tracing::error!(
+                    target: "state",
+                    prev = "kill_and_report",
+                    next = "report_only",
+                    machine = %machine_id,
+                    "EMPTY_ALLOWLIST: process_guard enabled with empty allowlist — auto-switching to report_only to prevent mass kills"
+                );
+                crate::startup_log::write_phase("EMPTY_ALLOWLIST", "process_guard enabled with empty allowlist, auto-switched to report_only");
+                // Write the override directly into the shared whitelist so all scan paths see it
+                wl.violation_action = "report_only".to_string();
+            }
+        }
+        // Track whether the first scan has run (for >50% threshold check)
+        let mut first_scan_done = false;
+
         let mut scan_interval =
             tokio::time::interval(Duration::from_secs(config.scan_interval_secs));
         let mut audit_interval = tokio::time::interval(Duration::from_secs(300)); // 5 min
@@ -76,9 +98,25 @@ pub fn spawn(
                         continue;
                     }
 
-                    if let Err(e) =
-                        run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await
-                    {
+                    let scan_result =
+                        run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await;
+
+                    // OBS-03: First scan >50% threshold check — detect misconfigured allowlist
+                    if !first_scan_done {
+                        first_scan_done = true;
+                        // Check if allowlist is empty — if so, all processes are violations
+                        let wl = whitelist.read().await;
+                        if wl.processes.is_empty() {
+                            tracing::error!(
+                                target: "state",
+                                machine = %machine_id,
+                                "first scan with empty allowlist — all processes are violations, possible config error, staying in report_only"
+                            );
+                        }
+                        drop(wl);
+                    }
+
+                    if let Err(e) = scan_result {
                         tracing::error!(target: LOG_TARGET, "Process guard scan error: {}", e);
                     }
                 }

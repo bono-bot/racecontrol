@@ -589,14 +589,18 @@ impl Config {
                 Err(e) => {
                     // Only log as warn if the file exists but failed to parse — missing file is expected
                     if std::path::Path::new(path.as_str()).exists() {
-                        eprintln!("[config] ERROR: Failed to parse config at {}: {}", path, e);
-                        tracing::warn!("Failed to parse config at {}: {}", path, e);
+                        // OBS-02: Structured warn with field/source/error — parse failure may be SSH banner corruption
+                        let msg = format!("[config_parse] field=config_parse source={} error={} fallback=Config::default() — config file parse failed, using defaults — possible SSH banner corruption", path, e);
+                        eprintln!("{}", msg);
+                        tracing::warn!(target: "state", field = "config_parse", source = %path, error = %e, fallback = "Config::default()", "config file parse failed, using defaults — possible SSH banner corruption");
                     }
                 }
             }
         }
-        eprintln!("[config] WARNING: No config file found in {:?}, using defaults", paths);
-        tracing::warn!("No config file found in {:?}, using defaults", paths);
+        // OBS-02: No config file found — emit structured warn (eprintln always, tracing if initialized)
+        let msg = format!("[config_fallback] field=config_file source=racecontrol.toml fallback=Config::default() — config file not found, using defaults");
+        eprintln!("{}", msg);
+        tracing::warn!(target: "state", field = "config_file", source = "racecontrol.toml", fallback = "Config::default()", "config file not found, using defaults");
         Self::default_config()
     }
 

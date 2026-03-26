@@ -607,7 +607,10 @@ async fn main() -> Result<()> {
         .replace("wss://", "")
         .split(':')
         .next()
-        .unwrap_or("127.0.0.1")
+        .unwrap_or_else(|| {
+            tracing::warn!(target: "state", field = "server_ip", source = "ws_url", fallback = "127.0.0.1", "config field fell back to hardcoded default");
+            "127.0.0.1"
+        })
         .to_string();
 
     {
@@ -647,7 +650,10 @@ async fn main() -> Result<()> {
         .replace("wss://", "https://")
         .split("/ws")
         .next()
-        .unwrap_or("http://127.0.0.1:8080")
+        .unwrap_or_else(|| {
+            tracing::warn!(target: "state", field = "api_base_url", source = "ws_url_split", fallback = "http://127.0.0.1:8080", "config field fell back to hardcoded default");
+            "http://127.0.0.1:8080"
+        })
         .to_string()
         + "/api/v1";
     billing_guard::spawn(
@@ -671,7 +677,10 @@ async fn main() -> Result<()> {
             .replace("wss://", "https://")
             .split("/ws/")
             .next()
-            .unwrap_or("http://127.0.0.1:8080")
+            .unwrap_or_else(|| {
+                tracing::warn!(target: "state", field = "allowlist_poll_url", source = "ws_url_split", fallback = "http://127.0.0.1:8080", "config field fell back to hardcoded default");
+                "http://127.0.0.1:8080"
+            })
             .to_string();
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
@@ -738,7 +747,10 @@ async fn main() -> Result<()> {
             .replace("wss://", "https://")
             .split("/ws")
             .next()
-            .unwrap_or("http://127.0.0.1:8080")
+            .unwrap_or_else(|| {
+                tracing::warn!(target: "state", field = "whitelist_url", source = "ws_url_split", fallback = "http://127.0.0.1:8080", "config field fell back to hardcoded default");
+                "http://127.0.0.1:8080"
+            })
             .to_string();
         let whitelist_url = format!("{}/api/v1/guard/whitelist/pod-{}", http_url, config.pod.number);
         match reqwest::Client::new()
@@ -865,7 +877,10 @@ async fn main() -> Result<()> {
                 .replace("wss://", "https://")
                 .split("/ws")
                 .next()
-                .unwrap_or("http://127.0.0.1:8080")
+                .unwrap_or_else(|| {
+                    tracing::warn!(target: "state", field = "feature_flag_url", source = "ws_url_split", fallback = "http://127.0.0.1:8080", "config field fell back to hardcoded default");
+                    "http://127.0.0.1:8080"
+                })
                 .to_string();
             tokio::spawn(async move {
                 tracing::info!(target: "guard", "Whitelist re-fetch task started (interval=300s, url={})", refetch_http_url);
