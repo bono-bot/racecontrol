@@ -3064,7 +3064,7 @@ Plans:
 
 - [x] **Phase 194: Pod ID Normalization** - Canonical pod ID format everywhere, eliminating billing_alt_id and inconsistent lookups (completed 2026-03-25)
 - [x] **Phase 195: Metrics Foundation** - SQLite + JSONL dual storage for every launch, billing, and crash event with queryable APIs (completed 2026-03-25)
-- [ ] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation
+- [x] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation (completed 2026-03-26)
 - [ ] **Phase 197: Launch Resilience & AC Hardening** - Dynamic timeouts, pre-launch checks, auto-retry, error taxonomy, AC polling-based waits, and arg parsing fixes
 - [ ] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes
 - [ ] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
@@ -3233,7 +3233,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 194. Pod ID Normalization | 1/1 | Complete    | 2026-03-25 |
 | 195. Metrics Foundation | 3/3 | Complete    | 2026-03-25 |
-| 196. Game Launcher Structural Rework | 1/2 | In Progress|  |
+| 196. Game Launcher Structural Rework | 2/2 | Complete   | 2026-03-26 |
 | 197. Launch Resilience & AC Hardening | 0/0 | Not started | - |
 | 198. On-Track Billing | 0/0 | Not started | - |
 | 199. Crash Recovery | 0/0 | Not started | - |

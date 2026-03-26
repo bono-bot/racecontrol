@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Ready for Phase 207
-stopped_at: Completed 206-02-PLAN.md
-last_updated: "2026-03-26T04:24:06.256Z"
+stopped_at: Completed 196-02-PLAN.md
+last_updated: "2026-03-26T04:25:10.317Z"
 last_activity: "2026-03-26 — Phase 206, Plan 02 executed: sentinel file watcher + SentinelChange WS protocol + fleet health active_sentinels + MAINTENANCE_MODE WhatsApp alert"
 progress:
   total_phases: 165
-  completed_phases: 129
+  completed_phases: 130
   total_plans: 310
-  completed_plans: 305
+  completed_plans: 306
   percent: 99
 ---
 
@@ -70,6 +70,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 206-02]: SentinelChange routed via ws_exec_result_tx (existing AgentMessage mpsc) — no new channel needed
 - [Phase 206-02]: active_sentinels NOT cleared on WS disconnect — sentinel files persist on disk; clear would cause stale "no sentinels" until next change event
 - [Phase 206-02]: DashboardEvent::SentinelChanged is a new dedicated variant (not PodUpdate reuse) — carries sentinel-specific fields for dashboard real-time reaction
+- [Phase 196-02]: Stopping timeout tested via check_game_health() — tokio::time::pause() breaks SQLite pool timeout in make_state()
+- [Phase 196-02]: Feature flag 'game_launch' defaults to enabled (unwrap_or(true)) when missing — prevents Pitfall 6 regression
 
 ### Pending Todos
 
@@ -81,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T05:55:00.000Z
-Stopped at: Completed 206-02-PLAN.md
+Last session: 2026-03-26T04:25:10.302Z
+Stopped at: Completed 196-02-PLAN.md
 Resume file: None
