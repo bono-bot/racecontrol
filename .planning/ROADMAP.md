@@ -3237,7 +3237,11 @@ Plans:
   15. **CONTRACT TESTS**: `billing.contract.test.ts` validates all 10 BillingSessionStatus variants. New `ws-dashboard.contract.test.ts` validates BillingTick and GameStateChanged payload shapes including LaunchDiagnostics. Verify: `npm test` passes with new tests
   16. **DRIFT PREVENTION**: Pre-commit hook or CI check compares BillingSessionStatus variant count in Rust vs TypeScript. Adding a Rust variant without TS update → build fails. Verify: add fake variant to Rust only → CI fails
   17. **KIOSK + WEB + ADMIN REBUILD**: All 3 Next.js apps rebuilt with updated shared-types. `NEXT_PUBLIC_` vars set correctly. Static files serving verified (`curl _next/static/` returns 200). Verify: health endpoints + static file check on all 3 apps
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 201-01-PLAN.md -- Shared types sync, contract tests, drift prevention, OpenAPI update
+- [ ] 201-02-PLAN.md -- Kiosk UI: loading state, crash recovery, reliability warning
+- [ ] 201-03-PLAN.md -- Web/admin: StatusBadge, billing pages, metrics API client, launch matrix page
 
 ## v24.0 Progress
 
