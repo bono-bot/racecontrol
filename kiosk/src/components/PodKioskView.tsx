@@ -37,7 +37,10 @@ function deriveKioskState(
   if (authToken && authToken.status === "pending") return "waiting";
   if (billing) {
     if (billing.status === "completed" || billing.status === "ended_early") return "complete";
+    // waiting_for_game: show launching screen (game process spawned, waiting for AC live signal)
+    if (billing.status === "waiting_for_game") return "launching";
     if (gameInfo?.game_state === "launching") return "launching";
+    // paused_game_pause and paused_disconnect: show in_session with crash recovery UI
     return "in_session";
   }
   return "idle";
@@ -98,7 +101,7 @@ export function PodKioskView({
         <WaitingView authToken={authToken!} isStandalone={isStandalone} />
       )}
       {state === "launching" && (
-        <LaunchingView gameInfo={gameInfo} isStandalone={isStandalone} />
+        <LaunchingView gameInfo={gameInfo} billing={billing} isStandalone={isStandalone} />
       )}
       {state === "in_session" && (
         <InSessionView
@@ -321,25 +324,35 @@ function WaitingView({
 
 function LaunchingView({
   gameInfo,
+  billing,
   isStandalone,
 }: {
   gameInfo?: GameLaunchInfo;
+  billing?: BillingSession;
   isStandalone: boolean;
 }) {
   const label = gameInfo?.sim_type
     ? GAME_LABELS[gameInfo.sim_type] || gameInfo.sim_type
     : "Game";
 
+  // waiting_for_game: game is launched, waiting for AC live signal before billing starts
+  const isWaitingForGame = billing?.status === "waiting_for_game";
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center">
       <div
-        className={`rounded-full border-2 border-rp-red border-t-transparent animate-spin ${
-          isStandalone ? "w-12 h-12 mb-6" : "w-6 h-6 mb-3"
-        }`}
+        className={`rounded-full border-2 border-t-transparent animate-spin ${
+          isWaitingForGame ? "border-blue-400" : "border-rp-red"
+        } ${isStandalone ? "w-12 h-12 mb-6" : "w-6 h-6 mb-3"}`}
       />
       <p className={`font-semibold text-white ${isStandalone ? "text-2xl" : "text-sm"}`}>
-        Launching {label}...
+        {isWaitingForGame ? `Game Loading...` : `Launching ${label}...`}
       </p>
+      {isWaitingForGame && (
+        <p className={`text-rp-grey mt-1 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+          Waiting for race control signal
+        </p>
+      )}
     </div>
   );
 }
@@ -390,8 +403,57 @@ function InSessionView({
       {/* Timer */}
       <SessionTimer billing={billing} hasWarning={hasWarning} />
 
-      {/* Game Crashed Banner */}
-      {gameInfo?.game_state === "error" && (
+      {/* Crash Recovery Banner — paused_game_pause (AC STATUS=PAUSE / game crashed) */}
+      {billing.status === "paused_game_pause" && (
+        <div className={`bg-amber-900/50 border border-amber-600/50 rounded-xl text-center ${
+          isStandalone ? "px-6 py-5 mt-4" : "px-3 py-2 mt-2"
+        }`}>
+          <div className={`flex items-center justify-center gap-2 ${isStandalone ? "mb-2" : "mb-1"}`}>
+            <svg className={`text-amber-400 animate-spin flex-shrink-0 ${isStandalone ? "w-5 h-5" : "w-3 h-3"}`} viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className={`text-amber-400 font-bold uppercase tracking-wider ${
+              isStandalone ? "text-lg" : "text-xs"
+            }`}>
+              Relaunching Game...
+            </span>
+          </div>
+          <p className={`text-amber-400/70 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+            Auto-recovery in progress
+          </p>
+          {onRelaunchGame && (
+            <button
+              onClick={onRelaunchGame}
+              className={`mt-3 w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl transition-colors ${
+                isStandalone ? "py-3 text-base" : "py-1.5 text-xs"
+              }`}
+            >
+              Relaunch Now
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Disconnect Banner — paused_disconnect */}
+      {billing.status === "paused_disconnect" && (
+        <div className={`bg-orange-900/50 border border-orange-600/50 rounded-xl flex items-center gap-3 ${
+          isStandalone ? "px-6 py-4 mt-4" : "px-3 py-2 mt-2"
+        }`}>
+          <span className={`rounded-full bg-orange-400 animate-pulse flex-shrink-0 ${isStandalone ? "w-3 h-3" : "w-2 h-2"}`} />
+          <div>
+            <p className={`text-orange-400 font-semibold ${isStandalone ? "text-base" : "text-xs"}`}>
+              Pod Disconnected
+            </p>
+            <p className={`text-orange-400/70 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+              Reconnecting automatically...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Game Crashed Banner — game_state=error (legacy / manual relaunch) */}
+      {gameInfo?.game_state === "error" && billing.status !== "paused_game_pause" && (
         <div className={`bg-red-900/30 border border-red-600/50 rounded-xl text-center ${
           isStandalone ? "px-6 py-5 mt-4" : "px-3 py-2 mt-2"
         }`}>

@@ -20,8 +20,9 @@ export function SessionTimer({ billing, hasWarning }: SessionTimerProps) {
   useEffect(() => {
     setLocalRemaining(billing.remaining_seconds);
   }, [billing.remaining_seconds]);
+  // Only decrement when actually active — all pause states stop the countdown
   useEffect(() => {
-    if (billing.status === "paused_manual") return;
+    if (billing.status !== "active") return;
     const iv = setInterval(() => {
       setLocalRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
@@ -34,7 +35,13 @@ export function SessionTimer({ billing, hasWarning }: SessionTimerProps) {
   return (
     <div>
       <div className="flex justify-between text-xs text-rp-grey mb-1">
-        <span>{billing.status === "paused_manual" ? "Paused" : "Remaining"}</span>
+        <span>
+          {billing.status === "paused_manual" ? "Paused" :
+           billing.status === "waiting_for_game" ? "Game Loading" :
+           billing.status === "paused_game_pause" ? "Relaunching" :
+           billing.status === "paused_disconnect" ? "Disconnected" :
+           "Remaining"}
+        </span>
         <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold animate-pulse" : isLow ? "text-rp-red font-semibold" : ""}`}>
           {formatTime(localRemaining)}
         </span>

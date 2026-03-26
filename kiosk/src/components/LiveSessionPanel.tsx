@@ -51,8 +51,9 @@ export function LiveSessionPanel({
   useEffect(() => {
     setLocalRemaining(billing.remaining_seconds);
   }, [billing.remaining_seconds]);
+  // Only decrement when active — paused_manual, waiting_for_game, paused_disconnect, paused_game_pause all hold the clock
   useEffect(() => {
-    if (billing.status === "paused_manual") return;
+    if (billing.status !== "active") return;
     const iv = setInterval(() => {
       setLocalRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
@@ -111,11 +112,56 @@ export function LiveSessionPanel({
         )}
       </div>
 
+      {/* Game Loading spinner — when billing is waiting_for_game */}
+      {billing.status === "waiting_for_game" && (
+        <div className="bg-blue-900/20 border border-blue-600/30 rounded-xl px-4 py-4 flex items-center gap-3">
+          <svg className="w-5 h-5 text-blue-400 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-blue-400 font-semibold text-sm">Game Loading...</span>
+        </div>
+      )}
+
+      {/* Crash Recovery banner — when billing is paused_game_pause */}
+      {billing.status === "paused_game_pause" && (
+        <div className="bg-amber-900/50 border border-amber-600/50 rounded-xl px-4 py-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-amber-400 font-bold text-sm uppercase tracking-wider">Relaunching Game...</span>
+          </div>
+          <p className="text-amber-400/70 text-xs">Game paused — auto-recovery in progress</p>
+          {onRelaunchGame && (
+            <button
+              onClick={() => onRelaunchGame(pod.id)}
+              className="mt-2 w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg text-sm transition-colors"
+            >
+              Relaunch Now
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Disconnect banner — when billing is paused_disconnect */}
+      {billing.status === "paused_disconnect" && (
+        <div className="bg-orange-900/50 border border-orange-600/50 rounded-xl px-4 py-3 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse flex-shrink-0" />
+          <span className="text-orange-400 font-semibold text-sm">Pod Disconnected — Reconnecting...</span>
+        </div>
+      )}
+
       {/* Session Timer — expanded */}
       <div className="bg-rp-surface border border-rp-border rounded-xl p-4">
         <div className="flex justify-between items-baseline mb-2">
           <span className="text-xs text-rp-grey uppercase tracking-wider">
-            {billing.status === "paused_manual" ? "Paused" : "Session Time"}
+            {billing.status === "paused_manual" ? "Paused" :
+             billing.status === "waiting_for_game" ? "Game Loading" :
+             billing.status === "paused_game_pause" ? "Relaunching" :
+             billing.status === "paused_disconnect" ? "Disconnected" :
+             "Session Time"}
           </span>
           <span className={`text-2xl font-bold font-mono tabular-nums ${hasWarning ? "text-amber-400" : "text-white"}`}>
             {formatTime(localRemaining)}

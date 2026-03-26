@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { GAMES, GAME_LABELS, CLASS_COLORS, DIFFICULTY_PRESETS } from "@/lib/constants";
 import type { Driver, PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
+import type { AlternativeCombo } from "@racingpoint/types";
 import type { WizardState } from "@/hooks/useSetupWizard";
 import PricingDisplay from "./PricingDisplay";
 import ScarcityBanner from "./ScarcityBanner";
@@ -77,6 +78,36 @@ export function SetupWizard({
       }).catch(() => setSplitOptions([]));
     }
   }, [ws.currentStep, ws.selectedTier]);
+
+  // Reliability warning — fetch when entering review step with car+track selected
+  const [comboSuccessRate, setComboSuccessRate] = useState<number | null>(null);
+  const [comboAlternatives, setComboAlternatives] = useState<AlternativeCombo[]>([]);
+  const [showAlternativesModal, setShowAlternativesModal] = useState(false);
+  const hasReliabilityWarning = comboSuccessRate !== null && comboSuccessRate < 0.70;
+
+  useEffect(() => {
+    if (ws.currentStep !== "review") {
+      setComboSuccessRate(null);
+      setComboAlternatives([]);
+      return;
+    }
+    const car = ws.selectedCar?.id || ws.selectedExperience?.car;
+    const track = ws.selectedTrack?.id || ws.selectedExperience?.track;
+    const game = ws.selectedGame;
+    if (!car || !track || !game) return;
+
+    api.getAlternatives({ game, car, track, pod_id: podId })
+      .then((res) => {
+        setComboSuccessRate(res.combo_success_rate);
+        if (res.combo_success_rate < 0.70) {
+          setComboAlternatives(res.alternatives || []);
+        }
+      })
+      .catch(() => {
+        // Non-critical — if endpoint fails, don't show warning
+        setComboSuccessRate(null);
+      });
+  }, [ws.currentStep, ws.selectedCar, ws.selectedTrack, ws.selectedExperience, ws.selectedGame, podId]);
 
   // Load data on mount
   useEffect(() => {
@@ -916,6 +947,70 @@ export function SetupWizard({
                 <ReviewRow label="Server" value="Create new (Racing-Point-Server)" />
               )}
             </div>
+
+            {/* Reliability Warning Banner — shown when combo success rate < 70% */}
+            {hasReliabilityWarning && comboSuccessRate !== null && (
+              <div className="bg-amber-900/40 border border-amber-600/50 rounded-xl px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-amber-400 font-semibold text-sm">
+                      {Math.round(comboSuccessRate * 100)}% success rate on this pod
+                    </p>
+                    <p className="text-amber-400/70 text-xs mt-0.5">
+                      This car+track combo has had reliability issues on this rig.
+                    </p>
+                  </div>
+                  {comboAlternatives.length > 0 && (
+                    <button
+                      onClick={() => setShowAlternativesModal(true)}
+                      className="text-xs text-amber-400 border border-amber-600/50 rounded px-2 py-1 hover:bg-amber-900/60 transition-colors flex-shrink-0"
+                    >
+                      Suggest Alternative
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Alternatives Modal */}
+            {showAlternativesModal && (
+              <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6">
+                <div className="bg-rp-card border border-rp-border rounded-2xl p-5 w-full max-w-sm">
+                  <h3 className="text-white font-bold text-lg mb-3">Alternative Combos</h3>
+                  <p className="text-rp-grey text-xs mb-4">
+                    These combos have higher success rates on this rig.
+                  </p>
+                  <div className="space-y-2 mb-4">
+                    {comboAlternatives.slice(0, 3).map((alt, i) => (
+                      <div
+                        key={i}
+                        className="bg-rp-surface border border-rp-border rounded-lg px-3 py-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0 flex-1">
+                            {alt.car && <p className="text-white text-sm font-medium truncate">{alt.car}</p>}
+                            {alt.track && <p className="text-rp-grey text-xs truncate">{alt.track}</p>}
+                          </div>
+                          <div className="text-right ml-3 flex-shrink-0">
+                            <p className="text-green-400 font-bold text-sm">{Math.round(alt.success_rate * 100)}%</p>
+                            <p className="text-rp-grey text-[10px]">{alt.total_launches} launches</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setShowAlternativesModal(false)}
+                    className="w-full py-2.5 border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded-lg text-sm transition-colors"
+                  >
+                    Dismiss — Proceed with Original
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               data-testid="launch-btn"

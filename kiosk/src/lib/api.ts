@@ -1,5 +1,5 @@
 import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse } from "./types";
-import type { RedeemPinResponse } from "@racingpoint/types";
+import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
 
@@ -464,4 +464,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ pin }),
     }),
+
+  // Combo reliability — fetch alternatives when success_rate < 70%
+  getAlternatives: (params: { game: string; car: string; track: string; pod_id: string }) =>
+    fetchApi<{ combo_success_rate: number; alternatives: AlternativeCombo[] }>(
+      `/games/alternatives?game=${encodeURIComponent(params.game)}&car=${encodeURIComponent(params.car)}&track=${encodeURIComponent(params.track)}&pod_id=${encodeURIComponent(params.pod_id)}`
+    ),
 };

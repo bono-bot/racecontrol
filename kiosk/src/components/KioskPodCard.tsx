@@ -83,6 +83,10 @@ function derivePodState(
   // Active billing session
   if (billing) {
     if (billing.status === "completed" || billing.status === "ended_early") return "ending";
+    // New billing states take priority over game info
+    if (billing.status === "waiting_for_game") return "loading";
+    if (billing.status === "paused_game_pause") return "crashed";
+    if (billing.status === "paused_disconnect") return "crashed";
     if (gameInfo?.game_state === "loading") return "loading";
     if (gameInfo?.game_state === "running") return "on_track";
     if (gameInfo?.game_state === "launching") return "selecting";
@@ -149,8 +153,9 @@ export const KioskPodCard = React.memo(function KioskPodCard({
   useEffect(() => {
     if (billing) setLocalRemaining(billing.remaining_seconds);
   }, [billing?.remaining_seconds]);
+  // Only decrement when active — all pause states (paused_manual, waiting_for_game, paused_disconnect, paused_game_pause) hold the clock
   useEffect(() => {
-    if (!billing || billing.status === "paused_manual") return;
+    if (!billing || billing.status !== "active") return;
     const iv = setInterval(() => {
       setLocalRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
