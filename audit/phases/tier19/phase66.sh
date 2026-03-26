@@ -15,13 +15,16 @@ run_phase66() {
   local venue_state="${VENUE_STATE:-unknown}"
   local status severity message
 
+  # Derive REPO_ROOT from SCRIPT_DIR (audit/) — audit.sh exports SCRIPT_DIR
+  local repo_root="${SCRIPT_DIR:-.}/.."
+
   # ---------------------------------------------------------------------------
   # CHECK 1: auto-detect-config.json exists and has required toggles
   # ---------------------------------------------------------------------------
-  local config_file="$REPO_ROOT/audit/results/auto-detect-config.json"
+  local config_file="$repo_root/audit/results/auto-detect-config.json"
   if [[ -f "$config_file" ]]; then
-    local auto_fix; auto_fix=$(jq -r '.auto_fix_enabled // "missing"' "$config_file" 2>/dev/null)
-    local self_patch; self_patch=$(jq -r '.self_patch_enabled // "missing"' "$config_file" 2>/dev/null)
+    local auto_fix; auto_fix=$(jq -r 'if .auto_fix_enabled == null then "missing" else .auto_fix_enabled end' "$config_file" 2>/dev/null)
+    local self_patch; self_patch=$(jq -r 'if .self_patch_enabled == null then "missing" else .self_patch_enabled end' "$config_file" 2>/dev/null)
     if [[ "$auto_fix" != "missing" ]] && [[ "$self_patch" != "missing" ]]; then
       status="PASS"; severity="P3"
       message="auto-detect-config.json: auto_fix_enabled=$auto_fix, self_patch_enabled=$self_patch"
@@ -38,7 +41,7 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 2: All 6 detector scripts exist and pass syntax
   # ---------------------------------------------------------------------------
-  local detectors_dir="$REPO_ROOT/scripts/detectors"
+  local detectors_dir="$repo_root/scripts/detectors"
   local expected_detectors="detect-config-drift detect-bat-drift detect-log-anomaly detect-crash-loop detect-flag-desync detect-schema-gap"
   local missing_detectors=""
   local bad_syntax=""
@@ -61,7 +64,7 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 3: Escalation engine exists and passes self-test
   # ---------------------------------------------------------------------------
-  local engine="$REPO_ROOT/scripts/healing/escalation-engine.sh"
+  local engine="$repo_root/scripts/healing/escalation-engine.sh"
   if [[ -f "$engine" ]]; then
     if bash -n "$engine" 2>/dev/null; then
       status="PASS"; severity="P3"
@@ -79,7 +82,7 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 4: Coordination module exists
   # ---------------------------------------------------------------------------
-  local coord="$REPO_ROOT/scripts/coordination/coord-state.sh"
+  local coord="$repo_root/scripts/coordination/coord-state.sh"
   if [[ -f "$coord" ]] && bash -n "$coord" 2>/dev/null; then
     status="PASS"; severity="P3"
     message="coord-state.sh present and syntax-valid"
@@ -92,7 +95,7 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 5: Intelligence scripts exist (4 modules)
   # ---------------------------------------------------------------------------
-  local intel_dir="$REPO_ROOT/scripts/intelligence"
+  local intel_dir="$repo_root/scripts/intelligence"
   local expected_intel="pattern-tracker trend-analyzer suggestion-engine self-patch"
   local missing_intel=""
   for mod in $expected_intel; do
@@ -112,7 +115,7 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 6: Test suite exists and passes
   # ---------------------------------------------------------------------------
-  local test_main="$REPO_ROOT/audit/test/test-auto-detect.sh"
+  local test_main="$repo_root/audit/test/test-auto-detect.sh"
   if [[ -f "$test_main" ]]; then
     if bash -n "$test_main" 2>/dev/null; then
       status="PASS"; severity="P3"
@@ -130,9 +133,9 @@ run_phase66() {
   # ---------------------------------------------------------------------------
   # CHECK 7: Venue shutdown API + kiosk page + boot-time fix
   # ---------------------------------------------------------------------------
-  local shutdown_rs="$REPO_ROOT/crates/racecontrol/src/venue_shutdown.rs"
-  local shutdown_page="$REPO_ROOT/kiosk/src/app/shutdown/page.tsx"
-  local boot_fix="$REPO_ROOT/scripts/boot-time-fix.sh"
+  local shutdown_rs="$repo_root/crates/racecontrol/src/venue_shutdown.rs"
+  local shutdown_page="$repo_root/kiosk/src/app/shutdown/page.tsx"
+  local boot_fix="$repo_root/scripts/boot-time-fix.sh"
   local shutdown_missing=""
   [[ ! -f "$shutdown_rs" ]] && shutdown_missing="$shutdown_missing venue_shutdown.rs"
   [[ ! -f "$shutdown_page" ]] && shutdown_missing="$shutdown_missing shutdown/page.tsx"
@@ -151,7 +154,7 @@ run_phase66() {
   # Backend features must have admin dashboard visibility.
   # This check flags features with no admin API consumer.
   # ---------------------------------------------------------------------------
-  local admin_dir="$REPO_ROOT/../racingpoint-admin"
+  local admin_dir="$repo_root/../racingpoint-admin"
   if [[ -d "$admin_dir/src" ]]; then
     local has_suggestions_ui; has_suggestions_ui=$(grep -rl "suggestions\|auto-detect\|autodetect\|self.heal\|escalation" "$admin_dir/src/app/" 2>/dev/null | head -1)
     local has_config_toggle; has_config_toggle=$(grep -rl "auto_fix_enabled\|self_patch_enabled\|autofix" "$admin_dir/src/" 2>/dev/null | head -1)

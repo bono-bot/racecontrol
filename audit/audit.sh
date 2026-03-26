@@ -324,7 +324,7 @@ load_phases() {
       # Tiers 1-2 only -- already loaded above
       ;;
     standard|full|pre-ship|post-incident)
-      # Tiers 3-9 for standard/full
+      # Tiers 3-9 for standard/full, tier 19 for standard+
       source_tier "tier3"
       source_tier "tier4"
       source_tier "tier5"
@@ -332,6 +332,7 @@ load_phases() {
       source_tier "tier7"
       source_tier "tier8"
       source_tier "tier9"
+      source_tier "tier19"
       if [[ "$mode" = "full" ]]; then
         source_tier "tier10"
         source_tier "tier11"
