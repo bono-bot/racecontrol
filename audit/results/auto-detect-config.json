@@ -1,0 +1,6 @@
+{
+  "auto_fix_enabled": true,
+  "wol_enabled": false,
+  "created": "2026-03-26",
+  "notes": "auto_fix_enabled: false = detect only, no fixes applied. wol_enabled: false until manual test on 2 pods."
+}
