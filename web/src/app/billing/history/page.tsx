@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { api, fetchApi } from "@/lib/api";
+import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import StatusBadge from "@/components/StatusBadge";
 import type { DailyReport, BillingSessionRecord } from "@/lib/api";
 
 type RefundMethod = "wallet" | "cash" | "upi";
@@ -145,13 +146,7 @@ function todayISO(): string {
   return d.toISOString().split("T")[0];
 }
 
-const statusColors: Record<string, string> = {
-  completed: "bg-emerald-900/50 text-emerald-400",
-  ended_early: "bg-amber-900/50 text-amber-400",
-  cancelled: "bg-red-900/50 text-red-400",
-  active: "bg-blue-900/50 text-blue-400",
-  paused_manual: "bg-rp-card text-neutral-400",
-};
+// Status display uses StatusBadge for all 10 BillingSessionStatus variants
 
 export default function BillingHistoryPage() {
   const [date, setDate] = useState(todayISO());
@@ -265,13 +260,7 @@ export default function BillingHistoryPage() {
                       {formatCredits(s.price_paise)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          statusColors[s.status] || "bg-rp-card text-neutral-400"
-                        }`}
-                      >
-                        {s.status.replace(/_/g, " ")}
-                      </span>
+                      <StatusBadge status={s.status} />
                     </td>
                     <td className="px-4 py-3 text-center">
                       {(s.status === "completed" || s.status === "ended_early") && (

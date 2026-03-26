@@ -730,7 +730,7 @@ export interface BillingSession {
   allocated_seconds: number;
   driving_seconds: number;
   remaining_seconds: number;
-  status: "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
+  status: "pending" | "waiting_for_game" | "active" | "paused_manual" | "paused_disconnect" | "paused_game_pause" | "completed" | "ended_early" | "cancelled" | "cancelled_no_playable";
   driving_state: "active" | "idle" | "no_device";
   started_at?: string;
   split_count?: number;
@@ -815,7 +815,7 @@ export interface AuthTokenInfo {
 
 // ─── Game Launcher Types ───────────────────────────────────────────────────
 
-export type GameState = "idle" | "launching" | "running" | "stopping" | "error";
+export type GameState = "idle" | "launching" | "loading" | "running" | "stopping" | "error";
 
 export interface GameLaunchInfo {
   pod_id: string;

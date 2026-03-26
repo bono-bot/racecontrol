@@ -119,7 +119,11 @@ export default function BillingPage() {
           {sortedPods.map((pod) => {
             const billing = billingTimers.get(pod.id);
             const pendingToken = pendingAuthTokens.get(pod.id);
-            const isPaused = billing?.status === "paused_manual";
+            const isPaused =
+              billing?.status === "paused_manual" ||
+              billing?.status === "paused_disconnect" ||
+              billing?.status === "paused_game_pause";
+            const isWaitingForGame = billing?.status === "waiting_for_game";
 
             return (
               <div
@@ -178,34 +182,43 @@ export default function BillingPage() {
                       </div>
                     </div>
 
-                    {/* Controls */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() =>
-                          handlePauseResume(billing.id, isPaused)
-                        }
-                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
-                          isPaused
-                            ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
-                            : "bg-rp-card text-neutral-400 hover:bg-rp-card"
-                        }`}
-                      >
-                        {isPaused ? "Resume" : "Pause"}
-                      </button>
-                      <button
-                        onClick={() => handleEnd(billing.id)}
-                        className="flex-1 rounded px-2 py-1.5 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                      >
-                        End
-                      </button>
-                      <button
-                        onClick={() => handleExtend(billing.id)}
-                        className="rounded px-2 py-1.5 text-xs font-medium bg-rp-card text-neutral-400 hover:bg-rp-card transition-colors"
-                        title="Extend by 10 minutes"
-                      >
-                        +10m
-                      </button>
-                    </div>
+                    {/* Session status badge for waiting_for_game */}
+                    {isWaitingForGame && (
+                      <div className="flex items-center justify-center py-1">
+                        <StatusBadge status="waiting_for_game" />
+                      </div>
+                    )}
+
+                    {/* Controls — hidden during waiting_for_game */}
+                    {!isWaitingForGame && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            handlePauseResume(billing.id, isPaused)
+                          }
+                          className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                            isPaused
+                              ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+                              : "bg-rp-card text-neutral-400 hover:bg-rp-card"
+                          }`}
+                        >
+                          {isPaused ? "Resume" : "Pause"}
+                        </button>
+                        <button
+                          onClick={() => handleEnd(billing.id)}
+                          className="flex-1 rounded px-2 py-1.5 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                        >
+                          End
+                        </button>
+                        <button
+                          onClick={() => handleExtend(billing.id)}
+                          className="rounded px-2 py-1.5 text-xs font-medium bg-rp-card text-neutral-400 hover:bg-rp-card transition-colors"
+                          title="Extend by 10 minutes"
+                        >
+                          +10m
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : pendingToken ? (
                   <div className="space-y-2">
