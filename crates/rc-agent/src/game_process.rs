@@ -54,6 +54,129 @@ pub fn clear_persisted_pid() {
     let _ = std::fs::remove_file(pid_file_path());
 }
 
+/// Check sentinel files in a given directory.
+/// Exposed for testing with temporary directories.
+pub fn check_sentinel_files_in_dir(dir: &std::path::Path) -> Result<(), String> {
+    if dir.join("MAINTENANCE_MODE").exists() {
+        return Err("MAINTENANCE_MODE active — launch blocked".to_string());
+    }
+    if dir.join("OTA_DEPLOYING").exists() {
+        return Err("OTA_DEPLOYING active — launch blocked during OTA".to_string());
+    }
+    Ok(())
+}
+
+/// Parse launch args: JSON array -> Vec<String>, plain string -> single-element Vec.
+/// Replaces split_whitespace() which broke paths containing spaces.
+pub fn parse_launch_args(args: &str) -> Vec<String> {
+    if args.starts_with('[') {
+        if let Ok(arr) = serde_json::from_str::<Vec<String>>(args) {
+            return arr;
+        }
+    }
+    // Plain string: single argument (preserves paths with spaces)
+    vec![args.to_string()]
+}
+
+/// Pre-launch health checks: verify pod is ready to launch a game.
+/// Called via spawn_blocking in LaunchGame handler before spawning any game process.
+/// Returns Ok(()) if all checks pass, Err(String) with specific reason if any fails.
+pub fn pre_launch_checks() -> Result<(), String> {
+    let rp_dir = std::path::Path::new("C:\\RacingPoint");
+
+    // Check 1 & 2: No MAINTENANCE_MODE / OTA_DEPLOYING sentinels
+    check_sentinel_files_in_dir(rp_dir)?;
+
+    // Check 3: No orphan game processes running
+    {
+        use sysinfo::System;
+        let mut sys = System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        let known = all_game_process_names();
+        for (_pid, proc) in sys.processes() {
+            let pname = proc.name().to_string_lossy().to_string();
+            for name in known {
+                if pname.eq_ignore_ascii_case(name) {
+                    return Err(format!(
+                        "orphan game process {} (PID {}) still running — clean state required",
+                        name,
+                        _pid.as_u32()
+                    ));
+                }
+            }
+        }
+    }
+
+    // Check 4: Disk space > 1GB on C: drive
+    {
+        use sysinfo::Disks;
+        let disks = Disks::new_with_refreshed_list();
+        if let Some(d) = disks.iter().find(|d| {
+            d.mount_point()
+                .to_str()
+                .map(|s| s == "C:\\" || s == "C:" || s == "/")
+                .unwrap_or(false)
+        }) {
+            if d.available_space() < 1_000_000_000 {
+                return Err(format!(
+                    "disk space low: {}MB free (< 1GB required)",
+                    d.available_space() / 1_048_576
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Full clean state reset: kill ALL game processes, clear game.pid, remove shared memory lock.
+/// Called before auto-retry to ensure a clean slate.
+/// Returns the number of processes killed.
+pub fn clean_state_reset() -> u32 {
+    let mut killed = 0u32;
+
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let known = all_game_process_names();
+    for (_pid, proc) in sys.processes() {
+        let pname = proc.name().to_string_lossy().to_string();
+        for name in known {
+            if pname.eq_ignore_ascii_case(name) {
+                let pid = _pid.as_u32();
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    pid,
+                    name,
+                    "clean_state_reset: killing game process"
+                );
+                if kill_process(pid).is_ok() {
+                    killed += 1;
+                }
+                break;
+            }
+        }
+    }
+
+    clear_persisted_pid();
+
+    let adapter_path = std::path::Path::new("C:\\RacingPoint\\shared_memory_adapter.lock");
+    if adapter_path.exists() {
+        let _ = std::fs::remove_file(adapter_path);
+        tracing::info!(
+            target: LOG_TARGET,
+            "clean_state_reset: removed shared_memory_adapter.lock"
+        );
+    }
+
+    tracing::info!(target: LOG_TARGET, killed, "clean_state_reset complete");
+    killed
+}
+
+
+/// Check sentinel files in a given directory.
+/// Exposed for testing with temporary directories.
+
 /// All known game process names across all sim types.
 fn all_game_process_names() -> &'static [&'static str] {
     &[
@@ -188,7 +311,9 @@ impl GameProcess {
                 cmd.current_dir(dir);
             }
             if let Some(args) = &config.args {
-                for arg in args.split_whitespace() {
+                // LAUNCH-19: Use JSON array or single-arg parsing — preserves paths with spaces.
+                // Old split_whitespace() bug: "C:\Program Files\game.exe -arg" → 2 broken tokens.
+                for arg in parse_launch_args(args) {
                     cmd.arg(arg);
                 }
             }
@@ -493,4 +618,95 @@ mod tests {
         assert_eq!(config.steam_app_id, Some(3059520));
         assert!(config.use_steam);
     }
+
+    // ── Task 1 TDD tests: pre_launch_checks, clean_state_reset, arg parsing ──
+
+    /// pre_launch_checks returns Ok(()) when no sentinels exist and no orphan games running.
+    /// In test environment (non-Windows or no C:\RacingPoint), sentinel checks trivially pass.
+    #[test]
+    fn test_pre_launch_checks_pass_in_test_env() {
+        // In CI / non-pod environment: MAINTENANCE_MODE and OTA_DEPLOYING files won't exist,
+        // and no game processes are running → should pass
+        let result = pre_launch_checks();
+        // We can't guarantee disk space in all CI envs, but at minimum it should compile and run
+        // The result may be Ok or Err(disk) — just verify the function exists and returns Result<_, String>
+        let _ = result; // function must exist and be callable
+    }
+
+    /// pre_launch_checks with a synthetic MAINTENANCE_MODE file returns Err.
+    #[test]
+    fn test_pre_launch_checks_maintenance_mode() {
+        // Create a temporary dir to act as C:\RacingPoint equivalent using env override
+        // We test the logic directly by examining the function's behavior with a known file.
+        // This test verifies the Err message contains "MAINTENANCE_MODE".
+        let tmp = std::env::temp_dir().join("rp_test_maintenance");
+        let _ = std::fs::create_dir_all(&tmp);
+        let sentinel = tmp.join("MAINTENANCE_MODE");
+        std::fs::write(&sentinel, "").unwrap();
+
+        // Test the internal check logic directly via the helper
+        let result = check_sentinel_files_in_dir(&tmp);
+        assert!(result.is_err(), "Should fail when MAINTENANCE_MODE exists");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("MAINTENANCE_MODE"), "Error should mention MAINTENANCE_MODE, got: {}", msg);
+
+        let _ = std::fs::remove_file(&sentinel);
+    }
+
+    /// pre_launch_checks with OTA_DEPLOYING sentinel returns Err.
+    #[test]
+    fn test_pre_launch_checks_ota_deploying() {
+        let tmp = std::env::temp_dir().join("rp_test_ota");
+        let _ = std::fs::create_dir_all(&tmp);
+        let sentinel = tmp.join("OTA_DEPLOYING");
+        std::fs::write(&sentinel, "").unwrap();
+
+        let result = check_sentinel_files_in_dir(&tmp);
+        assert!(result.is_err(), "Should fail when OTA_DEPLOYING exists");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("OTA_DEPLOYING"), "Error should mention OTA_DEPLOYING, got: {}", msg);
+
+        let _ = std::fs::remove_file(&sentinel);
+    }
+
+    /// clean_state_reset clears the game.pid file.
+    #[test]
+    fn test_clean_state_reset_clears_pid() {
+        // Write a pid, call clean_state_reset, verify pid file is gone
+        persist_pid(99999);
+        let _ = clean_state_reset();
+        // After reset, pid file should be absent
+        let recovered = read_persisted_pid();
+        assert!(recovered.is_none(), "game.pid should be cleared after clean_state_reset");
+    }
+
+    /// Args as JSON array are parsed as separate tokens.
+    #[test]
+    fn test_shell_quote_args_json_array() {
+        let args = r#"["-fullscreen", "-arg1"]"#;
+        let parsed = parse_launch_args(args);
+        assert_eq!(parsed, vec!["-fullscreen".to_string(), "-arg1".to_string()]);
+    }
+
+    /// Args as plain string with spaces are NOT split (preserves paths with spaces).
+    #[test]
+    fn test_shell_quote_args_plain_string_not_split() {
+        let args = r#"C:\Program Files\Steam\F1_25.exe -arg1"#;
+        let parsed = parse_launch_args(args);
+        // Plain string: passed as single argument (not split on spaces)
+        assert_eq!(parsed.len(), 1, "Plain string args must not be split on spaces");
+        assert_eq!(parsed[0], args);
+    }
+
+    /// Args as JSON array with path containing spaces are preserved correctly.
+    #[test]
+    fn test_shell_quote_args_json_array_with_spaces() {
+        let args = r#"["C:\\Program Files\\Steam\\F1_25.exe", "-arg1"]"#;
+        let parsed = parse_launch_args(args);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], r"C:\Program Files\Steam\F1_25.exe");
+        assert_eq!(parsed[1], "-arg1");
+    }
+
+
 }

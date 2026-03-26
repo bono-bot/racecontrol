@@ -291,6 +291,40 @@ pub async fn handle_ws_message(
                     return Ok(HandleResult::Continue);
                 }
             }
+            // LAUNCH-10: Pre-launch health checks — sentinel files, orphan processes, disk space
+            {
+                let check_result = tokio::task::spawn_blocking(|| {
+                    crate::game_process::pre_launch_checks()
+                }).await;
+
+                match check_result {
+                    Ok(Ok(())) => {
+                        tracing::info!(target: LOG_TARGET, "Pre-launch checks passed for {:?}", launch_sim);
+                    }
+                    Ok(Err(reason)) => {
+                        tracing::error!(target: LOG_TARGET, "Pre-launch check FAILED: {}", reason);
+                        let error_info = GameLaunchInfo {
+                            pod_id: state.pod_id.clone(),
+                            sim_type: launch_sim,
+                            game_state: GameState::Error,
+                            pid: None,
+                            launched_at: Some(Utc::now()),
+                            error_message: Some(format!("Pre-launch check failed: {}", reason)),
+                            diagnostics: None,
+                            exit_code: None,
+                        };
+                        if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                            let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                        }
+                        return Ok(HandleResult::Continue);
+                    }
+                    Err(e) => {
+                        tracing::error!(target: LOG_TARGET, "Pre-launch check panicked (non-fatal): {}", e);
+                        // Proceed — don't block launch on check panic
+                    }
+                }
+            }
+
             tracing::info!(target: LOG_TARGET, "Launching game: {:?} (args: {:?})", launch_sim, launch_args);
             conn.last_launch_args_stored = launch_args.clone();
             // Track current sim_type for per-sim PlayableSignal dispatch
