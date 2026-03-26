@@ -5,6 +5,32 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 ---
 
+## Cause Elimination Template
+
+Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.sh` before declaring fixed.
+
+### Cause Elimination — EXAMPLE (2026-03-24)
+
+**Symptom:** Pod healer declares lock screen DOWN on all 8 pods despite health endpoint returning 200. ForceRelaunchBrowser fires every 30s causing screen flicker.
+
+**Hypotheses:**
+- H1: Health endpoint not returning 200
+- H2: curl output has unexpected formatting (quotes, whitespace)
+- H3: u32::parse failing on valid-looking input
+- H4: Pod healer threshold wrong (comparing against wrong status code)
+
+**Elimination:**
+- H1: tested curl -s http://pod:8090/health — returns "200" — ELIMINATED (endpoint works)
+- H2: tested echo output — value is `"200"` with surrounding quotes — CONFIRMED (quotes break parse)
+- H3: tested u32::parse("\"200\"") — fails, falls back to unwrap_or(0) — CONFIRMED (downstream of H2)
+- H4: threshold is 200, comparison is correct — ELIMINATED
+
+**Confirmed cause:** curl -w "%{http_code}" output wrapped in quotes by PowerShell $r variable. u32::parse("\"200\"") fails, unwrap_or(0) returns 0, healer thinks pod is down.
+
+**Verification:** Deployed fix (strip quotes with tr -d '"'), verified curl output is now `200` (no quotes), u32::parse succeeds, healer reports HEALTHY on all 8 pods.
+
+---
+
 ## 2026-03-26
 
 | Timestamp | Author | Commit | Summary |
