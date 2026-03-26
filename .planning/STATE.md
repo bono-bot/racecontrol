@@ -4,7 +4,7 @@ milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 200 plan 01 shipped — combo reliability scoring foundation
 stopped_at: Completed 216-pipeline-self-test-suite/216-02-PLAN.md
-last_updated: "2026-03-26T10:29:45.455Z"
+last_updated: "2026-03-26T10:32:35.970Z"
 last_activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 progress:
   total_phases: 172
