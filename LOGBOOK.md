@@ -867,3 +867,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 12:02 IST | James | 7a05058b | feat(197-02): pre-launch checks (MAINTENANCE_MODE/OTA_DEPLOYING/orphan/disk), clean_state_reset, parse_launch_args fix |
 | 2026-03-26 12:02 IST | James | b8cff553 | feat(197-02): AC polling waits (wait_for_acs_exit/wait_for_ac_ready), CM 30s timeout with 5s progress, fresh PID on fallback |
 | 2026-03-26 12:02 IST | James | 4836b2ef | docs(197-02): SUMMARY + STATE + ROADMAP updated, LAUNCH-10/11/19 + AC-01/02/03/04 complete |
+| 2026-03-26 12:12 IST | James | 57125543 | feat(211.1-01): POST /api/v1/venue/shutdown -- billing drain + SSH audit gate + ordered shutdown trigger |
+| 2026-03-26 12:12 IST | James | db6df3b1 | feat(211.1-01): venue-shutdown.sh -- pods parallel -> POS SSH -> server Tailscale SSH -> Bono notify |
+| 2026-03-26 12:12 IST | James | 5b04bfa9 | docs(211.1-01): SUMMARY + STATE updated, 211.1 plan progress 1/3 |
