@@ -3393,7 +3393,10 @@ Plans:
   2. rc-agent loading a TOML file with an SSH banner prepended logs the first 3 lines of the file alongside a VerificationError::TransformError -- not a silent fallback to defaults
   3. Process guard fetching an empty allowlist from /api/v1/guard/whitelist/pod-{N} produces VerificationError::InputParseError("empty allowlist with guard enabled") and auto-switches to report_only -- the error names the HTTP step that succeeded but the semantic validation that failed
   4. rc-sentry spawn() returning Ok for rc-agent relaunch is followed by a 500ms PID liveness check and a 10s health endpoint poll -- if either fails, VerificationError::ActionError is logged and spawn is retried
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 208-01-PLAN.md -- Pod healer curl parse chain + config TOML load chains (COV-02, COV-03)
+- [ ] 208-02-PLAN.md -- Allowlist enforcement chain + spawn verification chain (COV-04, COV-05)
 
 ### Phase 209: Pre-Ship Gate and Process Tooling
 **Goal**: Every deploy passes through a domain-matched verification gate that cannot be satisfied by health endpoints alone for visual or parse changes -- and every non-trivial bug fix follows the Cause Elimination Process before being declared fixed
@@ -3427,7 +3430,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
 | 206. Observable State Transitions | 2/2 | Complete    | 2026-03-26 |
-| 207. Boot Resilience | 2/2 | Complete   | 2026-03-26 |
+| 207. Boot Resilience | 2/2 | Complete    | 2026-03-26 |
 | 208. Chain Verification Integration | 0/0 | Not started | - |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
 | 210. Startup Enforcement and Fleet Audit | 0/0 | Not started | - |
@@ -3461,7 +3464,10 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
   3. When OTA_DEPLOYING or MAINTENANCE_MODE sentinels are present, no fix action fires against any pod — auto-detect logs "sentinel active, skipping fix" and continues to the detection-only report
   4. After a WhatsApp alert fires for a given pod+issue combination, the same combination does not produce another alert for 6 hours — confirmed by triggering the same issue twice within the window
   5. When triggered during venue-open hours, auto-detect runs in quick mode with shorter per-pod timeouts and does not attempt fix actions that require pod idle state
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 211-01-PLAN.md — Safety gates: PID guard, escalation cooldown, venue-aware mode, sentinel check
+- [ ] 211-02-PLAN.md — Task Scheduler registration (02:30 IST) + Bono cron correction (02:35 IST)
 
 ### Phase 212: Detection Expansion
 **Goal**: The auto-detect pipeline detects config drift, bat file regression, log anomalies, crash loops, flag desync, and schema gaps — every detection traces to a documented historical incident
