@@ -67,6 +67,9 @@ if [[ -f "$COORD_SOURCE" ]]; then
   # shellcheck source=scripts/coordination/coord-state.sh
   source "$COORD_SOURCE"
 fi
+# Source intelligence scripts for self-improving loop (LEARN-01, LEARN-04)
+source "$REPO_ROOT/scripts/intelligence/pattern-tracker.sh" 2>/dev/null || true
+source "$REPO_ROOT/scripts/intelligence/trend-analyzer.sh" 2>/dev/null || true
 FLEET_HEALTH_ENDPOINT="${SERVER_URL}/api/v1/fleet/health"
 export FLEET_HEALTH_ENDPOINT
 
@@ -610,6 +613,16 @@ Full report: $RESULT_DIR/auto-detect.log"
   if [[ $(type -t write_completion_marker) == "function" ]]; then
     write_completion_marker "$verdict" "$BUGS_FOUND" "$BUGS_FIXED"
     log INFO "Completion marker written: verdict=$verdict"
+  fi
+
+  # LEARN-01: Log findings to suggestions.jsonl for self-improving loop
+  if [[ $(type -t update_pattern_db) == "function" ]]; then
+    update_pattern_db || log WARN "[LEARN-01] pattern_db update failed (non-fatal)"
+  fi
+
+  # LEARN-04: Trend outlier analysis (runs after pattern db is updated)
+  if [[ $(type -t run_trend_analysis) == "function" ]]; then
+    run_trend_analysis || log WARN "[LEARN-04] trend analysis failed (non-fatal)"
   fi
 
   # Return appropriate exit code
