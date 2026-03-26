@@ -3507,7 +3507,10 @@ Plans:
   3. When a pod JSONL log has more than 10 ERROR or PANIC lines in the last hour, log-anomaly.sh flags that pod — a test file with 15 injected ERROR lines triggers detection; a file with 5 does not
   4. A pod with more than 3 rc-agent restarts in 30 minutes is flagged as crash-loop — the detection reads JSONL restart timestamps, not process count alone
   5. When any two pods have a different set of enabled feature flags, DET-05 reports the specific flag name and which pods diverge — not just "flags out of sync"
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 212-01-PLAN.md — Cascade framework + config drift, bat drift, log anomaly detectors
+- [ ] 212-02-PLAN.md — Crash loop, flag desync, schema gap detectors + pipeline validation
 
 ### Phase 213: Self-Healing & Escalation
 **Goal**: Detected issues trigger graduated, sentinel-aware fix attempts ending in human escalation only when automation is exhausted — and every fix action is verifiable, togglable, and follows documented methodology
