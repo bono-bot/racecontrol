@@ -71,40 +71,49 @@ if [[ -f "$REPO_ROOT/audit/lib/core.sh" ]]; then
 fi
 
 # ─── Step 4: Apply safe fixes from APPROVED_FIXES whitelist ──────────────────
-# Parse the steps array from findings to find fixable issues
-STEPS_JSON=$(jq -c '.steps // []' "$FINDINGS_FILE" 2>/dev/null || echo "[]")
-STEP_COUNT=$(echo "$STEPS_JSON" | jq 'length' 2>/dev/null || echo "0")
+# Read the detailed findings array (per-finding with category/severity/pod_ip/message)
+# venue-shutdown.sh saves this as pre-shutdown-findings-detail.json
+DETAIL_FILE="$REPO_ROOT/audit/results/pre-shutdown-findings-detail.json"
+if [[ -f "$DETAIL_FILE" ]]; then
+  FINDINGS_ARRAY="$DETAIL_FILE"
+else
+  # Fallback: try reading findings array directly from the summary file
+  # (older format may embed findings differently)
+  FINDINGS_ARRAY="$FINDINGS_FILE"
+fi
 
-log "Checking $STEP_COUNT steps from pre-shutdown findings..."
+# Parse findings — each entry has: category, severity, pod_ip, message, issue_type
+FINDING_COUNT=$(jq 'if type == "array" then length else 0 end' "$FINDINGS_ARRAY" 2>/dev/null || echo "0")
 
-# For each step with FAIL status, check if it matches an APPROVED_FIXES entry
-while IFS= read -r step_json; do
-  step_name=$(echo "$step_json" | jq -r '.step // ""' 2>/dev/null || echo "")
-  step_status=$(echo "$step_json" | jq -r '.status // ""' 2>/dev/null || echo "")
-  step_detail=$(echo "$step_json" | jq -r '.detail // ""' 2>/dev/null || echo "")
+log "Checking $FINDING_COUNT findings from pre-shutdown audit..."
 
-  if [[ "$step_status" != "FAIL" ]]; then
+# For each P1/P2 finding, check if its category matches an APPROVED_FIXES entry
+while IFS= read -r finding_json; do
+  finding_category=$(echo "$finding_json" | jq -r '.category // .issue_type // ""' 2>/dev/null || echo "")
+  finding_severity=$(echo "$finding_json" | jq -r '.severity // ""' 2>/dev/null || echo "")
+  finding_pod_ip=$(echo "$finding_json" | jq -r '.pod_ip // ""' 2>/dev/null || echo "")
+  finding_message=$(echo "$finding_json" | jq -r '.message // ""' 2>/dev/null || echo "")
+
+  if [[ -z "$finding_category" ]]; then
     continue
   fi
 
-  log "Found failed step: step=$step_name detail=$step_detail"
+  log "Found finding: category=$finding_category severity=$finding_severity pod=$finding_pod_ip"
 
-  # Map step names to fix functions where possible
+  # Map finding category to fix functions
   FIX_APPLIED=false
   for fix_name in "${APPROVED_FIXES[@]:-}"; do
-    # Match step name against fix name (loose match)
-    if echo "$step_name $step_detail" | grep -qi "${fix_name//_/ }"; then
+    # Match category or message against fix name (loose match)
+    if echo "$finding_category $finding_message" | grep -qi "${fix_name//_/ }"; then
       if [[ "$DRY_RUN" == "true" ]]; then
-        log "[DRY-RUN] Would apply fix: $fix_name"
+        log "[DRY-RUN] Would apply fix: $fix_name for $finding_category on $finding_pod_ip"
         FIX_APPLIED=true
       elif declare -f "$fix_name" > /dev/null 2>&1; then
-        # Extract pod IP from step detail if present
-        pod_ip=$(echo "$step_detail" | grep -oE '192\.168\.31\.[0-9]+' | head -1 || echo "")
-        if [[ -n "$pod_ip" ]]; then
-          log "Applying fix $fix_name to pod $pod_ip"
-          "$fix_name" "$pod_ip" && FIX_APPLIED=true || log "WARNING: fix $fix_name failed for $pod_ip"
+        if [[ -n "$finding_pod_ip" ]] && [[ "$finding_pod_ip" =~ ^192\.168\. ]]; then
+          log "Applying fix $fix_name to pod $finding_pod_ip"
+          "$fix_name" "$finding_pod_ip" && FIX_APPLIED=true || log "WARNING: fix $fix_name failed for $finding_pod_ip"
         else
-          log "Fix $fix_name requires pod_ip — skipping (no IP in: $step_detail)"
+          log "Fix $fix_name requires pod_ip — skipping (pod=$finding_pod_ip)"
         fi
       fi
     fi
@@ -112,9 +121,9 @@ while IFS= read -r step_json; do
 
   if [[ "$FIX_APPLIED" == "true" ]]; then
     FIXES_APPLIED=$((FIXES_APPLIED + 1))
-    log "Fix applied for: $step_name"
+    log "Fix applied for: $finding_category on $finding_pod_ip"
   fi
-done < <(echo "$STEPS_JSON" | jq -c '.[]' 2>/dev/null || true)
+done < <(jq -c 'if type == "array" then .[] else empty end' "$FINDINGS_ARRAY" 2>/dev/null || true)
 
 log "Fixes applied: $FIXES_APPLIED"
 

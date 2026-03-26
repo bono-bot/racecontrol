@@ -31,6 +31,11 @@ FINDINGS_FILE="$REPO_ROOT/audit/results/pre-shutdown-findings.json"
 LATEST_AUTODETECT=$(ls -td "$REPO_ROOT/audit/results/auto-detect-"* 2>/dev/null | head -1)
 if [[ -n "$LATEST_AUTODETECT" ]] && [[ -f "$LATEST_AUTODETECT/summary.json" ]]; then
   cp "$LATEST_AUTODETECT/summary.json" "$FINDINGS_FILE"
+  # Also copy detailed findings.json (per-finding array with category/severity/pod_ip/message)
+  # boot-time-fix.sh reads this for actionable fix entries
+  if [[ -f "$LATEST_AUTODETECT/findings.json" ]]; then
+    cp "$LATEST_AUTODETECT/findings.json" "$REPO_ROOT/audit/results/pre-shutdown-findings-detail.json"
+  fi
   log "Saved pre-shutdown findings from $LATEST_AUTODETECT"
 else
   log "No auto-detect results found to save (first run or no prior audit)"

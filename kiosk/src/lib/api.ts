@@ -411,9 +411,15 @@ export const api = {
   disablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/disable`, { method: "POST" }),
 
-  // Venue Shutdown
-  venueShutdown: () =>
-    fetchApi<VenueShutdownResponse>("/venue/shutdown", { method: "POST" }),
+  // Venue Shutdown (150s timeout — audit can take up to 120s)
+  venueShutdown: () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 150_000);
+    return fetchApi<VenueShutdownResponse>("/venue/shutdown", {
+      method: "POST",
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
+  },
 
   // Maintenance
   clearMaintenance: (podId: string) =>

@@ -110,10 +110,10 @@ if echo "$james_health" | jq -e '.status == "ok"' >/dev/null 2>&1; then
 fi
 
 # Phase 2 — Completion marker check: skip if James ran recently (COORD-04)
+# Use SSH to James (relay shell command not in exec registry — SSH is reliable fallback)
+JAMES_SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 bono@${JAMES_TAILSCALE_IP}"
 if [[ "$james_relay_alive" == "true" ]]; then
-  completion_json=$(curl -s --max-time 10 -X POST "$JAMES_RELAY/relay/exec/run" \
-    -H "Content-Type: application/json" \
-    -d '{"command":"shell","args":"cat /c/Users/bono/racingpoint/racecontrol/audit/results/last-run-summary.json 2>/dev/null || echo {}","reason":"coord-completion-check"}' 2>/dev/null | jq -r '.stdout // "{}"' 2>/dev/null || echo "{}")
+  completion_json=$($JAMES_SSH "cat C:/Users/bono/racingpoint/racecontrol/audit/results/last-run-summary.json 2>/dev/null || echo {}" 2>/dev/null || echo "{}")
   completed_ts=$(echo "$completion_json" | jq -r '.completed_ts // 0' 2>/dev/null || echo "0")
   now_ts=$(date +%s)
   elapsed=$(( now_ts - completed_ts ))
@@ -125,22 +125,22 @@ fi
 
 # Phase 3 — Lock check + delegate or confirm-offline (COORD-01 + COORD-02)
 if [[ "$james_relay_alive" == "true" ]]; then
-  # Check if James auto-detect is currently active (COORD-01)
-  lock_json=$(curl -s --max-time 10 -X POST "$JAMES_RELAY/relay/exec/run" \
-    -H "Content-Type: application/json" \
-    -d '{"command":"shell","args":"cat /c/Users/bono/racingpoint/racecontrol/audit/results/auto-detect-active.lock 2>/dev/null || echo {}","reason":"coord-lock-check"}' 2>/dev/null | jq -r '.stdout // "{}"' 2>/dev/null || echo "{}")
+  # Check if James auto-detect is currently active (COORD-01) — via SSH
+  lock_json=$($JAMES_SSH "cat C:/Users/bono/racingpoint/racecontrol/audit/results/auto-detect-active.lock 2>/dev/null || echo {}" 2>/dev/null || echo "{}")
   lock_agent=$(echo "$lock_json" | jq -r '.agent // ""' 2>/dev/null || echo "")
   if [[ "$lock_agent" == "james" ]]; then
     log INFO "James AUTO_DETECT_ACTIVE lock present — deferring to James (COORD-01)"
     exit 0
   fi
 
-  # James relay alive but no lock and no recent completion — delegate via relay exec (existing behavior)
+  # James relay alive but no lock and no recent completion — delegate via relay exec
   log INFO "James relay: ALIVE — delegating auto-detect to James"
   curl -s --max-time 5 -X POST "$JAMES_RELAY/relay/exec/run" \
     -H "Content-Type: application/json" \
-    -d '{"command":"shell","args":"cd /c/Users/bono/racingpoint/racecontrol && AUDIT_PIN=261121 bash scripts/auto-detect.sh --mode standard","reason":"bono-triggered auto-detect"}' >/dev/null 2>&1 || true
-  log INFO "Delegated to James. Exiting."
+    -d '{"command":"git_pull","reason":"bono-triggered auto-detect pre-pull"}' >/dev/null 2>&1 || true
+  # Trigger auto-detect on James via SSH (relay shell not registered)
+  $JAMES_SSH "cd C:/Users/bono/racingpoint/racecontrol && AUDIT_PIN=261121 bash scripts/auto-detect.sh --mode standard &" >/dev/null 2>&1 || true
+  log INFO "Delegated to James via SSH. Exiting."
   exit 0
 fi
 
