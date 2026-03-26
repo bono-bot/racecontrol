@@ -78,30 +78,30 @@ Requirements for v25.0 milestone. Each maps to roadmap phases.
 |-------------|-------|--------|
 | COV-01 | Phase 205 | Complete |
 | BOOT-01 | Phase 205 | Complete |
-| OBS-01 | Phase 206 | Pending |
-| OBS-02 | Phase 206 | Pending |
-| OBS-03 | Phase 206 | Pending |
-| OBS-04 | Phase 206 | Pending |
-| OBS-05 | Phase 206 | Pending |
+| OBS-01 | Phase 206 | Complete |
+| OBS-02 | Phase 206 | Complete |
+| OBS-03 | Phase 206 | Complete |
+| OBS-04 | Phase 206 | Complete |
+| OBS-05 | Phase 206 | Complete |
 | BOOT-02 | Phase 207 | Complete |
 | BOOT-03 | Phase 207 | Complete |
-| BOOT-04 | Phase 207 | Pending |
-| COV-02 | Phase 208 | Pending |
+| BOOT-04 | Phase 207 | Complete |
+| COV-02 | Phase 208 | Complete |
 | COV-03 | Phase 208 | Complete |
-| COV-04 | Phase 208 | Pending |
+| COV-04 | Phase 208 | Complete |
 | COV-05 | Phase 208 | Complete |
-| GATE-01 | Phase 209 | Pending |
-| GATE-02 | Phase 209 | Pending |
-| GATE-03 | Phase 209 | Pending |
-| GATE-04 | Phase 209 | Pending |
-| GATE-05 | Phase 209 | Pending |
-| BAT-01 | Phase 210 | Pending |
-| BAT-02 | Phase 210 | Pending |
-| BAT-03 | Phase 210 | Pending |
-| BAT-04 | Phase 210 | Pending |
-| AUDIT-01 | Phase 210 | Pending |
-| AUDIT-02 | Phase 210 | Pending |
-| AUDIT-03 | Phase 210 | Pending |
+| GATE-01 | Phase 209 | Complete |
+| GATE-02 | Phase 209 | Complete |
+| GATE-03 | Phase 209 | Complete |
+| GATE-04 | Phase 209 | Complete |
+| GATE-05 | Phase 209 | Complete |
+| BAT-01 | Phase 210 | Complete |
+| BAT-02 | Phase 210 | Complete |
+| BAT-03 | Phase 210 | Complete |
+| BAT-04 | Phase 210 | Complete |
+| AUDIT-01 | Phase 210 | Complete |
+| AUDIT-02 | Phase 210 | Complete |
+| AUDIT-03 | Phase 210 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total
@@ -110,4 +110,4 @@ Requirements for v25.0 milestone. Each maps to roadmap phases.
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 — traceability complete after roadmap creation*
+*Last updated: 2026-03-26 — all 26 requirements complete, milestone v25.0 shipped*

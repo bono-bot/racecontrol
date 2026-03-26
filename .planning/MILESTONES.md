@@ -1,4 +1,13 @@
 # Milestones
+## v25.0 Debug-First-Time-Right (Shipped: 2026-03-26)
+
+**Phases completed:** 147 phases, 330 plans, 75 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v17.1 Watchdog-to-AI Migration (Shipped: 2026-03-25)
 
 **Phases completed:** 119 phases, 270 plans, 66 tasks
