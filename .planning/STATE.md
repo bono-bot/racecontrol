@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
-stopped_at: Completed 215-self-improving-intelligence/215-02-PLAN.md
-last_updated: "2026-03-26T09:15:00.000Z"
+stopped_at: Completed 215-self-improving-intelligence/215-03-PLAN.md
+last_updated: "2026-03-26T09:17:42.517Z"
 last_activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
 progress:
   total_phases: 172
   completed_phases: 142
   total_plans: 342
-  completed_plans: 336
+  completed_plans: 337
   percent: 98
 ---
 
@@ -121,6 +121,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 215-02]: Proposal deduplication at write time — scan pending proposals before creating new to prevent duplicate accumulation across runs
 - [Phase 215-02]: get_suggestions registered in pattern-tracker.sh for relay exec — ensures alias available even if suggestion-engine not yet sourced
 - [Phase 215-02]: TREND_OUTLIER entries processed as threshold_tune proposals with fixed confidence 0.50 to avoid feedback loop inflating regular counts
+- [Phase 215]: Threshold increment 20% round-up to ensure actual increase for small base values
+- [Phase 215]: Standing rule IDs use SR-LEARNED-NNN prefix to distinguish engine-generated from manual rules
+- [Phase 215]: new_audit_check/self_patch queued for 215-04 self-patch loop with status queued_for_selfpatch (not dropped)
 
 ### Pending Todos
 
@@ -134,6 +137,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T09:12:41.966Z
-Stopped at: Completed 215-self-improving-intelligence/215-02-PLAN.md
+Last session: 2026-03-26T09:17:32.059Z
+Stopped at: Completed 215-self-improving-intelligence/215-03-PLAN.md
 Resume file: None
