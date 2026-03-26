@@ -825,3 +825,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-26 04:38 IST | James | 176c2f4e | feat(195-01): metrics.rs module + launch_events table + JSONL writer |
 | 2026-03-26 04:38 IST | James | 3135e7dc | feat(195-01): wire metrics::record_launch_event into game_launcher + fix log_game_event error swallowing |
 | 2026-03-26 04:38 IST | James | 167a6bc7 | docs(195-01): SUMMARY.md + STATE.md + ROADMAP.md |
+| 2026-03-26 04:35 IST | James | 7ba7d093 | feat(206-01): config fallback warn! logging + empty allowlist auto-response (5 unwrap_or sites, racecontrol load_or_default, process guard EMPTY_ALLOWLIST) |
+| 2026-03-26 04:40 IST | James | 5602a64c | feat(206-01): rc-sentry FSM transition logging (all 4 arms) + self_monitor lifecycle events + sentinel write logging |
+| 2026-03-26 04:42 IST | James | fc5748a6 | docs(206-01): 206-01-SUMMARY.md created, STATE.md updated, OBS-02/OBS-03/OBS-05 marked complete |
