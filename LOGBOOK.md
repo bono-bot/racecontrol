@@ -877,3 +877,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 06:54 IST | James | 41a2154a | feat(211.1-03): Bono fallback in venue_shutdown_handler - James offline -> Bono relay -> pod shutdown -> server self-shutdown |
 | 2026-03-26 06:54 IST | James | 7938db0c | docs(211.1-03): SUMMARY.md + STATE.md + ROADMAP.md - Phase 211.1 Complete 3/3 |
 | 2026-03-26 07:00 IST | James | d483d35e | fix(211.1): add fallback_bono status to kiosk shutdown UI |
+| 2026-03-26 12:30 IST | James | ad7ab774 | feat(198-01): CancelledNoPlayable variant + BillingConfig struct (5 timeout fields, serde defaults) |
+| 2026-03-26 12:30 IST | James | e9558961 | feat(198-01): AC False-Live guard (5s speed+steer) + process fallback crash guard (BILL-01/02/08) |
+| 2026-03-26 12:30 IST | James | d10ae5f6 | docs(198-01): 198-01-SUMMARY.md + STATE.md + ROADMAP.md - Phase 198 Plan 01 complete |
