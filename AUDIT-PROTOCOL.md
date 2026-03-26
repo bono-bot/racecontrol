@@ -267,6 +267,55 @@ done
 
 ---
 
+## Phase 9b: Crash Loop & Session Context Detection
+**What:** Detect pods stuck in crash loops (restarting every 15-30s) and pods running rc-agent in Session 0 (SYSTEM context, can't launch games). Both conditions leave pods appearing "healthy" in fleet health while being completely non-functional for customers.
+
+**Root cause (2026-03-26):** Pod 6 crash-looped for 5+ hours (ntdll.dll access violation, 0xC0000005). Server logged 11 startup reports with `uptime=2s` in 3 minutes at INFO level — no alert. The same pod was also restarted via `schtasks /Run` during troubleshooting, putting it in Session 0 where game launches silently fail.
+
+```bash
+# Step 1: Detect crash loops from server logs
+# Look for pods with multiple startup reports in recent logs, all with uptime < 30s
+SESSION=$(curl -s -X POST http://192.168.31.23:8080/api/v1/terminal/auth \
+  -H "Content-Type: application/json" -d '{"pin":"261121"}' | jq -r '.session')
+curl -s "http://192.168.31.23:8080/api/v1/logs?lines=200" \
+  -H "x-terminal-session: $SESSION" | \
+  jq -r '.lines[]' | grep 'startup report' | grep 'uptime=[0-9]s' | \
+  sed 's/.*Pod \(pod_[0-9]*\).*/\1/' | sort | uniq -c | sort -rn
+# Any pod with count > 3 = CRASH LOOP. Action: reboot immediately.
+
+# Step 2: Verify ALL pods are in Session 1 (Console), not Session 0 (Services)
+for IP in $PODS; do
+  RESULT=$(curl -s -X POST http://$IP:8091/exec -H "Content-Type: application/json" \
+    -d '{"cmd":"tasklist /FI \"IMAGENAME eq rc-agent.exe\" /V /FO CSV /NH"}' 2>/dev/null)
+  SESSION_CTX=$(echo "$RESULT" | grep -o '"Console"' | head -1)
+  echo "$IP: ${SESSION_CTX:-SESSION_0_OR_DOWN}"
+done
+# Any pod NOT showing "Console" = Session 0. Fix: kill rc-agent, let RCWatchdog restart.
+
+# Step 3: Check Windows Event Viewer for application crashes (via rc-sentry)
+for IP in $PODS; do
+  RESULT=$(curl -s -X POST http://$IP:8091/exec -H "Content-Type: application/json" \
+    -d '{"cmd":"wevtutil qe Application /c:1 /rd:true /f:text /q:\"*[System[Provider[@Name='\''Application Error'\'']]]\""}' 2>/dev/null)
+  echo "=== $IP ===" && echo "$RESULT" | grep -o '"stdout":"[^"]*"' | head -1
+done
+# Any recent crash of rc-agent.exe = investigate faulting module
+
+# Step 4: Verify self-test verdict is not Critical on any pod
+for IP in $PODS; do
+  curl -s -X POST http://$IP:8090/exec -H "Content-Type: application/json" \
+    -d '{"cmd":"findstr /C:\"self-test\" C:\\RacingPoint\\rc-agent-*.jsonl | findstr /C:\"Critical\""}' 2>/dev/null | \
+    grep -q "Critical" && echo "$IP: CRITICAL SELF-TEST" || echo "$IP: ok"
+done
+```
+
+**Fix loop trigger:**
+- Any pod with >3 startup reports with `uptime < 30s` in 5 minutes → REBOOT immediately
+- Any pod with rc-agent in Session 0 (Services/SYSTEM) → kill + let RCWatchdog restart
+- Any pod with Application Error for rc-agent.exe → check faulting module, run `sfc /scannow`
+- Any pod with persistent Critical self-test → investigate the 3 critical probes (ws_connected, lock_screen, billing_state)
+
+---
+
 ## Phase 10: AI Healer / Watchdog
 **What:** rc-watchdog monitoring all 10 services, failure state clean, Ollama responsive.
 
