@@ -3525,7 +3525,10 @@ Plans:
   3. Uday receives a WhatsApp message only when: (a) a fix attempt failed after all automated tiers, or (b) 3+ pods are affected simultaneously — clean runs and QUIET findings produce no message
   4. Every auto-fix is followed within 60 seconds by a re-check of the specific condition that triggered it — the fix log entry shows both "fix applied" and "verification: PASS/FAIL"
   5. Setting auto_fix_enabled = false causes the next auto-detect run to produce a full detection report with no fix actions applied — the toggle is honored without restarting the pipeline
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 213-01-PLAN.md — Escalation engine core + 3 new APPROVED_FIXES + auto_fix_enabled toggle
+- [ ] 213-02-PLAN.md — Live-sync wiring into detectors + WhatsApp silence + pipeline integration
 
 ### Phase 214: Bono Coordination
 **Goal**: James and Bono never fix the same pod concurrently — Bono acts independently only when James is confirmed down, and re-coordinates the moment James recovers
