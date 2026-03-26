@@ -17,7 +17,7 @@ Expand the auto-detect pipeline with 6 new detection modules: config drift, bat 
 All implementation choices are at Claude's discretion — pure infrastructure phase. Detection scripts follow existing audit/phases/ pattern (bash + jq, sourced into auto-detect.sh).
 
 Key technical constraints:
-- Config drift (DET-01) must SCP racecontrol.toml from pods (SSH banner corruption standing rule applies — never pipe SSH output into config)
+- Config drift (DET-01) reads rc-agent.toml via safe_remote_exec (not SCP racecontrol.toml — pods run rc-agent, SCP auth unreliable on Windows pods per research Pitfall 6)
 - Bat drift (DET-02) uses sha256sum checksum comparison against canonical repo version
 - Log anomaly (DET-03) uses pattern-based triggers (ERROR/PANIC line count in last hour) — rate-based thresholds deferred (need 7-day calibration)
 - Crash loop (DET-04) reads JSONL restart timestamps, not process count
