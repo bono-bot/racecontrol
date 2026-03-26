@@ -434,6 +434,119 @@ EOF
     fi
   fi
 
+  # =========================================================================
+  # Suite 5: Domain-matched verification (GATE-01..04)
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 5: Domain-matched verification...\n"
+  echo "============================================================"
+
+  DOMAIN_FAIL=0
+  DOMAIN_CHECKED=0
+  DOMAIN_BLOCKED_LIST=""
+
+  # Evidence tracking
+  EVIDENCE_VISUAL="not applicable"
+  EVIDENCE_SERVER="not applicable"
+  EVIDENCE_PARSE="not applicable"
+
+  # --- GATE-02: Display domain ---
+  if [ $DOMAIN_DISPLAY -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    if [ "${VISUAL_VERIFIED:-}" = "true" ]; then
+      printf "  Display verification: VISUAL_VERIFIED=true confirmed... %b\n" "$pass_label"
+      EVIDENCE_VISUAL="true"
+    else
+      printf "  %b BLOCKED: Display-domain changes detected but VISUAL_VERIFIED=true not set\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_DISPLAY"
+      echo "    To pass: verify screens on pods, then re-run with VISUAL_VERIFIED=true bash test/gate-check.sh"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}display "
+      EVIDENCE_VISUAL="false"
+    fi
+  fi
+
+  # --- GATE-03: Network domain ---
+  if [ $DOMAIN_NETWORK -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    HEALTH_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/health 2>/dev/null || echo "")
+    if [ -n "$HEALTH_RESP" ]; then
+      printf "  Network verification: server health check... %b\n" "$pass_label"
+      echo "    Response: $(echo "$HEALTH_RESP" | head -c 120)"
+      EVIDENCE_SERVER="OK"
+    else
+      printf "  %b BLOCKED: Network-domain changes detected but server health check failed\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network "
+      EVIDENCE_SERVER="FAIL"
+    fi
+    # WebSocket reminder
+    if echo "$DOMAIN_FILES_NETWORK" | grep -qiE '(ws_handler|WebSocket)'; then
+      printf "  %b WebSocket changes detected — verify live WS connections after deploy\n" "$warn_label"
+    fi
+  fi
+
+  # --- GATE-04: Parse domain ---
+  if [ $DOMAIN_PARSE -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    if [ -n "${PARSE_TEST_INPUT:-}" ] && [ -n "${PARSE_TEST_EXPECTED:-}" ]; then
+      if [ -f "$PARSE_TEST_INPUT" ]; then
+        printf "  Parse verification: test input and expected output provided... %b\n" "$pass_label"
+        echo "    Input file: $PARSE_TEST_INPUT"
+        echo "    Expected: $PARSE_TEST_EXPECTED"
+        EVIDENCE_PARSE="PROVIDED"
+      else
+        printf "  %b BLOCKED: PARSE_TEST_INPUT file does not exist: %s\n" "$fail_label" "$PARSE_TEST_INPUT"
+        DOMAIN_FAIL=1
+        DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}parse "
+        EVIDENCE_PARSE="MISSING (file not found)"
+      fi
+    else
+      printf "  %b BLOCKED: Parse-domain changes detected but PARSE_TEST_INPUT and PARSE_TEST_EXPECTED not provided\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_PARSE"
+      echo "    To pass: re-run with PARSE_TEST_INPUT=/path/to/input PARSE_TEST_EXPECTED='expected_value' bash test/gate-check.sh"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}parse "
+      EVIDENCE_PARSE="MISSING"
+    fi
+  fi
+
+  # --- GATE-01: Billing domain (informational) ---
+  if [ $DOMAIN_BILLING -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    printf "  %b Billing-domain changes detected — verify session start/stop and rate calculation after deploy\n" "$warn_label"
+    echo "    Triggering files: $DOMAIN_FILES_BILLING"
+  fi
+
+  # --- GATE-01: Config domain (informational) ---
+  if [ $DOMAIN_CONFIG -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    printf "  %b Config-domain changes detected — verify config loads correctly on target machines after deploy\n" "$warn_label"
+    echo "    Triggering files: $DOMAIN_FILES_CONFIG"
+  fi
+
+  # Suite 5 result
+  if [ $DOMAIN_CHECKED -eq 0 ]; then
+    record_suite 5 "domain verification" "PASS (no domain-specific changes)"
+  elif [ $DOMAIN_FAIL -eq 0 ]; then
+    record_suite 5 "domain verification" "PASS (${DOMAIN_CHECKED} domains verified)"
+  else
+    DOMAIN_BLOCKED_LIST=$(echo "$DOMAIN_BLOCKED_LIST" | sed 's/ $//' | sed 's/ /|/g')
+    record_suite 5 "domain verification" "FAIL (blocked by: ${DOMAIN_BLOCKED_LIST})"
+    OVERALL_FAIL=1
+  fi
+
+  # Evidence summary
+  if [ $DOMAIN_CHECKED -gt 0 ]; then
+    echo ""
+    echo "  Domain verification evidence:"
+    echo "    VISUAL_VERIFIED=$EVIDENCE_VISUAL"
+    echo "    Server health: $EVIDENCE_SERVER"
+    echo "    Parse test: $EVIDENCE_PARSE"
+  fi
+
 fi  # end pre-deploy
 
 # ===========================================================================
@@ -556,6 +669,123 @@ EOF
   fi
 
 fi  # end post-wave
+
+# ===========================================================================
+# DOMAIN-CHECK mode: runs ONLY Suite 5 (domain verification)
+# ===========================================================================
+if [ "$MODE" = "domain-check" ]; then
+
+  detect_domains
+
+  echo ""
+  echo "============================================================"
+  printf "Suite 5: Domain-matched verification (standalone)...\n"
+  echo "============================================================"
+
+  DOMAIN_FAIL=0
+  DOMAIN_CHECKED=0
+  DOMAIN_BLOCKED_LIST=""
+
+  EVIDENCE_VISUAL="not applicable"
+  EVIDENCE_SERVER="not applicable"
+  EVIDENCE_PARSE="not applicable"
+
+  # --- GATE-02: Display domain ---
+  if [ $DOMAIN_DISPLAY -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    if [ "${VISUAL_VERIFIED:-}" = "true" ]; then
+      printf "  Display verification: VISUAL_VERIFIED=true confirmed... %b\n" "$pass_label"
+      EVIDENCE_VISUAL="true"
+    else
+      printf "  %b BLOCKED: Display-domain changes detected but VISUAL_VERIFIED=true not set\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_DISPLAY"
+      echo "    To pass: verify screens on pods, then re-run with VISUAL_VERIFIED=true bash test/gate-check.sh --domain-check"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}display "
+      EVIDENCE_VISUAL="false"
+    fi
+  fi
+
+  # --- GATE-03: Network domain ---
+  if [ $DOMAIN_NETWORK -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    HEALTH_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/health 2>/dev/null || echo "")
+    if [ -n "$HEALTH_RESP" ]; then
+      printf "  Network verification: server health check... %b\n" "$pass_label"
+      echo "    Response: $(echo "$HEALTH_RESP" | head -c 120)"
+      EVIDENCE_SERVER="OK"
+    else
+      printf "  %b BLOCKED: Network-domain changes detected but server health check failed\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network "
+      EVIDENCE_SERVER="FAIL"
+    fi
+    if echo "$DOMAIN_FILES_NETWORK" | grep -qiE '(ws_handler|WebSocket)'; then
+      printf "  %b WebSocket changes detected — verify live WS connections after deploy\n" "$warn_label"
+    fi
+  fi
+
+  # --- GATE-04: Parse domain ---
+  if [ $DOMAIN_PARSE -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    if [ -n "${PARSE_TEST_INPUT:-}" ] && [ -n "${PARSE_TEST_EXPECTED:-}" ]; then
+      if [ -f "$PARSE_TEST_INPUT" ]; then
+        printf "  Parse verification: test input and expected output provided... %b\n" "$pass_label"
+        echo "    Input file: $PARSE_TEST_INPUT"
+        echo "    Expected: $PARSE_TEST_EXPECTED"
+        EVIDENCE_PARSE="PROVIDED"
+      else
+        printf "  %b BLOCKED: PARSE_TEST_INPUT file does not exist: %s\n" "$fail_label" "$PARSE_TEST_INPUT"
+        DOMAIN_FAIL=1
+        DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}parse "
+        EVIDENCE_PARSE="MISSING (file not found)"
+      fi
+    else
+      printf "  %b BLOCKED: Parse-domain changes detected but PARSE_TEST_INPUT and PARSE_TEST_EXPECTED not provided\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_PARSE"
+      echo "    To pass: re-run with PARSE_TEST_INPUT=/path/to/input PARSE_TEST_EXPECTED='expected_value' bash test/gate-check.sh --domain-check"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}parse "
+      EVIDENCE_PARSE="MISSING"
+    fi
+  fi
+
+  # --- GATE-01: Billing domain (informational) ---
+  if [ $DOMAIN_BILLING -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    printf "  %b Billing-domain changes detected — verify session start/stop and rate calculation after deploy\n" "$warn_label"
+    echo "    Triggering files: $DOMAIN_FILES_BILLING"
+  fi
+
+  # --- GATE-01: Config domain (informational) ---
+  if [ $DOMAIN_CONFIG -eq 1 ]; then
+    DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    printf "  %b Config-domain changes detected — verify config loads correctly on target machines after deploy\n" "$warn_label"
+    echo "    Triggering files: $DOMAIN_FILES_CONFIG"
+  fi
+
+  # Suite 5 result
+  if [ $DOMAIN_CHECKED -eq 0 ]; then
+    record_suite 5 "domain verification" "PASS (no domain-specific changes)"
+  elif [ $DOMAIN_FAIL -eq 0 ]; then
+    record_suite 5 "domain verification" "PASS (${DOMAIN_CHECKED} domains verified)"
+  else
+    DOMAIN_BLOCKED_LIST=$(echo "$DOMAIN_BLOCKED_LIST" | sed 's/ $//' | sed 's/ /|/g')
+    record_suite 5 "domain verification" "FAIL (blocked by: ${DOMAIN_BLOCKED_LIST})"
+    OVERALL_FAIL=1
+  fi
+
+  # Evidence summary
+  if [ $DOMAIN_CHECKED -gt 0 ]; then
+    echo ""
+    echo "  Domain verification evidence:"
+    echo "    VISUAL_VERIFIED=$EVIDENCE_VISUAL"
+    echo "    Server health: $EVIDENCE_SERVER"
+    echo "    Parse test: $EVIDENCE_PARSE"
+  fi
+
+fi  # end domain-check
 
 # ===========================================================================
 # Final Summary
