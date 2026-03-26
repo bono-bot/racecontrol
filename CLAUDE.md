@@ -306,6 +306,13 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Deploy pipeline enforces security + manifest.** The correct workflow is: `stage-release.sh` (security pre-flight → build → SHA256 → manifest) → `gate-check.sh --pre-deploy` → `deploy-pod.sh` (security gate + manifest check) → `deploy-server.sh` (security gate + manifest check) → `gate-check.sh --post-wave`. Each step is self-verifying. Skipping any step = potential regression.
   _Why: Deploy scripts previously had no security enforcement. Stale binaries, corrupted downloads, and wrong build_id were caught only by human discipline._
 
+### Cross-Boundary Serialization
+
+- **Every kiosk/frontend field MUST have a matching Rust struct field.** Before shipping any kiosk wizard change, grep `buildLaunchArgs()` field names against `AcLaunchParams` struct fields. Serde silently drops unknown JSON fields (no error, no warning) — a field name mismatch means the user's selection is ignored with zero indication of failure. The API returns `{ok: true}`, the game launches, but the config is wrong.
+  _Why: 2026-03-26 — Two critical bugs: (1) kiosk sent `ai_difficulty: "easy"` (string) but agent expected `ai_level: u32` (numeric). AI was always Semi-Pro. (2) kiosk sent `ai_count: 5` but agent expected `ai_cars: Vec<AiCarSlot>`. Zero AI opponents appeared. Both undetected because game launched successfully and no error was logged anywhere. Audit Protocol Phase 62 added to catch this class of bug._
+- **After any kiosk wizard change, verify the generated INI file on a pod.** Trigger a test launch and read back `race.ini` / `assists.ini` from the pod. Verify: AI_LEVEL matches selection, CARS count includes AI, assists match difficulty preset. API success and game launch are necessary but NOT sufficient — the config content is what matters.
+  _Why: Same incident. All existing audits (Phase 26-29, 48-50, 60) checked process state, not config content. The game ran perfectly with wrong config for an unknown duration._
+
 ### Regression Prevention
 
 - **Every manual fix MUST have code-enforced startup verification.** If you fix a problem by changing an OS setting (power plan, USB suspend, registry key), app config ("Forced update"), or process state (killing duplicates), the fix MUST be encoded in a startup script (start-rcagent.bat, pre-flight check, or rc-agent boot sequence) that runs on every boot. Settings that aren't enforced at boot WILL regress through Windows updates, app auto-updates, deploy cycles, or pod restarts.

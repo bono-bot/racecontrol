@@ -1,6 +1,6 @@
-# Racing Point Operations Audit Protocol — 60 Phases
+# Racing Point Operations Audit Protocol — 62 Phases
 
-**Version:** 3.1 | **Created:** 2026-03-23 | **Updated:** 2026-03-25 | **Author:** James Vowles
+**Version:** 3.2 | **Created:** 2026-03-23 | **Updated:** 2026-03-26 | **Author:** James Vowles
 **Coverage:** 100% — all 173+ runtime modules, 200+ standing rules, 241 API endpoints, 12 E2E journeys
 **Standing Rule:** Run this audit before shipping any milestone, after major incidents, or weekly during operations.
 
@@ -1680,6 +1680,85 @@ echo "(Manual: stage a file with a credential, verify pre-commit blocks it)"
 
 ---
 
+# TIER 20: Cross-Boundary Serialization (Phase 62)
+
+## Phase 62: TypeScript↔Rust Field Contract Validation
+**What:** Verify that every field sent by frontend apps (kiosk, web, admin) is actually consumed by the Rust backend. Serde silently drops unknown JSON fields — a typo or naming mismatch means the user's selection is ignored with zero errors logged. This phase catches "phantom config" where the UI shows a control, the user picks a value, the API accepts it, but the agent never applies it.
+
+**Root cause for adding this phase (2026-03-26):**
+Two critical bugs hid in production undetected:
+1. Kiosk sent `ai_difficulty: "easy"` (string), agent expected `ai_level: u32` (numeric 0-100). AI was always Semi-Pro regardless of selection.
+2. Kiosk sent `ai_count: 5` and `ai_enabled: true`, agent expected `ai_cars: Vec<AiCarSlot>`. Zero AI opponents appeared in practice/race despite user selecting 5.
+Both bugs were invisible because: (a) the game still launched (no error), (b) the API returned `{ok: true}`, (c) previous audits checked catalog existence, endpoint status, and process health — none checked whether the user's config was actually reflected in the generated INI files.
+
+**Why previous audits missed this:**
+- Phase 26 (Game Catalog) verifies catalog listing and exe existence — not config delivery
+- Phase 27 (AC Telemetry) verifies UDP ports and lap data — not race.ini content
+- Phase 48-50 (E2E Journeys) test the billing→launch→running state machine — not the config inside
+- Phase 60 (Cross-System Chains) tests chain completion — not payload fidelity
+- No phase existed that compared "what the kiosk sent" vs "what the agent received and wrote to disk"
+- Serde's default behavior (`deny_unknown_fields` is opt-OUT, not opt-IN) means TypeScript field name errors never produce Rust errors — they produce silent data loss
+
+**How to audit:**
+
+```bash
+# ─── Step 1: Extract kiosk launch_args field names ───────────────────────────
+# These are the fields the kiosk thinks it's sending to the agent
+grep -oP '"[a-z_]+"' kiosk/src/hooks/useSetupWizard.ts | sort -u > /tmp/kiosk_fields.txt
+echo "Fields kiosk sends:"
+cat /tmp/kiosk_fields.txt
+
+# ─── Step 2: Extract AcLaunchParams struct field names from Rust ─────────────
+# These are the fields the agent actually reads
+grep -P '^\s+pub [a-z_]+:' crates/rc-agent/src/ac_launcher.rs | \
+  sed 's/.*pub \([a-z_]*\):.*/\1/' | sort -u > /tmp/agent_fields.txt
+echo "Fields agent reads:"
+cat /tmp/agent_fields.txt
+
+# ─── Step 3: Diff — fields sent but not consumed (PHANTOM CONFIG) ────────────
+# These fields are sent by kiosk but silently dropped by serde
+comm -23 /tmp/kiosk_fields.txt /tmp/agent_fields.txt
+echo "^^^ If any fields listed above, they are PHANTOM — user selection is silently ignored"
+
+# ─── Step 4: Verify race.ini reflects launch_args on a live pod ──────────────
+# Trigger a test launch with known params, then read back the INI
+# (requires active billing session on test pod)
+SPOT_POD=$(echo $PODS | awk '{print $1}')
+# Read back the race.ini that was written
+curl -s -X POST http://$SPOT_POD:8090/exec \
+  -d '{"cmd":"type \"C:\\Users\\User\\Documents\\Assetto Corsa\\cfg\\race.ini\""}'
+# Verify: AI_LEVEL matches what kiosk sent (not always 87)
+# Verify: CARS > 1 when AI opponents were requested
+# Verify: SESSION type matches (practice=1, race=3, hotlap=4)
+
+# ─── Step 5: Check assists.ini reflects user selection ───────────────────────
+curl -s -X POST http://$SPOT_POD:8090/exec \
+  -d '{"cmd":"type \"C:\\Users\\User\\Documents\\Assetto Corsa\\cfg\\assists.ini\""}'
+# Verify: ABS, TC, STABILITY match the difficulty preset selected
+# Verify: AUTO_SHIFTER matches transmission selection (auto=1, manual=0)
+# Verify: DAMAGE=0 (safety hardcoded)
+
+# ─── Step 6: Verify non-AC games also work ───────────────────────────────────
+# Non-AC launch args are minimal (game, driver, game_mode)
+# Verify the agent handles them without errors
+curl -s "http://192.168.31.23:8080/api/v1/logs?lines=30" -H "x-terminal-session: $SESSION" | \
+  grep -i "parse.*launch_args.*error\|unknown field\|missing field"
+```
+
+**Fix loop trigger:**
+- Any field in kiosk that has no match in AcLaunchParams
+- race.ini AI_LEVEL always 87 regardless of kiosk selection
+- race.ini CARS=1 when AI opponents were requested
+- assists.ini ABS/TC/STABILITY don't match difficulty preset
+- Any "Failed to parse AC launch_args" warnings in agent logs
+
+**Standing rules to add after finding phantom fields:**
+- Every new field added to kiosk buildLaunchArgs() MUST have a matching field in the Rust struct (grep both files before shipping)
+- Consider adding `#[serde(deny_unknown_fields)]` to AcLaunchParams to make phantom fields produce errors instead of silent drops (trade-off: breaks forward compatibility)
+- After any kiosk wizard change, trigger one test launch and read back the generated INI file
+
+---
+
 # Audit Summary Template
 
 ```
@@ -1824,9 +1903,14 @@ TIER 19: SECURITY GATES & PIPELINE (61)
 |---|--------------------------|--------|-------|
 |61 | Security Gate & Deploy   |        |       |
 
+TIER 20: CROSS-BOUNDARY SERIALIZATION (62)
+| # | Phase                    | Status | Notes |
+|---|--------------------------|--------|-------|
+|62 | TS↔Rust Field Contract   |        |       |
+
 OVERALL: PASS / FAIL / PARTIAL
-TIERS PASSED: __ / 19
-PHASES PASSED: __ / 61
+TIERS PASSED: __ / 20
+PHASES PASSED: __ / 62
 ISSUES FOUND: ___
 FIXED DURING AUDIT: ___
 DEFERRED: ___
@@ -1936,9 +2020,14 @@ TIER 12: SECURITY GATES & PIPELINE (61)
 |---|--------------------------|--------|-------|
 |61 | Security Gate & Deploy   |        |       |
 
+TIER 13: CROSS-BOUNDARY SERIALIZATION (62)
+| # | Phase                    | Status | Notes |
+|---|--------------------------|--------|-------|
+|62 | TS↔Rust Field Contract   |        |       |
+
 OVERALL: PASS / FAIL / PARTIAL
-TIERS PASSED: __ / 12
-PHASES PASSED: __ / 61
+TIERS PASSED: __ / 13
+PHASES PASSED: __ / 62
 ISSUES FOUND: ___
 FIXED DURING AUDIT: ___
 DEFERRED: ___
@@ -1956,9 +2045,9 @@ Takes ~15 minutes. Covers all critical operational risks.
 Runtime health + all user-facing paths. Run after deploys or weekly.
 Takes ~45-60 minutes. Covers all runtime systems.
 
-# Full Audit Mode (All 60 phases, all 18 tiers)
+# Full Audit Mode (All 62 phases, all 20 tiers)
 
-Complete protocol including static analysis, test suites, cloud paths, and cross-system chains.
+Complete protocol including static analysis, test suites, cloud paths, cross-system chains, and cross-boundary serialization.
 Run before milestone ship, after major incidents, or bi-weekly.
 Takes ~90-120 minutes. **100% coverage** of all standing rules, runtime modules, and E2E journeys.
 

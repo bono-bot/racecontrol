@@ -185,6 +185,12 @@ pub struct AcLaunchParams {
     #[serde(default)]
     pub weekend_qualify_minutes: u32,
     // Race gets remaining time from the billing pool
+
+    // --- AI generation from kiosk (kiosk sends count, agent picks cars) ---
+    /// Number of AI opponents requested by kiosk. When > 0 and ai_cars is empty,
+    /// agent auto-generates opponents using the trackday car pool + random names.
+    #[serde(default)]
+    pub ai_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -711,13 +717,15 @@ fn generate_trackday_ai(count: usize, ai_level: u32) -> Vec<AiCarSlot> {
 }
 
 /// Compute the effective AI car list for a session, applying defaults and caps.
-/// Track Day with empty ai_cars generates default mixed traffic.
+/// Priority order:
+///   1. Explicit ai_cars from launch args (server/advanced clients)
+///   2. ai_count > 0 with empty ai_cars (kiosk sends count, agent picks cars)
+///   3. Track Day default (12 mixed traffic if nothing specified)
+///   4. Empty (solo session)
 /// All modes are capped at MAX_AI_SINGLE_PLAYER (19).
 fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
-    if params.session_type == "trackday" && params.ai_cars.is_empty() {
-        let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
-        generate_trackday_ai(count, params.ai_level)
-    } else {
+    // Case 1: Explicit ai_cars provided — use them directly
+    if !params.ai_cars.is_empty() {
         let capped = params.ai_cars.len().min(MAX_AI_SINGLE_PLAYER);
         if params.ai_cars.len() > MAX_AI_SINGLE_PLAYER {
             tracing::warn!(
@@ -726,13 +734,33 @@ fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
                 params.ai_cars.len(), MAX_AI_SINGLE_PLAYER, MAX_AI_SINGLE_PLAYER
             );
         }
-        params.ai_cars.iter().take(capped).map(|slot| {
+        return params.ai_cars.iter().take(capped).map(|slot| {
             AiCarSlot {
                 ai_level: params.ai_level,
                 ..slot.clone()
             }
-        }).collect()
+        }).collect();
     }
+
+    // Case 2: Kiosk sent ai_count > 0 — auto-generate opponents
+    if params.ai_count > 0 {
+        let count = (params.ai_count as usize).min(MAX_AI_SINGLE_PLAYER);
+        tracing::info!(
+            target: LOG_TARGET,
+            "Auto-generating {} AI opponents (ai_count={}, session_type={})",
+            count, params.ai_count, params.session_type
+        );
+        return generate_trackday_ai(count, params.ai_level);
+    }
+
+    // Case 3: Track Day with no AI specified — default mixed traffic
+    if params.session_type == "trackday" {
+        let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
+        return generate_trackday_ai(count, params.ai_level);
+    }
+
+    // Case 4: No AI requested — solo session
+    Vec::new()
 }
 
 // --- Composable INI section writers ---
@@ -2710,6 +2738,107 @@ mod tests {
         // If either function is removed or renamed, this test fails to compile.
         let _exit_result = wait_for_acs_exit(0);
         let _ready_result = wait_for_ac_ready(0);
+    }
+
+    // ─── Cross-boundary serialization tests (Phase 62 audit) ─────────────
+
+    #[test]
+    fn test_ai_count_generates_opponents_for_practice() {
+        // Bug fix: kiosk sends ai_count=5 (not ai_cars), agent must auto-generate
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":5,"ai_level":75,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("6"), "1 player + 5 AI = 6 CARS");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "AI_LEVEL must match param");
+
+        // Verify 5 AI car sections exist
+        for i in 1..=5 {
+            assert!(sections.contains_key(&format!("CAR_{}", i)), "Must have CAR_{}", i);
+        }
+        assert!(!sections.contains_key("CAR_6"), "Must NOT have CAR_6");
+    }
+
+    #[test]
+    fn test_ai_count_zero_means_solo() {
+        // ai_count=0 should produce no AI opponents
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":0,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"), "Solo session CARS must be 1");
+        assert!(!sections.contains_key("CAR_1"), "Solo must have no CAR_1");
+    }
+
+    #[test]
+    fn test_ai_count_race_mode() {
+        // ai_count also works for race sessions, not just trackday
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_count":3,"ai_level":98,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("4"), "1 player + 3 AI = 4");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("98"), "Alien-level AI");
+
+        let session = sections.get("SESSION_0").expect("Must have SESSION_0");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("3"), "Race TYPE=3");
+    }
+
+    #[test]
+    fn test_explicit_ai_cars_override_ai_count() {
+        // When both ai_cars and ai_count are provided, ai_cars takes priority
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":10,"ai_cars":[{"model":"ks_bmw_m6_gt3","skin":"","driver_name":"Override AI","ai_level":90}],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("2"), "Explicit ai_cars=1 overrides ai_count=10");
+
+        let car1 = sections.get("CAR_1").expect("Must have CAR_1");
+        assert_eq!(car1.get("MODEL").map(|s| s.as_str()), Some("ks_bmw_m6_gt3"));
+        assert!(!sections.contains_key("CAR_2"), "Only 1 explicit AI car, not 10");
+    }
+
+    #[test]
+    fn test_kiosk_launch_args_deserialization() {
+        // Simulate exact JSON that kiosk sends after the fix
+        let kiosk_json = r#"{
+            "car": "ks_ferrari_sf15t",
+            "track": "spa",
+            "driver": "Test Driver",
+            "difficulty": "easy",
+            "transmission": "auto",
+            "ffb": "medium",
+            "game": "assetto_corsa",
+            "game_mode": "single",
+            "aids": {"abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1},
+            "conditions": {"damage": 0},
+            "session_type": "practice",
+            "ai_level": 75,
+            "ai_count": 5
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(kiosk_json).unwrap();
+
+        assert_eq!(params.ai_level, 75, "ai_level must be parsed from kiosk JSON");
+        assert_eq!(params.ai_count, 5, "ai_count must be parsed from kiosk JSON");
+        assert_eq!(params.transmission, "auto");
+        assert_eq!(params.ffb, "medium");
+        assert_eq!(params.aids.as_ref().unwrap().abs, 1);
+        assert_eq!(params.aids.as_ref().unwrap().stability, 1);
+        assert_eq!(params.aids.as_ref().unwrap().ideal_line, 1);
+
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("6"), "5 AI + 1 player = 6");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "Rookie level");
     }
 
 }

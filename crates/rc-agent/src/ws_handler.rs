@@ -378,6 +378,7 @@ pub async fn handle_ws_message(
                         session_type: "practice".to_string(), ai_cars: Vec::new(),
                         starting_position: 1, formation_lap: false,
                         weekend_practice_minutes: 0, weekend_qualify_minutes: 0,
+                        ai_count: 0,
                     }}),
                     None => ac_launcher::AcLaunchParams {
                         car: "ks_ferrari_sf15t".to_string(), track: "spa".to_string(),
@@ -389,6 +390,7 @@ pub async fn handle_ws_message(
                         session_type: "practice".to_string(), ai_cars: Vec::new(),
                         starting_position: 1, formation_lap: false,
                         weekend_practice_minutes: 0, weekend_qualify_minutes: 0,
+                        ai_count: 0,
                     },
                 };
 

@@ -79,6 +79,14 @@ const DIFFICULTY_AIDS: Record<string, Record<string, number>> = Object.fromEntri
   Object.entries(DIFFICULTY_PRESETS).map(([k, v]) => [k, v.aids])
 );
 
+// Map kiosk AI difficulty names to numeric ai_level (0-100) for rc-agent's AcLaunchParams.
+// Values are DifficultyTier midpoints from ac_launcher.rs.
+const AI_DIFFICULTY_TO_LEVEL: Record<string, number> = {
+  easy: 75,   // Rookie midpoint
+  medium: 87, // Semi-Pro midpoint
+  hard: 98,   // Alien midpoint
+};
+
 // Step flow for single player
 const SINGLE_FLOW: SetupStep[] = [
   "register_driver",
@@ -205,8 +213,9 @@ export function useSetupWizard() {
       aids,
       conditions: { damage: 0 },
       session_type: state.sessionType,
-      ai_enabled: state.aiEnabled,
-      ai_difficulty: state.aiDifficulty,
+      // ai_level: numeric 0-100 value matching rc-agent's AcLaunchParams.ai_level
+      ai_level: AI_DIFFICULTY_TO_LEVEL[state.aiDifficulty] ?? 87,
+      // ai_count: how many AI opponents to generate (agent auto-picks car models)
       ai_count: state.aiEnabled ? state.aiCount : 0,
     };
 
