@@ -7,10 +7,31 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration, MissedTickBehavior};
+
+// Phase 206 (OBS-04): Rate-limit sentinel WhatsApp alerts to 1 per sentinel type per pod per 5 min.
+// Key format: "sentinel_{file}_{pod_number}". Prevents alert storms during restart storms.
+static SENTINEL_ALERT_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Check and update sentinel alert cooldown. Returns true if the alert should fire.
+/// Cooldown key: `sentinel_{file}_{pod_number}`. Cooldown period: 300s (5 minutes).
+fn check_sentinel_cooldown(key: &str) -> bool {
+    const COOLDOWN_SECS: u64 = 300;
+    let mut map = SENTINEL_ALERT_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
+    let now = Instant::now();
+    if let Some(last) = map.get(key) {
+        if now.duration_since(*last).as_secs() < COOLDOWN_SECS {
+            return false;
+        }
+    }
+    map.insert(key.to_string(), now);
+    true
+}
 
 use crate::ac_camera;
 use crate::ac_server;
@@ -210,6 +231,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                                     error_message: None,
                                                     launch_args: None,
                                                     auto_relaunch_count: 0,
+                                                    externally_tracked: true,
                                                 },
                                             );
                                             tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
@@ -951,6 +973,71 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     "No audit log entry found for config push seq={}",
                                     payload.sequence
                                 );
+                            }
+                        }
+                        // Phase 206 (OBS-04): Sentinel file change on pod.
+                        // 1. Update active_sentinels in fleet health store.
+                        // 2. Broadcast DashboardEvent::SentinelChanged for real-time visibility.
+                        // 3. MAINTENANCE_MODE creation fires WhatsApp alert to Uday (rate-limited).
+                        AgentMessage::SentinelChange { pod_id, file, action, timestamp } => {
+                            tracing::info!(
+                                target: "fleet",
+                                pod = %pod_id,
+                                sentinel = %file,
+                                action = %action,
+                                timestamp = %timestamp,
+                                "sentinel file change received"
+                            );
+
+                            // Parse pod number from pod_id (e.g. "pod_3" -> 3)
+                            let pod_number: u32 = pod_id.strip_prefix("pod_")
+                                .and_then(|n| n.parse().ok())
+                                .unwrap_or(0);
+
+                            // Update fleet health store (active_sentinels field)
+                            let updated_sentinels = {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(pod_id.clone()).or_default();
+                                crate::fleet_health::update_sentinel(store, file, action);
+                                store.active_sentinels.clone()
+                            };
+
+                            // REQUIRED: Broadcast to dashboard via DashboardEvent::SentinelChanged.
+                            // Per plan locked decision — real-time WS broadcast, not just fleet poll.
+                            let _ = state.dashboard_tx.send(
+                                DashboardEvent::SentinelChanged {
+                                    pod_id: pod_id.clone(),
+                                    pod_number,
+                                    file: file.clone(),
+                                    action: action.clone(),
+                                    timestamp: timestamp.clone(),
+                                    active_sentinels: updated_sentinels,
+                                }
+                            );
+
+                            // OBS-01: MAINTENANCE_MODE creation → WhatsApp alert to Uday
+                            if file == "MAINTENANCE_MODE" && action == "created" {
+                                let cooldown_key = format!("sentinel_{}_{}", file, pod_number);
+                                if check_sentinel_cooldown(&cooldown_key) {
+                                    let alert_msg = format!(
+                                        "[ALERT] Pod {} entered MAINTENANCE_MODE at {} (IST). \
+                                        Sentinel file created — all restarts are now blocked. \
+                                        Check fleet health or clear sentinel to recover.",
+                                        pod_number, timestamp
+                                    );
+                                    crate::whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+                                    tracing::warn!(
+                                        target: "state",
+                                        pod = pod_number,
+                                        "MAINTENANCE_MODE WhatsApp alert sent to Uday"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        target: "state",
+                                        pod = pod_number,
+                                        "MAINTENANCE_MODE WhatsApp alert suppressed (5-min cooldown active)"
+                                    );
+                                }
                             }
                         }
                         _ => { /* catch-all for future protocol additions */ }

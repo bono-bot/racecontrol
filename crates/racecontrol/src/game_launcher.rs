@@ -24,6 +24,9 @@ pub struct GameTracker {
     pub launch_args: Option<String>,
     /// How many times Race Engineer has auto-relaunched after crash (max 2)
     pub auto_relaunch_count: u32,
+    /// True when the server learned about this game from an agent report
+    /// rather than initiating the launch itself. Auto-relaunch is prohibited.
+    pub externally_tracked: bool,
 }
 
 impl GameTracker {
@@ -198,12 +201,17 @@ async fn launch_game(
         }
     }
 
-    // LIFE-04: Check if a game is currently launching or running (avoid double-launch)
+    // LIFE-04/LAUNCH-05: Check if a game is currently launching, running, or stopping (avoid double-launch)
     {
         let games = state.game_launcher.active_games.read().await;
         if let Some(tracker) = games.get(pod_id) {
-            if matches!(tracker.game_state, GameState::Launching | GameState::Running) {
-                return Err(format!("Pod {} already has a game active", pod_id));
+            if matches!(tracker.game_state, GameState::Launching | GameState::Running | GameState::Stopping) {
+                let msg = if tracker.game_state == GameState::Stopping {
+                    format!("game still stopping on pod {}", pod_id)
+                } else {
+                    format!("Pod {} already has a game active", pod_id)
+                };
+                return Err(msg);
             }
         }
     }
@@ -235,6 +243,7 @@ async fn launch_game(
             error_message: None,
             launch_args: launch_args.clone(),
             auto_relaunch_count: 0,
+            externally_tracked: false,
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -266,17 +275,23 @@ async fn launch_game(
             tracker.error_message = Some("No agent connected".to_string());
             // Re-capture info AFTER updating to Error state so dashboard gets correct state
             let error_info = tracker.to_info();
-            let _ = state
+            if let Err(e) = state
                 .dashboard_tx
-                .send(DashboardEvent::GameStateChanged(error_info));
+                .send(DashboardEvent::GameStateChanged(error_info))
+            {
+                tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+            }
         }
         return Err(format!("No agent connected for pod {}", pod_id));
     }
 
     // Broadcast to dashboards (only reached if agent IS connected)
-    let _ = state
+    if let Err(e) = state
         .dashboard_tx
-        .send(DashboardEvent::GameStateChanged(info));
+        .send(DashboardEvent::GameStateChanged(info))
+    {
+        tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+    }
 
     // Log event to DB (legacy table, backward compat)
     log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None).await;
@@ -388,9 +403,13 @@ pub async fn relaunch_game(
         games.get(pod_id).map(|t| t.to_info())
     };
     if let Some(info) = info {
-        let _ = state
+        let pod_id_for_warn = pod_id.to_string();
+        if let Err(e) = state
             .dashboard_tx
-            .send(DashboardEvent::GameStateChanged(info));
+            .send(DashboardEvent::GameStateChanged(info))
+        {
+            tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id_for_warn, e);
+        }
     }
 
     log_pod_activity(state, pod_id, "game", "Game Relaunched", "Manual relaunch from kiosk", "core");
@@ -427,9 +446,12 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
 
         // Broadcast to dashboards
         let sim_type_str = info.sim_type.to_string();
-        let _ = state
+        if let Err(e) = state
             .dashboard_tx
-            .send(DashboardEvent::GameStateChanged(info));
+            .send(DashboardEvent::GameStateChanged(info))
+        {
+            tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+        }
 
         // Log event (legacy table)
         log_game_event(state, pod_id, &sim_type_str, "stopping", None, None).await;
@@ -491,6 +513,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             error_message: info.error_message.clone(),
                             launch_args: None,
                             auto_relaunch_count: 0,
+                            externally_tracked: true,
                         },
                     );
                 }
@@ -560,9 +583,12 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     }
 
     // Broadcast to dashboards
-    let _ = state
+    if let Err(e) = state
         .dashboard_tx
-        .send(DashboardEvent::GameStateChanged(info.clone()));
+        .send(DashboardEvent::GameStateChanged(info.clone()))
+    {
+        tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+    }
 
     // ─── AC Timer Sync: reset billing timer on initial game start ────
     // When AC reports Running, reset billing driving_seconds to 0 so both
@@ -812,9 +838,12 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             metrics::record_launch_event(&state.db, &timeout_event).await;
         }
 
-        let _ = state
+        if let Err(e) = state
             .dashboard_tx
-            .send(DashboardEvent::GameStateChanged(info));
+            .send(DashboardEvent::GameStateChanged(info))
+        {
+            tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+        }
     }
 }
 
@@ -1089,6 +1118,7 @@ mod tests {
                         error_message: None,
                         launch_args: None,
                         auto_relaunch_count: 0,
+                        externally_tracked: false,
                     },
                 );
         }
@@ -1137,6 +1167,7 @@ mod tests {
                         error_message: None,
                         launch_args: None,
                         auto_relaunch_count: 0,
+                        externally_tracked: false,
                     },
                 );
         }
@@ -1225,6 +1256,7 @@ mod tests {
                         error_message: None,
                         launch_args: None,
                         auto_relaunch_count: 0,
+                        externally_tracked: false,
                     },
                 );
         }
@@ -1339,6 +1371,7 @@ mod tests {
                         error_message: None,
                         launch_args: None,
                         auto_relaunch_count: 0,
+                        externally_tracked: false,
                     },
                 );
         }
@@ -1546,5 +1579,122 @@ mod tests {
             "Error should mention 'Invalid' or 'JSON', got: {}",
             err
         );
+    }
+
+    // ── LAUNCH-05: Stopping state blocks double-launch ────────────────────────
+
+    #[tokio::test]
+    async fn test_double_launch_blocked_stopping() {
+        let state = make_state().await;
+
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Stopping,
+                pid: None,
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+            },
+        );
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Expected Err when game is Stopping");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_lowercase().contains("stopping"),
+            "Error should mention 'stopping', got: {}",
+            err
+        );
+    }
+
+    // ── STATE-04: externally_tracked field ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_game_state_update_creates_external_tracker() {
+        let state = make_state().await;
+
+        let info = GameLaunchInfo {
+            pod_id: "pod_5".to_string(),
+            sim_type: SimType::AssettoCorsa,
+            game_state: GameState::Running,
+            pid: Some(1234),
+            launched_at: Some(Utc::now()),
+            error_message: None,
+            diagnostics: None,
+        };
+
+        handle_game_state_update(&state, info).await;
+
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_5").expect("tracker should exist for pod_5");
+        assert!(
+            tracker.externally_tracked,
+            "Agent-reported game should have externally_tracked = true"
+        );
+        assert!(
+            tracker.launch_args.is_none(),
+            "Externally tracked game should have no launch_args"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_normal_launch_not_externally_tracked() {
+        let state = make_state().await;
+
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+
+        // launch_game will fail at agent sender (no agent) but tracker is created
+        let _ = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        let games = state.game_launcher.active_games.read().await;
+        if let Some(tracker) = games.get("pod_1") {
+            assert!(
+                !tracker.externally_tracked,
+                "Server-initiated launch should have externally_tracked = false"
+            );
+        }
+        // If tracker doesn't exist (e.g. cleaned up on error), that's acceptable
+    }
+
+    // ── STATE-06: relaunch_game() rejects Stopping state ─────────────────────
+
+    #[tokio::test]
+    async fn test_relaunch_rejected_stopping_state() {
+        let state = make_state().await;
+
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Stopping,
+                pid: None,
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+            },
+        );
+
+        let result = relaunch_game(&state, "pod_1").await;
+        assert!(result.is_err(), "Relaunch should be rejected when game is Stopping");
     }
 }
