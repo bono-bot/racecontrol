@@ -877,12 +877,39 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } => {
-            tracing::info!(target: LOG_TARGET, "WS command request {}: {}", request_id, cmd);
-            let result_tx = state.ws_exec_result_tx.clone();
-            tokio::spawn(async move {
-                let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
-                let _ = result_tx.send(result).await;
-            });
+            // BOOT-04: Intercept GUARD_CONFIRMED before generic exec dispatch
+            if cmd.trim() == "GUARD_CONFIRMED" {
+                state.guard_confirmed.store(true, std::sync::atomic::Ordering::Relaxed);
+                tracing::warn!(
+                    target: "state",
+                    prev = "report_only_pending",
+                    next = "guard_confirmed",
+                    "GUARD_CONFIRMED received — process guard may now escalate to kill_and_report"
+                );
+                // Restore kill_and_report on the whitelist if it was downgraded
+                {
+                    let mut wl = state.guard_whitelist.write().await;
+                    wl.violation_action = "kill_and_report".to_string();
+                }
+                crate::startup_log::write_phase(
+                    "GUARD_CONFIRMED",
+                    "Operator confirmed allowlist — process guard escalated to kill_and_report",
+                );
+                let _ = state.ws_exec_result_tx.send(AgentMessage::ExecResult {
+                    request_id,
+                    success: true,
+                    exit_code: Some(0),
+                    stdout: "Process guard confirmed — kill_and_report mode activated".to_string(),
+                    stderr: String::new(),
+                }).await;
+            } else {
+                tracing::info!(target: LOG_TARGET, "WS command request {}: {}", request_id, cmd);
+                let result_tx = state.ws_exec_result_tx.clone();
+                tokio::spawn(async move {
+                    let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
+                    let _ = result_tx.send(result).await;
+                });
+            }
         }
 
         CoreToAgentMessage::ApproveProcess { process_name } => {
