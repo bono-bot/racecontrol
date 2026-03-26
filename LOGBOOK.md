@@ -876,3 +876,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 06:54 IST | James | aa3fbc54 | feat(211.1-03): boot-time-fix.sh - reads pre-shutdown findings, applies APPROVED_FIXES, notifies Bono |
 | 2026-03-26 06:54 IST | James | 41a2154a | feat(211.1-03): Bono fallback in venue_shutdown_handler - James offline -> Bono relay -> pod shutdown -> server self-shutdown |
 | 2026-03-26 06:54 IST | James | 7938db0c | docs(211.1-03): SUMMARY.md + STATE.md + ROADMAP.md - Phase 211.1 Complete 3/3 |
+| 2026-03-26 07:00 IST | James | d483d35e | fix(211.1): add fallback_bono status to kiosk shutdown UI |
