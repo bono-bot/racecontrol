@@ -98,6 +98,11 @@ pub(crate) struct ConnectionState {
     pub(crate) shm_defer_logged: bool,
     /// v22.0 Phase 178: Queued acks (ConfigAck etc.) to drain after each WS message.
     pub(crate) pending_acks: Vec<AgentMessage>,
+    /// AC False-Live guard (BILL-01/02): timestamp when AcStatus::Live first detected after 1s stability.
+    /// The 5s window checks for real driving input (speed > 0 OR |steer| > 0.02) before billing starts.
+    pub(crate) ac_live_since: Option<std::time::Instant>,
+    /// AC False-Live guard: true once speed > 0 OR |steer| > 0.02 observed during the 5s window.
+    pub(crate) ac_live_has_input: bool,
 }
 
 impl ConnectionState {
@@ -133,6 +138,8 @@ impl ConnectionState {
             game_running_since: None,
             shm_defer_logged: false,
             pending_acks: Vec::new(),
+            ac_live_since: None,
+            ac_live_has_input: false,
         }
     }
 }
@@ -279,18 +286,48 @@ pub async fn run(
                                     state.ac_status_stable_since = None;
 
                                     if status == AcStatus::Live {
-                                        // Live: send immediately, transition launch_state
-                                        let msg = AgentMessage::GameStatusUpdate {
-                                            pod_id: state.pod_id.clone(),
-                                            ac_status: status,
-                                            sim_type: Some(rc_common::types::SimType::AssettoCorsa),
-                                        };
-                                        if let Ok(json) = serde_json::to_string(&msg) {
-                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        // AC False-Live guard (BILL-01/02): AC reports Live during menus/replays.
+                                        // Require speed > 0 OR |steer| > 0.02 within 5s before billing starts.
+                                        if conn.ac_live_since.is_none() {
+                                            conn.ac_live_since = Some(std::time::Instant::now());
+                                            conn.ac_live_has_input = false;
+                                            tracing::debug!(target: LOG_TARGET, "AC False-Live guard started (5s window)");
                                         }
-                                        conn.launch_state = LaunchState::Live;
+
+                                        // Sample telemetry for real driving input
+                                        if let Some(ref mut adapter2) = state.adapter {
+                                            if let Ok(Some(ref frame)) = adapter2.read_telemetry() {
+                                                if frame.speed_kmh > 0.0 || frame.steering.abs() > 0.02 {
+                                                    conn.ac_live_has_input = true;
+                                                }
+                                            }
+                                        }
+
+                                        let elapsed = conn.ac_live_since.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+
+                                        if conn.ac_live_has_input {
+                                            // True Live — real driving input confirmed
+                                            tracing::debug!(target: LOG_TARGET, "AC False-Live guard passed (input detected) — emitting Live");
+                                            conn.ac_live_since = None;
+                                            let msg = AgentMessage::GameStatusUpdate {
+                                                pod_id: state.pod_id.clone(),
+                                                ac_status: status,
+                                                sim_type: Some(rc_common::types::SimType::AssettoCorsa),
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&msg) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                            conn.launch_state = LaunchState::Live;
+                                        } else if elapsed >= 5 {
+                                            // False-Live: menu/replay, suppress billing start and reset
+                                            conn.ac_live_since = None;
+                                            tracing::info!(target: LOG_TARGET, "AC False-Live suppressed (5s, speed=0, steer=0) — not billing");
+                                        }
+                                        // else: still within 5s window, waiting for input — do not emit Live yet
                                     } else if status == AcStatus::Off {
-                                        // Off: arm 30s grace timer — crash recovery may cancel it
+                                        // Off: clear False-Live guard, arm 30s grace timer
+                                        conn.ac_live_since = None;
+                                        conn.ac_live_has_input = false;
                                         if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
                                             tracing::info!(target: LOG_TARGET, "AcStatus::Off detected — arming 30s exit grace timer (AC)");
                                             conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
@@ -698,18 +735,35 @@ pub async fn run(
                         }
                         Some(sim_type) => {
                             // Process-based fallback for EVO, WRC, Forza, etc.
+                            // BILL-08: Gate on game still running — crashed games must not be billed.
                             if let LaunchState::WaitingForLive { launched_at, .. } = &conn.launch_state {
                                 if launched_at.elapsed() >= Duration::from_secs(90) {
-                                    tracing::info!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — emitting AcStatus::Live", sim_type);
-                                    let msg = AgentMessage::GameStatusUpdate {
-                                        pod_id: state.pod_id.clone(),
-                                        ac_status: AcStatus::Live,
-                                        sim_type: Some(sim_type),
-                                    };
-                                    if let Ok(json) = serde_json::to_string(&msg) {
-                                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                                    let game_alive = state.game_process.as_mut()
+                                        .map(|g| g.is_running())
+                                        .unwrap_or(false);
+                                    if game_alive {
+                                        tracing::info!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game alive, emitting AcStatus::Live", sim_type);
+                                        let msg = AgentMessage::GameStatusUpdate {
+                                            pod_id: state.pod_id.clone(),
+                                            ac_status: AcStatus::Live,
+                                            sim_type: Some(sim_type),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
+                                        conn.launch_state = LaunchState::Live;
+                                    } else {
+                                        tracing::warn!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game DEAD, emitting Error not Live (BILL-08)", sim_type);
+                                        let msg = AgentMessage::GameStatusUpdate {
+                                            pod_id: state.pod_id.clone(),
+                                            ac_status: AcStatus::Off,
+                                            sim_type: Some(sim_type),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
+                                        conn.launch_state = LaunchState::Idle;
                                     }
-                                    conn.launch_state = LaunchState::Live;
                                 }
                             }
                         }
