@@ -27,6 +27,9 @@ pub struct GameTracker {
     /// True when the server learned about this game from an agent report
     /// rather than initiating the launch itself. Auto-relaunch is prohibited.
     pub externally_tracked: bool,
+    /// Dynamic timeout in seconds computed from historical launch data (LAUNCH-08).
+    /// None = use game-specific default (AC=120s, others=90s).
+    pub dynamic_timeout_secs: Option<i64>,
 }
 
 impl GameTracker {
@@ -39,6 +42,7 @@ impl GameTracker {
             launched_at: self.launched_at,
             error_message: self.error_message.clone(),
             diagnostics: None,
+            exit_code: None,
         }
     }
 }
@@ -230,6 +234,20 @@ async fn launch_game(
 
     log_pod_activity(state, pod_id, "game", "Game Launching", &format!("{}", sim_type), "core");
 
+    // LAUNCH-08: Query dynamic timeout from historical launch data
+    let default_timeout_secs: u64 = match sim_type {
+        SimType::AssettoCorsa | SimType::AssettoCorsaRally | SimType::AssettoCorsaEvo => 120,
+        _ => 90,
+    };
+    let (car_for_timeout, track_for_timeout, _, _) = extract_launch_fields(&launch_args);
+    let dynamic_timeout = metrics::query_dynamic_timeout(
+        &state.db,
+        &sim_type.to_string(),
+        car_for_timeout.as_deref(),
+        track_for_timeout.as_deref(),
+        default_timeout_secs,
+    ).await;
+
     // Create tracker + insert with TOCTOU re-check (LAUNCH-04)
     let info = {
         let mut games = state.game_launcher.active_games.write().await;
@@ -256,6 +274,7 @@ async fn launch_game(
             launch_args: launch_args.clone(),
             auto_relaunch_count: 0,
             externally_tracked: false,
+            dynamic_timeout_secs: Some(dynamic_timeout as i64),
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -546,6 +565,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             launch_args: None,
                             auto_relaunch_count: 0,
                             externally_tracked: true,
+                            dynamic_timeout_secs: None,
                         },
                     );
                 }
@@ -590,7 +610,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // Rich state update event recording (only for Error/Crash states — informational states covered by launch/relaunch)
     if matches!(info.game_state, GameState::Error) {
         let (outcome, taxonomy) = if info.game_state == GameState::Error {
-            let tax = classify_error_taxonomy(info.error_message.as_deref());
+            let tax = classify_error_taxonomy(info.error_message.as_deref(), info.exit_code);
             (metrics::LaunchOutcome::Crash, Some(tax))
         } else {
             (metrics::LaunchOutcome::Error, None)
@@ -807,10 +827,11 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             if tracker.game_state == GameState::Launching {
                 if let Some(launched_at) = tracker.launched_at {
                     let elapsed = now.signed_duration_since(launched_at);
-                    let timeout_secs = match tracker.sim_type {
-                        SimType::AssettoCorsa => 120,
-                        _ => 60,
-                    };
+                    // LAUNCH-08: Use stored dynamic timeout, fall back to game-specific default
+                    let timeout_secs = tracker.dynamic_timeout_secs.unwrap_or(match tracker.sim_type {
+                        SimType::AssettoCorsa | SimType::AssettoCorsaRally | SimType::AssettoCorsaEvo => 120,
+                        _ => 90,
+                    });
                     if elapsed.num_seconds() > timeout_secs {
                         timed_out.push((pod_id.clone(), tracker.sim_type, timeout_secs));
                     }
@@ -842,6 +863,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             launched_at: None,
             error_message: Some(timeout_msg.clone()),
             diagnostics: None,
+            exit_code: None,
         };
 
         // Update tracker
@@ -963,7 +985,11 @@ fn extract_launch_fields(
 
 /// Classify an error message into a structured ErrorTaxonomy entry.
 /// Uses simple heuristics — no heavy parsing needed at this phase.
-fn classify_error_taxonomy(error_message: Option<&str>) -> metrics::ErrorTaxonomy {
+fn classify_error_taxonomy(error_message: Option<&str>, exit_code: Option<i32>) -> metrics::ErrorTaxonomy {
+    // Check typed exit_code first - more reliable than string parsing
+    if let Some(code) = exit_code {
+        return metrics::ErrorTaxonomy::ProcessCrash { exit_code: code as i64 };
+    }
     let Some(msg) = error_message else {
         return metrics::ErrorTaxonomy::Unknown;
     };
@@ -1161,6 +1187,7 @@ mod tests {
                         launch_args: None,
                         auto_relaunch_count: 0,
                         externally_tracked: false,
+                        dynamic_timeout_secs: None,
                     },
                 );
         }
@@ -1210,6 +1237,7 @@ mod tests {
                         launch_args: None,
                         auto_relaunch_count: 0,
                         externally_tracked: false,
+                        dynamic_timeout_secs: None,
                     },
                 );
         }
@@ -1299,6 +1327,7 @@ mod tests {
                         launch_args: None,
                         auto_relaunch_count: 0,
                         externally_tracked: false,
+                        dynamic_timeout_secs: None,
                     },
                 );
         }
@@ -1379,6 +1408,7 @@ mod tests {
             launched_at: Some(Utc::now()),
             error_message: None,
             diagnostics: None,
+            exit_code: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1414,6 +1444,7 @@ mod tests {
                         launch_args: None,
                         auto_relaunch_count: 0,
                         externally_tracked: false,
+                        dynamic_timeout_secs: None,
                     },
                 );
         }
@@ -1427,6 +1458,7 @@ mod tests {
             launched_at: None,
             error_message: None,
             diagnostics: None,
+            exit_code: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1645,6 +1677,7 @@ mod tests {
                 launch_args: None,
                 auto_relaunch_count: 0,
                 externally_tracked: false,
+                dynamic_timeout_secs: None,
             },
         );
 
@@ -1673,6 +1706,7 @@ mod tests {
             launched_at: Some(Utc::now()),
             error_message: None,
             diagnostics: None,
+            exit_code: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1733,6 +1767,7 @@ mod tests {
                 launch_args: None,
                 auto_relaunch_count: 0,
                 externally_tracked: false,
+                dynamic_timeout_secs: None,
             },
         );
 
@@ -1762,6 +1797,7 @@ mod tests {
                 launch_args: None,
                 auto_relaunch_count: 0,
                 externally_tracked: false,
+                dynamic_timeout_secs: None,
             },
         );
 
@@ -1800,6 +1836,7 @@ mod tests {
                 launch_args: None,
                 auto_relaunch_count: 0,
                 externally_tracked: false,
+                dynamic_timeout_secs: None,
             },
         );
 
@@ -1832,6 +1869,7 @@ mod tests {
                 launch_args: None,
                 auto_relaunch_count: 0,
                 externally_tracked: false,
+                dynamic_timeout_secs: None,
             },
         );
 
@@ -1938,6 +1976,56 @@ mod tests {
         assert!(
             tracker.error_message.as_ref().unwrap().contains("No agent connected"),
             "Tracker error_message should mention 'No agent connected'"
+        );
+    }
+
+    // -- LAUNCH-09: ErrorTaxonomy typed exit_code tests
+
+    #[test]
+    fn test_classify_error_taxonomy_exit_code_access_violation() {
+        // 0xC0000005 = STATUS_ACCESS_VIOLATION - stored as i32 wraps to negative
+        let code = 0xC0000005u32 as i32;
+        let result = classify_error_taxonomy(None, Some(code));
+        assert!(
+            matches!(result, metrics::ErrorTaxonomy::ProcessCrash { .. }),
+            "exit_code Some(ACCESS_VIOLATION) should classify as ProcessCrash, got {:?}", result
+        );
+    }
+
+    #[test]
+    fn test_classify_error_taxonomy_exit_code_zero() {
+        let result = classify_error_taxonomy(None, Some(0));
+        assert!(
+            matches!(result, metrics::ErrorTaxonomy::ProcessCrash { exit_code: 0 }),
+            "exit_code Some(0) should classify as ProcessCrash(0), got {:?}", result
+        );
+    }
+
+    #[test]
+    fn test_classify_error_taxonomy_exit_code_priority() {
+        // Even with shader message, exit_code wins
+        let result = classify_error_taxonomy(Some("shader compilation failed"), Some(1));
+        assert!(
+            matches!(result, metrics::ErrorTaxonomy::ProcessCrash { .. }),
+            "exit_code should take priority over message, got {:?}", result
+        );
+    }
+
+    #[test]
+    fn test_classify_error_taxonomy_string_fallback_shader() {
+        let result = classify_error_taxonomy(Some("shader compilation failed"), None);
+        assert!(
+            matches!(result, metrics::ErrorTaxonomy::ShaderCompilationFail),
+            "No exit_code + shader message -> ShaderCompilationFail, got {:?}", result
+        );
+    }
+
+    #[test]
+    fn test_classify_error_taxonomy_no_exit_no_message() {
+        let result = classify_error_taxonomy(None, None);
+        assert!(
+            matches!(result, metrics::ErrorTaxonomy::Unknown),
+            "No exit_code + no message -> Unknown, got {:?}", result
         );
     }
 }

@@ -469,6 +469,7 @@ pub async fn run(
                                     launched_at: Some(Utc::now()),
                                     error_message: None,
                                     diagnostics: None,
+                                    exit_code: None,
                                 };
                                 let loading_msg = AgentMessage::GameStateUpdate(loading_info);
                                 if let Ok(json) = serde_json::to_string(&loading_msg) {
@@ -486,6 +487,7 @@ pub async fn run(
                                 launched_at: Some(Utc::now()),
                                 error_message: None,
                                 diagnostics: None,
+                                exit_code: None,
                             };
                             let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.game_pid = Some(pid);
@@ -508,6 +510,7 @@ pub async fn run(
                                 launched_at: None,
                                 error_message: Some(err_msg.clone()),
                                 diagnostics: None,
+                                exit_code: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
@@ -1188,6 +1191,7 @@ pub async fn run(
                                     launched_at: Some(Utc::now()),
                                     error_message: None,
                                     diagnostics: None,
+                                    exit_code: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 conn.launch_state = LaunchState::WaitingForLive {
@@ -1248,6 +1252,7 @@ pub async fn run(
                                     launched_at: Some(Utc::now()),
                                     error_message: None,
                                     diagnostics: None,
+                                    exit_code: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 let _ = state.failure_monitor_tx.send_modify(|s| {

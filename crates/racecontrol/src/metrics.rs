@@ -261,3 +261,149 @@ pub fn hash_launch_args(args_json: &str) -> String {
     args_json.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
+
+/// Query launch_events for dynamic timeout: median + 2*stdev of last 10 successful durations.
+/// Returns timeout in seconds. Falls back to default_secs if insufficient history (< 3 samples).
+/// Floor: 30 seconds regardless of history (LAUNCH-08).
+pub async fn query_dynamic_timeout(
+    db: &SqlitePool,
+    sim_type: &str,
+    car: Option<&str>,
+    track: Option<&str>,
+    default_secs: u64,
+) -> u64 {
+    let rows: Vec<(i64,)> = sqlx::query_as(
+        "SELECT duration_to_playable_ms FROM launch_events
+         WHERE sim_type = ? AND (car = ? OR ? IS NULL) AND (track = ? OR ? IS NULL)
+           AND outcome = '\"Success\"'
+           AND duration_to_playable_ms IS NOT NULL
+         ORDER BY created_at DESC LIMIT 10"
+    )
+    .bind(sim_type).bind(car).bind(car).bind(track).bind(track)
+    .fetch_all(db).await.unwrap_or_default();
+
+    if rows.len() < 3 {
+        tracing::info!(
+            "dynamic timeout: using default {}s for {}/{:?}/{:?} (insufficient history: {} samples)",
+            default_secs, sim_type, car, track, rows.len()
+        );
+        return default_secs;
+    }
+
+    let mut durations_ms: Vec<f64> = rows.iter().map(|(d,)| *d as f64).collect();
+    durations_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = durations_ms[durations_ms.len() / 2];
+    let mean = durations_ms.iter().sum::<f64>() / durations_ms.len() as f64;
+    let variance = durations_ms.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / durations_ms.len() as f64;
+    let stdev = variance.sqrt();
+    let timeout_ms = median + 2.0 * stdev;
+    let timeout_secs = (timeout_ms / 1000.0).ceil() as u64;
+
+    tracing::info!(
+        "dynamic timeout: {}s for {}/{:?}/{:?} (median={:.0}ms stdev={:.0}ms samples={})",
+        timeout_secs, sim_type, car, track, median, stdev, rows.len()
+    );
+    timeout_secs.max(30)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn make_db() -> SqlitePool {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        let _ = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS launch_events (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                car TEXT,
+                track TEXT,
+                session_type TEXT,
+                timestamp TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                error_taxonomy TEXT,
+                duration_to_playable_ms INTEGER,
+                error_details TEXT,
+                launch_args_hash TEXT,
+                attempt_number INTEGER DEFAULT 1,
+                db_fallback INTEGER,
+                created_at TEXT DEFAULT (datetime('now'))
+            )"
+        )
+        .execute(&db)
+        .await;
+        db
+    }
+
+    async fn insert_success_row(db: &SqlitePool, sim_type: &str, car: Option<&str>, track: Option<&str>, duration_ms: i64) {
+        let id = uuid::Uuid::new_v4().to_string();
+        let outcome_str = serde_json::to_string(&LaunchOutcome::Success).unwrap_or_default();
+        let _ = sqlx::query(
+            "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, duration_to_playable_ms, attempt_number)
+             VALUES (?, 'pod_1', ?, ?, ?, NULL, datetime('now'), ?, ?, 1)"
+        )
+        .bind(&id)
+        .bind(sim_type)
+        .bind(car)
+        .bind(track)
+        .bind(&outcome_str)
+        .bind(duration_ms)
+        .execute(db)
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_timeout_with_sufficient_history() {
+        let db = make_db().await;
+        for _ in 0..10 {
+            insert_success_row(&db, "AssettoCorsa", None, None, 25000).await;
+        }
+        let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
+        // median=25000ms stdev=0 -> timeout=25s -> max(30) = 30
+        assert!(timeout >= 30, "timeout floor should be 30s, got {}s", timeout);
+        assert!(timeout <= 40, "timeout should not be excessive, got {}s", timeout);
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_timeout_varied_history() {
+        let db = make_db().await;
+        let durations = [20000i64, 22000, 23000, 24000, 25000, 25000, 26000, 27000, 28000, 30000];
+        for d in durations {
+            insert_success_row(&db, "AssettoCorsa", None, None, d).await;
+        }
+        let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
+        assert!(timeout >= 30, "timeout should be at least 30s floor, got {}s", timeout);
+        assert!(timeout < 120, "dynamic timeout should be less than default 120s, got {}s", timeout);
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_timeout_insufficient_history() {
+        let db = make_db().await;
+        for _ in 0..2 {
+            insert_success_row(&db, "AssettoCorsa", None, None, 25000).await;
+        }
+        let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 90).await;
+        assert_eq!(timeout, 90, "Should return default_secs=90 with only 2 samples");
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_timeout_empty_history() {
+        let db = make_db().await;
+        let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
+        assert_eq!(timeout, 120, "Should return default_secs=120 with no history");
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_timeout_floor_30s() {
+        let db = make_db().await;
+        for _ in 0..10 {
+            insert_success_row(&db, "AssettoCorsa", None, None, 1000).await;
+        }
+        let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
+        assert!(timeout >= 30, "timeout floor should be 30s, got {}s", timeout);
+    }
+}

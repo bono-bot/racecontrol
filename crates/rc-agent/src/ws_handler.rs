@@ -367,6 +367,7 @@ pub async fn handle_ws_message(
                     pod_id: state.pod_id.clone(), sim_type: launch_sim,
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
+ exit_code: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -396,6 +397,7 @@ pub async fn handle_ws_message(
                                 fallback_used: result.diagnostics.fallback_used,
                                 direct_exit_code: result.diagnostics.direct_exit_code,
                             }),
+                            exit_code: None,
                         };
                         game_process::persist_pid(result.pid);
                         state.game_process = Some(game_process::GameProcess {
@@ -449,6 +451,7 @@ pub async fn handle_ws_message(
                             pod_id: pod_id_clone.clone(), sim_type: launch_sim,
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
+ exit_code: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -504,6 +507,7 @@ pub async fn handle_ws_message(
                     pod_id: state.pod_id.clone(), sim_type: launch_sim,
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
+ exit_code: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(launching_info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -520,6 +524,7 @@ pub async fn handle_ws_message(
                                 pod_id: state.pod_id.clone(), sim_type: launch_sim,
                                 game_state: GameState::Running, pid: Some(pid),
                                 launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
+ exit_code: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
@@ -536,6 +541,7 @@ pub async fn handle_ws_message(
                             pod_id: state.pod_id.clone(), sim_type: launch_sim,
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
+ exit_code: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -566,6 +572,7 @@ pub async fn handle_ws_message(
                         let info = GameLaunchInfo {
                             pod_id: state.pod_id.clone(), sim_type: sim, game_state: GameState::Idle,
                             pid: None, launched_at: None, error_message: None, diagnostics: None,
+ exit_code: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json = serde_json::to_string(&msg)?;

@@ -432,6 +432,10 @@ pub struct GameLaunchInfo {
     pub error_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<LaunchDiagnostics>,
+    /// Process exit code when the game exited abnormally (LAUNCH-09).
+    /// Takes priority over error_message string parsing for crash classification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 
 /// Structured diagnostics from a game launch attempt.
