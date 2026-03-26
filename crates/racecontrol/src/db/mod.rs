@@ -407,6 +407,36 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Combo reliability (INTEL-01) ───────────────────────────────────────
+    // Materialized rolling 30-day success rates per (pod, sim, car, track) combo.
+    // Updated after every record_launch_event call via update_combo_reliability().
+    // NULL car/track handled via IS NULL / OR comparison in queries.
+    // No COALESCE in PRIMARY KEY (SQLite limitation) — use id row + unique index.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS combo_reliability (
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            car TEXT,
+            track TEXT,
+            success_rate REAL NOT NULL DEFAULT 0.0,
+            avg_time_to_track_ms REAL,
+            p95_time_to_track_ms REAL,
+            total_launches INTEGER NOT NULL DEFAULT 0,
+            common_failure_modes TEXT,
+            last_updated TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_combo_rel_pk ON combo_reliability(pod_id, sim_type, COALESCE(car, ''), COALESCE(track, ''))")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_combo_rel_sim ON combo_reliability(sim_type)")
+        .execute(pool)
+        .await?;
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(

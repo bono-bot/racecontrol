@@ -97,6 +97,17 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent) {
 
     // Always write to JSONL (dual storage, METRICS-02)
     append_launch_jsonl(&jsonl_event).await;
+
+    // INTEL-01: Update combo_reliability after every launch event (including crash recovery relaunches).
+    // Called after both SQLite insert and JSONL write so all code paths update reliability scores.
+    update_combo_reliability(
+        db,
+        &event.pod_id,
+        &event.sim_type,
+        event.car.as_deref(),
+        event.track.as_deref(),
+    )
+    .await;
 }
 
 /// Write a launch event only to JSONL (used for DB-failure fallback path).
@@ -251,6 +262,248 @@ pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent) {
             event.pod_id
         );
     }
+}
+
+/// A combo reliability record — rolling 30-day success rate for a (pod, sim, car, track) combo.
+/// Minimum 5 launches required for query_combo_reliability to return a result (INTEL-02).
+#[derive(Debug, Clone, Serialize)]
+pub struct ComboReliability {
+    pub pod_id: String,
+    pub sim_type: String,
+    pub car: Option<String>,
+    pub track: Option<String>,
+    pub success_rate: f64,
+    pub avg_time_to_track_ms: Option<f64>,
+    pub p95_time_to_track_ms: Option<f64>,
+    pub total_launches: i64,
+    pub common_failure_modes: Vec<FailureMode>,
+    pub last_updated: String,
+}
+
+/// Local FailureMode — same shape as api::metrics::FailureMode, defined here to avoid
+/// circular imports between metrics.rs and api::metrics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailureMode {
+    pub mode: String,
+    pub count: i64,
+}
+
+/// Update the combo_reliability materialized table for a given (pod, sim, car, track) combo.
+/// Computes rolling 30-day: success_rate, avg/p95 time_to_track, top 3 failure modes.
+/// Called at the end of record_launch_event so every launch keeps scores current (INTEL-01).
+pub async fn update_combo_reliability(
+    db: &SqlitePool,
+    pod_id: &str,
+    sim_type: &str,
+    car: Option<&str>,
+    track: Option<&str>,
+) {
+    // Count total launches in 30-day window for this combo
+    let total_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM launch_events
+         WHERE pod_id = ? AND sim_type = ?
+           AND (car = ? OR (? IS NULL AND car IS NULL))
+           AND (track = ? OR (? IS NULL AND track IS NULL))
+           AND created_at >= datetime('now', '-30 days')",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car).bind(car)
+    .bind(track).bind(track)
+    .fetch_one(db)
+    .await
+    .unwrap_or((0,));
+    let total_launches = total_row.0;
+
+    if total_launches == 0 {
+        return;
+    }
+
+    // Count successes — outcome stored as JSON-serialized enum e.g. '"Success"'
+    let success_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM launch_events
+         WHERE pod_id = ? AND sim_type = ?
+           AND (car = ? OR (? IS NULL AND car IS NULL))
+           AND (track = ? OR (? IS NULL AND track IS NULL))
+           AND outcome = '\"Success\"'
+           AND created_at >= datetime('now', '-30 days')",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car).bind(car)
+    .bind(track).bind(track)
+    .fetch_one(db)
+    .await
+    .unwrap_or((0,));
+    let successes = success_row.0;
+    let success_rate = if total_launches > 0 { successes as f64 / total_launches as f64 } else { 0.0 };
+
+    // Compute avg time_to_track from successful launches
+    let durations: Vec<(i64,)> = sqlx::query_as(
+        "SELECT duration_to_playable_ms FROM launch_events
+         WHERE pod_id = ? AND sim_type = ?
+           AND (car = ? OR (? IS NULL AND car IS NULL))
+           AND (track = ? OR (? IS NULL AND track IS NULL))
+           AND outcome = '\"Success\"'
+           AND duration_to_playable_ms IS NOT NULL
+           AND created_at >= datetime('now', '-30 days')
+         ORDER BY duration_to_playable_ms ASC",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car).bind(car)
+    .bind(track).bind(track)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let avg_time = if !durations.is_empty() {
+        let sum: f64 = durations.iter().map(|(d,)| *d as f64).sum();
+        Some(sum / durations.len() as f64)
+    } else {
+        None
+    };
+
+    let p95_time = if !durations.is_empty() {
+        // Already sorted ASC — p95 index
+        let idx = ((durations.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
+        let idx = idx.min(durations.len() - 1);
+        Some(durations[idx].0 as f64)
+    } else {
+        None
+    };
+
+    // Top 3 failure modes from error_taxonomy where outcome != Success
+    let failure_modes: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT COALESCE(error_taxonomy, 'Unknown'), COUNT(*) as cnt
+         FROM launch_events
+         WHERE pod_id = ? AND sim_type = ?
+           AND (car = ? OR (? IS NULL AND car IS NULL))
+           AND (track = ? OR (? IS NULL AND track IS NULL))
+           AND outcome != '\"Success\"'
+           AND created_at >= datetime('now', '-30 days')
+         GROUP BY error_taxonomy
+         ORDER BY cnt DESC
+         LIMIT 3",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car).bind(car)
+    .bind(track).bind(track)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let failure_modes_vec: Vec<FailureMode> = failure_modes
+        .into_iter()
+        .map(|(mode, count)| FailureMode { mode, count })
+        .collect();
+    let failure_modes_json = serde_json::to_string(&failure_modes_vec).unwrap_or_default();
+
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+    // INSERT OR REPLACE using COALESCE('', car/track) for composite key match on NULLs
+    // Delete existing row (if any) then insert fresh — handles NULL car/track correctly
+    // since SQLite's UNIQUE INDEX on COALESCE(car,'') treats NULL as '' for conflict detection
+    // but INSERT OR REPLACE needs a real PRIMARY KEY to replace on conflict.
+    let delete_result = sqlx::query(
+        "DELETE FROM combo_reliability
+         WHERE pod_id = ? AND sim_type = ?
+           AND (car = ? OR (? IS NULL AND car IS NULL))
+           AND (track = ? OR (? IS NULL AND track IS NULL))",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car).bind(car)
+    .bind(track).bind(track)
+    .execute(db)
+    .await;
+
+    if let Err(e) = delete_result {
+        tracing::error!(
+            "combo_reliability delete failed for pod {}/{}: {}",
+            pod_id, sim_type, e
+        );
+        return;
+    }
+
+    let insert_result = sqlx::query(
+        "INSERT INTO combo_reliability
+            (pod_id, sim_type, car, track, success_rate, avg_time_to_track_ms, p95_time_to_track_ms, total_launches, common_failure_modes, last_updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(car)
+    .bind(track)
+    .bind(success_rate)
+    .bind(avg_time)
+    .bind(p95_time)
+    .bind(total_launches)
+    .bind(&failure_modes_json)
+    .bind(&now)
+    .execute(db)
+    .await;
+
+    if let Err(e) = insert_result {
+        tracing::error!(
+            "combo_reliability insert failed for pod {}/{}: {}",
+            pod_id, sim_type, e
+        );
+    }
+}
+
+/// Query the combo_reliability table for a given (pod, sim, car, track) combo.
+/// Returns None if total_launches < 5 (minimum sample threshold per INTEL-02).
+/// Returns None if no record exists.
+pub async fn query_combo_reliability(
+    db: &SqlitePool,
+    pod_id: &str,
+    sim_type: &str,
+    car: Option<&str>,
+    track: Option<&str>,
+) -> Option<ComboReliability> {
+    let row: Option<(f64, Option<f64>, Option<f64>, i64, Option<String>, String)> =
+        sqlx::query_as(
+            "SELECT success_rate, avg_time_to_track_ms, p95_time_to_track_ms, total_launches, common_failure_modes, last_updated
+             FROM combo_reliability
+             WHERE pod_id = ? AND sim_type = ?
+               AND (car = ? OR (? IS NULL AND car IS NULL))
+               AND (track = ? OR (? IS NULL AND track IS NULL))",
+        )
+        .bind(pod_id)
+        .bind(sim_type)
+        .bind(car).bind(car)
+        .bind(track).bind(track)
+        .fetch_optional(db)
+        .await
+        .unwrap_or(None);
+
+    let (success_rate, avg_time, p95_time, total_launches, failure_modes_json, last_updated) =
+        row?;
+
+    // Minimum threshold — below 5 launches, return None (INTEL-02)
+    if total_launches < 5 {
+        return None;
+    }
+
+    let common_failure_modes: Vec<FailureMode> = failure_modes_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    Some(ComboReliability {
+        pod_id: pod_id.to_string(),
+        sim_type: sim_type.to_string(),
+        car: car.map(|s| s.to_string()),
+        track: track.map(|s| s.to_string()),
+        success_rate,
+        avg_time_to_track_ms: avg_time,
+        p95_time_to_track_ms: p95_time,
+        total_launches,
+        common_failure_modes,
+        last_updated,
+    })
 }
 
 /// Compute a simple hash of launch args JSON for dedup/correlation.
@@ -533,5 +786,203 @@ mod tests {
             "Must return default 'kill_clean_relaunch' when below 3-sample minimum");
         assert_eq!(rate, 0.0,
             "Must return 0.0 success rate when using default");
+    }
+
+    // ─── Phase 200-01 INTEL-01/02: combo_reliability tests ───────────────────
+
+    /// Build an in-memory DB with both launch_events and combo_reliability tables.
+    async fn make_combo_db() -> SqlitePool {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite for combo_reliability");
+        // launch_events table (same schema as production)
+        let _ = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS launch_events (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                car TEXT,
+                track TEXT,
+                session_type TEXT,
+                timestamp TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                error_taxonomy TEXT,
+                duration_to_playable_ms INTEGER,
+                error_details TEXT,
+                launch_args_hash TEXT,
+                attempt_number INTEGER DEFAULT 1,
+                db_fallback INTEGER,
+                created_at TEXT DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&db)
+        .await;
+        // combo_reliability table (same schema as production — no PRIMARY KEY, unique index on COALESCE)
+        let _ = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS combo_reliability (
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                car TEXT,
+                track TEXT,
+                success_rate REAL NOT NULL DEFAULT 0.0,
+                avg_time_to_track_ms REAL,
+                p95_time_to_track_ms REAL,
+                total_launches INTEGER NOT NULL DEFAULT 0,
+                common_failure_modes TEXT,
+                last_updated TEXT NOT NULL
+            )",
+        )
+        .execute(&db)
+        .await;
+        let _ = sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_combo_rel_pk ON combo_reliability(pod_id, sim_type, COALESCE(car, ''), COALESCE(track, ''))"
+        )
+        .execute(&db)
+        .await;
+        db
+    }
+
+    /// Helper: insert a launch event row with explicit created_at (for rolling window tests).
+    async fn insert_launch_row_at(
+        db: &SqlitePool,
+        pod_id: &str,
+        sim_type: &str,
+        car: Option<&str>,
+        track: Option<&str>,
+        outcome: LaunchOutcome,
+        duration_ms: Option<i64>,
+        created_at: &str,
+    ) {
+        let id = uuid::Uuid::new_v4().to_string();
+        let outcome_str = serde_json::to_string(&outcome).unwrap_or_default();
+        let _ = sqlx::query(
+            "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, duration_to_playable_ms, attempt_number, created_at)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 1, ?)",
+        )
+        .bind(&id)
+        .bind(pod_id)
+        .bind(sim_type)
+        .bind(car)
+        .bind(track)
+        .bind(created_at)
+        .bind(&outcome_str)
+        .bind(duration_ms)
+        .bind(created_at)
+        .execute(db)
+        .await;
+    }
+
+    /// INTEL-01: update_combo_reliability upserts correctly — 2 Success + 1 Crash → ~0.67 rate
+    /// Reads directly from combo_reliability table (bypasses 5-launch minimum guard in query fn).
+    #[tokio::test]
+    async fn test_combo_reliability_upsert() {
+        let db = make_combo_db().await;
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(20000), &now).await;
+        insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(22000), &now).await;
+        insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Crash, None, &now).await;
+
+        update_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+
+        // Read directly from combo_reliability to verify update_combo_reliability wrote correctly.
+        // query_combo_reliability returns None for < 5 launches — tested separately in test_combo_reliability_minimum.
+        let direct: Option<(f64, i64)> = sqlx::query_as(
+            "SELECT success_rate, total_launches FROM combo_reliability WHERE pod_id = 'pod-8' AND sim_type = 'assetto_corsa'"
+        )
+        .fetch_optional(&db)
+        .await
+        .unwrap_or(None);
+
+        let (rate, total) = direct.expect("Row must exist in combo_reliability after update_combo_reliability call");
+        assert_eq!(total, 3, "total_launches should be 3");
+        assert!((rate - 2.0/3.0).abs() < 0.01, "success_rate should be ~0.67, got {}", rate);
+
+        // Verify query_combo_reliability returns None for this under-threshold combo
+        let query_result = query_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+        assert!(query_result.is_none(), "query_combo_reliability must return None for < 5 launches");
+    }
+
+    /// INTEL-01: success_rate calculation — 4 Success, 6 Crash → 0.40
+    #[tokio::test]
+    async fn test_combo_reliability_rate() {
+        let db = make_combo_db().await;
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        for _ in 0..4 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(21000), &now).await;
+        }
+        for _ in 0..6 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Crash, None, &now).await;
+        }
+
+        update_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+
+        let result = query_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+        let row = result.expect("Should return a row with 10 launches (>= 5 minimum)");
+        assert_eq!(row.total_launches, 10, "total_launches should be 10");
+        assert!((row.success_rate - 0.40).abs() < 0.01, "success_rate should be 0.40, got {}", row.success_rate);
+    }
+
+    /// INTEL-02: query_combo_reliability returns None when total_launches < 5
+    #[tokio::test]
+    async fn test_combo_reliability_minimum() {
+        let db = make_combo_db().await;
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        for _ in 0..3 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(20000), &now).await;
+        }
+        update_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+
+        let result = query_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+        assert!(result.is_none(), "query_combo_reliability must return None for < 5 launches, got {:?}", result.map(|r| r.total_launches));
+    }
+
+    /// INTEL-01: 30-day rolling window — old events (45 days ago) excluded
+    #[tokio::test]
+    async fn test_combo_reliability_rolling_window() {
+        let db = make_combo_db().await;
+        // 5 successes 45 days ago (should be excluded)
+        let old_date = "2020-01-01T00:00:00.000Z"; // Clearly outside 30-day window
+        for _ in 0..5 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(20000), old_date).await;
+        }
+        // 5 events within last 7 days: 3 Success, 2 Crash → 60% rate
+        let recent = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        for _ in 0..3 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Success, Some(21000), &recent).await;
+        }
+        for _ in 0..2 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa"), LaunchOutcome::Crash, None, &recent).await;
+        }
+
+        update_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+
+        let result = query_combo_reliability(&db, "pod-8", "assetto_corsa", Some("ks_ferrari"), Some("spa")).await;
+        let row = result.expect("Should return a row (5 recent launches >= minimum)");
+        assert_eq!(row.total_launches, 5, "Should only count 30-day window events (5 recent), got {}", row.total_launches);
+        assert!((row.success_rate - 0.60).abs() < 0.01, "success_rate should be 0.60 (30-day only), got {}", row.success_rate);
+    }
+
+    /// INTEL-01: NULL car/track handled correctly
+    #[tokio::test]
+    async fn test_combo_reliability_null_car_track() {
+        let db = make_combo_db().await;
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        for _ in 0..5 {
+            insert_launch_row_at(&db, "pod-8", "assetto_corsa", None, None, LaunchOutcome::Success, Some(20000), &now).await;
+        }
+
+        update_combo_reliability(&db, "pod-8", "assetto_corsa", None, None).await;
+
+        let result = query_combo_reliability(&db, "pod-8", "assetto_corsa", None, None).await;
+        let row = result.expect("Should return a row for NULL car/track combo");
+        assert_eq!(row.total_launches, 5, "total_launches should be 5");
+        assert!((row.success_rate - 1.0).abs() < 0.01, "success_rate should be 1.0 for all successes");
+        assert!(row.car.is_none(), "car should be None");
+        assert!(row.track.is_none(), "track should be None");
     }
 }
