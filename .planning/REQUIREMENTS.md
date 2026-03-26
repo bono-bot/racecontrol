@@ -103,8 +103,8 @@
 
 ### Scheduling & Execution (SCHED)
 
-- [ ] **SCHED-01**: James auto-detect runs daily at 2:30 AM IST via Windows Task Scheduler without human trigger
-- [ ] **SCHED-02**: Bono auto-detect runs daily at 2:35 AM IST via cron (5-min offset prevents race condition)
+- [x] **SCHED-01**: James auto-detect runs daily at 2:30 AM IST via Windows Task Scheduler without human trigger
+- [x] **SCHED-02**: Bono auto-detect runs daily at 2:35 AM IST via cron (5-min offset prevents race condition)
 - [x] **SCHED-03**: Run guard prevents overlapping auto-detect executions (PID file lock)
 - [x] **SCHED-04**: Escalation cooldown prevents repeated WhatsApp alerts for same issue within 6 hours
 - [x] **SCHED-05**: Venue-state-aware timing — full mode during closed hours, quick mode if triggered during open hours
@@ -176,8 +176,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHED-01 | Phase 211 | Pending |
-| SCHED-02 | Phase 211 | Pending |
+| SCHED-01 | Phase 211 | Complete |
+| SCHED-02 | Phase 211 | Complete |
 | SCHED-03 | Phase 211 | Complete |
 | SCHED-04 | Phase 211 | Complete |
 | SCHED-05 | Phase 211 | Complete |

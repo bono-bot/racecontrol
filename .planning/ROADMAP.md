@@ -3445,7 +3445,7 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
 
 ## Phases (v26.0)
 
-- [ ] **Phase 211: Safe Scheduling Foundation** - Register James Task Scheduler (02:30 IST) and correct Bono cron (02:35 IST); idempotent run guard (PID file lock); sentinel-aware execution gate (OTA_DEPLOYING, MAINTENANCE_MODE, GRACEFUL_RELAUNCH); escalation cooldown (per-pod, per-alert-type, 6-hour window); venue-state-aware timing; WhatsApp silence on clean runs; AUTO_DETECT_ACTIVE lock file
+- [x] **Phase 211: Safe Scheduling Foundation** - Register James Task Scheduler (02:30 IST) and correct Bono cron (02:35 IST); idempotent run guard (PID file lock); sentinel-aware execution gate (OTA_DEPLOYING, MAINTENANCE_MODE, GRACEFUL_RELAUNCH); escalation cooldown (per-pod, per-alert-type, 6-hour window); venue-state-aware timing; WhatsApp silence on clean runs; AUTO_DETECT_ACTIVE lock file (completed 2026-03-26)
 - [ ] **Phase 212: Detection Expansion** - cascade.sh (build drift, pod consistency, cloud-venue sync); log-anomaly.sh (ERROR/PANIC rate per pod); config-drift.sh (TOML key validation via API or SCP fallback); bat file drift detection (certutil checksums vs repo canonical); feature flag sync (8-pod identical set check); schema drift detection; DET-07 cascade module sources into auto-detect.sh sharing env
 - [ ] **Phase 213: Self-Healing & Escalation** - Expanded APPROVED_FIXES whitelist (WoL, MAINTENANCE_MODE auto-clear, bat replacement); 5-tier escalation ladder (retry to restart to WoL to cloud failover to Uday); sentinel checks on every tier before acting; WhatsApp silence conditions; post-fix re-check verification; Audit Protocol Cause Elimination methodology; live-sync fixes (apply on detection not batch); global auto_fix_enabled toggle
 - [ ] **Phase 214: Bono Coordination** - AUTO_DETECT_ACTIVE mutex via relay (James + Bono both check); Bono failover gated on confirmed Tailscale offline (not relay timeout); delegation protocol (Bono checks James alive first); post-recovery sync (Bono deactivates cloud failover, syncs findings); simultaneous dry-run verification confirming only one agent writes lock
@@ -3533,7 +3533,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 211. Safe Scheduling Foundation | 1/2 | In Progress|  |
+| 211. Safe Scheduling Foundation | 2/2 | Complete   | 2026-03-26 |
 | 212. Detection Expansion | 0/0 | Not started | - |
 | 213. Self-Healing & Escalation | 0/0 | Not started | - |
 | 214. Bono Coordination | 0/0 | Not started | - |
