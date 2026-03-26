@@ -343,6 +343,7 @@ pub(crate) async fn launch_or_assist(
                 .send(CoreToAgentMessage::LaunchGame {
                     sim_type,
                     launch_args: Some(launch_args_json),
+                    force_clean: false,
                 })
                 .await;
 

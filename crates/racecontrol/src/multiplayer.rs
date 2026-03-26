@@ -1183,6 +1183,7 @@ async fn start_ac_lan_for_group(
                     .send(CoreToAgentMessage::LaunchGame {
                         sim_type: sim_type.clone(),
                         launch_args: Some(launch_args),
+                        force_clean: false,
                     })
                     .await;
             }

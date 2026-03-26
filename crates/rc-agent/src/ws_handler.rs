@@ -280,7 +280,12 @@ pub async fn handle_ws_message(
             conn.blank_timer_armed = true;
         }
 
-        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
+        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean } => {
+            // RECOVER-01: Race Engineer requested clean state reset before relaunch
+            if force_clean {
+                let killed = tokio::task::spawn_blocking(crate::game_process::clean_state_reset).await.unwrap_or(0);
+                tracing::info!(target: LOG_TARGET, "RECOVER-01: clean_state_reset before relaunch — killed {} processes", killed);
+            }
             // v22.0 Phase 178: Feature flag gate — check if game launch is enabled
             {
                 let flags = state.flags.read().await;

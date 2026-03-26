@@ -30,6 +30,9 @@ pub struct GameTracker {
     /// Dynamic timeout in seconds computed from historical launch data (LAUNCH-08).
     /// None = use game-specific default (AC=120s, others=90s).
     pub dynamic_timeout_secs: Option<i64>,
+    /// Exit codes accumulated across all failed relaunch attempts (RECOVER-05).
+    /// Included in staff WhatsApp alert for diagnostics.
+    pub exit_codes: Vec<Option<i32>>,
 }
 
 impl GameTracker {
@@ -86,7 +89,7 @@ impl GameLauncherImpl for AcLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
     }
 }
 
@@ -98,7 +101,7 @@ impl GameLauncherImpl for F1Launcher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
     }
 }
 
@@ -110,7 +113,7 @@ impl GameLauncherImpl for IRacingLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
     }
 }
 
@@ -122,7 +125,7 @@ impl GameLauncherImpl for DefaultLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
     }
 }
 
@@ -275,6 +278,7 @@ async fn launch_game(
             auto_relaunch_count: 0,
             externally_tracked: false,
             dynamic_timeout_secs: Some(dynamic_timeout as i64),
+            exit_codes: Vec::new(),
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -409,6 +413,7 @@ pub async fn relaunch_game(
     tx.send(CoreToAgentMessage::LaunchGame {
         sim_type,
         launch_args,
+        force_clean: true,
     })
     .await
     .map_err(|e| format!("Failed to send launch command: {}", e))?;
@@ -574,6 +579,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             auto_relaunch_count: 0,
                             externally_tracked: true,
                             dynamic_timeout_secs: None,
+                            exit_codes: Vec::new(),
                         },
                     );
                 }
@@ -760,6 +766,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                 .send(CoreToAgentMessage::LaunchGame {
                                     sim_type,
                                     launch_args,
+                                    force_clean: true,
                                 })
                                 .await;
                         }
@@ -1279,6 +1286,7 @@ mod tests {
                         auto_relaunch_count: 0,
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
+                        exit_codes: Vec::new(),
                     },
                 );
         }
@@ -1329,6 +1337,7 @@ mod tests {
                         auto_relaunch_count: 0,
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
+                        exit_codes: Vec::new(),
                     },
                 );
         }
@@ -1419,6 +1428,7 @@ mod tests {
                         auto_relaunch_count: 0,
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
+                        exit_codes: Vec::new(),
                     },
                 );
         }
@@ -1536,6 +1546,7 @@ mod tests {
                         auto_relaunch_count: 0,
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
+                        exit_codes: Vec::new(),
                     },
                 );
         }
@@ -1769,6 +1780,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -1859,6 +1871,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -1889,6 +1902,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -1928,6 +1942,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -1961,6 +1976,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -2142,6 +2158,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -2225,6 +2242,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: true,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 
@@ -2258,6 +2276,7 @@ mod tests {
                 auto_relaunch_count: 0,
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
             },
         );
 

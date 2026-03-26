@@ -262,6 +262,42 @@ pub fn hash_launch_args(args_json: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// Query recovery_events for the highest-success-rate recovery action over the last 30 days.
+/// Requires minimum 3 samples — below that, returns default `("kill_clean_relaunch", 0.0)`.
+/// Returns (action_name, success_rate_0_to_1).
+pub async fn query_best_recovery_action(
+    db: &SqlitePool,
+    pod_id: &str,
+    sim_type: &str,
+    failure_mode: &str,
+) -> (String, f64) {
+    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT recovery_action_tried,
+                COUNT(*) as total,
+                SUM(CASE WHEN recovery_outcome='\"Success\"' THEN 1 ELSE 0 END) as successes
+         FROM recovery_events
+         WHERE pod_id = ? AND sim_type = ? AND failure_mode = ?
+           AND created_at > datetime('now', '-30 days')
+         GROUP BY recovery_action_tried
+         ORDER BY (SUM(CASE WHEN recovery_outcome='\"Success\"' THEN 1 ELSE 0 END) * 1.0 / COUNT(*)) DESC
+         LIMIT 1",
+    )
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(failure_mode)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    match rows.first() {
+        Some((action, total, successes)) if *total >= 3 => {
+            let rate = *successes as f64 / *total as f64;
+            (action.clone(), rate)
+        }
+        _ => ("kill_clean_relaunch".to_string(), 0.0),
+    }
+}
+
 /// Query launch_events for dynamic timeout: median + 2*stdev of last 10 successful durations.
 /// Returns timeout in seconds. Falls back to default_secs if insufficient history (< 3 samples).
 /// Floor: 30 seconds regardless of history (LAUNCH-08).

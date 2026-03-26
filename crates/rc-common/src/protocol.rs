@@ -342,6 +342,10 @@ pub enum CoreToAgentMessage {
     LaunchGame {
         sim_type: SimType,
         launch_args: Option<String>,
+        /// When true, agent runs clean_state_reset before spawning (RECOVER-01).
+        /// Backward-compatible: old agents deserialize without this field (defaults to false).
+        #[serde(default)]
+        force_clean: bool,
     },
 
     /// Command to stop the currently running game

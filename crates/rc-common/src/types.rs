@@ -1005,11 +1005,12 @@ mod tests {
         let msg = CoreToAgentMessage::LaunchGame {
             sim_type: SimType::AssettoCorsaRally,
             launch_args: Some("{\"track\":\"rally_stage_1\"}".to_string()),
+            force_clean: false,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("assetto_corsa_rally"));
         let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
-        if let CoreToAgentMessage::LaunchGame { sim_type, launch_args } = parsed {
+        if let CoreToAgentMessage::LaunchGame { sim_type, launch_args, .. } = parsed {
             assert_eq!(sim_type, SimType::AssettoCorsaRally);
             assert_eq!(launch_args, Some("{\"track\":\"rally_stage_1\"}".to_string()));
         } else {
@@ -1020,6 +1021,7 @@ mod tests {
         let msg2 = CoreToAgentMessage::LaunchGame {
             sim_type: SimType::ForzaHorizon5,
             launch_args: None,
+            force_clean: false,
         };
         let json2 = serde_json::to_string(&msg2).unwrap();
         assert!(json2.contains("forza_horizon_5"));

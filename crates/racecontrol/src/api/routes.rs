@@ -7125,6 +7125,7 @@ async fn customer_continue_session(
                     let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
                         sim_type,
                         launch_args: Some(launch_args),
+                        force_clean: false,
                     }).await;
                 }
             }

@@ -233,6 +233,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                                     auto_relaunch_count: 0,
                                                     externally_tracked: true,
                                                     dynamic_timeout_secs: None,
+                                                    exit_codes: Vec::new(),
                                                 },
                                             );
                                             tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);

@@ -1436,6 +1436,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 let _ = sender.send(CoreToAgentMessage::LaunchGame {
                     sim_type: rc_common::types::SimType::AssettoCorsa,
                     launch_args: None,
+                    force_clean: false,
                 }).await;
             }
         } else {

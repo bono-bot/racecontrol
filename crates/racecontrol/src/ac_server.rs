@@ -601,6 +601,7 @@ pub async fn start_ac_server(
             let cmd = CoreToAgentMessage::LaunchGame {
                 sim_type: SimType::AssettoCorsa,
                 launch_args: Some(launch_json.to_string()),
+                force_clean: false,
             };
             let _ = sender.send(cmd).await;
             tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
@@ -852,6 +853,7 @@ pub async fn retry_pod_join(
             let cmd = CoreToAgentMessage::LaunchGame {
                 sim_type: rc_common::types::SimType::AssettoCorsa,
                 launch_args: Some(launch_json.to_string()),
+                force_clean: false,
             };
             let _ = sender.send(cmd).await;
             tracing::info!(
