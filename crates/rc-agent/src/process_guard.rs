@@ -31,6 +31,12 @@ const MAX_LOG_BYTES: u64 = 512 * 1024; // 512 KB
 /// (standing rule #2: never run server binaries on pod machines).
 const CRITICAL_BINARIES: &[&str] = &["racecontrol.exe"];
 
+/// Result of a single process scan cycle — used for first-scan threshold validation (BOOT-04).
+pub struct ScanResult {
+    pub total_processes: usize,
+    pub violation_count: usize,
+}
+
 /// Entry point — call once from main.rs after AppState is built.
 /// Spawns an internal process scan loop (every config.scan_interval_secs).
 /// Auto-start audit is stubbed here; full implementation in Plan 03.
@@ -40,6 +46,7 @@ pub fn spawn(
     tx: mpsc::Sender<AgentMessage>,
     machine_id: String,
     safe_mode: Arc<AtomicBool>, // SAFE-04: skip scan when safe mode is active
+    guard_confirmed: Arc<AtomicBool>, // BOOT-04: operator confirmation gate
 ) {
     if !config.enabled {
         tracing::info!(target: LOG_TARGET, "Process guard DISABLED (process_guard.enabled=false)");
@@ -99,21 +106,59 @@ pub fn spawn(
                     }
 
                     let scan_result =
-                        run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await;
+                        run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts, &guard_confirmed).await;
 
-                    // OBS-03: First scan >50% threshold check — detect misconfigured allowlist
+                    // BOOT-04: First-scan validation — detect misconfigured allowlist
                     if !first_scan_done {
                         first_scan_done = true;
-                        // Check if allowlist is empty — if so, all processes are violations
-                        let wl = whitelist.read().await;
-                        if wl.processes.is_empty() {
-                            tracing::error!(
-                                target: "state",
-                                machine = %machine_id,
-                                "first scan with empty allowlist — all processes are violations, possible config error, staying in report_only"
+                        if let Ok(ref result) = scan_result {
+                            let total = result.total_processes;
+                            let violations = result.violation_count;
+
+                            // Log first-scan summary
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                total_processes = total,
+                                violations = violations,
+                                "BOOT-04: first scan complete"
                             );
+
+                            // Log first 10 violations individually (they are already
+                            // logged in run_scan_cycle, but add a summary count here)
+
+                            let wl = whitelist.read().await;
+                            if wl.processes.is_empty() {
+                                tracing::error!(
+                                    target: "state",
+                                    machine = %machine_id,
+                                    "first scan with empty allowlist — all processes are violations, possible config error, staying in report_only"
+                                );
+                            }
+                            drop(wl);
+
+                            // >50% violation rate = possible misconfiguration
+                            if total > 0 && violations * 2 > total {
+                                tracing::error!(
+                                    target: "state",
+                                    machine = %machine_id,
+                                    violations = violations,
+                                    total = total,
+                                    "BOOT-04: first scan violation rate >{:.0}% ({}/{}) — possible misconfiguration, staying in report_only until GUARD_CONFIRMED",
+                                    (violations as f64 / total as f64) * 100.0,
+                                    violations,
+                                    total
+                                );
+                                // Force report_only regardless of config
+                                {
+                                    let mut wl_write = whitelist.write().await;
+                                    wl_write.violation_action = "report_only".to_string();
+                                }
+                                crate::startup_log::write_phase(
+                                    "FIRST_SCAN_HIGH_VIOLATIONS",
+                                    &format!("{}/{} processes flagged, auto-switched to report_only, waiting for GUARD_CONFIRMED", violations, total),
+                                );
+                            }
                         }
-                        drop(wl);
                     }
 
                     if let Err(e) = scan_result {
@@ -136,7 +181,8 @@ async fn run_scan_cycle(
     tx: &mpsc::Sender<AgentMessage>,
     machine_id: &str,
     grace_counts: &mut HashMap<String, (u32, u64)>,
-) -> anyhow::Result<()> {
+    guard_confirmed: &Arc<AtomicBool>,
+) -> anyhow::Result<ScanResult> {
     let own_pid = std::process::id();
     // NOTE: sysinfo 0.33 API does not expose parent PID.
     // Use 0 as sentinel — self-exclusion via own_pid + name check is sufficient.
@@ -170,6 +216,20 @@ async fn run_scan_cycle(
     let allowed: Vec<String> = wl.processes.iter().map(|s| s.to_lowercase()).collect();
     drop(wl);
 
+    // BOOT-04: If violation_action is kill_and_report but guard_confirmed is false,
+    // downgrade to report_only for this scan
+    let effective_action = if violation_action == "kill_and_report"
+        && !guard_confirmed.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        tracing::debug!(target: LOG_TARGET, "kill_and_report configured but GUARD_CONFIRMED not received — using report_only");
+        "report_only".to_string()
+    } else {
+        violation_action
+    };
+
+    let total_processes = procs.len();
+    let mut violation_count: usize = 0;
+
     // Processes seen this cycle — used to prune grace_counts after scan
     let mut seen_violations: std::collections::HashSet<String> =
         std::collections::HashSet::new();
@@ -188,6 +248,7 @@ async fn run_scan_cycle(
         }
 
         seen_violations.insert(name.clone());
+        violation_count += 1;
 
         // Determine if CRITICAL (zero grace)
         let critical = is_critical_violation(name);
@@ -207,7 +268,7 @@ async fn run_scan_cycle(
             true // no grace — act immediately
         };
 
-        let action_taken = if should_act && violation_action == "kill_and_report" {
+        let action_taken = if should_act && effective_action == "kill_and_report" {
             // PID identity verification before kill
             let kill_pid = *pid;
             let kill_name = name.clone();
@@ -260,7 +321,10 @@ async fn run_scan_cycle(
     // Clean up grace counts for processes no longer in violation
     grace_counts.retain(|name, _| seen_violations.contains(name));
 
-    Ok(())
+    Ok(ScanResult {
+        total_processes,
+        violation_count,
+    })
 }
 
 /// Kill a process after verifying name + start_time match (PID reuse guard).

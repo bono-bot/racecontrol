@@ -835,6 +835,7 @@ async fn main() -> Result<()> {
         guard_whitelist,
         guard_violation_tx,
         guard_violation_rx,
+        guard_confirmed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     // ─── Safe Mode: startup detection ─────────────────────────────────────────
@@ -861,6 +862,7 @@ async fn main() -> Result<()> {
             state.guard_violation_tx.clone(),
             state.pod_id.clone(),
             std::sync::Arc::clone(&state.safe_mode_active),  // safe mode flag
+            std::sync::Arc::clone(&state.guard_confirmed),   // BOOT-04: operator confirmation gate
         );
         tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
 

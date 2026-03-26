@@ -84,4 +84,8 @@ pub struct AppState {
     /// STAFF-04: Tracks when the last PreFlightFailed WS alert was sent.
     /// None = never alerted. Alerts are suppressed within a 60s cooldown window.
     pub(crate) last_preflight_alert: Option<std::time::Instant>,
+    /// BOOT-04: Operator confirmation that process guard allowlist is correct.
+    /// When false, process guard stays in report_only even if configured for kill_and_report.
+    /// Set to true via GUARD_CONFIRMED fleet exec command.
+    pub(crate) guard_confirmed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
