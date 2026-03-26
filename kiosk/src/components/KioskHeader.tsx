@@ -90,6 +90,12 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
                 {nav.label}
               </Link>
             ))}
+            <Link
+              href="/shutdown"
+              className="px-3 py-1.5 border border-red-600/40 text-red-400 hover:bg-red-600/10 rounded text-xs transition-colors"
+            >
+              Shutdown Venue
+            </Link>
             <span className="text-sm text-rp-grey ml-2">
               Staff: <span className="text-white font-medium">{staffName}</span>
             </span>
