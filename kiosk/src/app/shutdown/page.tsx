@@ -99,7 +99,7 @@ export default function ShutdownPage() {
 
       setShutdownResponse(response);
 
-      if (response.status === "shutting_down") {
+      if (response.status === "shutting_down" || response.status === "fallback_bono") {
         setDevices([
           { label: "Pods 1–8", status: "in_progress" },
           { label: "POS PC", status: "waiting" },

@@ -475,7 +475,7 @@ export interface DebugActivityData {
 
 // --- Venue Shutdown ---
 export interface VenueShutdownResponse {
-  status: "shutting_down" | "blocked" | "error";
+  status: "shutting_down" | "blocked" | "error" | "fallback_bono";
   reason?: "billing_active" | "audit_failed" | "james_offline";
   message: string;
   active_sessions?: number;
