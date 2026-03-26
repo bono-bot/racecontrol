@@ -61,6 +61,27 @@ run_phase56() {
   fi
   emit_result "$phase" "$tier" "james-openapi-fresh" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # CH-04: OpenAPI critical endpoint spot-check -- verify key endpoints are documented by name
+  local CRITICAL_ENDPOINTS="app-health flags guard/whitelist fleet/health cafe/menu"
+  local found=0 total=0 missing_list=""
+  for endpoint in $CRITICAL_ENDPOINTS; do
+    total=$((total + 1))
+    if grep -q "$endpoint" "${REPO_DIR}/docs/openapi.yaml" 2>/dev/null; then
+      found=$((found + 1))
+    else
+      if [[ -n "$missing_list" ]]; then missing_list="${missing_list}, "; fi
+      missing_list="${missing_list}${endpoint}"
+    fi
+  done
+  if [[ "$found" -eq "$total" ]]; then
+    status="PASS"; severity="P3"; message="OpenAPI spec: all ${total} critical endpoints documented"
+  elif [[ "$found" -ge 3 ]]; then
+    status="WARN"; severity="P2"; message="OpenAPI spec: ${found}/${total} critical endpoints (missing: ${missing_list})"
+  else
+    status="WARN"; severity="P2"; message="OpenAPI spec: only ${found}/${total} critical endpoints documented -- spec significantly incomplete (missing: ${missing_list})"
+  fi
+  emit_result "$phase" "$tier" "james-openapi-critical-endpoints" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   return 0
 }
 export -f run_phase56

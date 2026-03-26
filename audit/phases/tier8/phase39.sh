@@ -25,9 +25,22 @@ run_phase39() {
       status="WARN"; severity="P2"; message="Feature flags endpoint: empty (no flags defined)"
     fi
   else
-    status="PASS"; severity="P3"; message="Feature flags endpoint unreachable (not deployed)"
+    status="WARN"; severity="P2"; message="Feature flags endpoint unreachable (not deployed or down)"
   fi
   emit_result "$phase" "$tier" "server-23-flags" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # CH-03: Feature flag enabled verification -- at least one flag should be enabled
+  if [[ -n "$response" ]] && [[ "${flag_count:-0}" -ge 1 ]]; then
+    local enabled_count; enabled_count=$(printf '%s' "$response" | \
+      jq '[.[] | select(.enabled == true)] | length' 2>/dev/null)
+    enabled_count="${enabled_count:-0}"
+    if [[ "$enabled_count" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="Feature flags: ${enabled_count}/${flag_count} enabled"
+    else
+      status="WARN"; severity="P2"; message="Feature flags: ${flag_count} flags defined but NONE enabled -- all features disabled"
+    fi
+    emit_result "$phase" "$tier" "server-23-flags-enabled" "$status" "$severity" "$message" "$mode" "$venue_state"
+  fi
 
   # Feature flags DB table
   response=$(safe_remote_exec "192.168.31.23" "8090" \
