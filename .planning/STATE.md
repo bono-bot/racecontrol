@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 211.1-venue-shutdown-button/211.1-01-PLAN.md
-last_updated: "2026-03-26T06:44:08.376Z"
+stopped_at: Completed 211.1-venue-shutdown-button/211.1-02-PLAN.md
+last_updated: "2026-03-26T06:47:54.202Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 135
-  total_plans: 326
-  completed_plans: 319
+  total_plans: 327
+  completed_plans: 320
   percent: 98
 ---
 
@@ -85,6 +85,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 209]: Used curl Upgrade headers for WS handshake test instead of wscat dependency
 - [Phase 211.1-01]: SSH from server to James for audit trigger (relay /exec/run goes to Bono VPS not James local)
 - [Phase 211.1-01]: Billing drain checks both active_timers AND waiting_for_game -- deferred billing sessions must block shutdown
+- [Phase 211.1-venue-shutdown-button]: Shutdown page blocks on api.venueShutdown() (up to 150s timeout) while audit runs server-side — no polling, single long request
+- [Phase 211.1-venue-shutdown-button]: audit_blocked reason field drives user-facing message: billing_active shows session count, audit_failed shows truncated output, james_offline directs to Bono
 
 ### Pending Todos
 
@@ -98,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:44:08.357Z
-Stopped at: Completed 211.1-venue-shutdown-button/211.1-01-PLAN.md
+Last session: 2026-03-26T06:47:46.165Z
+Stopped at: Completed 211.1-venue-shutdown-button/211.1-02-PLAN.md
 Resume file: None
