@@ -17,8 +17,6 @@ set -o pipefail
 # NO set -e — errors are encoded in findings, not exit codes
 
 detect_bat_drift() {
-  local findings_count=0
-
   # Source bat-scanner.sh for bat_scan_pod_json and pod_ip() functions
   local bat_scanner="$REPO_ROOT/scripts/bat-scanner.sh"
   if [[ ! -f "$bat_scanner" ]]; then
@@ -53,11 +51,10 @@ detect_bat_drift() {
       pip=$(pod_ip "$pod_num")
       _emit_finding "bat_drift" "P2" "${pip:-pod${pod_num}}" \
         "start-rcagent.bat drift on pod ${pod_num} -- checksum mismatch against repo canonical (regression prevention: stale bat causes missing process kills and wrong startup procedures)"
-      findings_count=$((findings_count + 1))
     fi
     # MATCH, UNREACHABLE, SKIP — not a drift finding
   done
 
-  DETECTOR_FINDINGS=$((DETECTOR_FINDINGS + findings_count))
+  # Note: DETECTOR_FINDINGS already incremented by _emit_finding() in cascade.sh
 }
 export -f detect_bat_drift
