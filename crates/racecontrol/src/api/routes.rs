@@ -3632,6 +3632,28 @@ async fn launch_game(
         Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type_str) })),
     };
 
+    // INTEL-01: Query combo reliability BEFORE launching — build warning if success_rate < 70%.
+    // Parse car/track from the already-injected launch_args JSON (duration_minutes was added above).
+    let reliability_warning: Option<String> = {
+        let args_parsed: serde_json::Value = launch_args
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let car = args_parsed.get("car").and_then(|v| v.as_str());
+        let track = args_parsed.get("track").and_then(|v| v.as_str());
+        crate::metrics::query_combo_reliability(&state.db, pod_id, sim_type_str, car, track)
+            .await
+            .filter(|r| r.success_rate < 0.70)
+            .map(|r| {
+                format!(
+                    "This combination has a {:.0}% success rate on this pod ({}/{} launches)",
+                    r.success_rate * 100.0,
+                    (r.success_rate * r.total_launches as f64).round() as i64,
+                    r.total_launches
+                )
+            })
+    };
+
     let cmd = rc_common::protocol::DashboardCommand::LaunchGame {
         pod_id: pod_id.to_string(),
         sim_type,
@@ -3639,7 +3661,13 @@ async fn launch_game(
     };
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
-        Ok(()) => Json(json!({ "ok": true })),
+        Ok(()) => {
+            let mut resp = json!({ "ok": true });
+            if let Some(w) = reliability_warning {
+                resp["warning"] = json!(w);
+            }
+            Json(resp)
+        }
         Err(e) if e.contains("No agent connected") => {
             // No local pod — try relaying to venue via Tailscale bono_relay
             relay_game_launch_to_venue(&state, pod_id, sim_type_str, &body).await

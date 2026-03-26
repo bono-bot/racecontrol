@@ -33,6 +33,9 @@ pub struct GameTracker {
     /// Exit codes accumulated across all failed relaunch attempts (RECOVER-05).
     /// Included in staff WhatsApp alert for diagnostics.
     pub exit_codes: Vec<Option<i32>>,
+    /// Maximum auto-relaunch attempts allowed for this combo (INTEL-05).
+    /// Default: 2. Set to 3 for combos with < 50% reliability (>= 5 launches).
+    pub max_auto_relaunch: u32,
 }
 
 impl GameTracker {
@@ -251,6 +254,20 @@ async fn launch_game(
         default_timeout_secs,
     ).await;
 
+    // INTEL-05: Query combo reliability to set max_auto_relaunch cap.
+    // < 50% reliability with >= 5 launches → 3 attempts. Otherwise → 2 (default).
+    let reliability = metrics::query_combo_reliability(
+        &state.db,
+        pod_id,
+        &sim_type.to_string(),
+        car_for_timeout.as_deref(),
+        track_for_timeout.as_deref(),
+    ).await;
+    let max_relaunch_cap: u32 = match &reliability {
+        Some(r) if r.success_rate < 0.50 && r.total_launches >= 5 => 3,
+        _ => 2,
+    };
+
     // Create tracker + insert with TOCTOU re-check (LAUNCH-04)
     let info = {
         let mut games = state.game_launcher.active_games.write().await;
@@ -279,6 +296,7 @@ async fn launch_game(
             externally_tracked: false,
             dynamic_timeout_secs: Some(dynamic_timeout as i64),
             exit_codes: Vec::new(),
+            max_auto_relaunch: max_relaunch_cap,
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -580,6 +598,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             externally_tracked: true,
                             dynamic_timeout_secs: None,
                             exit_codes: Vec::new(),
+                            max_auto_relaunch: 2,
                         },
                     );
                 }
@@ -702,7 +721,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             // LAUNCH-17: Single write lock — read AND increment atomically to prevent duplicate relaunches
             // from rapid duplicate Error events on the same pod.
             // Also push exit_code and extract car/track in same lock.
-            let should_relaunch: Option<(u32, SimType, Option<String>, Option<String>, Option<String>)> = {
+            let should_relaunch: Option<(u32, u32, SimType, Option<String>, Option<String>, Option<String>)> = {
                 let mut games = state.game_launcher.active_games.write().await;
                 if let Some(tracker) = games.get_mut(pod_id) {
                     // RECOVER-05: Accumulate exit codes for staff alert diagnostics
@@ -727,10 +746,11 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                         };
                         let _ = state.dashboard_tx.send(DashboardEvent::GameStateChanged(null_info));
                         None
-                    } else if tracker.auto_relaunch_count < 2 {
+                    } else if tracker.auto_relaunch_count < tracker.max_auto_relaunch {
                         tracker.auto_relaunch_count += 1;
                         let attempt = tracker.auto_relaunch_count;
-                        Some((attempt, tracker.sim_type, tracker.launch_args.clone(), car, track))
+                        let max_cap = tracker.max_auto_relaunch;
+                        Some((attempt, max_cap, tracker.sim_type, tracker.launch_args.clone(), car, track))
                     } else {
                         None // exhausted
                     }
@@ -739,7 +759,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                 }
             };
 
-            if let Some((attempt, sim_type, launch_args, car, track)) = should_relaunch {
+            if let Some((attempt, max_cap, sim_type, launch_args, car, track)) = should_relaunch {
                 let pod_id_owned = pod_id.to_string();
                 let state_clone = state.clone();
                 let sim_name = format!("{}", sim_type);
@@ -755,8 +775,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     &failure_mode_str,
                 ).await;
                 tracing::info!(
-                    "recovery action selected: {} ({:.0}% historical success) for pod {} attempt {}/2",
-                    best_action, success_rate * 100.0, pod_id, attempt
+                    "recovery action selected: {} ({:.0}% historical success) for pod {} attempt {}/{}",
+                    best_action, success_rate * 100.0, pod_id, attempt, max_cap
                 );
 
                 let action_label = format!("{}_attempt_{}", best_action, attempt);
@@ -766,7 +786,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     pod_id,
                     "race_engineer",
                     "Auto-Relaunching Game",
-                    &format!("Race Engineer relaunching {} after crash (attempt {}/2) — action: {}", sim_name, attempt, best_action),
+                    &format!("Race Engineer relaunching {} after crash (attempt {}/{}) — action: {}", sim_name, attempt, max_cap, best_action),
                     "race_engineer",
                 );
 
@@ -827,11 +847,11 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     }
                 });
             } else {
-                // Check if exhausted (auto_relaunch_count >= 2) — send staff alert + pause billing
+                // Check if exhausted (auto_relaunch_count >= max_auto_relaunch) — send staff alert + pause billing
                 let (is_exhausted, tracker_exit_codes, tracker_launch_args) = {
                     let games = state.game_launcher.active_games.read().await;
                     games.get(pod_id).map(|t| (
-                        t.auto_relaunch_count >= 2,
+                        t.auto_relaunch_count >= t.max_auto_relaunch,
                         t.exit_codes.clone(),
                         t.launch_args.clone(),
                     )).unwrap_or((false, Vec::new(), None))
@@ -1349,6 +1369,7 @@ mod tests {
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
+                        max_auto_relaunch: 2,
                     },
                 );
         }
@@ -1400,6 +1421,7 @@ mod tests {
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
+                        max_auto_relaunch: 2,
                     },
                 );
         }
@@ -1491,6 +1513,7 @@ mod tests {
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
+                        max_auto_relaunch: 2,
                     },
                 );
         }
@@ -1609,6 +1632,7 @@ mod tests {
                         externally_tracked: false,
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
+                        max_auto_relaunch: 2,
                     },
                 );
         }
@@ -1843,6 +1867,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -1934,6 +1959,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -1965,6 +1991,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2005,6 +2032,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2039,6 +2067,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2221,6 +2250,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2305,6 +2335,7 @@ mod tests {
                 externally_tracked: true,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2339,6 +2370,7 @@ mod tests {
                 externally_tracked: false,
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
             },
         );
 
@@ -2397,6 +2429,7 @@ mod tests {
                         externally_tracked: true,
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
+                        max_auto_relaunch: 2,
                     },
                 );
         }
