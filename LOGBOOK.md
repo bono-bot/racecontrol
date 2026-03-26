@@ -911,3 +911,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 15:29 IST | James | 174d16c2 | feat(216-01): 10 fixture files for all 6 detectors in audit/test/fixtures/ |
 | 2026-03-26 15:29 IST | James | e253c7d0 | feat(216-01): test-auto-detect.sh 18/18 pass + grep -oP portability fix in 3 detectors |
 | 2026-03-26 15:29 IST | James | 62417b12 | docs(216-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated |
+| 2026-03-26 15:40 IST | James | 8d99bf70 | feat(200-02): alternatives + launch matrix API endpoints (INTEL-03, INTEL-04) — GET /api/v1/games/alternatives + GET /api/v1/admin/launch-matrix, 6 TDD tests, 556 suite pass |
