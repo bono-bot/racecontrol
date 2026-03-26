@@ -9,6 +9,8 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 09:30 IST | James | `d6cbdbfb` | feat(196-01): GameLauncherImpl trait + 4 per-game impls + billing gate fixes (deferred billing + paused rejection + TOCTOU) + JSON validation + 9 new tests |
+| Mar 26 09:31 IST | James | `d63e54a0` | docs(196-01): SUMMARY + STATE + ROADMAP updated (phase 196 plan 1 of 2 complete) |
 | Mar 26 10:37 IST | James | `77c2b564` | feat(205-01): VerifyStep trait, ColdVerificationChain, HotVerificationChain, VerificationError (4 variants) added to rc-common |
 | Mar 26 10:40 IST | James | `b6c346d5` | feat(205-01): spawn_periodic_refetch() in boot_resilience.rs — tokio-gated, lifecycle logging, self-heal tracking |
 | Mar 26 10:41 IST | James | `929ed6d1` | docs(205-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS-v25 updated (COV-01, BOOT-01 complete) |
