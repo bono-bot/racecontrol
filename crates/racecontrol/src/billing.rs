@@ -389,24 +389,25 @@ impl BillingManager {
 
 // ─── Game Status Handling ───────────────────────────────────────────────────
 
-/// Check for pods that have been in WaitingForGame for more than 180 seconds.
+/// Check for pods that have been in WaitingForGame for more than `timeout_secs` seconds.
 /// Returns list of (pod_id, attempt) for pods that have timed out.
 /// This variant operates directly on a BillingManager (for testing without AppState).
-pub async fn check_launch_timeouts_from_manager(mgr: &BillingManager) -> Vec<(String, u8)> {
+/// Pass timeout_secs explicitly to allow test overrides (default 180s in production).
+pub async fn check_launch_timeouts_from_manager(mgr: &BillingManager, timeout_secs: u64) -> Vec<(String, u8)> {
     let mut timed_out = Vec::new();
     let waiting = mgr.waiting_for_game.read().await;
     for (pod_id, entry) in waiting.iter() {
-        if entry.waiting_since.elapsed() > std::time::Duration::from_secs(180) {
+        if entry.waiting_since.elapsed() > std::time::Duration::from_secs(timeout_secs) {
             timed_out.push((pod_id.clone(), entry.attempt));
         }
     }
     timed_out
 }
 
-/// Check for pods that have been in WaitingForGame for more than 180 seconds.
-/// Returns list of (pod_id, attempt) for pods that have timed out.
+/// Check for pods that have been in WaitingForGame beyond the configured launch timeout.
+/// Uses BillingConfig.launch_timeout_per_attempt_secs from AppState config (BILL-12).
 pub async fn check_launch_timeouts(state: &Arc<AppState>) -> Vec<(String, u8)> {
-    check_launch_timeouts_from_manager(&state.billing).await
+    check_launch_timeouts_from_manager(&state.billing, state.config.billing.launch_timeout_per_attempt_secs).await
 }
 
 /// Defer billing start until AC reaches STATUS=LIVE.
@@ -483,13 +484,27 @@ pub async fn handle_game_status_update(
                     // Get or create MultiplayerBillingWait entry
                     if !mp.contains_key(&group_id) {
                         // First pod for this group — query expected pods from DB
-                        let pod_ids: Vec<String> = sqlx::query_scalar(
+                        // BILL-10: Reject billing on DB failure (no silent unwrap_or_default)
+                        let pod_ids: Vec<String> = match sqlx::query_scalar(
                             "SELECT pod_id FROM group_session_members WHERE group_session_id = ? AND status = 'validated' AND pod_id IS NOT NULL",
                         )
                         .bind(&group_id)
                         .fetch_all(&state.db)
                         .await
-                        .unwrap_or_default();
+                        {
+                            Ok(ids) => ids,
+                            Err(e) => {
+                                tracing::error!(
+                                    "group_session_members query failed for group {} — billing REJECTED: {}",
+                                    group_id, e
+                                );
+                                // Drop mp lock before acquiring waiting_for_game to avoid lock ordering issue
+                                drop(mp);
+                                // Re-insert entry so it's not lost; billing will be retried on next LIVE signal
+                                state.billing.waiting_for_game.write().await.insert(pod_id.to_string(), entry);
+                                return;
+                            }
+                        };
 
                         let expected: HashSet<String> = if pod_ids.is_empty() {
                             // Fallback: if no DB results, just expect this pod
@@ -516,13 +531,14 @@ pub async fn handle_game_status_update(
                     wait.live_pods.insert(pod_id.to_string());
                     wait.waiting_entries.insert(pod_id.to_string(), entry);
 
-                    // Spawn 60s timeout (once per group)
+                    // Spawn configurable timeout (once per group) — BILL-11
                     if !wait.timeout_spawned {
                         wait.timeout_spawned = true;
                         let state_clone = state.clone();
                         let group_id_clone = group_id.clone();
+                        let mp_timeout = state.config.billing.multiplayer_wait_timeout_secs;
                         tokio::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(mp_timeout)).await;
                             multiplayer_billing_timeout(&state_clone, &group_id_clone).await;
                         });
                     }
@@ -553,7 +569,9 @@ pub async fn handle_game_status_update(
                                 Ok(session_id) => {
                                     tracing::info!("Multiplayer billing started for pod {} (session {})", e.pod_id, session_id);
                                     // Record billing accuracy event (METRICS-03)
-                                    let billing_start_at = chrono::Utc::now()
+                                    // BILL-09: Single Utc::now() call for both playable_signal_at and billing_start_at
+                                    let now = Utc::now();
+                                    let billing_start_at = now
                                         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                                         .to_string();
                                     let ba_event = crate::metrics::BillingAccuracyEvent {
@@ -600,7 +618,9 @@ pub async fn handle_game_status_update(
                         Ok(session_id) => {
                             tracing::info!("Billing started on LIVE for pod {} (session {})", pod_id, session_id);
                             // Record billing accuracy event (METRICS-03)
-                            let billing_start_at = chrono::Utc::now()
+                            // BILL-09: Single Utc::now() call for both playable_signal_at and billing_start_at
+                            let now = Utc::now();
+                            let billing_start_at = now
                                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                                 .to_string();
                             let ba_event = crate::metrics::BillingAccuracyEvent {
@@ -3612,8 +3632,8 @@ mod tests {
             entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
             waiting.insert("p7".to_string(), entry);
         }
-        // Check launch timeouts
-        let timed_out = check_launch_timeouts_from_manager(&mgr).await;
+        // Check launch timeouts (pass 180 explicitly — the test uses a 181s elapsed entry)
+        let timed_out = check_launch_timeouts_from_manager(&mgr, 180).await;
         assert_eq!(timed_out.len(), 1);
         assert_eq!(timed_out[0].0, "p7");
         assert_eq!(timed_out[0].1, 1); // first attempt
@@ -3640,7 +3660,7 @@ mod tests {
             };
             waiting.insert("p8".to_string(), entry);
         }
-        let timed_out = check_launch_timeouts_from_manager(&mgr).await;
+        let timed_out = check_launch_timeouts_from_manager(&mgr, 180).await;
         assert_eq!(timed_out.len(), 1);
         assert_eq!(timed_out[0].0, "p8");
         assert_eq!(timed_out[0].1, 2); // second attempt -> should cancel
