@@ -657,6 +657,31 @@ async fn main() -> Result<()> {
         })
         .to_string()
         + "/api/v1";
+
+    // BOOT-02: Periodic feature flag re-fetch — self-heals within 5 minutes when server comes back
+    #[cfg(feature = "http-client")]
+    {
+        let flags_clone = flags_arc.clone();
+        let http_base = core_http_base.clone();
+        let http_client_flags = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        rc_common::boot_resilience::spawn_periodic_refetch(
+            "feature_flags".to_string(),
+            Duration::from_secs(300), // 5 minutes
+            move || {
+                let flags = flags_clone.clone();
+                let base = http_base.clone();
+                let client = http_client_flags.clone();
+                async move {
+                    feature_flags::FeatureFlags::fetch_from_server(&client, &base, &flags).await
+                }
+            },
+        );
+        tracing::info!(target: LOG_TARGET, "Feature flags periodic re-fetch started (interval=300s)");
+    }
+
     billing_guard::spawn(
         failure_monitor_tx.subscribe(),
         ws_exec_result_tx.clone(),

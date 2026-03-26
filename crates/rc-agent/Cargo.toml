@@ -10,7 +10,7 @@ name = "rc-agent"
 path = "src/main.rs"
 
 [dependencies]
-rc-common = { workspace = true }
+rc-common = { workspace = true, features = ["tokio"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
