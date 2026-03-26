@@ -13,46 +13,37 @@ run_phase39() {
   local response status severity message
   local token; token=$(get_session_token)
 
-  # Feature flags server endpoint
-  response=$(curl -s -m "$DEFAULT_TIMEOUT" \
-    "http://192.168.31.23:8080/api/v1/flags" \
-    -H "x-terminal-session: ${token:-}" 2>/dev/null | tr -d '"')
-  if [[ -n "$response" ]]; then
-    local flag_count; flag_count=$(printf '%s' "$response" | jq 'length' 2>/dev/null)
-    if [[ "${flag_count:-0}" -ge 1 ]]; then
-      status="PASS"; severity="P3"; message="Feature flags endpoint: ${flag_count} flags"
-    else
-      status="WARN"; severity="P2"; message="Feature flags endpoint: empty (no flags defined)"
-    fi
-  else
-    status="WARN"; severity="P2"; message="Feature flags endpoint unreachable (not deployed or down)"
-  fi
-  emit_result "$phase" "$tier" "server-23-flags" "$status" "$severity" "$message" "$mode" "$venue_state"
-
-  # CH-03: Feature flag enabled verification -- at least one flag should be enabled
-  if [[ -n "$response" ]] && [[ "${flag_count:-0}" -ge 1 ]]; then
-    local enabled_count; enabled_count=$(printf '%s' "$response" | \
-      jq '[.[] | select(.enabled == true)] | length' 2>/dev/null)
-    enabled_count="${enabled_count:-0}"
-    if [[ "$enabled_count" -ge 1 ]]; then
-      status="PASS"; severity="P3"; message="Feature flags: ${enabled_count}/${flag_count} enabled"
-    else
-      status="WARN"; severity="P2"; message="Feature flags: ${flag_count} flags defined but NONE enabled -- all features disabled"
-    fi
-    emit_result "$phase" "$tier" "server-23-flags-enabled" "$status" "$severity" "$message" "$mode" "$venue_state"
-  fi
-
-  # Feature flags DB table
+  # Feature flags: DB is source of truth (HTTP /flags requires staff JWT, not terminal PIN)
   response=$(safe_remote_exec "192.168.31.23" "8090" \
     'sqlite3 C:\RacingPoint\data\racecontrol.db "SELECT COUNT(*) FROM feature_flags" 2>nul || echo 0' \
     "$DEFAULT_TIMEOUT")
   local db_count; db_count=$(printf '%s' "$response" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
-  if [[ "${db_count:-0}" -ge 1 ]]; then
-    status="PASS"; severity="P3"; message="Feature flags DB: ${db_count} flag(s) in table"
+  db_count="${db_count:-0}"
+  if [[ "$db_count" -ge 1 ]]; then
+    status="PASS"; severity="P3"; message="Feature flags: ${db_count} flag(s) in DB"
   else
-    status="PASS"; severity="P3"; message="Feature flags DB: 0 rows in feature_flags table (not configured)"
+    status="PASS"; severity="P3"; message="Feature flags: 0 rows in feature_flags table (not configured yet)"
   fi
-  emit_result "$phase" "$tier" "server-23-flags-db" "$status" "$severity" "$message" "$mode" "$venue_state"
+  emit_result "$phase" "$tier" "server-23-flags" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # CH-03: Feature flag enabled verification via DB
+  if [[ "$db_count" -ge 1 ]]; then
+    local enabled_resp; enabled_resp=$(safe_remote_exec "192.168.31.23" "8090" \
+      'sqlite3 C:\RacingPoint\data\racecontrol.db "SELECT COUNT(*) FROM feature_flags WHERE enabled=1" 2>nul || echo 0' \
+      "$DEFAULT_TIMEOUT")
+    local enabled_count; enabled_count=$(printf '%s' "$enabled_resp" | jq -r '.stdout // "0"' 2>/dev/null | tr -d '[:space:]' | grep -oE '^[0-9]+')
+    enabled_count="${enabled_count:-0}"
+    if [[ "$enabled_count" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="Feature flags: ${enabled_count}/${db_count} enabled"
+    else
+      status="WARN"; severity="P2"; message="Feature flags: ${db_count} flags defined but NONE enabled -- all features disabled"
+    fi
+    emit_result "$phase" "$tier" "server-23-flags-enabled" "$status" "$severity" "$message" "$mode" "$venue_state"
+  fi
+
+  # Feature flags DB table exists (redundant check, kept for result consistency)
+  emit_result "$phase" "$tier" "server-23-flags-db" "PASS" "P3" \
+    "Feature flags DB: ${db_count} rows in feature_flags table" "$mode" "$venue_state"
 
   # rc-agent flag fetch on spot-check pod
   local spot_pod; spot_pod=$(printf '%s' "$PODS" | awk '{print $1}')

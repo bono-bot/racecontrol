@@ -458,6 +458,95 @@ paths:
                   build_id:
                     type: string
 
+  /app-health:
+    get:
+      tags: [health]
+      summary: Next.js app health probe results
+      operationId: getAppHealth
+      security: []
+      responses:
+        '200':
+          description: Health status of admin, kiosk, and web Next.js apps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [app, status]
+                  properties:
+                    app:
+                      type: string
+                      enum: [admin, kiosk, web]
+                    status:
+                      type: string
+                      enum: [ok, error]
+                    pages_available:
+                      type: integer
+                    pages_expected:
+                      type: integer
+                    response_ms:
+                      type: integer
+                    last_checked:
+                      type: string
+                    error:
+                      type: string
+                      nullable: true
+
+  /guard/whitelist/{machine_id}:
+    get:
+      tags: [security]
+      summary: Process guard allowlist for a pod
+      operationId: getGuardWhitelist
+      security: []
+      parameters:
+        - name: machine_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: pod-1
+      responses:
+        '200':
+          description: Allowlist of processes permitted on this pod
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processes:
+                    type: array
+                    items:
+                      type: string
+                    example: [svchost.exe, explorer.exe, rc-agent.exe]
+
+  /cafe/menu:
+    get:
+      tags: [cafe]
+      summary: Public cafe menu
+      operationId: getCafeMenu
+      security: []
+      responses:
+        '200':
+          description: List of menu items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    price:
+                      type: number
+                    category:
+                      type: string
+                    available:
+                      type: boolean
+
   /fleet/health:
     get:
       tags: [fleet, health]

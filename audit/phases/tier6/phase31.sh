@@ -92,14 +92,16 @@ run_phase31() {
   fi
   emit_result "$phase" "$tier" "server-23-email-oauth-expiry" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # OAuth/email errors in logs
+  # OAuth/email errors in logs (only check for actual send failures, not field mentions)
   local log_resp; log_resp=$(http_get "http://192.168.31.23:8080/api/v1/logs?lines=50" "$DEFAULT_TIMEOUT")
   if [[ -n "$log_resp" ]]; then
-    local email_err; email_err=$(printf '%s' "$log_resp" | jq -r '.' 2>/dev/null | grep -ci "email.*error\|gmail.*token\|smtp.*fail")
-    if [[ "${email_err:-0}" -eq 0 ]]; then
-      status="PASS"; severity="P3"; message="No email/Gmail errors in recent logs"
+    # Search for actual email SEND failures — not just "email" appearing as a data field
+    local email_err; email_err=$(printf '%s' "$log_resp" | jq -r '.lines[]? // .' 2>/dev/null | grep -ci "send_email.*error\|email.*send.*fail\|smtp.*error\|gmail.*token.*expir\|oauth.*refresh.*fail" || true)
+    email_err="${email_err:-0}"
+    if [[ "$email_err" -eq 0 ]]; then
+      status="PASS"; severity="P3"; message="No email send errors in recent logs"
     else
-      status="WARN"; severity="P2"; message="${email_err} email/OAuth error entries — check for expired token (403)"
+      status="WARN"; severity="P2"; message="${email_err} email send error entries — check for expired OAuth token"
     fi
   else
     status="WARN"; severity="P2"; message="Logs API unreachable — cannot check email errors"
