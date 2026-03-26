@@ -1,364 +1,261 @@
 # Pitfalls Research
 
-**Domain:** Debug-First-Time-Right verification framework — retrofitting chain-of-verification, observable state transitions, boot resilience, startup bat auditing, pre-ship verification gates, and silent failure elimination into an existing Rust/Axum fleet management system on Windows 11.
+**Domain:** Autonomous bug detection and self-healing for an existing fleet management system
 **Researched:** 2026-03-26
-**Confidence:** HIGH — every pitfall in this document is sourced from documented incidents in this exact codebase (CLAUDE.md standing rules, PROJECT.md incident log, MEMORY.md audit records). No hypothetical pitfalls.
-
----
-
-## Context: Why Verification Frameworks Are Hard to Retrofit
-
-Before cataloguing pitfalls, understand what makes this specific retrofit difficult:
-
-1. **Verification wraps existing code paths — it cannot break them.** rc-agent handles active billing sessions, lock screens, and game launches. A verification wrapper that adds latency to the billing start path or panics in the health-check loop causes customer-visible harm. The existing code is correct (mostly); the problem is observability, not logic.
-
-2. **The failure modes already documented are the exact ones to prevent repeating.** This project has an extraordinary record of the SAME bug type recurring: proxy verification passing while the actual behavior remains broken. 8+ incidents of "build_id matches" declared as PASS. 4 deploy cycles of "health endpoint OK" while flicker continued on every screen. The verification framework must prevent this specific failure mode.
-
-3. **Windows sentinel files and registry keys are the coordination primitives.** Every multi-attempt debug incident in this system involved either a missing sentinel check (MAINTENANCE_MODE blocks restart silently) or a missing observable transition (no alert when sentinel was written). The framework must instrument these primitives.
-
-4. **Bat files are the first line of boot enforcement — and the most brittle.** Every manual fix that regressed (power plan, USB suspend, ConspitLink singleton) was not encoded in the bat file. Bat files themselves have Windows-specific syntax traps that silently break enforcement.
-
-5. **Rust logging is not available at config-load time.** The most dangerous silent failures in this system (SSH banner corrupted racecontrol.toml, empty process guard allowlist) occurred before `tracing` was initialized. Verification of early-boot conditions must use a different output path.
+**Confidence:** HIGH — all pitfalls drawn from documented past incidents in this exact codebase (CLAUDE.md standing rules, PROJECT.md, MEMORY.md audit records). No hypothetical pitfalls.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Chain-of-Verification That Only Checks the Endpoint, Not the Chain
+### Pitfall 1: Recovery Systems Fighting Each Other (Infinite Restart Loop)
 
 **What goes wrong:**
-A verification framework is built with health endpoint probes at the leaves (HTTP 200 from `/api/v1/health`). Every step in the chain from input to action is verified by checking whether the final endpoint returns success. The original failures — curl output including surrounding quotes (`"200"` vs `200`), `spawn().is_ok()` != child started, empty allowlist with no error — all returned "healthy" from top-level probes while the internal chain was broken.
-
-Concrete example from this codebase: Pod healer was deployed and declared fixed twice, based on `/health` returning 200 and `build_id` matching expected. The actual bug was `u32::parse()` failing on `"200"` with quotes — visible only by probing the intermediate parse step, not the final endpoint. Four deploy cycles. All declared PASS from terminal output.
+Multiple independent recovery systems — self_monitor, rc-sentry watchdog, server pod_monitor, WoL, and now auto-detect.sh — each see a pod as "down" and independently act to bring it back up. One system restarts rc-agent, which triggers the MAINTENANCE_MODE sentinel, which blocks the restart, which causes the system to look "down" again, which triggers WoL, which boots a pod that immediately re-enters MAINTENANCE_MODE.
 
 **Why it happens:**
-End-to-end health endpoints are easy to check (one curl). They feel authoritative. Intermediate parse steps and decision logic are invisible from the outside. The natural impulse is to instrument the most accessible point in the chain, not every link.
+Each subsystem was built independently with no shared state about why a pod is offline. They see the same symptom (pod not responding) but have no coordination layer. Auto-detect.sh adding a 7th actor into this mix without coordination is the classic "one more system with no awareness of the others" mistake. This exact loop (self_monitor + rc-sentry + WoL) took 45 minutes to diagnose in a documented incident.
 
 **How to avoid:**
-Chain-of-verification must be implemented as a structured step sequence at the code level — not a post-hoc health endpoint. Each step produces a typed `VerificationResult` with its own status:
-```
-Input received → Transform applied → Value parsed → Decision made → Action taken
-```
-The verification API exposes each step's result independently. A failing parse is visible as `ParseStep::Failed("value='\"200\"' -- expected u32")` without having to reproduce the full chain from outside.
-
-Key rule: for every existing code path that has had a multi-attempt debug incident, identify which link in the chain was the actual failure point. The verification framework must instrument THAT link, not the endpoint.
+- Auto-detect.sh must read OTA_DEPLOYING, MAINTENANCE_MODE, and GRACEFUL_RELAUNCH sentinels before triggering any fix action
+- Any fix that restarts a service must check all existing recovery actors' state first (is rc-sentry already handling it? is WoL already triggered?)
+- Introduce a shared lock file: `C:\RacingPoint\AUTO_DETECT_ACTIVE` — prevents rc-sentry and pod_monitor from acting while auto-detect is mid-repair
+- Recovery intent must be logged to RecoveryIntentStore so any actor can see what others are doing
 
 **Warning signs:**
-- Verification only checks HTTP response codes, not response content
-- No test exists that specifically breaks the intermediate transformation and confirms the verification catches it
-- Verification declarations reference build_id or health endpoint as confirmation of behavioral fix
+- Pod cycling between connected and disconnected at regular intervals (every 10-30s)
+- MAINTENANCE_MODE appears on multiple pods simultaneously after an auto-detect run
+- Fleet health shows rapid state changes without any manual intervention
+- rc-sentry logs show "restarting" for a pod that auto-detect just tried to heal
 
-**Phase to address:** Phase 1 (chain-of-verification framework core) — the framework's data model must represent each step as a distinct trackable unit before any existing code path is wrapped. A framework that only supports leaf-node checking will require a complete rewrite to add intermediate visibility.
+**Phase to address:**
+Phase 1 (auto-detect.sh core pipeline) — sentinel-awareness must be in the first version, not added later.
 
 ---
 
-### Pitfall 2: Observable State Transitions That Log But Don't Alert
+### Pitfall 2: Alert Fatigue — Too Many WhatsApp Messages to Uday
 
 **What goes wrong:**
-MAINTENANCE_MODE was written to `C:\RacingPoint\MAINTENANCE_MODE` and blocked all pod restarts permanently with no alert to staff. It silently blocked pods 5, 6, and 7 for 1.5+ hours while fleet health showed them as offline. The sentinel existed and was detectable — but no code sent an alert when it was written.
-
-The same pattern: process guard loaded with empty allowlist (server was down at boot), logged the empty count at `DEBUG` level, then continued running for 2+ hours flagging 28,749 false violations per day. The transition "allowlist count changed from healthy to 0" was never instrumented.
-
-Adding observability that writes to the existing `tracing` log at DEBUG level does not prevent the problem. By definition, the operator isn't watching DEBUG logs. Observability must alert on sentinel-class state transitions.
+Auto-detect runs nightly, detects 3-5 non-critical drift items (expected log rotation, minor config deltas, the 6 QUIET venue-closed findings from every v23.0 audit run), and sends a WhatsApp message for each. After a week, Uday ignores all messages. When a real critical failure arrives, it is also ignored.
 
 **Why it happens:**
-"Add a log line" is the path of least resistance for making state transitions visible. But log lines are passive — they require someone to be watching the right log stream at the right level. The failure mode is not "we couldn't see it if we looked" — it's "nobody was alerted, nobody looked."
+The audit framework generates findings for everything including items already marked QUIET or INFO. If the escalation threshold is "anything that didn't auto-fix," non-critical residuals generate noise every night. The existing v23.0 audit already generates 6 QUIET findings at every run as a baseline.
 
 **How to avoid:**
-Observable state transitions require two things, not one:
-1. **A structured event** when the transition happens (not a log line — a typed event emitted to a persistent ring buffer or channel)
-2. **An alert** when the transition is to a degraded state, delivered to a surface the operator monitors (fleet health dashboard, WhatsApp via Evolution API, or kiosk badge)
-
-The alert channel already exists: WhatsApp via Evolution API at `racingpoint.in`. The fleet health dashboard already exists at `:8080`. State transitions that produce silent degradation MUST write to one of these.
-
-Specific sentinels requiring alert on write:
-- `C:\RacingPoint\MAINTENANCE_MODE` → immediate WhatsApp alert with pod number and restart count
-- `C:\RacingPoint\GRACEFUL_RELAUNCH` → no alert needed (healthy transition)
-- `C:\RacingPoint\OTA_DEPLOYING` → info-level dashboard update
-- Config fallback to defaults → WhatsApp alert ("racecontrol.toml parse failed, running on defaults")
-- Process guard allowlist empty at boot → WARN-level alert before any guard enforcement begins
-- Feature flag DB unreachable at startup → alert ("feature flags unavailable, using defaults for all pods")
+- WhatsApp escalation ONLY for: (a) items that were attempted but auto-fix failed to verify, (b) items classified CRITICAL with no available auto-fix, (c) cascade failures (3+ pods affected simultaneously)
+- Never send WhatsApp for QUIET/venue-closed findings — they are always expected
+- Collapse multiple findings into one digest: "3 issues found, 2 auto-fixed, 1 needs attention: [item]"
+- Track "same finding N nights in a row" — first occurrence: auto-fix attempt + notify; subsequent occurrences: notify at most once per week until resolved
+- Gate: if 0 unfixed critical items, send NO message (stay silent on a clean run)
 
 **Warning signs:**
-- A sentinel file can be written to disk with no corresponding fleet dashboard update
-- `grep -r "MAINTENANCE_MODE" crates/` returns writes but no WhatsApp/alert calls adjacent to those writes
-- State transition test only checks that the file exists, not that an alert was sent
+- Uday stops responding to WhatsApp messages that were previously answered
+- Daily message count from auto-detect exceeds 2
+- Messages arriving during business hours (08:00-23:00 IST)
+- Every message body contains "no action required" but a message was still sent
 
-**Phase to address:** Phase 2 (observable state transitions) — alert channels must be wired before any sentinel-writing code path is considered instrumented. "Writes a log line at INFO" does not count as observable.
+**Phase to address:**
+Phase 1 (escalation logic) — silence conditions must be correct before the first scheduled run.
 
 ---
 
-### Pitfall 3: Boot Resilience That Fetches Once and Assumes Success
+### Pitfall 3: Config Drift False Positives from Intentional Per-Pod Differences
 
 **What goes wrong:**
-Process guard fetched the allowlist once at startup from `/api/v1/guard/whitelist/pod-{N}`. The server was briefly down during pod boot. The fetch failed silently, fell back to `MachineWhitelist::default()` (empty list), and process guard ran for 2+ hours flagging every process as a violation. 28,749 false violations. No periodic retry.
-
-The same pattern: feature flags fetched once at startup. If the feature flag DB is unavailable, pods run on compile-time defaults for the entire session. There is no observable transition when this happens and no retry.
+Config drift detection compares expected vs actual values, but some values are intentionally different between pods (pod_number, pod_ip, tailscale IP, pod-specific feature flags). The checker flags these as drift, generating 8 findings per run (one per pod), and either overwhelms logs or trains the team to ignore all drift alerts.
 
 **Why it happens:**
-"Fetch at startup" is the simplest implementation of initialization. The developer tests on a running system where the server is healthy. The fetch succeeds in every test. The error path (server down at boot) only triggers in production under specific timing conditions.
+Config drift checkers typically diff against a single "golden config" — but the golden config has no per-pod overrides. The Racing Point system has pod_number, IP, and MAC fields that legitimately differ across all 8 pods. Additionally, OTA canary pods may intentionally run a different binary version.
 
 **How to avoid:**
-Any value fetched from a remote source at startup that affects ongoing behavior MUST have a periodic re-fetch loop. The pattern from `821c3031` (process guard fix) is canonical for this codebase:
-
-```rust
-// At startup: attempt fetch, fall back to default on failure
-// In tokio background task: re-fetch every N seconds, update shared state
-// On re-fetch success after previous failure: emit observable state transition
-```
-
-Specific values requiring periodic re-fetch in v25.0 scope:
-- Process guard allowlist: already fixed in `821c3031` (every 300s)
-- Feature flags: re-fetch every 60s (already in v22.0 flag cache)
-- Billing rates: re-fetch every 60s (already implemented)
-- Config from `racecontrol.toml`: hot-reload trigger on file change (not yet implemented)
-- Game launch profiles from TOML: re-fetch on `SIGHUP` equivalent (file watcher)
-
-New requirement: the first re-fetch after a failed boot fetch must emit an observable state transition ("allowlist recovered from server after boot failure — 47 entries loaded").
+- Define a drift schema separating shared keys (ws_connect_timeout, app_health URLs) from per-pod keys (pod_number, ip, mac)
+- Shared keys: any deviation from expected is drift
+- Per-pod keys: deviation from that pod's expected value is drift; deviation from other pods is expected and not flagged
+- OTA sentinel check: if OTA_DEPLOYING exists for a pod, skip binary version drift checks for that pod
+- suppress.json with expiry for known-acceptable differences (document the reason + expiry date)
 
 **Warning signs:**
-- A `load_or_default()` call at startup with no background refresh task nearby
-- Test coverage for remote fetch failure returns empty default but no test verifies the system self-heals when server comes back
-- Re-fetch interval is hard-coded with no observable event on recovery
+- Drift report shows the same 8 findings every run with pod-specific values (pod_number: 1, pod_number: 2, etc.)
+- suppress.json accumulates entries for pod_number, pod_ip, or mac_address
+- Delta tracking shows 0 new findings after the first run because everything was suppressed
 
-**Phase to address:** Phase 3 (boot resilience patterns) — the re-fetch pattern must be formalized as a reusable async primitive before the verification framework wraps existing code. Otherwise, each code path independently re-implements the same retry logic (or doesn't).
+**Phase to address:**
+Phase 2 (cascade engine and config drift detection).
 
 ---
 
-### Pitfall 4: Pre-Ship Verification That Checks the Wrong Domain
+### Pitfall 4: Log Anomaly Detection Sensitivity Miscalibration
 
 **What goes wrong:**
-The blanking screen was deployed four times. Each time, the verification was "fleet health shows pods connected, build_id matches." The blanking screen was broken on every deploy — visually obvious to anyone in the venue, invisible to every API probe. The verification checked connectivity (network domain), not screen rendering (visual domain).
-
-The same pattern: kiosk static files returning 404 declared healthy because the health endpoint (which checks page load, not `_next/static/` delivery) returned 200. The deploy was declared complete. The CSS and JavaScript were absent from the UI for an unknown duration.
-
-This is the most recurring failure mode in this codebase's history. The problem is structural: the verification methodology does not match the change domain.
+Tuned too sensitively: flags every WARN log as an anomaly. The racecontrol JSONL logs contain hundreds of expected warnings during normal operation (WS reconnect on pod boot, telemetry timeout when no game is running, billing idle threshold hits). Alternatively, tuned too loosely: misses the rc-agent process guard empty-allowlist pattern that generated 28,749 violations/day for 2 days without detection.
 
 **Why it happens:**
-Terminal-accessible verification (curl, health endpoints, build_id) is fast, automatable, and feels authoritative. Visual/behavioral verification requires physical presence or screenshot tools, is slower, and feels subjective. The bias is always toward the terminal-accessible probe, even when the change is visual.
+Log anomaly detection without a baseline is pattern matching against noise. Without knowing the "normal warn rate" per source, anything above zero looks like an anomaly. The 28,749/day incident went undetected because no monitoring existed — the same gap will appear again if the anomaly detector is too conservative.
 
 **How to avoid:**
-The pre-ship verification gate must enforce domain-matched verification at the process level — not as a guideline but as a checklist that explicitly names the required verification type per change category:
-
-| Change Category | Required Verification | Tools |
-|----------------|----------------------|-------|
-| Binary deploy (no visual change) | build_id match + health endpoint | curl |
-| Lock screen / overlay / blanking | Visual check from venue | User confirmation or `verify-pod-screen.js` |
-| Next.js deploy (frontend) | `_next/static/` URL returns 200 + open in browser NOT on server | curl to static asset from POS/James browser |
-| Bat file change | `cmd /c` syntax check + `tasklist` verification | Pre-deploy test step |
-| Sentinel/config change | Observable alert received + state visible in dashboard | Check WhatsApp or fleet health |
-| Network/WS change | Round-trip test from actual pod client to server | WS connection test, not just HTTP |
-
-The gate must fail if the required verification for the change category was not performed. This is a human-process gate, not a code gate — but it must be explicit, not left to judgment.
+- Baseline first: run 7 days of silent observation, compute p95 warn/error rate per source (rc-agent, racecontrol, rc-sentry)
+- Anomaly threshold: rate meaningfully above p95, not any non-zero rate
+- For launch: focus on specific high-value patterns rather than rate-based detection: `MAINTENANCE_MODE written`, `empty allowlist loaded`, `violation_count spiking beyond 100/hr`, `spawn() succeeded but health check failed`
+- Pattern-based triggers are more reliable than rate-based for this system in its first iteration
 
 **Warning signs:**
-- Verification summary mentions only build_id and health endpoints for a change that touched lock screen or overlay code
-- "Verified" declared from SSH terminal without asking whether the physical screens look correct
-- Next.js deploy verified with `curl http://server/` without a `curl http://server/_next/static/` check from a remote client
+- Log anomaly fires every night on the same WARN messages (false positive loop established)
+- Log anomaly never fires even after manually injecting known-bad state into a test pod
+- Anomaly log is larger than the audit log it's meant to summarize
 
-**Phase to address:** Phase 4 (pre-ship verification gate) — the domain mapping table must be the deliverable for this phase. Every phase in the v25.0 roadmap must reference the gate before being declared complete.
+**Phase to address:**
+Phase 2 (expanded auto-fix engine, log anomaly detection).
 
 ---
 
-### Pitfall 5: Startup Bat Auditing That Finds Issues Without Enforcing Fixes
+### Pitfall 5: Cascade Fixes Targeting the Symptom, Not the Cause
 
 **What goes wrong:**
-Manual fix enforcement is the deepest recurring failure pattern in this codebase. ConspitLink flickering was fixed three times in the same day. Each time: (1) fix applied manually, (2) deploy cycle occurred, (3) fix regressed because `start-rcagent.bat` did not enforce it. The fourth fix — adding enforcement to `start-rcagent.bat` — was permanent.
-
-The same pattern: power plan settings, USB suspend disable, process kill list, firewall rules — all fixed manually, all regressed on the next pod reboot or deploy cycle.
-
-A bat file auditing system that generates a report ("Pod 1 bat is missing 8 enforcement lines") without also deploying the corrected bat file leaves the problem one step from resolved. Manual steps after audit findings are the exact failure mode being addressed.
+Cascade engine detects that Pod 3 build_id differs from Pods 1, 2, 4-8. Auto-fix redeploys Pod 3. But the real situation: Pod 3 is mid-OTA from a scheduled canary window and the binary swap is in progress. The auto-fix interrupts the OTA, starts a concurrent download to `rc-agent-new.exe`, corrupts the partial file (two writers), and Pod 3 enters MAINTENANCE_MODE. This exact failure mode (OTA_DEPLOYING not checked) is documented in the OTA standing rules.
 
 **Why it happens:**
-Audit → report → manual fix is the intuitive flow. The assumption is that "now that we know, we'll fix it." But each deployment cycle brings a fresh opportunity to regress. The only permanent fix is code enforcement that survives deploy cycles automatically.
+Cascade engine sees "pod differs from fleet" and treats alignment as always safe. It has no model of "is this pod intentionally in a different state right now?" The system has well-defined sentinel files for exactly this purpose but they are not automatically checked by new actors.
 
 **How to avoid:**
-The bat auditing phase must deliver both detection AND deployment:
-1. **Detection:** Compare deployed bat on each pod against canonical bat in git (`start-rcagent.bat`, `start-rcsentry.bat`)
-2. **Diff:** Identify which enforcement lines are missing (not just "bat is different" — specifically which category: process kills, power settings, singleton guards, sentinel clears)
-3. **Auto-deploy:** For pods where canonical bat exists in git and diff is non-empty, deploy the canonical bat automatically. Do not generate a report and stop.
-4. **Verify:** After bat deploy, verify the specific enforcement lines are present on the pod via `/exec` + `findstr`
-
-The auditing system for bats must be closed-loop, not report-only.
+- Before any cascade fix: check OTA_DEPLOYING sentinel, RecoveryIntentStore entry, recent deploy timestamps in LOGBOOK.md
+- Pod 8 (canary by convention) is explicitly excluded from cascade homogenization — it is allowed to differ
+- Cascade fixes run in dry-run mode by default: log what would be fixed, require explicit `--apply` flag
+- 5-minute observation window before acting: if the difference resolves itself, no fix needed
+- The auto-detect pipeline's cascade step outputs a proposed fix list; the apply step is separate and gated
 
 **Warning signs:**
-- Bat audit generates a diff report without proceeding to deploy the canonical bat
-- Canonical bat is not version-controlled (can't determine what "correct" looks like)
-- Bat audit treats all bat differences as equivalent (missing process kill line == missing comment == missing enforcement are different severities)
+- Cascade fix triggered during a known deploy window
+- Pod 8 is constantly being "corrected" to match the rest of the fleet
+- Auto-fix log shows the same pod being fixed 2+ nights in a row (symptom returns each time)
 
-**Phase to address:** Phase 5 (startup bat auditing) — deploy step must be part of the phase scope, not a follow-on action. A bat audit that reports without fixing is not a reliable enforcement mechanism.
+**Phase to address:**
+Phase 2 (cascade engine) — dry-run-by-default must be in from the start.
 
 ---
 
-### Pitfall 6: Logging Initialization Gap Swallows Critical Early-Boot Errors
+### Pitfall 6: Scheduled Tasks Running During Venue Operations
 
 **What goes wrong:**
-SSH banner contaminated `racecontrol.toml`. TOML parse failed. `load_or_default()` silently returned empty defaults. `tracing` was not initialized yet at config-load time. The error was emitted to nowhere. Process guard ran with 0 allowlist entries for 2+ hours. No operator saw anything.
+Daily 2:30 AM IST run includes audit phases that check pod connectivity. Auto-detect sends WoL to wake a pod for health verification. Pod boots, finds no billing session, idles until morning. Staff arrive to find all 8 pods already powered on from the 2:30 AM check — power wasted, session timers exposed.
 
-This is the canonical early-boot silent failure mode for this codebase. The Rust `tracing` subscriber requires initialization, which requires a valid configuration, which requires the config to be loaded first. The bootstrap order means the window between "binary started" and "tracing initialized" is where the most dangerous silent failures live.
+Alternatively: venue has a late event (midnight racing league). Auto-detect runs at 2:30 AM while billing sessions are active. The idle gate check is based on fleet health aggregate — misses the active session on Pod 3 because Pod 3 is checked last. Auto-detect applies a restart-based fix to Pod 3 mid-race.
 
 **Why it happens:**
-Developers add observability to production failures using `tracing::error!()`. For 95% of failures, this is correct. For the 5% that happen before `tracing` is initialized, the call is a no-op. There is no compiler warning for a `tracing::error!()` call that will silently do nothing at runtime.
+Fixed schedule ignores the venue's operational calendar. Racing venues have irregular hours — late nights on weekends, early close on weekdays, private event bookings. The billing session check must cover ALL pods individually, not the aggregate fleet status.
 
 **How to avoid:**
-Every error that can occur before tracing initialization MUST use `eprintln!()`, not `tracing::error!()`. This is a standing rule in this codebase — but it is violated in config loading code.
-
-Pattern to audit during v25.0:
-```
-Search: tracing::error! / tracing::warn! calls in:
-- config loading (load_or_default, load_from_path)
-- toml::from_str / serde_json::from_str error handlers
-- database initialization (SQLite open/migrate)
-- feature flag initialization
-- process guard allowlist initial fetch
-```
-
-For each hit: verify that `tracing` is initialized BEFORE this call is reached in the startup sequence. If not, replace with `eprintln!()` + structured startup log that gets flushed after tracing init.
-
-Additionally: the startup log should be a dedicated `startup.log` file (not JSONL, plaintext) that captures all pre-tracing events. rc-sentry already reads `startup_log` for post-crash diagnosis — this file is the pre-crash equivalent.
+- `has_active_billing_session()` checked against EACH pod individually before ANY pod-touching action
+- WoL actions are OFF by default in auto-detect — pods are not woken for health checks
+- Venue hours config: simple `venue_open_until: "01:00"` — skip pod-touching phases if within 2 hours of close
+- If any billing session is active anywhere in the fleet, run server-only checks only; skip all pod-touching phases
+- Bono-side cron checks James-side AUDIT_RUNNING sentinel before starting its own run
 
 **Warning signs:**
-- Config parse failure produces no visible output in any log stream
-- Error in `fn main()` before `init_logging()` call uses `tracing::error!()`
-- `startup.log` is empty when a startup failure occurred (file not opened early enough)
+- Pods showing uptime of 4-6 hours when staff expect them to be powered off at venue open
+- Billing session started during an auto-detect run (check billing DB timestamps vs audit log timestamps)
+- Auto-detect log timestamps overlap with known late-night events
 
-**Phase to address:** Phase 1 (chain-of-verification framework) addresses the verification side; Phase 3 (boot resilience) must address the startup log side. Both phases need to audit for pre-tracing error paths.
+**Phase to address:**
+Phase 1 (scheduling and idle gate) — billing session check per-pod must gate ALL pod actions, not just the aggregate.
 
 ---
 
-### Pitfall 7: Verification Framework That Adds Latency to the Billing Hot Path
+### Pitfall 7: Dual-AI Race Conditions (James and Bono Acting Simultaneously)
 
 **What goes wrong:**
-The chain-of-verification framework wraps existing code paths to make intermediate steps observable. The billing start path (`BillingStarted` → session creation → rate fetch → WebSocket broadcast) is a latency-sensitive path. Adding synchronous verification steps — even logging steps — to this path can delay billing start and cause the UI to show a stale "starting" state beyond the customer's expectation window.
+James auto-detect.sh runs at 2:30 AM IST. Bono bono-auto-detect.sh runs at 2:30 AM IST (cron). Both detect build drift on Pod 5. Both trigger deploy chains. Two concurrent downloads write to `C:\RacingPoint\rc-agent-new.exe` simultaneously — file is corrupted or one deploy wins the rename race while the other fails silently, leaving Pod 5 with a truncated binary and no rollback.
 
-The PlayableSignal billing fix (v24.0) specifically gates billing on car-controllable state detection. Any added latency in the billing decision path changes when billing starts relative to when the customer is on-track.
+Second scenario: Bono failover activates because James's machine has a 15-minute network blip. Bono starts a cascade fix. James comes back online, auto-detect.sh also starts. Two independent fix sets applied to overlapping pods.
 
 **Why it happens:**
-Verification is developed in isolation ("instrument everything"). Latency impact is not checked because the test environment does not simulate real pod timing. The billing path appears to work correctly in tests. The latency only becomes visible at runtime on actual hardware with UDP telemetry streams active.
+Two autonomous agents with the same goal will collide on shared resources unless they coordinate. The comms-link relay is the correct coordination channel but only if both agents check it before acting — the current foundation (bono-auto-detect.sh) does not yet have this coordination protocol.
 
 **How to avoid:**
-Chain-of-verification wrappers must be added to diagnostic code paths, not hot paths. The rule:
-- **Hot paths (billing start, game launch, session end, WS message handling):** Verification via async logging only — fire-and-forget, never blocking. No `await` on verification steps.
-- **Cold paths (startup initialization, config load, allowlist fetch, periodic health checks):** Synchronous verification is acceptable — these paths already have latency tolerance.
-- **Background paths (pod healer cycle, audit runner, health poller):** Full chain verification with structured step results — this is where the framework adds the most value.
-
-For billing specifically: verification wrapping must emit structured events to a ring buffer (already exists in recovery.rs for pod events) and return immediately. Post-hoc analysis of the ring buffer proves the chain was correct without adding latency to the hot path.
+- Global mutex via comms-link relay: before starting any fix, post AUTO_DETECT_LOCK to the relay; if the lock already exists from the other agent, abort and log
+- Bono failover activation requires confirmed offline status, not just "no response for N minutes" — Tailscale `node status` must show James as offline
+- Stagger schedules: James at 2:30 AM IST, Bono at 3:30 AM IST; if James's run posts completion to INBOX.md before 3:30 AM, Bono skips its run
+- Write `AUTO_DETECT_ACTIVE` sentinel with agent identity (james/bono) and timestamp; both agents check before starting
 
 **Warning signs:**
-- Verification step in billing path uses `await`
-- Billing start duration increases after verification framework is merged
-- Test for verification does not measure latency impact on billing path
+- Both James and Bono logs show deploy actions for the same pod within the same 10-minute window
+- Pod enters MAINTENANCE_MODE shortly after an auto-detect run (truncated binary from concurrent write)
+- comms-link relay shows two AUTO_DETECT sessions simultaneously active
 
-**Phase to address:** Phase 1 (framework core) — the async fire-and-forget pattern for hot paths must be specified in the framework design before any wrapper is written. A framework design that doesn't distinguish hot/cold/background paths will be applied uniformly and break billing latency.
+**Phase to address:**
+Phase 3 (Bono failover) — coordination protocol must be defined and implemented before Bono failover is enabled.
 
 ---
 
-### Pitfall 8: Silent Failure Elimination That Only Covers New Code
+### Pitfall 8: MAINTENANCE_MODE Permanently Blocking Auto-Fix Cycles
 
 **What goes wrong:**
-The v25.0 framework adds `eprintln!()` for pre-tracing errors and observable transitions for new sentinels and new config paths. Existing silent failures — the ones already documented in CLAUDE.md — remain silent because they are in existing code paths that are not touched by v25.0. The framework works for everything written after it ships but does not retroactively fix the 6+ known silent failure categories already in production.
-
-Specifically, the known-silent failures in existing code (from PROJECT.md audit evidence):
-1. `spawn().is_ok()` without health poll verification (rc-sentry `restart_service()`)
-2. Empty allowlist from server-down boot (fixed in `821c3031`, but the error path still logs at DEBUG)
-3. Config parse failure before tracing init (racecontrol.toml load path)
-4. `MAINTENANCE_MODE` written with no alert (v17.1 added auto-clear + WhatsApp, but 30-min gap remains)
-5. Feature flag DB unreachable at startup (no alert)
-6. SSL/TOML corruption from SSH pipe (config re-load path, no corruption detection)
+Auto-detect triggers an auto-fix that restarts rc-agent on a pod. The restart fails (server is briefly processing another chain, network blip, 30-second window). rc-agent counts 3 failed restarts in 10 minutes and writes MAINTENANCE_MODE. Auto-detect sees the pod as failed on next check, tries another fix, but MAINTENANCE_MODE blocks all restarts. Auto-detect reports "unfixed" every night indefinitely until a human manually clears the sentinel.
 
 **Why it happens:**
-Frameworks are built for new code. Retrofitting requires explicitly identifying each existing silent failure and touching existing code — which is slower and more risky than building new abstractions. The path of least resistance is "we'll migrate existing code later."
+MAINTENANCE_MODE was designed as a human-intervention gate to prevent restart storms. Auto-detect is a new actor that can trigger the conditions that write MAINTENANCE_MODE without a human in the loop to clear it. v17.1 added 30-minute auto-clear but this must be verified active before relying on it.
 
 **How to avoid:**
-v25.0 must include an explicit audit-and-fix pass for the 6 known silent failure categories, not just a framework for future code. The framework deliverable is incomplete until the known failures are fixed.
-
-The correct scope for v25.0 is:
-1. Build the framework abstractions (chain-of-verification, observable transitions, boot resilience primitives)
-2. Apply them to the known failure categories (the 6 above + any discovered during implementation)
-3. Add a regression test for each known failure that proves it is now observable
-
-Without step 2, the framework is an improvement for future code only, and the next audit will still find the same silent failure categories.
+- Verify v17.1 30-minute auto-clear is active before shipping auto-detect
+- Auto-detect must track whether IT caused MAINTENANCE_MODE (its fix triggered the restart threshold)
+- If auto-detect caused MAINTENANCE_MODE: wait 35 minutes for auto-clear + verify, then retry once, then escalate to Uday
+- Never retry a failed fix more than once in the same run cycle without waiting for MAINTENANCE_MODE to clear
+- MAINTENANCE_MODE written during auto-detect's own fix attempt = immediate WhatsApp to Uday (auto-detect failed, human needed)
 
 **Warning signs:**
-- v25.0 phases address framework building but no phase explicitly addresses retroactive application to known failures
-- `spawn().is_ok()` pattern still exists in rc-sentry `restart_service()` after v25.0 ships
-- MAINTENANCE_MODE write in rc-agent still has no same-cycle WhatsApp alert
+- Pod stuck in MAINTENANCE_MODE with timestamp matching auto-detect run time
+- Auto-detect reports "unfixed" for the same pod multiple consecutive nights
+- MAINTENANCE_MODE timestamp is 2:31-2:38 AM IST (within auto-detect window)
 
-**Phase to address:** Phase 2 (observable state transitions) must include a sweep of all existing sentinel write sites. Phase 3 (boot resilience) must include a sweep of all existing `load_or_default()` callsites.
+**Phase to address:**
+Phase 1 (auto-fix engine) — MAINTENANCE_MODE awareness required before first fix attempt.
 
 ---
 
-### Pitfall 9: Bat File Syntax Traps That Break Enforcement Silently
+### Pitfall 9: Process Guard Empty Allowlist Window After Auto-Deploy
 
 **What goes wrong:**
-Every bat file deployment in this codebase that needed multiple attempts failed due to one of four known Windows-specific traps:
-1. **UTF-8 BOM** from Claude Code's Write tool — cmd.exe interprets the BOM as a character, causing the first command to fail silently
-2. **Parentheses in if/else blocks** — cmd.exe if/else with parentheses has undocumented parsing behaviors; commands inside parenthesized blocks fail silently in certain contexts
-3. **`/dev/null` instead of `nul`** — `/dev/null` does not exist on Windows; redirections silently fail, sometimes producing unexpected output
-4. **`timeout` command in non-interactive context** — `timeout /T N` requires keyboard input; in a non-interactive SSH session it hangs indefinitely. Use `ping -n N 127.0.0.1 >nul`
-
-Each of these produces silent failure — the bat file "runs" without error but the enforcement line does not execute. The most dangerous case: a singleton guard (`taskkill /F /IM ConspitLink.exe 2>nul`) fails silently due to parentheses syntax, and ConspitLink accumulates to 11 instances.
+Auto-detect deploys a new rc-agent binary to a pod. Pod restarts rc-agent. At restart, rc-agent fetches the process guard allowlist from the server — but the server is briefly busy responding to the deploy chain, returns a timeout, rc-agent falls back to the empty default allowlist. Process guard enabled + empty allowlist = 28,749 false violations per day. If auto-detect deploys 4 pods in parallel, all 4 have the empty allowlist window simultaneously, creating a burst on the server.
 
 **Why it happens:**
-These are Windows-specific traps that do not exist in bash. Developers writing bat files from a bash-first background apply bash patterns that compile without error but fail at runtime. The traps are not caught by syntax checkers — `cmd /C "type file.bat"` succeeds even on a broken bat.
+The periodic re-fetch (every 300 seconds) eventually corrects this, but the 0-300 second window after an auto-deploy is vulnerable. This is a known incident pattern in this codebase — it occurred because all 8 pods booted while the server was briefly down during a restart.
 
 **How to avoid:**
-Every bat file must pass a three-step validation before deploy:
-1. **BOM check:** `file start-rcagent.bat | grep -q "BOM" && echo "FAIL: BOM present"`
-2. **Syntax test:** `cmd /c "start-rcagent.bat" 2>&1` in a local non-interactive context
-3. **Canary verification:** Deploy to Pod 8, wait 10 seconds, verify target process state with `tasklist | findstr <target>`
-
-The canonical bat file creation method for this codebase is bash heredoc + `sed 's/$/\r/'` (adds CRLF). The Write tool must NEVER be used directly for bat files.
-
-Bat file rules (never violate):
-- No parentheses in `if`/`else` blocks — use `goto` labels
-- No `/dev/null` — use `nul`
-- No `timeout /T N` — use `ping -n N 127.0.0.1 >nul`
-- No UTF-8 characters in bat files — ASCII only
+- After any rc-agent deploy, verification step must include: `GET /api/v1/guard/whitelist/pod-{N}` response must be non-empty
+- Include a 30-second delay after pod restart before running post-deploy verification (gives periodic re-fetch time to run)
+- If allowlist is empty post-deploy, trigger manual re-fetch via exec before marking deploy complete
+- Never deploy more than 2 pods concurrently to avoid overwhelming the server during allowlist fetch burst
 
 **Warning signs:**
-- Bat file created with the Write tool directly (bypasses CRLF/BOM handling)
-- Bat file contains `(` on a line with an `if` or `else` statement
-- Bat file contains `/dev/null`
-- Enforcement line (process kill, power setting) appears to run but target behavior is unchanged
+- `violation_count_24h` spikes immediately after an auto-deploy run
+- All violations on a recently-deployed pod involve known-good processes (svchost.exe, rc-agent.exe)
+- Allowlist endpoint returns 0 entries for a pod that just restarted
 
-**Phase to address:** Phase 5 (startup bat auditing) — the auditor must specifically check for these four patterns in addition to comparing against canonical bat. The audit report must distinguish "missing enforcement line" from "present but broken enforcement line" — the latter is worse because it gives false confidence.
+**Phase to address:**
+Phase 1 (auto-fix engine) — post-deploy verification must include allowlist check before marking pod fix as complete.
 
 ---
 
-### Pitfall 10: Cause Elimination Process That Stops at "Found a Crash Dump"
+### Pitfall 10: SSH Output Corrupting Config Files via Auto-Fix
 
 **What goes wrong:**
-Pod 6 game crash investigation found crash dumps from `Variable_dump.exe`. The investigation stopped. Fix: "kill Variable_dump.exe on boot." The fix was never verified. Real cause was untested (RAM pressure from 15 orphan PowerShell processes, USB hub fault, FFB driver crash). The crash pattern has appeared again since (per PROJECT.md open issues).
-
-This pattern recurs: a plausible artifact is found, a fix is applied to the artifact, the fix is logged as resolving the issue. Other hypotheses are never tested. If the plausible artifact was correlative rather than causative, the real cause remains unfixed.
-
-The structured Cause Elimination Process (5 steps: document symptom → list ALL hypotheses → test one by one → fix confirmed cause → log) is documented in CLAUDE.md. But it is a guideline. Without a structured template that must be filled in before a fix is declared, the guideline is bypassed under time pressure.
+The cascade engine detects that `racecontrol.toml` on the server has a stale `ws_connect_timeout` value. Auto-fix SSH-es to the server and writes the corrected line by redirecting SSH output. The SSH banner (post-quantum warning, MOTD, OpenSSH version line) is captured along with the command output and prepended to the config file. TOML parser rejects the file from line 1. `load_or_default()` silently falls back to empty defaults. Process guard runs with 0 allowed entries for hours with no visible error — because the parse error occurs before logging is initialized.
 
 **Why it happens:**
-The first plausible explanation breaks the momentum of hypothesis generation. Once a "likely cause" is identified, cognitive closure sets in. The other hypotheses feel like extra work. The incident log shows "found Variable_dump.exe crash dumps" without listing what other hypotheses were considered and eliminated.
+This exact incident occurred on 2026-03-24 (documented in CLAUDE.md standing rules). Auto-fix scripts written to correct config drift may repeat this mistake if the prohibition on SSH output piping is not enforced as a hard constraint in the fix action framework.
 
 **How to avoid:**
-The Cause Elimination Process must be enforced by a template, not a guideline. Before any non-trivial bug fix can be committed, the commit description must include:
-
-```
-## Cause Elimination
-Symptom: [exact observed behavior]
-Hypotheses tested:
-- [H1]: [test result] → ELIMINATED / CONFIRMED
-- [H2]: [test result] → ELIMINATED / CONFIRMED
-Confirmed cause: [H?]
-Verification: [how the fix was verified to actually fix it]
-```
-
-For v25.0, this is a process enforcement deliverable — a commit hook or PR template that requires the section for any commit touching rc-agent, racecontrol, or rc-sentry.
+- Config fixes MUST use the dedicated ConfigPush WebSocket channel (CP-01) or the `/api/v1/config` REST endpoint — never SSH output redirect
+- SCP for file transfers only; exec endpoint for operational commands only; API for config changes only
+- After any config fix, validate file integrity: `head -1 racecontrol.toml | grep -q '^\[' || alert "config corrupted"`
+- Add a "config fix type" field to the approved-fixes whitelist — only `api_call` and `scp_file` types are permitted, never `ssh_exec_redirect`
 
 **Warning signs:**
-- Fix commit description says "fix X" without mentioning how it was verified
-- Fix commit references a single artifact (crash dump, log line) as the sole evidence
-- Multiple fixes for the same symptom within 7 days (indicates confirmed-cause was wrong)
+- racecontrol.toml has non-TOML content on its first line after an auto-detect run
+- Server starts returning empty/default responses for config-dependent features (process guard count drops to 0)
+- No tracing errors visible despite config-dependent features behaving incorrectly (parse error before logging init)
 
-**Phase to address:** Phase 6 (Cause Elimination Process enforcement) — commit template must be the deliverable. The standing rule in CLAUDE.md is not sufficient — it is bypassed under time pressure.
+**Phase to address:**
+Phase 2 (config drift detection and auto-fix) — config update path enforced as API-only from the first implementation.
 
 ---
 
@@ -366,12 +263,12 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| `health.is_ok()` as chain verification | Zero new code | Same proxy check problem; next multi-attempt bug will pass health and fail the actual behavior | Never for behavioral fixes |
-| Observable state via `tracing::info!()` only | Fast to add | Passive — operator must be watching the right stream; doesn't create fleet health dashboard update | Only for transitions that are never degraded-state (e.g. successful recovery) |
-| Boot resilience via "restart the service" | Users work around it | Root cause remains; same issue surfaces every time server reboots | Never as a permanent solution |
-| Domain-matched verification as optional checklist | Faster to ship | Same proxy verification pattern; visual bugs declared PASS from terminal | Never — must be enforced per change category |
-| Bat audit as report-only | Faster to implement | Audit findings accumulate, manual fix steps are skipped, enforcement regresses on next deploy | Acceptable for first-pass discovery; not for production enforcement |
-| Silent failure elimination only for new code | Lower scope | Known failures stay silent; same categories recur; audit finds the same issues | Never — known failures must be fixed in scope |
+| No idle gate on first implementation | Simpler code, faster to ship | First scheduled run interrupts an active billing session | Never in production |
+| Single WhatsApp per finding (no digest) | Easier notification logic | Alert fatigue in week 1 — Uday ignores all messages including critical ones | Never after the first run |
+| Hardcode 2:30 AM with no venue hours awareness | Fast to implement | Conflicts with late venue events, no recovery if event runs late | MVP only with documented risk and manual override |
+| No dry-run mode for cascade fixes | Faster implementation | First cascade run applies fixes to wrong pods | Never — dry-run is always the default first mode |
+| Trust `spawn().is_ok()` for fix verification | One line of code | Silent non-start; pods appear fixed but aren't — documented incident where all 3 launch methods returned Ok but all silently failed | Never |
+| Skip coordination check between James and Bono | Simpler individual scripts | First time both run simultaneously corrupts a binary | Acceptable only in detect-only (no-fix) mode |
 
 ---
 
@@ -379,13 +276,13 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Chain-of-verification + billing hot path | Wrapping billing start with synchronous verification steps | Async fire-and-forget to ring buffer; verification is post-hoc, never blocking |
-| Observable transitions + WhatsApp Evolution API | Sending full structured state on every transition | Send summary only (pod number, sentinel name, timestamp, current state); full detail stays in fleet health JSON |
-| Boot resilience + `load_or_default()` | Treating default return as success ("no error") | `load_or_default()` must emit `eprintln!()` for the parse failure AND queue a deferred re-fetch |
-| Bat auditing + rc-agent `/exec` endpoint | Sending bat diff commands with quotes through exec | Write audit commands to temp bat, execute bat by path; never send `findstr /C:"..."` through exec (nested quoting breaks) |
-| Pre-ship gate + visual changes | Automating visual verification with `verify-pod-screen.js` | Playwright screenshot is a proxy; must ask user "are the screens showing correctly?" as a blocking gate |
-| Cause Elimination template + parallel session commits | Other sessions bypass the template | Commit hook must check ALL commits to rc-agent/racecontrol/rc-sentry, not just human commits |
-| Silent failure fix + tracing init order | Adding `tracing::error!()` to config load path after verification determines tracing is initialized at that point | Config load must be split: early (pre-tracing, uses `eprintln!`) and late (post-tracing, uses tracing macros) |
+| comms-link relay exec | Fire-and-forget exec assuming it ran | Use `/relay/exec/run` (synchronous) which returns the result; verify the result content, not just HTTP 200 |
+| WhatsApp Evolution API | Call directly from James auto-detect.sh via venue tunnel | Route through Bono VPS Evolution API (standing rule: marketing/alerts via Bono, not venue tunnel) |
+| rc-sentry exec endpoint | Use to write config files | SCP for file transfers only; exec is for operational commands only |
+| Windows Task Scheduler | Assume interactive session is available | Non-interactive context: no GUI, no user profile, absolute paths everywhere, no `timeout` command (use `ping -n N 127.0.0.1`) |
+| OTA pipeline | Auto-detect triggers during OTA_DEPLOYING window | Always read `C:\RacingPoint\OTA_DEPLOYING` before any pod-touching action |
+| Bono cron + James task | Same schedule, no coordination | Stagger by 60 minutes minimum; share run completion status via comms-link INBOX.md |
+| audit.sh integration | Call with `--auto-fix` always | Call in detect-only mode first; apply fixes selectively from the approved-fixes whitelist |
 
 ---
 
@@ -393,10 +290,10 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Verification logging on every WS message | Log volume overwhelms JSONL appender; latency on WS handler | Verification only on state transitions, not on every message; sample at 1% for high-frequency paths | Immediately at first load test with real pods |
-| Synchronous verification step in billing path | Billing start delay observable to customers | All verification in billing path must be async fire-and-forget; measure `billing_start_latency_ms` before and after | Any synchronous await in billing path |
-| Bat auditing on all 8 pods in parallel | Same network saturation as audit runner (Pitfall 10 of v23 PITFALLS) | Max 4 concurrent pod queries; stagger bat deploy by 500ms | When all 8 pods queried simultaneously |
-| Cause Elimination template on trivial fixes | Template overhead slows down minor fixes | Scope: only required for commits touching core binaries (rc-agent, racecontrol, rc-sentry); not for TOML updates, bat files, Next.js pages | Never — trivial fix scope is clearly defined |
+| Full 60-phase audit on every nightly run | 8-minute run blocks all other scheduled operations | Use `--mode quick` for nightly; full mode only on weekend maintenance windows | When full mode is added to the default nightly schedule |
+| Parallel deploys to all 8 pods simultaneously | Server overload during allowlist fetch burst, corrupted concurrent binary writes | Max 2 concurrent pod deploys with 30-second stagger | First time 5+ pods need the same fix in one run |
+| Log anomaly scanning full JSONL history | Scan time grows linearly with log age (30+ days of rolling files) | Scan only last 24h of JSONL using timestamp filter on `racecontrol-*.jsonl` filename pattern | After 30 days of log accumulation |
+| Bono VPS Tailscale check via SSH for all pods | 10s timeout per pod, 8 pods sequential = 80s minimum | Use fleet health API for all-pod status in one call; SSH only for pods unreachable via HTTP | At 8 pods with intermittent Tailscale connectivity |
 
 ---
 
@@ -404,24 +301,22 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Observable state alerts include config values | `racecontrol.toml` values (IPs, PSK) visible in WhatsApp notifications | Alerts include only: what changed, when, which pod — no config values, no paths, no secrets |
-| Cause Elimination template stored as plaintext in repo | Debug artifacts (crash dumps, process lists) may contain PII or credentials | Template is a commit message format — commit message is public; no credential values, no customer data in template fields |
-| Bat audit deploying unverified canonical bats | Canonical bat could introduce malicious enforcement line | Canonical bats must come from the main git branch only; hash-verified before deploy to pods |
-| Chain-of-verification exposing intermediate state via API | Internal parse failures reveal implementation details to API callers | Verification results are internal telemetry only — not exposed via public API endpoints; fleet health shows aggregate status |
+| Auto-fix executes shell commands derived from audit output | A crafted pod response could inject commands into the fix step | All auto-fix actions are whitelist-only from approved-fixes.json; audit output is data, never eval'd as commands |
+| COMMS_PSK passed as environment variable | PSK visible in process list via `ps aux` or Windows task manager | Read PSK from a chmod-600 file; never pass via command-line argument |
+| Auto-detect commits and pushes config changes to git unattended | Could push corrupted state after a failed partial fix | Limit auto-commits to audit report files only; never auto-push binary, config, or toml changes |
+| WhatsApp messages include internal IPs and build hashes | Leaks infrastructure details to anyone with phone access | Sanitize messages: "Pod 5 needs attention" not "Pod 5 (192.168.31.86) build 4bdcc6e9 failed allowlist check" |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Chain-of-verification:** Verify a known broken intermediate step (wrong curl output format) is caught by the framework — not just that the health endpoint is probed
-- [ ] **Observable state transitions:** Manually write `MAINTENANCE_MODE` sentinel. Verify WhatsApp alert arrives within 30 seconds. Not just that a log line appears.
-- [ ] **Boot resilience:** Kill racecontrol server. Boot a pod. Wait 60 seconds. Restart server. Verify pod self-heals (allowlist loaded, feature flags updated) within next re-fetch interval — without pod restart.
-- [ ] **Pre-ship gate:** Apply a visual change to lock screen. Verify the gate explicitly requires visual confirmation from user before marking shipped — not just health endpoint probe.
-- [ ] **Bat auditing:** Introduce a known-broken enforcement line (parentheses syntax error in kill command). Verify audit detects it as "present but broken" not "present and correct."
-- [ ] **Startup log:** Force a config parse failure before tracing init. Verify error appears in `startup.log` with `eprintln!()` output — not just silently discarded.
-- [ ] **Cause Elimination:** Attempt to commit a fix to rc-agent without the Cause Elimination template section. Verify commit hook blocks or warns.
-- [ ] **Silent failure sweep:** Run `grep -r "spawn().is_ok()" crates/rc-sentry/` after v25.0 ships. Zero results expected.
-- [ ] **Verification latency:** Measure `billing_start_latency_ms` with verification framework active. Must be within 5ms of baseline (framework adds no blocking operations to hot path).
+- [ ] **Idle gate per-pod:** Verify `has_active_billing_session()` is checked on ALL pods individually, not the fleet aggregate — an active session on Pod 3 is still active even if Pod 1's health is checked first
+- [ ] **Sentinel reads before fix:** Confirm auto-detect reads OTA_DEPLOYING, MAINTENANCE_MODE, and GRACEFUL_RELAUNCH before any fix — test by manually placing sentinel, running auto-detect in dry-run, and checking that the fix is skipped
+- [ ] **Cascade dry-run default:** First production run must use `--dry-run` — verify log shows "would fix" not "fixed" and that no actual changes were applied
+- [ ] **WhatsApp silence on clean run:** Trigger a run with no issues; confirm no WhatsApp message is sent to Uday
+- [ ] **Bono coordination:** Manually run James auto-detect.sh and Bono bono-auto-detect.sh simultaneously; confirm only one writes AUTO_DETECT_ACTIVE and the other aborts cleanly
+- [ ] **Post-deploy allowlist:** After auto-deploying rc-agent to Pod 8 canary, check `violation_count_24h` after 5 minutes — must be at baseline (not spiking from empty allowlist)
+- [ ] **Venue hours gate:** Insert an active billing session into the DB, trigger auto-detect, confirm all pod-touching phases are skipped and only server-side checks run
 
 ---
 
@@ -429,12 +324,12 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Verification framework adds latency to billing path | HIGH | Remove synchronous verification steps; replace with async fire-and-forget ring buffer writes; re-measure billing latency |
-| Observable alert storms (transition fires repeatedly) | MEDIUM | Add rate limiting to alert channel: max 1 alert per sentinel type per pod per 5 minutes; same rate limiting that exists for email alerts (ALERT-02) |
-| Boot resilience re-fetch causes allowlist flip-flop | MEDIUM | Add hysteresis: apply new allowlist only if it has ≥ 80% of previous entry count (prevents accidentally wiping 47-entry list with empty default on transient server error) |
-| Bat audit deploys wrong canonical bat version | HIGH | Roll back via Tailscale SSH: `scp canonical.bat ADMIN@<pod>:C:\RacingPoint\start-rcagent.bat`; `schtasks /Run /TN StartRCAgent`; verify via `tasklist` |
-| Cause Elimination template blocks urgent hotfix | LOW | Template has an emergency bypass field: `emergency: true` with reason; bypass is logged and reviewed post-incident |
-| Silent failure sweep breaks existing behavior | MEDIUM | Each existing silent failure must be fixed with the Smallest Reversible Fix First rule — add `eprintln!()` before the failing call, verify behavior unchanged, then add alert channel |
+| Recovery systems fighting (infinite loop) | HIGH | Kill all recovery actors manually, clear all sentinels (MAINTENANCE_MODE, GRACEFUL_RELAUNCH, AUTO_DETECT_ACTIVE), restart one pod at a time with manual monitoring |
+| Alert fatigue (Uday ignoring messages) | HIGH (trust erosion, slow to recover) | Silence all auto-detect WhatsApp for 72 hours, manually review all previous messages to identify which were noise, reduce threshold to critical-only |
+| Config corrupted by SSH banner | MEDIUM | SCP correct config from repo to server, verify first line is valid TOML (`head -1 | grep '^\['`), restart racecontrol.exe, verify build_id + config values at API level |
+| Cascade fix broke a pod mid-OTA | MEDIUM | Restore from `rc-agent-prev.exe` (preserved 72h per standing rule), clear OTA_DEPLOYING sentinel, restart rc-agent via rc-sentry exec, verify build_id |
+| MAINTENANCE_MODE from auto-detect's own restart | LOW | Wait 35 minutes for v17.1 auto-clear; if not clearing, manually delete `C:\RacingPoint\MAINTENANCE_MODE` via rc-sentry exec, then restart rc-agent |
+| Dual-AI race condition corrupts binary | HIGH | Restore from `rc-agent-prev.exe` on affected pod, clear AUTO_DETECT_ACTIVE on both agents, fix schedule stagger, add coordination protocol before re-enabling Bono failover |
 
 ---
 
@@ -442,34 +337,25 @@ For v25.0, this is a process enforcement deliverable — a commit hook or PR tem
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Chain checks endpoint not chain | Phase 1 (chain-of-verification core) | Break intermediate parse step; verify framework catches it without health endpoint probe |
-| Observable transitions log but don't alert | Phase 2 (observable state transitions) | Write MAINTENANCE_MODE sentinel manually; verify WhatsApp alert arrives |
-| Boot fetch once, no retry | Phase 3 (boot resilience) | Server down at pod boot; verify self-heal within re-fetch interval |
-| Pre-ship gate checks wrong domain | Phase 4 (pre-ship verification gate) | Visual change committed without visual check; verify gate blocks declaration of PASS |
-| Bat audit reports without fixing | Phase 5 (startup bat auditing) | Known-broken bat file on pod; verify audit deploys canonical and confirms enforcement |
-| Pre-tracing logging gap | Phase 1 + Phase 3 | Config parse failure before tracing init; verify error in startup.log |
-| Verification latency on billing path | Phase 1 | Billing latency baseline before and after; verify within 5ms |
-| Silent failure sweep incomplete | Phase 2 + Phase 3 | grep for known silent failure patterns in existing code; verify zero hits after sweep |
-| Bat file syntax traps | Phase 5 | BOM check + cmd /c test + canary verify; all three must pass before fleet deploy |
-| Cause Elimination process bypass | Phase 6 | Attempt commit without template; verify hook fires |
+| Recovery systems fighting | Phase 1: Core pipeline with sentinel reads | Manually set MAINTENANCE_MODE on a pod; run auto-detect in dry-run; confirm pod is skipped with sentinel logged |
+| Alert fatigue | Phase 1: Escalation logic with silence conditions | Trigger clean run with no issues; confirm no WhatsApp sent |
+| Config drift false positives | Phase 2: Drift schema with per-pod key exclusions | Run on live fleet; confirm pod_number, pod_ip, mac not flagged as drift |
+| Log anomaly miscalibration | Phase 2: Pattern-based anomaly triggers | Inject known-bad pattern (empty allowlist); confirm anomaly fires. Run normal night; confirm expected WARNs do not fire |
+| Cascade wrong target | Phase 2: Cascade engine with dry-run default | Run cascade in dry-run on live fleet; review log for any Pod 8 canary being "corrected" |
+| Scheduled task conflicts | Phase 1: Idle gate (per-pod) and venue hours gate | Insert active billing session in DB; run auto-detect; confirm pod phases skipped |
+| Dual-AI race conditions | Phase 3: Bono failover with coordination protocol | Run James + Bono simultaneously in dry-run; confirm only one writes AUTO_DETECT_ACTIVE |
+| MAINTENANCE_MODE blocking | Phase 1: Auto-fix engine with MAINTENANCE_MODE awareness | Trigger MAINTENANCE_MODE on a pod; run auto-detect fix; confirm it waits rather than retrying immediately |
+| Process guard empty allowlist | Phase 1: Post-deploy verification checklist | Deploy to Pod 8 canary via auto-detect; confirm allowlist non-empty in verification step output |
+| SSH banner config corruption | Phase 2: Config fixes via API only, no SSH write path | Attempt a config drift fix in test; trace code path; confirm no SSH exec redirect is used |
 
 ---
 
 ## Sources
 
-- CLAUDE.md standing rules (this codebase) — every pitfall in this document is sourced from documented production incidents:
-  - Proxy verification (build_id/health): blanking screen flicker (4 deploy rounds), pod healer curl quotes (2 deploy cycles)
-  - Silent failures: SSH banner TOML corruption, MAINTENANCE_MODE 1.5h silent block, empty allowlist 2+ hours
-  - Boot resilience: process guard empty allowlist at boot (`821c3031` fix)
-  - Bat file traps: ConspitLink flicker 3 manual fixes same day, 4 bat deploy attempts for rc-sentry
-  - Domain-matched verification: visual changes declared PASS from terminal (standing rule added after 4 incidents)
-  - Pre-tracing logging: `racecontrol.toml` parse failure before tracing init (2026-03-24 audit)
-  - `spawn().is_ok()`: rc-sentry restart_service() tested 3 methods, all returned Ok, all silently failed
-- PROJECT.md v25.0 milestone context — 7 root cause categories from retrospective audit, 11 multi-attempt bugs (avg 2.4 attempts each)
-- MEMORY.md — 2026-03-24 audit: Pods 5/6/7 MAINTENANCE_MODE simultaneous; 2026-03-25 audit: process guard empty allowlist; Variable_dump.exe crash investigation incomplete
-- PITFALLS-v17.1-watchdog-ai.md — `spawn().is_ok()` false confirmation; non-interactive context spawn failure; MAINTENANCE_MODE silent block; recovery authority conflicts (all directly applicable)
-- PITFALLS.md (v23.0 audit runner) — cmd.exe quoting, SSH banner corruption, curl quote stripping (applicable to bat auditing and verification tooling)
+- `CLAUDE.md` standing rules — Cross-Process Recovery Awareness, SSH banner corruption incident (2026-03-24), MAINTENANCE_MODE permanent blocker, process guard empty allowlist incident (28,749 false violations/day), `spawn().is_ok()` silent failure pattern, OTA sentinel protocol
+- `MEMORY.md` — v23.0 audit protocol QUIET findings baseline, rc-sentry restart bug, pod healer flicker (PowerShell variable strip), Self_monitor + WoL + rc-sentry infinite loop (45-minute diagnosis)
+- `PROJECT.md` — v26.0 milestone constraints, foundation already built (auto-detect.sh b54e4585, bono-auto-detect.sh deployed, chains.json templates), known constraint: Bono cron must not conflict with bono-server-monitor and bono-racecontrol-monitor
 
 ---
-*Pitfalls research for: Debug-First-Time-Right verification framework — chain-of-verification, observability, boot resilience, bat auditing, pre-ship gates (v25.0)*
-*Researched: 2026-03-26*
+*Pitfalls research for: Autonomous bug detection and self-healing (v26.0)*
+*Researched: 2026-03-26 IST*

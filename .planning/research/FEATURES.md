@@ -1,207 +1,237 @@
 # Feature Research
 
-**Domain:** Debug-First-Time-Right — Verification & Debugging Quality System
-**Project:** v25.0 — systematic elimination of multi-attempt debugging patterns
+**Domain:** Autonomous Bug Detection & Self-Healing — Scheduled, Unattended Fleet Operations
+**Project:** Autonomous Detection Milestone — adding scheduled execution, config drift, log anomaly, cascade verification, self-healing escalation, and pipeline tests to existing Racing Point eSports infrastructure
 **Researched:** 2026-03-26
-**Confidence:** HIGH (based on 11 documented incidents from this codebase, not generic research)
+**Confidence:** HIGH (based on direct inspection of existing codebase, foundation scripts, and audit protocol)
 
 ---
 
 ## Context: What Already Exists
 
-The system is not starting from zero. Before categorizing features, this is the
-verification/debugging infrastructure that already exists:
+This milestone adds to an already-substantial foundation. Understanding the boundary between "already built" and "to be built" is critical to scoping correctly.
 
-| Component | What It Does | Gap |
-|-----------|-------------|-----|
-| `startup_log.rs` | Phase-by-phase startup log, crash detection via last-phase check | No alerting on crash recovery, no fleet visibility |
-| `self_heal.rs` | Config + bat + registry repair on every boot | Baked-in bat content diverges from deployed content |
-| `failure_monitor.rs` | Game freeze, launch timeout, USB reconnect detection | Monitors telemetry state, not parse/transform chains |
-| `pre_flight.rs` | HID + ConspitLink + orphan game checks before billing | 3 checks only — no config validity, no context mismatch detection |
-| `self_monitor.rs` | CLOSE_WAIT detection + WS dead detection, LLM-gated relaunch | Checks health proxies, not the actual parse/decision path |
-| `process_guard.rs` | Allowlist enforcement with periodic re-fetch (5 min) | First-run verification absent — empty allowlist proceeds silently |
-| `4-tier AI debugger` | Deterministic → memory → Ollama → cloud escalation | No structured Cause Elimination Process enforcement |
-| `Cause Elimination Process` | Documented in CLAUDE.md — 5 step process | Not enforced in code — developer discipline only |
-| `audit.sh` | 60-phase automated fleet audit | Identifies state, does not enforce verification discipline |
+| Component | What It Does | Status |
+|-----------|-------------|--------|
+| `audit.sh` | 60-phase fleet audit, parallel engine, delta tracking, auto-fix whitelist (3 fixes), Bono+WhatsApp notifications | SHIPPED (v23.0) |
+| `auto-detect.sh` (James) | 6-step pipeline: Audit → Quality Gate → E2E → Cascade → Standing Rules → Report | FOUNDATION — exists, not scheduled |
+| `bono-auto-detect.sh` (Bono) | Failover checks: venue server, cloud, fleet, Next.js apps, git sync. Delegates to James when alive. | FOUNDATION — exists, not scheduled |
+| `audit/lib/fixes.sh` | Auto-fix engine: kill sentinels, kill orphan PS, restart rc-agent (whitelist-only) | SHIPPED (v23.0) |
+| `audit/lib/notify.sh` | Dual-channel: Bono WS + INBOX.md + WhatsApp to Uday | SHIPPED (v23.0) |
+| `audit/lib/delta.sh` | Delta tracking: compares current run to last run across 6 categories | SHIPPED (v23.0) |
+| `audit/lib/suppress.sh` | suppress.json with per-pattern expiry for known-quiet items | SHIPPED (v23.0) |
+| `comms-link test/run-all.sh` | 4-suite quality gate: contract, integration, syntax, security | SHIPPED (v18.2) |
+| `relay/exec/run` + `relay/chain/run` | Bono exec relay — single commands and chained command sequences | SHIPPED (v18.0) |
+| `fleet/health` + `fleet/exec` | Server-side fleet status and remote exec via rc-agent | SHIPPED |
+| `auto-fix: is_pod_idle()` billing gate | Never interrupt billing sessions before auto-fix | SHIPPED (v23.0) |
+| rc-sentry `/files` endpoint | Read files from pod filesystem remotely | SHIPPED |
 
-The 11 multi-attempt incidents had 7 root cause categories. Features below map directly to those categories.
+### What the Foundation Scripts Currently Lack
+
+`auto-detect.sh` exists but runs only when manually triggered. It covers:
+- Audit protocol results (pass/fail counts from last run)
+- Quality gate (comms-link test suite)
+- E2E health (server, relay, exec round-trip, chain round-trip, Next.js apps)
+- Cascade check (build drift, pod consistency, cloud-venue match, comms-link hash)
+- Standing rules (unpushed commits, relay health)
+
+It does NOT yet cover:
+- Scheduled/autonomous execution (no Task Scheduler entry exists)
+- Config drift detection (TOML values, bat content, env vars across 8 pods + server + cloud)
+- Log anomaly detection (ERROR/PANIC scanning, crash loop detection, rate-based anomalies)
+- Expanded cascade verification (schema sync, feature flag sync across environments)
+- Self-healing escalation ladder (retry → Wake-on-LAN → cloud failover → Uday alert)
+- Integration test suite for the autonomous pipeline itself
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Must Have or Debugging Patterns Recur)
+### Table Stakes (Must Exist or Autonomy is Theater)
 
-These directly prevent the 6 documented failure categories. Without them, the
-same multi-attempt patterns will recur in v25.0+.
+These features are the minimum for the system to be genuinely autonomous rather than a manually-triggered wrapper.
 
-| Feature | Why Expected | Root Cause Category | Complexity | Notes |
-|---------|-------------|--------------------|-----------| ------|
-| **Chain-of-verification in Rust** | Every fix declaration requires verifying the specific parse/transform path that was broken, not just health endpoints | Proxy verification (8+ incidents) | MEDIUM | Add `verify_parse_chain()` helpers to rc-agent and racecontrol that test input→transform→parse→decision→action with real data samples. Distinguish from health probe. |
-| **MAINTENANCE_MODE write alert** | MAINTENANCE_MODE silently killed 3 pods for 1.5+ hours with no staff notification | Silent failures (6+ incidents) | LOW | When `C:\RacingPoint\MAINTENANCE_MODE` is written, emit WhatsApp alert immediately. Currently only logs to tracing (not yet initialized path). Use `eprintln!` + WhatsApp via existing channel. |
-| **Config fallback observability** | `unwrap_or("http://127.0.0.1:8080")` silently uses dev URL in production — caused "page loads but no data" for full sessions | Context/semantic mismatch (2+ incidents) | LOW | When any config field falls back to a hardcoded default, emit a `warn!` before logging init and record to startup_log. Currently 6 `.unwrap_or("http://127.0.0.1:8080")` and 1 `.unwrap_or("127.0.0.1")` in main.rs silently proceed. |
-| **Empty allowlist on boot alert** | Empty allowlist + enabled guard = 28,749 false violations/day for 2 days before detection | Silent failures (6+ incidents) | LOW | Process guard: when fetch returns empty allowlist and `enabled=true`, emit `error!` before logging init + write to startup_log. First-run check: if scan produces >50% violations, alert staff and enter report_only mode automatically. |
-| **Startup enforcement bat scanner** | Manual fixes regress on reboot because they are not in the bat file | Manual fixes without code enforcement (5+ incidents) | MEDIUM | Script that compares deployed `start-rcagent.bat` on all 8 pods against the canonical bat embedded in `self_heal.rs`. Flag pods where deployed bat diverges from expected. Run as part of fleet audit. |
-| **Boot-time periodic re-fetch for all startup-fetched data** | Allowlist, feature flags, and config each fetched once at startup — if server is down, pod runs on stale/empty data indefinitely | Boot-time transient failures (2+ incidents) | MEDIUM | Allowlist already has 5-min periodic re-fetch (821c3031). Feature flags need same pattern. Any new startup-fetched data must follow this pattern by default. Document as architectural rule. |
-| **Cause Elimination template enforcement** | Developers skip straight from symptom to fix — root cause analysis is documented in CLAUDE.md but not enforced | Incomplete root cause analysis (3+ incidents) | LOW | Pre-ship verification gate: structured template output in the fix description before marking any non-trivial bug as resolved. Can be a bash script that prompts for the 5 steps and writes to LOGBOOK.md. |
-| **Domain-matched verification gate** | Visual changes verified with health checks; billing chain verified with endpoint pings — wrong domain every time | Proxy verification (8+ incidents) | MEDIUM | Pre-ship verification checklist that categorizes the change type (display/network/parse/billing/config) and requires corresponding check type before marking shipped. Build into GSD execute-phase output. |
-| **Sentinel file creation alerts** | GRACEFUL_RELAUNCH, MAINTENANCE_MODE, OTA_DEPLOYING sentinels written silently — no fleet visibility | Silent failures (6+ incidents) | LOW | Any sentinel file write should also emit a structured event to racecontrol's fleet event log (existing `fleet_alert.rs` channel). Server can surface sentinel state in fleet health dashboard. |
+| Feature | Why Expected | Complexity | Dependencies on Existing |
+|---------|--------------|------------|--------------------------|
+| **Scheduled execution (Task Scheduler + cron)** | "Autonomous" detection that requires a human to trigger it is not autonomous. A schedule is the prerequisite for everything else. Without it, the pipeline is a convenience wrapper, not a system. | LOW | `auto-detect.sh` (James Task Scheduler entry), `bono-auto-detect.sh` (Bono cron 0 21 * * *). Both scripts exist — need registration. |
+| **Config drift detection: TOML value validation** | `racecontrol.toml` has drifted silently before (SSH banner corruption, stale ws_connect_timeout=200ms caught in v23.0 audit). Detecting this autonomously prevents multi-hour silent failures. Key fields: `ws_connect_timeout`, `app_health` URLs, `process_guard.enabled`, `feature_flags` sync interval. | MEDIUM | Uses `rc-sentry /files` endpoint (exists) to read TOML from pods and server. Compare against expected values from canonical config. |
+| **Config drift detection: bat file content** | Manual fixes regress on reboot because bat files are not kept in sync. The v25.0 FEATURES.md identified "bat drift detector" as P2. For an autonomous system, detecting bat drift is table stakes — if the bat is wrong, every reboot undoes every fix. | MEDIUM | `self_heal.rs` embeds canonical bat content (exists). `rc-sentry /files` can read deployed bat (exists). Diff comparison is the new piece. |
+| **Log anomaly scanning: ERROR/PANIC detection** | The existing audit protocol checks service health but does NOT read application logs for error patterns. A crash loop (rc-agent restarting 5x in 10 min) is invisible to fleet health endpoints if recovery succeeds. Log scanning catches what health checks miss. | MEDIUM | Logs at `C:\RacingPoint\*.jsonl` on pods. `fleet/exec` to read via rc-sentry. New: grep-based anomaly extraction logic. |
+| **Crash loop detection** | rc-agent restart storm (3 restarts in 10 min) triggers MAINTENANCE_MODE silently. The audit must detect this pattern in logs before MAINTENANCE_MODE is written, enabling early intervention. Rate: >=2 ERROR lines in last 15 min = anomaly. >=3 restart events in 10 min = crash loop candidate. | MEDIUM | Uses log anomaly scanning (above). Reads `MAINTENANCE_MODE` sentinel file existence via rc-sentry (already detectable via health endpoint `maintenance_mode_active` field). |
+| **Self-healing escalation ladder** | The existing auto-fix engine has 3 approved fixes (kill sentinels, orphan PS, rc-agent restart). The milestone calls for: retry → Wake-on-LAN → failover → Uday alert. Without the escalation ladder, a pod that doesn't recover after one restart just sits unaddressed until Uday notices. | HIGH | WoL: existing MAC addresses in CLAUDE.md. Failover: `pm2 start racecontrol` on Bono (already in `bono-auto-detect.sh`). Uday WhatsApp: `notify.sh` (exists). New: retry counter, WoL trigger via `wakeonlan` or `etherwake`, escalation state tracking. |
+| **Bono failover activation on James DOWN** | When James machine is offline, Bono must run its own detection independently. `bono-auto-detect.sh` already implements this logic but is not scheduled. Scheduling is required for the failover to actually fire. | LOW | Script exists. Needs cron registration on Bono VPS at `0 21 * * *` (2:30 AM IST). |
+| **Pipeline result persistence** | Each autonomous run must write a structured result (JSON + Markdown) to a persistent location so that the next run can compare against it (delta tracking) and so Uday can review history. | LOW | `audit/lib/delta.sh` and `audit/lib/results.sh` already implement this pattern. Autonomous pipeline results should follow the same schema. |
 
-### Differentiators (Competitive Advantage / Long-Term Quality)
-
-These features provide systemic quality improvements beyond just fixing the 11
-incidents. They make the debugging system self-improving.
+### Differentiators (Not Required, but Meaningfully Better)
 
 | Feature | Value Proposition | Complexity | Notes |
-|---------|------------------|------------|-------|
-| **Fix attempt counter per incident** | Measures debugging quality over time — track avg attempts-to-fix by category | MEDIUM | Add `fix_attempt` field to LOGBOOK entries. Track running average. Alert when a category regresses. This is how v25.0 validates itself — if avg attempts drop from 2.4 to 1.x, the system is working. |
-| **Context snapshot at fix declaration** | When a fix is declared, capture full system state: build_ids, sentinel file states, config hash, allowlist size, WS connection state | MEDIUM | Prevents "it works on my machine" context mismatch. Attach snapshot to LOGBOOK entry automatically on fix commit. |
-| **Automated parse-chain smoke tests** | For each major parse chain (UDP→telemetry, WS→billing, config→load, curl→stdout→parse), a runnable smoke test that verifies end-to-end | HIGH | Most impactful differentiator. Catches proxy verification at the test level before deploy. Hard to add retroactively — must be added alongside each new feature in v25.0+. |
-| **Boot resilience scorecard** | Fleet dashboard widget showing: for each pod, what data was fetched successfully at boot vs fell back to defaults | MEDIUM | Makes invisible boot failures visible. Shows at a glance which pods are running on stale config. Requires startup_log entries to be enriched with fetch outcomes. |
-| **Bat drift detector in fleet audit** | Automated check that deployed bat files match expected content — runs as part of the 60-phase audit | LOW | Extends existing `audit.sh`. Calls rc-sentry `/files` endpoint to read deployed bat, compares hash against canonical in repo. Already has the tooling (rc-sentry /files + audit phases). |
-| **First-scan validation for any new guard/filter** | When any filtering system flips from disabled to enabled, mandatory first-scan output review before proceeding | LOW | Add as a standing rule with a code-enforced warning: if `enabled` just changed from `false` to `true`, log first 10 violations before enforcement begins, and require operator acknowledgment. |
-| **Structured fix log with hypothesis tracking** | LOGBOOK.md entries include: hypotheses listed, hypotheses eliminated (with evidence), confirmed cause | LOW | Pure process enforcement. Add `fix_log.sh` helper that prompts for Cause Elimination steps and appends structured markdown to LOGBOOK.md. |
+|---------|-----------------|------------|-------|
+| **Config drift: env var validation** | `NEXT_PUBLIC_WS_URL` defaulted to `ws://localhost:8080` for multiple sessions before discovery. Autonomously checking that all Next.js `NEXT_PUBLIC_*` env vars in `.env.production.local` match expected venue values catches this class of bug before a session where customers see broken data. | MEDIUM | Reads `.env.production.local` from server via `fleet/exec`. Compare each key against expected values (defined in canonical config). |
+| **Feature flag sync validation** | v22.0 added feature flags with WS sync across pods. A desync (pod running old flag value after server update) is invisible to health checks. Autonomously comparing pod-cached flag values against server truth catches sync failures before they affect billing. | MEDIUM | Requires new endpoint on rc-agent: `GET /api/v1/flags/summary` returning current cached values. Compare against server's flag values. Adds 1 endpoint, 1 comparison check. |
+| **Schema sync validation (cloud-venue DB)** | Cloud and venue databases have drifted before (ALTER TABLE coverage gaps). Autonomously checking that both DBs have the same table columns catches schema drift before cloud sync breaks silently. | MEDIUM | New: run `PRAGMA table_info(billing_sessions)` on both DBs via exec, compare column names. Detectable without direct DB access if server exposes a schema-hash endpoint. |
+| **Log anomaly: rate-based alerting** | Beyond crash loops, rate-based anomalies (e.g. 100+ violations/24h from process guard, which was the empty-allowlist indicator) provide early warning. Threshold: if `violation_count_24h > 50` on any pod, flag for review. | LOW | Already queryable via `GET /api/v1/guard/status` endpoint on server. Just needs to be checked in the pipeline with a threshold comparison. |
+| **Suppression with confidence scoring** | The existing `suppress.json` suppresses known-quiet patterns. A differentiator is applying confidence scoring: patterns suppressed >30 days should trigger "is this still valid?" review rather than silent continuation. This prevents suppressions that outlive the underlying fix. | LOW | Extend `suppress.sh`. Add `last_validated` field. When a suppression entry is >30 days old, include it in the report as "suppression aging — validate". |
+| **Pipeline self-test (integration tests)** | The pipeline itself is untested. An autonomous system that might have its own bugs is not trustworthy. A test suite that exercises each detection function against known-good and known-bad scenarios validates that the detection logic works before trusting the clean reports. | HIGH | New: `audit/test/test-auto-detect.sh` — mock server responses, mock log files with injected anomalies, verify correct classification. This is what turns the pipeline from "probably works" to "verified works". |
+| **Idempotent run guard** | If two instances of `auto-detect.sh` run concurrently (e.g. cron fires while a manual run is in progress), they can interfere — particularly during auto-fix steps. A lock file (`/tmp/auto-detect.lock`) prevents concurrent runs. | LOW | Standard bash lock pattern: `flock -n /tmp/auto-detect.lock` or `mkdir /tmp/auto-detect.lock`. Trivially added, prevents a class of race conditions. |
+| **Escalation cooldown tracking** | If Uday receives 5 WhatsApp messages in 30 minutes about the same pod, it erodes trust and creates alert fatigue. A cooldown file (per-pod, per-alert-type) ensures the same alert is not sent more than once per 4-hour window. | LOW | Extend `notify.sh` with per-alert cooldown state. Write `$RESULT_DIR/cooldown/$pod_N_type.ts` on alert send. Check timestamp before sending. |
 
-### Anti-Features (Things to Deliberately NOT Build)
+### Anti-Features (Do Not Build)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|--------------|-----------------|-------------|
-| **Universal "verify everything" health endpoint** | Seems like a single endpoint that checks all chains would catch proxy verification failures | Creates a new proxy to replace old proxies — the health endpoint IS the thing that failed. Adding a "super health" endpoint just moves the problem one level up | Domain-specific verification scripts that test the exact data path relevant to each change type |
-| **Real-time debugging dashboard with live state streams** | Seeing all system state in real time would make debugging faster | High complexity Rust change (new WebSocket channels, new frontend page), high ongoing maintenance cost, and the 11 incidents all had enough information in existing logs — the issue was process, not data availability | Enrich existing fleet health dashboard with sentinel states and boot fetch outcomes (covered by the Differentiator above) |
-| **LLM-gated fix declarations** | Using Ollama to validate that a fix description is complete before allowing the commit | Adds external dependency to every debugging session, adds latency, and the LLM cannot actually verify that the fix works | Structured template with bash script enforcement — same outcome, zero dependencies |
-| **Per-change automated regression test generation** | Auto-generate regression tests from fix descriptions to prevent the same bug recurring | Test generation from natural language descriptions produces low-quality tests that test the wrong thing. The real fix is domain-matched verification at fix time, not auto-generated tests after | Add specific regression tests for each incident as part of the fix commit |
-| **Global debug mode flag** | A single flag to enable "verbose everything" across all pods | Creates a feature that is only useful during debugging but runs in production, adds performance overhead, and requires deploy to enable/disable | The tracing framework already supports per-target log levels. Use `RUST_LOG=rc_agent::billing_guard=debug` instead. |
-| **Autonomous fix application without human review** | AI debugger auto-applies fixes to production pods | Tier 3/4 fixes (Ollama/Claude) are already gated by the safe-action whitelist. Expanding this risks auto-applying wrong fixes to billing-critical systems | Keep the whitelist conservative (kill_edge, clear_sentinel, restart_rcagent) — never extend to billing or config mutations without human review |
+| **Autonomous binary deployment** | "If the system detects a stale build, just deploy the new binary automatically" | Binary deployment is a 7-step sequence with rollback dependency. An autonomous deploy that fails mid-swap leaves pods in MAINTENANCE_MODE. The billing gate (`is_pod_idle()`) is necessary but not sufficient — an automated deploy during a late-night session could still interrupt unexpectedly. | Keep deployment human-triggered. Autonomous system flags build drift and pages Uday/James, but never initiates a deploy. |
+| **LLM-gated fix decisions** | "Use Ollama to decide which fix to apply" | Adds latency (Ollama inference is 2-5s per query), adds an external dependency to the critical detection path, and the LLM cannot verify whether a fix was actually safe in context. The safe-action whitelist is more reliable than LLM judgment for a system that runs at 2:30 AM. | Keep whitelist-only fixes. Extend the whitelist via deliberate human decision, not autonomous LLM judgment. |
+| **Real-time anomaly streaming** | "Push anomalies to a WebSocket dashboard as they're detected" | Creates a permanent WebSocket channel that must be maintained, monitored for its own health, and secured. The autonomous pipeline runs once per day — streaming is overkill for a daily batch job. | Daily report + threshold-based WhatsApp alert. Streaming only makes sense when human operators are watching in real time. |
+| **Predictive failure modeling** | "Use historical data to predict which pod will fail next" | Requires weeks of clean training data, a model that needs retraining as the fleet changes, and produces probabilistic outputs that are hard to act on. The fleet is only 8 pods. | Trend detection on delta data (3 consecutive WARNs → escalate) is sufficient and deterministic. |
+| **Auto-remediation of TOML config drift** | "If racecontrol.toml has wrong values, auto-correct them" | TOML modification on a running server requires (1) stopping the server, (2) editing the config, (3) restarting. This is a 7-step process with rollback implications. An autonomous wrong-value correction could overwrite intentional config changes made by a human. | Report config drift with exact diff. Human applies fix. Auto-remediation only for sentinel files and process kills (existing whitelist). |
+| **Pod-level log streaming** | "Stream all pod logs to a central log aggregator" | 8 pods × log volume = significant network overhead. The pods' `rc-agent.exe` already writes JSONL locally. Central aggregation requires a log ingestion service, storage, and retention policy — significant ongoing maintenance cost. | Point-in-time log reads during anomaly detection (existing rc-sentry `/files` endpoint). Only read logs when an anomaly is suspected, not continuously. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Domain-matched verification gate]
-    └──requires──> [Change type taxonomy] (display/network/parse/billing/config)
-                       └──requires──> [existing standing rules categories] (already exist)
+[Scheduled execution — James Task Scheduler]
+    └──enables──> [Config drift detection]
+    └──enables──> [Log anomaly scanning]
+    └──enables──> [Self-healing escalation ladder]
+    └──enables──> [Pipeline result persistence]
 
-[Chain-of-verification helpers in Rust]
-    └──requires──> [identification of which parse chains are critical]
-                       └──informed by──> [11 incident post-mortem]
+[Scheduled execution — Bono cron]
+    └──enables──> [Bono failover activation]
+                      └──uses──> [venue server health check] (exists)
+                      └──uses──> [pm2 failover] (exists in bono-auto-detect.sh)
 
-[Boot resilience scorecard in dashboard]
-    └──requires──> [startup_log enrichment with fetch outcomes]
-                       └──requires──> [periodic re-fetch for feature flags] (boot resilience feature)
+[Log anomaly scanning: ERROR/PANIC detection]
+    └──enables──> [Crash loop detection]
+                      └──informs──> [Self-healing escalation ladder]
+                      └──uses──> [MAINTENANCE_MODE sentinel check] (exists via fleet health)
 
-[Fix attempt counter]
-    └──requires──> [structured fix log]
-                       └──enhances──> [Cause Elimination template enforcement]
+[Self-healing escalation ladder]
+    └──requires──> [Retry counter with persistence] (new)
+    └──requires──> [WoL trigger] (new — wakeonlan tool)
+    └──uses──> [cloud failover] (exists in bono-auto-detect.sh)
+    └──uses──> [WhatsApp notify.sh] (exists)
+    └──requires──> [Escalation cooldown tracking] (Differentiator)
 
-[Bat drift detector in fleet audit]
-    └──requires──> [canonical bat content in self_heal.rs] (already exists)
-    └──uses──> [rc-sentry /files endpoint] (already exists)
-    └──uses──> [audit.sh phase framework] (already exists)
+[Config drift detection: bat content]
+    └──uses──> [self_heal.rs canonical bat] (exists)
+    └──uses──> [rc-sentry /files endpoint] (exists)
+    └──enhances──> [Startup enforcement bat scanner from v25.0]
 
-[Empty allowlist on boot alert]
-    └──requires──> [eprintln before logging init] (pattern already used in main.rs panic hook)
-    └──enhances──> [first-scan validation for any new guard/filter]
+[Feature flag sync validation]
+    └──requires──> [GET /api/v1/flags/summary on rc-agent] (new endpoint — 1 file change)
+    └──uses──> [GET /api/v1/feature-flags on server] (exists)
 
-[Sentinel file creation alerts]
-    └──requires──> [fleet_alert.rs event channel] (already exists)
-    └──surfaces in──> [fleet health dashboard] (already exists)
+[Pipeline self-test]
+    └──uses──> [all detection functions] (depends on all above being stable first)
+    └──requires──> [mock infrastructure fixtures] (new)
+
+[Idempotent run guard]
+    └──used by──> [Scheduled execution]
+    └──prevents conflict with──> [Manual trigger]
+
+[Suppression with confidence scoring]
+    └──extends──> [suppress.sh] (exists)
+    └──reads──> [suppress.json last_validated field] (new field)
 ```
 
 ### Dependency Notes
 
-- **Boot resilience for feature flags requires boot resilience scorecard:** The scorecard only has value if the fetch outcomes are actually logged. Both should be in the same phase.
-- **Domain-matched verification gate requires change type taxonomy:** The taxonomy (display, network, parse, billing, config) maps exactly to the 5 verification modes already in the standing rules. No new categories needed.
-- **Chain-of-verification helpers require knowing which chains to cover:** The 11-incident post-mortem already identifies the 4 most critical chains — UDP→billing, config→URL, curl→stdout→parse, allowlist→enforcement. Start with those 4.
-- **Fix attempt counter conflicts with informal LOGBOOK entries:** If LOGBOOK entries are free-form, you cannot parse attempt counts. The structured fix log must be adopted before the counter can work.
-- **Sentinel file creation alerts require fleet_alert.rs to be reachable at write time:** MAINTENANCE_MODE writes can happen before WS connection is established. The alert should use eprintln + a queued retry, not direct WS send.
+- **Scheduled execution is the critical path.** Every table stakes feature depends on it. Build and register the schedule first, dry-run for 48 hours before enabling live fixes.
+- **Log anomaly scanning requires exec access to pod logs.** This uses `fleet/exec` → `rc-sentry /files` to read JSONL logs remotely. This path is verified working from the cascade check in `auto-detect.sh`. The new piece is the anomaly classification logic (grep patterns + rate thresholds).
+- **Self-healing escalation ladder requires WoL to be tested before autonomous activation.** WoL is network-dependent (broadcast or unicast to MAC). All 8 pod MAC addresses are known (CLAUDE.md). WoL must be verified manually on one pod before adding it to the autonomous path.
+- **Feature flag sync validation requires a new rc-agent endpoint.** This is the only new Rust code in the feature set. Keep it minimal: a GET handler returning a JSON map of flag name → current cached value. No other changes to rc-agent.
+- **Pipeline self-test should be the last feature built.** It tests the pipeline as a whole. Build it after the detection functions are stable.
 
 ---
 
 ## MVP Definition
 
-This is a quality system, not a user-facing feature. "MVP" means: what is the
-minimum set of features that prevents the 11 incident patterns from recurring?
+"MVP" for an autonomous system: the minimum set that runs reliably every night without human trigger and catches the categories of bugs that have burned the most time.
 
-### Launch With (Phase 1 — highest incident reduction per effort)
+### Launch With (v1 — Core Autonomy)
 
-- [ ] **MAINTENANCE_MODE write alert** — prevents 1.5-hour silent pod death. One WhatsApp call plus one `eprintln!`. LOW complexity, HIGH impact.
-- [ ] **Config fallback observability** — prevents dev URL in production. Add `warn!` to 6 fallback sites. LOW complexity, prevents entire class of context mismatch.
-- [ ] **Empty allowlist on boot alert** — prevents 28,749 false violations. Add guard at process_guard enable. LOW complexity.
-- [ ] **Sentinel file creation alerts via fleet_alert** — makes GRACEFUL_RELAUNCH + OTA_DEPLOYING + MAINTENANCE_MODE visible in fleet health. LOW complexity, reuses existing channel.
-- [ ] **Cause Elimination template enforcement** — structured bash helper for LOGBOOK. LOW complexity, zero Rust changes.
+- [ ] **Scheduled execution registered (James + Bono)** — without this, nothing is autonomous. James Task Scheduler daily at 02:30 IST, Bono cron daily at 02:30 IST (21:00 UTC). `--mode standard` to stay within 15-minute window.
+- [ ] **Config drift detection: TOML key validation** — checks `ws_connect_timeout >= 600ms`, `app_health` URLs correct for admin/kiosk, `process_guard.enabled` value on all pods. These three fields have caused the most silent failures.
+- [ ] **Config drift detection: bat file hash check** — compares deployed `start-rcagent.bat` on all pods against canonical. Flags divergence without auto-correcting. One of the most common regression causes.
+- [ ] **Log anomaly scanning: ERROR/PANIC rate** — reads last 200 lines of `rc-agent-*.jsonl` on each pod via rc-sentry, counts ERROR/PANIC/CRITICAL entries in the last hour. Threshold: >5 in 1 hour = WARN, >20 = FAIL.
+- [ ] **Crash loop detection** — checks `MAINTENANCE_MODE` sentinel file existence on each pod as part of the anomaly pass. Already available in fleet health `maintenance_mode_active` field — just needs to be checked and escalated.
+- [ ] **Idempotent run guard** — flock on `/tmp/auto-detect.lock`. Prevents concurrent runs from cron and manual triggers interfering.
+- [ ] **Escalation cooldown tracking** — per-pod, per-alert-type cooldown state. Prevents WhatsApp spam to Uday. Required before scheduling fires every night.
 
-### Add After Validation (Phase 2 — code enforcement)
+### Add After Validation (v1.x — Escalation Depth)
 
-- [ ] **Chain-of-verification helpers** — add `verify_parse_chain()` for the 4 critical chains. MEDIUM complexity.
-- [ ] **Domain-matched verification gate** — integrate into GSD execute-phase output template. MEDIUM complexity.
-- [ ] **Startup enforcement bat scanner** — extend fleet audit to compare deployed bat hash. MEDIUM complexity.
-- [ ] **Boot resilience for feature flags** — periodic re-fetch to match allowlist pattern. MEDIUM complexity.
+- [ ] **Self-healing escalation ladder: WoL tier** — after verifying retry doesn't recover a pod, send WoL magic packet. Add only after manual WoL test confirms it works for at least 2 pods.
+- [ ] **Log anomaly scanning: crash loop pattern** — beyond rate counting, match specific patterns: `"restarting self"` appearing 3x within 10 min in JSONL timestamps. Requires timestamp parsing in bash.
+- [ ] **Process guard violation rate check** — `GET /api/v1/guard/status` already returns `violation_count_24h`. Add threshold check: >50 = flag for empty-allowlist investigation.
+- [ ] **Suppression confidence scoring** — add `last_validated` to suppress.json entries. Flag suppressions older than 30 days in the report.
 
-### Future Consideration (Phase 3 — quality metrics)
+### Future Consideration (v2+ — Verification Depth)
 
-- [ ] **Fix attempt counter per incident** — requires structured LOGBOOK adoption. MEDIUM complexity.
-- [ ] **Boot resilience scorecard in dashboard** — requires startup_log enrichment. MEDIUM complexity.
-- [ ] **Automated parse-chain smoke tests** — per-chain regression tests. HIGH complexity, add alongside each chain as fixed.
+- [ ] **Feature flag sync validation** — requires new rc-agent endpoint. High value but requires Rust change + rebuild + fleet deploy. Defer until after v1 is stable.
+- [ ] **Schema sync validation (cloud-venue DB)** — low-risk bash check but requires careful output parsing. Defer until after v1 is stable.
+- [ ] **Env var validation for Next.js apps** — reads `.env.production.local` and checks NEXT_PUBLIC_ values. Trivial check but needs verification that the file path is predictable.
+- [ ] **Pipeline self-test suite** — tests the detectors with injected anomalies. Build when the feature set is stable.
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | Incident Reduction | Implementation Cost | Priority |
+| Feature | Operational Value | Implementation Cost | Priority |
 |---------|-------------------|--------------------| ---------|
-| MAINTENANCE_MODE write alert | HIGH (3 pods, 1.5h dark) | LOW | P1 |
-| Config fallback observability | HIGH (full sessions wrong behavior) | LOW | P1 |
-| Empty allowlist on boot alert | HIGH (2 days false violations) | LOW | P1 |
-| Sentinel file creation alerts | HIGH (cross all sentinel incidents) | LOW | P1 |
-| Cause Elimination template | MEDIUM (discipline enforcement) | LOW | P1 |
-| Domain-matched verification gate | HIGH (8+ proxy verification incidents) | MEDIUM | P1 |
-| Chain-of-verification helpers | HIGH (prevents proxy verification at code level) | MEDIUM | P2 |
-| Startup enforcement bat scanner | MEDIUM (prevents regression, not new bugs) | MEDIUM | P2 |
-| Boot resilience for feature flags | MEDIUM (prevents transient boot failures) | MEDIUM | P2 |
-| Bat drift detector in fleet audit | MEDIUM (catches bat drift before incidents) | LOW | P2 |
-| First-scan validation for guards | MEDIUM (new guard enablement safety) | LOW | P2 |
-| Structured fix log | LOW (process improvement) | LOW | P2 |
-| Fix attempt counter | LOW (quality measurement) | MEDIUM | P3 |
-| Context snapshot at fix | MEDIUM (context mismatch prevention) | MEDIUM | P3 |
-| Boot resilience scorecard | MEDIUM (visibility) | MEDIUM | P3 |
-| Automated parse-chain smoke tests | HIGH (but delayed ROI) | HIGH | P3 |
+| Scheduled execution (James Task Scheduler) | HIGH — nothing is autonomous without it | LOW | P1 |
+| Scheduled execution (Bono cron) | HIGH — failover requires it | LOW | P1 |
+| Idempotent run guard | HIGH — prevents concurrent run corruption | LOW | P1 |
+| Escalation cooldown tracking | HIGH — prevents alert fatigue killing trust | LOW | P1 |
+| Config drift: TOML key validation | HIGH — ws_connect_timeout + app_health drift caused incidents | MEDIUM | P1 |
+| Config drift: bat file hash check | HIGH — single biggest regression cause | MEDIUM | P1 |
+| Log anomaly: ERROR/PANIC rate | HIGH — catches crash storms health endpoints miss | MEDIUM | P1 |
+| Crash loop detection (MAINTENANCE_MODE check) | HIGH — 3 pods silent for 1.5h incident | LOW | P1 |
+| Self-healing escalation: WoL tier | MEDIUM — recovery without human needed for late night | HIGH | P2 |
+| Log anomaly: crash loop pattern in JSONL | MEDIUM — more precise than sentinel file check | MEDIUM | P2 |
+| Process guard violation rate check | MEDIUM — empty allowlist early warning | LOW | P2 |
+| Suppression confidence scoring | MEDIUM — prevents stale suppressions masking bugs | LOW | P2 |
+| Feature flag sync validation | HIGH — but requires Rust change + rebuild | HIGH | P3 |
+| Schema sync validation | MEDIUM — SQLite drift has burned time before | MEDIUM | P3 |
+| Env var validation (Next.js) | MEDIUM — NEXT_PUBLIC_ defaulting to localhost burned sessions | LOW | P3 |
+| Pipeline self-test suite | HIGH long-term — verifies detectors work | HIGH | P3 |
 
 **Priority key:**
-- P1: Must have for v25.0 — directly prevents documented incident patterns
-- P2: Should have — closes structural gaps that cause incident categories
-- P3: Nice to have — quality measurement and longer-term improvement
+- P1: Must have for launch — directly enables reliable autonomy or prevents trust-breaking failures (alert spam, concurrent corruption)
+- P2: Should have — adds detection depth and recovery capability
+- P3: Valuable when P1+P2 are stable and verified
 
 ---
 
 ## Incident-to-Feature Mapping
 
-Mapping the 7 root cause categories from the audit directly to features:
+Each new feature traces to a specific incident where autonomous detection would have caught it earlier:
 
-| Incident Category | Count | Feature That Prevents Recurrence |
-|------------------|-------|----------------------------------|
-| Proxy verification (build_id OK does not mean bug fixed) | 8+ | Chain-of-verification helpers, Domain-matched verification gate |
-| Manual fixes without code enforcement | 5+ | Startup enforcement bat scanner, Bat drift detector in audit |
-| Incomplete root cause analysis | 3+ | Cause Elimination template enforcement, Structured fix log |
-| Silent failures (no observable state transitions) | 6+ | MAINTENANCE_MODE alert, Sentinel file alerts, Config fallback observability, Empty allowlist alert |
-| Boot-time transient failures | 2+ | Boot resilience for feature flags, Boot resilience architectural rule |
-| Context/semantic mismatch (dev vs production) | 2+ | Config fallback observability, Context snapshot at fix declaration |
-| Missing first-run verification after enabling guards | 1 (structural) | Empty allowlist alert, First-scan validation for guards |
+| Incident | Detection Gap | New Feature That Catches It |
+|----------|-------------|----------------------------|
+| `ws_connect_timeout=200ms` → all pods falling behind threshold | Audit fixed in v23.0 but could have caught it autonomously 48h earlier | Config drift: TOML ws_connect_timeout validation |
+| `app_health` URLs wrong (admin port, kiosk basePath) | Audit caught, but ran manually | Config drift: TOML app_health URL validation |
+| Bat file missing 8 bloatware kills → ConspitLink multiplied | No automated check existed | Config drift: bat file hash check |
+| MAINTENANCE_MODE blocked 3 pods for 1.5h silently | Fleet health showed pods down but no sentinel-specific alert | Crash loop detection: MAINTENANCE_MODE existence check |
+| Empty allowlist + 28,749 false violations/day for 2 days | `violation_count_24h: 100` visible in API, never checked | Process guard violation rate check |
+| rc-agent crash storm → MAINTENANCE_MODE re-entry | Log showed restart events but nothing read the logs | Log anomaly: ERROR rate + crash loop pattern |
+| WoL needed when pod offline during off-hours | Manual WoL required Uday to be present | Self-healing escalation: WoL tier |
+| Uday WhatsApp spam during multi-pod incident | Same alert fired for same pod 4x in 30 min | Escalation cooldown tracking |
 
 ---
 
 ## Sources
 
-- `.planning/PROJECT.md` — v25.0 milestone definition with 7 root cause categories and 11 incidents
-- `CLAUDE.md` standing rules — 12 debugging rules born from specific incidents, each naming the incident that caused it
-- `crates/rc-agent/src/main.rs` — 6x `unwrap_or("http://127.0.0.1:8080")` and 1x `unwrap_or("127.0.0.1")` silent fallbacks confirmed by code inspection
-- `crates/rc-agent/src/startup_log.rs` — phase-based startup logging (already exists, gap is fleet visibility and alerting on crash recovery)
-- `crates/rc-agent/src/self_heal.rs` — canonical bat content embedded in binary (bat drift detector can diff against this)
-- `crates/racecontrol/src/process_guard.rs` line 164 — "empty allowlist is almost certainly a config loading failure" comment with no enforcement action
-- `crates/racecontrol/src/fleet_alert.rs` — existing WhatsApp alert channel that sentinel alerts can reuse
-- Post-mortem evidence: MAINTENANCE_MODE incident (3 pods, 1.5h), empty allowlist incident (28,749 false violations/day for 2 days), pod healer curl-stdout incident (8 deploy rounds), ConspitLink regression incident (fixed 4 times in one day per CLAUDE.md 2026-03-25 note)
+- `scripts/auto-detect.sh` — direct inspection: confirmed 6 steps, identified gaps (no schedule, no config drift, no log scanning, no WoL, no escalation ladder)
+- `scripts/bono-auto-detect.sh` — direct inspection: confirmed failover logic exists but is not scheduled on Bono VPS
+- `scripts/AUTONOMOUS-DETECTION.md` — architecture doc for the foundation scripts
+- `audit/lib/` — confirmed: fixes.sh (3 approved fixes), notify.sh (dual channel), delta.sh (6 categories), suppress.sh (with expiry)
+- `CLAUDE.md` standing rules — 12 debugging rules naming specific incidents, each mapping to a detection gap
+- `.planning/PROJECT.md` (v23.0, v23.1, v25.0 sections) — milestone context for what is shipped vs targeted
+- `MEMORY.md` (shipped milestones, open issues) — pod MAC addresses, WoL prerequisite data, fleet IP table, pod incident history
 
 ---
 
-*Feature research for: v25.0 Debug-First-Time-Right — Systematic Debugging Quality*
+*Feature research for: Autonomous Bug Detection & Self-Healing*
 *Researched: 2026-03-26 IST*

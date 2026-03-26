@@ -1,458 +1,412 @@
 # Architecture Research
 
-**Domain:** Rust/Axum fleet management — verification, observability, boot resilience layer (v25.0)
+**Domain:** Autonomous bug detection & self-healing integration — v26.0 (adds scheduling, cascade engine, expanded fixes, chain templates)
 **Researched:** 2026-03-26
-**Confidence:** HIGH (based on direct codebase analysis of all 4 crates)
+**Confidence:** HIGH (based on direct analysis of existing scripts, audit framework, comms-link, and all deployed infrastructure)
 
 ## Standard Architecture
 
 ### System Overview
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                     racecontrol (server :8080)                              │
-│                                                                              │
-│  pod_monitor.rs   pod_healer.rs   fleet_health.rs   app_health_monitor.rs  │
-│  flags.rs         recovery.rs     cloud_sync.rs      ota_pipeline.rs        │
-│       │                │                │                    │              │
-│       └────────────────┴────────────────┴────────────────────┘              │
-│                          state.rs (AppState)                                 │
-│         WatchdogState | RecoveryIntentStore | FeatureFlagRow                 │
-└──────────────────────────────────┬─────────────────────────────────────────┘
-                                   │ WebSocket (AgentMessage / CoreToAgentMessage)
-┌──────────────────────────────────┴─────────────────────────────────────────┐
-│                      rc-agent (each pod :8090)                               │
-│                                                                              │
-│  app_state.rs     event_loop.rs    ws_handler.rs    billing_guard.rs        │
-│  self_monitor.rs  pre_flight.rs    process_guard.rs  startup_log.rs         │
-│  safe_mode.rs     feature_flags.rs failure_monitor.rs game_process.rs       │
-│                                                                              │
-│  AppState (survives WS reconnections — flags, guard_whitelist, safe_mode)   │
-│  ConnectionState (reset per WS connect — intervals, LaunchState, etc.)      │
-└──────────────────────────────────┬─────────────────────────────────────────┘
-                         ┌─────────┴─────────┐
-                         │ UDP telemetry      │ sentinel files / startup logs
-                         │                   │
-┌────────────────────────┴───────────────────┴────────────────────────────────┐
-│                 rc-sentry (each pod :8091) — NO TOKIO, std::net              │
-│                                                                              │
-│  main.rs (4-slot concurrency cap)    watchdog.rs (FSM health polling)       │
-│  tier1_fixes.rs   debug_memory.rs    session1_spawn.rs                      │
-│                                                                              │
-│  WatchdogState: Healthy → Suspect(N) → Crashed                              │
-│  Reads: rc-agent-startup.log, rc-agent-stderr.log after crash               │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        rc-common (shared lib, no binary)                     │
-│                                                                              │
-│  protocol.rs (AgentMessage / CoreToAgentMessage enums)                       │
-│  types.rs    recovery.rs (RecoveryAuthority, ProcessOwnership, Logger)       │
-│  exec.rs     watchdog.rs (EscalatingBackoff)   ollama.rs   udp_protocol.rs  │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   JAMES (On-Site Primary, .27)                            │
+│                                                                            │
+│  Task Scheduler (daily 02:30 IST)                                         │
+│       │                                                                    │
+│       ▼                                                                    │
+│  scripts/auto-detect.sh  ←── on-demand: AUDIT_PIN=... bash scripts/...   │
+│       │                                                                    │
+│  Step 1: audit/audit.sh (60 phases, parallel, auto-fix)                  │
+│  Step 2: comms-link/test/run-all.sh (quality gate)                       │
+│  Step 3: E2E health (server + relay + Next.js apps)                       │
+│  Step 4: cascade.sh (build drift / pod consistency / cloud-venue sync)   │  ← NEW
+│  Step 5: standing-rules-check.sh (unpushed commits, relay health, bats)  │  ← NEW
+│  Step 6: report + notify (Bono WS + INBOX.md + WhatsApp if critical)     │
+│                                                                            │
+│  ┌─────────────────────────────────────────────────────────┐              │
+│  │ audit/lib/fixes.sh  (extended APPROVED_FIXES whitelist) │  ← EXTEND   │
+│  │ audit/lib/notify.sh (already works — no change)         │              │
+│  └─────────────────────────────────────────────────────────┘              │
+│                                                                            │
+│  comms-link relay :8766                                                   │
+│       ▲ (chain templates: auto-detect-bono, sync-and-verify)             │
+└──────────────────────────┬───────────────────────────────────────────────┘
+                           │ WS :8765 / INBOX.md / git push
+┌──────────────────────────┴───────────────────────────────────────────────┐
+│                   BONO VPS (Failover)                                     │
+│                                                                            │
+│  cron (0 21 * * * UTC = 02:30 IST)                                       │
+│       │                                                                    │
+│       ▼                                                                    │
+│  scripts/bono-auto-detect.sh                                              │
+│       ├── Check James relay alive?                                        │
+│       │       YES → delegate to James via relay exec, exit                │
+│       │       NO  → run independent checks:                               │
+│       │             venue server (Tailscale) / cloud racecontrol         │
+│       │             fleet health / Next.js apps / git sync               │
+│       └── Notify Uday via WhatsApp if critical                           │
+└──────────────────────────────────────────────────────────────────────────┘
+                           │
+              Both feed into:
+                           ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   Venue Server .23 :8080                                  │
+│  /api/v1/fleet/health       /api/v1/health    /api/v1/app-health         │
+│                                                                            │
+│  8 pods (rc-agent :8090, rc-sentry :8091 each)                           │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Key State |
-|-----------|---------------|-----------|
-| `racecontrol/state.rs` | Fleet AppState — server-side shared state hub | WatchdogState, RecoveryIntentStore, FleetHealthStore |
-| `racecontrol/pod_monitor.rs` | Detects pod liveness failures, advances EscalatingBackoff | Owns backoff; does NOT heal |
-| `racecontrol/pod_healer.rs` | Rule-based fixes + AI escalation; reads backoff but does NOT advance it | RecoveryAuthority::PodHealer |
-| `racecontrol/fleet_health.rs` | Aggregates PodFleetStatus, ViolationStore | Serves /api/v1/fleet/health |
-| `racecontrol/app_health_monitor.rs` | Polls admin/kiosk/web health endpoints every 30s; WhatsApp alert on failure | — |
-| `rc-agent/app_state.rs` | Pod AppState — survives WS reconnections | flags, guard_whitelist, safe_mode, heartbeat_status |
-| `rc-agent/event_loop.rs` | Per-connection state machine; ConnectionState reset on each WS connect | LaunchState, CrashRecoveryState, all interval timers |
-| `rc-agent/ws_handler.rs` | Dispatches CoreToAgentMessage to handlers, returns HandleResult | Stateless dispatch |
-| `rc-agent/self_monitor.rs` | Background tokio::spawn — CLOSE_WAIT flood + WS dead detection | Runs every 60s, owns ws_last_connected |
-| `rc-agent/pre_flight.rs` | 3 concurrent checks (HID/ConspitLink/orphan) on BillingStarted | Returns Pass or MaintenanceRequired |
-| `rc-agent/startup_log.rs` | Phased startup log → `rc-agent-startup.log` | AtomicBool LOG_INITIALIZED (truncate-first) |
-| `rc-agent/process_guard.rs` | Periodic scan vs MachineWhitelist; sends ProcessViolation | guard_whitelist Arc<RwLock> in AppState |
-| `rc-agent/feature_flags.rs` | In-memory FeatureFlags cache; updated via FlagSync WS message | Persisted to disk on every update |
-| `rc-sentry/watchdog.rs` | FSM polls rc-agent :8090 every 5s; 3-poll hysteresis; reads crash logs | WatchdogState::Healthy/Suspect(N)/Crashed |
-| `rc-sentry/tier1_fixes.rs` | Deterministic fixes: stale sockets, zombie kill, config repair | Applied before restart attempt |
-| `rc-sentry/debug_memory.rs` | JSON crash pattern memory — instant replay of known fixes | debug-memory.json on disk |
-| `rc-common/recovery.rs` | RecoveryAuthority enum, ProcessOwnership registry, RecoveryLogger, JSONL log | Shared by all 3 executables |
-| `rc-common/exec.rs` | Shared sync/async exec primitive (feature-gated tokio boundary) | Used by rc-sentry + rc-agent |
+| Component | Responsibility | Status |
+|-----------|---------------|--------|
+| `scripts/auto-detect.sh` | 6-step autonomous pipeline: audit → quality gate → E2E → cascade → standing rules → notify | EXISTS (committed b54e4585) |
+| `scripts/bono-auto-detect.sh` | Independent Bono-side detection + James failover | EXISTS (deployed to VPS) |
+| `audit/audit.sh` | 60-phase parallel fleet audit with auto-fix engine | EXISTS (v4.0, shipped v23.0) |
+| `audit/lib/fixes.sh` | Whitelist-only auto-fix engine (3 approved fixes currently) | EXISTS — needs expansion |
+| `audit/lib/notify.sh` | 3-channel notifications: Bono WS + INBOX.md + WhatsApp | EXISTS — reuse as-is |
+| `scripts/cascade.sh` | Build drift, pod binary consistency, cloud-venue sync delta, comms-link sync | NEW module |
+| `scripts/standing-rules-check.sh` | Unpushed commits, relay health, bat file sync state | NEW module |
+| `scripts/log-anomaly.sh` | JSONL log scanning for WARN/ERROR patterns above threshold | NEW module |
+| `scripts/config-drift.sh` | Fetch running config from pods/server, compare to repo baseline | NEW module |
+| Task Scheduler entry | Daily 2:30 AM IST trigger for auto-detect.sh | NEW (Windows Task Scheduler, not cron) |
+| `comms-link/chains.json` | `auto-detect-bono` + `sync-and-verify` templates | EXISTS (updated during v26.0 foundation) |
 
----
-
-## Recommended Project Structure for v25.0
-
-New features slot into the existing 4-crate structure. No new crate is needed.
+## Recommended Project Structure
 
 ```
-crates/
-├── rc-common/src/
-│   ├── verification.rs        NEW — VerificationChain trait + VerificationStep + Verdict
-│   └── ... (existing unchanged)
-│
-├── rc-agent/src/
-│   ├── boot_resilience.rs     NEW — generic periodic re-fetch scheduler
-│   ├── observable_state.rs    NEW — StateTransitionKind enum + emit_transition()
-│   ├── startup_log.rs         MODIFY — add VerificationStep hooks after write_phase() calls
-│   ├── event_loop.rs          MODIFY — call emit_transition() before each sentinel write
-│   ├── pre_flight.rs          MODIFY — emit observable event on MaintenanceRequired result
-│   ├── self_monitor.rs        MODIFY — add lifecycle logs (start / first-decision / exit)
-│   ├── process_guard.rs       MODIFY — emit observable event on empty allowlist fetch
-│   └── feature_flags.rs       MODIFY — emit observable event on fallback to compiled-in defaults
-│
-├── racecontrol/src/
-│   ├── verification_gate.rs   NEW — pre-ship domain-matched gate runner
-│   ├── config.rs              MODIFY — emit observable event on load_or_default() fallback
-│   ├── pod_monitor.rs         MODIFY — emit observable events on WatchdogState transitions
-│   ├── pod_healer.rs          MODIFY — wrap curl-output parse in VerificationChain
-│   └── fleet_health.rs        MODIFY — surface verification chain failures in health response
-│
-└── rc-sentry/src/
-    └── watchdog.rs            MODIFY — append to RecoveryLogger on every FSM transition
+scripts/
+├── auto-detect.sh          # Main 6-step pipeline (EXISTS)
+├── bono-auto-detect.sh     # Bono failover script (EXISTS, on VPS)
+├── AUTONOMOUS-DETECTION.md # Architecture doc (EXISTS)
+├── cascade.sh              # NEW: cascade engine module
+├── standing-rules-check.sh # NEW: standing rules enforcement
+├── log-anomaly.sh          # NEW: log pattern scanner
+├── config-drift.sh         # NEW: config drift detector
+├── register-james-watchdog.bat  # EXISTS: Task Scheduler registration
+└── deploy/                 # existing deploy scripts
+
+audit/
+├── audit.sh                # Entry point (EXISTS)
+├── lib/
+│   ├── core.sh             # Primitives (EXISTS)
+│   ├── fixes.sh            # Auto-fix engine (EXISTS — extend APPROVED_FIXES)
+│   ├── notify.sh           # Notifications (EXISTS — no change)
+│   ├── parallel.sh         # Parallel engine (EXISTS)
+│   ├── results.sh          # Result aggregation (EXISTS)
+│   ├── delta.sh            # Delta tracking (EXISTS)
+│   ├── suppress.sh         # Suppression (EXISTS)
+│   └── report.sh           # Report generation (EXISTS)
+└── phases/
+    └── tier*/phaseNN.sh    # 60 phase scripts (EXISTS — v23.1 extends some)
+
+audit/results/
+└── auto-detect-YYYY-MM-DD_HH-MM/   # Per-run result dirs
+    ├── auto-detect.log             # Full run log
+    ├── steps.jsonl                 # Per-step PASS/FAIL/WARN records
+    ├── cascade.json                # Cascade check results
+    ├── standing-rules.json         # Standing rules check results
+    ├── audit-summary.json          # Copied from audit run
+    └── auto-detect-summary.json    # Final summary for notifications
 ```
 
----
+### Structure Rationale
+
+- **scripts/ for pipeline:** auto-detect.sh is not an audit phase — it is an orchestrator that calls audit.sh plus additional checks. Separate dir avoids polluting the audit framework.
+- **Extend audit/lib/fixes.sh, do not fork it:** The APPROVED_FIXES whitelist and is_pod_idle() billing gate are already correct. New fixes (config drift reset, git auto-pull) are appended to the same whitelist — same safety properties.
+- **New modules as sourced scripts:** cascade.sh, standing-rules-check.sh, log-anomaly.sh, config-drift.sh are sourced by auto-detect.sh (not spawned as subprocesses). This preserves variable sharing (BUGS_FOUND, BUGS_FIXED, STEP_RESULTS) without IPC.
+- **Result dir per run:** Each auto-detect run gets its own timestamped result dir under audit/results/. Allows delta comparison between runs and post-run debugging.
 
 ## Architectural Patterns
 
-### Pattern 1: VerificationChain — Wrap Existing Parse/Transform Paths
+### Pattern 1: Source-Based Module Composition
 
-**What:** A typed chain that records each step's input, transform, output, and verdict. Not a new execution path — it wraps existing ones at the call site.
+**What:** New feature modules (cascade.sh, standing-rules-check.sh) are bash scripts that define functions and are `source`d into auto-detect.sh — not spawned as separate processes.
 
-**When to use:** Around any path where a silent wrong value causes downstream failure: curl output parsing, config loading, spawn verification, billing guard decisions.
+**When to use:** When modules need to share the STEP_RESULTS associative array, BUGS_FOUND counter, and LOG_FILE path without IPC overhead.
 
-**Trade-offs:** One struct alloc per step. Worth it because the chain produces a structured record readable by rc-sentry's debug_memory and loggable before tracing is fully initialized.
+**Trade-offs:** Cannot run modules in parallel (they modify shared state). Acceptable because cascade and standing-rules checks are fast (< 30s each) and run after the parallel audit phase completes.
 
-**Example (wrapping existing curl parse in pod_healer):**
+**Example:**
+```bash
+# In auto-detect.sh
+source "$SCRIPT_DIR/cascade.sh"
+source "$SCRIPT_DIR/standing-rules-check.sh"
 
-```rust
-// rc-common/src/verification.rs
-pub enum Verdict {
-    Pass,
-    Fail(String),
-}
-
-pub struct VerificationStep {
-    pub name: &'static str,
-    pub input: String,
-    pub output: String,
-    pub verdict: Verdict,
-}
-
-pub struct VerificationChain {
-    steps: Vec<VerificationStep>,
-}
-
-impl VerificationChain {
-    pub fn record(&mut self, name: &'static str, input: &str, output: &str, verdict: Verdict) {
-        self.steps.push(VerificationStep {
-            name,
-            input: input.into(),
-            output: output.into(),
-            verdict,
-        });
-    }
-    pub fn passed(&self) -> bool {
-        self.steps.iter().all(|s| matches!(s.verdict, Verdict::Pass))
-    }
-    pub fn first_failure(&self) -> Option<&VerificationStep> {
-        self.steps.iter().find(|s| matches!(s.verdict, Verdict::Fail(_)))
-    }
-}
+run_cascade_check  # defined in cascade.sh, uses shared STEP_RESULTS
+run_standing_rules # defined in standing-rules-check.sh
 ```
 
-The chain is populated inline at the call site and discarded after logging. No global state.
+### Pattern 2: Extend APPROVED_FIXES, Never Bypass
 
----
+**What:** Every new auto-fix action must be added to the `APPROVED_FIXES` array in `audit/lib/fixes.sh`. The `_is_approved_fix()` gate runs before any fix executes.
 
-### Pattern 2: Observable State Transitions — Emit-Then-Act
+**When to use:** Every time a new self-healing action is added (config reset, git pull, bat deploy).
 
-**What:** Before writing any sentinel file or changing a critical shared flag, emit an observable event: `eprintln!` (pre-tracing-init safety) + `tracing::warn!` + optional `DashboardEvent` WS broadcast. The sentinel write happens after the emit.
+**Trade-offs:** Requires a code change to add new fix types. This is intentional — it prevents runaway automation by requiring explicit human approval for new fix categories.
 
-**When to use:** MAINTENANCE_MODE writes, GRACEFUL_RELAUNCH creation, OTA_DEPLOYING, config fallback, empty allowlist fetch, feature flag default fallback.
-
-**Trade-offs:** One extra tracing call per transition. No shared state required — emit is fire-and-forget.
-
-**Integration point:** The existing `rc-agent/event_loop.rs` already writes sentinel files via `fs::write()`. The modification is one line before each write: `observable_state::emit_transition(kind, details)`. The sentinel protocol itself does not change — rc-sentry and pod_monitor continue reading files as before.
-
-```rust
-// rc-agent/src/observable_state.rs
-pub enum StateTransitionKind {
-    MaintenanceModeEntered,
-    MaintenanceModeCleared,
-    GracefulRelaunchSentinel,
-    ConfigFallbackActivated,
-    EmptyAllowlistFetched,
-    FeatureFlagDefaultFallback,
-    OtaDeployingStarted,
-}
-
-pub fn emit_transition(kind: StateTransitionKind, details: &str) {
-    // eprintln! fires even before tracing subscriber is initialized
-    eprintln!("[OBSERVABLE-STATE] {:?}: {}", kind, details);
-    tracing::warn!(target: "observable-state", kind = ?kind, %details, "State transition");
-}
+**Example:**
+```bash
+# audit/lib/fixes.sh
+APPROVED_FIXES=(
+  "clear_stale_sentinels"
+  "kill_orphan_powershell"
+  "restart_rc_agent"
+  "reset_config_drift"      # NEW: rewrite config file to repo baseline
+  "git_auto_pull_server"    # NEW: git pull on server when behind remote
+  "sync_bat_files"          # NEW: deploy bat files from repo to pod
+)
 ```
 
----
+### Pattern 3: Bono Delegate-or-Act Failover
 
-### Pattern 3: Boot Resilience — Startup Fetch + Periodic Re-fetch
+**What:** bono-auto-detect.sh checks James relay health first. If James is alive, it delegates via relay exec and exits. If James is down, it runs independent checks directly.
 
-**What:** Any resource fetched once at startup (allowlist, config, feature flags) must also be re-fetched on a periodic `tokio::spawn` background loop. The existing `process_guard` allowlist re-fetch (every 300s, implemented in commit `821c3031`) is the reference pattern.
+**When to use:** Any Bono-side autonomous task that overlaps with James's capabilities.
 
-**When to use:** Any `OnceLock` or startup-time fetch that has no retry path. Resources where a transient server-down at boot time would leave the pod in permanent degraded state.
+**Trade-offs:** If the James relay is alive but James is overloaded (audit running), delegation still exits — acceptable because both can't audit simultaneously anyway. Bono's independent checks cover only what's reachable via Tailscale (server .23, cloud :8080) — not direct pod exec.
 
-**Trade-offs:** Slightly wider stale window (up to interval_secs) vs permanent failure from a single boot miss. The tradeoff is explicit and correct: 5-minute stale allowlist is better than permanent empty allowlist.
+### Pattern 4: Config Drift via API, Not SSH
 
-**Integration:** The existing `self_monitor.rs` and the allowlist re-fetch in `process_guard.rs` both use the `tokio::spawn` + `interval` pattern. New `boot_resilience.rs` extracts the shared scaffold and adds the mandatory lifecycle logging (start / first-success / exit).
+**What:** To detect config drift, fetch the running config from the server's `/api/v1/config/...` endpoints and compare to the repo baseline. Do NOT SSH into the server to read `racecontrol.toml` directly.
 
-```rust
-// rc-agent/src/boot_resilience.rs
-pub fn spawn_periodic_refetch<F, Fut>(name: &'static str, interval_secs: u64, fetch_fn: F)
-where
-    F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = ()> + Send,
-{
-    tokio::spawn(async move {
-        tracing::info!(target: "boot-resilience", "Periodic re-fetch started: {}", name);
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
-        let mut first_complete = false;
-        loop {
-            interval.tick().await;
-            fetch_fn().await;
-            if !first_complete {
-                tracing::info!(target: "boot-resilience", "First re-fetch complete: {}", name);
-                first_complete = true;
-            }
-        }
-    });
-}
+**When to use:** Any check that needs the running config value vs the expected value.
+
+**Trade-offs:** Only works for config values exposed via API. Config values not surfaced by an endpoint cannot be drift-checked without SSH (standing rule: avoid SSH piping — use scp or dedicated endpoint).
+
+**Implication for build order:** If config drift check requires new API endpoints on racecontrol (e.g. `/api/v1/config/ws_timeout`), those endpoints must ship first (requires Rust rebuild + deploy). This is a dependency for the config-drift.sh phase.
+
+### Pattern 5: Log Aggregation — Query On-Demand, Not Centralized
+
+**What:** Log anomaly detection queries logs on-demand from each pod via fleet exec, rather than streaming all logs to a central store.
+
+**When to use:** For the autonomous detection pipeline (runs nightly, not real-time). Centralized log streaming would require new infrastructure.
+
+**Trade-offs:** On-demand query means the pipeline must exec a command on each pod to fetch recent log lines. This is slow (8 pods x 1 exec each) but fits within the 8-minute budget. The exec goes through rc-agent :8090 fleet exec endpoint, not direct SSH. Billing session check (is_pod_idle) is NOT required for read-only exec.
+
+**Example flow:**
+```
+auto-detect.sh → log-anomaly.sh
+  → POST /api/v1/fleet/exec {pod_ip, command: "tail -n 200 C:\RacingPoint\rc-agent-*.jsonl | findstr ERROR"}
+  → parse response
+  → count ERROR/WARN lines above threshold
+  → record_step "log_anomaly_pod_N" "FAIL" "errors=42"
 ```
 
----
+## Data Flow
 
-### Pattern 4: Startup Enforcement Audit — Bat File Invariant Scanner
-
-**What:** A bash audit script that reads each `start-rcagent.bat` (via fleet exec or staging copy) and verifies that every known manual fix has a corresponding enforcement line. Not a Rust change — a standalone script in `audit/startup/`.
-
-**When to use:** After any session that applies manual fixes to pods. Wired into pre-ship gate.
-
-**Integration:** The v23.0 `audit/` directory already runs 60 phase scripts across 18 tiers via `audit.sh`. The startup enforcement audit is a new tier that produces pass/fail output consumed by the existing `report.sh` + delta tracker. No new tooling needed.
-
----
-
-## Data Flow for Verification Chain
-
-### How Verification Results Propagate
+### Detection Run Flow
 
 ```
-rc-agent (pod)
+Task Scheduler (02:30 IST)
     │
-    ├─ VerificationChain populated inline at parse/transform site
+    ▼
+auto-detect.sh
+    │
+    ├─── Step 1: audit.sh --mode standard --auto-fix
     │         │
-    │         ├─ On failure: tracing::error! + chain details written to startup_log.rs
-    │         │
-    │         └─ AgentMessage::AiDebugResult (existing WS path) →
-    │                  racecontrol ws_handler →
-    │                  RecoveryEventStore (ring buffer, fleet alert)
+    │         └── 60 phases (parallel, 4 concurrent)
+    │             → emit_result() per phase → phase-NNN-host.json
+    │             → auto-fix via fixes.sh (whitelist gate + idle gate)
+    │             → emit_fix() to fixes.jsonl
+    │             → audit-summary.json + audit-report.md
     │
-    └─ ObservableState emitted before sentinel file writes
-              │
-              ├─ tracing::warn! (captured in racecontrol-*.jsonl rolling log)
-              │
-              └─ DashboardEvent::PodActivity (existing WS broadcast path) →
-                       kiosk :3300 (staff Control Room)
-                       admin :3201 (Control Room page)
-
-rc-sentry (pod)
+    ├─── Step 2: comms-link test/run-all.sh
+    │         → 4 suites (contract + integration + syntax + security)
+    │         → exit code 0=PASS, 1=FAIL
     │
-    └─ FSM transition → rc-common RecoveryLogger.append()
-              │
-              └─ JSONL written to C:\RacingPoint\recovery-log.jsonl
-                       (already read by racecontrol/recovery.rs)
+    ├─── Step 3: E2E health (curl-based)
+    │         → server :8080/health, relay :8766/health, Next.js apps
+    │         → record per-service status
+    │
+    ├─── Step 4: cascade.sh (sourced)
+    │         → git log: HEAD vs deployed build_id (drift check)
+    │         → fleet/health: all pods same build_id (consistency)
+    │         → compare venue build_id vs cloud build_id (cloud-venue sync)
+    │         → comms-link: git log HEAD vs deployed (comms drift)
+    │         → record cascade.json
+    │
+    ├─── Step 5: standing-rules-check.sh (sourced)
+    │         → git status: any unpushed commits?
+    │         → relay health: comms-link daemon alive?
+    │         → bat sync: deployed bats match repo? (spot-check pod 8)
+    │         → record standing-rules.json
+    │
+    └─── Step 6: report + notify
+              → auto-detect-summary.json (all step results + counts)
+              → send_notifications() (Bono WS + INBOX.md + WhatsApp if FAIL)
 ```
 
-The critical constraint: verification results travel over the **existing AgentMessage WebSocket channel** and the **existing RecoveryLogger JSONL path**. No new transport. No new protocol message variants unless an existing variant cannot carry the data.
-
----
-
-## Component Modification Map
-
-### New Modules (additive, no existing code changed)
-
-| Module | Crate | Responsibility | Size Estimate |
-|--------|-------|---------------|---------------|
-| `rc-common/verification.rs` | rc-common | VerificationChain, VerificationStep, Verdict types | ~100 LOC |
-| `rc-agent/observable_state.rs` | rc-agent | StateTransitionKind enum + emit_transition() | ~80 LOC |
-| `rc-agent/boot_resilience.rs` | rc-agent | Generic periodic re-fetch scheduler with lifecycle logging | ~60 LOC |
-| `racecontrol/verification_gate.rs` | racecontrol | Pre-ship domain-matched gate runner | ~150 LOC |
-
-### Modified Modules (additive changes only — no existing behavior removed)
-
-| Module | Crate | Change | Risk |
-|--------|-------|--------|------|
-| `rc-agent/startup_log.rs` | rc-agent | Add VerificationStep hooks after write_phase() calls | LOW — tracing/logging only |
-| `rc-agent/event_loop.rs` | rc-agent | Call emit_transition() before sentinel file writes | LOW — one line per sentinel |
-| `rc-agent/pre_flight.rs` | rc-agent | Emit observable event on MaintenanceRequired result | LOW — after existing result construction |
-| `rc-agent/self_monitor.rs` | rc-agent | Add lifecycle logs: task started / first decision / exit | LOW — tracing calls only |
-| `rc-agent/process_guard.rs` | rc-agent | Emit observable event when fetched whitelist is empty | LOW — one conditional check |
-| `rc-agent/feature_flags.rs` | rc-agent | Emit observable event on fallback to compiled-in defaults | LOW — one conditional check |
-| `rc-sentry/watchdog.rs` | rc-sentry | Append to RecoveryLogger on every FSM state change (not just Crashed) | LOW — uses existing RecoveryLogger API |
-| `racecontrol/pod_monitor.rs` | racecontrol | Emit observable event on WatchdogState transitions | LOW — one call per transition |
-| `racecontrol/pod_healer.rs` | racecontrol | Wrap curl-output-to-u32 parse in VerificationChain | LOW-MEDIUM — wraps existing parse, not replacing it |
-| `racecontrol/config.rs` | racecontrol | Emit observable event when load_or_default() falls back | LOW — one check at parse time |
-| `racecontrol/fleet_health.rs` | racecontrol | Optionally surface recent verification failures in health response | LOW — additive field |
-
----
-
-## Build Order
-
-Dependencies must resolve in this order:
-
-**Wave 1 — rc-common (no upstream Rust dependencies)**
-1. `rc-common/verification.rs` — VerificationChain, VerificationStep, Verdict
-   - Blocks: all crates that instrument parse paths
-
-**Wave 2 — rc-agent + rc-sentry (depend on rc-common)**
-2. `rc-agent/observable_state.rs` — StateTransitionKind, emit_transition()
-   - Blocks: event_loop, pre_flight, process_guard, feature_flags modifications
-3. `rc-agent/boot_resilience.rs` — generic periodic re-fetch scheduler
-   - Blocks: wiring into existing allowlist/flags/config re-fetch callsites
-4. Modify rc-agent modules (event_loop, pre_flight, process_guard, feature_flags, self_monitor, startup_log)
-   - All consume items from steps 2-3
-5. Modify `rc-sentry/watchdog.rs`
-   - Consumes rc-common RecoveryLogger (already exists) — can run in parallel with step 4
-
-**Wave 3 — racecontrol (depends on rc-common, observes rc-agent over WS)**
-6. `racecontrol/verification_gate.rs` — pre-ship gate runner
-   - Consumes VerificationChain from Wave 1
-7. Modify racecontrol modules (pod_healer, pod_monitor, config, fleet_health)
-   - All consume VerificationChain from Wave 1
-
-**Wave 4 — Operational tooling (zero Rust compile dependency)**
-8. `audit/startup/` enforcement audit scripts
-9. Cause Elimination Process template integration into gate-check.sh
-   - Can be developed in parallel with Waves 2-3
-
-**Rationale:** rc-common types must stabilize before rc-agent/rc-sentry consume them. Server-side changes (Wave 3) are lower risk — they instrument the server's own state machines rather than pod-side session logic. Bat file / tooling changes (Wave 4) have no compile dependency and can parallelize freely.
-
----
-
-## Integration with Existing 4-Tier Recovery
+### Cascade Check Data Flow
 
 ```
-Tier 1 — self_monitor.rs (rc-agent)
-    EXISTING: detects CLOSE_WAIT flood, WS dead time, triggers relaunch
-    ADDS: emit_transition(GracefulRelaunchSentinel) before relaunch write
-    ADDS: VerificationChain wraps CLOSE_WAIT netstat parse
-
-Tier 2 — rc-sentry watchdog.rs
-    EXISTING: FSM Healthy → Suspect → Crashed; reads startup_log; tier1_fixes
-    ADDS: RecoveryLogger.append() on Suspect AND Crashed (was Crashed-only)
-    ADDS: VerificationChain wraps health poll HTTP status parse
-
-Tier 3 — pod_monitor.rs + pod_healer.rs (racecontrol)
-    EXISTING: WatchdogState machine, EscalatingBackoff, HealAction decisions
-    ADDS: emit_transition on WatchdogState changes
-    ADDS: VerificationChain wraps curl-output-to-u32 parse in healer
-    EXISTING: RecoveryIntentStore (v17.1) deconflicts rc-sentry and pod_healer
-
-Tier 4 — James AI watchdog (rc-watchdog.exe)
-    NO CHANGE — operates at OS service level, not Rust session code
+cascade.sh
+    │
+    ├── git rev-parse --short HEAD              (James local)
+    ├── GET /api/v1/health → .build_id          (server .23)
+    ├── GET /api/v1/fleet/health → .build_id[N] (all 8 pods via server)
+    ├── GET cloud-racecontrol/health → .build_id (Bono VPS via cloud URL)
+    └── git log in comms-link dir               (James local)
+    │
+    → compare each pair → emit drift event if mismatch
+    → write cascade.json: {drift_events: [...], all_consistent: bool}
 ```
 
-### Sentinel File Protocol — No Changes to Existing Behavior
+### Bono Failover Data Flow
 
-The existing sentinels (`MAINTENANCE_MODE`, `GRACEFUL_RELAUNCH`, `OTA_DEPLOYING`) are read by rc-sentry, pod_monitor, and pod_healer exactly as before. The v25.0 change is additive: `emit_transition()` fires before the `fs::write()`. Existing consumers see no difference.
+```
+Bono cron (02:30 IST)
+    │
+    ▼
+bono-auto-detect.sh
+    │
+    ├── curl JAMES_RELAY/relay/health (Tailscale :8766)
+    │       OK → POST /relay/exec/run {command: shell, args: "bash auto-detect.sh"}
+    │            exit 0 (James handles it)
+    │       FAIL ↓
+    │
+    ├── curl SERVER_URL/api/v1/health (Tailscale .23)
+    ├── curl CLOUD_URL/api/v1/health (localhost)
+    ├── curl SERVER_URL/api/v1/fleet/health (pod summary)
+    ├── curl Next.js apps via server
+    └── git -C /root/racecontrol log --oneline -5 (sync state)
+    │
+    └── if critical: notify_uday() via WhatsApp (Evolution API)
+```
 
----
+## Scaling Considerations
 
-## Anti-Patterns to Avoid
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| Current (8 pods) | On-demand log query via fleet exec is fine. 8 x 1 exec = ~8s within budget. |
+| 16+ pods | Parallel log query (background subshells + wait, like audit parallel engine). |
+| Real-time anomaly detection | Would require streaming logs to a central store (Redis/Loki). Out of scope for v26.0 — nightly batch is sufficient. |
 
-### Anti-Pattern 1: Post-Hoc Verification as the "Verification Framework"
+### Scaling Priorities
 
-**What people do:** Add health endpoint checks and build_id comparisons as the verification layer.
+1. **First bottleneck:** Auto-detect runtime exceeding 8-minute budget. Mitigation: log-anomaly and config-drift checks use --mode=quick audit internally (Tiers 1-2 only), or run as separate cron job at a different time.
+2. **Second bottleneck:** Cascade check blocked on server being down. Mitigation: cascade.sh uses a 10s timeout per check and skips non-reachable targets without failing the entire run.
 
-**Why it's wrong:** All 8 proxy verification incidents (per PROJECT.md audit) used post-hoc health checks that passed while the actual parse path failed silently. Health OK + build_id match only proves the binary is running — not that the specific transform is correct.
+## Anti-Patterns
 
-**Do this instead:** Inline VerificationChain at the actual parse/transform site. The chain IS the execution — same call site, same data, same instant as the work being verified.
+### Anti-Pattern 1: SSH Piping for Config Fetch
 
----
+**What people do:** `ssh ADMIN@server "cat C:\RacingPoint\racecontrol.toml" > local-copy.toml` to check running config.
 
-### Anti-Pattern 2: Silent Fallback Without Observable Emit
+**Why it's wrong:** SSH banner lines (post-quantum warnings, MOTD) corrupt the file silently. This exact pattern caused a 2-hour process guard outage (racecontrol.toml had banner lines prepended, TOML parser rejected it, empty config loaded).
 
-**What people do:** `load_or_default()` returns empty config, code continues with degraded behavior, no WARN log.
+**Do this instead:** Expose config values via a dedicated `/api/v1/config/...` endpoint in racecontrol. Fetch with curl. If endpoint doesn't exist yet, use SCP (`scp ADMIN@server:C:/RacingPoint/racecontrol.toml /tmp/`) and validate first line.
 
-**Why it's wrong:** The SSH banner config corruption incident ran process_guard with 0 allowed entries for 2+ hours. The fallback itself was correct behavior; the silence was the bug. Silent fallback is structurally indistinguishable from correct operation until downstream failures appear.
+### Anti-Pattern 2: Adding New Steps Without Runtime Budget Check
 
-**Do this instead:** Every `or_default()`, `unwrap_or_default()`, or fallback on a critical config path must call `emit_transition(ConfigFallbackActivated, ...)` before continuing. The emit makes degraded state visible at the moment it occurs.
+**What people do:** Add config drift, log anomaly, and standing rules checks as sequential steps inside auto-detect.sh without measuring cumulative runtime.
 
----
+**Why it's wrong:** audit.sh (full mode) already takes ~8 minutes. Adding 3 more sequential steps risks blowing past the 8-minute ceiling constraint (v26.0 requirement: total runtime under 8 minutes in full mode).
 
-### Anti-Pattern 3: Boot Retry Without Periodic Re-fetch
+**Do this instead:** Run new steps only in `standard` mode (not `full`) by default, or run them only when audit PASS count is above threshold (skip deep checks if audit already found serious failures). Measure runtime with `time` and adjust mode selection.
 
-**What people do:** Add 3-attempt retry with exponential backoff to startup fetch.
+### Anti-Pattern 3: Scheduler Race with Existing Bono Monitors
 
-**Why it's wrong:** Boot retry succeeds on attempt 3 but then the resource is never re-fetched. The pod runs on stale/empty data until the next reboot. The allowlist incident was exactly this pattern: boot succeeded with empty allowlist, and the empty state persisted until manual restart.
+**What people do:** Set James Task Scheduler and Bono cron to the same time (02:30 IST).
 
-**Do this instead:** Startup fetch (with retry) AND periodic re-fetch loop. The loop heals stale state automatically. The two mechanisms are complementary, not alternatives.
+**Why it's wrong:** If both fire simultaneously, Bono's cron checks James alive → James is running auto-detect (relay alive) → Bono delegates → James now has two parallel auto-detect runs (original cron + delegated via relay exec). Double audit load.
 
----
+**Do this instead:** Bono cron runs 5 minutes later (02:35 IST = `5 21 * * * UTC`). By then, James's Task Scheduler run is underway and the relay health check succeeds → Bono delegates and exits. No race condition.
 
-### Anti-Pattern 4: New Protocol Message Variant for Observable Events
+### Anti-Pattern 4: Blocking on Pod Exec for Standing Rules Check
 
-**What people do:** Add `AgentMessage::StateTransitionEvent` to carry observable state data over WebSocket.
+**What people do:** Include `bat file sync check` in standing-rules-check.sh by exec-ing into all 8 pods to fetch the bat file content.
 
-**Why it's wrong:** Protocol changes require simultaneous rc-agent + racecontrol binary upgrade. During the deploy window, mismatched versions drop unknown variants silently. The fleet has 8 pods that may be on different binaries during a rolling deploy.
+**Why it's wrong:** 8 x exec calls for a standing rules check turns a 5-second check into a 40-second blocking step. Standing rules checks should be local-first.
 
-**Do this instead:** Route observable state through existing `AgentMessage::AiDebugResult` (structured suggestions already carry free-form data) or `DashboardEvent` (already broadcast to UI). Introduce new variants only when no existing variant fits AND both sides will be upgraded atomically.
+**Do this instead:** Spot-check pod 8 only (canary pattern), or check only the server and James bat files (which are in the repo). Pod bat files are deployed as part of the binary deploy cycle — if the deploy standing rule is followed, they're in sync.
 
----
+### Anti-Pattern 5: Autonomous Fix Without is_pod_idle Gate
+
+**What people do:** Add a new auto-fix action that restarts a service on a pod, but forget to call `is_pod_idle()` first.
+
+**Why it's wrong:** The idle gate check is the only thing preventing a fix from interrupting a live billing session. This is the most critical safety invariant in the entire auto-fix system.
+
+**Do this instead:** Every new fix function in fixes.sh that affects a pod MUST call `is_pod_idle "$pod_ip"` before executing. The existing `_is_approved_fix()` gate does not substitute for this — both must pass.
 
 ## Integration Points
 
+### Where New Components Hook Into Existing Architecture
+
+| New Component | Hooks Into | Integration Method |
+|---------------|-----------|-------------------|
+| `scripts/cascade.sh` | auto-detect.sh Step 4 | `source "$SCRIPT_DIR/cascade.sh"` then call `run_cascade_check` |
+| `scripts/standing-rules-check.sh` | auto-detect.sh Step 5 | `source "$SCRIPT_DIR/standing-rules-check.sh"` then call `run_standing_rules_check` |
+| `scripts/log-anomaly.sh` | auto-detect.sh (optional Step 3b) OR as audit phase (tier-N) | Either sourced in auto-detect, or as a new phase in audit/phases/ (preferred for parallel execution) |
+| `scripts/config-drift.sh` | Requires new racecontrol API endpoints OR fetches via SCP | Dependency: racecontrol changes needed FIRST if API-based |
+| Extended `APPROVED_FIXES` | audit/lib/fixes.sh | Append new fix names to array; implement `apply_fix_<name>()` function |
+| Task Scheduler entry | Windows Task Scheduler on James .27 | register-james-watchdog.bat already exists — add new entry for auto-detect.sh |
+| Bono cron | Bono VPS crontab | Already deployed at `0 21 * * *` UTC |
+| `chains.json` templates | comms-link relay :8766 | Already updated with `auto-detect-bono` and `sync-and-verify` templates |
+
 ### Internal Boundaries
 
-| Boundary | Communication Method | Notes |
-|----------|---------------------|-------|
-| rc-agent → racecontrol | WebSocket (AgentMessage enum in rc-common/protocol.rs) | AiDebugResult carries VerificationChain failures |
-| racecontrol → rc-agent | WebSocket (CoreToAgentMessage in rc-common/protocol.rs) | FlagSync, KillSwitch, ConfigPush unchanged |
-| rc-sentry → racecontrol | HTTP POST /api/v1/recovery/events | RecoveryLogger writes JSONL locally; server reads via API |
-| rc-common → all crates | Cargo lib dependency | VerificationChain, RecoveryLogger live here |
-| observable_state → kiosk/admin | DashboardEvent WS broadcast from racecontrol | Staff sees transitions in Control Room page (:3201, :3300) |
-| boot_resilience → AppState | Arc<RwLock<T>> (same pattern as existing guard_whitelist) | Re-fetched values update shared state in-place |
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| auto-detect.sh ↔ audit.sh | subprocess (bash call + exit code + stdout) | audit.sh writes to its own result dir; auto-detect.sh finds latest result dir by timestamp |
+| auto-detect.sh ↔ cascade.sh | sourced (shared bash env) | Shares STEP_RESULTS, BUGS_FOUND, LOG_FILE, RESULT_DIR |
+| auto-detect.sh ↔ comms-link test suite | subprocess (cd + bash call + exit code) | Must cd to comms-link dir; COMMS_PSK env var required |
+| auto-detect.sh ↔ notify.sh | sourced (reuse audit notify.sh) | OR replicate inline; notify.sh requires RESULT_DIR, AUDIT_MODE, COMMS_PSK, COMMS_URL |
+| James auto-detect ↔ Bono VPS | WS (comms-link relay) + INBOX.md + git | Results sent as WS message on completion; INBOX.md for persistent record |
+| Bono auto-detect ↔ James relay | HTTP GET /relay/health + POST /relay/exec/run | Tailscale IP 100.82.33.94:8766 for James relay |
+| cascade.sh ↔ racecontrol | HTTP GET fleet/health + health endpoints | No auth required for health endpoints (public_routes) |
+| config-drift.sh ↔ racecontrol | HTTP GET config endpoints (need to be added) OR SCP | Config endpoints don't exist yet — new racecontrol routes needed |
+| log-anomaly.sh ↔ pods | HTTP POST /api/v1/fleet/exec (read-only log fetch) | No billing idle gate needed for read-only exec |
 
-### Operational Integration Points
+## Recommended Build Order
 
-| System | How v25.0 Touches It | Notes |
-|--------|---------------------|-------|
-| `start-rcagent.bat` (8 pods) | Startup enforcement audit scans + reports missing lines | Bat changes deployed per standing rule: bat sync with binary deploy |
-| `audit/` runner (v23.0) | New `audit/startup/` tier adds startup enforcement checks | Feeds existing report.sh + delta tracker |
-| `gate-check.sh` (v22.0) | Pre-ship gate adds domain-match check | Visual change = visual verification required; wired into Suite 0 |
-| `comms-link` relay | No changes | Verification results travel over existing rc-agent WS channel |
+This ordering respects all dependencies identified above:
 
----
+### Phase 1 — Extend Existing Modules (no new files, no new infrastructure)
 
-## Scalability Considerations
+1. Extend `audit/lib/fixes.sh` — add new entries to APPROVED_FIXES + implement fix functions (`reset_config_drift`, `git_auto_pull`, `sync_bat_files`). These are bash function additions to an existing file. Zero risk to existing behavior (whitelist gate unchanged).
 
-This system is venue-scoped: 8 pods, 1 server, fixed topology. Concerns are operational, not load-based.
+2. Add `--notify` integration to auto-detect.sh notification step — currently auto-detect.sh has a stub. Wire it to audit/lib/notify.sh's `send_notifications` function or replicate the 3-channel pattern inline. Low risk.
 
-| Concern | Current | With v25.0 |
-|---------|---------|-----------|
-| Observable event volume | 0 (all silent) | Low — fires only on state transitions, not on every tick |
-| VerificationChain memory | N/A | Negligible — stack-allocated per call site, freed after log |
-| Periodic re-fetch connections | 1 (allowlist, every 300s) | +2-3 more at 300s each = ~3 extra HTTP GETs per 5 min per pod |
-| Recovery log growth | Unbounded JSONL | Rotate at 512KB — matches existing `rc-bot-events.log` pattern |
+### Phase 2 — New Bash Modules (no compiled deps, no new infrastructure)
 
----
+3. Create `scripts/cascade.sh` — build drift check, pod consistency, cloud-venue sync. Pure bash + curl + jq. Source it in auto-detect.sh as Step 4.
+
+4. Create `scripts/standing-rules-check.sh` — git status, relay health, bat spot-check on pod 8. Source it in auto-detect.sh as Step 5.
+
+5. Create `scripts/log-anomaly.sh` — fleet exec log tail + pattern count. Add as Step 3b in auto-detect.sh (after E2E health, before cascade).
+
+### Phase 3 — Scheduler (Windows-only concern)
+
+6. Register Task Scheduler entry for auto-detect.sh on James. Use `register-james-watchdog.bat` as a model. Run at 02:30 IST = 21:00 UTC. Bono cron already active.
+
+### Phase 4 — Config Drift (has upstream dependency)
+
+7. If config drift requires racecontrol API changes: add `GET /api/v1/config/health-params` endpoint to racecontrol (Rust — requires rebuild + deploy). This is a hard dependency that cannot be faked.
+8. Create `scripts/config-drift.sh` after endpoint is available.
+
+### Phase 5 — Integration Tests for the Pipeline
+
+9. Add test suite for auto-detect.sh itself — dry-run mode + mock audit results + verify each step records correctly. Fits in comms-link test/run-all.sh as Suite 5, or as standalone `scripts/test-auto-detect.sh`.
+
+### Phase 6 — WhatsApp Escalation for Critical Unfixed Issues
+
+10. Integrate WhatsApp alert into auto-detect.sh final report: if BUGS_UNFIXED > 0 after all steps, call `notify_uday()` (same pattern as bono-auto-detect.sh already has). Uses Bono VPS Evolution API (not James — per standing rule: promotions/alerts go via Bono VPS).
 
 ## Sources
 
-- Direct codebase analysis: `crates/rc-agent/src/` — app_state.rs, event_loop.rs, self_monitor.rs, pre_flight.rs, startup_log.rs, process_guard.rs, feature_flags.rs, failure_monitor.rs
-- Direct codebase analysis: `crates/racecontrol/src/` — state.rs, pod_monitor.rs, pod_healer.rs, flags.rs
-- Direct codebase analysis: `crates/rc-sentry/src/` — main.rs, watchdog.rs
-- Direct codebase analysis: `crates/rc-common/src/` — protocol.rs, recovery.rs
-- `.planning/PROJECT.md` — v25.0 goal, target features, constraints, audit evidence
-- `CLAUDE.md` standing rules — known failure modes, incident history, sentinel file protocol
+- `scripts/auto-detect.sh` (committed b54e4585) — 6-step pipeline, actual implementation
+- `scripts/bono-auto-detect.sh` — Bono failover, actual implementation
+- `scripts/AUTONOMOUS-DETECTION.md` — architecture decisions, chain templates
+- `audit/lib/fixes.sh` — APPROVED_FIXES whitelist, is_pod_idle() billing gate
+- `audit/lib/notify.sh` — 3-channel notification pattern
+- `audit/lib/core.sh` — shared primitives, IST timestamps, emit_result/emit_fix
+- `audit/audit.sh` — full audit entry point, mode flags, parallel engine
+- `CLAUDE.md` — standing rules: SSH piping hazard, cmd.exe quoting, bat file CWD, idle gate
+- `MEMORY.md` — comms-link relay endpoints, Bono exec pattern, WhatsApp routing (Bono VPS only)
 
 ---
-
-*Architecture research for: v25.0 Debug-First-Time-Right*
+*Architecture research for: v26.0 Autonomous Bug Detection & Self-Healing integration*
 *Researched: 2026-03-26*
