@@ -132,10 +132,10 @@
 
 ### Bono Coordination (COORD)
 
-- [ ] **COORD-01**: AUTO_DETECT_ACTIVE mutex via relay — prevents James and Bono from fixing simultaneously
+- [x] **COORD-01**: AUTO_DETECT_ACTIVE mutex via relay — prevents James and Bono from fixing simultaneously
 - [ ] **COORD-02**: Bono failover requires confirmed Tailscale offline status (not just timeout) before activating
 - [ ] **COORD-03**: Delegation protocol — Bono checks James alive first, delegates if so, only runs independently when James confirmed down
-- [ ] **COORD-04**: After James recovery, Bono deactivates cloud failover and syncs findings
+- [x] **COORD-04**: After James recovery, Bono deactivates cloud failover and syncs findings
 
 ### Self-Improving Intelligence (LEARN)
 
@@ -196,10 +196,10 @@
 | HEAL-06 | Phase 213 | Complete |
 | HEAL-07 | Phase 213 | Complete |
 | HEAL-08 | Phase 213 | Complete |
-| COORD-01 | Phase 214 | Pending |
+| COORD-01 | Phase 214 | Complete |
 | COORD-02 | Phase 214 | Pending |
 | COORD-03 | Phase 214 | Pending |
-| COORD-04 | Phase 214 | Pending |
+| COORD-04 | Phase 214 | Complete |
 | LEARN-01 | Phase 215 | Pending |
 | LEARN-02 | Phase 215 | Pending |
 | LEARN-03 | Phase 215 | Pending |

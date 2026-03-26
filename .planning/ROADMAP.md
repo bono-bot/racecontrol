@@ -3578,6 +3578,6 @@ Plans:
 | 211. Safe Scheduling Foundation | 2/2 | Complete    | 2026-03-26 |
 | 212. Detection Expansion | 2/2 | Complete    | 2026-03-26 |
 | 213. Self-Healing & Escalation | 2/2 | Complete    | 2026-03-26 |
-| 214. Bono Coordination | 0/2 | In progress | - |
+| 214. Bono Coordination | 1/2 | In Progress|  |
 | 215. Self-Improving Intelligence | 0/0 | Not started | - |
 | 216. Pipeline Self-Test Suite | 0/0 | Not started | - |
