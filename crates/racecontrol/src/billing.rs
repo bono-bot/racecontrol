@@ -658,7 +658,26 @@ pub async fn handle_game_status_update(
                 end_billing_session(state, &session_id, BillingSessionStatus::EndedEarly).await;
             }
             // Also remove from waiting_for_game if present (game crashed during loading)
-            state.billing.waiting_for_game.write().await.remove(pod_id);
+            // BILL-06: Insert cancelled_no_playable record — customer charged nothing
+            let crashed_entry = state.billing.waiting_for_game.write().await.remove(pod_id);
+            if let Some(crashed_entry) = crashed_entry {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                let _ = sqlx::query(
+                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
+                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
+                )
+                .bind(&session_id)
+                .bind(pod_id)
+                .bind(&crashed_entry.driver_id)
+                .bind(&crashed_entry.pricing_tier_id)
+                .execute(&state.db)
+                .await
+                .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (game crash): {}", e));
+                tracing::warn!(
+                    "Session cancelled_no_playable: pod={} driver={} (game died before PlayableSignal)",
+                    pod_id, crashed_entry.driver_id
+                );
+            }
 
             // Clean up from multiplayer_waiting if pod was still waiting
             {
@@ -966,6 +985,34 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
+
+    // BILL-05: Broadcast WaitingForGame status each tick so kiosk shows "Loading..."
+    // WaitingForGame entries are NOT in active_timers — they live in the waiting_for_game map.
+    {
+        let waiting = state.billing.waiting_for_game.read().await;
+        for (pod_id, entry) in waiting.iter() {
+            let info = rc_common::types::BillingSessionInfo {
+                id: format!("deferred-{}", pod_id),
+                driver_id: entry.driver_id.clone(),
+                driver_name: String::new(),
+                pod_id: pod_id.clone(),
+                pricing_tier_name: entry.pricing_tier_id.clone(),
+                allocated_seconds: entry.custom_duration_minutes.unwrap_or(30) * 60,
+                driving_seconds: 0,
+                remaining_seconds: entry.custom_duration_minutes.unwrap_or(30) * 60,
+                status: BillingSessionStatus::WaitingForGame,
+                driving_state: DrivingState::Idle,
+                started_at: None,
+                split_count: 1,
+                split_duration_minutes: None,
+                current_split_number: 1,
+                elapsed_seconds: Some(entry.waiting_since.elapsed().as_secs() as u32),
+                cost_paise: Some(0),
+                rate_per_min_paise: Some(0),
+            };
+            events_to_broadcast.push(DashboardEvent::BillingTick(info));
+        }
+    }
 
     // Trigger any pending (deferred) rolling deploys for pods whose sessions just ended
     for (pod_id, _, _, _) in &expired_sessions {
@@ -1382,6 +1429,27 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             log_pod_activity(state, &pod_id, "billing", "Launch Failed",
                 "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer");
 
+            // BILL-06: Insert cancelled_no_playable record — no charge for customer
+            if let Some(ref timed_out_entry) = entry {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                let _ = sqlx::query(
+                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
+                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
+                )
+                .bind(&session_id)
+                .bind(&timed_out_entry.pod_id)
+                .bind(&timed_out_entry.driver_id)
+                .bind(&timed_out_entry.pricing_tier_id)
+                .execute(&state.db)
+                .await
+                .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (launch timeout): {}", e));
+                tracing::warn!(
+                    "Session cancelled_no_playable: pod={} driver={} (launch timeout attempt 2)",
+                    timed_out_entry.pod_id, timed_out_entry.driver_id
+                );
+                // TODO Phase 199: WhatsApp staff alert for cancelled_no_playable
+            }
+
             // Send BillingStopped to agent so it shows session cancelled
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
@@ -1423,6 +1491,16 @@ pub async fn sync_timers_to_db(state: &Arc<AppState>) {
             .await;
         } else if timer.status == BillingSessionStatus::PausedDisconnect {
             // Persist pause state (driving_seconds frozen, but total_paused_seconds updates)
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?",
+            )
+            .bind(timer.driving_seconds as i64)
+            .bind(timer.total_paused_seconds as i64)
+            .bind(&timer.session_id)
+            .execute(&state.db)
+            .await;
+        } else if timer.status == BillingSessionStatus::PausedGamePause {
+            // BILL-07: Persist total_paused_seconds for game-pause state (driving_seconds frozen)
             let _ = sqlx::query(
                 "UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?",
             )
