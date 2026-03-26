@@ -12,7 +12,8 @@ const EXPECTED_APIS = ['/api/health'];
 
 /**
  * Check which built pages actually exist in the .next/server/app directory.
- * Works in both dev (cwd/.next) and standalone (.next relative to server.js).
+ * Works with both Webpack (.html pre-rendered files) and Turbopack (page.js
+ * inside subdirectories) output formats, as well as standalone builds.
  */
 function getAvailablePages(): string[] {
   const serverAppDir = path.join(process.cwd(), '.next', 'server', 'app');
@@ -22,32 +23,51 @@ function getAvailablePages(): string[] {
 
   function scan(dir: string, prefix: string) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+    // Turbopack: a directory containing page.js is a page at this route
+    const hasPageJs = entries.some(e => e.isFile() && e.name === 'page.js');
+    if (hasPageJs && prefix !== '') {
+      pages.push(prefix);
+    }
+
     for (const entry of entries) {
       // Skip route groups like (auth), (dashboard) — they don't affect the URL
       if (entry.isDirectory() && entry.name.startsWith('(')) {
         scan(path.join(dir, entry.name), prefix);
         continue;
       }
-      // A .html file = a page exists at that route
+      // Webpack: a .html file at the root level = a pre-rendered page
       if (entry.isFile() && entry.name.endsWith('.html')) {
         const routeName = entry.name.replace('.html', '');
         const route = routeName === 'index' ? prefix || '/' : `${prefix}/${routeName}`;
         pages.push(route);
       }
-      // Recurse into subdirectories (pod/[number], etc.)
-      // Also match dynamic segments like [id], [number] as valid pages
+      // Dynamic segments like [id], [number] are valid pages
       if (entry.isDirectory() && entry.name.startsWith('[') && entry.name.endsWith(']')) {
-        pages.push(`${prefix}/${entry.name}`);
+        const dynDir = path.join(dir, entry.name);
+        const dynEntries = fs.readdirSync(dynDir);
+        if (dynEntries.includes('page.js') || dynEntries.some(f => f.endsWith('.html'))) {
+          pages.push(`${prefix}/${entry.name}`);
+        }
         continue;
       }
-      if (entry.isDirectory() && !entry.name.startsWith('_') && entry.name !== 'api') {
+      // Skip internal dirs, api dir, and the 'page' chunk dir (Turbopack artifact)
+      if (entry.isDirectory() && !entry.name.startsWith('_') && entry.name !== 'api' && entry.name !== 'page') {
         scan(path.join(dir, entry.name), `${prefix}/${entry.name}`);
       }
     }
   }
 
   scan(serverAppDir, '');
-  return pages.sort();
+
+  // Turbopack: root page.js means '/' exists, also check for index.html
+  const rootEntries = fs.readdirSync(serverAppDir);
+  const hasRootPage = rootEntries.includes('page.js') || rootEntries.includes('index.html');
+  if (hasRootPage && !pages.includes('/')) {
+    pages.push('/');
+  }
+
+  return [...new Set(pages)].sort();
 }
 
 export async function GET() {
