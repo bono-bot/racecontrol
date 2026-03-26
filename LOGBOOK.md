@@ -905,3 +905,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 09:13 IST | James | 5d89a43c | feat(215-02): wire suggestion-engine into auto-detect.sh and register get_suggestions relay command |
 | 2026-03-26 09:13 IST | James | fef8d791 | docs(215-02): complete suggestion engine plan — SUMMARY, STATE, ROADMAP updated |
 | 2026-03-26 09:18 IST | James | 5c63ecc8 | feat(215-03): approval-sync.sh — approve_suggestion + apply_approved_suggestion for 6 proposal categories |
+| 2026-03-26 09:23 IST | James | a0882cce | 215-04: self-patch.sh — CE methodology loop, scope-gated to detectors/healing, auto-revert, LEARN-07/08/09 |

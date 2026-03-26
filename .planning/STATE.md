@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
-stopped_at: Completed 215-self-improving-intelligence/215-03-PLAN.md
-last_updated: "2026-03-26T09:17:42.517Z"
+stopped_at: Completed 215-self-improving-intelligence/215-04-PLAN.md
+last_updated: "2026-03-26T09:22:58.412Z"
 last_activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
 progress:
   total_phases: 172
-  completed_phases: 142
-  total_plans: 342
-  completed_plans: 337
+  completed_phases: 143
+  total_plans: 344
+  completed_plans: 338
   percent: 98
 ---
 
@@ -124,6 +124,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 215]: Threshold increment 20% round-up to ensure actual increase for small base values
 - [Phase 215]: Standing rule IDs use SR-LEARNED-NNN prefix to distinguish engine-generated from manual rules
 - [Phase 215]: new_audit_check/self_patch queued for 215-04 self-patch loop with status queued_for_selfpatch (not dropped)
+- [Phase 215-04]: self_patch_enabled defaults to false — explicit opt-in for script self-modification, unlike auto_fix_enabled which defaults true
+- [Phase 215-04]: self_patch_loop processes ONE proposal per run — blast radius limit for autonomous code modification
+- [Phase 215-04]: Scope restriction via realpath comparison: only scripts/detectors/ and scripts/healing/ — never auto-detect.sh or audit/lib/
 
 ### Pending Todos
 
@@ -137,6 +140,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T09:17:32.059Z
-Stopped at: Completed 215-self-improving-intelligence/215-03-PLAN.md
+Last session: 2026-03-26T09:22:58.393Z
+Stopped at: Completed 215-self-improving-intelligence/215-04-PLAN.md
 Resume file: None
