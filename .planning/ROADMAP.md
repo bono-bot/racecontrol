@@ -3190,7 +3190,10 @@ Plans:
   7. **EXIT GRACE GUARD**: Crash game during recovery (attempt 1 running) → exit grace timer (30s) NOT armed because crash_recovery != Idle. Verify: `grep "exit grace armed" agent.log` returns ZERO hits during recovery window. No premature AcStatus::Off
   8. **SAFE MODE PERSISTENCE**: Crash protected game (AC) → safe mode stays ACTIVE throughout recovery (attempt 1 + attempt 2). Verify: `grep "safe mode deactivated" agent.log` returns ZERO hits between crash and recovery completion. Process guard scans suppressed during entire recovery
   9. **CONCURRENT PROTECTION**: Two rapid crashes on same pod (<100ms apart) → only ONE recovery sequence initiated. Counter increments once. Verify: server log shows exactly one "Race Engineer: relaunching" entry, not two
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 199-01-PLAN.md -- Server-side: force_clean protocol, history-informed recovery, enriched events, exit_codes, staff alert, null-args guard
+- [ ] 199-02-PLAN.md -- Agent-side: force_clean handling, safe mode cooldown suppression, exit grace verification, unit tests
 
 ### Phase 200: Self-Improving Intelligence
 **Goal**: The system uses accumulated launch data to warn about unreliable combos, suggest alternatives, and display reliability insights to staff -- every launch makes the system smarter without manual threshold tuning
