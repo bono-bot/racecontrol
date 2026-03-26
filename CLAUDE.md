@@ -259,6 +259,12 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: 401 on GET caused rc-agent to fall back to empty default allowlist._
 - **Process guard allowlist: fetch-at-boot + 5-min periodic re-fetch (DONE in `821c3031`).** rc-agent fetches from `/api/v1/guard/whitelist/pod-{N}` at startup AND every 300s via a background tokio task. If the server is down at boot, pods get `MachineWhitelist::default()` (empty) but self-heal within 5 minutes once the server is back. Manual restart is no longer required but can be used for immediate effect: `curl -X POST http://<pod_ip>:8091/exec -d '{"cmd":"taskkill /F /IM rc-agent.exe & schtasks /Run /TN StartRCAgent"}'` via rc-sentry. Verify: `violation_count_24h` should stop increasing after the next re-fetch cycle.
   _Why: 2026-03-24 — all 8 pods showed violation_count_24h: 100 (false positives). Server had restarted, pods booted while server was briefly down, fetched empty default, and never re-fetched. Periodic re-fetch implemented same day to prevent recurrence._
+- **Boot Resilience: No single-fetch-at-boot without retry.** Any data fetched from a remote source at startup MUST have a periodic re-fetch background task using `rc_common::boot_resilience::spawn_periodic_refetch()`. Single-fetch-at-boot without retry is a banned pattern — if the server is down at boot, the resource stays at its cached/default value forever. Current startup-fetched resources and their re-fetch status:
+  - Allowlist (process guard): DONE — 5-min periodic re-fetch (commit `821c3031`)
+  - Feature flags: DONE — 5-min periodic re-fetch via HTTP GET /api/v1/flags (BOOT-02)
+  - Billing rates: CHECK — verify if billing rates have periodic re-fetch or only load at boot
+  - Camera config: CHECK — verify if camera config has periodic re-fetch or only load at boot
+  _Why: Feature flags were fetched once at boot via WS FlagSync and never re-fetched if WS connection failed. Server transience at boot left pods running with stale cached flags indefinitely. spawn_periodic_refetch() provides self-healing within one interval (5 min)._
 - **"Shipped" Means "Works For The User"** — A milestone is NOT shipped until every user-facing endpoint is verified working at runtime:
   - Binary built, deployed, and **running** (not just compiled). All runtime dependencies present (DLLs, models, config files).
   - Every API endpoint returns correct data (not just HTTP 200 — check response content).
