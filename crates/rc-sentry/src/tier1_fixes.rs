@@ -554,15 +554,54 @@ pub fn restart_service() -> CrashDiagResult {
         }
 
         // Step 2: PID liveness check (500ms wait + tasklist)
-        match chain.execute_step(&StepPidLiveness, cfg.process_name.clone()) {
-            Ok(_) => {
-                tracing::info!(target: LOG_TARGET, "COV-05: PID liveness check passed for {}", cfg.process_name);
+        let pid_ok = chain.execute_step(&StepPidLiveness, cfg.process_name.clone()).is_ok();
+        if !pid_ok {
+            tracing::warn!(target: LOG_TARGET,
+                "COV-05: PID liveness failed for {} — retrying spawn once (method={})",
+                cfg.process_name, spawn_method_name
+            );
+
+            // Retry spawn once using the same method that originally succeeded
+            let retry_ok = if spawn_method_name == "session1" {
+                let bat_path = std::path::Path::new(&cfg.start_script);
+                match crate::session1_spawn::spawn_in_session1(bat_path) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::error!(target: LOG_TARGET, "COV-05: retry spawn via session1 failed: {}", e);
+                        false
+                    }
+                }
+            } else if spawn_method_name == "schtasks" {
+                let run = rc_common::exec::run_cmd_sync(
+                    "schtasks /Run /TN StartRCAgent",
+                    Duration::from_secs(10),
+                    4096,
+                );
+                if run.exit_code != 0 {
+                    tracing::error!(target: LOG_TARGET, "COV-05: retry spawn via schtasks failed: {}", run.stderr);
+                    false
+                } else {
+                    true
+                }
+            } else {
+                tracing::warn!(target: LOG_TARGET, "COV-05: unknown spawn method '{}' — skipping retry", spawn_method_name);
+                false
+            };
+
+            if retry_ok {
+                tracing::info!(target: LOG_TARGET, "COV-05: retry spawn succeeded — re-checking PID liveness");
+                // Re-check PID liveness after retry
+                match chain.execute_step(&StepPidLiveness, cfg.process_name.clone()) {
+                    Ok(_) => {
+                        tracing::info!(target: LOG_TARGET, "COV-05: PID liveness passed after retry for {}", cfg.process_name);
+                    }
+                    Err(e) => {
+                        tracing::error!(target: LOG_TARGET, error = %e, "COV-05: PID liveness still failed after retry — proceeding to health poll");
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: spawn returned Ok but child not running after 500ms");
-                // Continue to health check — PID liveness failure is informational,
-                // the process might still be starting up
-            }
+        } else {
+            tracing::info!(target: LOG_TARGET, "COV-05: PID liveness check passed for {}", cfg.process_name);
         }
 
         // Step 3: Health endpoint poll (10s) — replaces direct verify_service_started() call
