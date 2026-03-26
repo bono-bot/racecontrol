@@ -339,6 +339,17 @@ run_cascade_check() {
 
   local cascade_issues=0
 
+  # DET-07: Source cascade detection framework and run all detector modules
+  if [[ -f "$SCRIPT_DIR/cascade.sh" ]]; then
+    # shellcheck source=scripts/cascade.sh
+    source "$SCRIPT_DIR/cascade.sh"
+  fi
+  if [[ $(type -t run_all_detectors) == "function" ]]; then
+    run_all_detectors
+  fi
+  # Add detector findings to cascade_issues total
+  cascade_issues=$((cascade_issues + ${DETECTOR_FINDINGS:-0}))
+
   # 4a: Check server build matches HEAD
   local server_build
   server_build=$(curl -s --max-time 5 "$SERVER_URL/api/v1/health" 2>/dev/null | jq -r '.build_id // ""' 2>/dev/null || echo "")
