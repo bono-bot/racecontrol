@@ -151,8 +151,8 @@
 
 ### Pipeline Testing (TEST)
 
-- [ ] **TEST-01**: Integration test suite for auto-detect.sh validates each of the 6 steps independently
-- [ ] **TEST-02**: Injected anomaly fixtures test each detector (fake config drift, fake log anomaly, fake build mismatch)
+- [x] **TEST-01**: Integration test suite for auto-detect.sh validates each of the 6 steps independently
+- [x] **TEST-02**: Injected anomaly fixtures test each detector (fake config drift, fake log anomaly, fake build mismatch)
 - [ ] **TEST-03**: Escalation ladder test verifies tier progression with mocked pod responses
 - [ ] **TEST-04**: Bono coordination test verifies mutex acquisition and delegation protocol
 
@@ -209,8 +209,8 @@
 | LEARN-07 | Phase 215 | Complete |
 | LEARN-08 | Phase 215 | Complete |
 | LEARN-09 | Phase 215 | Complete |
-| TEST-01 | Phase 216 | Pending |
-| TEST-02 | Phase 216 | Pending |
+| TEST-01 | Phase 216 | Complete |
+| TEST-02 | Phase 216 | Complete |
 | TEST-03 | Phase 216 | Pending |
 | TEST-04 | Phase 216 | Pending |
 
