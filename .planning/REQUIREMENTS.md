@@ -93,5 +93,133 @@
 - Unmapped: 0
 
 ---
+
+# Requirements: v26.0 Autonomous Bug Detection & Self-Healing
+
+**Defined:** 2026-03-26
+**Core Value:** Fully autonomous infrastructure health — detect, fix, cascade, and notify without human intervention
+
+## v1 Requirements
+
+### Scheduling & Execution (SCHED)
+
+- [ ] **SCHED-01**: James auto-detect runs daily at 2:30 AM IST via Windows Task Scheduler without human trigger
+- [ ] **SCHED-02**: Bono auto-detect runs daily at 2:35 AM IST via cron (5-min offset prevents race condition)
+- [ ] **SCHED-03**: Run guard prevents overlapping auto-detect executions (PID file lock)
+- [ ] **SCHED-04**: Escalation cooldown prevents repeated WhatsApp alerts for same issue within 6 hours
+- [ ] **SCHED-05**: Venue-state-aware timing — full mode during closed hours, quick mode if triggered during open hours
+
+### Detection Expansion (DET)
+
+- [ ] **DET-01**: Config drift detection compares running racecontrol.toml values against canonical expected values
+- [ ] **DET-02**: Bat file drift detection compares pod start-rcagent.bat checksums against repo canonical version
+- [ ] **DET-03**: Log anomaly detection scans pod JSONL logs for ERROR/PANIC rate exceeding threshold (>10/hour open, >2/hour closed)
+- [ ] **DET-04**: Crash loop detection flags pods with >3 rc-agent restarts in 30 minutes
+- [ ] **DET-05**: Feature flag sync check verifies all 8 pods have identical enabled flag set
+- [ ] **DET-06**: Schema drift detection compares cloud and venue DB table schemas for column mismatches
+- [ ] **DET-07**: Cascade module (cascade.sh) sources into auto-detect.sh, shares env (BUGS_FOUND, LOG_FILE)
+
+### Self-Healing & Escalation (HEAL)
+
+- [ ] **HEAL-01**: Expanded auto-fix whitelist adds: WoL for powered-off pods, MAINTENANCE_MODE auto-clear after 30 min, stale bat file replacement
+- [ ] **HEAL-02**: 5-tier escalation ladder: retry (2x) → restart (schtasks) → WoL → cloud failover → Uday WhatsApp
+- [ ] **HEAL-03**: Each escalation tier checks sentinel files (OTA_DEPLOYING, MAINTENANCE_MODE) before acting
+- [ ] **HEAL-04**: WhatsApp silence conditions: no alert for QUIET findings, max 1 alert per issue per 6 hours, venue-closed findings deferred to morning
+- [ ] **HEAL-05**: Post-fix verification — every auto-fix is followed by re-check to confirm resolution
+- [ ] **HEAL-06**: Fixes follow Audit Protocol debugging methodology: Cause Elimination Process (document symptom → hypothesize → test & eliminate → fix confirmed cause → verify) — not blind whitelist matching
+- [ ] **HEAL-07**: Live-sync model — fixes apply immediately on detection and confirmed diagnosis (not batched to end of run), each fix pushed to affected system the moment it's verified
+- [ ] **HEAL-08**: Global toggle `auto_fix_enabled` in auto-detect config (toggle via relay command, admin API, or TOML edit) — when OFF, system detects and reports only, never applies fixes
+
+### Bono Coordination (COORD)
+
+- [ ] **COORD-01**: AUTO_DETECT_ACTIVE mutex via relay — prevents James and Bono from fixing simultaneously
+- [ ] **COORD-02**: Bono failover requires confirmed Tailscale offline status (not just timeout) before activating
+- [ ] **COORD-03**: Delegation protocol — Bono checks James alive first, delegates if so, only runs independently when James confirmed down
+- [ ] **COORD-04**: After James recovery, Bono deactivates cloud failover and syncs findings
+
+### Self-Improving Intelligence (LEARN)
+
+- [ ] **LEARN-01**: Detection pattern tracker logs findings across runs to suggestions.jsonl (bug type, frequency, pod, fix applied, success)
+- [ ] **LEARN-02**: Suggestion engine analyzes patterns and generates improvement proposals with evidence + confidence score
+- [ ] **LEARN-03**: Suggestions auto-categorized: "new audit check", "threshold tune", "new auto-fix candidate", "standing rule gap", "cascade coverage gap", "self-patch"
+- [ ] **LEARN-04**: Trend analysis flags statistical outliers (e.g. "Pod 3 has 4x more sentinel clears than fleet average")
+- [ ] **LEARN-05**: Approved suggestions sync to standing-rules-registry.json, suppress.json, or APPROVED_FIXES and pushed to both AIs
+- [ ] **LEARN-06**: Suggestion inbox viewable via API endpoint or Markdown report
+- [ ] **LEARN-07**: Self-patch loop — the system can modify its own v26.0 scripts (auto-detect.sh, cascade.sh, fixes.sh, detectors) to improve detection accuracy, fix coverage, or threshold tuning, then commit + push + notify
+- [ ] **LEARN-08**: Self-patch follows same Cause Elimination methodology — change is diagnosed (why is detection wrong?), patched, verified (re-run detects correctly), and logged. Reverts automatically if verification fails
+- [ ] **LEARN-09**: Self-patch toggle `self_patch_enabled` — independent of `auto_fix_enabled` (can detect+fix infrastructure without self-modifying, or vice versa)
+
+### Pipeline Testing (TEST)
+
+- [ ] **TEST-01**: Integration test suite for auto-detect.sh validates each of the 6 steps independently
+- [ ] **TEST-02**: Injected anomaly fixtures test each detector (fake config drift, fake log anomaly, fake build mismatch)
+- [ ] **TEST-03**: Escalation ladder test verifies tier progression with mocked pod responses
+- [ ] **TEST-04**: Bono coordination test verifies mutex acquisition and delegation protocol
+
+## v2 Requirements
+
+- **DET-08**: Real-time continuous health polling (30s interval) — separate from nightly audit
+- **LEARN-10**: Ollama-powered suggestion reasoning (Tier 3 AI analysis of patterns)
+- **HEAL-09**: Auto-rollback on failed deploys (binary swap to -prev.exe)
+- **DET-09**: Network partition detection (pods reachable via LAN but not WS)
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Autonomous binary deployment | Too risky without human gate — OTA pipeline handles this separately |
+| Real-time log streaming | Excessive bandwidth; query-on-demand fits 8-min budget |
+| Per-pod compile-time variants | Single-binary-tier policy (v22.0 standing rule) |
+| Direct TOML value overwrites | Config drift is detected and reported, not silently corrected — human reviews proposed changes |
+
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SCHED-01 | TBD | Pending |
+| SCHED-02 | TBD | Pending |
+| SCHED-03 | TBD | Pending |
+| SCHED-04 | TBD | Pending |
+| SCHED-05 | TBD | Pending |
+| DET-01 | TBD | Pending |
+| DET-02 | TBD | Pending |
+| DET-03 | TBD | Pending |
+| DET-04 | TBD | Pending |
+| DET-05 | TBD | Pending |
+| DET-06 | TBD | Pending |
+| DET-07 | TBD | Pending |
+| HEAL-01 | TBD | Pending |
+| HEAL-02 | TBD | Pending |
+| HEAL-03 | TBD | Pending |
+| HEAL-04 | TBD | Pending |
+| HEAL-05 | TBD | Pending |
+| COORD-01 | TBD | Pending |
+| COORD-02 | TBD | Pending |
+| COORD-03 | TBD | Pending |
+| COORD-04 | TBD | Pending |
+| LEARN-01 | TBD | Pending |
+| LEARN-02 | TBD | Pending |
+| LEARN-03 | TBD | Pending |
+| LEARN-04 | TBD | Pending |
+| LEARN-05 | TBD | Pending |
+| LEARN-06 | TBD | Pending |
+| TEST-01 | TBD | Pending |
+| TEST-02 | TBD | Pending |
+| TEST-03 | TBD | Pending |
+| TEST-04 | TBD | Pending |
+
+| HEAL-06 | TBD | Pending |
+| HEAL-07 | TBD | Pending |
+| HEAL-08 | TBD | Pending |
+| LEARN-07 | TBD | Pending |
+| LEARN-08 | TBD | Pending |
+| LEARN-09 | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 37 total
+- Mapped to phases: 0 (awaiting roadmap)
+- Unmapped: 37
+
+---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 — traceability added after roadmap creation*
+*Last updated: 2026-03-26 after adding HEAL-06/07/08 (Audit Protocol methodology, live-sync, toggle) and LEARN-07/08/09 (self-patch loop)*
