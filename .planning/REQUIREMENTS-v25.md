@@ -34,8 +34,8 @@ Requirements for v25.0 milestone. Each maps to roadmap phases.
 ### Boot Resilience (BOOT)
 
 - [x] **BOOT-01**: New `rc-common/src/boot_resilience.rs` (~60 LOC) containing generic `spawn_periodic_refetch<T>()` function that: (a) accepts a fetch closure, resource name, and interval duration, (b) spawns a `tokio::spawn` background task with `tokio::time::interval`, (c) logs lifecycle events: "periodic_refetch started" on spawn, "periodic_refetch first_success" on first successful fetch, "periodic_refetch exit" if task panics or is cancelled, (d) on fetch failure, logs `warn!` with resource name, error, and retry count, (e) on successful re-fetch after failure, logs `info!` "self_healed" event with resource name and downtime duration. Pattern extracted from the existing process guard allowlist re-fetch (commit `821c3031`).
-- [ ] **BOOT-02**: Feature flags in `rc-agent/src/feature_flags.rs` use `spawn_periodic_refetch()` from BOOT-01 with 5-minute interval. If server was down at boot and feature flags loaded from disk cache, the periodic re-fetch self-heals within 5 minutes when server comes back. Observable event emitted on fallback-to-cache AND on self-heal. Currently feature flags are fetched once at boot via WS FlagSync message and never re-fetched if initial load fails.
-- [ ] **BOOT-03**: Architectural rule documented in CLAUDE.md standing rules: "Any data fetched from a remote source at startup MUST have a periodic re-fetch background task using `spawn_periodic_refetch()`. Single-fetch-at-boot without retry is a banned pattern." Include checklist of current startup-fetched resources and their re-fetch status: allowlist (done, 5min), feature flags (BOOT-02), billing rates (check), camera config (check).
+- [x] **BOOT-02**: Feature flags in `rc-agent/src/feature_flags.rs` use `spawn_periodic_refetch()` from BOOT-01 with 5-minute interval. If server was down at boot and feature flags loaded from disk cache, the periodic re-fetch self-heals within 5 minutes when server comes back. Observable event emitted on fallback-to-cache AND on self-heal. Currently feature flags are fetched once at boot via WS FlagSync message and never re-fetched if initial load fails.
+- [x] **BOOT-03**: Architectural rule documented in CLAUDE.md standing rules: "Any data fetched from a remote source at startup MUST have a periodic re-fetch background task using `spawn_periodic_refetch()`. Single-fetch-at-boot without retry is a banned pattern." Include checklist of current startup-fetched resources and their re-fetch status: allowlist (done, 5min), feature flags (BOOT-02), billing rates (check), camera config (check).
 - [ ] **BOOT-04**: First-scan validation for any guard/filter system. When `enabled` config field changes from `false` to `true` (detected by comparing previous config on disk): (a) run first scan immediately, (b) log first 10 violations with full details, (c) if violation rate >50%, emit `error!` "possible misconfiguration — {N}/{total} processes flagged" and stay in `report_only` mode, (d) require explicit operator confirmation (via fleet exec command `GUARD_CONFIRMED`) before switching to `kill_and_report` mode. **Incident reference:** Process guard enabled with empty allowlist → every process flagged → 28K false violations/day for 2 days.
 
 ### Startup Enforcement (BAT)
@@ -83,8 +83,8 @@ Requirements for v25.0 milestone. Each maps to roadmap phases.
 | OBS-03 | Phase 206 | Pending |
 | OBS-04 | Phase 206 | Pending |
 | OBS-05 | Phase 206 | Pending |
-| BOOT-02 | Phase 207 | Pending |
-| BOOT-03 | Phase 207 | Pending |
+| BOOT-02 | Phase 207 | Complete |
+| BOOT-03 | Phase 207 | Complete |
 | BOOT-04 | Phase 207 | Pending |
 | COV-02 | Phase 208 | Pending |
 | COV-03 | Phase 208 | Pending |

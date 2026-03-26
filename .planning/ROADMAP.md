@@ -3381,7 +3381,7 @@ Plans:
   4. `cargo test -p rc-agent` passes with tests covering: feature flag fallback-to-cache path, periodic re-fetch lifecycle logging, and first-scan validation threshold
 **Plans:** 2 plans
 Plans:
-- [ ] 207-01-PLAN.md -- Feature flags periodic re-fetch via spawn_periodic_refetch + CLAUDE.md boot resilience standing rule
+- [x] 207-01-PLAN.md -- Feature flags periodic re-fetch via spawn_periodic_refetch + CLAUDE.md boot resilience standing rule (completed 2026-03-26)
 - [ ] 207-02-PLAN.md -- First-scan validation for process guard + GUARD_CONFIRMED fleet exec command
 
 ### Phase 208: Chain Verification Integration
