@@ -1,0 +1,4 @@
+[
+  {"name":"game_launch","enabled":true},
+  {"name":"billing","enabled":true}
+]
