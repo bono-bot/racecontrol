@@ -37,6 +37,7 @@ use crate::reservation;
 use crate::scheduler;
 use crate::wallet;
 use crate::state::{AppState, VenueConfigSnapshot};
+use crate::venue_shutdown;
 use crate::wol;
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
@@ -236,6 +237,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pods/shutdown-all", post(shutdown_all_pods))
         .route("/pods/restart-all", post(restart_all_pods))
         .route("/pods/lockdown-all", post(lockdown_all_pods))
+        // Venue-level shutdown (audit-gated)
+        .route("/venue/shutdown", post(venue_shutdown::venue_shutdown_handler))
         .route("/pods/{id}/exec", post(ws_exec_pod))
         .route("/pods/{id}/self-test", get(pod_self_test))
         .route("/pods/{id}/clear-maintenance", post(clear_maintenance_pod))

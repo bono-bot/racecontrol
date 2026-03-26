@@ -52,6 +52,7 @@ pub mod state;
 pub mod wallet;
 pub mod whatsapp_alerter;
 pub mod udp_heartbeat;
+pub mod venue_shutdown;
 pub mod wol;
 pub mod tls;
 pub mod ws;
