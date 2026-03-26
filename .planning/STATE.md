@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 210-startup-enforcement-and-fleet-audit/210-02-PLAN.md
-last_updated: "2026-03-26T07:00:47.162Z"
+stopped_at: Completed 198-on-track-billing/198-01-PLAN.md
+last_updated: "2026-03-26T07:13:12.434Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 137
   total_plans: 330
-  completed_plans: 323
+  completed_plans: 324
   percent: 98
 ---
 
@@ -91,6 +91,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 211.1-venue-shutdown-button]: Bono fallback uses HTTP relay not SSH; both-offline returns actionable error; boot-time-fix archives findings with mv not delete
 - [Phase 210]: Phase 61 bat-drift uses bat_scan_pod_json for structured audit output
 - [Phase 210]: deploy-pod.sh copies bat files to BINARY_DIR to reuse single HTTP server for bat sync
+- [Phase 198-on-track-billing]: AC False-Live guard: 5s window with speed>0 OR |steer|>0.02 before billing emit; process fallback crash guard gates Live on game.is_running()
+- [Phase 198-on-track-billing]: BillingConfig placed after CafeConfig in Config struct; Config initializer required explicit billing: BillingConfig::default()
 
 ### Pending Todos
 
@@ -104,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T07:00:11.333Z
-Stopped at: Completed 210-startup-enforcement-and-fleet-audit/210-02-PLAN.md
+Last session: 2026-03-26T07:13:12.418Z
+Stopped at: Completed 198-on-track-billing/198-01-PLAN.md
 Resume file: None
