@@ -685,6 +685,12 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // ─── Race Engineer: Auto-relaunch on crash if billing is active ────
     // LAUNCH-17: Atomic check+increment under single write lock (no TOCTOU)
     if info.game_state == GameState::Error {
+        // RECOVER-02 SLA tracking: capture crash detection time at start of Error branch
+        let crash_detected_at = std::time::Instant::now();
+        let current_exit_code = info.exit_code;
+        let error_taxonomy = classify_error_taxonomy(info.error_message.as_deref(), current_exit_code);
+        let failure_mode_str = format!("{:?}", error_taxonomy);
+
         let has_billing = state
             .billing
             .active_timers
@@ -695,20 +701,36 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         if has_billing {
             // LAUNCH-17: Single write lock — read AND increment atomically to prevent duplicate relaunches
             // from rapid duplicate Error events on the same pod.
-            let should_relaunch: Option<(u32, SimType, Option<String>)> = {
+            // Also push exit_code and extract car/track in same lock.
+            let should_relaunch: Option<(u32, SimType, Option<String>, Option<String>, Option<String>)> = {
                 let mut games = state.game_launcher.active_games.write().await;
                 if let Some(tracker) = games.get_mut(pod_id) {
+                    // RECOVER-05: Accumulate exit codes for staff alert diagnostics
+                    tracker.exit_codes.push(current_exit_code);
+
+                    // Extract car/track for enriched recovery events
+                    let (car, track, _, _) = extract_launch_fields(&tracker.launch_args);
+
                     // LAUNCH-16: Guard null args — externally tracked games have no original launch args
                     if tracker.externally_tracked || tracker.launch_args.is_none() {
                         tracing::warn!(
                             "Race Engineer: skipping relaunch for pod {} — original launch args unavailable, please relaunch from kiosk",
                             pod_id
                         );
+                        // RECOVER-04: Broadcast dashboard notification for null-args guard
+                        let null_info = {
+                            let mut null_tracker_info = tracker.to_info();
+                            null_tracker_info.error_message = Some(
+                                "Cannot auto-relaunch: no launch args. Manual relaunch required from kiosk.".to_string()
+                            );
+                            null_tracker_info
+                        };
+                        let _ = state.dashboard_tx.send(DashboardEvent::GameStateChanged(null_info));
                         None
                     } else if tracker.auto_relaunch_count < 2 {
                         tracker.auto_relaunch_count += 1;
                         let attempt = tracker.auto_relaunch_count;
-                        Some((attempt, tracker.sim_type, tracker.launch_args.clone()))
+                        Some((attempt, tracker.sim_type, tracker.launch_args.clone(), car, track))
                     } else {
                         None // exhausted
                     }
@@ -717,22 +739,36 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                 }
             };
 
-            if let Some((attempt, sim_type, launch_args)) = should_relaunch {
+            if let Some((attempt, sim_type, launch_args, car, track)) = should_relaunch {
                 let pod_id_owned = pod_id.to_string();
                 let state_clone = state.clone();
                 let sim_name = format!("{}", sim_type);
+                let failure_mode_clone = failure_mode_str.clone();
+                let car_clone = car.clone();
+                let track_clone = track.clone();
+
+                // RECOVER-03: Query historical recovery data for best action
+                let (best_action, success_rate) = metrics::query_best_recovery_action(
+                    &state.db,
+                    pod_id,
+                    &sim_name,
+                    &failure_mode_str,
+                ).await;
+                tracing::info!(
+                    "recovery action selected: {} ({:.0}% historical success) for pod {} attempt {}/2",
+                    best_action, success_rate * 100.0, pod_id, attempt
+                );
+
+                let action_label = format!("{}_attempt_{}", best_action, attempt);
 
                 log_pod_activity(
                     state,
                     pod_id,
                     "race_engineer",
                     "Auto-Relaunching Game",
-                    &format!("Race Engineer relaunching {} after crash (attempt {}/2)", sim_name, attempt),
+                    &format!("Race Engineer relaunching {} after crash (attempt {}/2) — action: {}", sim_name, attempt, best_action),
                     "race_engineer",
                 );
-
-                // Capture crash detection time for recovery duration measurement
-                let crash_detected_at = std::time::Instant::now();
 
                 // Delayed relaunch (5s) — verify billing still active + game still in Error
                 tokio::spawn(async move {
@@ -772,35 +808,39 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                         }
                         drop(senders);
 
-                        // Record recovery event — relaunch initiated (METRICS-04)
+                        // RECOVER-02: Record enriched recovery event with actual ErrorTaxonomy,
+                        // car/track from launch_args, exit_code in details, and SLA duration
                         let recovery_duration_ms = crash_detected_at.elapsed().as_millis() as i64;
                         let recovery_event = metrics::RecoveryEvent {
                             id: uuid::Uuid::new_v4().to_string(),
                             pod_id: pod_id_owned.clone(),
                             sim_type: Some(sim_name.clone()),
-                            car: None,
-                            track: None,
-                            failure_mode: "game_crash".to_string(),
-                            recovery_action_tried: format!("auto_relaunch_attempt_{}", attempt),
+                            car: car_clone,
+                            track: track_clone,
+                            failure_mode: failure_mode_clone,
+                            recovery_action_tried: action_label,
                             recovery_outcome: metrics::RecoveryOutcome::Success,
                             recovery_duration_ms: Some(recovery_duration_ms),
-                            error_details: None,
+                            error_details: Some(format!("exit_code: {:?}", current_exit_code)),
                         };
                         metrics::record_recovery_event(&state_clone.db, &recovery_event).await;
                     }
                 });
             } else {
                 // Check if exhausted (auto_relaunch_count >= 2) — send staff alert + pause billing
-                let is_exhausted = state
-                    .game_launcher
-                    .active_games
-                    .read()
-                    .await
-                    .get(pod_id)
-                    .map(|t| t.auto_relaunch_count >= 2)
-                    .unwrap_or(false);
+                let (is_exhausted, tracker_exit_codes, tracker_launch_args) = {
+                    let games = state.game_launcher.active_games.read().await;
+                    games.get(pod_id).map(|t| (
+                        t.auto_relaunch_count >= 2,
+                        t.exit_codes.clone(),
+                        t.launch_args.clone(),
+                    )).unwrap_or((false, Vec::new(), None))
+                };
 
                 if is_exhausted {
+                    // Extract car/track for enriched exhausted event
+                    let (car, track, _, _) = extract_launch_fields(&tracker_launch_args);
+
                     // LAUNCH-03: All relaunch attempts exhausted — pause billing
                     log_pod_activity(
                         state,
@@ -828,28 +868,39 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     drop(timers);
 
                     // LAUNCH-15: WhatsApp staff alert — notify staff that automation failed
-                    let error_taxonomy = classify_error_taxonomy(info.error_message.as_deref(), info.exit_code);
+                    // RECOVER-05: Include exit_codes and suggested action in alert
+                    let best_action_for_alert = {
+                        let sim_name_alert = info.sim_type.to_string();
+                        let (action, _) = metrics::query_best_recovery_action(
+                            &state.db, pod_id, &sim_name_alert, &failure_mode_str
+                        ).await;
+                        action
+                    };
                     send_staff_launch_alert(
                         state,
                         pod_id,
                         &info.sim_type.to_string(),
-                        &format!("{:?}", error_taxonomy),
+                        &failure_mode_str,
+                        &tracker_exit_codes,
+                        &best_action_for_alert,
                     ).await;
 
-                    // Record recovery event — relaunch exhausted (METRICS-04)
+                    // RECOVER-02: Record enriched exhausted recovery event
+                    let recovery_duration_ms = crash_detected_at.elapsed().as_millis() as i64;
                     let recovery_event = metrics::RecoveryEvent {
                         id: uuid::Uuid::new_v4().to_string(),
                         pod_id: pod_id.to_string(),
                         sim_type: Some(format!("{}", info.sim_type)),
-                        car: None,
-                        track: None,
-                        failure_mode: "game_crash".to_string(),
+                        car,
+                        track,
+                        failure_mode: failure_mode_str,
                         recovery_action_tried: "auto_relaunch_exhausted".to_string(),
                         recovery_outcome: metrics::RecoveryOutcome::Failed,
-                        recovery_duration_ms: None,
-                        error_details: Some(
-                            "Max relaunch attempts (2) reached. Billing paused.".to_string(),
-                        ),
+                        recovery_duration_ms: Some(recovery_duration_ms),
+                        error_details: Some(format!(
+                            "Max relaunch attempts (2) reached. Billing paused. exit_code: {:?}",
+                            current_exit_code
+                        )),
                     };
                     metrics::record_recovery_event(&state.db, &recovery_event).await;
                 }
@@ -859,16 +910,27 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
 }
 
 /// Send WhatsApp alert to staff after Race Engineer exhausts all retry attempts (LAUNCH-15).
+/// Includes exit_codes and suggested_action for diagnostics (RECOVER-05).
 /// Best-effort — errors are logged but never swallowed.
 async fn send_staff_launch_alert(
     state: &Arc<AppState>,
     pod_id: &str,
     sim_type: &str,
     error_taxonomy: &str,
+    exit_codes: &[Option<i32>],
+    suggested_action: &str,
 ) {
+    let exit_codes_str = if exit_codes.is_empty() {
+        "none recorded".to_string()
+    } else {
+        exit_codes.iter()
+            .map(|c| c.map(|n| n.to_string()).unwrap_or_else(|| "unknown".to_string()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let msg = format!(
-        "Launch Failure - Pod {}\nGame: {}\nError: {}\nAttempts: 2/2 exhausted\nAction: Check pod + try different car/track",
-        pod_id, sim_type, error_taxonomy
+        "Launch Failure - Pod {}\nGame: {}\nError: {}\nAttempts: 2/2 exhausted\nExit codes: {}\nSuggested: {}\nAction: Check pod + try different car/track",
+        pod_id, sim_type, error_taxonomy, exit_codes_str, suggested_action
     );
     tracing::warn!("LAUNCH-15: Staff alert for pod {} — {}", pod_id, msg);
 
