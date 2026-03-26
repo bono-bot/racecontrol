@@ -56,6 +56,26 @@ run_phase07() {
     fi
   done
 
+  # XS-02: Cross-check allowlist background task recency (spot-check pod 1)
+  # If safe_mode is inactive but allowlist was never refreshed, pods run on stale/empty list
+  local pod1_ip; pod1_ip=$(printf '%s' "${PODS:-}" | awk '{print $1}')
+  if [[ -n "$pod1_ip" ]]; then
+    local log_resp; log_resp=$(safe_remote_exec "$pod1_ip" "8090" \
+      'findstr /I "whitelist" C:\RacingPoint\rc-agent.jsonl' "$DEFAULT_TIMEOUT")
+    local log_out; log_out=$(printf '%s' "$log_resp" | jq -r '.stdout // ""' 2>/dev/null | tail -1)
+    if [[ -n "$log_out" ]]; then
+      status="PASS"; severity="P3"; message="Allowlist refresh activity found in pod 1 logs"
+    else
+      status="WARN"; severity="P2"; message="No allowlist refresh entries in pod 1 logs -- background task may not be running"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Cannot check allowlist refresh -- no pod IPs available"
+  fi
+  if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
+    status="QUIET"; severity="P3"
+  fi
+  emit_result "$phase" "$tier" "pod1-allowlist-refresh" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   return 0
 }
 export -f run_phase07
