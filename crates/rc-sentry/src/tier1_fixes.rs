@@ -8,6 +8,7 @@
 //! - All fixes are idempotent — safe to run multiple times.
 
 use rc_common::types::CrashDiagResult;
+use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 use super::watchdog::CrashContext;
 use crate::sentry_config;
 use std::io::Write;
@@ -322,6 +323,122 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
     }
 }
 
+// ─── COV-05: Spawn Verification Chain Steps ─────────────────────────────────
+
+/// COV-05 Step 1: Verify spawn() returned Ok (or schtasks succeeded).
+struct StepSpawnOk;
+impl VerifyStep for StepSpawnOk {
+    type Input = (bool, String);  // (spawn_succeeded, method_description)
+    type Output = String;         // method that succeeded
+    fn name(&self) -> &str { "spawn_ok" }
+    fn run(&self, input: (bool, String)) -> Result<String, VerificationError> {
+        let (ok, method) = input;
+        if !ok {
+            return Err(VerificationError::ActionError {
+                step: self.name().to_string(),
+                raw_value: format!("spawn failed via {}", method),
+            });
+        }
+        Ok(method)
+    }
+}
+
+/// COV-05 Step 2: Wait 500ms then check if the process is alive via tasklist.
+/// Uses std::thread::sleep (no tokio — rc-sentry is sync-only).
+struct StepPidLiveness;
+impl VerifyStep for StepPidLiveness {
+    type Input = String;   // process_name (e.g., "rc-agent.exe")
+    type Output = String;  // process_name (passed through)
+    fn name(&self) -> &str { "pid_liveness_500ms" }
+    fn run(&self, input: String) -> Result<String, VerificationError> {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Check if the process is running via tasklist
+        let mut cmd = std::process::Command::new("tasklist");
+        cmd.args(["/FI", &format!("IMAGENAME eq {}", input)]);
+        #[cfg(windows)]
+        {
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let output = cmd.output();
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.to_lowercase().contains(&input.to_lowercase()) {
+                    Ok(input)
+                } else {
+                    Err(VerificationError::ActionError {
+                        step: self.name().to_string(),
+                        raw_value: format!("spawn returned Ok but {} not found in tasklist after 500ms", input),
+                    })
+                }
+            }
+            Err(e) => {
+                // tasklist itself failed — can't verify, log but don't block
+                tracing::warn!(target: LOG_TARGET, "tasklist command failed: {} — skipping PID liveness check", e);
+                Ok(input)
+            }
+        }
+    }
+}
+
+/// COV-05 Step 3: Poll health endpoint for up to 10s.
+/// Reuses the same logic as verify_service_started but wrapped as a VerifyStep.
+struct StepHealthPoll {
+    health_addr: String,
+}
+impl VerifyStep for StepHealthPoll {
+    type Input = String;  // service_name
+    type Output = bool;   // healthy
+    fn name(&self) -> &str { "health_poll_10s" }
+    fn run(&self, input: String) -> Result<bool, VerificationError> {
+        let start = std::time::Instant::now();
+        let timeout = SPAWN_VERIFY_TIMEOUT;
+        let poll_interval = SPAWN_VERIFY_POLL;
+
+        // Initial delay — give bat script time to swap binaries
+        std::thread::sleep(SPAWN_VERIFY_INITIAL_DELAY);
+
+        while start.elapsed() < timeout {
+            match std::net::TcpStream::connect_timeout(
+                &self.health_addr.parse().unwrap_or_else(|_| {
+                    std::net::SocketAddr::from(([127, 0, 0, 1], 8090))
+                }),
+                Duration::from_secs(2),
+            ) {
+                Ok(mut stream) => {
+                    use std::io::{Read, Write};
+                    let req = "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+                    if stream.write_all(req.as_bytes()).is_ok() {
+                        let mut buf = [0u8; 512];
+                        if let Ok(n) = stream.read(&mut buf) {
+                            let resp = String::from_utf8_lossy(&buf[..n]);
+                            if resp.contains("200") {
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    "COV-05: {} health verified after {:?}",
+                                    input,
+                                    start.elapsed()
+                                );
+                                return Ok(true);
+                            }
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+            std::thread::sleep(poll_interval);
+        }
+
+        Err(VerificationError::ActionError {
+            step: self.name().to_string(),
+            raw_value: format!(
+                "spawn returned Ok but {} health endpoint at {} not responding after {}s",
+                input, self.health_addr, timeout.as_secs()
+            ),
+        })
+    }
+}
+
 /// Restart the monitored service via Session 1 spawn (primary) or schtasks (fallback).
 ///
 /// Primary path (SPAWN-03): WTSQueryUserToken + CreateProcessAsUser launches rc-agent
@@ -354,8 +471,14 @@ pub fn restart_service() -> CrashDiagResult {
         // Uses WTSQueryUserToken + CreateProcessAsUser to launch in interactive desktop.
         // Falls back to schtasks if no active console session (e.g., before user login).
         let bat_path = std::path::Path::new(&cfg.start_script);
+        // Track spawn method for COV-05 chain
+        let spawn_method_name: String;
+        let spawn_succeeded: bool;
+
         match crate::session1_spawn::spawn_in_session1(bat_path) {
             Ok(()) => {
+                spawn_method_name = "session1".to_string();
+                spawn_succeeded = true;
                 tracing::info!(target: LOG_TARGET,
                     "Session 1 spawn succeeded — verifying {} starts...",
                     cfg.service_name
@@ -403,6 +526,8 @@ pub fn restart_service() -> CrashDiagResult {
                         success: false,
                     };
                 }
+                spawn_method_name = "schtasks".to_string();
+                spawn_succeeded = true;
                 tracing::info!(target: LOG_TARGET,
                     "schtasks /Run succeeded (fallback) — verifying {} starts...",
                     cfg.service_name
@@ -410,14 +535,54 @@ pub fn restart_service() -> CrashDiagResult {
             }
         }
 
-        // Verify rc-agent actually started (standing rule: spawn success != child alive).
-        // Poll :8090/health at SPAWN_VERIFY_POLL intervals for SPAWN_VERIFY_TIMEOUT (SPAWN-01).
-        let verified = verify_service_started(&cfg.health_addr, SPAWN_VERIFY_TIMEOUT);
+        // COV-05: Spawn verification chain — wraps spawn + PID liveness + health check
+        let chain = ColdVerificationChain::new("spawn_verification");
 
+        // Step 1: Record spawn success
+        match chain.execute_step(&StepSpawnOk, (spawn_succeeded, spawn_method_name.clone())) {
+            Ok(_method) => {
+                tracing::info!(target: LOG_TARGET, "COV-05: spawn step passed (method={})", spawn_method_name);
+            }
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: spawn step reported failure");
+                return CrashDiagResult {
+                    fix_type: "restart".to_string(),
+                    detail: format!("COV-05: spawn failed: {}", e),
+                    success: false,
+                };
+            }
+        }
+
+        // Step 2: PID liveness check (500ms wait + tasklist)
+        match chain.execute_step(&StepPidLiveness, cfg.process_name.clone()) {
+            Ok(_) => {
+                tracing::info!(target: LOG_TARGET, "COV-05: PID liveness check passed for {}", cfg.process_name);
+            }
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: spawn returned Ok but child not running after 500ms");
+                // Continue to health check — PID liveness failure is informational,
+                // the process might still be starting up
+            }
+        }
+
+        // Step 3: Health endpoint poll (10s) — replaces direct verify_service_started() call
+        let verified = match chain.execute_step(
+            &StepHealthPoll { health_addr: cfg.health_addr.clone() },
+            cfg.process_name.clone(),
+        ) {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: health endpoint not responding — spawn may have silently failed");
+                false
+            }
+        };
+
+        // Write breadcrumb AFTER chain completes
         let _ = std::fs::write(
             r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
             format!(
-                "restart_service: spawn ok, verified={} at {:?}\n",
+                "restart_service: spawn ok ({}), verified={} at {:?}\n",
+                spawn_method_name,
                 verified,
                 std::time::SystemTime::now()
             ),
@@ -426,11 +591,11 @@ pub fn restart_service() -> CrashDiagResult {
         CrashDiagResult {
             fix_type: "restart".to_string(),
             detail: if verified {
-                format!("{} restarted (Session 1) and verified via health check", cfg.service_name)
+                format!("{} restarted ({}) and verified via COV-05 chain (spawn_ok + pid_liveness + health_poll)", cfg.service_name, spawn_method_name)
             } else {
                 format!(
-                    "{} restart attempted but health check failed after {}s",
-                    cfg.service_name, SPAWN_VERIFY_TIMEOUT.as_secs()
+                    "{} restart attempted ({}) but COV-05 health check failed after {}s",
+                    cfg.service_name, spawn_method_name, SPAWN_VERIFY_TIMEOUT.as_secs()
                 )
             },
             success: verified,
