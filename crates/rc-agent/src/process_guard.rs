@@ -19,6 +19,7 @@ use walkdir;
 
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{MachineWhitelist, ProcessViolation, ViolationType};
+use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 use crate::config::ProcessGuardConfig;
 
@@ -35,6 +36,81 @@ const CRITICAL_BINARIES: &[&str] = &["racecontrol.exe"];
 pub struct ScanResult {
     pub total_processes: usize,
     pub violation_count: usize,
+}
+
+// ─── COV-04: Allowlist Verification Chain Steps ─────────────────────────────
+
+/// COV-04 Step 1: Verify HTTP fetch returned a non-empty allowlist.
+struct StepAllowlistNonEmpty;
+impl VerifyStep for StepAllowlistNonEmpty {
+    type Input = MachineWhitelist;
+    type Output = MachineWhitelist;
+    fn name(&self) -> &str { "allowlist_non_empty" }
+    fn run(&self, input: MachineWhitelist) -> Result<MachineWhitelist, VerificationError> {
+        if input.processes.is_empty() && input.autostart_keys.is_empty() {
+            return Err(VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("processes={} autostart_keys={}", input.processes.len(), input.autostart_keys.len()),
+            });
+        }
+        Ok(input)
+    }
+}
+
+/// COV-04 Step 2: Sanity check — critical system processes must be in the allowlist.
+struct StepSanityCheck;
+impl VerifyStep for StepSanityCheck {
+    type Input = MachineWhitelist;
+    type Output = MachineWhitelist;
+    fn name(&self) -> &str { "allowlist_sanity_check" }
+    fn run(&self, input: MachineWhitelist) -> Result<MachineWhitelist, VerificationError> {
+        let required = ["svchost.exe", "explorer.exe", "rc-agent.exe"];
+        let process_names: Vec<String> = input.processes.iter()
+            .map(|p| p.to_lowercase())
+            .collect();
+        let mut missing = Vec::new();
+        for req in &required {
+            if !process_names.iter().any(|n| n == req) {
+                missing.push(*req);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(VerificationError::DecisionError {
+                step: self.name().to_string(),
+                raw_value: format!("missing_critical_processes={:?} total_in_list={}", missing, input.processes.len()),
+            });
+        }
+        Ok(input)
+    }
+}
+
+/// Run COV-04 verification chain on a fetched allowlist.
+/// This is ADDITIVE — does not replace the existing OBS-03 auto-switch logic.
+/// Provides structured verification logging via ColdVerificationChain tracing spans.
+fn validate_allowlist_chain(wl: &MachineWhitelist, guard_enabled: bool) {
+    let chain = ColdVerificationChain::new("allowlist_enforcement");
+
+    // Step 1: Non-empty check
+    match chain.execute_step(&StepAllowlistNonEmpty, wl.clone()) {
+        Ok(wl_checked) => {
+            // Step 2: Sanity check (critical processes present)
+            match chain.execute_step(&StepSanityCheck, wl_checked) {
+                Ok(_) => {
+                    tracing::info!(target: LOG_TARGET, "COV-04: allowlist verification chain passed ({} processes)", wl.processes.len());
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, error = %e, "COV-04: allowlist missing critical system processes");
+                }
+            }
+        }
+        Err(e) => {
+            if guard_enabled {
+                tracing::error!(target: LOG_TARGET, error = %e, "COV-04: empty allowlist with guard enabled — report_only enforced by existing OBS-03 logic");
+            } else {
+                tracing::warn!(target: LOG_TARGET, error = %e, "COV-04: allowlist is empty (guard disabled, no action needed)");
+            }
+        }
+    }
 }
 
 /// Entry point — call once from main.rs after AppState is built.
@@ -81,6 +157,13 @@ pub fn spawn(
                 wl.violation_action = "report_only".to_string();
             }
         }
+
+        // COV-04: Run allowlist verification chain (additive — does not replace OBS-03 above)
+        {
+            let wl = whitelist.read().await;
+            validate_allowlist_chain(&wl, config.enabled);
+        }
+
         // Track whether the first scan has run (for >50% threshold check)
         let mut first_scan_done = false;
 

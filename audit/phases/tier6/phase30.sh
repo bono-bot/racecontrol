@@ -25,11 +25,12 @@ run_phase30() {
   fi
   emit_result "$phase" "$tier" "server-23-wa-config" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # Evolution API live connection state check (CV-03)
-  # Extract Evolution API base URL from TOML config
-  local evo_url="http://srv1422716.hstgr.cloud:8080"
+  # Evolution API live health check (CV-03)
+  # Evolution API runs on server .23 at localhost:53622 (not LAN-accessible from James)
+  # Extract URL from TOML (key: evolution_url, NOT evolution_api_url)
+  local evo_url="http://localhost:53622"
   local url_response; url_response=$(safe_remote_exec "192.168.31.23" "8090" \
-    'findstr /C:"evolution_api_url" C:\RacingPoint\racecontrol.toml' \
+    'findstr /C:"evolution_url" C:\RacingPoint\racecontrol.toml' \
     "$DEFAULT_TIMEOUT")
   local url_stdout; url_stdout=$(printf '%s' "$url_response" | jq -r '.stdout // ""' 2>/dev/null || true)
   local parsed_url; parsed_url=$(printf '%s' "$url_stdout" | grep -oE 'https?://[^"[:space:]]+' | head -1)
@@ -37,19 +38,21 @@ run_phase30() {
     evo_url="$parsed_url"
   fi
 
-  # Query Evolution API connection state
-  local evo_response; evo_response=$(http_get "${evo_url}/api/instance/connectionState/racingpoint" 10)
-  if [[ -n "$evo_response" ]]; then
-    local conn_state; conn_state=$(printf '%s' "$evo_response" | jq -r '.instance.state // .state // "unknown"' 2>/dev/null || echo "unknown")
-    if [[ "$conn_state" = "open" ]]; then
-      status="PASS"; severity="P3"; message="Evolution API connected (state=open)"
-    elif [[ "$conn_state" != "unknown" ]]; then
-      status="WARN"; severity="P2"; message="Evolution API disconnected (state=${conn_state}) -- WhatsApp alerts may not send"
+  # Probe Evolution API root via server exec (matches racecontrol's check_evolution_health)
+  local evo_exec; evo_exec=$(safe_remote_exec "192.168.31.23" "8090" \
+    "curl.exe -s -m 5 ${evo_url}/" \
+    "$DEFAULT_TIMEOUT")
+  local evo_stdout; evo_stdout=$(printf '%s' "$evo_exec" | jq -r '.stdout // ""' 2>/dev/null || true)
+  if [[ -n "$evo_stdout" ]]; then
+    local evo_status; evo_status=$(printf '%s' "$evo_stdout" | jq -r '.status // 0' 2>/dev/null || echo "0")
+    local evo_version; evo_version=$(printf '%s' "$evo_stdout" | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
+    if [[ "$evo_status" = "200" ]]; then
+      status="PASS"; severity="P3"; message="Evolution API running v${evo_version} at ${evo_url}"
     else
-      status="FAIL"; severity="P1"; message="Evolution API response unparseable at ${evo_url} -- WhatsApp alerting may be DOWN"
+      status="WARN"; severity="P2"; message="Evolution API responded but status=${evo_status} (expected 200)"
     fi
   else
-    status="FAIL"; severity="P1"; message="Evolution API unreachable at ${evo_url} -- WhatsApp alerting DOWN"
+    status="FAIL"; severity="P1"; message="Evolution API unreachable at ${evo_url} via server exec -- WhatsApp alerting DOWN"
   fi
   emit_result "$phase" "$tier" "server-23-wa-connection" "$status" "$severity" "$message" "$mode" "$venue_state"
 
