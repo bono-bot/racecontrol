@@ -891,3 +891,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 08:21 IST | James | 2ad9ed50 | feat(213-01): expand APPROVED_FIXES with 3 new fix functions (wol_pod, clear_old_maintenance_mode, replace_stale_bat) |
 | 2026-03-26 08:21 IST | James | 28ff1c60 | feat(213-01): escalation-engine.sh 5-tier loop + auto-detect-config.json runtime toggle |
 | 2026-03-26 08:21 IST | James | 557d23fc | docs(213-01): 213-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (HEAL-01/02/03/06/08 complete) |
+| 2026-03-26 08:28 IST | James | 3e9430df | feat(213-02): wire escalation-engine into cascade.sh and all 6 detectors (HEAL-07 live-sync) |
+| 2026-03-26 08:28 IST | James | f7a4decc | feat(213-02): wire escalation-engine into auto-detect.sh with live-sync healing (HEAL-04 escalate_human) |
+| 2026-03-26 08:28 IST | James | 4aeab630 | docs(213-02): 213-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (HEAL-04/05/07 complete) |
