@@ -118,11 +118,14 @@ pub fn spawn(tx: mpsc::Sender<AgentMessage>, pod_id: String) {
                             );
                         }
 
-                        // Timestamp in IST (UTC+5:30) per project timezone convention
-                        let timestamp = chrono::Utc::now()
-                            .with_timezone(&chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60)
-                                .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap()))
-                            .to_rfc3339();
+                        // Timestamp in IST (UTC+5:30) per project timezone convention.
+                        // IST = UTC+19800s. east_opt accepts i32 seconds in ±86400 range.
+                        // Constant value 19800 is always valid — no runtime failure possible.
+                        const IST_OFFSET_SECS: i32 = 5 * 3600 + 30 * 60; // 19800
+                        let timestamp = match chrono::FixedOffset::east_opt(IST_OFFSET_SECS) {
+                            Some(ist) => chrono::Utc::now().with_timezone(&ist).to_rfc3339(),
+                            None => chrono::Utc::now().to_rfc3339(), // unreachable in practice
+                        };
 
                         let msg = AgentMessage::SentinelChange {
                             pod_id: pod_id.clone(),
