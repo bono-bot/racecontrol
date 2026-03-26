@@ -3556,7 +3556,13 @@ Plans:
   3. An approved suggestion with category "threshold_tune" is applied to the relevant detector script, committed, pushed, and a notification sent — confirmed by checking git log after approval
   4. The suggestion inbox is readable via the relay exec API with command get_suggestions or equivalent — returns current pending suggestions as JSON
   5. When self-patch modifies a detector script and the re-run does not confirm the fix works, the change is automatically reverted and a "self-patch reverted" log entry is written — the revert is confirmed by checking git log showing the revert commit
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 215-01-PLAN.md — Pattern tracker + trend analysis (LEARN-01, LEARN-04)
+- [ ] 215-02-PLAN.md — Suggestion engine + categorization + inbox API (LEARN-02, LEARN-03, LEARN-06)
+- [ ] 215-03-PLAN.md — Approved suggestion sync to target files (LEARN-05)
+- [ ] 215-04-PLAN.md — Self-patch loop with CE methodology + toggle (LEARN-07, LEARN-08, LEARN-09)
 
 ### Phase 216: Pipeline Self-Test Suite
 **Goal**: Every detector and escalation tier can be verified against known-good and known-bad inputs without touching live infrastructure — the test suite confirms that detection is correct before each production run
