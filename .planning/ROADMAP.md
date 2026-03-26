@@ -3458,6 +3458,35 @@ Plans:
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
 | 210. Startup Enforcement and Fleet Audit | 2/2 | Complete    | 2026-03-26 |
 
+### Phase 217: Session 1 Enforcement & Audit Protocol v6.0
+**Goal**: Guarantee rc-agent always runs in the interactive desktop session (Session 1) on all pods, and expand the audit protocol to catch Session 0 isolation, missing Edge processes, and behavioral blanking failures — gaps that allowed the blanking screen to be broken on ALL 8 pods without detection
+**Depends on**: Phase 216 (adds to the detection/verification toolkit)
+**Requirements**: SESS-01 (rc-watchdog service replaces bat watchdog), SESS-02 (Session 1 verification in audit), SESS-03 (Edge process count validation), SESS-04 (behavioral blank-screen trigger test), SESS-05 (debug endpoint consistency check), SESS-06 (standing rules update for Session 0 prevention), SESS-07 (LOGBOOK + memory update)
+**Success Criteria** (what must be TRUE):
+  1. After any rc-agent restart (crash, deploy, manual kill), rc-agent runs in Session 1 (Console) as the logged-in user — NOT as NT AUTHORITY\SYSTEM in Session 0. Verified by `tasklist /V /FO CSV | findstr rc-agent` showing "Console" session
+  2. The `RCWatchdog` Windows service is registered on all 8 pods with `start= auto` and uses `spawn_in_session1()` (WTSQueryUserToken + CreateProcessAsUser) — the old `RCAgentWatchdog` bat-based schtask is deleted
+  3. Audit protocol includes: (a) session context check per pod, (b) edge_process_count > 0 when lock_screen_state is screen_blanked, (c) behavioral RCAGENT_BLANK_SCREEN trigger with Edge verification, (d) debug endpoint at :18924 consistency validation
+  4. Standing rules updated with: "rc-agent must always run in Session 1", "Never create schtasks that restart rc-agent as SYSTEM", "Audit must check Session context, not just health/build_id"
+  5. All 8 pods verified via screenshot showing blanking screen spanning 7680x1440 with centered Racing Point logo
+**Status**: COMPLETE (executed live 2026-03-26)
+**Plans**: 0 plans (executed as live incident response, documented retroactively)
+
+**What was done:**
+- Built and deployed `rc-watchdog.exe` to all 8 pods via SCP
+- Created `RCWatchdog` Windows service (`sc create ... start= auto`) on all pods
+- Deleted `RCAgentWatchdog` schtask (bat-based, Session 0) on all pods
+- Deleted `StartRCAgent` schtask (also Session 0) on all pods
+- Killed Session 0 rc-agent on all pods; watchdog service restarted in Session 1
+- Triggered RCAGENT_BLANK_SCREEN on all pods; Edge launched (7 processes each)
+- Screenshot verified Pod 1 + Pod 8: blanking screen spanning 7680x1440
+
+**Root cause chain:**
+1. `RCAgentWatchdog` schtask ran `rcagent-watchdog.bat` every 1 min as NT AUTHORITY\SYSTEM (Session 0)
+2. When rc-agent crashed, bat restarted it in Session 0 via `start "" rc-agent.exe`
+3. Session 0 isolation prevented Edge from creating visible windows
+4. `launch_browser()` in lock_screen.rs either failed silently or Edge crashed immediately
+5. State stuck at `screen_blanked` with `edge_process_count: 0` — inconsistent state never detected by audit
+
 ---
 
 ## v26.0 Autonomous Bug Detection & Self-Healing

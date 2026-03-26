@@ -35,6 +35,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ### Roadmap Evolution
 
 - Phase 211.1 inserted after Phase 211: Venue Shutdown Button (URGENT) — staff-initiated safe shutdown of all venue infrastructure with pre-shutdown audit gate, Bono verification, and James boot-time fix implementation
+- Phase 217 added: Session 1 Enforcement & Audit Protocol v6.0 — root fix for Session 0 isolation (rc-watchdog service), audit protocol gaps (session check, Edge verification, behavioral blanking test, debug endpoint consistency)
 
 ### Decisions
 
