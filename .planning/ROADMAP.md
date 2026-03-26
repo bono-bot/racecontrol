@@ -3209,7 +3209,10 @@ Plans:
   7. **ADMIN MATRIX**: `GET /api/v1/admin/launch-matrix?game=assetto_corsa` returns per-pod rows with: pod_id, total_launches, success_rate, avg_time_ms, top_3_failure_modes, flagged (boolean: success_rate < 0.70). Verify: pods with <70% are flagged=true
   8. **ROLLING WINDOW**: Insert old launch_events (45 days ago) with 100% success, recent events (last 7 days) with 50% success → combo_reliability reflects recent 30-day window (50%), not all-time (75%). Verify: success_rate matches 30-day window calculation
   9. **AUTO-TUNING PROOF**: After 20 new launches, dynamic timeout for the combo changes from default 120s to historical-derived value. Pre-launch health check adapts (if 80% of failures on this pod are disk-related, disk check runs first). Verify: no manual config changes needed, system computes from data
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 200-01-PLAN.md — Combo reliability table, query/update functions, warning injection in launch response, auto-retry cap tuning
+- [ ] 200-02-PLAN.md — Alternatives suggestion API + admin launch matrix endpoint
 
 ### Phase 201: Frontend Integration & Type Sync
 **Goal**: All 4 frontend apps (kiosk, web dashboard, admin, PWA) correctly handle new billing states, game states, and metrics — with type safety enforced by contract tests and CI. No customer-facing UI breaks when the backend ships new states.
