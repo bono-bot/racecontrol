@@ -1,0 +1,1 @@
+{"command":"custom_command","args":"(crontab -l | grep -v bono-auto-detect; echo \"5 21 * * * AUDIT_PIN=261121 bash /root/racecontrol/scripts/bono-auto-detect.sh >> /root/auto-detect-logs/cron.log 2>&1\") | crontab -","reason":"SCHED-02: correct Bono auto-detect from 02:30 to 02:35 IST"}
