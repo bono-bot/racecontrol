@@ -35,6 +35,7 @@ kiosk/.next
 playwright-report/
 test-results/
 tests/e2e/results/
+tests/e2e/report/
 
 # Added by Phase 170 — repo hygiene
 .env.*

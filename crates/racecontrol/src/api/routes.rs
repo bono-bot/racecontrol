@@ -120,6 +120,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Metrics API (METRICS-05, METRICS-06) — operational metrics for admin dashboard + intelligence
         .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
+        // Intelligence API (INTEL-03, INTEL-04) — combo alternatives + fleet reliability matrix
+        .route("/games/alternatives", get(metrics::alternatives_handler))
+        .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
