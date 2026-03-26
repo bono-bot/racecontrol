@@ -35,6 +35,7 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 IST | James | `f36e5b5f` | fix(kiosk): game launch timer — 3 bugs: progress bar always red (bg-rp-red in both ternary branches), no launch countdown on standalone kiosk (LaunchingView was spinner-only), no elapsed time in dashboard panel. Added 180s countdown bar with elapsed_seconds from backend. Audit Phase 68 (4 checks). Deployed kiosk :3300. |
 | Mar 26 IST | James | `75154ec5` | fix(game-launch): AC single player AI difficulty always Semi-Pro (ai_difficulty string→ai_level numeric mismatch) + zero AI opponents (ai_count ignored, ai_cars empty). Added ai_count to AcLaunchParams, effective_ai_cars() auto-generates. 5 new tests. Audit Protocol v3.2 Phase 62 (TS↔Rust field contract). |
 | Mar 26 IST | James | `42f87b0c` | feat(197-01): dynamic timeout query_dynamic_timeout() + exit_code on GameLaunchInfo + classify_error_taxonomy with exit_code priority (LAUNCH-08, LAUNCH-09) |
 | Mar 26 IST | James | `5019e476` | feat(197-01): atomic Race Engineer single write lock + null args guard + send_staff_launch_alert WhatsApp + timeout->handle_game_state_update + stop_game sim_type fix (LAUNCH-14..19) |
