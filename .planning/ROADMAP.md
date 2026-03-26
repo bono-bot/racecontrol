@@ -3256,7 +3256,7 @@ Plans:
 | 198. On-Track Billing | 3/3 | Complete    | 2026-03-26 |
 | 199. Crash Recovery | 2/2 | Complete    | 2026-03-26 |
 | 200. Self-Improving Intelligence | 2/2 | Complete    | 2026-03-26 |
-| 201. Frontend Integration & Type Sync | 0/0 | Not started | - |
+| 201. Frontend Integration & Type Sync | 1/3 | In Progress|  |
 
 ---
 
@@ -3367,7 +3367,7 @@ Plans:
   2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
   3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
-**Plans:** 2/2 plans complete
+**Plans:** 1/3 plans executed
 Plans:
 - [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
