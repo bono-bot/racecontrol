@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 211.1-venue-shutdown-button/211.1-03-PLAN.md
-last_updated: "2026-03-26T06:54:00.207Z"
+stopped_at: Completed 210-startup-enforcement-and-fleet-audit/210-02-PLAN.md
+last_updated: "2026-03-26T07:00:11.354Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
-  completed_phases: 136
-  total_plans: 329
-  completed_plans: 322
+  completed_phases: 137
+  total_plans: 330
+  completed_plans: 323
   percent: 98
 ---
 
@@ -89,6 +89,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 211.1-venue-shutdown-button]: audit_blocked reason field drives user-facing message: billing_active shows session count, audit_failed shows truncated output, james_offline directs to Bono
 - [Phase 210]: timeout /nobreak not flagged (works in HKLM Run context); ConspitLink added to bloatware skip list
 - [Phase 211.1-venue-shutdown-button]: Bono fallback uses HTTP relay not SSH; both-offline returns actionable error; boot-time-fix archives findings with mv not delete
+- [Phase 210]: Phase 61 bat-drift uses bat_scan_pod_json for structured audit output
+- [Phase 210]: deploy-pod.sh copies bat files to BINARY_DIR to reuse single HTTP server for bat sync
 
 ### Pending Todos
 
@@ -102,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:54:00.189Z
-Stopped at: Completed 211.1-venue-shutdown-button/211.1-03-PLAN.md
+Last session: 2026-03-26T07:00:11.333Z
+Stopped at: Completed 210-startup-enforcement-and-fleet-audit/210-02-PLAN.md
 Resume file: None

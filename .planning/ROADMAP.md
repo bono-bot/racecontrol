@@ -3342,7 +3342,7 @@ Plans:
 - [x] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented (completed 2026-03-26)
 - [x] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain (completed 2026-03-26)
 - [x] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption (completed 2026-03-26)
-- [ ] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section
+- [x] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section (completed 2026-03-26)
 
 ### Phase Details
 
@@ -3444,7 +3444,7 @@ Plans:
 | 207. Boot Resilience | 2/2 | Complete    | 2026-03-26 |
 | 208. Chain Verification Integration | 2/2 | Complete   | 2026-03-26 |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
-| 210. Startup Enforcement and Fleet Audit | 1/2 | In Progress|  |
+| 210. Startup Enforcement and Fleet Audit | 2/2 | Complete   | 2026-03-26 |
 
 ---
 
