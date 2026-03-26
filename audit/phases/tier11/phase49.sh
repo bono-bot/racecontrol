@@ -14,15 +14,41 @@ run_phase49() {
   local venue_state="${VENUE_STATE:-unknown}"
   local response status severity message
 
-  # --- Check 1: POS PC rc-agent alive ---
+  # --- Check 1: POS PC rc-agent alive — always report real status ---
   response=$(http_get "http://192.168.31.20:8090/health" 5)
   if [[ -n "$response" ]]; then
-    status="PASS"; severity="P3"; message="POS PC rc-agent at :8090 responding"
+    local pos_build; pos_build=$(printf '%s' "$response" | jq -r '.build_id // "unknown"' 2>/dev/null)
+    local pos_uptime; pos_uptime=$(printf '%s' "$response" | jq -r '.uptime_secs // 0' 2>/dev/null)
+    status="PASS"; severity="P3"; message="POS PC rc-agent responding (build: ${pos_build}, uptime: ${pos_uptime}s)"
+
+    # If POS is online, also check it can reach the web dashboard
+    local pos_dash; pos_dash=$(safe_remote_exec "192.168.31.20" "8090" \
+      'curl.exe -s -o nul -w "%{http_code}" http://192.168.31.23:3200/billing' \
+      "$DEFAULT_TIMEOUT")
+    local dash_code; dash_code=$(printf '%s' "$pos_dash" | jq -r '.stdout // "000"' 2>/dev/null | tr -d '[:space:]"')
+    if [[ "$dash_code" = "200" ]]; then
+      emit_result "$phase" "$tier" "pos-20-dashboard" "PASS" "P3" \
+        "POS can reach billing dashboard :3200/billing (HTTP 200)" "$mode" "$venue_state"
+    else
+      emit_result "$phase" "$tier" "pos-20-dashboard" "WARN" "P2" \
+        "POS cannot reach billing dashboard :3200/billing (HTTP ${dash_code})" "$mode" "$venue_state"
+    fi
+
+    # Check Edge browser running on POS
+    local pos_edge; pos_edge=$(safe_remote_exec "192.168.31.20" "8090" \
+      'tasklist /FI "IMAGENAME eq msedge.exe" /NH' \
+      "$DEFAULT_TIMEOUT")
+    local edge_out; edge_out=$(printf '%s' "$pos_edge" | jq -r '.stdout // ""' 2>/dev/null || true)
+    local edge_count; edge_count=$(printf '%s' "$edge_out" | grep -ci "msedge" || true)
+    if [[ "${edge_count:-0}" -gt 0 ]]; then
+      emit_result "$phase" "$tier" "pos-20-edge" "PASS" "P3" \
+        "Edge running on POS (${edge_count} processes)" "$mode" "$venue_state"
+    else
+      emit_result "$phase" "$tier" "pos-20-edge" "WARN" "P2" \
+        "Edge not running on POS — billing UI not displayed" "$mode" "$venue_state"
+    fi
   else
-    status="PASS"; severity="P3"; message="POS PC offline (expected outside business hours)"
-  fi
-  if [[ "$venue_state" = "closed" ]] && [[ "$status" = "FAIL" || "$status" = "WARN" ]]; then
-    status="QUIET"; severity="P3"
+    status="WARN"; severity="P2"; message="POS PC unreachable at 192.168.31.20:8090"
   fi
   emit_result "$phase" "$tier" "pos-20-rcagent" "$status" "$severity" "$message" "$mode" "$venue_state"
 

@@ -58,12 +58,20 @@ run_phase03() {
   fi
   emit_result "$phase" "$tier" "server-to-bono" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # POS PC reachable (192.168.31.20)
+  # POS PC reachable (192.168.31.20) — always report real status, never assume venue hours
   response=$(http_get "http://192.168.31.20:8090/health" 5)
   if printf '%s' "$response" | grep -q "build_id"; then
-    status="PASS"; severity="P3"; message="POS PC rc-agent reachable"
+    local pos_build; pos_build=$(printf '%s' "$response" | jq -r '.build_id // "unknown"' 2>/dev/null)
+    status="PASS"; severity="P3"; message="POS PC rc-agent reachable (build: ${pos_build})"
   else
-    status="PASS"; severity="P3"; message="POS PC offline (expected outside business hours)"
+    # Try Tailscale fallback
+    local pos_ts; pos_ts=$(http_get "http://100.95.211.1:8090/health" 5)
+    if printf '%s' "$pos_ts" | grep -q "build_id"; then
+      local pos_build; pos_build=$(printf '%s' "$pos_ts" | jq -r '.build_id // "unknown"' 2>/dev/null)
+      status="PASS"; severity="P3"; message="POS PC reachable via Tailscale only (build: ${pos_build}, LAN .20 down)"
+    else
+      status="WARN"; severity="P2"; message="POS PC unreachable (LAN .20 + Tailscale 100.95.211.1 both down)"
+    fi
   fi
   emit_result "$phase" "$tier" "pos-pc" "$status" "$severity" "$message" "$mode" "$venue_state"
 
