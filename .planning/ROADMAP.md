@@ -3284,7 +3284,10 @@ Plans:
   6. Audit Phase 25 menu check verifies at least one menu item has available=true (not just that items exist)
   7. Audit Phase 39 feature flags check verifies at least one flag with enabled=true exists (not just that the flags endpoint returns 200)
   8. Audit Phase 56 OpenAPI check spot-verifies 3-5 critical endpoint names (app-health, flags, guard/whitelist) are present in the spec
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 203-01-PLAN.md — Wrong Layer fixes: self-monitor log recency, Ollama model query, preflight subsystem, face-audit recency
+- [ ] 203-02-PLAN.md — Count vs Health fixes: allowlist content spot-check, menu availability, flag enabled state, OpenAPI endpoint names
 
 ### Phase 204: Cross-Service & UI End-to-End
 **Goal**: Audit phase scripts verify end-to-end dependency chains and user-facing page rendering — the final layer that catches breakages invisible to individual service checks
