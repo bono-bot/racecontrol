@@ -144,13 +144,10 @@ export function useKioskSocket() {
           }
           case "billing_session_changed": {
             const session = msg.data as BillingSession;
+            const TERMINAL_STATUSES = ["completed", "cancelled", "ended_early", "cancelled_no_playable"] as const;
             setBillingTimers((prev) => {
               const next = new Map(prev);
-              if (
-                session.status === "completed" ||
-                session.status === "cancelled" ||
-                session.status === "ended_early"
-              ) {
+              if ((TERMINAL_STATUSES as readonly string[]).includes(session.status)) {
                 next.delete(session.pod_id);
 
                 // Detect split session completion — trigger between-sessions flow

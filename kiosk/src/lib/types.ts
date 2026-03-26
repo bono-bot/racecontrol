@@ -1,6 +1,6 @@
 // ── Shared types from @racingpoint/types ─────────────────────────────────
 // Single source of truth — derived from Rust structs in rc-common
-import type { GameState } from '@racingpoint/types';
+import type { GameState, BillingSessionStatus } from '@racingpoint/types';
 export type {
   SimType,
   PodStatus,
@@ -45,7 +45,7 @@ export interface DeployProgressEvent {
 // ─── Kiosk-local Pod Types ────────────────────────────────────────────────
 // Note: Pod, PodStatus, DrivingState, GameState re-exported from @racingpoint/types above
 
-export type BillingStatus = "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
+// Local billing status type removed — use BillingSessionStatus from @racingpoint/types (10 variants, Rust-matching)
 export type AuthType = "pin" | "qr";
 export type AuthTokenStatus = "pending" | "consumed" | "expired" | "cancelled";
 
@@ -93,7 +93,7 @@ export interface RecentSession {
   allocated_seconds: number;
   driving_seconds: number;
   cost_paise?: number;
-  status: BillingStatus;
+  status: BillingSessionStatus;
   started_at?: string;
   ended_at?: string;
 }
