@@ -17,6 +17,7 @@ set -euo pipefail
 # ─── Configuration ────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export REPO_ROOT
 COMMS_LINK_DIR="$(cd "$REPO_ROOT/../comms-link" && pwd)"
 COMMS_PSK="${COMMS_PSK:-85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0}"
 COMMS_URL="${COMMS_URL:-ws://srv1422716.hstgr.cloud:8765}"
@@ -43,9 +44,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Export env vars needed by escalation engine (sourced later)
+export NO_FIX
+
 # ─── Venue-State-Aware Mode Selection (SCHED-05) ─────────────────────────────
 # shellcheck source=audit/lib/core.sh
 source "$REPO_ROOT/audit/lib/core.sh"
+# Source fixes.sh for APPROVED_FIXES, is_pod_idle, check_pod_sentinels
+# shellcheck source=audit/lib/fixes.sh
+source "$REPO_ROOT/audit/lib/fixes.sh"
+# Source notify.sh for WhatsApp, Bono WS, INBOX channels
+# shellcheck source=audit/lib/notify.sh
+source "$REPO_ROOT/audit/lib/notify.sh"
+# HEAL-07: Source escalation engine for live-sync healing
+if [[ -f "$SCRIPT_DIR/healing/escalation-engine.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/healing/escalation-engine.sh"
+fi
 FLEET_HEALTH_ENDPOINT="${SERVER_URL}/api/v1/fleet/health"
 export FLEET_HEALTH_ENDPOINT
 
@@ -560,21 +575,21 @@ Full report: $RESULT_DIR/auto-detect.log"
 
     log INFO "Bono notified via WS"
 
-    # WhatsApp escalation to Uday -- cooldown-gated per pod+issue (SCHED-04)
-    if [[ -f "$RESULT_DIR/findings.json" ]]; then
-      local pod_ip issue_type
-      # Extract each pod+issue combination from findings
-      jq -r '.[] | "\(.pod_ip) \(.issue_type)"' "$RESULT_DIR/findings.json" 2>/dev/null | \
-      while read -r pod_ip issue_type; do
-        if [[ -n "$pod_ip" ]] && [[ -n "$issue_type" ]]; then
-          if ! _is_cooldown_active "$pod_ip" "$issue_type"; then
-            log INFO "WhatsApp escalation: $pod_ip $issue_type (cooldown clear)"
-            _record_alert "$pod_ip" "$issue_type"
-          else
-            log INFO "WhatsApp escalation: $pod_ip $issue_type (cooldown active, skipping)"
+    # WhatsApp escalation via healing engine (HEAL-04: silence conditions)
+    # HEAL-04: QUIET severity = no WhatsApp; venue closed + <7AM IST = defer; 6h cooldown per pod+issue
+    if [[ -f "$RESULT_DIR/findings.json" ]] && [[ $(type -t escalate_human) == "function" ]]; then
+      # HEAL-04: WhatsApp only when (a) all tiers exhausted or (b) 3+ pods affected
+      local affected_pods
+      affected_pods=$(jq -r '[.[].pod_ip] | unique | length' "$RESULT_DIR/findings.json" 2>/dev/null || echo "0")
+
+      if [[ "$BUGS_UNFIXED" -gt 0 ]] || [[ "$affected_pods" -ge 3 ]]; then
+        jq -r '.[] | "\(.pod_ip) \(.issue_type) \(.severity)"' "$RESULT_DIR/findings.json" 2>/dev/null | \
+        while read -r pod_ip issue_type severity; do
+          if [[ -n "$pod_ip" ]] && [[ -n "$issue_type" ]]; then
+            escalate_human "$pod_ip" "$issue_type" "${severity:-P1}"
           fi
-        fi
-      done
+        done
+      fi
     fi
   fi
 
