@@ -24,12 +24,41 @@ run_phase44() {
   fi
   emit_result "$phase" "$tier" "james-rcsentry-ai" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # Face audit log: line count and recency
+  # Face audit log: recency check (WL-04)
+  # Verify entries are recent (within 10 minutes), not just that entries exist
   local audit_log="C:/RacingPoint/logs/face-audit.jsonl"
   if [[ -f "$audit_log" ]]; then
     local line_count; line_count=$(wc -l < "$audit_log" 2>/dev/null | tr -d '[:space:]')
-    if [[ "${line_count:-0}" -ge 1 ]]; then
-      status="PASS"; severity="P3"; message="Face audit log: ${line_count} entries"
+    line_count=${line_count:-0}
+
+    if [[ "$line_count" -ge 1 ]]; then
+      # Try to get recency from file modification time (works in Git Bash / MSYS2)
+      local file_epoch now_epoch delta_secs
+      file_epoch=$(date -r "$audit_log" +%s 2>/dev/null || stat -c %Y "$audit_log" 2>/dev/null || echo 0)
+      now_epoch=$(date +%s)
+      delta_secs=$(( now_epoch - file_epoch ))
+
+      # Also try to extract timestamp from last JSONL entry
+      local last_line; last_line=$(tail -1 "$audit_log" 2>/dev/null)
+      local entry_ts; entry_ts=$(printf '%s' "$last_line" | jq -r '.timestamp // .ts // .time // empty' 2>/dev/null)
+      if [[ -n "$entry_ts" ]]; then
+        local entry_epoch; entry_epoch=$(date -d "$entry_ts" +%s 2>/dev/null || echo 0)
+        if [[ "$entry_epoch" -gt 0 ]]; then
+          delta_secs=$(( now_epoch - entry_epoch ))
+        fi
+      fi
+
+      local delta_min=$(( delta_secs / 60 ))
+      if [[ "$file_epoch" -gt 0 ]] && [[ "$delta_secs" -lt 600 ]]; then
+        status="PASS"; severity="P3"; message="Face audit log fresh, ${line_count} entries, last entry ${delta_min}m ago"
+      elif [[ "$file_epoch" -gt 0 ]] && [[ "$delta_secs" -lt 1800 ]]; then
+        status="WARN"; severity="P2"; message="Face audit log stale (last entry ${delta_min}m ago, ${line_count} entries)"
+      elif [[ "$file_epoch" -gt 0 ]]; then
+        status="WARN"; severity="P2"; message="Face audit log not updating (last entry ${delta_min}m ago -- rc-sentry-ai may be stuck)"
+      else
+        # Could not determine file time -- fall back to line count
+        status="PASS"; severity="P3"; message="Face audit log: ${line_count} entries (recency check unavailable)"
+      fi
     else
       status="WARN"; severity="P2"; message="Face audit log exists but empty"
     fi
