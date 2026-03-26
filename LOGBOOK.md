@@ -9,6 +9,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
+| Mar 26 09:35 IST | James | `fede2275` | feat(196-02): Stopping guard + broadcast reliability + externally_tracked field (LAUNCH-05, LAUNCH-07, STATE-04, STATE-06) |
+| Mar 26 09:40 IST | James | `7e90fd91` | feat(196-02): Stopping 30s timeout + feature flag gate + disconnected agent verification (STATE-01, STATE-02, STATE-03, STATE-05) |
+| Mar 26 09:41 IST | James | `a2bb09c3` | docs(196-02): SUMMARY + STATE + ROADMAP updated (phase 196 plan 2 of 2 — COMPLETE) |
 | Mar 26 09:30 IST | James | `d6cbdbfb` | feat(196-01): GameLauncherImpl trait + 4 per-game impls + billing gate fixes (deferred billing + paused rejection + TOCTOU) + JSON validation + 9 new tests |
 | Mar 26 09:31 IST | James | `d63e54a0` | docs(196-01): SUMMARY + STATE + ROADMAP updated (phase 196 plan 1 of 2 complete) |
 | Mar 26 10:37 IST | James | `77c2b564` | feat(205-01): VerifyStep trait, ColdVerificationChain, HotVerificationChain, VerificationError (4 variants) added to rc-common |
