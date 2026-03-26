@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 198-on-track-billing/198-02-PLAN.md
-last_updated: "2026-03-26T07:28:36.075Z"
+stopped_at: Completed 212-detection-expansion/212-02-PLAN.md
+last_updated: "2026-03-26T07:30:23.215Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
-  completed_phases: 137
+  completed_phases: 138
   total_plans: 332
-  completed_plans: 326
+  completed_plans: 327
   percent: 98
 ---
 
@@ -97,6 +97,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 212-detection-expansion]: cascade.sh DETECTOR_FINDINGS accumulator feeds BUGS_FOUND in auto-detect.sh run_cascade_check() after all 6 detectors run
 - [Phase 198-on-track-billing]: WaitingForGame broadcast uses separate loop over waiting_for_game map (not active_timers) — entries never in active_timers
 - [Phase 198-on-track-billing]: BILL-10 error path drops mp lock before acquiring waiting_for_game — consistent lock ordering prevents deadlock
+- [Phase 212-detection-expansion]: DET-04 reads JSONL (not startup.log) -- startup.log truncates on restart making historical restart count impossible
+- [Phase 212-detection-expansion]: DET-06 cloud DB check uses SSH (not relay) -- relay dispatches to registered commands only, not raw shell exec
 
 ### Pending Todos
 
@@ -110,6 +112,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T07:28:36.058Z
-Stopped at: Completed 198-on-track-billing/198-02-PLAN.md
+Last session: 2026-03-26T07:30:23.199Z
+Stopped at: Completed 212-detection-expansion/212-02-PLAN.md
 Resume file: None

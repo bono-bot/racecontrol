@@ -114,9 +114,9 @@
 - [x] **DET-01**: Config drift detection compares running racecontrol.toml values against canonical expected values
 - [x] **DET-02**: Bat file drift detection compares pod start-rcagent.bat checksums against repo canonical version
 - [x] **DET-03**: Log anomaly detection scans pod JSONL logs for ERROR/PANIC rate exceeding threshold (>10/hour open, >2/hour closed)
-- [ ] **DET-04**: Crash loop detection flags pods with >3 rc-agent restarts in 30 minutes
-- [ ] **DET-05**: Feature flag sync check verifies all 8 pods have identical enabled flag set
-- [ ] **DET-06**: Schema drift detection compares cloud and venue DB table schemas for column mismatches
+- [x] **DET-04**: Crash loop detection flags pods with >3 rc-agent restarts in 30 minutes
+- [x] **DET-05**: Feature flag sync check verifies all 8 pods have identical enabled flag set
+- [x] **DET-06**: Schema drift detection compares cloud and venue DB table schemas for column mismatches
 - [x] **DET-07**: Cascade module (cascade.sh) sources into auto-detect.sh, shares env (BUGS_FOUND, LOG_FILE)
 
 ### Self-Healing & Escalation (HEAL)
@@ -184,9 +184,9 @@
 | DET-01 | Phase 212 | Complete |
 | DET-02 | Phase 212 | Complete |
 | DET-03 | Phase 212 | Complete |
-| DET-04 | Phase 212 | Pending |
-| DET-05 | Phase 212 | Pending |
-| DET-06 | Phase 212 | Pending |
+| DET-04 | Phase 212 | Complete |
+| DET-05 | Phase 212 | Complete |
+| DET-06 | Phase 212 | Complete |
 | DET-07 | Phase 212 | Complete |
 | HEAL-01 | Phase 213 | Pending |
 | HEAL-02 | Phase 213 | Pending |
