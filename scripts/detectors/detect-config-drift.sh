@@ -48,7 +48,7 @@ detect_config_drift() {
     # Check ws_connect_timeout (must be >= 600ms)
     # Incident history: threshold was 200ms, caused WS timeout flicker on all pods
     local ws_val
-    ws_val=$(printf '%s' "$content" | grep -oP 'ws_connect_timeout\s*=\s*\K[0-9]+' | head -1)
+    ws_val=$(printf '%s' "$content" | grep -oE 'ws_connect_timeout[[:space:]]*=[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1)
     if [[ -n "$ws_val" ]]; then
       if [[ "$ws_val" -lt 600 ]] 2>/dev/null; then
         _emit_finding "config_drift" "P1" "$pod_ip" \
@@ -73,7 +73,7 @@ detect_config_drift() {
     # Check app_health URL ports (SC-1: admin must be :3201, kiosk must use basePath)
     # Incident: kiosk at /api/health returned 404 (needs /kiosk/api/health due to basePath)
     local app_health_urls
-    app_health_urls=$(printf '%s' "$content" | grep -i 'app_health' | grep -oP 'http[^\s"]+' || true)
+    app_health_urls=$(printf '%s' "$content" | grep -i 'app_health' | grep -oE 'https?://[^[:space:]"]+' || true)
     if [[ -n "$app_health_urls" ]]; then
       # Admin must use port 3201 (not 3200)
       if printf '%s' "$app_health_urls" | grep -q ':3200.*admin'; then

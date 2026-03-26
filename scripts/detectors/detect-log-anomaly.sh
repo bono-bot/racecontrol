@@ -61,7 +61,7 @@ detect_log_anomaly() {
       while IFS= read -r line; do
         # Extract timestamp from JSONL line (format: "timestamp":"2026-03-26T21:15:00Z" or similar)
         local line_ts
-        line_ts=$(printf '%s' "$line" | grep -oP '"timestamp"\s*:\s*"\K[^"]+' 2>/dev/null | head -1)
+        line_ts=$(printf '%s' "$line" | grep -oE '"timestamp"[[:space:]]*:[[:space:]]*"[^"]+"' 2>/dev/null | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' | head -1)
         if [[ -z "$line_ts" ]]; then
           # If no parseable timestamp, count it conservatively
           error_count=$((error_count + 1))

@@ -57,7 +57,7 @@ detect_crash_loop() {
         if [[ -z "$line" ]]; then continue; fi
         # Extract "timestamp":"YYYY-MM-DDTHH:MM..." field (first 16 chars for HH:MM comparison)
         local ts
-        ts=$(printf '%s' "$line" | grep -oP '"timestamp"\s*:\s*"\K[^"]*' | head -1 | cut -c1-16)
+        ts=$(printf '%s' "$line" | grep -oE '"timestamp"[[:space:]]*:[[:space:]]*"[^"]+"' 2>/dev/null | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}' | head -1)
         if [[ -n "$ts" ]] && [[ "$ts" > "$cutoff_ts" || "$ts" == "$cutoff_ts" ]]; then
           restart_count=$((restart_count + 1))
         fi
