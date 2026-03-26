@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 200 plan 01 shipped — combo reliability scoring foundation
-stopped_at: Completed 201-frontend-integration-type-sync/201-01-PLAN.md
-last_updated: "2026-03-26T10:57:52.772Z"
+stopped_at: Completed 201-frontend-integration-type-sync/201-03-PLAN.md
+last_updated: "2026-03-26T11:04:57.235Z"
 last_activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 progress:
   total_phases: 172
   completed_phases: 145
   total_plans: 349
-  completed_plans: 343
+  completed_plans: 344
   percent: 98
 ---
 
@@ -139,6 +139,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 216-02]: TIER-SENTINEL test asserts human only -- escalate_human is called directly at tier 5 without sentinel gate; sentinel only guards tiers 1-4
 - [Phase 201-01]: BillingSessionStatus uses 10 variants matching Rust enum — removed stale paused_idle and expired, added waiting_for_game, paused_disconnect, paused_game_pause, cancelled_no_playable
 - [Phase 201-01]: Parity script uses indexOf + brace-counting for Rust enum parsing (not regex) — more reliable for multi-line enums with doc comments
+- [Phase 201-03]: StatusBadge uses flat COLORS Record covering all known status strings — single source of truth, no per-page color maps
+- [Phase 201-03]: Metrics types declared locally in web/src/lib/api/metrics.ts — avoids @racingpoint/types build-time dependency in web package, kept in sync via parity script
 
 ### Pending Todos
 
@@ -152,6 +154,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T10:57:52.751Z
-Stopped at: Completed 201-frontend-integration-type-sync/201-01-PLAN.md
+Last session: 2026-03-26T11:04:50.858Z
+Stopped at: Completed 201-frontend-integration-type-sync/201-03-PLAN.md
 Resume file: None
