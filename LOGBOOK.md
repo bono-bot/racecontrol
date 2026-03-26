@@ -833,3 +833,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-26 04:35 IST | James | 7ba7d093 | feat(206-01): config fallback warn! logging + empty allowlist auto-response (5 unwrap_or sites, racecontrol load_or_default, process guard EMPTY_ALLOWLIST) |
 | 2026-03-26 04:40 IST | James | 5602a64c | feat(206-01): rc-sentry FSM transition logging (all 4 arms) + self_monitor lifecycle events + sentinel write logging |
 | 2026-03-26 04:42 IST | James | fc5748a6 | docs(206-01): 206-01-SUMMARY.md created, STATE.md updated, OBS-02/OBS-03/OBS-05 marked complete |
+| 2026-03-26 05:48 IST | James | 090b2b32 | feat(211-01): PID guard + cooldown + venue-aware mode + extended sentinel check in auto-detect.sh |
+| 2026-03-26 05:48 IST | James | d1c334df | docs(211-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated, SCHED-03/04/05 complete |
