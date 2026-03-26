@@ -8,7 +8,13 @@
 //!      Block on exit code 1 (P1 issues) or 2/timeout (audit error)
 //!   3. Trigger ordered shutdown — SSH to James to run venue-shutdown.sh
 //!
-//! James (.27) stays alive. The shutdown script shuts down: pods -> POS -> server.
+//! Fallback (James offline):
+//!   2b. Try Bono relay for audit (HTTP POST to srv1422716.hstgr.cloud)
+//!   3b. Shut down pods via internal wol::shutdown_pod
+//!   4b. Notify Bono via relay message
+//!   5b. Schedule server self-shutdown via `shutdown /s /t 60`
+//!
+//! James (.27) stays alive in normal flow. Bono fallback handles James-offline case.
 
 use axum::Json;
 use axum::extract::State;
@@ -18,6 +24,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::state::AppState;
+use crate::wol;
 
 /// James LAN IP — relay and SSH target for pre-shutdown operations
 const JAMES_IP: &str = "192.168.31.27";
@@ -29,6 +36,19 @@ const AUDIT_TIMEOUT_SECS: u64 = 120;
 const SHUTDOWN_INVOKE_TIMEOUT_SECS: u64 = 30;
 /// Repo root on James for running scripts
 const JAMES_REPO_ROOT: &str = "C:/Users/bono/racingpoint/racecontrol";
+/// Bono VPS relay base URL — HTTP exec endpoint
+const BONO_RELAY_URL: &str = "http://srv1422716.hstgr.cloud:8766";
+/// Pod IPs for Bono fallback shutdown (all 8 pods)
+const POD_IPS: &[&str] = &[
+    "192.168.31.89", // Pod 1
+    "192.168.31.33", // Pod 2
+    "192.168.31.28", // Pod 3
+    "192.168.31.88", // Pod 4
+    "192.168.31.86", // Pod 5
+    "192.168.31.87", // Pod 6
+    "192.168.31.38", // Pod 7
+    "192.168.31.91", // Pod 8
+];
 
 /// POST /api/v1/venue/shutdown
 ///
@@ -36,7 +56,8 @@ const JAMES_REPO_ROOT: &str = "C:/Users/bono/racingpoint/racecontrol";
 /// - `{"status": "blocked", "reason": "billing_active", ...}` — active billing sessions
 /// - `{"status": "blocked", "reason": "audit_failed", ...}` — P1 issues found
 /// - `{"status": "blocked", "reason": "audit_error", ...}` — audit could not run
-/// - `{"status": "blocked", "reason": "james_offline", ...}` — SSH unreachable
+/// - `{"status": "blocked", "reason": "both_offline", ...}` — James and Bono both unreachable
+/// - `{"status": "fallback_bono", ...}` — James offline, Bono fallback activated
 /// - `{"status": "shutting_down", ...}` — sequence initiated
 pub async fn venue_shutdown_handler(
     State(state): State<Arc<AppState>>,
@@ -65,7 +86,9 @@ pub async fn venue_shutdown_handler(
         JAMES_REPO_ROOT
     );
 
-    match run_ssh_command(JAMES_IP, JAMES_SSH_USER, &audit_cmd, AUDIT_TIMEOUT_SECS).await {
+    let james_result = run_ssh_command(JAMES_IP, JAMES_SSH_USER, &audit_cmd, AUDIT_TIMEOUT_SECS).await;
+
+    match &james_result {
         Ok(result) => {
             match result.exit_code {
                 0 => {
@@ -97,15 +120,9 @@ pub async fn venue_shutdown_handler(
             }
         }
         Err(e) => {
-            tracing::error!("[venue_shutdown] SSH to James failed: {}", e);
-            return Json(json!({
-                "status": "blocked",
-                "reason": "james_offline",
-                "message": format!(
-                    "James is offline or SSH failed: {}. Try manual shutdown procedure.",
-                    e
-                )
-            }));
+            // James offline — attempt Bono fallback
+            tracing::warn!("[venue_shutdown] SSH to James failed: {}. Attempting Bono fallback.", e);
+            return bono_fallback_shutdown(&state).await;
         }
     }
 
@@ -128,6 +145,113 @@ pub async fn venue_shutdown_handler(
     Json(json!({
         "status": "shutting_down",
         "message": "Shutdown sequence initiated. Order: Pods -> POS -> Server. James (.27) stays alive."
+    }))
+}
+
+/// Bono fallback shutdown — called when James relay is unreachable.
+///
+/// Flow:
+///   1. Try Bono relay for a lightweight audit (health check via HTTP)
+///   2. Shut down all pods via internal wol::shutdown_pod
+///   3. Notify Bono via relay message (best-effort)
+///   4. Schedule server self-shutdown via `shutdown /s /t 60`
+async fn bono_fallback_shutdown(state: &Arc<AppState>) -> Json<Value> {
+    tracing::warn!("[venue_shutdown] James offline — activating Bono fallback shutdown");
+
+    // ─── Step 2b: Try Bono relay for audit ───────────────────────────────────
+    let bono_audit_url = format!("{}/relay/exec/run", BONO_RELAY_URL);
+    let bono_audit_body = json!({
+        "command": "racecontrol_health",
+        "reason": "venue-shutdown pre-audit fallback (James offline)"
+    });
+
+    let bono_reachable = match state.http_client
+        .post(&bono_audit_url)
+        .json(&bono_audit_body)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            tracing::info!("[venue_shutdown] Bono relay reachable (status {})", resp.status());
+            true
+        }
+        Err(e) => {
+            tracing::error!("[venue_shutdown] Bono relay also unreachable: {}", e);
+            false
+        }
+    };
+
+    if !bono_reachable {
+        return Json(json!({
+            "status": "blocked",
+            "reason": "both_offline",
+            "message": "Both James (.27) and Bono VPS are unreachable. Manual shutdown required: power off pods individually, then server."
+        }));
+    }
+
+    // ─── Step 3b: Shut down pods via internal wol::shutdown_pod ─────────────
+    tracing::info!("[venue_shutdown] Bono fallback: shutting down {} pods", POD_IPS.len());
+    let mut pod_results: Vec<Value> = Vec::new();
+
+    for &pod_ip in POD_IPS {
+        match wol::shutdown_pod(&state.http_client, pod_ip).await {
+            Ok(msg) => {
+                tracing::info!("[venue_shutdown] Pod {} shutdown: {}", pod_ip, msg);
+                pod_results.push(json!({"ip": pod_ip, "status": "shutdown_sent", "detail": msg}));
+            }
+            Err(e) => {
+                tracing::warn!("[venue_shutdown] Pod {} shutdown failed: {}", pod_ip, e);
+                pod_results.push(json!({"ip": pod_ip, "status": "error", "detail": e.to_string()}));
+            }
+        }
+    }
+
+    // ─── Step 4b: Notify Bono via relay message ───────────────────────────────
+    let notify_url = format!("{}/relay/exec/run", BONO_RELAY_URL);
+    let notify_body = json!({
+        "command": "git_status",
+        "reason": "venue-shutdown bono-fallback completed — server self-shutdown in 60s"
+    });
+
+    // Best-effort notification — don't block shutdown on this
+    if let Err(e) = state.http_client
+        .post(&notify_url)
+        .json(&notify_body)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+    {
+        tracing::warn!("[venue_shutdown] Bono notification failed (non-blocking): {}", e);
+    } else {
+        tracing::info!("[venue_shutdown] Bono notified of fallback shutdown");
+    }
+
+    // ─── Step 5b: Schedule server self-shutdown ───────────────────────────────
+    tracing::warn!("[venue_shutdown] Scheduling server self-shutdown in 60 seconds");
+
+    let shutdown_result = std::process::Command::new("shutdown")
+        .args(["/s", "/t", "60", "/c", "Venue shutdown initiated via Bono fallback (James offline)"])
+        .spawn();
+
+    let self_shutdown_status = match shutdown_result {
+        Ok(_) => {
+            tracing::info!("[venue_shutdown] Server self-shutdown scheduled in 60s");
+            "scheduled_60s"
+        }
+        Err(e) => {
+            tracing::error!("[venue_shutdown] Server self-shutdown spawn failed: {}", e);
+            "spawn_failed"
+        }
+    };
+
+    Json(json!({
+        "status": "fallback_bono",
+        "reason": "james_offline",
+        "message": "James offline. Bono fallback activated: pods shut down, server self-shutdown scheduled.",
+        "pods": pod_results,
+        "server_self_shutdown": self_shutdown_status,
+        "note": "Server will shut down in ~60 seconds. Bono VPS remains up for monitoring."
     }))
 }
 
