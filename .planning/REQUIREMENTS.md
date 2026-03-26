@@ -14,10 +14,10 @@
 
 ### Count vs Health (CH) — Verify items work, not just that they exist
 
-- [ ] **CH-01**: Phase 07 allowlist check spot-verifies known-good process (svchost.exe) is present, not just count >= 100
-- [ ] **CH-02**: Phase 25 menu check verifies at least one item has available=true
-- [ ] **CH-03**: Phase 39 feature flags check verifies at least one flag with enabled=true exists
-- [ ] **CH-04**: Phase 56 OpenAPI check spot-verifies 3-5 critical endpoints by name (app-health, flags, guard/whitelist)
+- [x] **CH-01**: Phase 07 allowlist check spot-verifies known-good process (svchost.exe) is present, not just count >= 100
+- [x] **CH-02**: Phase 25 menu check verifies at least one item has available=true
+- [x] **CH-03**: Phase 39 feature flags check verifies at least one flag with enabled=true exists
+- [x] **CH-04**: Phase 56 OpenAPI check spot-verifies 3-5 critical endpoints by name (app-health, flags, guard/whitelist)
 
 ### Config Validation (CV) — Verify credentials and config values are correct
 
@@ -77,10 +77,10 @@
 | WL-02 | Phase 203 | Pending |
 | WL-03 | Phase 203 | Pending |
 | WL-04 | Phase 203 | Pending |
-| CH-01 | Phase 203 | Pending |
-| CH-02 | Phase 203 | Pending |
-| CH-03 | Phase 203 | Pending |
-| CH-04 | Phase 203 | Pending |
+| CH-01 | Phase 203 | Complete |
+| CH-02 | Phase 203 | Complete |
+| CH-03 | Phase 203 | Complete |
+| CH-04 | Phase 203 | Complete |
 | XS-01 | Phase 204 | Pending |
 | XS-02 | Phase 204 | Pending |
 | UI-01 | Phase 204 | Pending |
