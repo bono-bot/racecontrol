@@ -896,3 +896,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 08:28 IST | James | 4aeab630 | docs(213-02): 213-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (HEAL-04/05/07 complete) |
 | 2026-03-26 09:00 IST | James | b8451f06 | feat(199-01): force_clean protocol field, query_best_recovery_action, exit_codes in GameTracker |
 | 2026-03-26 09:05 IST | James | 6190bc98 | feat(199-01): Race Engineer enriched recovery events, history-informed action, staff alert with exit codes |
+| 2026-03-26 08:42 IST | James | 0f2bfc53 | feat(214-01): coord-state.sh — COORD-01/04 lock and completion marker |
+| 2026-03-26 08:42 IST | James | c4a5598e | feat(214-01): auto-detect.sh — integrate coordination hooks |
