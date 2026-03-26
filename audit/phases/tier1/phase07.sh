@@ -44,6 +44,16 @@ run_phase07() {
       status="FAIL"; severity="P2"; message="Pod ${n} allowlist: ${wl_count:-0} entries (empty -- all processes flagged)"
     fi
     emit_result "$phase" "$tier" "server-23-allowlist-pod${n}" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+    # CH-01: Allowlist content spot-verification -- svchost.exe must be present in any valid Windows allowlist
+    if [[ "${wl_count:-0}" -ge 10 ]]; then
+      if printf '%s' "$response" | jq -r '.processes[]?' 2>/dev/null | grep -qi 'svchost\.exe'; then
+        status="PASS"; severity="P3"; message="Pod ${n} allowlist content verified (svchost.exe present)"
+      else
+        status="WARN"; severity="P2"; message="Pod ${n} allowlist populated (${wl_count}) but svchost.exe missing -- allowlist may be from wrong source"
+      fi
+      emit_result "$phase" "$tier" "server-23-allowlist-pod${n}-content" "$status" "$severity" "$message" "$mode" "$venue_state"
+    fi
   done
 
   return 0

@@ -30,6 +30,19 @@ run_phase25() {
   fi
   emit_result "$phase" "$tier" "server-23-cafe-menu" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # CH-02: Menu item availability -- at least one item should be available for ordering
+  if [[ -n "$response" ]] && [[ "${item_count:-0}" -ge 1 ]]; then
+    local available_count; available_count=$(printf '%s' "$response" | \
+      jq '[.[] | select(.available == true or .in_stock == true or .is_available == true)] | length' 2>/dev/null)
+    available_count="${available_count:-0}"
+    if [[ "$available_count" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="Menu: ${available_count}/${item_count} items available"
+    else
+      status="WARN"; severity="P2"; message="Menu has ${item_count} items but NONE available -- all items marked unavailable"
+    fi
+    emit_result "$phase" "$tier" "server-23-cafe-menu-availability" "$status" "$severity" "$message" "$mode" "$venue_state"
+  fi
+
   # Promos loaded
   response=$(curl -s -m "$DEFAULT_TIMEOUT" \
     "http://192.168.31.23:8080/api/v1/cafe/promos" \
