@@ -33,6 +33,34 @@ run_phase09() {
     fi
     emit_result "$phase" "$tier" "${host}-self-monitor" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+    # Sub-check: self-monitor log recency (WL-01)
+    # Verify JSONL log file was written recently, not just that agent has uptime
+    response=$(safe_remote_exec "$ip" "8090" \
+      'powershell -Command "(Get-Item C:\\RacingPoint\\rc-agent-*.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime.ToString('"'"'yyyy-MM-dd HH:mm:ss'"'"')"' \
+      "$DEFAULT_TIMEOUT")
+    local remote_ts; remote_ts=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$remote_ts" ]]; then
+      local remote_epoch now_epoch delta_secs
+      remote_epoch=$(date -d "$remote_ts" +%s 2>/dev/null || echo 0)
+      now_epoch=$(date +%s)
+      delta_secs=$(( now_epoch - remote_epoch ))
+      if [[ "$remote_epoch" -gt 0 ]] && [[ "$delta_secs" -lt 300 ]]; then
+        status="PASS"; severity="P3"; message="Self-monitor log fresh (last write ${delta_secs}s ago)"
+      elif [[ "$remote_epoch" -gt 0 ]] && [[ "$delta_secs" -lt 900 ]]; then
+        status="WARN"; severity="P2"; message="Self-monitor log stale (last write ${delta_secs}s ago)"
+      elif [[ "$remote_epoch" -gt 0 ]]; then
+        status="WARN"; severity="P2"; message="Self-monitor possibly dead (last write ${delta_secs}s ago)"
+      else
+        status="WARN"; severity="P2"; message="Self-monitor log timestamp unparseable: ${remote_ts}"
+      fi
+    else
+      status="WARN"; severity="P2"; message="Self-monitor recency check failed (no JSONL file or exec error)"
+    fi
+    if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
+      status="QUIET"; severity="P3"
+    fi
+    emit_result "$phase" "$tier" "${host}-self-monitor-recency" "$status" "$severity" "$message" "$mode" "$venue_state"
+
     # Check for safe_mode active (must NOT be active)
     response=$(safe_remote_exec "$ip" "8090" \
       'findstr /C:"safe_mode" /C:"SAFE_MODE" C:\RacingPoint\rc-agent-*.jsonl 2>nul | findstr /V /C:"disabled"' \

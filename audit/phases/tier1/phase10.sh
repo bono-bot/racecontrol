@@ -46,6 +46,26 @@ run_phase10() {
   fi
   emit_result "$phase" "$tier" "james-ollama" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # Sub-check: Ollama model inference test (WL-02)
+  # Verify qwen2.5:3b can actually run inference, not just that models are listed
+  local inference_tmpfile; inference_tmpfile=$(mktemp)
+  jq -n '{model:"qwen2.5:3b",prompt:"Reply with exactly: OK",stream:false}' > "$inference_tmpfile"
+  local inference_response; inference_response=$(curl -s -m 15 -X POST \
+    "http://localhost:11434/api/generate" \
+    -H 'Content-Type: application/json' -d "@${inference_tmpfile}" 2>/dev/null)
+  rm -f "$inference_tmpfile"
+  if [[ -n "$inference_response" ]]; then
+    local model_reply; model_reply=$(printf '%s' "$inference_response" | jq -r '.response // ""' 2>/dev/null)
+    if [[ -n "$model_reply" ]]; then
+      status="PASS"; severity="P3"; message="Ollama qwen2.5:3b inference OK (responded)"
+    else
+      status="WARN"; severity="P2"; message="Ollama qwen2.5:3b inference failed (model loaded but not responding to queries)"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Ollama qwen2.5:3b inference failed (curl timeout or connection refused)"
+  fi
+  emit_result "$phase" "$tier" "james-ollama-inference" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   return 0
 }
 export -f run_phase10
