@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: executing
-stopped_at: Completed 207-02-PLAN.md
-last_updated: "2026-03-26T05:23:10.531Z"
+stopped_at: Completed 211-01-PLAN.md
+last_updated: "2026-03-26T05:48:13.691Z"
 last_activity: 2026-03-26 — Phase 207-01 complete (feature flags periodic re-fetch + CLAUDE.md standing rule)
 progress:
   total_phases: 171
   completed_phases: 131
-  total_plans: 314
-  completed_plans: 308
+  total_plans: 318
+  completed_plans: 309
   percent: 76
 ---
 
@@ -66,6 +66,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
   - [Phase 196-02]: Feature flag 'game_launch' defaults to enabled (unwrap_or(true)) when missing — prevents Pitfall 6 regression
   - [Phase 207-01]: fetch_from_server feature-gated behind #[cfg(feature = "http-client")] to match existing reqwest gating; rc-common tokio feature enabled in rc-agent Cargo.toml for boot_resilience access
 - [Phase 207]: guard_confirmed AtomicBool shared via AppState; GUARD_CONFIRMED intercepted in WS exec dispatch
+- [Phase 211-safe-scheduling-foundation]: PID file at /tmp/auto-detect.pid -- host-local, survives git clean, no repo pollution (SCHED-03)
+- [Phase 211-safe-scheduling-foundation]: Cooldown keyed per pod_ip:issue_type (not fleet-level) -- prevents storm suppression from hiding different issues on same pod (SCHED-04)
+- [Phase 211-safe-scheduling-foundation]: WhatsApp send deferred to Phase 213 -- cooldown infrastructure wired now, Phase 213 adds send call only
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T05:23:10.515Z
-Stopped at: Completed 207-02-PLAN.md
+Last session: 2026-03-26T05:48:08.145Z
+Stopped at: Completed 211-01-PLAN.md
 Resume file: None

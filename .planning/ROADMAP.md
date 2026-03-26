@@ -3533,7 +3533,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 211. Safe Scheduling Foundation | 0/0 | Not started | - |
+| 211. Safe Scheduling Foundation | 1/2 | In Progress|  |
 | 212. Detection Expansion | 0/0 | Not started | - |
 | 213. Self-Healing & Escalation | 0/0 | Not started | - |
 | 214. Bono Coordination | 0/0 | Not started | - |

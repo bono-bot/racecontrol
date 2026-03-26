@@ -105,9 +105,9 @@
 
 - [ ] **SCHED-01**: James auto-detect runs daily at 2:30 AM IST via Windows Task Scheduler without human trigger
 - [ ] **SCHED-02**: Bono auto-detect runs daily at 2:35 AM IST via cron (5-min offset prevents race condition)
-- [ ] **SCHED-03**: Run guard prevents overlapping auto-detect executions (PID file lock)
-- [ ] **SCHED-04**: Escalation cooldown prevents repeated WhatsApp alerts for same issue within 6 hours
-- [ ] **SCHED-05**: Venue-state-aware timing — full mode during closed hours, quick mode if triggered during open hours
+- [x] **SCHED-03**: Run guard prevents overlapping auto-detect executions (PID file lock)
+- [x] **SCHED-04**: Escalation cooldown prevents repeated WhatsApp alerts for same issue within 6 hours
+- [x] **SCHED-05**: Venue-state-aware timing — full mode during closed hours, quick mode if triggered during open hours
 
 ### Detection Expansion (DET)
 
@@ -178,9 +178,9 @@
 |-------------|-------|--------|
 | SCHED-01 | Phase 211 | Pending |
 | SCHED-02 | Phase 211 | Pending |
-| SCHED-03 | Phase 211 | Pending |
-| SCHED-04 | Phase 211 | Pending |
-| SCHED-05 | Phase 211 | Pending |
+| SCHED-03 | Phase 211 | Complete |
+| SCHED-04 | Phase 211 | Complete |
+| SCHED-05 | Phase 211 | Complete |
 | DET-01 | Phase 212 | Pending |
 | DET-02 | Phase 212 | Pending |
 | DET-03 | Phase 212 | Pending |
