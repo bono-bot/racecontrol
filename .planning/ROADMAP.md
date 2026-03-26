@@ -3253,7 +3253,7 @@ Plans:
 
 - [x] **Phase 202: Config Validation & Structural Fixes** - Fix false PASSes from unchecked configs, hardcoded assumptions, and wrong severity levels (completed 2026-03-25)
 - [x] **Phase 203: Deep Service Verification** - Replace shallow liveness/count checks with real service health verification (completed 2026-03-26)
-- [ ] **Phase 204: Cross-Service & UI End-to-End** - Verify dependency chains and user-facing pages render correctly
+- [x] **Phase 204: Cross-Service & UI End-to-End** - Verify dependency chains and user-facing pages render correctly (completed 2026-03-26)
 
 ### Phase Details
 
@@ -3316,7 +3316,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 202. Config Validation & Structural Fixes | 2/2 | Complete    | 2026-03-26 |
 | 203. Deep Service Verification | 2/2 | Complete    | 2026-03-26 |
-| 204. Cross-Service & UI End-to-End | 1/2 | In Progress|  |
+| 204. Cross-Service & UI End-to-End | 2/2 | Complete   | 2026-03-26 |
 
 
 ---
@@ -3348,7 +3348,7 @@ Plans:
   2. A chain with 3 steps where step 2 fails produces a VerificationError that includes the raw failing value in its message -- not just a step number
   3. `spawn_periodic_refetch()` in boot_resilience.rs spawns a background tokio task that logs "periodic_refetch started", "periodic_refetch first_success", and "periodic_refetch exit" -- verified by test with a mock fetch closure
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
