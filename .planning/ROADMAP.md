@@ -3303,7 +3303,10 @@ Plans:
   3. Audit Phase 20 kiosk check verifies _next/static/ returns HTTP 200 from the pod's perspective (not just that the kiosk process is running)
   4. Audit Phase 26 game catalog check verifies the kiosk game selection page renders the expected game count (not just that the API returns games)
   5. Audit Phase 44 cameras check verifies the Next.js cameras page at :3200/cameras loads successfully (not just that go2rtc is running)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 204-01-PLAN.md -- Cross-service dependency chain checks (XS-01, XS-02)
+- [ ] 204-02-PLAN.md -- UI rendering verification checks (UI-01, UI-02, UI-03)
 
 ## v23.1 Progress
 
@@ -3313,7 +3316,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 202. Config Validation & Structural Fixes | 2/2 | Complete    | 2026-03-26 |
 | 203. Deep Service Verification | 2/2 | Complete    | 2026-03-26 |
-| 204. Cross-Service & UI End-to-End | 0/0 | Not started | - |
+| 204. Cross-Service & UI End-to-End | 0/2 | Not started | - |
 
 
 ---
