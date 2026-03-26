@@ -75,3 +75,7 @@ governor = "0.10"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 rcgen = "0.14"
 tower-helmet = "0.3"
+
+[dev-dependencies]
+# test-util enables tokio::time::pause() and advance() for time-controlled unit tests
+tokio = { version = "1", features = ["test-util"] }

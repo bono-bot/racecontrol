@@ -178,6 +178,18 @@ async fn launch_game(
         }
     }
 
+    // STATE-03: Feature flag check — game_launch must be enabled (default: enabled)
+    {
+        let flags = state.feature_flags.read().await;
+        let game_launch_enabled = flags.get("game_launch")
+            .map(|f| f.enabled)
+            .unwrap_or(true); // Default enabled if flag not configured (Pitfall 6 prevention)
+        if !game_launch_enabled {
+            tracing::warn!("Launch rejected for pod {}: game_launch feature flag disabled", pod_id);
+            return Err("game_launch feature disabled".to_string());
+        }
+    }
+
     // LAUNCH-02/03/04: Billing gate — check active_timers + waiting_for_game, reject paused
     {
         let timers = state.billing.active_timers.read().await;
@@ -476,6 +488,26 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
             };
             metrics::record_launch_event(&state.db, &stop_event).await;
         }
+
+        // STATE-01: Spawn 30s Stopping timeout — auto-transitions to Error if game doesn't stop
+        let state_clone = state.clone();
+        let pod_id_timeout = pod_id.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let mut games = state_clone.game_launcher.active_games.write().await;
+            if let Some(tracker) = games.get_mut(&pod_id_timeout) {
+                if tracker.game_state == GameState::Stopping {
+                    tracker.game_state = GameState::Error;
+                    tracker.error_message = Some("Stop timed out (30s)".to_string());
+                    let info = tracker.to_info();
+                    drop(games);
+                    if let Err(e) = state_clone.dashboard_tx.send(DashboardEvent::GameStateChanged(info)) {
+                        tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id_timeout, e);
+                    }
+                    tracing::warn!("game state: Stopping timed out on pod {}", pod_id_timeout);
+                }
+            }
+        });
     }
 }
 
@@ -781,6 +813,16 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                     };
                     if elapsed.num_seconds() > timeout_secs {
                         timed_out.push((pod_id.clone(), tracker.sim_type, timeout_secs));
+                    }
+                }
+            }
+            // STATE-01 edge case: detect stale Stopping state from server restart
+            // (the in-memory timeout spawn is gone after restart, so we need this catch)
+            if tracker.game_state == GameState::Stopping {
+                if let Some(launched_at) = tracker.launched_at {
+                    let elapsed = now.signed_duration_since(launched_at);
+                    if elapsed.num_seconds() > 30 {
+                        timed_out.push((pod_id.clone(), tracker.sim_type, 30));
                     }
                 }
             }
@@ -1696,5 +1738,206 @@ mod tests {
 
         let result = relaunch_game(&state, "pod_1").await;
         assert!(result.is_err(), "Relaunch should be rejected when game is Stopping");
+    }
+
+    // ── STATE-01: Stopping timeout ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_stopping_timeout_transitions_to_error_via_health_check() {
+        // Verify via check_game_health() which catches stale Stopping states from server restart.
+        // This covers the STATE-01 edge case (server restart path) without needing tokio::time::pause().
+        let state = make_state().await;
+
+        // Insert a Stopping tracker with a launched_at in the distant past (>30s ago)
+        let old_time = Utc::now() - chrono::Duration::seconds(60);
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Stopping,
+                pid: None,
+                launched_at: Some(old_time),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+            },
+        );
+
+        // check_game_health() should detect the stale Stopping state and transition to Error
+        check_game_health(&state).await;
+
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_1").expect("tracker should still exist");
+        assert_eq!(
+            tracker.game_state,
+            GameState::Error,
+            "Stale Stopping state should transition to Error via check_game_health"
+        );
+        assert!(
+            tracker.error_message.as_ref().unwrap().contains("timed out"),
+            "Error message should mention 'timed out', got: {:?}",
+            tracker.error_message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stopping_state_not_timed_out_if_recent() {
+        // If a Stopping tracker was set <30s ago, check_game_health() should NOT transition to Error
+        let state = make_state().await;
+
+        let recent_time = Utc::now() - chrono::Duration::seconds(5);
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Stopping,
+                pid: None,
+                launched_at: Some(recent_time),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+            },
+        );
+
+        check_game_health(&state).await;
+
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_1").expect("tracker should still exist");
+        assert_eq!(
+            tracker.game_state,
+            GameState::Stopping,
+            "Recent Stopping state should NOT be transitioned to Error (only 5s elapsed)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stop_game_sets_stopping_state() {
+        // Verify that stop_game() transitions tracker to Stopping state
+        // (the tokio::spawn timeout itself is verified structurally — see grep acceptance criteria)
+        let state = make_state().await;
+
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Running,
+                pid: Some(1234),
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+            },
+        );
+
+        stop_game(&state, "pod_1").await;
+
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_1").expect("tracker should still exist");
+        assert_eq!(
+            tracker.game_state,
+            GameState::Stopping,
+            "stop_game() should set tracker to Stopping state"
+        );
+    }
+
+    // ── STATE-03: Feature flag gate ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_feature_flag_disabled_rejects_launch() {
+        use crate::flags::FeatureFlagRow;
+        let state = make_state().await;
+
+        // Insert billing so we reach the feature flag check
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+
+        // Disable game_launch flag
+        state.feature_flags.write().await.insert(
+            "game_launch".to_string(),
+            FeatureFlagRow {
+                name: "game_launch".to_string(),
+                enabled: false,
+                default_value: true,
+                overrides: "{}".to_string(),
+                version: 1,
+                updated_at: None,
+            },
+        );
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Launch should be rejected when game_launch flag is disabled");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("disabled"),
+            "Error should mention 'disabled', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_missing_defaults_enabled() {
+        let state = make_state().await;
+
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+        // No feature flags inserted — should default to enabled
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        // Should NOT fail with feature flag error (may fail at agent sender — that's OK)
+        if let Err(ref err) = result {
+            assert!(
+                !err.contains("disabled"),
+                "Missing flag should default to enabled, got: {}",
+                err
+            );
+        }
+    }
+
+    // ── STATE-02/STATE-05: Disconnected agent causes immediate Error ───────────
+
+    #[tokio::test]
+    async fn test_disconnected_agent_immediate_error() {
+        let state = make_state().await;
+
+        state.billing.active_timers.write().await.insert(
+            "pod_1".to_string(),
+            BillingTimer::dummy("pod_1"),
+        );
+        // No agent_sender inserted for pod_1
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Launch should fail when no agent is connected");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("No agent connected"),
+            "Error should mention 'No agent connected', got: {}",
+            err
+        );
+
+        // Tracker should be in Error state immediately
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_1").expect("tracker should exist");
+        assert_eq!(
+            tracker.game_state,
+            GameState::Error,
+            "Tracker should be in Error state immediately on disconnected agent"
+        );
+        assert!(
+            tracker.error_message.as_ref().unwrap().contains("No agent connected"),
+            "Tracker error_message should mention 'No agent connected'"
+        );
     }
 }
