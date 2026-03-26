@@ -915,3 +915,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 15:54 IST | James | d0eda730 | test(216-02): test-escalation.sh -- 6 tier ordering tests (TEST-03) |
 | 2026-03-26 15:54 IST | James | 3a612807 | test(216-02): test-coordination.sh + test-auto-detect.sh --all (TEST-04) |
 | 2026-03-26 15:54 IST | James | bc4955e0 | docs(216-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated |
+| 2026-03-26 10:50 IST | James | b238545b | fix(audit): close 3 integration gaps (boot-time-fix format, kiosk timeout, bono SSH) |
