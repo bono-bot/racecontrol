@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 198-on-track-billing/198-03-PLAN.md
-last_updated: "2026-03-26T07:54:36.705Z"
+stopped_at: Completed 213-self-healing-escalation/213-01-PLAN.md
+last_updated: "2026-03-26T08:20:29.960Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 139
-  total_plans: 332
-  completed_plans: 328
+  total_plans: 336
+  completed_plans: 329
   percent: 98
 ---
 
@@ -100,6 +100,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 212-detection-expansion]: DET-04 reads JSONL (not startup.log) -- startup.log truncates on restart making historical restart count impossible
 - [Phase 212-detection-expansion]: DET-06 cloud DB check uses SSH (not relay) -- relay dispatches to registered commands only, not raw shell exec
 - [Phase 198-on-track-billing]: 4 billing tests for BILL-05/06/10/12: waiting_for_game_tick_broadcasts, cancelled_no_playable_on_timeout, multiplayer_db_query_failure_preserves_waiting_entry, configurable_billing_timeouts — all 82 billing tests pass
+- [Phase 213-self-healing-escalation]: WOL_ENABLED defaults to false until manual test on 2 pods — prevents spurious WoL on online pods
+- [Phase 213-self-healing-escalation]: clear_old_maintenance_mode guarded to venue=closed only — open-hours MM may be intentional staff action
+- [Phase 213-self-healing-escalation]: Missing auto-detect-config.json = auto_fix_enabled (fail-safe) — prevents accidental detect-only mode
 
 ### Pending Todos
 
@@ -113,6 +116,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T07:44:40.897Z
-Stopped at: Completed 198-on-track-billing/198-03-PLAN.md
+Last session: 2026-03-26T08:20:29.944Z
+Stopped at: Completed 213-self-healing-escalation/213-01-PLAN.md
 Resume file: None
