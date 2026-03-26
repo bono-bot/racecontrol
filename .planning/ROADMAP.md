@@ -3335,7 +3335,7 @@ Plans:
 
 - [x] **Phase 205: Verification Chain Foundation** - New rc-common types (VerificationChain, VerifyStep, VerificationError) and spawn_periodic_refetch scaffold -- stabilize before consumers compile (completed 2026-03-25)
 - [x] **Phase 206: Observable State Transitions** - Eliminate all silent failures: MAINTENANCE_MODE WhatsApp alert, config fallback warn!, empty allowlist error!, sentinel fleet alerts, FSM transition logging (completed 2026-03-26)
-- [ ] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented
+- [x] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented (completed 2026-03-26)
 - [ ] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain
 - [ ] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption
 - [ ] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section
@@ -3379,7 +3379,7 @@ Plans:
   2. CLAUDE.md standing rules section contains the boot resilience architectural rule: "Any data fetched from a remote source at startup MUST have a periodic re-fetch background task using spawn_periodic_refetch()" -- with checklist of current startup-fetched resources and their re-fetch status
   3. Flipping process_guard enabled from false to true in TOML and restarting rc-agent logs first 10 violations -- if violation rate exceeds 50%, system stays in report_only mode and emits "possible misconfiguration" error until operator sends GUARD_CONFIRMED fleet exec command
   4. `cargo test -p rc-agent` passes with tests covering: feature flag fallback-to-cache path, periodic re-fetch lifecycle logging, and first-scan validation threshold
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 207-01-PLAN.md -- Feature flags periodic re-fetch via spawn_periodic_refetch + CLAUDE.md boot resilience standing rule (completed 2026-03-26)
 - [ ] 207-02-PLAN.md -- First-scan validation for process guard + GUARD_CONFIRMED fleet exec command
@@ -3427,7 +3427,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
 | 206. Observable State Transitions | 2/2 | Complete    | 2026-03-26 |
-| 207. Boot Resilience | 0/2 | Planned | - |
+| 207. Boot Resilience | 2/2 | Complete   | 2026-03-26 |
 | 208. Chain Verification Integration | 0/0 | Not started | - |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
 | 210. Startup Enforcement and Fleet Audit | 0/0 | Not started | - |
