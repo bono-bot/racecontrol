@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, FormEvent } from "react";
+import { useState, useEffect, useCallback, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { setToken, isAuthenticated } from "@/lib/auth";
 
@@ -9,98 +9,166 @@ export default function LoginPage() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   useEffect(() => {
     if (isAuthenticated()) {
       router.push("/");
-      return;
     }
-    inputRef.current?.focus();
   }, [router]);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  const handleSubmit = useCallback(async (pinValue?: string) => {
+    const submitPin = pinValue ?? pin;
+    if (submitPin.length !== 4) return;
     setError(null);
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/admin-login`, {
+      const res = await fetch(`${API_BASE}/api/v1/staff/validate-pin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin: submitPin }),
       });
 
       if (res.status === 200) {
         const data = await res.json();
-        setToken(data.token);
-        router.push("/");
-      } else if (res.status === 401) {
-        setError("Invalid PIN");
-        setPin("");
-        inputRef.current?.focus();
-      } else if (res.status === 503) {
-        setError("Admin PIN not configured");
+        if (data.status === "ok" && data.token) {
+          setToken(data.token);
+          router.push("/");
+        } else {
+          setError(data.error || "Invalid staff PIN");
+          setPin("");
+        }
       } else {
-        setError("Login failed. Please try again.");
+        setError("Invalid staff PIN");
+        setPin("");
       }
     } catch {
       setError("Cannot reach server. Check your connection.");
     } finally {
       setLoading(false);
     }
+  }, [pin, router]);
+
+  function handleDigit(digit: string) {
+    if (loading) return;
+    setPin((prev) => {
+      if (prev.length >= 4) return prev;
+      const newPin = prev + digit;
+      setError(null);
+      if (newPin.length === 4) {
+        handleSubmit(newPin);
+      }
+      return newPin;
+    });
   }
+
+  function handleBackspace() {
+    setPin((prev) => prev.slice(0, -1));
+    setError(null);
+  }
+
+  function handleClear() {
+    setPin("");
+    setError(null);
+  }
+
+  // Keyboard support
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key >= "0" && e.key <= "9") {
+        handleDigit(e.key);
+      } else if (e.key === "Backspace") {
+        handleBackspace();
+      } else if (e.key === "Escape") {
+        handleClear();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#1A1A1A] px-4">
-      <div className="w-full max-w-sm bg-[#222222] border border-[#333333] rounded-xl p-8 shadow-2xl">
+      <div className="w-full max-w-sm text-center">
         {/* Header */}
-        <div className="text-center mb-8">
+        <div className="mb-8">
           <h1 className="text-2xl font-bold text-white tracking-tight">
             RaceControl
           </h1>
-          <p className="text-sm text-neutral-400 mt-1">Staff Access</p>
+          <p className="text-sm text-neutral-400 mt-1">Enter your 4-digit staff PIN</p>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label
-              htmlFor="pin"
-              className="block text-xs font-medium text-neutral-400 mb-1.5"
+        {/* PIN display boxes */}
+        <div className="flex justify-center gap-4 mb-8">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center text-2xl font-bold transition-all ${
+                i < pin.length
+                  ? "border-[#E10600] bg-[#E10600]/10 text-white"
+                  : "border-[#333333] bg-[#222222] text-transparent"
+              }`}
             >
-              Enter PIN
-            </label>
-            <input
-              ref={inputRef}
-              id="pin"
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              placeholder="------"
-              className="w-full px-4 py-3 bg-[#1A1A1A] border border-[#333333] rounded-lg text-white text-center text-2xl tracking-[0.5em] placeholder:text-neutral-600 focus:outline-none focus:border-[#E10600] focus:ring-1 focus:ring-[#E10600] transition-colors"
-              disabled={loading}
-              autoComplete="off"
-            />
-          </div>
+              {i < pin.length ? "\u2022" : "0"}
+            </div>
+          ))}
+        </div>
 
-          {error && (
-            <p className="text-sm text-[#E10600] text-center font-medium">
-              {error}
-            </p>
-          )}
+        {/* Error */}
+        {error && (
+          <p className="text-sm text-[#E10600] text-center font-medium mb-4">
+            {error}
+          </p>
+        )}
 
+        {/* Loading */}
+        {loading && (
+          <p className="text-neutral-400 text-sm animate-pulse mb-4">
+            Verifying...
+          </p>
+        )}
+
+        {/* Numpad */}
+        <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+            <button
+              key={digit}
+              onClick={() => handleDigit(digit)}
+              disabled={loading || pin.length >= 4}
+              className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-white text-xl font-semibold
+                         hover:bg-[#333333] hover:border-[#555555] active:bg-[#E10600]/20
+                         disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              {digit}
+            </button>
+          ))}
           <button
-            type="submit"
-            disabled={loading || pin.length === 0}
-            className="w-full py-3 bg-[#E10600] hover:bg-[#C00500] disabled:bg-neutral-700 disabled:text-neutral-500 text-white font-semibold rounded-lg transition-colors"
+            onClick={handleClear}
+            disabled={loading}
+            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-neutral-400 text-sm font-medium
+                       hover:bg-[#333333] transition-all disabled:opacity-30"
           >
-            {loading ? "Verifying..." : "Unlock"}
+            Clear
           </button>
-        </form>
+          <button
+            onClick={() => handleDigit("0")}
+            disabled={loading || pin.length >= 4}
+            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-white text-xl font-semibold
+                       hover:bg-[#333333] hover:border-[#555555] active:bg-[#E10600]/20
+                       disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            0
+          </button>
+          <button
+            onClick={handleBackspace}
+            disabled={loading || pin.length === 0}
+            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-neutral-400 text-lg font-medium
+                       hover:bg-[#333333] transition-all disabled:opacity-30"
+          >
+            &#9003;
+          </button>
+        </div>
       </div>
     </div>
   );
