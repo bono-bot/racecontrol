@@ -888,3 +888,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 13:00 IST | James | ee8e6ece | feat(212-02): DET-06 schema gap (6 table:column pairs, venue :8090 + cloud SSH, no such column detect) + pipeline dry-run validated |
 | 2026-03-26 13:01 IST | James | 5e259f7d | docs(212-02): 212-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (DET-04/05/06 complete) |
 | 2026-03-26 07:38 IST | James | 92547b71 | fix(212): close verification gaps — app_health, 1h window, double-count |
+| 2026-03-26 08:21 IST | James | 2ad9ed50 | feat(213-01): expand APPROVED_FIXES with 3 new fix functions (wol_pod, clear_old_maintenance_mode, replace_stale_bat) |
+| 2026-03-26 08:21 IST | James | 28ff1c60 | feat(213-01): escalation-engine.sh 5-tier loop + auto-detect-config.json runtime toggle |
+| 2026-03-26 08:21 IST | James | 557d23fc | docs(213-01): 213-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (HEAL-01/02/03/06/08 complete) |
