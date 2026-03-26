@@ -3409,7 +3409,10 @@ Plans:
   3. Running gate-check.sh on a commit touching from_str or toml::from_str without a provided test input file and expected output exits non-zero -- parse-domain changes require end-to-end data flow verification
   4. Running scripts/fix_log.sh prompts for all 5 structured fields (symptom, hypotheses, elimination, confirmed cause, verification) and appends a structured entry to LOGBOOK.md -- a skipped field produces an error, not a silent empty section
   5. LOGBOOK.md exists at repo root with a defined header format and at least one sample entry demonstrating the Cause Elimination template -- future entries can be verified against the format by grep
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 209-01-PLAN.md -- Domain-matched verification gate (Suite 5) in gate-check.sh (GATE-01, GATE-02, GATE-03, GATE-04)
+- [ ] 209-02-PLAN.md -- fix_log.sh Cause Elimination helper + LOGBOOK.md template (GATE-05)
 
 ### Phase 210: Startup Enforcement and Fleet Audit
 **Goal**: All 8 pods run bat files that match the canonical repo version, bat syntax violations are detected before deploy, and the fleet audit system includes 5 new v25.0-specific phases that permanently verify debug quality on every audit run
