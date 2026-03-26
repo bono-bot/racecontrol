@@ -15,6 +15,7 @@ run_phase20() {
   local response status severity message
 
   local ip host
+  local static_checked=0
   for ip in $PODS; do
     host="pod-$(printf '%s' "$ip" | sed 's/192\.168\.31\.//')"
 
@@ -52,6 +53,37 @@ run_phase20() {
       status="WARN"; severity="P2"; message="Kiosk page returned HTTP ${http_code} from pod (expected 200)"
     fi
     emit_result "$phase" "$tier" "${host}-kiosk-reachable" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+    # UI-01: Verify _next/static/ files serve correctly (run once on first pod only)
+    if [[ "$static_checked" -eq 0 ]]; then
+      static_checked=1
+      # Fetch kiosk HTML and extract a _next/static/ path
+      response=$(safe_remote_exec "$ip" "8090" \
+        'curl.exe -s http://192.168.31.23:3300/kiosk 2>nul | findstr "_next/static"' \
+        "$DEFAULT_TIMEOUT")
+      local html_out; html_out=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
+      if [[ -n "$html_out" ]]; then
+        # Extract first _next/static/... path from the HTML
+        local static_path; static_path=$(printf '%s' "$html_out" | sed -n 's|.*\(/_next/static/[^"'"'"' ]*\).*|\1|p' | head -1)
+        if [[ -n "$static_path" ]]; then
+          # Verify the static file returns HTTP 200
+          local static_resp; static_resp=$(safe_remote_exec "$ip" "8090" \
+            "curl.exe -s -o nul -w \"%{http_code}\" http://192.168.31.23:3300${static_path}" \
+            "$DEFAULT_TIMEOUT")
+          local static_code; static_code=$(printf '%s' "$static_resp" | jq -r '.stdout // "000"' 2>/dev/null | tr -d '[:space:]"')
+          if [[ "$static_code" = "200" ]]; then
+            status="PASS"; severity="P3"; message="Kiosk static files serving correctly (_next/static/ returns 200)"
+          else
+            status="WARN"; severity="P2"; message="Kiosk static files broken (_next/static/ returns HTTP ${static_code})"
+          fi
+        else
+          status="WARN"; severity="P2"; message="No _next/static/ references found in kiosk HTML (build may be missing)"
+        fi
+      else
+        status="WARN"; severity="P2"; message="Cannot verify static files (kiosk page unreachable from pod)"
+      fi
+      emit_result "$phase" "$tier" "${host}-kiosk-static-files" "$status" "$severity" "$message" "$mode" "$venue_state"
+    fi
   done
 
   return 0

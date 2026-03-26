@@ -65,6 +65,34 @@ run_phase26() {
   emit_result "$phase" "$tier" "pod-$(printf '%s' "$spot_pod" | sed 's/192\.168\.31\.//')-game-exe" \
     "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # UI-02: Verify kiosk game page renders game content
+  local game_html; game_html=$(http_get "http://192.168.31.23:3300/kiosk/games" "$DEFAULT_TIMEOUT")
+  if [[ -z "$game_html" ]]; then
+    # Fallback to main kiosk page
+    game_html=$(http_get "http://192.168.31.23:3300/kiosk" "$DEFAULT_TIMEOUT")
+  fi
+  if [[ -n "$game_html" ]]; then
+    # Count game-related content in the HTML (game cards, data attributes, game names)
+    local render_count; render_count=$(printf '%s' "$game_html" | grep -ci 'game-card\|data-game\|game-item\|GameCard\|game_card\|assetto\|forza\|iracing' || true)
+    render_count=${render_count:-0}
+    local api_count="${cat_count:-${game_count:-0}}"
+    if [[ "$render_count" -ge 1 ]]; then
+      if [[ "$api_count" -ge 1 ]] && [[ $(( render_count - api_count )) -gt "$api_count" || $(( api_count - render_count )) -gt "$api_count" ]]; then
+        status="WARN"; severity="P2"; message="Kiosk game page renders ${render_count} game references but API has ${api_count} (mismatch)"
+      else
+        status="PASS"; severity="P3"; message="Kiosk game page renders ${render_count} game references (API catalog: ${api_count})"
+      fi
+    else
+      status="WARN"; severity="P2"; message="Kiosk game page returned HTML but no game elements found (SSR may be broken)"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Kiosk game page unreachable"
+  fi
+  if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
+    status="QUIET"; severity="P3"
+  fi
+  emit_result "$phase" "$tier" "server-23-kiosk-game-render" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   return 0
 }
 export -f run_phase26

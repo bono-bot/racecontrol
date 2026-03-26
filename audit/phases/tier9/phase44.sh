@@ -82,6 +82,29 @@ run_phase44() {
   fi
   emit_result "$phase" "$tier" "james-people-counter" "$status" "$severity" "$message" "$mode" "$venue_state"
 
+  # UI-03: Verify cameras page at :3200/cameras loads successfully
+  local cam_html; cam_html=$(http_get "http://192.168.31.27:3200/cameras" "$DEFAULT_TIMEOUT")
+  if [[ -n "$cam_html" ]]; then
+    # Check for HTML with camera-related content
+    local has_html; has_html=$(printf '%s' "$cam_html" | grep -ci '<html\|<div\|<body' || true)
+    local has_camera; has_camera=$(printf '%s' "$cam_html" | grep -ci 'camera\|go2rtc\|stream\|rtsp\|video' || true)
+    has_html=${has_html:-0}
+    has_camera=${has_camera:-0}
+    if [[ "$has_html" -ge 1 ]] && [[ "$has_camera" -ge 1 ]]; then
+      status="PASS"; severity="P3"; message="Cameras page at :3200/cameras loads successfully"
+    elif [[ "$has_html" -ge 1 ]]; then
+      status="WARN"; severity="P2"; message="Cameras page returns HTML but no camera content (rendering issue)"
+    else
+      status="WARN"; severity="P2"; message="Cameras page at :3200/cameras returned unexpected content"
+    fi
+  else
+    status="WARN"; severity="P2"; message="Cameras page at :3200/cameras unreachable"
+  fi
+  if [[ "$venue_state" = "closed" ]] && [[ "$status" = "WARN" ]]; then
+    status="QUIET"; severity="P3"
+  fi
+  emit_result "$phase" "$tier" "james-cameras-page" "$status" "$severity" "$message" "$mode" "$venue_state"
+
   return 0
 }
 export -f run_phase44
