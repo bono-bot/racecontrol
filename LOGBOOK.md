@@ -884,3 +884,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 12:46 IST | James | f5189125 | feat(198-02): WaitingForGame BillingTick broadcast + cancelled_no_playable records + PausedGamePause sync (BILL-05/06/07) |
 | 2026-03-26 12:47 IST | James | f9b7be6b | feat(198-02): single Utc::now(), multiplayer DB error rejection, configurable timeouts (BILL-09/10/11/12) |
 | 2026-03-26 12:48 IST | James | f2dc6b28 | docs(198-02): 198-02-SUMMARY.md + STATE.md + ROADMAP.md - Phase 198 Plan 02 complete |
+| 2026-03-26 13:00 IST | James | df25fa0f | feat(212-02): DET-04 crash loop (JSONL timestamps, 3/30min) + DET-05 flag desync (comm diff, Pitfall 3 fleet-empty) detectors |
+| 2026-03-26 13:00 IST | James | ee8e6ece | feat(212-02): DET-06 schema gap (6 table:column pairs, venue :8090 + cloud SSH, no such column detect) + pipeline dry-run validated |
+| 2026-03-26 13:01 IST | James | 5e259f7d | docs(212-02): 212-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md (DET-04/05/06 complete) |
