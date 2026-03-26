@@ -4,13 +4,15 @@ import billingFixture from './fixtures/billing-active.json';
 
 const VALID_BILLING_STATUSES: BillingSessionStatus[] = [
   'pending',
+  'waiting_for_game',
   'active',
-  'paused_idle',
   'paused_manual',
+  'paused_disconnect',
+  'paused_game_pause',
   'completed',
   'ended_early',
   'cancelled',
-  'expired',
+  'cancelled_no_playable',
 ];
 
 const VALID_DRIVING_STATES = ['active', 'idle', 'no_device'] as const;
@@ -45,6 +47,28 @@ function assertBillingSession(data: unknown): asserts data is BillingSession {
     `driving_state "${String(d.driving_state)}" must be one of ${VALID_DRIVING_STATES.join(', ')}`,
   ).toBe(true);
 }
+
+describe('BillingSessionStatus — variant completeness', () => {
+  test('BillingSessionStatus has exactly 10 variants', () => {
+    expect(VALID_BILLING_STATUSES.length).toBe(10);
+  });
+
+  test('includes waiting_for_game variant', () => {
+    expect(VALID_BILLING_STATUSES).toContain('waiting_for_game');
+  });
+
+  test('includes paused_disconnect variant', () => {
+    expect(VALID_BILLING_STATUSES).toContain('paused_disconnect');
+  });
+
+  test('includes paused_game_pause variant', () => {
+    expect(VALID_BILLING_STATUSES).toContain('paused_game_pause');
+  });
+
+  test('includes cancelled_no_playable variant', () => {
+    expect(VALID_BILLING_STATUSES).toContain('cancelled_no_playable');
+  });
+});
 
 describe('GET /api/v1/billing/sessions — BillingSession contract', () => {
   test('fixture is a non-empty array', () => {
