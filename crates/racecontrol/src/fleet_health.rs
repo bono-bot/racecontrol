@@ -70,6 +70,13 @@ pub struct FleetHealthStore {
     /// Keyed by file name, value is the action that made it active ("created").
     /// Cleared entry on "deleted". Serialized as a Vec<String> for API response.
     pub active_sentinels: Vec<String>,
+
+    // ─── Crash loop detection (Phase 9b) ─────────────────────────────────
+    /// Timestamps of recent StartupReports (sliding window, max 10 entries).
+    /// Used to detect crash loops: >3 reports in 5 minutes with uptime < 30s.
+    pub startup_timestamps: Vec<DateTime<Utc>>,
+    /// True if the pod is in a detected crash loop (>3 short-uptime restarts in 5 min).
+    pub crash_loop: bool,
 }
 
 /// Per-pod violation history. Capped at 100 entries (FIFO eviction).
@@ -159,6 +166,9 @@ pub struct PodFleetStatus {
     /// Empty if no sentinels are active. Populated from SentinelChange WS events.
     #[serde(default)]
     pub active_sentinels: Vec<String>,
+    /// Phase 9b: True if the pod is crash-looping (>3 short-uptime restarts in 5 min).
+    #[serde(default)]
+    pub crash_loop: bool,
 }
 
 /// Called from the WS StartupReport handler.
@@ -185,6 +195,34 @@ pub fn store_startup_report(
     store.remote_ops_port_bound = Some(remote_ops_port_bound);
     store.hid_detected = Some(hid_detected);
     store.udp_ports_bound = Some(udp_ports_bound.to_vec());
+
+    // ─── Phase 9b: Crash loop detection ──────────────────────────────────
+    // Track startup timestamps for short-uptime restarts (uptime < 30s).
+    // If >3 such restarts in a 5-minute window → crash loop detected.
+    let now = Utc::now();
+    if uptime_secs < 30 {
+        store.startup_timestamps.push(now);
+        // Keep only last 10 entries
+        if store.startup_timestamps.len() > 10 {
+            store.startup_timestamps.remove(0);
+        }
+        // Count entries within last 5 minutes
+        let window = now - chrono::Duration::minutes(5);
+        let recent_count = store.startup_timestamps.iter()
+            .filter(|t| **t > window)
+            .count();
+        if recent_count > 3 && !store.crash_loop {
+            store.crash_loop = true;
+            tracing::error!(
+                "CRASH LOOP DETECTED: {} short-uptime restarts in 5 minutes (uptime={}s)",
+                recent_count, uptime_secs
+            );
+        }
+    } else {
+        // Healthy startup (uptime >= 30s) — clear crash loop state
+        store.crash_loop = false;
+        store.startup_timestamps.clear();
+    }
 }
 
 /// Called from both the graceful Disconnect handler and the ungraceful socket-drop cleanup.
@@ -357,6 +395,7 @@ pub async fn fleet_health_handler(
                     last_violation_at: None,
                     idle_health_fail_count: 0,
                     idle_health_failures: vec![],
+                    crash_loop: false,
                 });
             }
             Some(info) => {
@@ -402,6 +441,7 @@ pub async fn fleet_health_handler(
                 let idle_health_fail_count = store.map(|s| s.idle_health_fail_count).unwrap_or(0);
                 let idle_health_failures = store.map(|s| s.idle_health_failures.clone()).unwrap_or_default();
                 let active_sentinels = store.map(|s| s.active_sentinels.clone()).unwrap_or_default();
+                let crash_loop = store.map(|s| s.crash_loop).unwrap_or(false);
 
                 result.push(PodFleetStatus {
                     pod_number,
@@ -422,6 +462,7 @@ pub async fn fleet_health_handler(
                     idle_health_fail_count,
                     idle_health_failures,
                     active_sentinels,
+                    crash_loop,
                 });
             }
         }

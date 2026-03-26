@@ -602,14 +602,30 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "agent",
                             );
                             // Store version + uptime + boot verification for fleet health dashboard.
-                            {
+                            let crash_loop_just_detected = {
                                 let mut fleet = state.pod_fleet_health.write().await;
                                 let store = fleet.entry(pod_id.clone()).or_default();
+                                let was_looping = store.crash_loop;
                                 crate::fleet_health::store_startup_report(
                                     store, version, *uptime_secs, *crash_recovery,
                                     *lock_screen_port_bound, *remote_ops_port_bound,
                                     *hid_detected, udp_ports_bound,
                                 );
+                                // Newly detected crash loop (transition false → true)
+                                !was_looping && store.crash_loop
+                            };
+                            // Phase 9b: WhatsApp alert on crash loop detection (once per loop)
+                            if crash_loop_just_detected {
+                                let alert_msg = format!(
+                                    "🔴 CRASH LOOP: Pod {} is restarting every ~17s (uptime={}s). Likely OS/hardware issue. Needs reboot.",
+                                    pod_id, uptime_secs
+                                );
+                                tracing::error!("{}", alert_msg);
+                                crate::whatsapp_alerter::send_admin_alert(
+                                    &state.config,
+                                    "crash_loop",
+                                    &alert_msg,
+                                ).await;
                             }
                         }
                         AgentMessage::HardwareFailure { pod_id, reason, detail } => {
