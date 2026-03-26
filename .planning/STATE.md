@@ -3,23 +3,23 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: executing
-stopped_at: Completed 197-launch-resilience-ac-hardening/197-01-PLAN.md
-last_updated: "2026-03-26T06:05:11.182Z"
-last_activity: 2026-03-26 — Phase 208-02 complete (ColdVerificationChain wrapping allowlist enforcement + spawn verification)
+stopped_at: Completed 208-chain-verification-integration/208-03-PLAN.md
+last_updated: "2026-03-26T06:48:15.000Z"
+last_activity: 2026-03-26 — Phase 208-03 complete (gap closure — TransformError on default fallback + spawn retry on PID liveness failure)
 progress:
   total_phases: 171
   completed_phases: 132
   total_plans: 319
-  completed_plans: 313
+  completed_plans: 314
   percent: 76
 ---
 
 ## Current Position
 
 Phase: 208-chain-verification-integration
-Plan: 02 complete
-Status: Executing Phase 208 — 208-02 complete
-Last activity: 2026-03-26 — Phase 208-02 complete (ColdVerificationChain wrapping allowlist enforcement + spawn verification)
+Plan: 03 complete
+Status: Executing Phase 208 — 208-03 complete (gap closure)
+Last activity: 2026-03-26 — Phase 208-03 complete (gap closure — TransformError on default fallback + spawn retry on PID liveness failure)
 
 Progress: [████████░░] 76%
 
@@ -69,8 +69,10 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 211-safe-scheduling-foundation]: PID file at /tmp/auto-detect.pid -- host-local, survives git clean, no repo pollution (SCHED-03)
 - [Phase 211-safe-scheduling-foundation]: Cooldown keyed per pod_ip:issue_type (not fleet-level) -- prevents storm suppression from hiding different issues on same pod (SCHED-04)
 - [Phase 211-safe-scheduling-foundation]: WhatsApp send deferred to Phase 213 -- cooldown infrastructure wired now, Phase 213 adds send call only
-- [Phase 208]: StepValidateCriticalFields returns Ok even on defaults — warn-only, not fatal
+- [Phase 208]: StepValidateCriticalFields returns Err(TransformError) on defaults — caller catches non-fatally (COV-03 gap closed)
 - [Phase 208]: rc-agent load_config tries next path on parse failure instead of returning error immediately
+- [Phase 208-03]: Config and all sub-structs derive Clone for ownership safety in chain execution
+- [Phase 208-03]: Spawn retry uses same method (session1 or schtasks) that originally succeeded — exactly one retry, no infinite loops (COV-05 gap closed)
 - [Phase 211-safe-scheduling-foundation]: Git Bash at C:\Program Files\Git\bin\bash.exe confirmed on James .27; AUDIT_PIN baked into schtasks /TR for SYSTEM context; Bono cron corrected 0 21 -> 5 21 UTC (02:30 -> 02:35 IST); relay custom_command not supported, SSH fallback used for cron correction
 - [Phase 197-launch-resilience-ac-hardening]: Dynamic timeout from median+2*stdev of last 10 launches; exit_code priority over string parsing; atomic Race Engineer with single write lock
 
@@ -86,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T05:59:19.003Z
-Stopped at: Completed 197-launch-resilience-ac-hardening/197-01-PLAN.md
+Last session: 2026-03-26T06:48:15.000Z
+Stopped at: Completed 208-chain-verification-integration/208-03-PLAN.md
 Resume file: None

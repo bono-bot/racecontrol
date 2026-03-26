@@ -3393,11 +3393,11 @@ Plans:
   2. rc-agent loading a TOML file with an SSH banner prepended logs the first 3 lines of the file alongside a VerificationError::TransformError -- not a silent fallback to defaults
   3. Process guard fetching an empty allowlist from /api/v1/guard/whitelist/pod-{N} produces VerificationError::InputParseError("empty allowlist with guard enabled") and auto-switches to report_only -- the error names the HTTP step that succeeded but the semantic validation that failed
   4. rc-sentry spawn() returning Ok for rc-agent relaunch is followed by a 500ms PID liveness check and a 10s health endpoint poll -- if either fails, VerificationError::ActionError is logged and spawn is retried
-**Plans:** 3 plans (2 complete + 1 gap closure)
+**Plans:** 3 plans (3 complete)
 Plans:
-- [ ] 208-01-PLAN.md -- Pod healer curl parse chain + config TOML load chains (COV-02, COV-03)
-- [ ] 208-02-PLAN.md -- Allowlist enforcement chain + spawn verification chain (COV-04, COV-05)
-- [ ] 208-03-PLAN.md -- Gap closure: config TransformError on default fallback (COV-03) + spawn retry on failure (COV-05)
+- [x] 208-01-PLAN.md -- Pod healer curl parse chain + config TOML load chains (COV-02, COV-03)
+- [x] 208-02-PLAN.md -- Allowlist enforcement chain + spawn verification chain (COV-04, COV-05)
+- [x] 208-03-PLAN.md -- Gap closure: config TransformError on default fallback (COV-03) + spawn retry on failure (COV-05)
 
 ### Phase 209: Pre-Ship Gate and Process Tooling
 **Goal**: Every deploy passes through a domain-matched verification gate that cannot be satisfied by health endpoints alone for visual or parse changes -- and every non-trivial bug fix follows the Cause Elimination Process before being declared fixed
