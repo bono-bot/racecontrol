@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Ready for Phase 206
-stopped_at: Completed 206-01-PLAN.md
-last_updated: "2026-03-26T04:05:05.851Z"
+stopped_at: Completed 196-01-PLAN.md
+last_updated: "2026-03-26T04:05:19.086Z"
 last_activity: "2026-03-26 — Phase 203, Plan 02 executed: 4 audit scripts upgraded from count to content health verification"
 progress:
   total_phases: 165
@@ -63,6 +63,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 206]: All config fallback sites in rc-agent main.rs are after tracing init — use tracing::warn! directly without pre-init buffer
 - [Phase 206]: Empty allowlist detection writes override directly to MachineWhitelist under write lock — all downstream scan paths see report_only
 - [Phase 206]: RecoveryLogger for FSM transitions created inside watchdog thread pointing to RECOVERY_LOG_POD — safe JSONL append without coordination
+- [Phase 196-01]: validate_args called before billing gate — invalid JSON rejected before touching shared state
+- [Phase 196-01]: launcher_for() returns static dyn ref (ZST impls) — no heap allocation in hot launch path
+- [Phase 196-01]: Billing gate checks both active_timers AND waiting_for_game — deferred billing sessions now pass launch gate
 
 ### Pending Todos
 
@@ -74,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T04:05:00.056Z
-Stopped at: Completed 206-01-PLAN.md
+Last session: 2026-03-26T04:05:19.071Z
+Stopped at: Completed 196-01-PLAN.md
 Resume file: None
