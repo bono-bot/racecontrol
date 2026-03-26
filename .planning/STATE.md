@@ -2,24 +2,24 @@
 gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
-status: Phase 214 plan 02 shipped — COORD-02 Tailscale confirmation + COORD-03 recovery handoff in bono-auto-detect.sh
-stopped_at: Completed 215-self-improving-intelligence/215-01-PLAN.md
-last_updated: "2026-03-26T09:11:03.400Z"
-last_activity: 2026-03-26 — Phase 214-02 complete (bono-auto-detect three-phase startup + write_bono_findings handoff)
+status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
+stopped_at: Completed 215-self-improving-intelligence/215-02-PLAN.md
+last_updated: "2026-03-26T09:15:00.000Z"
+last_activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
 progress:
   total_phases: 172
   completed_phases: 142
   total_plans: 342
-  completed_plans: 335
+  completed_plans: 336
   percent: 98
 ---
 
 ## Current Position
 
-Phase: 214-bono-coordination
+Phase: 215-self-improving-intelligence
 Plan: 02 complete
-Status: Phase 214 plan 02 shipped — COORD-02 Tailscale confirmation + COORD-03 recovery handoff in bono-auto-detect.sh
-Last activity: 2026-03-26 — Phase 214-02 complete (bono-auto-detect three-phase startup + write_bono_findings handoff)
+Status: Phase 215 plan 02 shipped — suggestion engine + get_suggestions relay exec + auto-detect.sh wired
+Last activity: 2026-03-26 — Phase 215-02 complete (suggestion-engine.sh, get_suggestions relay command, auto-detect wiring)
 
 Progress: [██████████] 98%
 
@@ -118,6 +118,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 199-crash-recovery]: force_clean in event_loop.rs satisfied via documentation comments — Plan 01 correctly placed implementation in ws_handler.rs; event_loop.rs delegates to ws_handler
 - [Phase 215-self-improving-intelligence]: SUGGESTIONS_JSONL at audit/results/suggestions.jsonl — shared between pattern-tracker and trend-analyzer
 - [Phase 215-self-improving-intelligence]: TREND_OUTLIER entries excluded from analysis input via jq select to prevent feedback loop inflating pod counts
+- [Phase 215-02]: Proposal deduplication at write time — scan pending proposals before creating new to prevent duplicate accumulation across runs
+- [Phase 215-02]: get_suggestions registered in pattern-tracker.sh for relay exec — ensures alias available even if suggestion-engine not yet sourced
+- [Phase 215-02]: TREND_OUTLIER entries processed as threshold_tune proposals with fixed confidence 0.50 to avoid feedback loop inflating regular counts
 
 ### Pending Todos
 
@@ -131,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T09:07:47.491Z
-Stopped at: Completed 215-self-improving-intelligence/215-01-PLAN.md
+Last session: 2026-03-26T09:12:41.966Z
+Stopped at: Completed 215-self-improving-intelligence/215-02-PLAN.md
 Resume file: None
