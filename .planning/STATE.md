@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 213-self-healing-escalation/213-02-PLAN.md
-last_updated: "2026-03-26T08:27:43.075Z"
+stopped_at: Completed 199-crash-recovery/199-01-PLAN.md
+last_updated: "2026-03-26T08:31:12.649Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 140
   total_plans: 336
-  completed_plans: 330
+  completed_plans: 331
   percent: 98
 ---
 
@@ -105,6 +105,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 213-self-healing-escalation]: Missing auto-detect-config.json = auto_fix_enabled (fail-safe) — prevents accidental detect-only mode
 - [Phase 213-self-healing-escalation]: cascade.sh sources escalation-engine.sh after detector files and before run_all_detectors() -- ordering critical for live-sync healing
 - [Phase 213-self-healing-escalation]: WhatsApp block replaced with escalate_human() -- HEAL-04 silence conditions (QUIET, venue-closed deferral, 6h cooldown) centralized in healing engine
+- [Phase 199-crash-recovery]: force_clean: false on normal launches, true on Race Engineer and manual relaunch paths — backward-compatible serde default
+- [Phase 199-crash-recovery]: query_best_recovery_action follows query_dynamic_timeout pattern: 3-sample minimum, unwrap_or_default, returns (action, success_rate) tuple
+- [Phase 199-crash-recovery]: exit_codes pushed inside existing LAUNCH-17 write lock — atomic with relaunch counter increment, no extra lock
 
 ### Pending Todos
 
@@ -118,6 +121,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T08:27:43.056Z
-Stopped at: Completed 213-self-healing-escalation/213-02-PLAN.md
+Last session: 2026-03-26T08:31:12.633Z
+Stopped at: Completed 199-crash-recovery/199-01-PLAN.md
 Resume file: None
