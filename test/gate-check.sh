@@ -449,6 +449,8 @@ EOF
   # Evidence tracking
   EVIDENCE_VISUAL="not applicable"
   EVIDENCE_SERVER="not applicable"
+  EVIDENCE_FLEET=""
+  EVIDENCE_WS=""
   EVIDENCE_PARSE="not applicable"
 
   # --- GATE-02: Display domain ---
@@ -470,6 +472,7 @@ EOF
   # --- GATE-03: Network domain ---
   if [ $DOMAIN_NETWORK -eq 1 ]; then
     DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    # GATE-03a: Server health check
     HEALTH_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/health 2>/dev/null || echo "")
     if [ -n "$HEALTH_RESP" ]; then
       printf "  Network verification: server health check... %b\n" "$pass_label"
@@ -482,9 +485,41 @@ EOF
       DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network "
       EVIDENCE_SERVER="FAIL"
     fi
-    # WebSocket reminder
+    # Fleet endpoint reachability (GATE-03b)
+    FLEET_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/fleet/health 2>/dev/null || echo "")
+    if [ -n "$FLEET_RESP" ]; then
+      printf "  Network verification: fleet endpoint reachable... %b\n" "$pass_label"
+      EVIDENCE_FLEET="OK"
+    else
+      printf "  %b BLOCKED: Fleet endpoint unreachable (curl to /api/v1/fleet/health failed)\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network-fleet "
+      EVIDENCE_FLEET="FAIL"
+    fi
+    # WS connection test when WebSocket code changed (GATE-03c)
     if echo "$DOMAIN_FILES_NETWORK" | grep -qiE '(ws_handler|WebSocket)'; then
-      printf "  %b WebSocket changes detected — verify live WS connections after deploy\n" "$warn_label"
+      if [ "${SKIP_WS_CHECK:-}" = "true" ]; then
+        printf "  %b WebSocket check skipped (SKIP_WS_CHECK=true)\n" "$warn_label"
+        EVIDENCE_WS="SKIPPED"
+      else
+        # Use curl with Connection: Upgrade to test WS handshake (returns 101 on success)
+        WS_STATUS=$(curl -sf -m 5 -o /dev/null -w "%{http_code}" \
+          -H "Connection: Upgrade" -H "Upgrade: websocket" \
+          -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdA==" \
+          http://192.168.31.23:8080/ws 2>/dev/null || echo "000")
+        if [ "$WS_STATUS" = "101" ]; then
+          printf "  Network verification: WebSocket handshake OK (HTTP 101)... %b\n" "$pass_label"
+          EVIDENCE_WS="OK"
+        else
+          printf "  %b BLOCKED: WebSocket changes detected but WS handshake failed (HTTP %s, expected 101)\n" "$fail_label" "$WS_STATUS"
+          echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+          echo "    To bypass: set SKIP_WS_CHECK=true if WS endpoint path differs"
+          DOMAIN_FAIL=1
+          DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network-ws "
+          EVIDENCE_WS="FAIL (HTTP $WS_STATUS)"
+        fi
+      fi
     fi
   fi
 
@@ -544,6 +579,8 @@ EOF
     echo "  Domain verification evidence:"
     echo "    VISUAL_VERIFIED=$EVIDENCE_VISUAL"
     echo "    Server health: $EVIDENCE_SERVER"
+    [ -n "$EVIDENCE_FLEET" ] && echo "    Fleet endpoint: $EVIDENCE_FLEET"
+    [ -n "$EVIDENCE_WS" ] && echo "    WebSocket: $EVIDENCE_WS"
     echo "    Parse test: $EVIDENCE_PARSE"
   fi
 
@@ -688,6 +725,8 @@ if [ "$MODE" = "domain-check" ]; then
 
   EVIDENCE_VISUAL="not applicable"
   EVIDENCE_SERVER="not applicable"
+  EVIDENCE_FLEET=""
+  EVIDENCE_WS=""
   EVIDENCE_PARSE="not applicable"
 
   # --- GATE-02: Display domain ---
@@ -709,6 +748,7 @@ if [ "$MODE" = "domain-check" ]; then
   # --- GATE-03: Network domain ---
   if [ $DOMAIN_NETWORK -eq 1 ]; then
     DOMAIN_CHECKED=$((DOMAIN_CHECKED + 1))
+    # GATE-03a: Server health check
     HEALTH_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/health 2>/dev/null || echo "")
     if [ -n "$HEALTH_RESP" ]; then
       printf "  Network verification: server health check... %b\n" "$pass_label"
@@ -721,8 +761,41 @@ if [ "$MODE" = "domain-check" ]; then
       DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network "
       EVIDENCE_SERVER="FAIL"
     fi
+    # Fleet endpoint reachability (GATE-03b)
+    FLEET_RESP=$(curl -sf -m 5 http://192.168.31.23:8080/api/v1/fleet/health 2>/dev/null || echo "")
+    if [ -n "$FLEET_RESP" ]; then
+      printf "  Network verification: fleet endpoint reachable... %b\n" "$pass_label"
+      EVIDENCE_FLEET="OK"
+    else
+      printf "  %b BLOCKED: Fleet endpoint unreachable (curl to /api/v1/fleet/health failed)\n" "$fail_label"
+      echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+      DOMAIN_FAIL=1
+      DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network-fleet "
+      EVIDENCE_FLEET="FAIL"
+    fi
+    # WS connection test when WebSocket code changed (GATE-03c)
     if echo "$DOMAIN_FILES_NETWORK" | grep -qiE '(ws_handler|WebSocket)'; then
-      printf "  %b WebSocket changes detected — verify live WS connections after deploy\n" "$warn_label"
+      if [ "${SKIP_WS_CHECK:-}" = "true" ]; then
+        printf "  %b WebSocket check skipped (SKIP_WS_CHECK=true)\n" "$warn_label"
+        EVIDENCE_WS="SKIPPED"
+      else
+        # Use curl with Connection: Upgrade to test WS handshake (returns 101 on success)
+        WS_STATUS=$(curl -sf -m 5 -o /dev/null -w "%{http_code}" \
+          -H "Connection: Upgrade" -H "Upgrade: websocket" \
+          -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdA==" \
+          http://192.168.31.23:8080/ws 2>/dev/null || echo "000")
+        if [ "$WS_STATUS" = "101" ]; then
+          printf "  Network verification: WebSocket handshake OK (HTTP 101)... %b\n" "$pass_label"
+          EVIDENCE_WS="OK"
+        else
+          printf "  %b BLOCKED: WebSocket changes detected but WS handshake failed (HTTP %s, expected 101)\n" "$fail_label" "$WS_STATUS"
+          echo "    Triggering files: $DOMAIN_FILES_NETWORK"
+          echo "    To bypass: set SKIP_WS_CHECK=true if WS endpoint path differs"
+          DOMAIN_FAIL=1
+          DOMAIN_BLOCKED_LIST="${DOMAIN_BLOCKED_LIST}network-ws "
+          EVIDENCE_WS="FAIL (HTTP $WS_STATUS)"
+        fi
+      fi
     fi
   fi
 
@@ -782,6 +855,8 @@ if [ "$MODE" = "domain-check" ]; then
     echo "  Domain verification evidence:"
     echo "    VISUAL_VERIFIED=$EVIDENCE_VISUAL"
     echo "    Server health: $EVIDENCE_SERVER"
+    [ -n "$EVIDENCE_FLEET" ] && echo "    Fleet endpoint: $EVIDENCE_FLEET"
+    [ -n "$EVIDENCE_WS" ] && echo "    WebSocket: $EVIDENCE_WS"
     echo "    Parse test: $EVIDENCE_PARSE"
   fi
 
