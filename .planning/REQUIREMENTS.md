@@ -124,10 +124,10 @@
 - [x] **HEAL-01**: Expanded auto-fix whitelist adds: WoL for powered-off pods, MAINTENANCE_MODE auto-clear after 30 min, stale bat file replacement
 - [x] **HEAL-02**: 5-tier escalation ladder: retry (2x) → restart (schtasks) → WoL → cloud failover → Uday WhatsApp
 - [x] **HEAL-03**: Each escalation tier checks sentinel files (OTA_DEPLOYING, MAINTENANCE_MODE) before acting
-- [ ] **HEAL-04**: WhatsApp silence conditions: no alert for QUIET findings, max 1 alert per issue per 6 hours, venue-closed findings deferred to morning
-- [ ] **HEAL-05**: Post-fix verification — every auto-fix is followed by re-check to confirm resolution
+- [x] **HEAL-04**: WhatsApp silence conditions: no alert for QUIET findings, max 1 alert per issue per 6 hours, venue-closed findings deferred to morning
+- [x] **HEAL-05**: Post-fix verification — every auto-fix is followed by re-check to confirm resolution
 - [x] **HEAL-06**: Fixes follow Audit Protocol debugging methodology: Cause Elimination Process (document symptom → hypothesize → test & eliminate → fix confirmed cause → verify) — not blind whitelist matching
-- [ ] **HEAL-07**: Live-sync model — fixes apply immediately on detection and confirmed diagnosis (not batched to end of run), each fix pushed to affected system the moment it's verified
+- [x] **HEAL-07**: Live-sync model — fixes apply immediately on detection and confirmed diagnosis (not batched to end of run), each fix pushed to affected system the moment it's verified
 - [x] **HEAL-08**: Global toggle `auto_fix_enabled` in auto-detect config (toggle via relay command, admin API, or TOML edit) — when OFF, system detects and reports only, never applies fixes
 
 ### Bono Coordination (COORD)
@@ -191,10 +191,10 @@
 | HEAL-01 | Phase 213 | Complete |
 | HEAL-02 | Phase 213 | Complete |
 | HEAL-03 | Phase 213 | Complete |
-| HEAL-04 | Phase 213 | Pending |
-| HEAL-05 | Phase 213 | Pending |
+| HEAL-04 | Phase 213 | Complete |
+| HEAL-05 | Phase 213 | Complete |
 | HEAL-06 | Phase 213 | Complete |
-| HEAL-07 | Phase 213 | Pending |
+| HEAL-07 | Phase 213 | Complete |
 | HEAL-08 | Phase 213 | Complete |
 | COORD-01 | Phase 214 | Pending |
 | COORD-02 | Phase 214 | Pending |
