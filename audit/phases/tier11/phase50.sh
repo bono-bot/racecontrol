@@ -70,7 +70,91 @@ run_phase50() {
   fi
   emit_result "$phase" "$tier" "server-23-auth-protected" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # --- Check 4: Public health endpoint accessible without auth ---
+  # --- Check 4: Frontend login pages call correct auth endpoints ---
+  # WHY: v20.0 POS dashboard was deployed with stale JS calling /auth/admin-login (6-digit admin PIN)
+  # instead of /staff/validate-pin (4-digit staff PIN). API tests passed, but users couldn't log in.
+  # This check verifies the DEPLOYED frontend JS calls the correct endpoint.
+
+  # Check 4a: Web dashboard login page uses /staff/validate-pin
+  local web_login_html; web_login_html=$(curl -s -m 10 "http://192.168.31.23:3200/login" 2>/dev/null || echo "")
+  local web_js_files; web_js_files=$(printf '%s' "$web_login_html" | grep -oE '_next/static/chunks/[^"\\]+\.js' | sort -u || true)
+  local web_found_endpoint=""
+  while IFS= read -r js_file; do
+    [[ -z "$js_file" ]] && continue
+    local js_content; js_content=$(curl -s -m 5 "http://192.168.31.23:3200/${js_file}" 2>/dev/null || true)
+    if printf '%s' "$js_content" | grep -q 'staff/validate-pin'; then
+      web_found_endpoint="staff/validate-pin"
+      break
+    fi
+    if printf '%s' "$js_content" | grep -q 'admin-login'; then
+      web_found_endpoint="admin-login"
+      break
+    fi
+  done <<< "$web_js_files"
+
+  if [[ "$web_found_endpoint" = "staff/validate-pin" ]]; then
+    status="PASS"; severity="P3"; message="Web dashboard login JS calls /staff/validate-pin (correct)"
+  elif [[ "$web_found_endpoint" = "admin-login" ]]; then
+    status="FAIL"; severity="P1"; message="Web dashboard login JS calls /admin-login (STALE BUILD — must redeploy)"
+  elif [[ -z "$web_login_html" ]]; then
+    status="WARN"; severity="P2"; message="Web dashboard login page unreachable"
+  else
+    status="WARN"; severity="P2"; message="Web dashboard login: could not find auth endpoint in JS bundles"
+  fi
+  emit_result "$phase" "$tier" "server-23-web-login-endpoint" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # Check 4b: Kiosk staff login page uses /staff/validate-pin
+  local kiosk_login_html; kiosk_login_html=$(curl -s -m 10 "http://192.168.31.23:3300/kiosk/staff" 2>/dev/null || echo "")
+  # Kiosk has basePath=/kiosk — JS paths are /kiosk/_next/static/... Extract full path including prefix
+  local kiosk_js_files; kiosk_js_files=$(printf '%s' "$kiosk_login_html" | grep -oE '/kiosk/_next/static/chunks/[^"\\]+\.js' | sort -u || true)
+  if [[ -z "$kiosk_js_files" ]]; then
+    kiosk_js_files=$(printf '%s' "$kiosk_login_html" | grep -oE '_next/static/chunks/[^"\\]+\.js' | sort -u || true)
+  fi
+  local kiosk_found_endpoint=""
+  while IFS= read -r js_file; do
+    [[ -z "$js_file" ]] && continue
+    local js_content; js_content=$(curl -s -m 5 "http://192.168.31.23:3300${js_file}" 2>/dev/null || true)
+    if printf '%s' "$js_content" | grep -q 'staff/validate-pin'; then
+      kiosk_found_endpoint="staff/validate-pin"
+      break
+    fi
+    if printf '%s' "$js_content" | grep -q 'admin-login'; then
+      kiosk_found_endpoint="admin-login"
+      break
+    fi
+  done <<< "$kiosk_js_files"
+
+  if [[ "$kiosk_found_endpoint" = "staff/validate-pin" ]]; then
+    status="PASS"; severity="P3"; message="Kiosk staff login JS calls /staff/validate-pin (correct)"
+  elif [[ "$kiosk_found_endpoint" = "admin-login" ]]; then
+    status="FAIL"; severity="P1"; message="Kiosk staff login JS calls /admin-login (STALE BUILD — must redeploy)"
+  elif [[ -z "$kiosk_login_html" ]]; then
+    status="WARN"; severity="P2"; message="Kiosk staff page unreachable"
+  else
+    status="WARN"; severity="P2"; message="Kiosk staff login: could not find auth endpoint in JS bundles"
+  fi
+  emit_result "$phase" "$tier" "server-23-kiosk-login-endpoint" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # Check 4c: Staff PIN works on both frontend endpoints (live E2E)
+  if [[ -n "$pin" ]]; then
+    local staff_tmpfile; staff_tmpfile=$(mktemp)
+    # Use 4-digit PIN for staff/validate-pin
+    local staff_pin="${pin:0:4}"
+    jq -n --arg pin "$staff_pin" '{pin: $pin}' > "$staff_tmpfile"
+    local staff_response; staff_response=$(curl -s -m 10 -X POST \
+      "http://192.168.31.23:8080/api/v1/staff/validate-pin" \
+      -H 'Content-Type: application/json' -d "@${staff_tmpfile}" 2>/dev/null || true)
+    rm -f "$staff_tmpfile"
+    if printf '%s' "$staff_response" | jq -e '.token' > /dev/null 2>&1; then
+      local staff_name; staff_name=$(printf '%s' "$staff_response" | jq -r '.staff_name // "unknown"' 2>/dev/null)
+      status="PASS"; severity="P3"; message="Staff PIN validate-pin: token returned for ${staff_name}"
+    else
+      status="FAIL"; severity="P1"; message="Staff PIN validate-pin: auth failed (PIN ${staff_pin} rejected)"
+    fi
+    emit_result "$phase" "$tier" "server-23-staff-pin-e2e" "$status" "$severity" "$message" "$mode" "$venue_state"
+  fi
+
+  # --- Check 5: Public health endpoint accessible without auth ---
   local health_code; health_code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" \
     "http://192.168.31.23:8080/api/v1/health" 2>/dev/null)
   if [[ "$health_code" = "200" ]]; then
@@ -79,6 +163,16 @@ run_phase50() {
     status="WARN"; severity="P2"; message="Public health endpoint returned HTTP ${health_code} (expected 200 — should be public)"
   fi
   emit_result "$phase" "$tier" "server-23-auth-public" "$status" "$severity" "$message" "$mode" "$venue_state"
+
+  # --- Check 6: Frontend PIN consistency — kiosk and web must use same auth path ---
+  if [[ -n "${web_found_endpoint:-}" && -n "${kiosk_found_endpoint:-}" ]]; then
+    if [[ "$web_found_endpoint" = "$kiosk_found_endpoint" ]]; then
+      status="PASS"; severity="P3"; message="PIN sync: both Kiosk and Web use /${web_found_endpoint} (in sync)"
+    else
+      status="FAIL"; severity="P1"; message="PIN DESYNC: Kiosk uses /${kiosk_found_endpoint}, Web uses /${web_found_endpoint} — different auth paths"
+    fi
+    emit_result "$phase" "$tier" "server-23-pin-sync" "$status" "$severity" "$message" "$mode" "$venue_state"
+  fi
 
   return 0
 }
