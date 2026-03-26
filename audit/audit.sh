@@ -85,7 +85,7 @@ Usage: AUDIT_PIN=<pin> bash audit/audit.sh --mode <MODE> [OPTIONS]
 Modes:
   quick          Fast health sweep (Tiers 1-2, ~5 min)
   standard       Full Tiers 1-9 run (~15 min)
-  full           All 18 tiers, 60 phases (~8 min with parallel engine)
+  full           All 18 tiers, 65 phases (~8 min with parallel engine)
   pre-ship       Pre-deployment verification gates
   post-incident  Post-incident investigation sweep
 
@@ -375,8 +375,8 @@ elif [[ -n "$AUDIT_TIER" ]]; then
   case "$AUDIT_TIER" in
     1)  run_phase01; run_phase02; run_phase03; run_phase04; run_phase05
         run_phase06; run_phase07; run_phase08; run_phase09; run_phase10 ;;
-    2)  run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16 ;;
-    3)  run_phase17; run_phase18; run_phase19; run_phase20 ;;
+    2)  run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16; run_phase61; run_phase62; run_phase63 ;;
+    3)  run_phase17; run_phase18; run_phase19; run_phase20; run_phase64; run_phase65 ;;
     4)  run_phase21; run_phase22; run_phase23; run_phase24; run_phase25 ;;
     5)  run_phase26; run_phase27; run_phase28; run_phase29 ;;
     6)  run_phase30; run_phase31; run_phase32; run_phase33; run_phase34 ;;
@@ -401,9 +401,11 @@ else
     run_phase01; run_phase02; run_phase03; run_phase04; run_phase05
     run_phase06; run_phase07; run_phase08; run_phase09; run_phase10
     run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16
+    run_phase61; run_phase62; run_phase63
   }
   run_tier_3_to_9() {
     run_phase17; run_phase18; run_phase19; run_phase20
+    run_phase64; run_phase65
     run_phase21; run_phase22; run_phase23; run_phase24; run_phase25
     run_phase26; run_phase27; run_phase28; run_phase29
     run_phase30; run_phase31; run_phase32; run_phase33; run_phase34
