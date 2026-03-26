@@ -105,13 +105,18 @@ components:
       type: string
       enum:
         - pending
+        - waiting_for_game
         - active
-        - paused_idle
         - paused_manual
+        - paused_disconnect
+        - paused_game_pause
         - completed
         - ended_early
         - cancelled
-        - expired
+        - cancelled_no_playable
+      description: |
+        10 variants matching Rust BillingSessionStatus enum in crates/rc-common/src/types.rs.
+        Run `node scripts/check-billing-status-parity.js` to verify cross-language parity.
 
     Pod:
       type: object
@@ -430,6 +435,118 @@ components:
           type: object
           additionalProperties:
             type: string
+
+    FailureMode:
+      type: object
+      required: [mode, count]
+      properties:
+        mode:
+          type: string
+          description: Failure mode identifier (e.g. "content_manager_hang", "timeout")
+        count:
+          type: integer
+          description: Number of occurrences in the queried window
+
+    LaunchStatsResponse:
+      type: object
+      required: [success_rate, total_launches, common_failure_modes, last_30d_trend]
+      properties:
+        success_rate:
+          type: number
+          format: double
+          description: Fraction of launches that succeeded (0.0–1.0)
+        avg_time_to_track_ms:
+          type: integer
+          nullable: true
+          description: Average time from launch to playable signal in milliseconds
+        p95_time_to_track_ms:
+          type: integer
+          nullable: true
+          description: 95th percentile time from launch to playable signal in milliseconds
+        total_launches:
+          type: integer
+          description: Total launches in the queried window (default 30 days)
+        common_failure_modes:
+          type: array
+          items:
+            $ref: '#/components/schemas/FailureMode'
+        last_30d_trend:
+          type: string
+          description: Human-readable trend summary (e.g. "improving", "stable", "degrading")
+
+    BillingAccuracyResponse:
+      type: object
+      required: [sessions_with_zero_delta, sessions_where_billing_never_started, false_playable_signals]
+      properties:
+        avg_delta_ms:
+          type: integer
+          nullable: true
+          description: Average delta between AC STATUS=LIVE and billing start in ms
+        max_delta_ms:
+          type: integer
+          nullable: true
+          description: Maximum delta observed in the queried window
+        sessions_with_zero_delta:
+          type: integer
+          description: Sessions where billing started exactly on LIVE signal (ideal)
+        sessions_where_billing_never_started:
+          type: integer
+          description: Sessions that ended in waiting_for_game without billing starting
+        false_playable_signals:
+          type: integer
+          description: PlayableSignal emissions that did not result in billing start
+
+    AlternativeCombo:
+      type: object
+      required: [success_rate, total_launches]
+      properties:
+        car:
+          type: string
+          nullable: true
+          description: Car identifier (null = any car)
+        track:
+          type: string
+          nullable: true
+          description: Track identifier (null = any track)
+        success_rate:
+          type: number
+          format: double
+          description: Launch success rate for this car+track combination
+        avg_time_ms:
+          type: integer
+          nullable: true
+          description: Average time to playable signal for this combination
+        total_launches:
+          type: integer
+          description: Total launches with this combination
+
+    LaunchMatrixRow:
+      type: object
+      required: [pod_id, total_launches, success_rate, top_3_failure_modes, flagged]
+      properties:
+        pod_id:
+          type: string
+          description: Pod identifier
+        total_launches:
+          type: integer
+          description: Total launches on this pod in the queried window
+        success_rate:
+          type: number
+          format: double
+          description: Launch success rate for this pod
+        avg_time_ms:
+          type: integer
+          nullable: true
+          description: Average time from launch to playable signal on this pod
+        top_3_failure_modes:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/FailureMode'
+          description: Top 3 failure modes on this pod
+        flagged:
+          type: boolean
+          description: Whether this pod is flagged for investigation (success_rate below threshold)
 
 paths:
 
@@ -2369,3 +2486,127 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ConfigAuditEntry'
+
+  # ─── Metrics ────────────────────────────────────────────────────────────────
+
+  /api/v1/metrics/launch-stats:
+    get:
+      tags: [games]
+      summary: Game launch statistics
+      operationId: getLaunchStats
+      description: |
+        Returns launch success rate, timing percentiles, and common failure modes.
+        Filterable by pod, game, car, and track. Default window is last 30 days.
+      security:
+        - staffJWT: []
+      parameters:
+        - name: pod
+          in: query
+          schema:
+            type: string
+          description: Filter by pod ID
+        - name: game
+          in: query
+          schema:
+            type: string
+          description: Filter by sim type (e.g. "assetto_corsa")
+        - name: car
+          in: query
+          schema:
+            type: string
+          description: Filter by car identifier
+        - name: track
+          in: query
+          schema:
+            type: string
+          description: Filter by track identifier
+      responses:
+        '200':
+          description: Launch statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchStatsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/metrics/billing-accuracy:
+    get:
+      tags: [billing]
+      summary: Billing accuracy metrics
+      operationId: getBillingAccuracy
+      description: |
+        Returns 30-day rolling billing delta statistics — measures how accurately
+        billing starts relative to the AC STATUS=LIVE / PlayableSignal event.
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Billing accuracy metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingAccuracyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/games/alternatives:
+    get:
+      tags: [games]
+      summary: Alternative car+track combinations
+      operationId: getGameAlternatives
+      description: |
+        Returns alternative car+track combinations ranked by launch success rate.
+        Used by Race Engineer to suggest alternatives when a combo has poor launch history.
+      security:
+        - staffJWT: []
+      parameters:
+        - name: pod
+          in: query
+          schema:
+            type: string
+          description: Filter by pod ID
+        - name: game
+          in: query
+          schema:
+            type: string
+          description: Filter by sim type
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 5
+          description: Maximum number of alternatives to return
+      responses:
+        '200':
+          description: Alternative combinations ranked by success rate
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlternativeCombo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/admin/launch-matrix:
+    get:
+      tags: [fleet]
+      summary: Per-pod launch matrix
+      operationId: getLaunchMatrix
+      description: |
+        Returns per-pod launch statistics including success rate, timing, and
+        top failure modes. Pods with success rate below threshold are flagged.
+      security:
+        - staffJWT: []
+      responses:
+        '200':
+          description: Per-pod launch matrix
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LaunchMatrixRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'

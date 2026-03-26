@@ -1,0 +1,26 @@
+{
+  "billing_tick": {
+    "pod_id": "pod-1",
+    "status": "active",
+    "remaining_seconds": 1500,
+    "elapsed_seconds": 300,
+    "session_id": "test-session-1"
+  },
+  "billing_tick_waiting": {
+    "pod_id": "pod-2",
+    "status": "waiting_for_game",
+    "remaining_seconds": 1800,
+    "elapsed_seconds": 0,
+    "session_id": "test-session-2"
+  },
+  "game_state_changed": {
+    "pod_id": "pod-1",
+    "game_state": "running",
+    "game_name": "assetto_corsa"
+  },
+  "game_state_loading": {
+    "pod_id": "pod-3",
+    "game_state": "loading",
+    "game_name": "assetto_corsa"
+  }
+}
