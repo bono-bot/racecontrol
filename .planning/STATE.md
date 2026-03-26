@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Phase 200 plan 01 shipped — combo reliability scoring foundation
-stopped_at: Completed 216-pipeline-self-test-suite/216-01-PLAN.md
-last_updated: "2026-03-26T10:12:48.291Z"
+stopped_at: Completed 200-self-improving-intelligence/200-02-PLAN.md
+last_updated: "2026-03-26T10:23:07.785Z"
 last_activity: 2026-03-26 — Phase 200-01 complete (combo_reliability table, query/update functions, launch warning injection, max_auto_relaunch tuning)
 progress:
   total_phases: 172
-  completed_phases: 143
+  completed_phases: 144
   total_plans: 346
-  completed_plans: 340
+  completed_plans: 341
   percent: 98
 ---
 
@@ -132,6 +132,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 215-04]: Scope restriction via realpath comparison: only scripts/detectors/ and scripts/healing/ — never auto-detect.sh or audit/lib/
 - [Phase 216-01]: grep -oP -> grep -oE portability fix applied to detect-config-drift, detect-log-anomaly, detect-crash-loop -- Perl regex fails on Git Bash Windows
 - [Phase 216-01]: fixture-backed mock pattern: FIXTURE_FILE + safe_remote_exec jq -Rn rawfile -- all 6 detectors testable offline without live pods
+- [Phase 200-02]: query_alternatives takes &SqlitePool directly — testable without State, consistent with Plan 01 query_ pattern
+- [Phase 200-02]: Pod fallback fills remaining slots (< 3) from fleet with different pod_id to avoid duplicates
+- [Phase 200-02]: launch_matrix runs two queries per pod (aggregate + failure modes) — readable and SQLite-safe
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T10:12:48.273Z
-Stopped at: Completed 216-pipeline-self-test-suite/216-01-PLAN.md
+Last session: 2026-03-26T10:23:07.766Z
+Stopped at: Completed 200-self-improving-intelligence/200-02-PLAN.md
 Resume file: None

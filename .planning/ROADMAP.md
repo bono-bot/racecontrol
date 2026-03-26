@@ -3069,7 +3069,7 @@ Plans:
 - [x] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes (completed 2026-03-26)
 - [x] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
  (completed 2026-03-26)
-- [ ] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning
+- [x] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning (completed 2026-03-26)
 - [ ] **Phase 201: Frontend Integration & Type Sync** - Shared types parity (Rust↔TS), kiosk/web/admin UI updates for new states, contract tests, drift prevention, rebuild + deploy all 3 Next.js apps
 
 ## v24.0 Phase Details
@@ -3251,7 +3251,7 @@ Plans:
 | 197. Launch Resilience & AC Hardening | 2/2 | Complete    | 2026-03-26 |
 | 198. On-Track Billing | 3/3 | Complete    | 2026-03-26 |
 | 199. Crash Recovery | 2/2 | Complete    | 2026-03-26 |
-| 200. Self-Improving Intelligence | 0/0 | Not started | - |
+| 200. Self-Improving Intelligence | 2/2 | Complete   | 2026-03-26 |
 | 201. Frontend Integration & Type Sync | 0/0 | Not started | - |
 
 ---

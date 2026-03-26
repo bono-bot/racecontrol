@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 
+INCLUDE_ALL=false
+[[ "${1:-}" == "--all" ]] && INCLUDE_ALL=true
+
 PASS_COUNT=0
 FAIL_COUNT=0
 
@@ -555,4 +558,20 @@ echo ""
 TOTAL=$((PASS_COUNT + FAIL_COUNT))
 echo "${PASS_COUNT}/${TOTAL} tests passed."
 [ "$FAIL_COUNT" -gt 0 ] && exit 1
+
+if [ "$INCLUDE_ALL" = "true" ]; then
+  echo ""
+  echo "--- Running test-escalation.sh ---"
+  bash "$SCRIPT_DIR/test-escalation.sh"
+  ESC_EXIT=$?
+  echo ""
+  echo "--- Running test-coordination.sh ---"
+  bash "$SCRIPT_DIR/test-coordination.sh"
+  COORD_EXIT=$?
+  if [ "$ESC_EXIT" -ne 0 ] || [ "$COORD_EXIT" -ne 0 ]; then
+    echo "One or more sub-test files failed."
+    exit 1
+  fi
+fi
+
 exit 0
