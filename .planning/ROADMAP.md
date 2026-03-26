@@ -3336,7 +3336,7 @@ Plans:
 - [x] **Phase 205: Verification Chain Foundation** - New rc-common types (VerificationChain, VerifyStep, VerificationError) and spawn_periodic_refetch scaffold -- stabilize before consumers compile (completed 2026-03-25)
 - [x] **Phase 206: Observable State Transitions** - Eliminate all silent failures: MAINTENANCE_MODE WhatsApp alert, config fallback warn!, empty allowlist error!, sentinel fleet alerts, FSM transition logging (completed 2026-03-26)
 - [x] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented (completed 2026-03-26)
-- [ ] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain
+- [x] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain (completed 2026-03-26)
 - [ ] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption
 - [ ] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section
 
@@ -3393,7 +3393,7 @@ Plans:
   2. rc-agent loading a TOML file with an SSH banner prepended logs the first 3 lines of the file alongside a VerificationError::TransformError -- not a silent fallback to defaults
   3. Process guard fetching an empty allowlist from /api/v1/guard/whitelist/pod-{N} produces VerificationError::InputParseError("empty allowlist with guard enabled") and auto-switches to report_only -- the error names the HTTP step that succeeded but the semantic validation that failed
   4. rc-sentry spawn() returning Ok for rc-agent relaunch is followed by a 500ms PID liveness check and a 10s health endpoint poll -- if either fails, VerificationError::ActionError is logged and spawn is retried
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 208-01-PLAN.md -- Pod healer curl parse chain + config TOML load chains (COV-02, COV-03)
 - [ ] 208-02-PLAN.md -- Allowlist enforcement chain + spawn verification chain (COV-04, COV-05)
@@ -3431,7 +3431,7 @@ Plans:
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
 | 206. Observable State Transitions | 2/2 | Complete    | 2026-03-26 |
 | 207. Boot Resilience | 2/2 | Complete    | 2026-03-26 |
-| 208. Chain Verification Integration | 0/0 | Not started | - |
+| 208. Chain Verification Integration | 2/2 | Complete   | 2026-03-26 |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
 | 210. Startup Enforcement and Fleet Audit | 0/0 | Not started | - |
 
