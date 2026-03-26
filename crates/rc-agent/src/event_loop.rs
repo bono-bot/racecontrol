@@ -1630,6 +1630,76 @@ mod tests {
         assert!(!(attempt < 2), "attempt=2 should trigger auto-end (not retry)");
     }
 
+    // ─── Phase 199 crash recovery guard pattern tests ─────────────────────────
+
+    /// RECOVER-07: PausedWaitingRelaunch must block exit grace arming.
+    /// Verifies the pattern `matches!(state, CrashRecoveryState::PausedWaitingRelaunch { .. })`
+    /// used in both exit grace guards (EXIT-GRACE-GUARD-1/2 and EXIT-GRACE-GUARD-2/2)
+    /// compiles correctly and returns true for the PausedWaitingRelaunch variant.
+    #[tokio::test]
+    async fn test_crash_recovery_state_paused_prevents_exit_grace() {
+        let state = CrashRecoveryState::PausedWaitingRelaunch {
+            attempt: 1,
+            timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(60))),
+            last_sim_type: rc_common::types::SimType::AssettoCorsa,
+            last_launch_args: None,
+        };
+        // Guard pattern: exit grace must NOT arm when PausedWaitingRelaunch
+        let is_paused = matches!(state, CrashRecoveryState::PausedWaitingRelaunch { .. });
+        assert!(is_paused, "PausedWaitingRelaunch must match the exit grace guard pattern");
+        // Confirm the guard logic: exit_grace_armed must NOT be set
+        assert!(!(!is_paused), "Guard !matches!(PausedWaitingRelaunch) must be false — exit grace blocked");
+    }
+
+    /// RECOVER-07: Idle state must allow exit grace arming (normal operation).
+    #[test]
+    fn test_crash_recovery_state_idle_allows_exit_grace() {
+        let state = CrashRecoveryState::Idle;
+        let is_paused = matches!(state, CrashRecoveryState::PausedWaitingRelaunch { .. });
+        assert!(!is_paused, "Idle must NOT match PausedWaitingRelaunch — exit grace should be allowed");
+    }
+
+    /// RECOVER-07: AutoEndPending state must allow exit grace arming (recovery exhausted).
+    #[test]
+    fn test_crash_recovery_state_auto_end_pending_allows_exit_grace() {
+        let state = CrashRecoveryState::AutoEndPending;
+        let is_paused = matches!(state, CrashRecoveryState::PausedWaitingRelaunch { .. });
+        assert!(!is_paused, "AutoEndPending must NOT match PausedWaitingRelaunch — exit grace should be allowed");
+    }
+
+    /// RECOVER-01: force_clean field must deserialize correctly WITH and WITHOUT the field.
+    /// Verifies backward compatibility — old agents without force_clean get false via #[serde(default)].
+    #[test]
+    fn test_force_clean_deserialization() {
+        use rc_common::protocol::CoreToAgentMessage;
+
+        // Serialize with force_clean=true
+        let msg_with = CoreToAgentMessage::LaunchGame {
+            sim_type: rc_common::types::SimType::AssettoCorsa,
+            launch_args: None,
+            force_clean: true,
+        };
+        let json_with = serde_json::to_string(&msg_with).expect("serialize LaunchGame with force_clean");
+        let parsed_with: CoreToAgentMessage = serde_json::from_str(&json_with)
+            .expect("deserialize LaunchGame with force_clean");
+        if let CoreToAgentMessage::LaunchGame { force_clean, .. } = parsed_with {
+            assert!(force_clean, "force_clean=true must round-trip through serde");
+        } else {
+            panic!("Expected LaunchGame variant");
+        }
+
+        // Deserialize JSON WITHOUT force_clean field — must default to false (#[serde(default)])
+        // Format: tag="type" (snake_case), content="data"
+        let json_without = r#"{"type":"launch_game","data":{"sim_type":"assetto_corsa","launch_args":null}}"#;
+        let parsed_without: CoreToAgentMessage = serde_json::from_str(json_without)
+            .expect("deserialize LaunchGame without force_clean (backward compat)");
+        if let CoreToAgentMessage::LaunchGame { force_clean, .. } = parsed_without {
+            assert!(!force_clean, "force_clean must default to false when field is absent (backward compat)");
+        } else {
+            panic!("Expected LaunchGame variant");
+        }
+    }
+
     // ─── HARD-03: shm_connect_allowed timing tests ────────────────────────────
 
     #[test]

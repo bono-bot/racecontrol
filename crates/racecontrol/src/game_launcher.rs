@@ -2368,6 +2368,49 @@ mod tests {
 
     // ── LAUNCH-14: No MAINTENANCE_MODE from Race Engineer ─────────────────────
 
+    // ── RECOVER-04: Null launch_args guard tests ──────────────────────────────
+
+    /// RECOVER-04: relaunch_game() must return Err when tracker has externally_tracked=true
+    /// and launch_args=None — prevents auto-relaunch for games we don't know how to start.
+    #[tokio::test]
+    async fn test_null_args_guard_rejects_relaunch() {
+        let state = make_state().await;
+
+        // Insert an externally-tracked game with no launch_args, in Error state
+        {
+            state
+                .game_launcher
+                .active_games
+                .write()
+                .await
+                .insert(
+                    "pod_1".to_string(),
+                    GameTracker {
+                        pod_id: "pod_1".to_string(),
+                        sim_type: SimType::AssettoCorsa,
+                        game_state: GameState::Error,
+                        pid: None,
+                        launched_at: None,
+                        error_message: Some("game crashed".to_string()),
+                        launch_args: None,
+                        auto_relaunch_count: 0,
+                        externally_tracked: true,
+                        dynamic_timeout_secs: None,
+                        exit_codes: Vec::new(),
+                    },
+                );
+        }
+
+        let result = relaunch_game(&state, "pod_1").await;
+
+        assert!(result.is_err(), "relaunch_game must fail when launch_args is None (externally tracked)");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("launch args unavailable") || err.contains("externally tracked") || err.contains("null"),
+            "Error must mention launch args unavailability, got: {}", err
+        );
+    }
+
     #[test]
     fn test_race_engineer_no_maintenance_mode_sentinel_written() {
         // LAUNCH-14: Game crashes must never write the sentinel file that blocks rc-agent restarts.
