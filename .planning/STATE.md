@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: Ready for Phase 206
-stopped_at: Completed 203-02-PLAN.md
-last_updated: "2026-03-26T03:44:00.278Z"
+stopped_at: Completed 206-01-PLAN.md
+last_updated: "2026-03-26T04:05:05.851Z"
 last_activity: "2026-03-26 — Phase 203, Plan 02 executed: 4 audit scripts upgraded from count to content health verification"
 progress:
   total_phases: 165
-  completed_phases: 127
-  total_plans: 306
-  completed_plans: 300
+  completed_phases: 128
+  total_plans: 310
+  completed_plans: 304
   percent: 99
 ---
 
@@ -60,6 +60,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 203-02]: Phase 39 unreachable endpoint changed from false PASS to WARN
 - [Phase 203-02]: Phase 25 covers three boolean field variants (available, in_stock, is_available) for API flexibility
 - [Phase 203-02]: Phase 56 uses 5 critical endpoints for spot-check: app-health, flags, guard/whitelist, fleet/health, cafe/menu
+- [Phase 206]: All config fallback sites in rc-agent main.rs are after tracing init — use tracing::warn! directly without pre-init buffer
+- [Phase 206]: Empty allowlist detection writes override directly to MachineWhitelist under write lock — all downstream scan paths see report_only
+- [Phase 206]: RecoveryLogger for FSM transitions created inside watchdog thread pointing to RECOVERY_LOG_POD — safe JSONL append without coordination
 
 ### Pending Todos
 
@@ -71,6 +74,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T03:42:00.000Z
-Stopped at: Completed 203-02-PLAN.md
+Last session: 2026-03-26T04:05:00.056Z
+Stopped at: Completed 206-01-PLAN.md
 Resume file: None

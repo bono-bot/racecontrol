@@ -3362,7 +3362,7 @@ Plans:
   3. Starting rc-agent with process_guard enabled but an empty allowlist produces an `error!` log via eprintln! before tracing init, writes EMPTY_ALLOWLIST to startup_log, and auto-switches to report_only mode -- verified by starting with a fresh DB
   4. Creating or deleting any sentinel file in C:\RacingPoint\ causes a SentinelChange WebSocket message to arrive at racecontrol, and /api/v1/fleet/health response includes active_sentinels field listing current sentinels -- verified via curl after writing a test sentinel
   5. rc-sentry watchdog.rs FSM transitions from Healthy to Suspect(N) produce a RecoveryLogger entry on EVERY transition (not just on Crashed) -- verified by reading JSONL after triggering a suspect count increment
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 206-01-PLAN.md -- Config fallback logging, empty allowlist auto-response, FSM transition logging
 - [ ] 206-02-PLAN.md -- Sentinel file watcher, SentinelChange WS protocol, fleet health active_sentinels, MAINTENANCE_MODE WhatsApp alert
@@ -3420,7 +3420,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
-| 206. Observable State Transitions | 0/2 | Planning complete | - |
+| 206. Observable State Transitions | 1/2 | In Progress|  |
 | 207. Boot Resilience | 0/0 | Not started | - |
 | 208. Chain Verification Integration | 0/0 | Not started | - |
 | 209. Pre-Ship Gate and Process Tooling | 0/0 | Not started | - |
