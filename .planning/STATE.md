@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: completed
-stopped_at: Completed 212-detection-expansion/212-01-PLAN.md
-last_updated: "2026-03-26T07:25:03.762Z"
+stopped_at: Completed 198-on-track-billing/198-02-PLAN.md
+last_updated: "2026-03-26T07:28:36.075Z"
 last_activity: 2026-03-26 — Phase 209-03 complete (gap closure — GATE-03 network gate fleet probe + WS handshake test)
 progress:
   total_phases: 172
   completed_phases: 137
   total_plans: 332
-  completed_plans: 325
+  completed_plans: 326
   percent: 98
 ---
 
@@ -95,6 +95,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 198-on-track-billing]: BillingConfig placed after CafeConfig in Config struct; Config initializer required explicit billing: BillingConfig::default()
 - [Phase 212-detection-expansion]: DET-01 uses safe_remote_exec :8090 (not SCP) to read rc-agent.toml
 - [Phase 212-detection-expansion]: cascade.sh DETECTOR_FINDINGS accumulator feeds BUGS_FOUND in auto-detect.sh run_cascade_check() after all 6 detectors run
+- [Phase 198-on-track-billing]: WaitingForGame broadcast uses separate loop over waiting_for_game map (not active_timers) — entries never in active_timers
+- [Phase 198-on-track-billing]: BILL-10 error path drops mp lock before acquiring waiting_for_game — consistent lock ordering prevents deadlock
 
 ### Pending Todos
 
@@ -108,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T07:25:03.740Z
-Stopped at: Completed 212-detection-expansion/212-01-PLAN.md
+Last session: 2026-03-26T07:28:36.058Z
+Stopped at: Completed 198-on-track-billing/198-02-PLAN.md
 Resume file: None
