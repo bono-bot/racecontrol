@@ -15,14 +15,25 @@ run_phase49() {
   local response status severity message
 
   # --- Check 1: POS PC rc-agent alive — always report real status ---
-  response=$(http_get "http://192.168.31.20:8090/health" 5)
+  # Try known DHCP leases then Tailscale (POS IP varies until router reservation set)
+  local pos_ip="${POS_IP:-}"
+  response=""
+  if [[ -n "$pos_ip" ]]; then
+    response=$(http_get "http://${pos_ip}:8090/health" 5)
+  fi
+  if [[ -z "$response" ]]; then
+    for try_ip in 192.168.31.20 192.168.31.130 192.168.31.135 100.95.211.1; do
+      response=$(http_get "http://${try_ip}:8090/health" 3)
+      if [[ -n "$response" ]]; then pos_ip="$try_ip"; break; fi
+    done
+  fi
   if [[ -n "$response" ]]; then
     local pos_build; pos_build=$(printf '%s' "$response" | jq -r '.build_id // "unknown"' 2>/dev/null)
     local pos_uptime; pos_uptime=$(printf '%s' "$response" | jq -r '.uptime_secs // 0' 2>/dev/null)
     status="PASS"; severity="P3"; message="POS PC rc-agent responding (build: ${pos_build}, uptime: ${pos_uptime}s)"
 
     # If POS is online, also check it can reach the web dashboard
-    local pos_dash; pos_dash=$(safe_remote_exec "192.168.31.20" "8090" \
+    local pos_dash; pos_dash=$(safe_remote_exec "$pos_ip" "8090" \
       'curl.exe -s -o nul -w "%{http_code}" http://192.168.31.23:3200/billing' \
       "$DEFAULT_TIMEOUT")
     local dash_code; dash_code=$(printf '%s' "$pos_dash" | jq -r '.stdout // "000"' 2>/dev/null | tr -d '[:space:]"')
@@ -35,7 +46,7 @@ run_phase49() {
     fi
 
     # Check Edge browser running on POS
-    local pos_edge; pos_edge=$(safe_remote_exec "192.168.31.20" "8090" \
+    local pos_edge; pos_edge=$(safe_remote_exec "$pos_ip" "8090" \
       'tasklist /FI "IMAGENAME eq msedge.exe" /NH' \
       "$DEFAULT_TIMEOUT")
     local edge_out; edge_out=$(printf '%s' "$pos_edge" | jq -r '.stdout // ""' 2>/dev/null || true)

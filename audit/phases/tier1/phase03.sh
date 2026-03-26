@@ -58,20 +58,28 @@ run_phase03() {
   fi
   emit_result "$phase" "$tier" "server-to-bono" "$status" "$severity" "$message" "$mode" "$venue_state"
 
-  # POS PC reachable (192.168.31.20) — always report real status, never assume venue hours
-  response=$(http_get "http://192.168.31.20:8090/health" 5)
-  if printf '%s' "$response" | grep -q "build_id"; then
-    local pos_build; pos_build=$(printf '%s' "$response" | jq -r '.build_id // "unknown"' 2>/dev/null)
-    status="PASS"; severity="P3"; message="POS PC rc-agent reachable (build: ${pos_build})"
-  else
-    # Try Tailscale fallback
-    local pos_ts; pos_ts=$(http_get "http://100.95.211.1:8090/health" 5)
-    if printf '%s' "$pos_ts" | grep -q "build_id"; then
-      local pos_build; pos_build=$(printf '%s' "$pos_ts" | jq -r '.build_id // "unknown"' 2>/dev/null)
-      status="PASS"; severity="P3"; message="POS PC reachable via Tailscale only (build: ${pos_build}, LAN .20 down)"
-    else
-      status="WARN"; severity="P2"; message="POS PC unreachable (LAN .20 + Tailscale 100.95.211.1 both down)"
+  # POS PC reachable — try known LAN IPs then Tailscale fallback
+  # POS gets varying DHCP leases (.20, .130, .135) until router reservation is set
+  local pos_found="" pos_ip=""
+  for try_ip in 192.168.31.20 192.168.31.130 192.168.31.135; do
+    response=$(http_get "http://${try_ip}:8090/health" 3)
+    if printf '%s' "$response" | grep -q "build_id"; then
+      pos_found="$response"; pos_ip="$try_ip"; break
     fi
+  done
+  if [[ -z "$pos_found" ]]; then
+    # Tailscale fallback
+    response=$(http_get "http://100.95.211.1:8090/health" 5)
+    if printf '%s' "$response" | grep -q "build_id"; then
+      pos_found="$response"; pos_ip="100.95.211.1 (Tailscale)"
+    fi
+  fi
+  if [[ -n "$pos_found" ]]; then
+    local pos_build; pos_build=$(printf '%s' "$pos_found" | jq -r '.build_id // "unknown"' 2>/dev/null)
+    status="PASS"; severity="P3"; message="POS PC rc-agent reachable at ${pos_ip} (build: ${pos_build})"
+    export POS_IP="$pos_ip"
+  else
+    status="WARN"; severity="P2"; message="POS PC unreachable (tried .20/.130/.135 + Tailscale)"
   fi
   emit_result "$phase" "$tier" "pos-pc" "$status" "$severity" "$message" "$mode" "$venue_state"
 
