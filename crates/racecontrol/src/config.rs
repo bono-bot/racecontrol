@@ -34,6 +34,8 @@ pub struct Config {
     pub process_guard: ProcessGuardConfig,
     #[serde(default)]
     pub cafe: CafeConfig,
+    #[serde(default)]
+    pub billing: BillingConfig,
 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
@@ -418,6 +420,47 @@ pub struct CafeConfig {
     pub print_script_path: Option<String>,
 }
 
+// ─── Billing Config ───────────────────────────────────────────────────────────
+
+/// Configurable timeouts for the billing system (BILL-12).
+/// All fields have serde defaults so adding [billing] to racecontrol.toml is optional.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BillingConfig {
+    /// How long to wait for multiplayer pods to all reach LIVE before evicting (seconds). Default: 60.
+    #[serde(default = "default_multiplayer_wait_timeout")]
+    pub multiplayer_wait_timeout_secs: u64,
+    /// How long a game-pause can last before billing session auto-ends (seconds). Default: 600.
+    #[serde(default = "default_pause_auto_end_timeout")]
+    pub pause_auto_end_timeout_secs: u32,
+    /// Per-attempt timeout waiting for PlayableSignal (seconds). 2 attempts = 2x this. Default: 180.
+    #[serde(default = "default_launch_timeout_per_attempt")]
+    pub launch_timeout_per_attempt_secs: u64,
+    /// Seconds of no driving input before billing anomaly flagged. Default: 300.
+    #[serde(default = "default_idle_drift_threshold")]
+    pub idle_drift_threshold_secs: u64,
+    /// Grace period before auto-ending session when pod goes offline (seconds). Default: 300.
+    #[serde(default = "default_offline_grace")]
+    pub offline_grace_secs: u64,
+}
+
+fn default_multiplayer_wait_timeout() -> u64 { 60 }
+fn default_pause_auto_end_timeout() -> u32 { 600 }
+fn default_launch_timeout_per_attempt() -> u64 { 180 }
+fn default_idle_drift_threshold() -> u64 { 300 }
+fn default_offline_grace() -> u64 { 300 }
+
+impl Default for BillingConfig {
+    fn default() -> Self {
+        Self {
+            multiplayer_wait_timeout_secs: default_multiplayer_wait_timeout(),
+            pause_auto_end_timeout_secs: default_pause_auto_end_timeout(),
+            launch_timeout_per_attempt_secs: default_launch_timeout_per_attempt(),
+            idle_drift_threshold_secs: default_idle_drift_threshold(),
+            offline_grace_secs: default_offline_grace(),
+        }
+    }
+}
+
 // ─── Process Guard Config ──────────────────────────────────────────────────
 
 /// A single allowed process entry in the whitelist.
@@ -722,6 +765,7 @@ impl Config {
             alerting: AlertingConfig::default(),
             process_guard: ProcessGuardConfig::default(),
             cafe: CafeConfig::default(),
+            billing: BillingConfig::default(),
         }
     }
 

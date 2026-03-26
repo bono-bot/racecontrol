@@ -341,6 +341,8 @@ pub enum BillingSessionStatus {
     Completed,
     EndedEarly,
     Cancelled,
+    /// Session ended before PlayableSignal -- customer charged nothing (BILL-06)
+    CancelledNoPlayable,
 }
 
 /// Signal that a game is in a playable state -- triggers billing start.
