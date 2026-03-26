@@ -3067,7 +3067,8 @@ Plans:
 - [x] **Phase 196: Game Launcher Structural Rework** - Trait-based per-game launchers, billing gate fixes, state machine corrections, and error propagation (completed 2026-03-26)
 - [x] **Phase 197: Launch Resilience & AC Hardening** - Dynamic timeouts, pre-launch checks, auto-retry, error taxonomy, AC polling-based waits, and arg parsing fixes (completed 2026-03-26)
 - [x] **Phase 198: On-Track Billing** - PlayableSignal rework per game, WaitingForGame dashboard state, billing pause/resume on crash, and timeout/multiplayer fixes (completed 2026-03-26)
-- [x] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes (completed 2026-03-26)
+- [x] **Phase 199: Crash Recovery** - Clean state reset, history-informed recovery selection, auto-relaunch with preserved args, staff alerting, and safe mode/grace timer fixes
+ (completed 2026-03-26)
 - [ ] **Phase 200: Self-Improving Intelligence** - Combo reliability scores, low-success warnings, alternative suggestions, admin launch matrix, and rolling-window self-tuning
 - [ ] **Phase 201: Frontend Integration & Type Sync** - Shared types parity (Rust↔TS), kiosk/web/admin UI updates for new states, contract tests, drift prevention, rebuild + deploy all 3 Next.js apps
 
@@ -3576,7 +3577,11 @@ Plans:
   2. Injecting a fake JSONL file with 15 ERROR lines triggers the log-anomaly detector in test mode; injecting one with 5 does not — both cases produce the correct PASS/FAIL classification without touching a real pod
   3. The escalation ladder test confirms that a mocked pod that never recovers progresses through all 5 tiers in order — the test verifies tier ordering, not just that "escalation ran"
   4. The Bono coordination test verifies that when both agents attempt to acquire AUTO_DETECT_ACTIVE simultaneously, exactly one succeeds and the other logs "deferred to active agent" — race condition protection confirmed without a live Bono instance
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 216-01-PLAN.md -- Fixture files + pipeline step tests + detector fixture tests (TEST-01, TEST-02)
+- [ ] 216-02-PLAN.md -- Escalation ladder test + coordination mutex test (TEST-03, TEST-04)
 
 ## v26.0 Progress
 
@@ -3589,4 +3594,4 @@ Plans:
 | 213. Self-Healing & Escalation | 2/2 | Complete    | 2026-03-26 |
 | 214. Bono Coordination | 2/2 | Complete    | 2026-03-26 |
 | 215. Self-Improving Intelligence | 4/4 | Complete    | 2026-03-26 |
-| 216. Pipeline Self-Test Suite | 0/0 | Not started | - |
+| 216. Pipeline Self-Test Suite | 0/2 | In progress | - |
