@@ -56,3 +56,6 @@ target/
 !*.exe.manifest
 .tmp/
 # Local deploy staging artifacts
+
+# Auto-detect runtime state (not committed)
+audit/results/auto-detect-cooldown.json

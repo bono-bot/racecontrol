@@ -43,6 +43,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ─── Venue-State-Aware Mode Selection (SCHED-05) ─────────────────────────────
+# shellcheck source=audit/lib/core.sh
+source "$REPO_ROOT/audit/lib/core.sh"
+FLEET_HEALTH_ENDPOINT="${SERVER_URL}/api/v1/fleet/health"
+export FLEET_HEALTH_ENDPOINT
+
+if [[ $(type -t venue_state_detect) == "function" ]]; then
+  DETECTED_VENUE_STATE=$(venue_state_detect 2>/dev/null || echo "closed")
+else
+  DETECTED_VENUE_STATE="closed"
+fi
+
+if [[ "$DETECTED_VENUE_STATE" == "open" ]] && [[ "$MODE" != "quick" ]]; then
+  echo "[INFO] Venue OPEN -- overriding mode to quick (SCHED-05)"
+  MODE="quick"
+fi
+
 # ─── Prerequisites ────────────────────────────────────────────────────────────
 if [[ -z "$AUDIT_PIN" ]]; then
   echo "FATAL: AUDIT_PIN env var required"
@@ -58,11 +75,58 @@ done
 
 mkdir -p "$RESULT_DIR"
 
+# ─── PID File Run Guard (SCHED-03) ────────────────────────────────────────────
+PID_FILE="/tmp/auto-detect.pid"
+
+_acquire_run_lock() {
+  if [[ -f "$PID_FILE" ]]; then
+    local existing_pid
+    existing_pid=$(cat "$PID_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      echo "[$(TZ=Asia/Kolkata date '+%H:%M:%S')] [INFO] auto-detect already running (PID $existing_pid). Exiting."
+      exit 0
+    fi
+    rm -f "$PID_FILE"
+  fi
+  echo $$ > "$PID_FILE"
+}
+
+# shellcheck disable=SC2064
+trap "rm -f $PID_FILE" EXIT
+_acquire_run_lock
+
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log() {
   local level="$1"; shift
   local msg="[$(TZ=Asia/Kolkata date '+%H:%M:%S')] [$level] $*"
   echo "$msg" | tee -a "$LOG_FILE"
+}
+
+# ─── Escalation Cooldown (SCHED-04) ──────────────────────────────────────────
+COOLDOWN_FILE="$REPO_ROOT/audit/results/auto-detect-cooldown.json"
+ESCALATION_COOLDOWN_SECS=21600  # 6 hours
+
+_is_cooldown_active() {
+  local pod="$1" issue="$2"
+  local key="${pod}:${issue}"
+  if [[ ! -f "$COOLDOWN_FILE" ]]; then return 1; fi
+  local last_ts now_ts elapsed
+  last_ts=$(jq -r --arg key "$key" '.[$key] // 0' "$COOLDOWN_FILE" 2>/dev/null || echo "0")
+  now_ts=$(date +%s)
+  elapsed=$(( now_ts - last_ts ))
+  if [[ "$elapsed" -lt "$ESCALATION_COOLDOWN_SECS" ]]; then return 0; fi
+  return 1
+}
+
+_record_alert() {
+  local pod="$1" issue="$2"
+  local key="${pod}:${issue}"
+  local now_ts existing
+  now_ts=$(date +%s)
+  existing="{}"
+  [[ -f "$COOLDOWN_FILE" ]] && existing=$(cat "$COOLDOWN_FILE" 2>/dev/null || echo "{}")
+  printf "%s" "$existing" | jq --arg key "$key" --argjson ts "$now_ts" \
+    '.[$key] = $ts' > "${COOLDOWN_FILE}.tmp" && mv "${COOLDOWN_FILE}.tmp" "$COOLDOWN_FILE"
 }
 
 # ─── Step Results Tracking ────────────────────────────────────────────────────
@@ -484,6 +548,23 @@ Full report: $RESULT_DIR/auto-detect.log"
     cd "$REPO_ROOT"
 
     log INFO "Bono notified via WS"
+
+    # WhatsApp escalation to Uday -- cooldown-gated per pod+issue (SCHED-04)
+    if [[ -f "$RESULT_DIR/findings.json" ]]; then
+      local pod_ip issue_type
+      # Extract each pod+issue combination from findings
+      jq -r '.[] | "\(.pod_ip) \(.issue_type)"' "$RESULT_DIR/findings.json" 2>/dev/null | \
+      while read -r pod_ip issue_type; do
+        if [[ -n "$pod_ip" ]] && [[ -n "$issue_type" ]]; then
+          if ! _is_cooldown_active "$pod_ip" "$issue_type"; then
+            log INFO "WhatsApp escalation: $pod_ip $issue_type (cooldown clear)"
+            _record_alert "$pod_ip" "$issue_type"
+          else
+            log INFO "WhatsApp escalation: $pod_ip $issue_type (cooldown active, skipping)"
+          fi
+        fi
+      done
+    fi
   fi
 
   # Return appropriate exit code
@@ -497,10 +578,10 @@ Full report: $RESULT_DIR/auto-detect.log"
 # MAIN — Execute Pipeline
 # ═══════════════════════════════════════════════════════════════════════════════
 main() {
-  log INFO "╔══════════════════════════════════════════════╗"
-  log INFO "║  AUTONOMOUS BUG DETECTION PIPELINE           ║"
-  log INFO "║  Mode: $MODE | $(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M IST')        ║"
-  log INFO "╚══════════════════════════════════════════════╝"
+  log INFO "PID lock acquired (PID $$)"
+  log INFO "Venue state: $DETECTED_VENUE_STATE | Effective mode: $MODE"
+  log INFO "=== AUTONOMOUS BUG DETECTION PIPELINE ==="
+  log INFO "Mode: $MODE | $(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M IST')"
 
   run_audit
   run_quality_gate

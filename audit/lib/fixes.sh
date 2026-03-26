@@ -52,8 +52,9 @@ export -f is_pod_idle
 check_pod_sentinels() {
   local pod_ip="$1"
   local result
-  result=$(safe_remote_exec "$pod_ip" 8090 "if exist C:\RacingPoint\OTA_DEPLOYING echo OTA_ACTIVE" 10)
-  if printf "%s" "$result" | grep -q "OTA_ACTIVE"; then return 1; fi
+  result=$(safe_remote_exec "$pod_ip" 8090 \
+    "if exist C:\RacingPoint\OTA_DEPLOYING echo OTA_ACTIVE & if exist C:\RacingPoint\MAINTENANCE_MODE echo MM_ACTIVE" 10)
+  if printf "%s" "$result" | grep -qE "OTA_ACTIVE|MM_ACTIVE"; then return 1; fi
   return 0
 }
 export -f check_pod_sentinels
