@@ -232,5 +232,31 @@
       "quiet": 0,
       "total": 346
     }
+  },
+  {
+    "timestamp": "2026-03-26T03:54:06+05:30",
+    "mode": "quick",
+    "result_dir": "C:/Users/bono/racingpoint/racecontrol/audit/results/2026-03-26_03-52",
+    "venue_state": "closed",
+    "counts": {
+      "pass": 181,
+      "warn": 2,
+      "fail": 0,
+      "quiet": 8,
+      "total": 191
+    }
+  },
+  {
+    "timestamp": "2026-03-26T04:04:04+05:30",
+    "mode": "quick",
+    "result_dir": "C:/Users/bono/racingpoint/racecontrol/audit/results/2026-03-26_04-03",
+    "venue_state": "closed",
+    "counts": {
+      "pass": 14,
+      "warn": 0,
+      "fail": 0,
+      "quiet": 0,
+      "total": 14
+    }
   }
 ]

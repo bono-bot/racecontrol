@@ -10,7 +10,7 @@ Standing rule: Always run `bash deploy-staging/check-health.sh` before marking a
 | Service | Deploy Command | Health Endpoint |
 |---------|----------------|-----------------|
 | racecontrol | `bash deploy-staging/deploy.sh racecontrol` | `http://192.168.31.23:8080/api/v1/health` |
-| kiosk | `bash deploy-staging/deploy.sh kiosk` | `http://192.168.31.23:3300/api/health` |
+| kiosk | `bash deploy-staging/deploy.sh kiosk` | `http://192.168.31.23:3300/kiosk/api/health` |
 | web dashboard | `bash deploy-staging/deploy.sh web` | `http://192.168.31.23:3200/api/health` |
 | rc-sentry | `bash deploy-staging/deploy.sh rc-sentry` | `http://192.168.31.23:8096/health` |
 | comms-link | `bash deploy-staging/deploy.sh comms-link` | `http://localhost:8766/health` |
@@ -82,7 +82,7 @@ Ensure correct LAN IP is set before building. Standalone deploy requires `.next/
 ### Verify
 
 ```bash
-curl http://192.168.31.23:3300/api/health
+curl http://192.168.31.23:3300/kiosk/api/health
 # Expected: {"status":"ok","service":"kiosk","version":"0.1.0"}
 ```
 
@@ -254,7 +254,7 @@ Sample output when healthy:
 === Racing Point Health Check 2026-03-23 10:30 IST ===
 
   PASS  racecontrol   :8080 (http://192.168.31.23:8080/api/v1/health)
-  PASS  kiosk         :3300 (http://192.168.31.23:3300/api/health)
+  PASS  kiosk         :3300 (http://192.168.31.23:3300/kiosk/api/health)
   PASS  web-dashboard :3200 (http://192.168.31.23:3200/api/health)
   PASS  comms-link    :8766 (http://localhost:8766/health)
   PASS  rc-sentry     :8096 (http://192.168.31.23:8096/health)

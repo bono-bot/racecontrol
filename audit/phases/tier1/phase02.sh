@@ -41,6 +41,9 @@ run_phase02() {
   emit_result "$phase" "$tier" "server-23-toml-keys" "$status" "$severity" "$message" "$mode" "$venue_state"
 
   # Server: ws_connect_timeout value check (CV-01)
+  # NOTE: ws_connect_timeout is NOT consumed by any Rust code — the WS connect
+  # timeout is hardcoded in fleet_health.rs (3s). If present in TOML it's advisory only.
+  # Downgraded from P2 WARN to P3 INFO to stop false-positive noise.
   response=$(safe_remote_exec "192.168.31.23" "8090" \
     'findstr /C:"ws_connect_timeout" C:\RacingPoint\racecontrol.toml' \
     "$DEFAULT_TIMEOUT")
@@ -49,28 +52,28 @@ run_phase02() {
   if [[ -n "$ws_timeout_val" ]] && [[ "$ws_timeout_val" -ge 600 ]] 2>/dev/null; then
     status="PASS"; severity="P3"; message="ws_connect_timeout = ${ws_timeout_val}ms (>= 600ms threshold)"
   elif [[ -n "$ws_timeout_val" ]] && [[ "$ws_timeout_val" -lt 600 ]] 2>/dev/null; then
-    status="WARN"; severity="P2"; message="ws_connect_timeout = ${ws_timeout_val}ms (below 600ms threshold -- risk of false WS disconnects)"
+    status="PASS"; severity="P3"; message="ws_connect_timeout = ${ws_timeout_val}ms (advisory only -- not consumed by Rust code, hardcoded 3s in fleet_health.rs)"
   else
-    status="WARN"; severity="P2"; message="ws_connect_timeout not found or unparseable in racecontrol.toml"
+    status="PASS"; severity="P3"; message="ws_connect_timeout not in racecontrol.toml (advisory only -- WS timeout hardcoded 3s in fleet_health.rs)"
   fi
   emit_result "$phase" "$tier" "server-23-ws-timeout" "$status" "$severity" "$message" "$mode" "$venue_state"
 
   # Server: app_health monitoring URL port check (CV-02)
-  response=$(safe_remote_exec "192.168.31.23" "8090" \
-    'findstr /C:"app_health" C:\RacingPoint\racecontrol.toml' \
-    "$DEFAULT_TIMEOUT")
-  local app_health_lines; app_health_lines=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null || true)
-  if [[ -z "$app_health_lines" ]]; then
-    status="WARN"; severity="P2"; message="No app_health monitoring URLs in racecontrol.toml"
-  else
-    local has_admin has_kiosk
-    has_admin=$(printf '%s' "$app_health_lines" | grep -c "3201" || true)
-    has_kiosk=$(printf '%s' "$app_health_lines" | grep -c "3300" || true)
-    if [[ "${has_admin:-0}" -ge 1 ]] && [[ "${has_kiosk:-0}" -ge 1 ]]; then
-      status="PASS"; severity="P3"; message="app_health URLs contain correct ports (:3201 admin, :3300 kiosk)"
-    else
-      status="WARN"; severity="P2"; message="app_health URLs may have wrong ports (expected :3201 for admin, :3300 for kiosk) -- found: ${app_health_lines:0:120}"
+  # NOTE: app_health_monitor.rs uses hardcoded APP_TARGETS const (admin:3201, kiosk:3300/kiosk, web:3200).
+  # These URLs are NOT read from racecontrol.toml. Check the code instead of config.
+  # Verify the hardcoded ports are correct by curling the actual health endpoints.
+  local app_health_ok=true
+  for check_url in "http://192.168.31.23:3201/api/health" "http://192.168.31.23:3300/kiosk/api/health" "http://192.168.31.23:3200/api/health"; do
+    local check_resp; check_resp=$(curl -s --max-time 5 "$check_url" 2>/dev/null || true)
+    local check_status; check_status=$(printf '%s' "$check_resp" | jq -r '.status // ""' 2>/dev/null || true)
+    if [[ "$check_status" != "ok" ]]; then
+      app_health_ok=false
     fi
+  done
+  if [[ "$app_health_ok" == "true" ]]; then
+    status="PASS"; severity="P3"; message="All 3 Next.js health endpoints responding (admin:3201, kiosk:3300/kiosk, web:3200) — hardcoded in app_health_monitor.rs"
+  else
+    status="WARN"; severity="P2"; message="One or more Next.js health endpoints not responding (admin:3201, kiosk:3300/kiosk, web:3200)"
   fi
   emit_result "$phase" "$tier" "server-23-app-health-urls" "$status" "$severity" "$message" "$mode" "$venue_state"
 
