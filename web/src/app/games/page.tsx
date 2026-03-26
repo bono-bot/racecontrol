@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import DashboardLayout from "@/components/DashboardLayout";
 import StatusBadge from "@/components/StatusBadge";
 import GameLaunchModal from "@/components/GameLaunchModal";
@@ -65,9 +66,17 @@ export default function GamesPage() {
             Remote launch and monitor games on pods
           </p>
         </div>
-        <span className="text-xs text-rp-grey">
-          {activeCount} game{activeCount !== 1 ? "s" : ""} running
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-rp-grey">
+            {activeCount} game{activeCount !== 1 ? "s" : ""} running
+          </span>
+          <Link
+            href="/games/reliability"
+            className="text-xs px-3 py-1.5 rounded-lg bg-rp-card border border-rp-border text-neutral-300 hover:border-rp-red hover:text-white transition-colors"
+          >
+            Reliability Matrix
+          </Link>
+        </div>
       </div>
 
       {/* AI Debug Suggestions */}
@@ -129,6 +138,10 @@ export default function GamesPage() {
                       <span className="text-emerald-400 font-medium">
                         {simLabels[gameInfo.sim_type] || gameInfo.sim_type}
                       </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-rp-grey">State</span>
+                      <StatusBadge status={gameInfo.game_state} />
                     </div>
                     {gameInfo.pid && (
                       <div className="flex justify-between">
