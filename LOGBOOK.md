@@ -864,3 +864,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 04:42 IST | James | fc5748a6 | docs(206-01): 206-01-SUMMARY.md created, STATE.md updated, OBS-02/OBS-03/OBS-05 marked complete |
 | 2026-03-26 05:48 IST | James | 090b2b32 | feat(211-01): PID guard + cooldown + venue-aware mode + extended sentinel check in auto-detect.sh |
 | 2026-03-26 05:48 IST | James | d1c334df | docs(211-01): SUMMARY + STATE + ROADMAP + REQUIREMENTS updated, SCHED-03/04/05 complete |
+| 2026-03-26 12:02 IST | James | 7a05058b | feat(197-02): pre-launch checks (MAINTENANCE_MODE/OTA_DEPLOYING/orphan/disk), clean_state_reset, parse_launch_args fix |
+| 2026-03-26 12:02 IST | James | b8cff553 | feat(197-02): AC polling waits (wait_for_acs_exit/wait_for_ac_ready), CM 30s timeout with 5s progress, fresh PID on fallback |
+| 2026-03-26 12:02 IST | James | 4836b2ef | docs(197-02): SUMMARY + STATE + ROADMAP updated, LAUNCH-10/11/19 + AC-01/02/03/04 complete |
