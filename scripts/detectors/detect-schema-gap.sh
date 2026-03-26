@@ -77,12 +77,24 @@ detect_schema_gap() {
     if [[ "$venue_has_col" == "true" ]] && [[ "$cloud_has_col" == "false" ]]; then
       _emit_finding "schema_gap" "P2" "cloud" \
         "schema gap: cloud DB missing ${table}.${column} (venue has it)"
+      # HEAL-07: live-sync -- attempt_heal guarded to pod IPs only (schema_gap targets are cloud/venue/fleet)
+      if [[ $(type -t attempt_heal) == "function" ]] && [[ "cloud" =~ ^192\.168\. ]]; then
+        attempt_heal "cloud" "schema_gap"
+      fi
     elif [[ "$venue_has_col" == "false" ]] && [[ "$cloud_has_col" == "true" ]]; then
       _emit_finding "schema_gap" "P2" "venue" \
         "schema gap: venue DB missing ${table}.${column} (cloud has it)"
+      # HEAL-07: live-sync -- attempt_heal guarded to pod IPs only (schema_gap targets are cloud/venue/fleet)
+      if [[ $(type -t attempt_heal) == "function" ]] && [[ "venue" =~ ^192\.168\. ]]; then
+        attempt_heal "venue" "schema_gap"
+      fi
     elif [[ "$venue_has_col" == "false" ]] && [[ "$cloud_has_col" == "false" ]]; then
       _emit_finding "schema_gap" "P2" "fleet" \
         "schema gap: both DBs missing ${table}.${column} -- migration not applied anywhere"
+      # HEAL-07: live-sync -- attempt_heal guarded to pod IPs only (schema_gap targets are cloud/venue/fleet)
+      if [[ $(type -t attempt_heal) == "function" ]] && [[ "fleet" =~ ^192\.168\. ]]; then
+        attempt_heal "fleet" "schema_gap"
+      fi
     fi
 
   done

@@ -79,9 +79,17 @@ detect_log_anomaly() {
     if [[ "$error_count" -gt 50 ]]; then
       _emit_finding "log_anomaly" "P1" "$pod_ip" \
         "log anomaly: ${error_count} ERROR/PANIC lines in last hour on ${pod_ip} (log=${today_log_name}, threshold=${threshold}, severity=critical)"
+      # HEAL-07: live-sync -- attempt heal immediately after detection
+      if [[ $(type -t attempt_heal) == "function" ]]; then
+        attempt_heal "$pod_ip" "log_anomaly"
+      fi
     elif [[ "$error_count" -gt "$threshold" ]]; then
       _emit_finding "log_anomaly" "P2" "$pod_ip" \
         "log anomaly: ${error_count} ERROR/PANIC lines in last hour on ${pod_ip} (log=${today_log_name}, threshold=${threshold})"
+      # HEAL-07: live-sync -- attempt heal immediately after detection
+      if [[ $(type -t attempt_heal) == "function" ]]; then
+        attempt_heal "$pod_ip" "log_anomaly"
+      fi
     fi
 
   done

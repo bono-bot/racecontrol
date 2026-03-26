@@ -67,6 +67,10 @@ detect_flag_desync() {
 
       _emit_finding "flag_desync" "P2" "$pod_ip" \
         "flag desync on ${pod_ip}: missing=[${missing}] extra=[${extra}] vs server canonical"
+      # HEAL-07: live-sync -- attempt heal immediately after detection
+      if [[ $(type -t attempt_heal) == "function" ]]; then
+        attempt_heal "$pod_ip" "flag_desync"
+      fi
     fi
 
   done
@@ -75,6 +79,7 @@ detect_flag_desync() {
   if [[ "$empty_count" -eq 8 ]] && [[ -n "$canonical_enabled" ]]; then
     _emit_finding "flag_desync" "P2" "fleet" \
       "all pods returned empty for /api/v1/flags -- endpoint may not exist on rc-agent (server has enabled flags: ${canonical_enabled})"
+    # HEAL-07: live-sync -- fleet-level desync: no specific pod IP to heal, skip attempt_heal
   fi
 }
 export -f detect_flag_desync

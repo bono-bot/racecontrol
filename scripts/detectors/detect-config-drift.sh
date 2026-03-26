@@ -38,6 +38,10 @@ detect_config_drift() {
     if ! printf '%s' "$first_line" | grep -q '^\['; then
       _emit_finding "config_drift" "P1" "$pod_ip" \
         "rc-agent.toml first line invalid -- likely banner corruption: ${first_line:0:60}"
+      # HEAL-07: live-sync -- attempt heal immediately after detection (pod IP only)
+      if [[ $(type -t attempt_heal) == "function" ]] && [[ "$pod_ip" =~ ^192\.168\. ]]; then
+        attempt_heal "$pod_ip" "config_drift"
+      fi
       continue
     fi
 
@@ -49,6 +53,10 @@ detect_config_drift() {
       if [[ "$ws_val" -lt 600 ]] 2>/dev/null; then
         _emit_finding "config_drift" "P1" "$pod_ip" \
           "ws_connect_timeout=${ws_val}ms on ${pod_ip} -- expected>=600ms (key=ws_connect_timeout, observed=${ws_val}, expected>=600)"
+        # HEAL-07: live-sync -- attempt heal immediately after detection (pod IP only)
+        if [[ $(type -t attempt_heal) == "function" ]] && [[ "$pod_ip" =~ ^192\.168\. ]]; then
+          attempt_heal "$pod_ip" "config_drift"
+        fi
       fi
     fi
 
@@ -56,6 +64,10 @@ detect_config_drift() {
     if ! printf '%s' "$content" | grep -q 'pod_number'; then
       _emit_finding "config_drift" "P2" "$pod_ip" \
         "pod_number key missing from rc-agent.toml on ${pod_ip} -- pod may be using default config"
+      # HEAL-07: live-sync -- attempt heal immediately after detection (pod IP only)
+      if [[ $(type -t attempt_heal) == "function" ]] && [[ "$pod_ip" =~ ^192\.168\. ]]; then
+        attempt_heal "$pod_ip" "config_drift"
+      fi
     fi
 
     # Check app_health URL ports (SC-1: admin must be :3201, kiosk must use basePath)
@@ -67,11 +79,19 @@ detect_config_drift() {
       if printf '%s' "$app_health_urls" | grep -q ':3200.*admin'; then
         _emit_finding "config_drift" "P1" "$pod_ip" \
           "app_health admin URL uses wrong port :3200 on ${pod_ip} -- expected :3201 (key=app_health, observed=:3200, expected=:3201)"
+        # HEAL-07: live-sync -- attempt heal immediately after detection (pod IP only)
+        if [[ $(type -t attempt_heal) == "function" ]] && [[ "$pod_ip" =~ ^192\.168\. ]]; then
+          attempt_heal "$pod_ip" "config_drift"
+        fi
       fi
       # Kiosk must include /kiosk/ basePath
       if printf '%s' "$app_health_urls" | grep -q 'kiosk' && ! printf '%s' "$app_health_urls" | grep -q '/kiosk/api/health'; then
         _emit_finding "config_drift" "P1" "$pod_ip" \
           "app_health kiosk URL missing basePath on ${pod_ip} -- expected /kiosk/api/health (key=app_health)"
+        # HEAL-07: live-sync -- attempt heal immediately after detection (pod IP only)
+        if [[ $(type -t attempt_heal) == "function" ]] && [[ "$pod_ip" =~ ^192\.168\. ]]; then
+          attempt_heal "$pod_ip" "config_drift"
+        fi
       fi
     fi
 

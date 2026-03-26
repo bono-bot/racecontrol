@@ -99,6 +99,17 @@ for _detector_file in \
 done
 unset _detector_file
 
+# ─── Source healing engine (HEAL-07: live-sync) ──────────────────────────────
+# Sourced AFTER detector files (detectors need _emit_finding from cascade.sh)
+# and BEFORE run_all_detectors() is called.
+# Escalation engine needs fixes.sh and core.sh sourced by auto-detect.sh first.
+_HEALING_ENGINE="${SCRIPT_DIR}/healing/escalation-engine.sh"
+if [[ -f "$_HEALING_ENGINE" ]]; then
+  # shellcheck source=/dev/null
+  source "$_HEALING_ENGINE"
+fi
+unset _HEALING_ENGINE
+
 # ─── run_all_detectors ───────────────────────────────────────────────────────
 # Calls each detect_* function only if it was successfully sourced.
 # After all detectors, accumulates into parent BUGS_FOUND.

@@ -70,6 +70,10 @@ detect_crash_loop() {
     if [[ "$restart_count" -gt "$max_restarts" ]]; then
       _emit_finding "crash_loop" "P1" "$pod_ip" \
         "crash loop: ${restart_count} restarts in last ${window_minutes}min on ${pod_ip} (threshold=${max_restarts})"
+      # HEAL-07: live-sync -- attempt heal immediately after detection
+      if [[ $(type -t attempt_heal) == "function" ]]; then
+        attempt_heal "$pod_ip" "crash_loop"
+      fi
     fi
 
   done

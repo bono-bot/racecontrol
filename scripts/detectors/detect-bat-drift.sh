@@ -51,6 +51,10 @@ detect_bat_drift() {
       pip=$(pod_ip "$pod_num")
       _emit_finding "bat_drift" "P2" "${pip:-pod${pod_num}}" \
         "start-rcagent.bat drift on pod ${pod_num} -- checksum mismatch against repo canonical (regression prevention: stale bat causes missing process kills and wrong startup procedures)"
+      # HEAL-07: live-sync -- attempt heal immediately after detection
+      if [[ $(type -t attempt_heal) == "function" ]]; then
+        attempt_heal "${pip:-pod${pod_num}}" "bat_drift"
+      fi
     fi
     # MATCH, UNREACHABLE, SKIP — not a drift finding
   done
