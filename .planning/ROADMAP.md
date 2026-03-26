@@ -3424,7 +3424,10 @@ Plans:
   3. Running audit.sh --mode full includes bat-drift, sentinel-alerts, config-fallback, boot-resilience, and verification-chains phases -- each produces PASS, FAIL, or QUIET with documented criteria
   4. The fleet audit report includes a "v25.0 Debug Quality" section showing per-pod: active sentinels, config fallback warnings in last 24h, bat drift status, periodic re-fetch task health, and verification chain last-run status -- with summary line "Debug Quality: N/8 pods fully instrumented"
   5. Deploying rc-agent to any pod via deploy-pod.sh includes a bat file sync step that downloads the canonical bat from the repo and deploys it alongside the binary -- verified by checking that a pod with a stale bat before deploy has a matching bat after deploy
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 210-01-PLAN.md -- bat-scanner.sh with drift detection and syntax validation (BAT-01, BAT-02)
+- [ ] 210-02-PLAN.md -- 5 new audit phases, deploy bat sync, Debug Quality report section (BAT-03, BAT-04, AUDIT-01, AUDIT-02, AUDIT-03)
 
 ## v25.0 Progress
 
