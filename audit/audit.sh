@@ -378,7 +378,7 @@ elif [[ -n "$AUDIT_TIER" ]]; then
         run_phase06; run_phase07; run_phase08; run_phase09; run_phase10
         run_phase67 ;;
     2)  run_phase11; run_phase12; run_phase13; run_phase14; run_phase15; run_phase16; run_phase61; run_phase62; run_phase63 ;;
-    3)  run_phase17; run_phase18; run_phase19; run_phase20; run_phase64; run_phase65 ;;
+    3)  run_phase17; run_phase18; run_phase19; run_phase20; run_phase64; run_phase65; run_phase68 ;;
     4)  run_phase21; run_phase22; run_phase23; run_phase24; run_phase25 ;;
     5)  run_phase26; run_phase27; run_phase28; run_phase29 ;;
     6)  run_phase30; run_phase31; run_phase32; run_phase33; run_phase34 ;;
@@ -409,7 +409,7 @@ else
   }
   run_tier_3_to_9() {
     run_phase17; run_phase18; run_phase19; run_phase20
-    run_phase64; run_phase65
+    run_phase64; run_phase65; run_phase68
     run_phase21; run_phase22; run_phase23; run_phase24; run_phase25
     run_phase26; run_phase27; run_phase28; run_phase29
     run_phase30; run_phase31; run_phase32; run_phase33; run_phase34

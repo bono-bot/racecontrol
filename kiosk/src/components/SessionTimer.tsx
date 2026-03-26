@@ -49,7 +49,7 @@ export function SessionTimer({ billing, hasWarning }: SessionTimerProps) {
       <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-1000 ${
-            hasWarning ? "bg-amber-500" : isLow ? "bg-rp-red" : "bg-rp-red"
+            hasWarning ? "bg-amber-500" : isLow ? "bg-rp-red" : "bg-emerald-500"
           }`}
           style={{ width: `${progress}%` }}
         />

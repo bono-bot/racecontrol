@@ -338,6 +338,25 @@ function LaunchingView({
   // waiting_for_game: game is launched, waiting for AC live signal before billing starts
   const isWaitingForGame = billing?.status === "waiting_for_game";
 
+  // Launch elapsed timer — backend sends elapsed_seconds counting up from waiting_since
+  const LAUNCH_TIMEOUT_SECS = 180;
+  const serverElapsed = billing?.elapsed_seconds ?? 0;
+  const [localElapsed, setLocalElapsed] = useState(serverElapsed);
+  useEffect(() => {
+    setLocalElapsed(serverElapsed);
+  }, [serverElapsed]);
+  // Local interpolation between WS ticks for smooth 1s updates
+  useEffect(() => {
+    if (!isWaitingForGame) return;
+    const iv = setInterval(() => {
+      setLocalElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [isWaitingForGame, billing?.id]);
+
+  const remaining = Math.max(0, LAUNCH_TIMEOUT_SECS - localElapsed);
+  const progress = Math.max(0, (remaining / LAUNCH_TIMEOUT_SECS) * 100);
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center">
       <div
@@ -349,9 +368,25 @@ function LaunchingView({
         {isWaitingForGame ? `Game Loading...` : `Launching ${label}...`}
       </p>
       {isWaitingForGame && (
-        <p className={`text-rp-grey mt-1 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
-          Waiting for race control signal
-        </p>
+        <>
+          <p className={`text-rp-grey mt-1 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+            Waiting for race control signal
+          </p>
+          {/* Launch countdown bar */}
+          <div className={`w-full max-w-xs mt-4 ${isStandalone ? "px-8" : "px-4"}`}>
+            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ${
+                  remaining < 30 ? "bg-rp-red" : remaining < 60 ? "bg-amber-500" : "bg-blue-400"
+                }`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className={`text-center text-rp-grey mt-1.5 font-mono tabular-nums ${isStandalone ? "text-xs" : "text-[8px]"}`}>
+              {Math.floor(remaining / 60)}:{(remaining % 60).toString().padStart(2, "0")}
+            </p>
+          </div>
+        </>
       )}
     </div>
   );

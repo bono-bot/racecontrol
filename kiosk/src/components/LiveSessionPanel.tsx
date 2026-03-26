@@ -112,15 +112,9 @@ export function LiveSessionPanel({
         )}
       </div>
 
-      {/* Game Loading spinner — when billing is waiting_for_game */}
+      {/* Game Loading spinner + launch timer — when billing is waiting_for_game */}
       {billing.status === "waiting_for_game" && (
-        <div className="bg-blue-900/20 border border-blue-600/30 rounded-xl px-4 py-4 flex items-center gap-3">
-          <svg className="w-5 h-5 text-blue-400 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span className="text-blue-400 font-semibold text-sm">Game Loading...</span>
-        </div>
+        <LaunchTimerBanner elapsedSeconds={billing.elapsed_seconds ?? 0} />
       )}
 
       {/* Crash Recovery banner — when billing is paused_game_pause */}
@@ -170,7 +164,7 @@ export function LiveSessionPanel({
         <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-1000 ${
-              hasWarning ? "bg-amber-500" : localRemaining < 120 ? "bg-rp-red" : "bg-rp-red"
+              hasWarning ? "bg-amber-500" : localRemaining < 120 ? "bg-rp-red" : "bg-emerald-500"
             }`}
             style={{
               width: `${Math.max(0, (localRemaining / billing.allocated_seconds) * 100)}%`,
@@ -314,6 +308,46 @@ function TransmissionTogglePanel({ podId }: { podId: string }) {
     >
       {mode === "auto" ? "Auto Trans" : "Manual Trans"}
     </button>
+  );
+}
+
+function LaunchTimerBanner({ elapsedSeconds }: { elapsedSeconds: number }) {
+  const LAUNCH_TIMEOUT_SECS = 180;
+  const [localElapsed, setLocalElapsed] = useState(elapsedSeconds);
+  useEffect(() => {
+    setLocalElapsed(elapsedSeconds);
+  }, [elapsedSeconds]);
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setLocalElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const remaining = Math.max(0, LAUNCH_TIMEOUT_SECS - localElapsed);
+  const progress = Math.max(0, (remaining / LAUNCH_TIMEOUT_SECS) * 100);
+
+  return (
+    <div className="bg-blue-900/20 border border-blue-600/30 rounded-xl px-4 py-4">
+      <div className="flex items-center gap-3 mb-2">
+        <svg className="w-5 h-5 text-blue-400 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span className="text-blue-400 font-semibold text-sm">Game Loading...</span>
+        <span className="text-blue-400/70 text-xs font-mono tabular-nums ml-auto">
+          {Math.floor(remaining / 60)}:{(remaining % 60).toString().padStart(2, "0")}
+        </span>
+      </div>
+      <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${
+            remaining < 30 ? "bg-rp-red" : remaining < 60 ? "bg-amber-500" : "bg-blue-400"
+          }`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
