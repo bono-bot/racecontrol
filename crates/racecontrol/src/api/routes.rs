@@ -449,6 +449,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/gamification/kudos", get(staff_kudos_list).post(staff_kudos_create))
         .route("/staff/gamification/challenges", get(staff_challenges_list).post(staff_challenges_create))
         .route("/staff/gamification/challenges/{id}/progress", post(staff_challenge_update_progress))
+        // ─── Autonomous Pipeline (v26.0) ─────────────────────────────────────
+        .route("/pipeline/status", get(pipeline_status))
+        .route("/pipeline/config", get(pipeline_config_get).post(pipeline_config_set))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
@@ -17005,5 +17008,90 @@ mod config_snapshot_tests {
         let deserialized: VenueConfigSnapshot = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.venue_name, "Test");
         assert_eq!(deserialized.pod_count, 8);
+    }
+}
+
+// ─── Autonomous Pipeline (v26.0) ─────────────────────────────────────────────
+
+async fn pipeline_status() -> Json<serde_json::Value> {
+    let config_path = std::path::Path::new("audit/results/auto-detect-config.json");
+    let config: serde_json::Value = if config_path.exists() {
+        match tokio::fs::read_to_string(config_path).await {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => serde_json::Value::Null,
+        }
+    } else {
+        serde_json::Value::Null
+    };
+
+    let suggestions_path = std::path::Path::new("audit/results/suggestions.jsonl");
+    let recent_findings: Vec<serde_json::Value> = if suggestions_path.exists() {
+        match tokio::fs::read_to_string(suggestions_path).await {
+            Ok(content) => content.lines().rev().take(50)
+                .filter_map(|line| serde_json::from_str(line).ok()).collect(),
+            Err(_) => vec![],
+        }
+    } else { vec![] };
+
+    let proposals_dir = std::path::Path::new("audit/results/proposals");
+    let proposals: Vec<serde_json::Value> = if proposals_dir.exists() {
+        match tokio::fs::read_dir(proposals_dir).await {
+            Ok(mut entries) => {
+                let mut items = vec![];
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    if entry.path().extension().map_or(false, |e| e == "json") {
+                        if let Ok(content) = tokio::fs::read_to_string(entry.path()).await {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                                items.push(val);
+                            }
+                        }
+                    }
+                }
+                items
+            }
+            Err(_) => vec![],
+        }
+    } else { vec![] };
+
+    let summary_path = std::path::Path::new("audit/results/last-run-summary.json");
+    let last_run: serde_json::Value = if summary_path.exists() {
+        match tokio::fs::read_to_string(summary_path).await {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => serde_json::Value::Null,
+        }
+    } else { serde_json::Value::Null };
+
+    Json(serde_json::json!({
+        "config": config,
+        "last_run": last_run,
+        "recent_findings": recent_findings,
+        "proposals": proposals,
+        "finding_count": recent_findings.len(),
+        "proposal_count": proposals.len(),
+    }))
+}
+
+async fn pipeline_config_get() -> Json<serde_json::Value> {
+    let config_path = std::path::Path::new("audit/results/auto-detect-config.json");
+    match tokio::fs::read_to_string(config_path).await {
+        Ok(content) => Json(serde_json::from_str(&content).unwrap_or_default()),
+        Err(_) => Json(serde_json::json!({"error": "config not found"})),
+    }
+}
+
+async fn pipeline_config_set(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let config_path = std::path::Path::new("audit/results/auto-detect-config.json");
+    let mut config: serde_json::Value = match tokio::fs::read_to_string(config_path).await {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => serde_json::json!({}),
+    };
+    if let (Some(existing), Some(incoming)) = (config.as_object_mut(), body.as_object()) {
+        for (key, value) in incoming {
+            existing.insert(key.clone(), value.clone());
+        }
+    }
+    match tokio::fs::write(config_path, serde_json::to_string_pretty(&config).unwrap_or_default()).await {
+        Ok(_) => Json(serde_json::json!({"ok": true, "config": config})),
+        Err(e) => Json(serde_json::json!({"ok": false, "error": e.to_string()})),
     }
 }
