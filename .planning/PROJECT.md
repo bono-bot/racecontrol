@@ -107,6 +107,35 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Pod 8 canary-first testing for all changes
 - Backward compatible with existing kiosk/PWA launch flow
 
+## Current Milestone: v26.0 Autonomous Bug Detection & Self-Healing
+
+**Goal:** Build a fully autonomous bug detection and self-healing system that runs without human intervention, using all debugging features (Audit Protocol, Standing Rules, E2E, Debug First Time Right) with cascade awareness across all programs and Bono failover when James is down.
+
+**Target features:**
+- James-side autonomous pipeline (auto-detect.sh): 6-step chain — Audit → Quality Gate → E2E → Cascade → Standing Rules → Notify
+- Bono-side failover (bono-auto-detect.sh): independent detection + cloud failover activation when James is down
+- Scheduled execution: James Task Scheduler + Bono cron (daily 2:30 AM IST)
+- Expanded auto-fix engine: config drift detection, log anomaly detection, sync verification
+- Cascade engine: build drift detection, pod consistency, cloud-venue sync, comms-link sync
+- Integration test suite for autonomous pipeline (verify each step works correctly)
+- Standing rules enforcement automation (unpushed commits, relay health, bat file sync)
+- WhatsApp escalation to Uday for critical unfixed issues
+- Chain templates for relay-triggered detection (auto-detect-bono, sync-and-verify)
+
+**Foundation already built (this session):**
+- scripts/auto-detect.sh (committed b54e4585) — tested, 6-step pipeline works
+- scripts/bono-auto-detect.sh — deployed to VPS, cron active
+- chains.json updated with auto-detect-bono + sync-and-verify templates
+- First test run detected real bugs: build drift + cloud-venue mismatch
+
+**Constraints:**
+- Bash + jq only (no compiled dependencies) — consistent with audit framework
+- Must not increase audit runtime beyond 8 minutes (full mode)
+- Auto-fixes are whitelist-only — no risky operations without confirmation
+- Billing sessions NEVER interrupted (idle gate check)
+- Must work from both James (LAN) and Bono (Tailscale) perspectives
+- Daily cron must not conflict with existing Bono monitors (bono-server-monitor, bono-racecontrol-monitor)
+
 ## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
 **Delivered:** Replaced all dumb restart-loop watchdogs with 4-tier graduated AI recovery. 6 phases, 9 plans, 21 requirements. Recovery events API (ring buffer + fleet alert), spawn verification (500ms/10s health poll), Session 1 spawn path (WTSQueryUserToken), ProcessOwnership registry + RecoveryIntentStore (2-min TTL), GRACEFUL_RELAUNCH sentinel deconfliction, context-aware WoL (skips when sentry handled), MAINTENANCE_MODE JSON payload with 30-min auto-clear + WOL_SENT immediate-clear + WhatsApp alert, self_monitor yields to sentry (eliminates orphan PowerShell), shared ollama.rs in rc-common, sentry breadcrumb grace window in rc-watchdog.
