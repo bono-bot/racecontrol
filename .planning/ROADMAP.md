@@ -3170,7 +3170,11 @@ Plans:
   10. **MULTIPLAYER SILENT DOWNGRADE**: group_session_members DB query fails → billing start REJECTED with logged error, NOT silently treated as single-player. Verify: `grep "group_session_members query failed" server.log` shows error. No billing session created
   11. **ORPHAN CLEANUP**: Multiplayer 60s timeout evicts non-connected pods → their WaitingForGameEntry is REMOVED from map. If pod comes online at T+61 → it does NOT start billing as accidental solo session. Verify: `waiting_for_game.len()` decreases after timeout cleanup
   12. **CONFIGURABLE TIMEOUTS**: All billing timeouts in racecontrol.toml: `multiplayer_wait_timeout_secs = 60`, `pause_auto_end_timeout_secs = 600`, `launch_timeout_per_attempt_secs = 180`, `idle_drift_threshold_secs = 300`, `offline_grace_secs = 300`. Change multiplayer_wait to 90 → restart server → multiplayer wait is 90s. Verify: `grep "multiplayer timeout" server.log` shows 90s
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 198-01-PLAN.md — Foundation types (CancelledNoPlayable, BillingConfig) + AC False-Live guard + process fallback crash guard
+- [ ] 198-02-PLAN.md — Server billing: WaitingForGame broadcast, cancelled_no_playable records, AC timer sync, multiplayer error handling, configurable timeouts
+- [ ] 198-03-PLAN.md — Billing tests + human verification
 
 ### Phase 199: Crash Recovery
 **Goal**: When a game crashes during launch or mid-session, the system performs a full clean-slate reset and relaunches within 60 seconds total, with recovery actions informed by historical success data -- the customer session continues with minimal interruption
