@@ -2,24 +2,24 @@
 gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
-status: Ready for Phase 206
-stopped_at: Completed 196-01-PLAN.md
-last_updated: "2026-03-26T04:06:44.307Z"
-last_activity: "2026-03-26 — Phase 203, Plan 02 executed: 4 audit scripts upgraded from count to content health verification"
+status: In Progress Phase 206
+stopped_at: Completed 206-02-PLAN.md
+last_updated: "2026-03-26T05:55:00.000Z"
+last_activity: "2026-03-26 — Phase 206, Plan 02 executed: sentinel file watcher + SentinelChange WS protocol + fleet health active_sentinels + MAINTENANCE_MODE WhatsApp alert"
 progress:
   total_phases: 165
   completed_phases: 128
-  total_plans: 310
-  completed_plans: 304
+  total_plans: 312
+  completed_plans: 306
   percent: 99
 ---
 
 ## Current Position
 
-Phase: 203 Deep Service Verification — COMPLETE (2 of 2 plans)
-Plan: 203-02 COMPLETE (2 of 2)
-Status: Ready for Phase 206
-Last activity: 2026-03-26 — Phase 203, Plan 02 executed: 4 audit scripts upgraded from count to content health verification
+Phase: 206 Observable State Transitions — COMPLETE (2 of 2 plans)
+Plan: 206-02 COMPLETE (2 of 2)
+Status: Ready for Phase 207
+Last activity: 2026-03-26 — Phase 206, Plan 02 executed: sentinel file watcher + SentinelChange WS protocol + fleet health active_sentinels + MAINTENANCE_MODE WhatsApp alert
 
 Progress: [██████████] 99%
 
@@ -66,6 +66,10 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 - [Phase 196-01]: validate_args called before billing gate — invalid JSON rejected before touching shared state
 - [Phase 196-01]: launcher_for() returns static dyn ref (ZST impls) — no heap allocation in hot launch path
 - [Phase 196-01]: Billing gate checks both active_timers AND waiting_for_game — deferred billing sessions now pass launch gate
+- [Phase 206-02]: sentinel_watcher uses std::thread::spawn (not tokio) — notify RecommendedWatcher requires sync recv loop; blocking_send bridges to async tokio channel
+- [Phase 206-02]: SentinelChange routed via ws_exec_result_tx (existing AgentMessage mpsc) — no new channel needed
+- [Phase 206-02]: active_sentinels NOT cleared on WS disconnect — sentinel files persist on disk; clear would cause stale "no sentinels" until next change event
+- [Phase 206-02]: DashboardEvent::SentinelChanged is a new dedicated variant (not PodUpdate reuse) — carries sentinel-specific fields for dashboard real-time reaction
 
 ### Pending Todos
 
@@ -77,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T04:05:19.071Z
-Stopped at: Completed 196-01-PLAN.md
+Last session: 2026-03-26T05:55:00.000Z
+Stopped at: Completed 206-02-PLAN.md
 Resume file: None
