@@ -60,6 +60,9 @@ dirs-next = "2"
 # Random selection for AI driver name pool
 rand = "0.8"
 
+# Phase 206: Sentinel file watching via ReadDirectoryChangesW (OBS-04)
+notify = "8.2.0"
+
 # Startup folder scanning for process guard (optional — only needed when process-guard feature is enabled)
 walkdir = { version = "2", optional = true }
 

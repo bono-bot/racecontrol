@@ -280,6 +280,19 @@ pub enum AgentMessage {
     /// v22.0: Agent requests full flag state from server (sent on reconnect with cached version)
     FlagCacheSync(FlagCacheSyncPayload),
 
+    /// Phase 206: Pod reports a sentinel file was created or deleted in C:\RacingPoint\
+    /// Sent by sentinel_watcher.rs using the notify 8.2.0 RecommendedWatcher.
+    /// Server updates active_sentinels in fleet health and broadcasts DashboardEvent::SentinelChanged.
+    SentinelChange {
+        pod_id: String,
+        /// Sentinel file name (e.g. "MAINTENANCE_MODE", "GRACEFUL_RELAUNCH")
+        file: String,
+        /// "created" or "deleted"
+        action: String,
+        /// ISO-8601 IST timestamp of when the change was detected
+        timestamp: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -730,6 +743,21 @@ pub enum DashboardEvent {
         car: String,
         lap_time_ms: i64,
         lap_id: String,
+    },
+
+    /// Phase 206: A sentinel file was created or deleted on a pod.
+    /// Broadcast immediately on SentinelChange WS message for real-time dashboard visibility.
+    SentinelChanged {
+        pod_id: String,
+        pod_number: u32,
+        /// Sentinel file name (e.g. "MAINTENANCE_MODE", "GRACEFUL_RELAUNCH")
+        file: String,
+        /// "created" or "deleted"
+        action: String,
+        /// ISO-8601 IST timestamp from the pod
+        timestamp: String,
+        /// Updated list of active sentinels on this pod after this change
+        active_sentinels: Vec<String>,
     },
 }
 

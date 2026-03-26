@@ -24,6 +24,7 @@ mod self_heal;
 #[cfg(feature = "process-guard")]
 mod process_guard;
 mod self_monitor;
+mod sentinel_watcher;
 mod self_test;
 mod sims;
 mod startup_log;
@@ -909,6 +910,13 @@ async fn main() -> Result<()> {
             tracing::info!(target: LOG_TARGET, "Process guard whitelist re-fetch task spawned (interval=300s)");
         }
     }
+
+    // ─── Phase 206: Sentinel File Watcher ─────────────────────────────────────
+    // Watches C:\RacingPoint\ for sentinel file create/delete events.
+    // Sends AgentMessage::SentinelChange via ws_exec_result_tx → WS → racecontrol.
+    // Runs as a dedicated OS thread (not tokio) — notify uses sync mpsc internally.
+    sentinel_watcher::spawn(state.ws_exec_result_tx.clone(), state.pod_id.clone());
+    tracing::info!(target: LOG_TARGET, "Sentinel file watcher spawned (watching C:\\RacingPoint\\)");
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
