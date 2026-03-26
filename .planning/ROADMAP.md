@@ -3256,7 +3256,7 @@ Plans:
 | 198. On-Track Billing | 3/3 | Complete    | 2026-03-26 |
 | 199. Crash Recovery | 2/2 | Complete    | 2026-03-26 |
 | 200. Self-Improving Intelligence | 2/2 | Complete    | 2026-03-26 |
-| 201. Frontend Integration & Type Sync | 3/3 | Complete   | 2026-03-26 |
+| 201. Frontend Integration & Type Sync | 3/3 | Complete    | 2026-03-26 |
 
 ---
 
