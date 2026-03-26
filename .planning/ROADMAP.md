@@ -3450,6 +3450,7 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
 ## Phases (v26.0)
 
 - [x] **Phase 211: Safe Scheduling Foundation** - Register James Task Scheduler (02:30 IST) and correct Bono cron (02:35 IST); idempotent run guard (PID file lock); sentinel-aware execution gate (OTA_DEPLOYING, MAINTENANCE_MODE, GRACEFUL_RELAUNCH); escalation cooldown (per-pod, per-alert-type, 6-hour window); venue-state-aware timing; WhatsApp silence on clean runs; AUTO_DETECT_ACTIVE lock file (completed 2026-03-26)
+- [ ] **Phase 211.1: Venue Shutdown Button** (INSERTED) - Kiosk "Shutdown Racing Point" button with staff PIN auth; racecontrol POST /api/v1/venue/shutdown endpoint; pre-shutdown audit gate (auto-detect --mode quick); billing session drain check; ordered shutdown sequence (pods -> POS -> server, James stays alive); boot-time findings implementation; Bono fallback when James offline
 - [ ] **Phase 212: Detection Expansion** - cascade.sh (build drift, pod consistency, cloud-venue sync); log-anomaly.sh (ERROR/PANIC rate per pod); config-drift.sh (TOML key validation via API or SCP fallback); bat file drift detection (certutil checksums vs repo canonical); feature flag sync (8-pod identical set check); schema drift detection; DET-07 cascade module sources into auto-detect.sh sharing env
 - [ ] **Phase 213: Self-Healing & Escalation** - Expanded APPROVED_FIXES whitelist (WoL, MAINTENANCE_MODE auto-clear, bat replacement); 5-tier escalation ladder (retry to restart to WoL to cloud failover to Uday); sentinel checks on every tier before acting; WhatsApp silence conditions; post-fix re-check verification; Audit Protocol Cause Elimination methodology; live-sync fixes (apply on detection not batch); global auto_fix_enabled toggle
 - [ ] **Phase 214: Bono Coordination** - AUTO_DETECT_ACTIVE mutex via relay (James + Bono both check); Bono failover gated on confirmed Tailscale offline (not relay timeout); delegation protocol (Bono checks James alive first); post-recovery sync (Bono deactivates cloud failover, syncs findings); simultaneous dry-run verification confirming only one agent writes lock
@@ -3472,6 +3473,22 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
 Plans:
 - [ ] 211-01-PLAN.md — Safety gates: PID guard, escalation cooldown, venue-aware mode, sentinel check
 - [ ] 211-02-PLAN.md — Task Scheduler registration (02:30 IST) + Bono cron correction (02:35 IST)
+
+### Phase 211.1: Venue Shutdown Button (INSERTED)
+**Goal**: Staff can safely shut down all venue infrastructure from kiosk with pre-shutdown audit gate, billing drain check, and ordered shutdown sequence
+**Depends on**: Phase 211 (uses auto-detect.sh for pre-shutdown audit)
+**Requirements**: SHUTDOWN-API, SHUTDOWN-AUDIT-GATE, SHUTDOWN-SEQUENCE, SHUTDOWN-BILLING-DRAIN, SHUTDOWN-KIOSK-UI, SHUTDOWN-PIN-AUTH, SHUTDOWN-PROGRESS-DISPLAY, SHUTDOWN-BOOT-FIX, SHUTDOWN-BONO-FALLBACK
+**Success Criteria** (what must be TRUE):
+  1. Staff presses "Shutdown Racing Point" on kiosk, enters PIN, sees audit run, and venue shuts down in correct order (pods -> POS -> server)
+  2. Active billing sessions block shutdown with clear message
+  3. P1 audit findings block shutdown with findings displayed
+  4. When James is offline, Bono fallback runs audit and orchestrates shutdown
+  5. On next boot, James reads pre-shutdown findings and applies safe auto-fixes
+**Plans**: 3 plans
+Plans:
+- [ ] 211.1-01-PLAN.md — API endpoint + shutdown orchestration script
+- [ ] 211.1-02-PLAN.md — Kiosk shutdown page with PIN auth + progress UI
+- [ ] 211.1-03-PLAN.md — Boot-time fix script + Bono fallback wiring
 
 ### Phase 212: Detection Expansion
 **Goal**: The auto-detect pipeline detects config drift, bat file regression, log anomalies, crash loops, flag desync, and schema gaps — every detection traces to a documented historical incident
