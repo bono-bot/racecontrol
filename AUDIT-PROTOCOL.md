@@ -625,6 +625,51 @@ curl -s -X POST http://$SPOT_POD:8090/exec \
 
 ---
 
+## Phase 26b: Game Launch E2E Verification
+**What:** Verify that a game launch from the kiosk/dashboard actually writes correct config and starts the game process on a pod. This catches: (a) Session 0 isolation (agent in SYSTEM session can't launch GUI), (b) WS disconnect loops losing launch messages, (c) stale game tracker blocking new launches, (d) billing auto-pause racing against launch.
+
+**Root cause for adding this phase (2026-03-26):**
+Pod 6 had rc-agent running in Session 0 (NT AUTHORITY\SYSTEM) due to `schtasks /Run` restart. Server returned `ok: true` for game launches but the agent never received the WS message (WS disconnect loop every ~19s). Additionally, an ntdll.dll access violation crash loop had Pod 6 restarting continuously all day — the self-test showed `verdict=Critical failures=3` but this was logged at INFO level and never alerted to staff. The crash existed on the OLD build too (not caused by the day's deploy).
+
+```bash
+# Step 1: Verify rc-agent is in Session 1 (Console) on ALL pods
+for IP in $PODS; do
+  SESSION=$(curl -s -X POST http://$IP:8091/exec -H "Content-Type: application/json" \
+    -d '{"cmd":"tasklist /FI \"IMAGENAME eq rc-agent.exe\" /V /FO CSV /NH"}' 2>/dev/null | \
+    grep -o '"Console"' | head -1)
+  echo "$IP: session=${SESSION:-WRONG_SESSION}"
+done
+# If any pod shows Services/0/SYSTEM instead of Console — rc-agent is in Session 0!
+# Fix: kill rc-agent → let RCWatchdog service restart in Session 1
+
+# Step 2: Check for crash loops (multiple startup reports within 5 minutes)
+curl -s "http://192.168.31.23:8080/api/v1/logs?lines=100&level=info" | \
+  grep -o '"Pod pod_[0-9] startup report.*uptime=[0-9]*s' | sort | uniq -c | sort -rn
+# If any pod has >2 startup reports with uptime=2s — it's in a crash loop!
+
+# Step 3: Verify WS stability (no disconnect loop)
+curl -s "http://192.168.31.23:8080/api/v1/logs?lines=50&level=warn" | \
+  grep "dropped without Disconnect" | grep -o 'pod_[0-9]' | sort | uniq -c
+# If any pod has >3 disconnects in recent logs — WS is unstable
+
+# Step 4: E2E game launch test (requires billing session)
+# Start trial billing, launch game, verify race.ini was written with correct config
+# On a pod with stable WS:
+# - Start billing (tier_trial, 5min)
+# - Launch AC with ai_level=75, ai_count=3
+# - SSH to pod, verify race.ini has AI_LEVEL=75 and CARS=4
+# - Verify acs.exe is running (or race.ini timestamp is fresh)
+```
+
+**Fix loop trigger:**
+- Any pod with rc-agent in Session 0 (Services context)
+- Any pod with >2 startup reports in 5 minutes (crash loop)
+- Any pod with >3 WS disconnects in 5 minutes (connection instability)
+- Game launch returns `ok: true` but race.ini timestamp is stale
+- race.ini shows wrong AI_LEVEL or CARS count after launch
+
+---
+
 ## Phase 27: AC Server & Telemetry
 **What:** Assetto Corsa server process, telemetry UDP ports, lap data flowing.
 
