@@ -3262,7 +3262,8 @@ Plans:
 ### Phases
 
 - [x] **Phase 202: Config Validation & Structural Fixes** - Fix false PASSes from unchecked configs, hardcoded assumptions, and wrong severity levels (completed 2026-03-25)
-- [x] **Phase 203: Deep Service Verification** - Replace shallow liveness/count checks with real service health verification (completed 2026-03-26)
+- [x] **Phase 203: Deep Service Verification** - Replace shallow liveness/count checks with real service health verification
+ (completed 2026-03-26)
 - [x] **Phase 204: Cross-Service & UI End-to-End** - Verify dependency chains and user-facing pages render correctly (completed 2026-03-26)
 
 ### Phase Details
@@ -3539,7 +3540,11 @@ Plans:
   2. Bono failover activation requires confirmed Tailscale offline status — a relay timeout alone without pinging 100.125.108.37 does not trigger independent fix actions; Bono logs "relay timeout, confirming Tailscale" before deciding
   3. When James completes a run, Bono next check reads the completion marker and skips its own run — the completion marker is visible in INBOX.md or a relay-accessible state file
   4. After James recovers from a downtime window where Bono acted independently, Bono writes its findings to the shared findings channel and stops cloud-side fixes — the handoff is confirmed by a log entry on both sides
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 214-01-PLAN.md — AUTO_DETECT_ACTIVE mutex + completion marker (coord-state.sh + auto-detect.sh)
+- [ ] 214-02-PLAN.md — Confirmed-offline detection + delegation protocol + recovery handoff (bono-auto-detect.sh)
 
 ### Phase 215: Self-Improving Intelligence
 **Goal**: Every auto-detect run contributes to a growing record of patterns that the system uses to propose and autonomously apply improvements to its own detection and fix coverage
@@ -3573,6 +3578,6 @@ Plans:
 | 211. Safe Scheduling Foundation | 2/2 | Complete    | 2026-03-26 |
 | 212. Detection Expansion | 2/2 | Complete    | 2026-03-26 |
 | 213. Self-Healing & Escalation | 2/2 | Complete    | 2026-03-26 |
-| 214. Bono Coordination | 0/0 | Not started | - |
+| 214. Bono Coordination | 0/2 | In progress | - |
 | 215. Self-Improving Intelligence | 0/0 | Not started | - |
 | 216. Pipeline Self-Test Suite | 0/0 | Not started | - |
