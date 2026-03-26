@@ -3337,7 +3337,7 @@ Plans:
 - [x] **Phase 206: Observable State Transitions** - Eliminate all silent failures: MAINTENANCE_MODE WhatsApp alert, config fallback warn!, empty allowlist error!, sentinel fleet alerts, FSM transition logging (completed 2026-03-26)
 - [x] **Phase 207: Boot Resilience** - Apply spawn_periodic_refetch to feature flags and all startup-fetched resources; first-scan validation for guards; standing rule documented (completed 2026-03-26)
 - [x] **Phase 208: Chain Verification Integration** - Wrap the 4 critical existing chains (pod healer curl, config load, allowlist enforcement, spawn verification) with VerificationChain (completed 2026-03-26)
-- [ ] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption
+- [x] **Phase 209: Pre-Ship Gate and Process Tooling** - Domain-matched gate-check.sh (display/network/parse/billing/config), VISUAL_VERIFIED flag, fix_log.sh Cause Elimination template, LOGBOOK.md adoption (completed 2026-03-26)
 - [ ] **Phase 210: Startup Enforcement and Fleet Audit** - bat-scanner.sh, bat syntax validator, fleet audit integration (bat-drift + sentinel-alerts + config-fallback + boot-resilience + verification-chains phases), v25.0 Debug Quality audit report section
 
 ### Phase Details
@@ -3430,7 +3430,7 @@ Plans:
 
 **Execution Order:** 205 -> 206 -> 208 (both depend on 205) | 209 (parallel with 206-208) -> 207 (after 206) -> 210 (after 206, 207, 208, 209)
 
-| 1/2 | In Progress|  | Completed |
+| 2/2 | Complete   | 2026-03-26 | Completed |
 |-------|----------------|--------|-----------|
 | 205. Verification Chain Foundation | 1/1 | Complete    | 2026-03-25 |
 | 206. Observable State Transitions | 2/2 | Complete    | 2026-03-26 |
