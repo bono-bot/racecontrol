@@ -123,6 +123,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Intelligence API (INTEL-03, INTEL-04) — combo alternatives + fleet reliability matrix
         .route("/games/alternatives", get(metrics::alternatives_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        // Mesh Intelligence (v26.0) — read-only for dashboard
+        .route("/mesh/solutions", get(mesh_list_solutions))
+        .route("/mesh/solutions/{id}", get(mesh_get_solution))
+        .route("/mesh/incidents", get(mesh_list_incidents))
+        .route("/mesh/stats", get(mesh_stats))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
@@ -453,6 +458,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // ─── Autonomous Pipeline (v26.0) ─────────────────────────────────────
         .route("/pipeline/status", get(pipeline_status))
         .route("/pipeline/config", get(pipeline_config_get).post(pipeline_config_set))
+        // Mesh Intelligence (v26.0) — staff write operations
+        .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
+        .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
@@ -17282,5 +17290,84 @@ async fn pipeline_config_set(Json(body): Json<serde_json::Value>) -> Json<serde_
     match tokio::fs::write(config_path, serde_json::to_string_pretty(&config).unwrap_or_default()).await {
         Ok(_) => Json(serde_json::json!({"ok": true, "config": config})),
         Err(e) => Json(serde_json::json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+// ─── Mesh Intelligence API (v26.0 Phase 222) ────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct MeshListParams {
+    #[serde(default = "default_limit")]
+    limit: u32,
+    #[serde(default)]
+    offset: u32,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+fn default_limit() -> u32 { 50 }
+
+async fn mesh_list_solutions(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MeshListParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::list_solutions(&state.db, params.status.as_deref(), params.limit, params.offset).await {
+        Ok(solutions) => Json(serde_json::json!({ "solutions": solutions, "count": solutions.len() })),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+async fn mesh_get_solution(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::get_solution(&state.db, &id).await {
+        Ok(Some(sol)) => Json(serde_json::json!(sol)),
+        Ok(None) => Json(serde_json::json!({ "error": "not found" })),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+async fn mesh_list_incidents(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MeshListParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::list_incidents(&state.db, params.limit, params.offset).await {
+        Ok(incidents) => Json(serde_json::json!({ "incidents": incidents, "count": incidents.len() })),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+async fn mesh_stats(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let counts = crate::fleet_kb::solution_counts(&state.db).await.unwrap_or_default();
+    let total: i64 = counts.iter().map(|(_, c)| c).sum();
+    let status_map: std::collections::HashMap<String, i64> = counts.into_iter().collect();
+    Json(serde_json::json!({
+        "total_solutions": total,
+        "by_status": status_map,
+    }))
+}
+
+async fn mesh_promote_solution(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::update_status(&state.db, &id, rc_common::mesh_types::SolutionStatus::FleetVerified).await {
+        Ok(true) => Json(serde_json::json!({ "ok": true, "status": "fleet_verified" })),
+        Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
+        Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+    }
+}
+
+async fn mesh_retire_solution(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::update_status(&state.db, &id, rc_common::mesh_types::SolutionStatus::Retired).await {
+        Ok(true) => Json(serde_json::json!({ "ok": true, "status": "retired" })),
+        Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
+        Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
     }
 }
