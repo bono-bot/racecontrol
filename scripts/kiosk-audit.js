@@ -35,6 +35,12 @@ const MODEL_CONFIG = {
   // Round 3 — Reasoning
   'deepseek/deepseek-r1-0528':          { short: 'deepseek-r1', ctx: 163840, priceIn: 0.45, priceOut: 2.15, timeout: 300000, maxOut: 16000 },
   'moonshotai/kimi-k2.5':               { short: 'kimi-k2.5', ctx: 131072, priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
+  // Round 4 — Vision + multimodal (image/UI understanding)
+  'google/gemini-2.5-flash':             { short: 'gemini-flash', ctx: 1000000, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
+  'openai/gpt-4.1':                     { short: 'gpt-4.1', ctx: 1048576, priceIn: 2.00, priceOut: 8.00, timeout: 300000, maxOut: 16000 },
+  // Round 5 — Additional code/programming models
+  'qwen/qwen3-coder':                   { short: 'qwen3-coder', ctx: 262144, priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
+  'anthropic/claude-sonnet-4':          { short: 'claude-sonnet-4', ctx: 200000, priceIn: 3.00, priceOut: 15.00, timeout: 300000, maxOut: 16000 },
 };
 
 const config = MODEL_CONFIG[MODEL];

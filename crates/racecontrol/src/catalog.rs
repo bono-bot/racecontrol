@@ -135,7 +135,7 @@ const FEATURED_TRACKS: &[TrackEntry] = &[
     TrackEntry { id: "monza", name: "Monza", category: "F1 Circuits", country: "Italy", min_lap_time_ms: Some(80_000) },
     TrackEntry { id: "ks_silverstone", name: "Silverstone", category: "F1 Circuits", country: "UK", min_lap_time_ms: Some(90_000) },
     TrackEntry { id: "ks_red_bull_ring", name: "Red Bull Ring", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
-    TrackEntry { id: "spielberg", name: "Spielberg", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
+    TrackEntry { id: "spielberg", name: "Red Bull Ring (Alt)", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
     TrackEntry { id: "ks_barcelona", name: "Barcelona", category: "F1 Circuits", country: "Spain", min_lap_time_ms: None },
     TrackEntry { id: "monaco", name: "Monaco", category: "F1 Circuits", country: "Monaco", min_lap_time_ms: None },
     TrackEntry { id: "interlagos", name: "Interlagos", category: "F1 Circuits", country: "Brazil", min_lap_time_ms: None },

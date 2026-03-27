@@ -215,7 +215,7 @@ pub fn parse_sim_type(game: &str) -> rc_common::types::SimType {
     match game {
         "assetto_corsa" | "ac" => SimType::AssettoCorsa,
         "assetto_corsa_evo" | "ace" => SimType::AssettoCorsaEvo,
-        "assetto_corsa_rally" | "acr" => SimType::AssettoCorsaRally,
+        "assetto_corsa_rally" | "ea_wrc" | "acr" | "wrc" => SimType::AssettoCorsaRally,
         "iracing" => SimType::IRacing,
         "f1_25" | "f1" => SimType::F125,
         "le_mans_ultimate" | "lmu" => SimType::LeMansUltimate,

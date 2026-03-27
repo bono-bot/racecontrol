@@ -675,10 +675,10 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
          VALUES
             ('exp_spa_f1_30', 'Spa Hot Lap — F1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 30, 'pitlane', 1),
             ('exp_spa_f1_60', 'Spa Hot Lap — F1 (Long)', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 60, 'pitlane', 2),
-            ('exp_spa_gt3_30', 'Spa Hot Lap — GT3', 'assetto_corsa', 'spa', 'ks_mclaren_p1_gtr', 'B', 30, 'pitlane', 3),
-            ('exp_spa_gt4_30', 'Spa Hot Lap — GT4', 'assetto_corsa', 'spa', 'ks_audi_r8_lms', 'C', 30, 'pitlane', 4),
-            ('exp_spa_road_30', 'Spa Hot Lap — Road', 'assetto_corsa', 'spa', 'ks_lotus_3_eleven', 'D', 30, 'pitlane', 5),
-            ('exp_trial', 'Trial Lap', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 5, 'pitlane', 0)",
+            ('exp_spa_gt3_30', 'Spa Hot Lap — GT3', 'assetto_corsa', 'spa', 'ks_ferrari_488_gt3', 'B', 30, 'pitlane', 3),
+            ('exp_spa_gt4_30', 'Spa Hot Lap — Track Car', 'assetto_corsa', 'spa', 'ks_lotus_3_eleven', 'C', 30, 'pitlane', 4),
+            ('exp_spa_road_30', 'Spa Hot Lap — Supercar', 'assetto_corsa', 'spa', 'ks_lamborghini_aventador_sv', 'D', 30, 'pitlane', 5),
+            ('exp_trial', 'Trial Lap', 'assetto_corsa', 'spa', 'ks_porsche_911_gt3_rs', 'A', 5, 'pitlane', 0)",
     )
     .execute(pool)
     .await?;
@@ -687,8 +687,8 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT OR IGNORE INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, sort_order)
          VALUES
-            ('exp_rally_classic_30', 'Rally Classic', 'assetto_corsa_rally', 'stage_default', 'default', 'A', 30, 'default', 20),
-            ('exp_rally_modern_30', 'Rally Modern', 'assetto_corsa_rally', 'stage_default', 'default', 'A', 30, 'default', 21),
+            ('exp_rally_classic_30', 'Rally — Classic Cars', 'ea_wrc', 'default', 'default', 'A', 30, 'default', 20),
+            ('exp_rally_modern_30', 'Rally — Modern WRC', 'ea_wrc', 'default', 'default', 'A', 30, 'default', 21),
             ('exp_evo_hotlap_30', 'AC EVO Hot Lap', 'assetto_corsa_evo', 'default', 'default', 'A', 30, 'default', 30),
             ('exp_evo_hotlap_60', 'AC EVO Hot Lap (Long)', 'assetto_corsa_evo', 'default', 'default', 'A', 60, 'default', 31),
             ('exp_fh5_freeroam_30', 'Forza Horizon 5', 'forza_horizon_5', 'mexico', 'default', 'A', 30, 'default', 40),
@@ -711,6 +711,35 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     ).execute(pool).await?;
     sqlx::query(
         "UPDATE kiosk_experiences SET car = 'ks_lotus_3_eleven' WHERE car = 'lotus_3_eleven'"
+    ).execute(pool).await?;
+
+    // Fix mislabeled car classes: GT3 preset had a hypercar (P1 GTR), GT4 preset had a GT3 car (R8 LMS)
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_ferrari_488_gt3', name = 'Spa Hot Lap — GT3' WHERE id = 'exp_spa_gt3_30'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_lotus_3_eleven', name = 'Spa Hot Lap — Track Car' WHERE id = 'exp_spa_gt4_30'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_lamborghini_aventador_sv', name = 'Spa Hot Lap — Supercar' WHERE id = 'exp_spa_road_30'"
+    ).execute(pool).await?;
+
+    // Fix rally game ID: assetto_corsa_rally → ea_wrc (they are different games)
+    sqlx::query(
+        "UPDATE kiosk_experiences SET game = 'ea_wrc', name = 'Rally — Classic Cars' WHERE id = 'exp_rally_classic_30'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET game = 'ea_wrc', name = 'Rally — Modern WRC' WHERE id = 'exp_rally_modern_30'"
+    ).execute(pool).await?;
+
+    // Fix trial car: F1 car too harsh for beginners → use a GT road car
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_porsche_911_gt3_rs', name = 'Trial Lap' WHERE id = 'exp_trial'"
+    ).execute(pool).await?;
+
+    // Fix Spa Road label: Lotus 3-Eleven is a track car, not a road car
+    sqlx::query(
+        "UPDATE kiosk_experiences SET name = 'Spa Hot Lap — Track Car' WHERE id = 'exp_spa_gt4_30'"
     ).execute(pool).await?;
 
     // Seed default kiosk settings

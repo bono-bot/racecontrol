@@ -4001,11 +4001,11 @@ async fn games_catalog(State(state): State<Arc<AppState>>) -> Json<Value> {
         let abbr = match sim {
             SimType::AssettoCorsa => "AC",
             SimType::AssettoCorsaEvo => "ACE",
-            SimType::AssettoCorsaRally => "ACR",
+            SimType::AssettoCorsaRally => "WRC",
             SimType::IRacing => "iR",
             SimType::LeMansUltimate => "LMU",
             SimType::F125 => "F1",
-            SimType::Forza => "FRZ",
+            SimType::Forza => "FM",
             SimType::ForzaHorizon5 => "FH5",
         };
         json!({

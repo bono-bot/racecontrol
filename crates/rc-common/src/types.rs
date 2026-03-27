@@ -24,7 +24,7 @@ impl std::fmt::Display for SimType {
         match self {
             SimType::AssettoCorsa => write!(f, "Assetto Corsa"),
             SimType::AssettoCorsaEvo => write!(f, "Assetto Corsa Evo"),
-            SimType::AssettoCorsaRally => write!(f, "Assetto Corsa Rally"),
+            SimType::AssettoCorsaRally => write!(f, "EA SPORTS WRC"),
             SimType::IRacing => write!(f, "iRacing"),
             SimType::LeMansUltimate => write!(f, "Le Mans Ultimate"),
             SimType::F125 => write!(f, "F1 25"),
@@ -989,7 +989,7 @@ mod tests {
     fn test_sim_type_display() {
         assert_eq!(SimType::AssettoCorsa.to_string(), "Assetto Corsa");
         assert_eq!(SimType::AssettoCorsaEvo.to_string(), "Assetto Corsa Evo");
-        assert_eq!(SimType::AssettoCorsaRally.to_string(), "Assetto Corsa Rally");
+        assert_eq!(SimType::AssettoCorsaRally.to_string(), "EA SPORTS WRC");
         assert_eq!(SimType::IRacing.to_string(), "iRacing");
         assert_eq!(SimType::LeMansUltimate.to_string(), "Le Mans Ultimate");
         assert_eq!(SimType::F125.to_string(), "F1 25");

@@ -417,7 +417,7 @@ export function SetupWizard({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
               <p className="text-lg font-bold text-white">Singleplayer</p>
-              <p className="text-xs text-rp-grey mt-1">Practice &amp; hot laps</p>
+              <p className="text-xs text-rp-grey mt-1">Drive solo or against AI</p>
             </button>
             <button
               data-testid="player-mode-multi"
@@ -428,7 +428,7 @@ export function SetupWizard({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <p className="text-lg font-bold text-white">Multiplayer</p>
-              <p className="text-xs text-rp-grey mt-1">Race with others</p>
+              <p className="text-xs text-rp-grey mt-1">Drive with other people</p>
             </button>
           </div>
         )}
@@ -437,12 +437,14 @@ export function SetupWizard({
         {step === "session_type" && (
           <div data-testid="step-session-type" className="space-y-3">
             {([
-              { type: "practice" as const, label: "Practice", desc: "Free driving, no AI, no timer", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
-              { type: "hotlap" as const, label: "Hotlap", desc: "Timed laps -- set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+              { type: "practice" as const, label: "Practice", desc: "Free driving, no pressure", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
+              { type: "hotlap" as const, label: "Hotlap", desc: "Timed laps — set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
               { type: "race" as const, label: "Race vs AI", desc: "Full grid race against AI opponents", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" },
-              { type: "trackday" as const, label: "Track Day", desc: "Open pit, mixed traffic on track", icon: "M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" },
-              { type: "race_weekend" as const, label: "Race Weekend", desc: "Practice, Qualify, then Race sequence", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
-            ]).map(({ type, label, desc, icon }) => (
+              { type: "trackday" as const, label: "Track Day", desc: "Open pit with mixed traffic", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
+              { type: "race_weekend" as const, label: "Race Weekend", desc: "Practice, Qualify, then Race sequence", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z", minMinutes: 15 },
+            ] as { type: SessionType; label: string; desc: string; icon: string; minMinutes?: number }[])
+            .filter(({ minMinutes }) => !minMinutes || (ws.selectedTier?.duration_minutes ?? 0) >= minMinutes)
+            .map(({ type, label, desc, icon }) => (
               <button
                 key={type}
                 data-testid={`session-type-${type}`}
@@ -515,14 +517,14 @@ export function SetupWizard({
                     data-testid="ai-count-slider"
                     type="range"
                     min={1}
-                    max={20}
+                    max={19}
                     value={ws.aiCount}
                     onChange={(e) => setField("aiCount", parseInt(e.target.value))}
                     className="w-full accent-rp-red"
                   />
                   <div className="flex justify-between text-xs text-rp-grey mt-1">
                     <span>1</span>
-                    <span>20</span>
+                    <span>19</span>
                   </div>
                 </div>
               </>
@@ -647,8 +649,13 @@ export function SetupWizard({
         {/* ─── SELECT EXPERIENCE (preset) ───────────────────────── */}
         {step === "select_experience" && (() => {
           const isAc = ws.selectedGame === "assetto_corsa";
-          // Filter experiences by selected game
-          const gameExperiences = experiences.filter((e) => e.game === ws.selectedGame);
+          // Filter experiences by selected game AND pricing tier duration
+          const tierDuration = ws.selectedTier?.duration_minutes ?? 0;
+          const gameExperiences = experiences.filter((e) =>
+            e.game === ws.selectedGame &&
+            e.duration_minutes <= tierDuration &&
+            !(ws.selectedTier?.is_trial === false && e.duration_minutes <= 5 && e.name.toLowerCase().includes("trial"))
+          );
           return (
           <div data-testid="step-select-experience" className="space-y-4">
             {/* Mode toggle — only show Custom option for AC (has track/car catalog) */}

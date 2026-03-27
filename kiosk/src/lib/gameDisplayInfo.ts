@@ -20,10 +20,10 @@ export const GAME_DISPLAY: Record<string, GameDisplayEntry> = {
     logo: "/game-logos/assetto-corsa-evo.png",
     abbr: "ACE",
   },
-  assetto_corsa_rally: {
-    name: "EA WRC",
-    logo: "/game-logos/assetto-corsa-rally.png",
-    abbr: "ACR",
+  ea_wrc: {
+    name: "EA SPORTS WRC",
+    logo: "/game-logos/ea-wrc.png",
+    abbr: "WRC",
   },
   iracing: {
     name: "iRacing",
@@ -43,7 +43,7 @@ export const GAME_DISPLAY: Record<string, GameDisplayEntry> = {
   forza: {
     name: "Forza Motorsport",
     logo: "/game-logos/forza.png",
-    abbr: "FRZ",
+    abbr: "FM",
   },
   forza_horizon_5: {
     name: "Forza Horizon 5",
