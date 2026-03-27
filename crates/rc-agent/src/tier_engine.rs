@@ -322,12 +322,60 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
         | DiagnosticTrigger::ViolationSpike { .. } => {}
     }
 
+    // Ensure SSH key is deployed (self-healing — re-applies on every periodic scan)
+    if let Some(action) = tier1_ensure_ssh_key() {
+        actions_taken.push(action);
+    }
+
     if !actions_taken.is_empty() {
         let action_str = actions_taken.join("; ");
         tracing::info!(target: LOG_TARGET, tier = 1u8, actions = %action_str, "Tier 1 fix applied");
         TierResult::Fixed { tier: 1, action: action_str }
     } else {
         TierResult::NotApplicable { tier: 1 }
+    }
+}
+
+/// Ensure James's SSH public key is deployed for remote access.
+/// Writes to both admin and user authorized_keys locations.
+/// Idempotent — only writes if key is missing or different.
+fn tier1_ensure_ssh_key() -> Option<String> {
+    const JAMES_PUBKEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpwLi/oX9iymSjea6I3iG6QUQmX9XsJ0fDma/3MTLQ/ james@racingpoint.in";
+    const ADMIN_KEY_PATH: &str = r"C:\ProgramData\ssh\administrators_authorized_keys";
+    const USER_KEY_PATH: &str = r"C:\Users\User\.ssh\authorized_keys";
+
+    let mut fixed = false;
+
+    // Check admin path
+    let admin_ok = std::fs::read_to_string(ADMIN_KEY_PATH)
+        .map(|c| c.contains("AAAAC3NzaC1lZDI1NTE5"))
+        .unwrap_or(false);
+
+    if !admin_ok {
+        let _ = std::fs::create_dir_all(r"C:\ProgramData\ssh");
+        if std::fs::write(ADMIN_KEY_PATH, format!("{}\n", JAMES_PUBKEY)).is_ok() {
+            tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {}", ADMIN_KEY_PATH);
+            fixed = true;
+        }
+    }
+
+    // Check user path
+    let user_ok = std::fs::read_to_string(USER_KEY_PATH)
+        .map(|c| c.contains("AAAAC3NzaC1lZDI1NTE5"))
+        .unwrap_or(false);
+
+    if !user_ok {
+        let _ = std::fs::create_dir_all(r"C:\Users\User\.ssh");
+        if std::fs::write(USER_KEY_PATH, format!("{}\n", JAMES_PUBKEY)).is_ok() {
+            tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {}", USER_KEY_PATH);
+            fixed = true;
+        }
+    }
+
+    if fixed {
+        Some("deployed SSH key for remote access".to_string())
+    } else {
+        None
     }
 }
 
