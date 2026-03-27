@@ -9,6 +9,7 @@ mod ws_handler;
 mod config;
 mod content_scanner;
 mod debug_server;
+mod diagnostic_engine;
 mod driving_detector;
 mod failure_monitor;
 mod ffb_controller;
@@ -647,6 +648,11 @@ async fn main() -> Result<()> {
     self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone());
     tracing::info!(target: LOG_TARGET, "Self-monitor started (check interval: 5min)");
 
+    // ─── Diagnostic Engine channel (Plan 229-01) ─────────────────────────────
+    // Plan 229-02 will create the tier engine that reads from diagnostic_event_rx.
+    // Buffer 32 events — scan is every 5 min, so backpressure means something is wrong.
+    let (diagnostic_event_tx, _diagnostic_event_rx) = mpsc::channel::<diagnostic_engine::DiagnosticEvent>(32);
+
     // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────
     failure_monitor::spawn(
         heartbeat_status.clone(),
@@ -656,6 +662,15 @@ async fn main() -> Result<()> {
         config.pod.number as u32,
     );
     tracing::info!(target: LOG_TARGET, "Failure monitor started (poll interval: 5s)");
+
+    // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
+    // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
+    diagnostic_engine::spawn(
+        heartbeat_status.clone(),
+        failure_monitor_tx.subscribe(), // watch::Receiver — cheap clone from sender
+        diagnostic_event_tx.clone(),
+    );
+    tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
