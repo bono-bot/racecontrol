@@ -102,7 +102,8 @@ impl BudgetTracker {
         let remaining = self.daily_limit - self.spent_today;
 
         // Block if remaining would drop below minimum reserve (BUDGET-04)
-        if remaining - estimated_cost < MIN_RESERVE && self.spent_today > 0.0 {
+        // GPT-5.4 audit fix: reserve applies even on first call of the day
+        if remaining - estimated_cost < MIN_RESERVE {
             tracing::warn!(
                 target: LOG_TARGET,
                 remaining = remaining,
@@ -212,10 +213,12 @@ mod tests {
     }
 
     #[test]
-    fn test_can_spend_first_call_ignores_reserve() {
+    fn test_can_spend_respects_reserve_always() {
         let mut t = BudgetTracker::new(10.0);
-        // First call ($0 spent) should work even if it would leave < $2 reserve
-        assert!(t.can_spend(9.0), "First call should be allowed even if large");
+        // $9 spend would leave $1 remaining — below $2 reserve
+        assert!(!t.can_spend(9.0), "Should block when result breaches reserve, even first call");
+        // $7.50 would leave $2.50 — above reserve
+        assert!(t.can_spend(7.50), "Should allow when result stays above reserve");
     }
 
     #[test]

@@ -304,22 +304,50 @@ pub fn format_symptoms(
 
 /// Extract a DiagnosisResult JSON from model response text.
 /// Models are prompted to output JSON but may wrap it in markdown or explanation.
+/// T6 fix: Uses bracket-counting parser instead of naive first-'{'/last-'}' to handle
+/// nested JSON and braces in surrounding text correctly.
 fn extract_diagnosis(text: &str) -> Option<DiagnosisResult> {
     // Try direct parse first
     if let Ok(d) = serde_json::from_str::<DiagnosisResult>(text) {
         return Some(d);
     }
 
-    // Try to find JSON block in the text (models often wrap in ```json ... ```)
-    let json_start = text.find('{');
-    let json_end = text.rfind('}');
+    // Try to find the first valid JSON object by bracket counting
+    // Handles: preamble text, ```json fences, nested objects, trailing commentary
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            let start = i;
+            let mut depth: i32 = 0;
+            let mut in_string = false;
+            let mut escape_next = false;
 
-    if let (Some(start), Some(end)) = (json_start, json_end) {
-        if end > start {
-            let json_str = &text[start..=end];
-            if let Ok(d) = serde_json::from_str::<DiagnosisResult>(json_str) {
-                return Some(d);
+            for j in start..bytes.len() {
+                if escape_next {
+                    escape_next = false;
+                    continue;
+                }
+                match bytes[j] {
+                    b'\\' if in_string => escape_next = true,
+                    b'"' => in_string = !in_string,
+                    b'{' if !in_string => depth += 1,
+                    b'}' if !in_string => {
+                        depth -= 1;
+                        if depth == 0 {
+                            let candidate = &text[start..=j];
+                            if let Ok(d) = serde_json::from_str::<DiagnosisResult>(candidate) {
+                                return Some(d);
+                            }
+                            break; // This { didn't produce valid JSON, try next {
+                        }
+                    }
+                    _ => {}
+                }
             }
+            i = start + 1; // Move past this { and try next one
+        } else {
+            i += 1;
         }
     }
 

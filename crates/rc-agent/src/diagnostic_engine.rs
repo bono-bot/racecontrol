@@ -93,6 +93,8 @@ pub fn spawn(
         tokio::time::sleep(Duration::from_secs(STARTUP_GRACE_SECS)).await;
 
         let mut interval = tokio::time::interval(Duration::from_secs(SCAN_INTERVAL_SECS));
+        // Sonnet audit fix: Skip missed ticks instead of burst-firing after a delay
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut ws_disconnect_since: Option<Instant> = None;
         let mut last_violation_count: u64 = 0;
         let mut first_scan_done = false;
@@ -176,8 +178,14 @@ pub fn spawn(
             // Send all events to tier engine — non-blocking, drop if channel full
             for event in events {
                 tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "Emitting diagnostic event");
-                if event_tx.try_send(event).is_err() {
-                    tracing::warn!(target: LOG_TARGET, "DiagnosticEvent channel full — tier engine may be overwhelmed");
+                match event_tx.try_send(event) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        tracing::warn!(target: LOG_TARGET, "DiagnosticEvent channel FULL — tier engine overwhelmed, event DROPPED");
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        tracing::error!(target: LOG_TARGET, "DiagnosticEvent channel CLOSED — tier engine may have crashed");
+                    }
                 }
             }
         }

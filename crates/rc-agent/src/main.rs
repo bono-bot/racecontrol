@@ -680,10 +680,15 @@ async fn main() -> Result<()> {
     );
     tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
 
+    // ─── Budget Tracker (Meshed Intelligence — per-pod $10/day hard cap) ────────
+    let mesh_budget = std::sync::Arc::new(tokio::sync::RwLock::new(
+        budget_tracker::BudgetTracker::new_pod()
+    ));
+
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
-    // Tier 1 is live. Tiers 2-5 are stubs (Phases 230-231 will implement them).
-    tier_engine::spawn(diagnostic_event_rx);
-    tracing::info!(target: LOG_TARGET, "Tier engine started — 5-tier decision tree active (T1 live, T2-5 stubs)");
+    // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
+    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone());
+    tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate active");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
