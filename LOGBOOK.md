@@ -926,3 +926,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 11:14 IST | James | af011e0b | feat(v26.0): pipeline API + admin page — dashboard sync WARN resolved |
 | 2026-03-26 18:30 IST | James | cf6178c8 | feat(audit): phase 67 — meta-monitor liveness (process+task+recency). Fixed: rc-watchdog restarted, schtasks registered, standing rule added |
 | 2026-03-27 13:25 IST | James | 7b0c6bac | Multi-Model AI Audit Protocol v1.0 + multi-model-audit.js + cross-model-analysis.js + gemini-audit.js |
+| 2026-03-27 13:50 IST | James | 8a7b3a08 | Fix audit protocol Section 11: Bono uses Perplexity MCP not OpenRouter |

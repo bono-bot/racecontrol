@@ -164,6 +164,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: SSH requires Tailscale up and leaves no audit trail; relay is always-on and returns structured results._
 - **Standing Rules Sync:** After modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
   _Why: Rules drift between AIs causes inconsistent behavior and contradictory decisions in multi-agent tasks._
+- **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools), NOT OpenRouter API / direct HTTP. Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
+  _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono uses Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality._
 
 ### Code Quality
 
