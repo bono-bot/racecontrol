@@ -187,10 +187,12 @@ pub struct AcLaunchParams {
     // Race gets remaining time from the billing pool
 
     // --- AI generation from kiosk (kiosk sends count, agent picks cars) ---
-    /// Number of AI opponents requested by kiosk. When > 0 and ai_cars is empty,
-    /// agent auto-generates opponents using the trackday car pool + random names.
+    /// Number of AI opponents requested by kiosk.
+    /// - None  = field absent, use session-type default (trackday gets traffic, others solo)
+    /// - Some(0) = explicitly disabled, always solo regardless of session type
+    /// - Some(N) = generate N opponents from trackday car pool
     #[serde(default)]
-    pub ai_count: u32,
+    pub ai_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -719,9 +721,10 @@ fn generate_trackday_ai(count: usize, ai_level: u32) -> Vec<AiCarSlot> {
 /// Compute the effective AI car list for a session, applying defaults and caps.
 /// Priority order:
 ///   1. Explicit ai_cars from launch args (server/advanced clients)
-///   2. ai_count > 0 with empty ai_cars (kiosk sends count, agent picks cars)
-///   3. Track Day default (12 mixed traffic if nothing specified)
-///   4. Empty (solo session)
+///   2. ai_count = Some(N>0) — kiosk sends count, agent picks cars
+///   3. ai_count = Some(0) — explicitly disabled, always solo
+///   4. ai_count = None + Track Day — default mixed traffic (legacy/unspecified)
+///   5. Empty (solo session)
 /// All modes are capped at MAX_AI_SINGLE_PLAYER (19).
 fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
     // Case 1: Explicit ai_cars provided — use them directly
@@ -742,25 +745,36 @@ fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
         }).collect();
     }
 
-    // Case 2: Kiosk sent ai_count > 0 — auto-generate opponents
-    if params.ai_count > 0 {
-        let count = (params.ai_count as usize).min(MAX_AI_SINGLE_PLAYER);
-        tracing::info!(
-            target: LOG_TARGET,
-            "Auto-generating {} AI opponents (ai_count={}, session_type={})",
-            count, params.ai_count, params.session_type
-        );
-        return generate_trackday_ai(count, params.ai_level);
+    match params.ai_count {
+        // Case 2: Kiosk sent ai_count > 0 — auto-generate opponents
+        Some(n) if n > 0 => {
+            let count = (n as usize).min(MAX_AI_SINGLE_PLAYER);
+            tracing::info!(
+                target: LOG_TARGET,
+                "Auto-generating {} AI opponents (ai_count={}, session_type={})",
+                count, n, params.session_type
+            );
+            generate_trackday_ai(count, params.ai_level)
+        }
+        // Case 3: Kiosk explicitly disabled AI — solo regardless of session type
+        Some(_) => {
+            tracing::info!(
+                target: LOG_TARGET,
+                "AI explicitly disabled (ai_count=0, session_type={})",
+                params.session_type
+            );
+            Vec::new()
+        }
+        // Case 4: ai_count not specified — Track Day gets default traffic, others solo
+        None => {
+            if params.session_type == "trackday" {
+                let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
+                generate_trackday_ai(count, params.ai_level)
+            } else {
+                Vec::new()
+            }
+        }
     }
-
-    // Case 3: Track Day with no AI specified — default mixed traffic
-    if params.session_type == "trackday" {
-        let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
-        return generate_trackday_ai(count, params.ai_level);
-    }
-
-    // Case 4: No AI requested — solo session
-    Vec::new()
 }
 
 // --- Composable INI section writers ---
@@ -2827,7 +2841,7 @@ mod tests {
         let params: AcLaunchParams = serde_json::from_str(kiosk_json).unwrap();
 
         assert_eq!(params.ai_level, 75, "ai_level must be parsed from kiosk JSON");
-        assert_eq!(params.ai_count, 5, "ai_count must be parsed from kiosk JSON");
+        assert_eq!(params.ai_count, Some(5), "ai_count must be parsed from kiosk JSON");
         assert_eq!(params.transmission, "auto");
         assert_eq!(params.ffb, "medium");
         assert_eq!(params.aids.as_ref().unwrap().abs, 1);
@@ -2839,6 +2853,52 @@ mod tests {
         let race = sections.get("RACE").expect("Must have RACE");
         assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("6"), "5 AI + 1 player = 6");
         assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "Rookie level");
+    }
+
+    // ─── Multi-model audit fixes (Issue 1: Track Day AI-disable) ─────────
+
+    #[test]
+    fn test_trackday_ai_count_zero_means_solo() {
+        // Issue 1: ai_count=0 on trackday must NOT spawn default traffic
+        let json = r#"{"car":"ks_ferrari_488","track":"vallelunga","session_type":"trackday","ai_count":0,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.ai_count, Some(0), "ai_count=0 must deserialize as Some(0)");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"),
+            "Trackday with ai_count=0 must be solo (1 car), not default traffic");
+        assert!(!sections.contains_key("CAR_1"), "No AI cars when explicitly disabled");
+    }
+
+    #[test]
+    fn test_trackday_no_ai_count_gets_default_traffic() {
+        // ai_count absent (None) on trackday should still get default mixed traffic
+        let json = r#"{"car":"ks_ferrari_488","track":"vallelunga","session_type":"trackday","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.ai_count, None, "Missing ai_count must deserialize as None");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        let cars: u32 = race.get("CARS").unwrap().parse().unwrap();
+        assert!(cars > 1, "Trackday with no ai_count should get default AI traffic, got CARS={}", cars);
+    }
+
+    #[test]
+    fn test_ai_count_capped_at_max() {
+        // ai_count=999 must be capped to MAX_AI_SINGLE_PLAYER (19)
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":999,"ai_level":87,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("20"),
+            "999 AI capped to 19 + 1 player = 20 CARS");
+        assert!(sections.contains_key("CAR_19"), "Must have CAR_19");
+        assert!(!sections.contains_key("CAR_20"), "Must NOT have CAR_20");
     }
 
 }

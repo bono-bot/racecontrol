@@ -455,7 +455,7 @@ pub async fn run(
                             if !state.safe_mode.active {
                                 if let Some(sim) = crate::safe_mode::exe_to_sim_type(&exe_name) {
                                     state.safe_mode.enter(sim);
-                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::SeqCst);
                                     state.safe_mode_cooldown_armed = false;
                                     wmi_triggered = true;
                                 } else {
@@ -464,7 +464,7 @@ pub async fn run(
                                     state.safe_mode.active = true;
                                     state.safe_mode.game = None;
                                     state.safe_mode.cooldown_until = None;
-                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::SeqCst);
                                     state.safe_mode_cooldown_armed = false;
                                     wmi_triggered = true;
                                     tracing::info!(target: LOG_TARGET, "WMI: ENTER safe mode — game={} (no SimType variant)", exe_name);
@@ -481,6 +481,8 @@ pub async fn run(
                             tracing::info!(target: LOG_TARGET, "Safe mode: external protected game exited — starting 30s cooldown");
                             state.safe_mode.start_cooldown();
                             state.safe_mode_cooldown_timer.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
+                            // Bug #14: Arm the cooldown timer so the select! branch polls it
+                            state.safe_mode_cooldown_armed = true;
                         }
                     }
                 }
@@ -1139,7 +1141,7 @@ pub async fn run(
                 } else {
                     state.safe_mode_cooldown_armed = false;
                     state.safe_mode.exit();
-                    state.safe_mode_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                    state.safe_mode_active.store(false, std::sync::atomic::Ordering::SeqCst);
                     tracing::info!(target: LOG_TARGET, "Safe mode cooldown expired — safe mode DEACTIVATED");
                 }
             }
@@ -1221,7 +1223,7 @@ pub async fn run(
                                         formation_lap: false,
                                         weekend_practice_minutes: 0,
                                         weekend_qualify_minutes: 0,
-                                        ai_count: 0,
+                                        ai_count: None,
                                     }),
                                     None => ac_launcher::AcLaunchParams {
                                         car: "ks_ferrari_sf15t".to_string(),
@@ -1246,7 +1248,7 @@ pub async fn run(
                                         formation_lap: false,
                                         weekend_practice_minutes: 0,
                                         weekend_qualify_minutes: 0,
-                                        ai_count: 0,
+                                        ai_count: None,
                                     },
                                 };
                                 state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
