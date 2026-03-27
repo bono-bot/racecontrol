@@ -383,6 +383,28 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                     }
                 }
             }
+
+            // Probe local Next.js services (kiosk, web, admin) — runs every 15s.
+            let svc_checks = vec![
+                ("kiosk", "http://127.0.0.1:3300/kiosk/api/health"),
+                ("web", "http://127.0.0.1:3200/api/health"),
+                ("admin", "http://127.0.0.1:3201/api/health"),
+            ];
+            let mut svc_status = HashMap::new();
+            for (name, url) in svc_checks {
+                let ok = probe_client.get(url).send().await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                if !ok {
+                    tracing::warn!(
+                        target: "fleet-health",
+                        "Service {} is DOWN (checked {}). Staff cannot use this service.",
+                        name, url
+                    );
+                }
+                svc_status.insert(name.to_string(), ok);
+            }
+            *state.services_health.write().await = svc_status;
         }
     });
 }
@@ -509,34 +531,15 @@ pub async fn fleet_health_handler(
         }
     }
 
-    // Probe local Next.js services (kiosk, web, admin) — fast localhost checks.
-    let probe_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .ok();
-    let services = if let Some(client) = probe_client {
-        let checks = vec![
-            ("kiosk", "http://127.0.0.1:3300/kiosk/api/health"),
-            ("web", "http://127.0.0.1:3200/api/health"),
-            ("admin", "http://127.0.0.1:3201/api/health"),
-        ];
-        let mut service_status = serde_json::Map::new();
-        for (name, url) in checks {
-            let ok = client.get(url).send().await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false);
-            if !ok {
-                tracing::warn!(
-                    target: "fleet-health",
-                    "Service {} is DOWN (checked {}). Staff cannot use this service.",
-                    name, url
-                );
-            }
-            service_status.insert(name.to_string(), json!(if ok { "ok" } else { "down" }));
+    // Read cached services health (updated every 15s by probe loop — zero latency).
+    let services = {
+        let svc = state.services_health.read().await;
+        let mut m = serde_json::Map::new();
+        for name in &["kiosk", "web", "admin"] {
+            let status = svc.get(*name).copied().unwrap_or(false);
+            m.insert(name.to_string(), json!(if status { "ok" } else { "down" }));
         }
-        Value::Object(service_status)
-    } else {
-        json!({"kiosk": "unknown", "web": "unknown", "admin": "unknown"})
+        Value::Object(m)
     };
 
     Json(json!({
