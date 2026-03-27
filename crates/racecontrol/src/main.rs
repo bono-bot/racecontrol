@@ -707,12 +707,25 @@ async fn main() -> anyhow::Result<()> {
         .route("/portal", get(|| async {
             axum::response::Html(include_str!("../../../assets/portal.html"))
         }))
+        // Redirects: common wrong URLs → correct destinations
+        // Staff/POS might type these directly — redirect to the right app
+        .route("/admin", get(|| async { axum::response::Redirect::permanent("/portal") }))
+        .route("/admin/", get(|| async { axum::response::Redirect::permanent("/portal") }))
+        .route("/pos", get(|| async { axum::response::Redirect::permanent("/billing") }))
+        .route("/dashboard", get(|| async { axum::response::Redirect::permanent("/billing") }))
+        .route("/staff", get(|| async { axum::response::Redirect::permanent("/kiosk/staff") }))
+        .route("/spectator", get(|| async { axum::response::Redirect::permanent("/kiosk/spectator") }))
+        .route("/control", get(|| async { axum::response::Redirect::permanent("/kiosk/control") }))
+        .route("/fleet", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
+        .route("/cameras", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
+        .route("/book", get(|| async { axum::response::Redirect::permanent("/kiosk/book") }))
         // Health check at root
         .route("/", get(|| async {
             axum::Json(serde_json::json!({
                 "name": "RaceControl",
                 "status": "running",
                 "version": env!("CARGO_PKG_VERSION"),
+                "portal": "/portal",
             }))
         }))
         // Static file serving for cafe item images
