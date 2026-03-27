@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { execSync } = require('child_process');
 
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 const MODEL = process.env.MODEL;
@@ -213,11 +214,100 @@ For each finding, report:
 Be thorough. Flag EVERYTHING suspicious. Better to over-report than miss a real issue.
 Pay special attention to things that are MISSING, not just things that are wrong.`;
 
+// ─── Pre-scan freshness check ────────────────────────────────────────────────
+// Security note: all execSync calls use hardcoded git commands with no user input.
+// This is a CLI audit tool, not production code exposed to external input.
+function checkCodebaseFreshness() {
+  try {
+    const gitOpts = { cwd: REPO_ROOT, encoding: 'utf-8' };
+    const headHash = execSync('git rev-parse --short HEAD', gitOpts).trim();
+    const headMsg = execSync('git log -1 --format=%s', gitOpts).trim();
+    const headTime = execSync('git log -1 --format=%ci', gitOpts).trim();
+
+    // Check for uncommitted changes in audited directories
+    const auditDirs = 'crates/ scripts/ audit/lib/ audit/phases/ web/ kiosk/ admin/';
+    const dirtyFiles = execSync(`git diff --name-only HEAD -- ${auditDirs}`, gitOpts).trim();
+    const stagedFiles = execSync(`git diff --cached --name-only -- ${auditDirs}`, gitOpts).trim();
+    const hasUncommitted = dirtyFiles.length > 0 || stagedFiles.length > 0;
+
+    // Check if prior round results exist for today (multi-round session)
+    const resultsDir = path.join(REPO_ROOT, 'audit', 'results');
+    const todayResults = fs.existsSync(resultsDir)
+      ? fs.readdirSync(resultsDir).filter(d => d.endsWith(`-audit-${dateStr}`) && d !== `${config.short}-audit-${dateStr}`)
+      : [];
+
+    console.log('--- Pre-Scan Freshness Check --------------------------------');
+    console.log(`  HEAD: ${headHash} -- "${headMsg}"`);
+    console.log(`  Time: ${headTime}`);
+
+    if (hasUncommitted) {
+      const dirtyList = dirtyFiles ? dirtyFiles.split('\n') : [];
+      const stagedList = stagedFiles ? stagedFiles.split('\n') : [];
+      const dirtyCount = dirtyList.length + stagedList.length;
+      console.log(`  WARNING: ${dirtyCount} uncommitted changes in audited directories`);
+      if (dirtyFiles) console.log(`    Modified: ${dirtyList.slice(0, 5).join(', ')}${dirtyList.length > 5 ? '...' : ''}`);
+      if (stagedFiles) console.log(`    Staged: ${stagedList.slice(0, 5).join(', ')}${stagedList.length > 5 ? '...' : ''}`);
+      console.log('  -> Models will audit WORKING TREE (includes uncommitted fixes)');
+    } else {
+      console.log('  OK: Working tree clean -- models will audit commit ' + headHash);
+    }
+
+    if (todayResults.length > 0) {
+      // Check if fix commits landed since the earliest round today
+      const earliestResult = todayResults.sort()[0];
+      const resultDir = path.join(resultsDir, earliestResult);
+      const resultTime = fs.statSync(resultDir).mtime;
+
+      const commitsSinceStr = execSync(
+        `git log --oneline --since="${resultTime.toISOString()}" -- crates/ scripts/ audit/lib/ web/ kiosk/`,
+        gitOpts
+      ).trim();
+      const commitsSince = commitsSinceStr ? commitsSinceStr.split('\n').length : 0;
+
+      console.log(`  Prior rounds today: ${todayResults.length} (${todayResults.join(', ')})`);
+      if (commitsSince > 0) {
+        console.log(`  OK: ${commitsSince} fix commit(s) since first round -- codebase hardened`);
+      } else {
+        console.log('  WARNING: No fix commits since prior round(s)');
+        console.log('    -> This round may re-discover already-found issues');
+        console.log('    -> Recommended: fix prior round findings, commit, then re-run');
+
+        if (!process.env.AUDIT_ALLOW_STALE) {
+          console.log('\n  BLOCKED: Set AUDIT_ALLOW_STALE=1 to override this check');
+          console.log('-------------------------------------------------------------\n');
+          process.exit(2);
+        }
+        console.log('  -> AUDIT_ALLOW_STALE=1 set -- proceeding anyway');
+      }
+    }
+
+    console.log('-------------------------------------------------------------\n');
+
+    // Write freshness metadata for traceability
+    fs.writeFileSync(path.join(OUTPUT_DIR, '_freshness.json'), JSON.stringify({
+      head_hash: headHash,
+      head_message: headMsg,
+      head_time: headTime,
+      has_uncommitted_changes: hasUncommitted,
+      dirty_files: dirtyFiles ? dirtyFiles.split('\n') : [],
+      prior_rounds_today: todayResults,
+      scan_time: new Date().toISOString()
+    }, null, 2));
+
+    return headHash;
+  } catch (e) {
+    console.log('  Freshness check skipped (not a git repo or git unavailable)');
+    return 'unknown';
+  }
+}
+
 // ─── Audit batches ───────────────────────────────────────────────────────────
 async function runAudit() {
   console.log(`=== Racing Point Full Audit via ${config.short} (${MODEL}) ===`);
   console.log(`Context: ${(config.ctx / 1024).toFixed(0)}K | Pricing: $${config.priceIn}/$${config.priceOut} per 1M`);
   console.log(`Output: ${OUTPUT_DIR}\n`);
+
+  const auditedCommit = checkCodebaseFreshness();
 
   let rawBatches = [];
   let totalInputTokens = 0;
@@ -440,6 +530,7 @@ ${bundleFiles([...kioskSrc, ...webSrc, ...adminSrc])}`
   let combined = `# Racing Point Full System Audit — ${modelName}\n\n`;
   combined += `**Date:** ${new Date().toISOString()}\n`;
   combined += `**Model:** ${MODEL} (via OpenRouter)\n`;
+  combined += `**Audited Commit:** ${auditedCommit}\n`;
   combined += `**Total Tokens:** ${totalInputTokens.toLocaleString()} input / ${totalOutputTokens.toLocaleString()} output\n`;
   combined += `**Total Cost:** $${totalCost.toFixed(4)}\n`;
   combined += `**Batches:** ${batches.length}\n\n---\n\n`;

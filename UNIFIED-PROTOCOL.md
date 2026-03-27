@@ -1853,8 +1853,36 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 2. Run 4 models in parallel: `MODEL="..." node scripts/multi-model-audit.js &`
 3. Run cross-model analysis: `node scripts/cross-model-analysis.js`
 4. Opus reviews new findings, filters against already-fixed list
-5. Fix all actionable bugs, compile, commit, push
-6. Next round uses the updated codebase (fixes from prior round included)
+5. Fix all actionable bugs, compile, **commit, push**
+6. **Next round MUST start AFTER fixes are committed** — the script enforces this
+
+**Pre-Scan Freshness Gate (enforced by multi-model-audit.js):**
+The audit script includes an automatic freshness check that runs before scanning code:
+- Reports the exact `HEAD` commit being audited (also embedded in the output report)
+- Detects uncommitted changes in audited directories and warns
+- If prior round results exist for today AND no fix commits have landed since, **BLOCKS with exit code 2**
+- Override with `AUDIT_ALLOW_STALE=1` (e.g., for first round or intentional re-scan)
+- Writes `_freshness.json` to the output directory for traceability
+
+This prevents the "duplicate findings" problem where models re-discover bugs that were already fixed in a prior round but not yet committed. Without this gate, token budget is wasted on stale findings.
+
+```bash
+# First round — no prior results, passes automatically
+MODEL="qwen/qwen3-235b-a22b-2507" node scripts/multi-model-audit.js
+
+# Fix findings, then commit
+git add -A && git commit -m "fix: Round 1 audit fixes"
+
+# Second round — sees fix commits since Round 1, passes
+MODEL="x-ai/grok-code-fast-1" node scripts/multi-model-audit.js
+
+# BAD: Launching Round 3 without committing Round 2 fixes → BLOCKED
+MODEL="moonshotai/kimi-k2.5" node scripts/multi-model-audit.js
+# Exit code 2: "No fix commits since prior round(s)"
+
+# Override if intentional (e.g., running multiple models in same round)
+AUDIT_ALLOW_STALE=1 MODEL="moonshotai/kimi-k2.5" node scripts/multi-model-audit.js
+```
 
 **Cost efficiency:** $9 total for 112 bugs = **$0.08/bug**. Best single-round value: R5 at $2.50 for 31 bugs ($0.08/bug, 14 P1s including 6 hardcoded secrets).
 
