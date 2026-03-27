@@ -121,14 +121,14 @@ async fn run_tiers(event: &DiagnosticEvent) -> TierResult {
         return t2;
     }
 
-    // Tier 3: Single model (stub — Phase 231)
-    let t3 = tier3_single_model(event);
+    // Tier 3: Single model (Qwen3 ~$0.05)
+    let t3 = tier3_single_model(event).await;
     if matches!(t3, TierResult::Fixed { .. }) {
         return t3;
     }
 
-    // Tier 4: 4-model parallel (stub — Phase 231)
-    let t4 = tier4_multi_model(event);
+    // Tier 4: 4-model parallel (~$3)
+    let t4 = tier4_multi_model(event).await;
     if matches!(t4, TierResult::Fixed { .. }) {
         return t4;
     }
@@ -284,26 +284,170 @@ fn tier2_kb_lookup(event: &DiagnosticEvent) -> TierResult {
 
 // ─── Tier 3: Single Model (DIAG-04) — Stub ──────────────────────────────────
 
-fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
-    tracing::debug!(
-        target: LOG_TARGET,
-        tier = 3u8,
-        trigger = ?event.trigger,
-        "Tier 3 stub: Qwen3 single-model diagnosis not yet implemented (Phase 231)"
+async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
+    use crate::openrouter;
+    use crate::knowledge_base;
+
+    let api_key = match openrouter::get_api_key() {
+        Some(k) => k,
+        None => {
+            tracing::debug!(target: LOG_TARGET, tier = 3u8, "OPENROUTER_KEY not set — skipping Tier 3");
+            return TierResult::NotApplicable { tier: 3 };
+        }
+    };
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+    let env_fp = knowledge_base::fingerprint_env(event.build_id);
+    let symptoms = openrouter::format_symptoms(
+        &format!("{:?}", event.trigger),
+        &problem_key,
+        &serde_json::to_string(&env_fp).unwrap_or_default(),
+        &format!("build_id={}", event.build_id),
     );
-    TierResult::Stub { tier: 3, note: "Qwen3 single-model not yet implemented — Phase 231" }
+
+    let client = reqwest::Client::new();
+    let response = openrouter::tier3_diagnose(&client, &api_key, &symptoms).await;
+
+    if let Some(ref diag) = response.diagnosis {
+        if diag.confidence >= 0.7 && diag.risk_level == "safe" {
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = 3u8,
+                model = %response.model_id,
+                root_cause = %diag.root_cause,
+                confidence = diag.confidence,
+                fix_action = %diag.fix_action,
+                cost = response.cost_estimate,
+                "Tier 3: Qwen3 diagnosis — high confidence safe fix"
+            );
+            // Store the solution in local KB for future Tier 2 hits
+            if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
+                let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+                let solution = knowledge_base::Solution {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    problem_key: problem_key.clone(),
+                    problem_hash,
+                    symptoms: symptoms.clone(),
+                    environment: serde_json::to_string(&env_fp).unwrap_or_default(),
+                    root_cause: diag.root_cause.clone(),
+                    fix_action: diag.fix_action.clone(),
+                    fix_type: "model_diagnosed".to_string(),
+                    success_count: 1,
+                    fail_count: 0,
+                    confidence: diag.confidence,
+                    cost_to_diagnose: response.cost_estimate,
+                    models_used: Some(format!("[\"{}\" ]", response.model_id)),
+                    source_node: format!("pod_{}", event.build_id),
+                    created_at: event.timestamp.clone(),
+                    updated_at: event.timestamp.clone(),
+                    version: 1,
+                    ttl_days: 90,
+                    tags: Some(format!("[\"{}\"]", problem_key)),
+                };
+                let _ = kb.store_solution(&solution);
+            }
+            return TierResult::Fixed {
+                tier: 3,
+                action: format!("Qwen3 (${:.2}): {}", response.cost_estimate, diag.root_cause),
+            };
+        }
+    }
+
+    if let Some(ref err) = response.error {
+        tracing::warn!(target: LOG_TARGET, tier = 3u8, error = %err, "Tier 3: Qwen3 call failed");
+    } else {
+        tracing::debug!(target: LOG_TARGET, tier = 3u8, "Tier 3: Qwen3 diagnosis inconclusive — escalating to Tier 4");
+    }
+    TierResult::NotApplicable { tier: 3 }
 }
 
 // ─── Tier 4: 4-Model Parallel (DIAG-05) — Stub ──────────────────────────────
 
-fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
-    tracing::debug!(
+async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
+    use crate::openrouter;
+    use crate::knowledge_base;
+
+    let api_key = match openrouter::get_api_key() {
+        Some(k) => k,
+        None => {
+            tracing::debug!(target: LOG_TARGET, tier = 4u8, "OPENROUTER_KEY not set — skipping Tier 4");
+            return TierResult::NotApplicable { tier: 4 };
+        }
+    };
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+    let env_fp = knowledge_base::fingerprint_env(event.build_id);
+    let symptoms = openrouter::format_symptoms(
+        &format!("{:?}", event.trigger),
+        &problem_key,
+        &serde_json::to_string(&env_fp).unwrap_or_default(),
+        &format!("build_id={}", event.build_id),
+    );
+
+    tracing::info!(target: LOG_TARGET, tier = 4u8, "Tier 4: launching 4-model parallel diagnosis (~$3)");
+
+    let client = reqwest::Client::new();
+    let responses = openrouter::tier4_diagnose_parallel(&client, &api_key, &symptoms).await;
+    let total_cost = openrouter::total_cost(&responses);
+
+    tracing::info!(
         target: LOG_TARGET,
         tier = 4u8,
-        trigger = ?event.trigger,
-        "Tier 4 stub: 4-model parallel diagnosis not yet implemented (Phase 231)"
+        models_responded = responses.len(),
+        total_cost = total_cost,
+        "Tier 4: all models responded"
     );
-    TierResult::Stub { tier: 4, note: "4-model parallel not yet implemented — Phase 231" }
+
+    if let Some(consensus) = openrouter::find_consensus(&responses) {
+        if consensus.risk_level == "safe" || consensus.risk_level == "caution" {
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = 4u8,
+                root_cause = %consensus.root_cause,
+                confidence = consensus.confidence,
+                fix_action = %consensus.fix_action,
+                cost = total_cost,
+                "Tier 4: consensus diagnosis found"
+            );
+            // Store in KB
+            if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
+                let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+                let models_used: Vec<String> = responses.iter().map(|r| r.model_id.clone()).collect();
+                let solution = knowledge_base::Solution {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    problem_key: problem_key.clone(),
+                    problem_hash,
+                    symptoms: symptoms.clone(),
+                    environment: serde_json::to_string(&env_fp).unwrap_or_default(),
+                    root_cause: consensus.root_cause.clone(),
+                    fix_action: consensus.fix_action.clone(),
+                    fix_type: "model_diagnosed".to_string(),
+                    success_count: 1,
+                    fail_count: 0,
+                    confidence: consensus.confidence,
+                    cost_to_diagnose: total_cost,
+                    models_used: serde_json::to_string(&models_used).ok(),
+                    source_node: format!("pod_{}", event.build_id),
+                    created_at: event.timestamp.clone(),
+                    updated_at: event.timestamp.clone(),
+                    version: 1,
+                    ttl_days: 90,
+                    tags: Some(format!("[\"{}\"]", problem_key)),
+                };
+                let _ = kb.store_solution(&solution);
+            }
+            return TierResult::Fixed {
+                tier: 4,
+                action: format!("4-model consensus (${:.2}): {}", total_cost, consensus.root_cause),
+            };
+        }
+    }
+
+    tracing::warn!(target: LOG_TARGET, tier = 4u8, cost = total_cost, "Tier 4: no consensus — escalating to Tier 5 (human)");
+    TierResult::FailedToFix {
+        tier: 4,
+        reason: format!("No consensus from 4 models (cost: ${:.2})", total_cost),
+    }
 }
 
 // ─── Tier 5: Human Escalation (DIAG-06) — Stub ──────────────────────────────

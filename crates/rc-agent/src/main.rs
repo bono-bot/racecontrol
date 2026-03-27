@@ -18,6 +18,7 @@ mod game_process;
 mod knowledge_base;
 mod kiosk;
 mod lock_screen;
+mod openrouter;
 mod overlay;
 mod pre_flight;
 mod remote_ops;
