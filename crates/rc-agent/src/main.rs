@@ -27,6 +27,7 @@ mod process_guard;
 mod self_monitor;
 mod sentinel_watcher;
 mod self_test;
+mod tier_engine;
 mod sims;
 mod startup_log;
 mod udp_heartbeat;
@@ -651,7 +652,7 @@ async fn main() -> Result<()> {
     // ─── Diagnostic Engine channel (Plan 229-01) ─────────────────────────────
     // Plan 229-02 will create the tier engine that reads from diagnostic_event_rx.
     // Buffer 32 events — scan is every 5 min, so backpressure means something is wrong.
-    let (diagnostic_event_tx, _diagnostic_event_rx) = mpsc::channel::<diagnostic_engine::DiagnosticEvent>(32);
+    let (diagnostic_event_tx, diagnostic_event_rx) = mpsc::channel::<diagnostic_engine::DiagnosticEvent>(32);
 
     // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────
     failure_monitor::spawn(
@@ -671,6 +672,11 @@ async fn main() -> Result<()> {
         diagnostic_event_tx.clone(),
     );
     tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
+
+    // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
+    // Tier 1 is live. Tiers 2-5 are stubs (Phases 230-231 will implement them).
+    tier_engine::spawn(diagnostic_event_rx);
+    tracing::info!(target: LOG_TARGET, "Tier engine started — 5-tier decision tree active (T1 live, T2-5 stubs)");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
