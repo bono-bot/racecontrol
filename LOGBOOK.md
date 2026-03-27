@@ -927,3 +927,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-26 18:30 IST | James | cf6178c8 | feat(audit): phase 67 — meta-monitor liveness (process+task+recency). Fixed: rc-watchdog restarted, schtasks registered, standing rule added |
 | 2026-03-27 13:25 IST | James | 7b0c6bac | Multi-Model AI Audit Protocol v1.0 + multi-model-audit.js + cross-model-analysis.js + gemini-audit.js |
 | 2026-03-27 13:50 IST | James | 8a7b3a08 | Fix audit protocol Section 11: Bono uses Perplexity MCP not OpenRouter |
+| 2026-03-27 16:30 IST | James | 4768815c | fix(api): /customer/packages 500 — hour_restriction→hour_start+hour_end, defensive migration, PWA type fix |
