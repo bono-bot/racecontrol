@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { KioskExperience, KioskSettings } from "@/lib/types";
 import { DeployPanel } from "@/components/DeployPanel";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const [staffName, setStaffName] = useState<string | null>(null);
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [settings, setSettings] = useState<KioskSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,9 +18,20 @@ export default function SettingsPage() {
   const [newProcessName, setNewProcessName] = useState("");
   const { deployStates, sendDeployRolling } = useKioskSocket();
 
+  // Auth gate — same pattern as /control page (C47 audit fix)
   useEffect(() => {
+    const name = sessionStorage.getItem("kiosk_staff_name");
+    if (!name) {
+      router.replace("/staff");
+      return;
+    }
+    setStaffName(name);
+  }, [router]);
+
+  useEffect(() => {
+    if (!staffName) return;
     loadData();
-  }, []);
+  }, [staffName]);
 
   async function loadData() {
     try {

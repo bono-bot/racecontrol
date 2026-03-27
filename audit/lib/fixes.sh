@@ -143,6 +143,11 @@ export -f _pod_mac_address
 # ---------------------------------------------------------------------------
 wol_pod() {
   local pod_ip="$1"
+  # C43 audit fix: validate pod_ip is a valid IPv4 address to prevent command injection
+  if ! printf '%s' "$pod_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+    emit_fix "wol" "$pod_ip" "wol_pod" "invalid_ip" "blocked_invalid_pod_ip"
+    return 1
+  fi
   if ! _is_approved_fix "wol_pod"; then return 1; fi
 
   # Guard: WOL_ENABLED must be explicitly "true" — default false until manual test

@@ -329,8 +329,9 @@ fn main() {
                     let _ = recovery_logger.log(&decision);
 
                     // Record successful fix in pattern memory
+                    // C15 audit fix: only record if spawn was VERIFIED — bad fixes pollute memory
                     #[cfg(all(feature = "ai-diagnosis", feature = "tier1-fixes"))]
-                    if result.restarted {
+                    if result.restarted && result.spawn_verified {
                         let fix_summary: String = result.fix_results.iter()
                             .filter(|r| r.success)
                             .map(|r| r.fix_type.as_str())
@@ -500,6 +501,27 @@ fn handle_exec(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std:
 
     if cmd.is_empty() {
         return send_response(stream, 400, r#"{"error":"missing cmd"}"#);
+    }
+
+    // C40 audit fix: Block dangerous shell metacharacters that enable command injection.
+    // Legitimate deploy/admin commands don't need these patterns.
+    // The exec endpoint is intentionally open on LAN for fleet management,
+    // but we guard against injection payloads that chain destructive commands.
+    const BLOCKED_PATTERNS: &[&str] = &[
+        "&&", "||", // command chaining
+        "| ", "|\"", // pipe to shell/command
+        "`",  // backtick execution
+        "$(", // subshell execution
+        ">\\\\", // UNC path redirection (exfiltration)
+        "certutil -urlcache", // download & execute
+        "bitsadmin", // download & execute
+    ];
+    let cmd_lower = cmd.to_lowercase();
+    for pattern in BLOCKED_PATTERNS {
+        if cmd_lower.contains(&pattern.to_lowercase()) {
+            tracing::warn!(cmd = cmd, blocked_pattern = pattern, "exec BLOCKED: dangerous pattern");
+            return send_response(stream, 403, r#"{"error":"command contains blocked pattern"}"#);
+        }
     }
 
     tracing::info!(cmd = cmd, timeout_ms = timeout_ms, "exec request");

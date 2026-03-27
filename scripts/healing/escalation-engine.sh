@@ -369,6 +369,9 @@ export -f _verify_schema_gap
 escalate_pod() {
   local pod_ip="$1" issue_type="$2" severity="${3:-P1}"
 
+  # C52 audit fix: clear stale fleet health cache to ensure billing gate uses fresh data
+  _FLEET_HEALTH_CACHE=""
+
   # Concurrent escalation guard: flock per pod to prevent overlapping escalations
   local lock_dir="/tmp/escalation-locks"
   mkdir -p "$lock_dir" 2>/dev/null || true

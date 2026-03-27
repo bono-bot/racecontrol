@@ -110,6 +110,10 @@ export -f safe_remote_exec
 # ---------------------------------------------------------------------------
 safe_ssh_capture() {
   local host=$1 cmd=$2 timeout=${3:-${DEFAULT_TIMEOUT:-10}}
+  # C46 audit fix: validate host looks like user@ip or bare ip — prevent injection via host
+  if printf '%s' "$host" | grep -qE '[;&|`$]'; then
+    echo ""; return 1
+  fi
   local raw
   raw=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout="$timeout" -o BatchMode=yes \
     "$host" "$cmd" 2>/dev/null)
