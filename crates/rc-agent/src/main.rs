@@ -22,6 +22,7 @@ mod lock_screen;
 mod mesh_gossip;
 mod openrouter;
 mod overlay;
+mod predictive_maintenance;
 mod pre_flight;
 mod remote_ops;
 mod safe_mode;
