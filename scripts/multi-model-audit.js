@@ -36,6 +36,11 @@ const MODEL_CONFIG = {
   'x-ai/grok-4.1-fast':                  { short: 'grok-4.1', ctx: 2000000, priceIn: 0.20, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
   'meta-llama/llama-4-maverick':         { short: 'llama4-mav', ctx: 1048576, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
   'mistralai/mistral-small-2603':        { short: 'mistral-sm4', ctx: 262144, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
+  // Round 3 models — code-specialized (2026-03-27)
+  'openai/gpt-5.1-codex-mini':           { short: 'codex-mini', ctx: 400000, priceIn: 0.25, priceOut: 2.00, timeout: 300000, maxOut: 16000 },
+  'x-ai/grok-code-fast-1':               { short: 'grok-code', ctx: 256000, priceIn: 0.20, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
+  'qwen/qwen3-coder':                    { short: 'qwen3-coder', ctx: 262144, priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
+  'bytedance-seed/seed-2.0-mini':        { short: 'seed2-mini', ctx: 262144, priceIn: 0.10, priceOut: 0.40, timeout: 180000, maxOut: 16000 },
 };
 
 const config = MODEL_CONFIG[MODEL];
