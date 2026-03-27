@@ -13,6 +13,7 @@ use crate::app_state::AppState;
 use crate::ffb_controller;
 use crate::game_process;
 use crate::kiosk;
+use crate::diagnostic_engine;
 use crate::pre_flight;
 use crate::self_monitor;
 use crate::self_test;
@@ -179,6 +180,21 @@ pub async fn handle_ws_message(
                                 target: LOG_TARGET,
                                 "Pre-flight FAILED — alert suppressed (cooldown active, {}s since last)",
                                 state.last_preflight_alert.map(|t| t.elapsed().as_secs()).unwrap_or(0)
+                            );
+                        }
+
+                        // ── MESH-INTEGRATION: Emit DiagnosticEvent for each failed check ──
+                        // This bridges pre-flight failures into the Meshed Intelligence tier engine,
+                        // enabling autonomous healing via Tier 1 deterministic fixes or AI diagnosis.
+                        let pod_state = state.failure_monitor_tx.borrow().clone();
+                        for failure in &failures {
+                            diagnostic_engine::emit_external_event(
+                                &state.diagnostic_event_tx,
+                                diagnostic_engine::DiagnosticTrigger::PreFlightFailed {
+                                    check_name: failure.name.to_string(),
+                                    detail: failure.detail.clone(),
+                                },
+                                &pod_state,
                             );
                         }
 

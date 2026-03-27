@@ -330,9 +330,10 @@ async fn main() -> Result<()> {
         .expect("failed to build rolling file appender");
     let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
 
-    // Match both module path (rc_agent::*) and explicit target: "rc-agent" (LOG_TARGET)
+    // Match module path (rc_agent::*), explicit target "rc-agent" (LOG_TARGET),
+    // and all Meshed Intelligence module targets (diagnostic-engine, tier-engine, etc.)
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rc_agent=info,rc-agent=info".into());
+        .unwrap_or_else(|_| "rc_agent=info,rc-agent=info,diagnostic-engine=info,tier-engine=info,self-monitor=info,state=info,mesh-gossip=info,budget-tracker=info,knowledge-base=info,guard=info".into());
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -674,14 +675,16 @@ async fn main() -> Result<()> {
     }
     tracing::info!(target: LOG_TARGET, "UDP heartbeat started → {}:{}", core_ip, rc_common::udp_protocol::HEARTBEAT_PORT);
 
-    // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
-    self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone());
-    tracing::info!(target: LOG_TARGET, "Self-monitor started (check interval: 5min)");
-
     // ─── Diagnostic Engine channel (Plan 229-01) ─────────────────────────────
     // Plan 229-02 will create the tier engine that reads from diagnostic_event_rx.
     // Buffer 32 events — scan is every 5 min, so backpressure means something is wrong.
     let (diagnostic_event_tx, diagnostic_event_rx) = mpsc::channel::<diagnostic_engine::DiagnosticEvent>(32);
+
+    // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
+    // Passes diagnostic_event_tx so WS disconnect events are bridged into
+    // the Meshed Intelligence 5-tier pipeline before relaunch.
+    self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone(), Some(diagnostic_event_tx.clone()), Some(failure_monitor_tx.subscribe()));
+    tracing::info!(target: LOG_TARGET, "Self-monitor started (check interval: 5min)");
 
     // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────
     failure_monitor::spawn(
@@ -971,6 +974,7 @@ async fn main() -> Result<()> {
         safe_mode_cooldown_timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(86400))),
         safe_mode_cooldown_armed: false,
         last_preflight_alert: None,
+        diagnostic_event_tx: diagnostic_event_tx.clone(),
         flags: flags_arc,  // v22.0 Phase 178: shared with billing_guard (loaded from cache above)
         guard_whitelist,
         guard_violation_tx,

@@ -21,6 +21,8 @@ use serde::Deserialize;
 use crate::ai_debugger::AiDebuggerConfig;
 #[cfg(not(feature = "ai-debugger"))]
 use crate::config::AiDebuggerConfig;
+use crate::diagnostic_engine::{DiagnosticEvent, DiagnosticTrigger};
+use crate::failure_monitor::FailureMonitorState;
 use crate::udp_heartbeat::HeartbeatStatus;
 
 const LOG_TARGET: &str = "self-monitor";
@@ -32,7 +34,15 @@ const EVENT_LOG: &str = r"C:\RacingPoint\rc-bot-events.log";
 const MAX_LOG_BYTES: u64 = 512 * 1024;    // rotate at 512KB
 
 /// Spawn the self-monitor background task.
-pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
+/// Accepts an optional diagnostic event sender to bridge WS disconnect events
+/// into the Meshed Intelligence 5-tier pipeline before relaunching.
+/// Also accepts a failure_monitor watch receiver for real pod state snapshots.
+pub fn spawn(
+    config: AiDebuggerConfig,
+    status: Arc<HeartbeatStatus>,
+    diagnostic_tx: Option<tokio::sync::mpsc::Sender<DiagnosticEvent>>,
+    failure_state_rx: Option<tokio::sync::watch::Receiver<FailureMonitorState>>,
+) {
     tokio::spawn(async move {
         // OBS-05: Lifecycle event — task started
         tracing::info!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: started");
@@ -118,7 +128,26 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
                     );
                 } else {
                     tracing::warn!(target: LOG_TARGET, "WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
-                    log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s) — no AI needed", ws_dead_secs, WS_DEAD_SECS));
+                    // Bridge into Meshed Intelligence: emit WsDisconnect event before relaunch
+                    // so the tier engine can learn from this pattern and the KB can cache solutions.
+                    // AUDIT NOTES (4-model consensus):
+                    // - try_send is best-effort — process may exit before tier engine drains the channel.
+                    //   Acceptable: primary value is KB learning, not blocking remediation.
+                    // - diagnostic_engine also emits WsDisconnect at 30s; tier_engine's 300s dedup window
+                    //   will usually collapse this 300s event. This bridge acts as a safety net for the
+                    //   rare case where diagnostic_engine's detection fails (e.g., task panicked).
+                    if let Some(ref tx) = diagnostic_tx {
+                        let pod_state = failure_state_rx.as_ref()
+                            .map(|rx| rx.borrow().clone())
+                            .unwrap_or_default();
+                        let event = make_diagnostic_event(
+                            DiagnosticTrigger::WsDisconnect { disconnected_secs: ws_dead_secs },
+                            pod_state,
+                        );
+                        let _ = tx.try_send(event);
+                        tracing::info!(target: LOG_TARGET, "Emitted WsDisconnect event to diagnostic pipeline before relaunch");
+                    }
+                    log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s)", ws_dead_secs, WS_DEAD_SECS));
                     relaunch_self();
                     continue;
                 }
@@ -375,6 +404,21 @@ pub fn relaunch_self() {
             let _ = std::fs::remove_file(GRACEFUL_RELAUNCH_SENTINEL);
             tracing::error!(target: LOG_TARGET, "Failed to spawn PowerShell relaunch: {}", e);
         }
+    }
+}
+
+/// Build a DiagnosticEvent for bridging self_monitor detections into the Meshed Intelligence pipeline.
+/// Uses a real pod state snapshot (from failure_monitor watch channel) for accurate tier engine context.
+fn make_diagnostic_event(trigger: DiagnosticTrigger, pod_state: FailureMonitorState) -> DiagnosticEvent {
+    use chrono::{FixedOffset, Utc};
+    let ist_offset = FixedOffset::east_opt(5 * 3600 + 30 * 60)
+        .unwrap_or_else(|| FixedOffset::east_opt(0).expect("UTC offset 0 is always valid"));
+    let now_ist = Utc::now().with_timezone(&ist_offset);
+    DiagnosticEvent {
+        trigger,
+        pod_state,
+        timestamp: now_ist.format("%Y-%m-%dT%H:%M:%S%:z").to_string(),
+        build_id: crate::BUILD_ID,
     }
 }
 

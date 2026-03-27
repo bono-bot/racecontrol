@@ -57,6 +57,13 @@ pub enum DiagnosticTrigger {
     SentinelUnexpected { file_name: String },
     /// Process guard violation count spiked (delta >50 in 5 min)
     ViolationSpike { delta: u64 },
+    /// Pre-flight check failed — emitted by ws_handler on BillingStarted failure.
+    /// The check_name identifies which of the 11 checks failed (e.g. "hid", "conspit_link").
+    /// Multiple PreFlightFailed events may be emitted per pre-flight run (one per failed check).
+    PreFlightFailed {
+        check_name: String,
+        detail: String,
+    },
 }
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.
@@ -70,6 +77,29 @@ pub struct DiagnosticEvent {
     pub timestamp: String,
     /// Current rc-agent build ID (from compile-time GIT_HASH)
     pub build_id: &'static str,
+}
+
+/// Emit a diagnostic event from an external source (e.g. pre-flight checks).
+///
+/// Non-blocking: drops the event if the channel is full (tier engine overwhelmed).
+/// Returns true if the event was sent, false if dropped.
+pub fn emit_external_event(
+    event_tx: &mpsc::Sender<DiagnosticEvent>,
+    trigger: DiagnosticTrigger,
+    pod_state: &FailureMonitorState,
+) -> bool {
+    let event = make_event(trigger, pod_state);
+    match event_tx.try_send(event) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!(target: LOG_TARGET, "External DiagnosticEvent dropped — tier engine channel full");
+            false
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            tracing::error!(target: LOG_TARGET, "External DiagnosticEvent dropped — tier engine channel closed");
+            false
+        }
+    }
 }
 
 /// Spawn the diagnostic engine background task.

@@ -13,6 +13,7 @@ use crate::debug_server;
 use crate::failure_monitor;
 use crate::game_process;
 use crate::self_heal::SelfHealResult;
+use crate::diagnostic_engine;
 use crate::udp_heartbeat;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{AcStatus, AiDebugSuggestion, PodInfo, SimType};
@@ -84,6 +85,9 @@ pub struct AppState {
     /// STAFF-04: Tracks when the last PreFlightFailed WS alert was sent.
     /// None = never alerted. Alerts are suppressed within a 60s cooldown window.
     pub(crate) last_preflight_alert: Option<std::time::Instant>,
+    /// Diagnostic event channel sender — pre-flight failures are emitted here
+    /// so the tier engine can attempt autonomous healing via Meshed Intelligence.
+    pub(crate) diagnostic_event_tx: mpsc::Sender<diagnostic_engine::DiagnosticEvent>,
     /// BOOT-04: Operator confirmation that process guard allowlist is correct.
     /// When false, process guard stays in report_only even if configured for kill_and_report.
     /// Set to true via GUARD_CONFIRMED fleet exec command.

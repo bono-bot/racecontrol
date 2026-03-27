@@ -182,36 +182,57 @@ async fn run_supervised(mut event_rx: mpsc::Receiver<DiagnosticEvent>, budget: A
 
 /// Run all 5 tiers in sequence for a single DiagnosticEvent.
 ///
-/// TESTING MODE: Model calls run FIRST (Tier 1/2), deterministic/KB run after (Tier 3/4).
-/// This exercises the OpenRouter pipeline on every diagnostic event.
-/// TODO: Revert to production order (deterministic→KB→model→parallel→human) after testing.
+/// PRODUCTION ORDER: Deterministic → KB → Single Model → 4-Model Parallel → Human
+/// Cheapest/fastest tiers first. Model tiers only for real anomalies.
 async fn run_tiers(
     event: &DiagnosticEvent,
     circuit_breaker: &mut CircuitBreaker,
     budget: &Arc<RwLock<BudgetTracker>>,
 ) -> TierResult {
-    // ── TESTING TIER ORDER: Models first, deterministic second ──
+    // ── Short-circuit: Periodic events with no anomaly don't need model diagnosis ──
+    // The diagnostic_engine always emits Periodic. If that's the ONLY trigger type
+    // (no WsDisconnect, ProcessCrash, etc.), Tier 1 deterministic is sufficient.
+    // This prevents burning ~$0.05/call every 5 min on "everything is fine" responses.
+    let is_periodic_only = matches!(event.trigger, DiagnosticTrigger::Periodic);
 
+    // ── Tier 1: Deterministic fixes (always runs) ──
+    let t1 = tier1_deterministic(event).await;
+    if matches!(t1, TierResult::Fixed { .. }) {
+        return t1;
+    }
+
+    // Periodic-only events: Tier 1 handled cleanup (MAINTENANCE_MODE, orphans, SSH keys).
+    // No need to escalate to model tiers — return early.
+    if is_periodic_only {
+        tracing::debug!(target: LOG_TARGET, "Periodic scan complete — no anomaly, skipping model tiers");
+        return TierResult::NotApplicable { tier: 1 };
+    }
+
+    // ── Tier 2: Knowledge Base lookup ──
+    let t2 = tier2_kb_lookup(event);
+    if matches!(t2, TierResult::Fixed { .. }) {
+        return t2;
+    }
+
+    // ── Tier 3: Single Model (Qwen3) — only for real anomalies ──
     // C1: Check circuit breaker before model calls
     if circuit_breaker.is_open() {
-        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — falling through to deterministic tiers");
+        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping model tiers");
     } else {
-        // Tier 1 (testing): Single model call — was Tier 3 in production
         // C3: Budget pre-check
         {
             let mut bt = budget.write().await;
             if !bt.can_spend(TIER3_ESTIMATED_COST) {
-                tracing::info!(target: LOG_TARGET, tier = 1u8, "Budget ceiling — skipping model tiers");
+                tracing::info!(target: LOG_TARGET, tier = 3u8, "Budget ceiling — skipping model tiers");
             } else {
                 drop(bt); // release lock before async call
-                let t1_model = tier3_single_model(event).await;
-                match &t1_model {
+                let t3 = tier3_single_model(event).await;
+                match &t3 {
                     TierResult::Fixed { .. } => {
                         circuit_breaker.record_success();
                         let mut bt = budget.write().await;
                         bt.record_spend(TIER3_ESTIMATED_COST);
-                        tracing::info!(target: LOG_TARGET, "TESTING: Tier 1 (single model) resolved anomaly");
-                        return t1_model;
+                        return t3;
                     }
                     TierResult::FailedToFix { .. } => {
                         circuit_breaker.record_failure();
@@ -219,19 +240,18 @@ async fn run_tiers(
                     _ => {}
                 }
 
-                // Tier 2 (testing): 4-model parallel — was Tier 4 in production
+                // ── Tier 4: 4-Model Parallel — escalate if single model failed ──
                 {
                     let mut bt = budget.write().await;
                     if bt.can_spend(TIER4_ESTIMATED_COST) {
                         drop(bt);
-                        let t2_multi = tier4_multi_model(event).await;
-                        match &t2_multi {
+                        let t4 = tier4_multi_model(event).await;
+                        match &t4 {
                             TierResult::Fixed { .. } => {
                                 circuit_breaker.record_success();
                                 let mut bt = budget.write().await;
                                 bt.record_spend(TIER4_ESTIMATED_COST);
-                                tracing::info!(target: LOG_TARGET, "TESTING: Tier 2 (4-model parallel) resolved anomaly");
-                                return t2_multi;
+                                return t4;
                             }
                             TierResult::FailedToFix { .. } => {
                                 circuit_breaker.record_failure();
@@ -244,19 +264,7 @@ async fn run_tiers(
         }
     }
 
-    // Tier 3 (testing): Deterministic — was Tier 1 in production
-    let t3_det = tier1_deterministic(event).await;
-    if matches!(t3_det, TierResult::Fixed { .. }) {
-        return t3_det;
-    }
-
-    // Tier 4 (testing): KB lookup — was Tier 2 in production
-    let t4_kb = tier2_kb_lookup(event);
-    if matches!(t4_kb, TierResult::Fixed { .. }) {
-        return t4_kb;
-    }
-
-    // Tier 5: Human escalation
+    // ── Tier 5: Human escalation ──
     tier5_human_escalation(event)
 }
 
@@ -312,6 +320,109 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
         }
         DiagnosticTrigger::ProcessCrash { process_name } => {
             tracing::info!(target: LOG_TARGET, action = "crash_detected", process = %process_name, "Tier 1: crash detected");
+        }
+        DiagnosticTrigger::PreFlightFailed { check_name, detail } => {
+            // Tier 1 deterministic fixes for pre-flight failures.
+            // Pre-flight is the SENSOR, tier engine is the EXECUTOR (audit consensus).
+            // Only attempt safe, idempotent fixes — escalate the rest.
+            match check_name.as_str() {
+                "conspit_link" => {
+                    // Idempotent: check if already running before spawning
+                    let conspit_running = {
+                        let mut sys = System::new();
+                        sys.refresh_processes(ProcessesToUpdate::All, false);
+                        sys.processes().values().any(|p| {
+                            p.name().to_string_lossy().eq_ignore_ascii_case("ConspitLink.exe")
+                        })
+                    };
+                    if !conspit_running {
+                        let conspit_path = std::path::Path::new(r"C:\ConspitLink\ConspitLink.exe");
+                        if conspit_path.exists() {
+                            let mut cmd = std::process::Command::new(conspit_path);
+                            #[cfg(windows)]
+                            {
+                                use std::os::windows::process::CommandExt;
+                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                            }
+                            match cmd.spawn() {
+                                Ok(_) => {
+                                    tracing::info!(target: LOG_TARGET, "Tier 1: spawned ConspitLink.exe for pre-flight recovery");
+                                    actions_taken.push("spawned ConspitLink.exe (preflight recovery)".to_string());
+                                }
+                                Err(e) => {
+                                    tracing::warn!(target: LOG_TARGET, error = %e, "Tier 1: failed to spawn ConspitLink.exe");
+                                }
+                            }
+                        } else {
+                            tracing::warn!(target: LOG_TARGET, "Tier 1: ConspitLink.exe not found at expected path");
+                        }
+                    }
+                }
+                "popup_windows" => {
+                    // Kill blocklisted popup processes by name+PID (P1 fix: validate name before kill)
+                    let popup_blocklist: &[&str] = &[
+                        "m365copilot.exe", "nvidia overlay.exe", "amdow.exe",
+                        "amdrssrcext.exe", "amdrsserv.exe", "windowsterminal.exe",
+                        "onedrive.sync.service.exe", "ccbootclient.exe",
+                        "phoneexperiencehost.exe", "widgets.exe", "widgetservice.exe",
+                        "gopro webcam.exe",
+                    ];
+                    let mut sys = System::new();
+                    sys.refresh_processes(ProcessesToUpdate::All, false);
+                    let mut killed_count = 0u32;
+                    for p in sys.processes().values() {
+                        let name = p.name().to_string_lossy().to_lowercase();
+                        if popup_blocklist.iter().any(|&blocked| name == blocked) {
+                            if p.kill() {
+                                killed_count += 1;
+                            }
+                        }
+                    }
+                    if killed_count > 0 {
+                        tracing::info!(target: LOG_TARGET, count = killed_count, "Tier 1: killed popup processes for preflight recovery");
+                        actions_taken.push(format!("killed {} popup processes (preflight recovery)", killed_count));
+                    }
+                }
+                "disk_space" => {
+                    // Cleanup old logs >7 days (same as predictive_maintenance PRED-05)
+                    let log_dir = std::path::Path::new(r"C:\RacingPoint");
+                    if let Ok(entries) = std::fs::read_dir(log_dir) {
+                        let cutoff = std::time::SystemTime::now()
+                            .checked_sub(std::time::Duration::from_secs(7 * 86400))
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        let mut cleaned = 0u32;
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                            if (ext == "log" || ext == "jsonl") && path.is_file() {
+                                if let Ok(meta) = std::fs::metadata(&path) {
+                                    if let Ok(modified) = meta.modified() {
+                                        if modified < cutoff {
+                                            if std::fs::remove_file(&path).is_ok() {
+                                                cleaned += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if cleaned > 0 {
+                            tracing::info!(target: LOG_TARGET, count = cleaned, "Tier 1: cleaned old log files for disk space recovery");
+                            actions_taken.push(format!("cleaned {} old log files (preflight disk recovery)", cleaned));
+                        }
+                    }
+                }
+                _ => {
+                    // hid, billing_stuck, memory, ws_stability, lock_screen_*, browser_alive, orphan_game:
+                    // No safe deterministic fix — let higher tiers handle
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        check = %check_name,
+                        detail = %detail,
+                        "Tier 1: no deterministic fix for pre-flight check — escalating"
+                    );
+                }
+            }
         }
         DiagnosticTrigger::Periodic
         | DiagnosticTrigger::WsDisconnect { .. }

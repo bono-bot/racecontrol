@@ -133,7 +133,12 @@ impl KnowledgeBase {
 
     /// Store a solution in the local KB.
     /// Uses INSERT OR REPLACE — if the same id exists, it is overwritten.
+    /// Rejects "periodic" problem_key — routine health checks don't produce actionable solutions.
     pub fn store_solution(&self, solution: &Solution) -> anyhow::Result<()> {
+        if solution.problem_key == "periodic" {
+            tracing::debug!(target: LOG_TARGET, "Skipping KB store for periodic problem_key — no actionable solution");
+            return Ok(());
+        }
         self.conn.execute(
             "INSERT OR REPLACE INTO solutions (
                 id, problem_key, problem_hash, symptoms, environment,
@@ -365,6 +370,9 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         }
         DiagnosticTrigger::SentinelUnexpected { file_name } => {
             format!("sentinel_unexpected:{}", file_name.to_uppercase())
+        }
+        DiagnosticTrigger::PreFlightFailed { check_name, .. } => {
+            format!("preflight_failed:{}", check_name.to_lowercase())
         }
     }
 }
