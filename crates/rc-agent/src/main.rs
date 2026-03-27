@@ -690,6 +690,48 @@ async fn main() -> Result<()> {
     tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone());
     tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate active");
 
+    // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
+    tokio::spawn(async {
+        tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: started");
+        // Wait for system to stabilize before first scan
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        let mut state = predictive_maintenance::PredictiveState::new();
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let alerts = predictive_maintenance::run_predictive_scan(&mut state);
+            if !alerts.is_empty() {
+                tracing::info!(target: "predictive-maint", count = alerts.len(), "Predictive scan: {} alerts", alerts.len());
+            }
+        }
+    });
+    tracing::info!(target: LOG_TARGET, "Predictive maintenance started (5-min scan)");
+
+    // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────
+    tokio::spawn(async {
+        tracing::info!(target: "state", task = "night_ops", event = "lifecycle", "lifecycle: started");
+        loop {
+            // Sleep until next midnight IST (UTC+5:30)
+            let now = chrono::Utc::now();
+            let ist = chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60)
+                .expect("IST offset");
+            let now_ist = now.with_timezone(&ist);
+            let tomorrow_midnight = (now_ist.date_naive() + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight")
+                .and_local_timezone(ist)
+                .unwrap();
+            let secs_until = (tomorrow_midnight - now_ist).num_seconds().max(1) as u64;
+            tracing::info!(target: "night-ops", secs_until_midnight = secs_until, "Sleeping until midnight IST");
+            tokio::time::sleep(std::time::Duration::from_secs(secs_until)).await;
+
+            let report = night_ops::run_night_cycle().await;
+            tracing::info!(target: "night-ops", issues_found = report.issues_found, resolved = report.issues_auto_resolved, "Night ops cycle complete");
+        }
+    });
+    tracing::info!(target: LOG_TARGET, "Night ops started (midnight IST cycle)");
+
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
     let flags_arc = std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache()));
