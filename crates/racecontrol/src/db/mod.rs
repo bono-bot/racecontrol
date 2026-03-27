@@ -2903,6 +2903,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // v26.0 Meshed Intelligence tables
+    crate::fleet_kb::migrate(pool).await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
