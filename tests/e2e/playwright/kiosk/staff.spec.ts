@@ -91,6 +91,50 @@ test('debug: page loads with system info', async ({ page }) => {
   expect(body).not.toMatch(/application error/i);
 });
 
+test('debug: diagnostics panel has issue input and submit', async ({ page }) => {
+  await page.goto('/debug', { waitUntil: 'networkidle' });
+
+  // Expand diagnostics panel
+  const diagnosticsToggle = page.locator('button:has-text("Report Issue")');
+  const hasToggle = await diagnosticsToggle.isVisible({ timeout: 5000 }).catch(() => false);
+  if (hasToggle) {
+    await diagnosticsToggle.click();
+  }
+
+  // Should have issue textarea
+  const textarea = page.locator('textarea[placeholder*="Describe the problem"]');
+  const hasTextarea = await textarea.isVisible({ timeout: 3000 }).catch(() => false);
+  expect(hasTextarea).toBe(true);
+
+  // Should have submit button
+  const submitBtn = page.locator('button:has-text("Submit")');
+  const hasSubmit = await submitBtn.isVisible({ timeout: 3000 }).catch(() => false);
+  expect(hasSubmit).toBe(true);
+});
+
+test('debug: live activity section visible', async ({ page }) => {
+  await page.goto('/debug', { waitUntil: 'networkidle' });
+
+  // Should show Live Activity header
+  const activityHeader = page.locator('text=Live Activity');
+  const hasActivity = await activityHeader.isVisible({ timeout: 5000 }).catch(() => false);
+  expect(hasActivity).toBe(true);
+
+  // Should show connection indicator (Live or Disconnected)
+  const connIndicator = page.locator('text=/Live|Disconnected/');
+  const hasConn = await connIndicator.first().isVisible({ timeout: 3000 }).catch(() => false);
+  expect(hasConn).toBe(true);
+});
+
+test('debug: server logs panel is collapsible', async ({ page }) => {
+  await page.goto('/debug', { waitUntil: 'networkidle' });
+
+  // Should have Server Logs toggle
+  const logsToggle = page.locator('button:has-text("Server Logs")');
+  const hasLogs = await logsToggle.isVisible({ timeout: 5000 }).catch(() => false);
+  expect(hasLogs).toBe(true);
+});
+
 // ---- Spectator view ----
 
 test('spectator: page loads for audience display', async ({ page }) => {

@@ -70,6 +70,11 @@ export default function DebugPage() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Quick fix
+  const [applyingFix, setApplyingFix] = useState<string | null>(null);
+  const [fixResult, setFixResult] = useState<{ ok: boolean; action?: string; error?: string } | null>(null);
+  const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
+
   // Resolve flow
   const [resolveText, setResolveText] = useState("");
   const [resolveEffectiveness, setResolveEffectiveness] = useState(3);
@@ -136,10 +141,16 @@ export default function DebugPage() {
     setSubmitting(true);
     setDiagnoseError(null);
     try {
-      const res = await api.createDebugIncident(issueText.trim(), selectedPodId || undefined);
+      const res = await api.createDebugIncident(issueText.trim(), selectedPodId || undefined) as {
+        incident: DebugIncident;
+        playbook?: DebugPlaybook;
+        suggested_actions?: string[];
+      };
       setCurrentIncident(res.incident);
       setCurrentPlaybook(res.playbook || null);
+      setSuggestedActions(res.suggested_actions || []);
       setDiagnosis(null);
+      setFixResult(null);
       setIssueText("");
       setDiagnosticsOpen(true);
       loadData();
@@ -171,6 +182,29 @@ export default function DebugPage() {
       setDiagnoseError(msg);
     } finally {
       setDiagnosing(false);
+    }
+  }
+
+  async function handleApplyFix(action: string) {
+    if (!currentIncident) return;
+    setApplyingFix(action);
+    setFixResult(null);
+    try {
+      const res = await api.applyDebugFix(currentIncident.id, action, selectedPodId || undefined);
+      setFixResult(res);
+      if (res.ok) {
+        // Fix succeeded — incident was auto-resolved on the backend
+        setCurrentIncident(null);
+        setCurrentPlaybook(null);
+        setDiagnosis(null);
+        setDiagnoseError(null);
+        loadData();
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setFixResult({ ok: false, error: msg });
+    } finally {
+      setApplyingFix(null);
     }
   }
 
@@ -563,6 +597,62 @@ export default function DebugPage() {
                                 {r.resolution_text}
                               </div>
                             ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Quick Actions — apply fix directly */}
+                    {selectedPodId && (
+                      <div className="space-y-2">
+                        <h3 className="text-xs font-semibold text-rp-grey uppercase tracking-wider">
+                          Quick Actions
+                          {suggestedActions.length > 0 && (
+                            <span className="text-amber-500 normal-case ml-2 font-normal">
+                              — suggested based on diagnosis
+                            </span>
+                          )}
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2">
+                          {([
+                            { action: "restart_pod", label: "Restart Pod", color: "bg-orange-600/20 border-orange-600/50 text-orange-400 hover:bg-orange-600/30" },
+                            { action: "wake_pod", label: "Wake Pod (WoL)", color: "bg-green-600/20 border-green-600/50 text-green-400 hover:bg-green-600/30" },
+                            { action: "relaunch_edge", label: "Relaunch Edge", color: "bg-blue-600/20 border-blue-600/50 text-blue-400 hover:bg-blue-600/30" },
+                            { action: "kill_game", label: "Kill Game", color: "bg-red-600/20 border-red-600/50 text-red-400 hover:bg-red-600/30" },
+                          ] as const).map(({ action, label, color }) => {
+                            const isSuggested = suggestedActions.includes(action);
+                            return (
+                              <button
+                                key={action}
+                                onClick={() => handleApplyFix(action)}
+                                disabled={applyingFix !== null}
+                                className={`border rounded-lg py-1.5 px-3 text-xs font-medium transition-colors disabled:opacity-50 ${color} ${
+                                  isSuggested ? "ring-1 ring-amber-500/50 shadow-[0_0_6px_rgba(245,158,11,0.15)]" : ""
+                                }`}
+                              >
+                                {applyingFix === action ? (
+                                  <span className="flex items-center justify-center gap-1">
+                                    <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    Applying...
+                                  </span>
+                                ) : (
+                                  <>
+                                    {isSuggested && <span className="text-amber-500 mr-1">&#9733;</span>}
+                                    {label}
+                                  </>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {fixResult && !fixResult.ok && (
+                          <div className="text-xs text-red-400 bg-red-900/20 border border-red-600/30 rounded-lg px-3 py-2">
+                            {fixResult.error}
+                          </div>
+                        )}
+                        {fixResult?.ok && (
+                          <div className="text-xs text-green-400 bg-green-900/20 border border-green-600/30 rounded-lg px-3 py-2">
+                            Fix applied successfully — incident resolved.
                           </div>
                         )}
                       </div>

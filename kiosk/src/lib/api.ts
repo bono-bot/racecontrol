@@ -301,6 +301,15 @@ export const api = {
       body: JSON.stringify({ status, resolution_text, effectiveness }),
     }),
 
+  applyDebugFix: (incidentId: string, action: string, podId?: string) =>
+    fetchApi<{ ok: boolean; action?: string; output?: string; error?: string }>(
+      `/debug/incidents/${incidentId}/apply-fix`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action, pod_id: podId }),
+      }
+    ),
+
   // Customer Self-Service (phone auth + booking)
   customerLogin: (phone: string) =>
     fetchApi<{ status?: string; error?: string }>("/customer/login", {
