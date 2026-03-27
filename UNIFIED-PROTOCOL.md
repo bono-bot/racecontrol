@@ -60,9 +60,10 @@ The protocol has 169 gate items. **Not all apply every time.**
 | 12 | Exact behavior path tested (not proxies) | 3 |
 | 13 | Pod 8 canary first (if pod change) | 3 |
 | 14 | Multi-model Tier A audit (diff-only, $0.05) | 3 |
-| 15 | Security gate pre-deploy | 4 |
+| 15 | Security gate pre-deploy (fail-closed) | 4 |
 | 16 | Build_id matches post-deploy | 4 |
 | 17 | Previous binary preserved | 4 |
+| 17b | FDP anti-regression checklist (Session 1, MAINTENANCE_MODE, bat sync, SHA256) | 4 |
 | 18 | Quality Gate (run-all.sh) | 5 |
 | 19 | E2E round-trip (exec + chain + health) | 5 |
 | 20 | LOGBOOK + git push + Bono notified | 5 |
@@ -969,27 +970,46 @@ After AI evaluation passes, run deterministic checks that **cannot lie:**
 
 **Goal:** Get verified code onto all target machines safely and reversibly.
 
+**MANDATORY:** Follow the **Fix-Deploy Anti-Regression Protocol (FDP)** at `FIX-DEPLOY-PROTOCOL.md` for ALL deploys. FDP was produced by a 3-round, 12-model OpenRouter audit ($5.59) that found 51 deploy-procedure findings across 11.2M tokens of analysis. It contains:
+- **Part 1:** 10 known pain points with structural fixes
+- **Part 2:** 17-item anti-regression checklist (run BEFORE marking any fix as done)
+- **Part 3:** 7 structural weak points requiring code changes
+- **Part 4:** Complete 8-step deploy pipeline sequence
+- **Part 5:** 15 regression timeline with categories
+
 ### 4.1 — Pre-Deploy Checks
 ```bash
-# Security gate
+# Security gate (fail-closed — BLOCKS if security-check.js missing)
 cd C:/Users/bono/racingpoint/comms-link && node test/security-check.js
 
 # Release manifest (if OTA)
 test -f deploy-staging/release-manifest.toml
+
+# Deploy lock (prevent concurrent deploys — FDP F49)
+test ! -f /tmp/deploy-pod.lock || echo "Another deploy in progress"
 
 # No active billing sessions on target pods
 # Check via fleet health — pods with active sessions defer
 
 # OTA sentinel clear
 test ! -f C:/RacingPoint/OTA_DEPLOYING
+
+# MAINTENANCE_MODE cleared on all target pods (FDP PP-06)
+# Cleared automatically by deploy-pod.sh pre-deploy step
+
+# SHA256 of local binary computable (FDP F18 — hard fail if not)
+sha256sum deploy-staging/rc-agent.exe
 ```
 
 **Rules activated:**
 - **SR-SEC-003:** Security gate passes before any deploy
-- **SR-SEC-005:** Deploy scripts enforce security gate
+- **SR-SEC-005:** Deploy scripts enforce security gate (fail-closed)
 - **SR-OTA-002:** Never deploy without signed manifest
 - **SR-OTA-003:** Billing sessions must drain before swap
-- **SR-OTA-004:** OTA sentinel protocol
+- **SR-OTA-004:** OTA sentinel protocol (with epoch TTL)
+- **FDP-F49:** Deploy lock prevents concurrent deploys
+- **FDP-PP06:** MAINTENANCE_MODE pre-deploy clearance
+- **FDP-F18:** SHA256 hard fail if hash unavailable
 
 ### 4.2 — Build & Stage
 ```bash
@@ -1079,16 +1099,22 @@ Per pod:
 - [ ] `start-rcagent.bat` matches repo version
 
 ### Phase 4 Gate
-- [ ] Security gate passed pre-deploy
+- [ ] Security gate passed pre-deploy (fail-closed)
+- [ ] Deploy lock acquired (no concurrent deploys)
+- [ ] MAINTENANCE_MODE cleared on all target pods
 - [ ] Pod 8 canary deployed + verified
-- [ ] All target pods deployed + verified
+- [ ] All target pods + POS PC deployed + verified
 - [ ] Server deployed + verified (if applicable)
 - [ ] Cloud deployed + verified (if applicable)
-- [ ] Bat files synced to all pods
+- [ ] Bat files synced to all pods (fatal on sync failure)
 - [ ] Previous binaries preserved
 - [ ] OTA sentinel cleared
+- [ ] Session 1 verified on all pods (`tasklist /V` → Console not Services)
+- [ ] SHA256 verified on all deployed binaries
+- [ ] Build_id matches expected on all targets
+- [ ] FDP Part 2 anti-regression checklist passed (see FIX-DEPLOY-PROTOCOL.md)
 
-**If deploy fails → Phase D (Debug) with Phase 4 context. NEVER force through.**
+**If deploy fails → auto-rollback (deploy-server.sh) or manual rollback → Phase D (Debug). NEVER force through.**
 
 ---
 

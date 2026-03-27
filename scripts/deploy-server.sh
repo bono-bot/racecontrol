@@ -228,6 +228,20 @@ for i in $(seq 1 12); do
 done
 
 echo ""
-echo -e "${RED}Server did not come up after 60 seconds.${NC}"
-echo -e "${YELLOW}Rollback: via rc-sentry exec, rename racecontrol-prev.exe → racecontrol.exe, then schtasks /Run /TN StartRCTemp${NC}"
+echo -e "${RED}Server did not come up after 60 seconds — auto-rollback...${NC}"
+info "Rolling back to racecontrol-prev.exe..."
+curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"taskkill /F /IM racecontrol.exe 2>nul & ping -n 3 127.0.0.1 >nul & move /Y C:\\RacingPoint\\racecontrol-prev.exe C:\\RacingPoint\\racecontrol.exe 2>nul & echo ROLLED_BACK"}' > /dev/null 2>&1
+curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
+sleep 10
+ROLLBACK_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
+if echo "$ROLLBACK_HEALTH" | grep -q '"status":"ok"'; then
+    ROLLBACK_BUILD=$(echo "$ROLLBACK_HEALTH" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+    echo -e "${YELLOW}Rollback OK — server on previous build: ${ROLLBACK_BUILD}${NC}"
+else
+    echo -e "${RED}CRITICAL: Rollback failed. Manual: ssh ADMIN@100.125.108.37${NC}"
+fi
 exit 1

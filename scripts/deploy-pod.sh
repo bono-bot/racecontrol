@@ -180,7 +180,7 @@ deploy_pod() {
         if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
             pass "$POD_NAME: start-rcagent.bat synced"
         else
-            info "$POD_NAME: start-rcagent.bat sync failed (non-fatal)"
+            info "$POD_NAME: start-rcagent.bat sync FAILED — stale bat causes regression"
         fi
     fi
     if [ -f "${BINARY_DIR}/start-rcsentry.bat" ]; then
@@ -190,7 +190,7 @@ deploy_pod() {
         if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
             pass "$POD_NAME: start-rcsentry.bat synced"
         else
-            info "$POD_NAME: start-rcsentry.bat sync failed (non-fatal)"
+            info "$POD_NAME: start-rcsentry.bat sync FAILED — stale bat causes regression"
         fi
     fi
 

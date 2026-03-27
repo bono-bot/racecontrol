@@ -406,7 +406,42 @@ New admin page at `:3201/mesh-intelligence`:
 
 ---
 
-## 6. Unified Protocol Integration
+## 6. Fix-Deploy Anti-Regression Integration
+
+### 6.0 — FIX-DEPLOY-PROTOCOL.md (FDP)
+
+**The Meshed Intelligence system MUST enforce the Fix-Deploy Anti-Regression Protocol (FDP) during all automated deploys.** FDP was born from 3-round, 12-model OpenRouter audit ($5.59, 11.2M tokens) that identified 51 deploy-procedure findings and produced 16 concrete script fixes.
+
+**FDP location:** `FIX-DEPLOY-PROTOCOL.md` at repo root.
+
+**How Meshed Intelligence uses FDP:**
+
+| Mesh Action | FDP Enforcement |
+|-------------|-----------------|
+| Node self-heals via deterministic fix | FDP Part 2 checklist: Session 1 verified, MAINTENANCE_MODE cleared, singleton processes |
+| Node deploys new binary (OTA) | FDP Part 4: full 8-step deploy sequence incl. OTA_DEPLOYING sentinel, SHA256, bat sync |
+| Solution gossips across fleet | FDP anti-regression: fix must be code-enforced (bat or startup), not manual-only |
+| Model diagnoses issue | FDP Part 1: check against 10 known pain points before escalating to Tier 3+ |
+| Fleet-wide propagation | FDP: include POS PC in all fleet operations, not just pods 1-8 |
+
+**FDP 17-item pre-ship checklist integrated into Mesh Diagnostic Engine:**
+Each node's Diagnostic Engine runs the FDP anti-regression checklist (Part 2) after applying any fix:
+1. Session 1 context verified (PP-01)
+2. Fix encoded in boot script, not manual (PP-02)
+3. Bat file matches canonical version (PP-04)
+4. MAINTENANCE_MODE cleared (PP-06)
+5. Config fetch OK + allowlist non-empty (PP-07)
+6. Singleton processes verified (PP-09)
+7. LOGBOOK entry + gossip broadcast
+
+**The 3-Round Audit Pattern for protocol evolution:**
+When the fleet KB accumulates >50 solutions, run a 3-round multi-model audit:
+- Round 1 (4 models): full scan → apply fixes
+- Round 2 (4 different models): verify R1 fixes, find gaps → apply fixes
+- Round 3 (4 code-specialized models): final verification → produce scorecard
+Cost: ~$5-6 per cycle. Run monthly or after major incidents.
+
+---
 
 ### 6.1 — Protocol Evolution Loop
 
