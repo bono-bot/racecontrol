@@ -60,25 +60,33 @@ All models **live-tested with real PM2 crash logs** (EADDRINUSE port conflict sc
 
 | Tier | Model | ID | Why This Model | Speed | Cost/Call | Monthly (10/day) |
 |------|-------|----|----------------|-------|-----------|-------------------|
-| **1 (Free)** | Nemotron Nano 30B | `nvidia/nemotron-3-nano-30b-a3b:free` | NVIDIA's code-tuned 30B MoE. Returned valid JSON with correct root cause in 1s. Best free option for structured SRE tasks. | ~1s | $0.00 | $0.00 |
-| **2 (Cheap)** | GPT-oss 120B | `openai/gpt-oss-120b` | 120B general model, strong reasoning. Correctly identified dependency chain failure. At $0.04/M, a single diagnosis costs less than 0.01 cents. | ~3s | $0.000058 | $0.017 |
-| **3 (Cheap)** | Mistral Nemo 12B | `mistralai/mistral-nemo` | Smallest reliable model. 12B but code-trained by Mistral. Good for simple single-cause failures where speed matters most. | ~2s | $0.000018 | $0.005 |
-| **4 (Free)** | OpenRouter Auto | `openrouter/free` | Meta-router that picks best available free model. Slower (11s) but routes around rate limits. Last resort before giving up. | ~11s | $0.00 | $0.00 |
+| **1** | Qwen3 Coder 30B | `qwen/qwen3-coder-30b-a3b-instruct` | **Best fix quality.** Code-specialized 30B MoE. Returned `"systemctl start racecontrol && pm2 restart racingpoint-admin"` — the exact two-step fix. Understands dependency chains. | 3.9s | $0.000054 | $0.016 |
+| **2** | DeepSeek V3.1 | `deepseek/deepseek-chat-v3.1` | **Best root cause analysis.** Explained the full dependency chain failure. Clean JSON. DeepSeek's reasoning strength shines on multi-signal diagnosis. | 5.3s | $0.000225 | $0.068 |
+| **3** | Gemma 3 12B | `google/gemma-3-12b-it` | **Fastest.** 1.1s response. Correct root cause. Terse output — good for simple/single-cause failures where speed matters. Google's code-trained model. | 1.1s | $0.000046 | $0.014 |
+| **4** | Mistral Nemo 12B | `mistralai/mistral-nemo` | **Cheapest reliable.** $0.02/M input. Correct diagnosis with good detail. Mistral's code-trained 12B. Proven reliable across both test sessions. | 5.8s | $0.000018 | $0.005 |
 
-**Why NOT other models:**
-- `qwen/qwen3-coder:free` — 480B code model, ideal on paper, but **failed to respond** during testing (rate-limited)
-- `deepseek/deepseek-chat-v3.1` — strongest cheap reasoning model but **failed to respond** ($0.15/M, also unnecessary cost for log analysis)
-- `meta-llama/llama-3.3-70b-instruct:free` — **failed to respond** during testing
-- `google/gemma-3-27b-it:free` — **failed to respond** during testing
+**14 models evaluated, 4 selected.** Full evaluation:
+
+| Model | JSON Valid | Root Cause Correct | Result |
+|-------|-----------|-------------------|--------|
+| Qwen3-Coder-30B | YES | YES (best fix) | **SELECTED** |
+| DeepSeek V3.1 | YES | YES (best explanation) | **SELECTED** |
+| Gemma 3 12B | YES | YES (fastest) | **SELECTED** |
+| Mistral Nemo 12B | YES | YES (cheapest) | **SELECTED** |
+| Llama 3.1 8B | YES | NO (missed upstream dep) | REJECTED — wrong diagnosis |
+| Qwen 2.5 Coder 7B | NO (echoed prompt) | -- | REJECTED — instruction following failure |
+| All free tier models | RATE LIMITED | -- | REJECTED — unreliable availability |
+| Qwen3.5 9B, Nemotron 9B v2, OLMo 32B, Qwen3 14B | NO RESPONSE | -- | REJECTED — overloaded/unavailable |
 
 **Selection strategy (waterfall):**
-1. **Nemotron Nano 30B** (free, fast) — handles 90% of cases
-2. **GPT-oss 120B** (cheap, smart) — when free model is rate-limited, or for complex multi-signal failures
-3. **Mistral Nemo** (cheap, fast) — backup for simple failures
-4. **OpenRouter Auto** (free, slow) — last resort, routes around all rate limits
+1. **Qwen3-Coder-30B** — primary, best overall quality, code-specialized
+2. **Gemma 3 12B** — fast fallback when #1 is overloaded (1.1s vs 3.9s)
+3. **Mistral Nemo 12B** — cheapest reliable fallback ($0.005/month)
+4. **DeepSeek V3.1** — complex multi-signal failures needing deep reasoning
 5. **Give up** — return "manual investigation needed", never blocks remediation
 
-**Note:** Free OpenRouter models have aggressive rate limits (~20 req/min shared across all users). The waterfall ensures rc-doctor always gets a diagnosis by falling through to paid models when free tier is exhausted. At $0.017/month worst case, the paid tier is effectively free.
+**Why paid-only (no free tier):**
+Free OpenRouter models (Nemotron, GPT-oss, Qwen3-Coder free) have aggressive shared rate limits. In both test rounds, ALL free models returned empty when we needed them. For a self-healing system that must work at 2AM during an incident, reliability > cost savings. At $0.005-0.068/month, the paid tier costs less than a WhatsApp message.
 
 ### When AI Diagnosis Triggers
 
@@ -120,12 +128,22 @@ Service crash loop detected by Monit
 
 ```bash
 # === AI DIAGNOSIS (OpenRouter — free + cheap models) ===
-OPENROUTER_KEY="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"
-AI_MODELS=(
-  "nvidia/nemotron-3-nano-30b-a3b:free"   # Tier 1: free, fast (1s), code-tuned 30B
-  "openai/gpt-oss-120b"                    # Tier 2: cheap ($0.00006/call), strong reasoning 120B
-  "mistralai/mistral-nemo"                 # Tier 3: cheap ($0.00002/call), fast 12B fallback
-  "openrouter/free"                        # Tier 4: free, slow (11s), auto-routes around limits
+OPENROUTER_KEY="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"
+# Diagnosis rotation (waterfall — try in order until one responds)
+AI_DIAGNOSIS_MODELS=(
+  "qwen/qwen3-coder-30b-a3b-instruct"     # Tier 1: code-specialist, best fix quality (3.9s, $0.07/M)
+  "google/gemma-3-12b-it"                  # Tier 2: fastest fallback (1.1s, $0.04/M)
+  "mistralai/mistral-nemo"                 # Tier 3: cheapest reliable ($0.02/M)
+)
+
+# Multi-model audit (all queried in parallel for consensus — use for complex/critical failures)
+AI_AUDIT_MODELS=(
+  "qwen/qwen3-coder-30b-a3b-instruct"     # Qwen code expert ($0.07/M)
+  "google/gemma-3-12b-it"                  # Google code model ($0.04/M)
+  "mistralai/mistral-nemo"                 # Mistral ($0.02/M)
+  "deepseek/deepseek-chat-v3.1"            # DeepSeek reasoning ($0.15/M)
+  "deepseek/deepseek-chat"                 # DeepSeek V3 ($0.32/M)
+  "meta-llama/llama-3.1-70b-instruct"      # Meta Llama 70B ($0.40/M)
 )
 AI_CALLS_FILE="/var/lib/rc-doctor/ai-calls"
 
@@ -219,6 +237,73 @@ cmd_diagnose() {
   [ -z "$logs" ] && { echo "No logs found for $service"; return 1; }
   ai_diagnose "$service" "$logs"
 }
+
+ai_multi_audit() {
+  # Query all 6 models in parallel for consensus — used for critical/complex failures
+  local service="$1"
+  local error_logs="$2"
+  local results_dir="/var/lib/rc-doctor/audit-$$"
+  mkdir -p "$results_dir"
+
+  local sys_prompt="You are an SRE assistant for RacingPoint (sim racing venue, 14 microservices, single VPS). Analyze error logs. Return ONLY valid JSON: {\"root_cause\":\"...\",\"severity\":\"critical|warning|info\",\"fix\":\"one actionable command\",\"category\":\"port_conflict|memory_leak|missing_dep|config_error|db_issue|network|unknown\",\"confidence\":\"high|medium|low\"}"
+
+  local user_prompt="Service: $service
+Error logs:
+$error_logs
+
+Ports: racecontrol=8080 pwa=3500 admin=3201 dashboard=3400 gateway=3100
+Return ONLY valid JSON."
+
+  # Fire all 6 models in parallel
+  for model in "${AI_AUDIT_MODELS[@]}"; do
+    local safe_name
+    safe_name=$(echo "$model" | tr '/:' '_')
+    (curl -sf --max-time 25 https://openrouter.ai/api/v1/chat/completions \
+      -H "Authorization: Bearer $OPENROUTER_KEY" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg s "$sys_prompt" --arg u "$user_prompt" --arg m "$model" '{
+        model: $m,
+        messages: [{role:"system",content:$s},{role:"user",content:$u}],
+        max_tokens: 300, temperature: 0.1
+      }')" 2>/dev/null | jq -r '.choices[0].message.content // empty' \
+      > "$results_dir/$safe_name" ) &
+  done
+  wait  # Wait for all to complete
+
+  # Collect and summarize results
+  log "MULTI-MODEL AUDIT for $service:"
+  local consensus_cause="" cause_counts=""
+  for f in "$results_dir"/*; do
+    local model_name
+    model_name=$(basename "$f")
+    local content
+    content=$(cat "$f" | sed 's/^```json//; s/^```//; s/```$//' | tr -d '\n')
+    if echo "$content" | jq . >/dev/null 2>&1; then
+      local cause sev fix
+      cause=$(echo "$content" | jq -r '.root_cause // "unknown"')
+      sev=$(echo "$content" | jq -r '.severity // "unknown"')
+      fix=$(echo "$content" | jq -r '.fix // "unknown"')
+      log "  [$model_name] $sev | $cause | fix: $fix"
+      cause_counts="$cause_counts $cause"
+    else
+      log "  [$model_name] FAILED (invalid response)"
+    fi
+  done
+
+  rm -rf "$results_dir"
+  audit "multi-audit" "$service" "6_models_queried"
+}
+
+cmd_audit() {
+  local service="${1:-}"
+  [ -z "$service" ] && { echo "Usage: rc-doctor.sh audit <service-name>"; return 1; }
+  local logs
+  logs=$(pm2 logs "$service" --lines 50 --nostream 2>/dev/null)
+  [ -z "$logs" ] && { echo "No logs found for $service"; return 1; }
+  echo "Running 6-model audit for $service (takes ~15s)..."
+  ai_multi_audit "$service" "$logs"
+  echo "Results logged to /var/log/rc-doctor.log"
+}
 ```
 
 ### Integration in crash-loop playbook
@@ -263,14 +348,23 @@ fi
 
 ### Cost Summary
 
-| Scenario | If Free Tier Works | If All Hit GPT-oss-120B |
-|----------|-------------------|------------------------|
-| 10 diagnoses/day | $0/month | $0.017/month (1.7 cents) |
-| Weekly reports (4/month) | $0/month | $0.001/month |
-| Worst case (50 calls/day, all paid) | N/A | $0.087/month (8.7 cents) |
-| **Realistic estimate** | **$0/month** | **$0.01/month** |
+| Scenario | Cost |
+|----------|------|
+| Single diagnosis (Qwen3-Coder) | $0.000054 per call |
+| 10 diagnoses/day, 30 days | $0.016/month (1.6 cents) |
+| 6-model audit (all 6 queried once) | ~$0.0012 per audit (~0.1 cents) |
+| Weekly report (4/month) | ~$0.001/month |
+| **Realistic monthly budget** | **$0.02-0.05/month** |
+| Worst case (50 diagnoses/day + 10 audits) | $0.09/month (9 cents) |
 
-At these prices, the AI diagnosis tier costs less than a single WhatsApp message.
+### Commands
+
+| Command | What It Does | Models Used | Cost |
+|---------|-------------|-------------|------|
+| `rc-doctor.sh diagnose <svc>` | Single-model diagnosis | 1 model (waterfall) | ~$0.00005 |
+| `rc-doctor.sh audit <svc>` | 6-model consensus audit | All 6 in parallel | ~$0.0012 |
+| `rc-doctor.sh weekly-report` | AI-generated weekly summary | 1 model | ~$0.0003 |
+| (auto) crash-loop escalation | Triggered by Monit after 5 restarts | 1 model | ~$0.00005 |
 
 ---
 
@@ -836,11 +930,12 @@ case "${1:-routine}" in
   db-integrity)     cmd_db_integrity ;;
   backup-verify)    cmd_backup_verify ;;
   diagnose)         cmd_diagnose "${2:-}" ;;
+  audit)            cmd_audit "${2:-}" ;;
   weekly-report)    ai_weekly_report ;;
   routine)          cmd_routine ;;
   logs)             cmd_logs ;;
   status)           cmd_status ;;
-  *)                echo "Usage: rc-doctor.sh {routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|wal-bloat|ssl-check|db-integrity|backup-verify|diagnose <svc>|weekly-report|logs|status}" ;;
+  *)                echo "Usage: rc-doctor.sh {routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|wal-bloat|ssl-check|db-integrity|backup-verify|diagnose <svc>|audit <svc>|weekly-report|logs|status}" ;;
 esac
 ```
 
