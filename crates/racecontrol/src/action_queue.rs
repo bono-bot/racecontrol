@@ -231,7 +231,7 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
 
             // Credit the local wallet
             let _ = sqlx::query(
-                "UPDATE wallets SET credits_paise = credits_paise + ?, updated_at = datetime('now') WHERE driver_id = ?",
+                "UPDATE wallets SET balance_paise = balance_paise + ?, updated_at = datetime('now') WHERE driver_id = ?",
             )
             .bind(amount_paise)
             .bind(driver_id)

@@ -12,7 +12,7 @@
 use std::os::windows::process::CommandExt;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -270,6 +270,11 @@ fn check_sentry_alive_on_port(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, SENTRY_CHECK_TIMEOUT).is_ok()
 }
 
+/// Cap on total restarts before requiring a reboot. Prevents infinite
+/// restart loops when the underlying issue is not transient.
+const MAX_RESTARTS: u32 = 5;
+static RESTART_COUNT: AtomicU32 = AtomicU32::new(0);
+
 /// Sentry-aware relaunch: prefer yielding to rc-sentry (clean exit + sentinel)
 /// over spawning a new PowerShell process (which leaks ~90MB per restart).
 ///
@@ -285,6 +290,16 @@ fn check_sentry_alive_on_port(port: u16) -> bool {
 /// Writes the GRACEFUL_RELAUNCH sentinel in both paths so rc-sentry won't
 /// count it as an escalation crash if sentry comes back before the restart.
 pub fn relaunch_self() {
+    let count = RESTART_COUNT.fetch_add(1, Ordering::SeqCst);
+    if count >= MAX_RESTARTS {
+        tracing::error!(
+            target: LOG_TARGET,
+            "Restart cap reached ({}/{}) — refusing to restart. Reboot required.",
+            count, MAX_RESTARTS
+        );
+        log_event(&format!("RESTART_CAP_REACHED: {} restarts exhausted, reboot required", count));
+        return;
+    }
     if check_sentry_alive() {
         // SELF-01: Sentry is alive — write sentinel and exit cleanly.
         // rc-sentry's watchdog will detect rc-agent is dead, see the GRACEFUL_RELAUNCH

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use sqlx::Acquire;
 use uuid::Uuid;
 
 use crate::accounting;
@@ -76,7 +77,13 @@ pub async fn credit(
 
     let txn_id = Uuid::new_v4().to_string();
 
-    // Update wallet balance atomically
+    // Use a transaction to ensure wallet update + transaction record are atomic
+    let mut tx = state.db.acquire().await
+        .map_err(|e| format!("DB error acquiring connection: {}", e))?;
+    let mut tx = tx.begin().await
+        .map_err(|e| format!("DB error starting transaction: {}", e))?;
+
+    // Update wallet balance
     sqlx::query(
         "UPDATE wallets SET
             balance_paise = balance_paise + ?,
@@ -87,12 +94,19 @@ pub async fn credit(
     .bind(amount_paise)
     .bind(amount_paise)
     .bind(driver_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("DB error updating wallet: {}", e))?;
 
-    // Get new balance
-    let new_balance = get_balance(state, driver_id).await?;
+    // Get new balance within transaction
+    let row = sqlx::query_as::<_, (i64,)>(
+        "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| format!("DB error reading balance: {}", e))?;
+    let new_balance = row.map(|r| r.0).unwrap_or(0);
 
     // Record transaction
     sqlx::query(
@@ -107,9 +121,12 @@ pub async fn credit(
     .bind(reference_id)
     .bind(notes)
     .bind(staff_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    tx.commit().await
+        .map_err(|e| format!("DB error committing credit transaction: {}", e))?;
 
     // Post double-entry journal entry (fire-and-forget, non-blocking)
     match txn_type {
@@ -155,6 +172,12 @@ pub async fn debit(
         return Err("Debit amount must be positive".to_string());
     }
 
+    // Use a transaction to ensure wallet debit + transaction record are atomic
+    let mut conn = state.db.acquire().await
+        .map_err(|e| format!("DB error acquiring connection: {}", e))?;
+    let mut tx = conn.begin().await
+        .map_err(|e| format!("DB error starting transaction: {}", e))?;
+
     // Atomic debit: UPDATE only if balance is sufficient (prevents TOCTOU race)
     let result = sqlx::query_as::<_, (i64,)>(
         "UPDATE wallets SET
@@ -168,13 +191,15 @@ pub async fn debit(
     .bind(amount_paise)
     .bind(driver_id)
     .bind(amount_paise)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| format!("DB error updating wallet: {}", e))?;
 
     let new_balance = match result {
         Some((balance,)) => balance,
         None => {
+            // Rollback happens automatically on drop, but read balance outside tx
+            drop(tx);
             let current = get_balance(state, driver_id).await.unwrap_or(0);
             return Err(format!(
                 "Insufficient balance: have {}p, need {}p",
@@ -197,9 +222,12 @@ pub async fn debit(
     .bind(txn_type)
     .bind(reference_id)
     .bind(notes)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    tx.commit().await
+        .map_err(|e| format!("DB error committing debit transaction: {}", e))?;
 
     // Post double-entry journal entry for all debit types
     accounting::post_wallet_debit(state, driver_id, amount_paise, txn_type, Some(&txn_id)).await;

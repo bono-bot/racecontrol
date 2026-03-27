@@ -402,7 +402,16 @@ pub async fn update_combo_reliability(
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
-    // INSERT OR REPLACE using COALESCE('', car/track) for composite key match on NULLs
+    // Use a transaction to make DELETE+INSERT atomic — prevents a reader seeing
+    // zero rows between the delete and insert.
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("combo_reliability transaction begin failed for pod {}/{}: {}", pod_id, sim_type, e);
+            return;
+        }
+    };
+
     // Delete existing row (if any) then insert fresh — handles NULL car/track correctly
     // since SQLite's UNIQUE INDEX on COALESCE(car,'') treats NULL as '' for conflict detection
     // but INSERT OR REPLACE needs a real PRIMARY KEY to replace on conflict.
@@ -416,7 +425,7 @@ pub async fn update_combo_reliability(
     .bind(sim_type)
     .bind(car).bind(car)
     .bind(track).bind(track)
-    .execute(db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(e) = delete_result {
@@ -442,12 +451,20 @@ pub async fn update_combo_reliability(
     .bind(total_launches)
     .bind(&failure_modes_json)
     .bind(&now)
-    .execute(db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(e) = insert_result {
         tracing::error!(
             "combo_reliability insert failed for pod {}/{}: {}",
+            pod_id, sim_type, e
+        );
+        return;
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!(
+            "combo_reliability commit failed for pod {}/{}: {}",
             pod_id, sim_type, e
         );
     }

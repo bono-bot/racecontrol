@@ -39,8 +39,17 @@ STAGGER_MS=0.2
 semaphore_acquire() {
   local sem_dir="${RESULT_DIR}/.sem"
   mkdir -p "$sem_dir"
+  local attempts=0
+  local max_attempts=300  # 300 * ~0.2s sleep = ~60s, plus stale lock checks = ~5 min max
 
   while true; do
+    attempts=$((attempts + 1))
+    if [[ $attempts -gt $max_attempts ]]; then
+      echo "[WARN] semaphore_acquire: timeout after $max_attempts iterations — proceeding without slot" >&2
+      ACQUIRED_SLOT=-1
+      export ACQUIRED_SLOT
+      return 0
+    fi
     local i
     for i in $(seq 0 $((MAX_CONCURRENT - 1))); do
       local lock_dir="${sem_dir}/slot-${i}.lock"

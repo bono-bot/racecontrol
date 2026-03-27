@@ -620,19 +620,14 @@ async fn run_port_audit_james(
                 let name_for_kill = format!("port-owner-pid-{}", pid);
                 kill_process_verified_james(pid, name_for_kill, start_time).await
             } else {
-                let kill_result = tokio::task::spawn_blocking(move || {
-                    #[cfg(windows)]
-                    use std::os::windows::process::CommandExt;
-                    let mut cmd = std::process::Command::new("taskkill");
-                    cmd.args(["/F", "/PID", &pid.to_string()]);
-                    #[cfg(windows)]
-                    cmd.creation_flags(0x08000000);
-                    cmd.output()
-                })
-                .await;
-                kill_result
-                    .map(|r| r.map(|o| o.status.success()).unwrap_or(false))
-                    .unwrap_or(false)
+                // Cannot verify PID identity (process already exited or lookup failed).
+                // Skip kill to avoid PID reuse risk — the PID may belong to a different
+                // process by the time we issue taskkill.
+                log_james_event(&format!(
+                    "PORT_KILL_SKIPPED pid={} port={} (identity not verifiable, PID reuse risk)",
+                    pid, port
+                ));
+                false
             };
 
             if killed { "killed" } else { "reported" }

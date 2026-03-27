@@ -310,11 +310,19 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                             WatchdogState::Cooldown(*since)
                         }
                     }
-                    // Cooldown but poll failed → back to Suspect
-                    (WatchdogState::Cooldown(_), false) => {
-                        tracing::warn!(target: "state", prev = "Cooldown", next = "Suspect(1)",
-                            "FSM transition: Cooldown -> Suspect(1)");
-                        WatchdogState::Suspect(1)
+                    // Cooldown but poll failed → back to Suspect only if minimum cooldown (30s) elapsed.
+                    // Prevents rapid Cooldown->Suspect->Crashed oscillation.
+                    (WatchdogState::Cooldown(since), false) => {
+                        const MIN_COOLDOWN: Duration = Duration::from_secs(30);
+                        if since.elapsed() < MIN_COOLDOWN {
+                            tracing::debug!(target: LOG_TARGET, "poll failed during cooldown but min cooldown not elapsed ({}s < 30s) — staying in Cooldown",
+                                since.elapsed().as_secs());
+                            WatchdogState::Cooldown(*since)
+                        } else {
+                            tracing::warn!(target: "state", prev = "Cooldown", next = "Suspect(1)",
+                                "FSM transition: Cooldown -> Suspect(1)");
+                            WatchdogState::Suspect(1)
+                        }
                     }
                 };
 

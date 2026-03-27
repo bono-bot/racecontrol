@@ -31,6 +31,11 @@ const MODEL_CONFIG = {
   'deepseek/deepseek-r1-0528':      { short: 'deepseek-r1', ctx: 163840, priceIn: 0.45, priceOut: 2.15, timeout: 300000, maxOut: 16000 },
   'google/gemini-2.5-pro-preview-03-25': { short: 'gemini-2.5', ctx: 1000000, priceIn: 1.25, priceOut: 10.0, timeout: 120000, maxOut: 16000 },
   'xiaomi/mimo-v2-pro':                  { short: 'mimo-v2-pro', ctx: 1048576, priceIn: 1.00, priceOut: 3.00, timeout: 180000, maxOut: 16000 },
+  // Round 2 models (2026-03-27)
+  'openai/gpt-5-mini':                   { short: 'gpt5-mini', ctx: 400000, priceIn: 0.25, priceOut: 2.00, timeout: 180000, maxOut: 16000 },
+  'x-ai/grok-4.1-fast':                  { short: 'grok-4.1', ctx: 2000000, priceIn: 0.20, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
+  'meta-llama/llama-4-maverick':         { short: 'llama4-mav', ctx: 1048576, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
+  'mistralai/mistral-small-2603':        { short: 'mistral-sm4', ctx: 262144, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
 };
 
 const config = MODEL_CONFIG[MODEL];

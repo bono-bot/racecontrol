@@ -19,10 +19,10 @@ fn hidden_cmd(program: &str) -> Command {
 }
 
 /// Directory where the PID file is persisted.
-/// Windows: C:\RaceControl\  Linux: /tmp/racecontrol/
+/// Windows: C:\RacingPoint\  Linux: /tmp/racecontrol/
 fn pid_file_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
-    { PathBuf::from(r"C:\RaceControl") }
+    { PathBuf::from(r"C:\RacingPoint") }
     #[cfg(not(target_os = "windows"))]
     { PathBuf::from("/tmp/racecontrol") }
 }
@@ -197,6 +197,11 @@ fn all_game_process_names() -> &'static [&'static str] {
 /// 1. Check persisted PID file — if alive, kill it.
 /// 2. Scan for all known game process names and kill any that are running.
 /// 3. Clean up the PID file.
+///
+/// NOTE: sysinfo does not expose Windows Session ID, so orphan kills are not
+/// scoped to the current user session. This is safe on single-user pod PCs
+/// (one interactive session). On multi-user machines this could kill another
+/// user's game process — but pods are always single-user.
 pub fn cleanup_orphaned_games() -> u32 {
     let mut cleaned = 0u32;
 

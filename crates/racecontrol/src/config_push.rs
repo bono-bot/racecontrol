@@ -296,8 +296,16 @@ pub async fn replay_pending_config_pushes(
     };
 
     for entry in rows {
-        let fields: HashMap<String, serde_json::Value> =
-            serde_json::from_str(&entry.payload).unwrap_or_default();
+        let fields: HashMap<String, serde_json::Value> = match serde_json::from_str(&entry.payload) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping malformed config push payload for pod {} seq={}: {}",
+                    pod_id, entry.seq_num, e
+                );
+                continue;
+            }
+        };
 
         let push_payload = ConfigPushPayload {
             fields,

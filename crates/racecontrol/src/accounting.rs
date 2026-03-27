@@ -20,7 +20,7 @@ pub async fn log_audit(
     staff_id: Option<&str>,
 ) {
     let id = Uuid::new_v4().to_string();
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO audit_log (id, table_name, row_id, action, old_values, new_values, staff_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
@@ -32,7 +32,10 @@ pub async fn log_audit(
     .bind(new_values)
     .bind(staff_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to write audit log for {}.{}: {}", table_name, row_id, e);
+    }
 }
 
 /// Record a sensitive admin action in audit_log with action_type classification.
@@ -45,7 +48,7 @@ pub async fn log_admin_action(
     ip_address: Option<&str>,
 ) {
     let id = Uuid::new_v4().to_string();
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO audit_log (id, table_name, row_id, action, action_type, new_values, staff_id, ip_address)
          VALUES (?, 'admin_actions', ?, 'create', ?, ?, ?, ?)",
     )
@@ -56,7 +59,10 @@ pub async fn log_admin_action(
     .bind(staff_id)
     .bind(ip_address)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to write admin audit log for {}: {}", action_type, e);
+    }
 }
 
 /// Fetch the current row as JSON for audit trail (before an update/delete).
@@ -173,6 +179,10 @@ pub async fn post_journal_entry(
 
     let entry_id = Uuid::new_v4().to_string();
 
+    // Use a transaction to ensure header + all lines are atomic
+    let mut tx = state.db.begin().await
+        .map_err(|e| format!("DB error starting transaction: {}", e))?;
+
     // Insert header
     sqlx::query(
         "INSERT INTO journal_entries (id, description, reference_type, reference_id, staff_id)
@@ -183,7 +193,7 @@ pub async fn post_journal_entry(
     .bind(reference_type)
     .bind(reference_id)
     .bind(staff_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("DB error creating journal entry: {}", e))?;
 
@@ -199,10 +209,13 @@ pub async fn post_journal_entry(
         .bind(&line.account_id)
         .bind(line.debit_paise)
         .bind(line.credit_paise)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("DB error creating journal line: {}", e))?;
     }
+
+    tx.commit().await
+        .map_err(|e| format!("DB error committing journal entry: {}", e))?;
 
     tracing::debug!("Journal entry posted: {} ({}p)", entry_id, total_debit);
     Ok(entry_id)

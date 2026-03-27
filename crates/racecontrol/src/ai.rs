@@ -312,10 +312,11 @@ async fn find_similar_pairs(
     sorted_words.sort_by(|a, b| b.len().cmp(&a.len()));
     sorted_words.truncate(8);
 
-    // Build SQL with LIKE conditions and count matches for ranking
+    // Build SQL with LIKE conditions using parameterized bindings
     let like_clauses: Vec<String> = sorted_words
         .iter()
-        .map(|w| format!("(CASE WHEN query_keywords LIKE '%{}%' THEN 1 ELSE 0 END)", w))
+        .enumerate()
+        .map(|(_, _)| "(CASE WHEN query_keywords LIKE ? THEN 1 ELSE 0 END)".to_string())
         .collect();
 
     let score_expr = like_clauses.join(" + ");
@@ -328,8 +329,13 @@ async fn find_similar_pairs(
         score_expr
     );
 
-    let rows = sqlx::query_as::<_, (String, String, String, i32)>(&sql)
-        .bind(limit as i32)
+    let mut query = sqlx::query_as::<_, (String, String, String, i32)>(&sql);
+    for w in &sorted_words {
+        query = query.bind(format!("%{}%", w));
+    }
+    query = query.bind(limit as i32);
+
+    let rows = query
         .fetch_all(db)
         .await
         .unwrap_or_default();

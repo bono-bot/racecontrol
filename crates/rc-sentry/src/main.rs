@@ -587,6 +587,23 @@ fn handle_files(
         return send_response(stream, 400, r#"{"error":"not a directory"}"#);
     }
 
+    // Path traversal guard: only allow listing within C:\RacingPoint\
+    let allowed_root = std::path::Path::new(r"C:\RacingPoint");
+    match std::fs::canonicalize(&dir) {
+        Ok(canonical) => {
+            if !canonical.starts_with(allowed_root) {
+                return send_response(
+                    stream,
+                    403,
+                    r#"{"error":"path outside allowed directory"}"#,
+                );
+            }
+        }
+        Err(_) => {
+            return send_response(stream, 403, r#"{"error":"cannot resolve path"}"#);
+        }
+    }
+
     let entries: Vec<serde_json::Value> = match std::fs::read_dir(&dir) {
         Ok(rd) => rd
             .flatten()

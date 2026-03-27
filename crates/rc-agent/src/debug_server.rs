@@ -48,11 +48,25 @@ pub fn spawn(
             }
         };
 
+        // Allowed source IPs: localhost, racecontrol server (.23), James (.27)
+        const ALLOWED_IPS: &[std::net::IpAddr] = &[
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 31, 23)),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 31, 27)),
+        ];
+
         loop {
             let (mut stream, addr) = match listener.accept().await {
                 Ok(conn) => conn,
                 Err(_) => continue,
             };
+
+            // Reject connections from non-allowed IPs
+            if !ALLOWED_IPS.contains(&addr.ip()) {
+                tracing::warn!(target: LOG_TARGET, "Debug server rejected connection from {}", addr);
+                let _ = stream.shutdown().await;
+                continue;
+            }
 
             let state = state.clone();
             let pod_name = pod_name.clone();
