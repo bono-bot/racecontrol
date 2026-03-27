@@ -1,9 +1,22 @@
 #!/bin/bash
-# Pre-commit hook: Cross-process impact detection
+# Pre-commit hook: Cross-process impact detection + repo guard
 # Warns when staged files affect downstream services via DEPENDENCIES.json
-# Advisory only — never blocks commits.
 
 node "$(dirname "$0")/../scripts/check-dependencies.js" 2>/dev/null
 
-# Always exit 0 -- impact detection is advisory only
-exit 0
+# Repo guard: reject comms-link files accidentally staged in racecontrol
+BAD=$(git diff --cached --name-only | grep -E "^(bono|james|shared)/" | head -5)
+if [ -n "$BAD" ]; then
+  echo "ERROR: comms-link files staged in racecontrol repo:"
+  echo "$BAD"
+  echo "Wrong repo? cd to the correct directory."
+  exit 1
+fi
+
+# Warn on .unwrap() in Rust (standing rule)
+UNWRAPS=$(git diff --cached -- '*.rs' | grep -n '^\+.*\.unwrap()' | head -5)
+if [ -n "$UNWRAPS" ]; then
+  echo "WARNING: .unwrap() found in staged Rust code:"
+  echo "$UNWRAPS"
+  echo "Use ?, .ok(), or match instead."
+fi
