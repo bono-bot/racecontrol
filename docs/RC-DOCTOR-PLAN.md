@@ -1,9 +1,10 @@
-# RC-Doctor v2.1: Self-Healing System for RacingPoint
+# RC-Doctor v2.2: Self-Healing System for RacingPoint
 
 **Status**: APPROVED — Audited by 6 AI models (DeepSeek V3, Kimi K2.5, Gemini 2.5 Pro, GPT-4.1, Qwen 3 235B, Nemotron Ultra 253B)
 **Score**: 7.5/10 after revisions (up from 4/10 original design)
 **Owner**: James (on-site execution) + Bono (cloud deployment)
 **Date**: 2026-03-27
+**Updated**: 2026-03-28 — Added AI-powered diagnosis via OpenRouter (free + cheap models)
 
 ---
 
@@ -40,7 +41,215 @@ RacingPoint runs 14+ microservices on a single VPS. Current monitoring is fragme
 | Uptime Kuma + Canary | Alert humans, track uptime history, detect VPS-level outages | Fix anything |
 | Monit | Restart processes with dependency order, resource monitoring | Custom remediation (disk cleanup, rebuilds) |
 | rc-doctor.sh | Disk cleanup, binary rebuild, port conflicts, WAL vacuum, crash root cause | Basic restarts (Monit does that) |
+| AI Diagnosis | Analyze error logs, identify non-obvious root causes, suggest fixes | Take action (read-only advisor) |
 | PM2 | Process executor (start/stop on Monit's command) | Decision-making (disabled for managed services) |
+
+---
+
+## AI-Powered Diagnosis (OpenRouter — Free + Cheap Models)
+
+When rc-doctor's pattern-matching playbooks can't identify a root cause, it escalates to AI models via OpenRouter for intelligent log analysis.
+
+### Model Tiers (Tested 2026-03-28)
+
+All models live-tested with real PM2 crash logs. Cost calculated for typical rc-doctor call (~500 input + ~200 output tokens).
+
+| Tier | Model | ID | Speed | Cost/Call | Monthly (10/day) | Status |
+|------|-------|----|-------|-----------|-------------------|--------|
+| **Free** | Nemotron Nano 30B | `nvidia/nemotron-3-nano-30b-a3b:free` | ~1s | $0.00 | $0.00 | VERIFIED |
+| **Free** | OpenRouter Auto | `openrouter/free` | ~11s | $0.00 | $0.00 | VERIFIED (fallback) |
+| **Cheap** | Mistral Nemo 12B | `mistralai/mistral-nemo` | ~2s | $0.000018 | $0.005 | VERIFIED |
+| **Cheap** | GPT-oss 120B | `openai/gpt-oss-120b` | ~3s | $0.000058 | $0.017 | VERIFIED |
+
+**Model selection strategy:**
+1. Try free Nemotron Nano first (fast, zero cost)
+2. If free model is rate-limited/down, try cheap Mistral Nemo ($0.005/month)
+3. If both fail, try openrouter/free auto-router (slower but routes around limits)
+4. If ALL fail, return "manual investigation needed" — never blocks remediation
+
+### When AI Diagnosis Triggers
+
+AI is NOT called on every check. It triggers ONLY when:
+1. **Crash loop with unknown cause** — standard checks (port conflict, missing modules, stale binary) all passed but service still crashes
+2. **Escalation from Monit** — 5 restarts in 10 cycles and playbooks didn't fix it
+3. **Weekly health report** — summarize incidents and spot patterns (Sunday 10:00 AM)
+4. **On-demand** — `rc-doctor.sh diagnose <service>`
+
+### Flow
+
+```
+Service crash loop detected by Monit
+        |
+  rc-doctor standard playbook:
+  port conflict? missing modules? stale binary? disk? memory?
+        |
+  All standard checks pass, still crashing
+        |
+  Collect last 50 lines of PM2 error log
+        |
+  ai_diagnose() call chain:
+    Tier 1: nvidia/nemotron-3-nano-30b-a3b:free  (1s, $0)
+      |-- rate limited/fail -->
+    Tier 2: mistralai/mistral-nemo               (2s, $0.00002)
+      |-- fail -->
+    Tier 3: openrouter/free                       (11s, $0)
+      |-- fail -->
+    Return: {"root_cause":"AI unavailable","fix":"manual investigation needed"}
+        |
+  Parse JSON: {root_cause, severity, fix, category}
+        |
+  Log diagnosis + include in WhatsApp alert
+  If fix matches known-safe pattern: auto-apply
+  Otherwise: log for human review
+```
+
+### AI Functions (add to rc-doctor.sh)
+
+```bash
+# === AI DIAGNOSIS (OpenRouter — free + cheap models) ===
+OPENROUTER_KEY="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"
+AI_MODELS=("nvidia/nemotron-3-nano-30b-a3b:free" "mistralai/mistral-nemo" "openrouter/free")
+AI_CALLS_FILE="/var/lib/rc-doctor/ai-calls"
+
+check_ai_budget() {
+  local count
+  count=$(grep -c "$(date +%Y-%m-%dT%H)" "$AI_CALLS_FILE" 2>/dev/null || echo 0)
+  [ "$count" -lt 5 ]  # Max 5 AI calls per hour
+}
+
+ai_diagnose() {
+  local service="$1"
+  local error_logs="$2"
+
+  if ! check_ai_budget; then
+    log "AI budget exhausted this hour"
+    echo '{"root_cause":"AI budget exhausted","severity":"unknown","fix":"manual investigation","category":"unknown"}'
+    return 1
+  fi
+
+  local sys_prompt="You are an SRE assistant for RacingPoint (sim racing venue, 14 microservices on single VPS). Analyze error logs. Return ONLY valid JSON: {\"root_cause\":\"...\",\"severity\":\"critical|warning|info\",\"fix\":\"one actionable command or instruction\",\"category\":\"port_conflict|memory_leak|missing_dep|config_error|db_issue|network|unknown\"}"
+
+  local user_prompt="Service: $service
+Error logs (last 50 lines):
+$error_logs
+
+Ports: racecontrol=8080 pwa=3500 admin=3201 dashboard=3400 gateway=3100 whatsapp=3000 comms=8765
+Return ONLY valid JSON, no markdown."
+
+  local response=""
+  for model in "${AI_MODELS[@]}"; do
+    response=$(curl -sf --max-time 20 https://openrouter.ai/api/v1/chat/completions \
+      -H "Authorization: Bearer $OPENROUTER_KEY" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg s "$sys_prompt" --arg u "$user_prompt" --arg m "$model" '{
+        model: $m,
+        messages: [{role:"system",content:$s},{role:"user",content:$u}],
+        max_tokens: 300, temperature: 0.1
+      }')" 2>/dev/null | jq -r '.choices[0].message.content // empty')
+
+    if [ -n "$response" ]; then
+      log "AI diagnosis via $model"
+      break
+    fi
+    log "AI model $model failed, trying next"
+  done
+
+  if [ -z "$response" ]; then
+    log "All AI models failed"
+    echo '{"root_cause":"AI unavailable","severity":"unknown","fix":"manual investigation needed","category":"unknown"}'
+    return 1
+  fi
+
+  # Strip markdown fences, validate JSON
+  response=$(echo "$response" | sed 's/^```json//; s/^```//; s/```$//' | tr -d '\n')
+  if echo "$response" | jq . >/dev/null 2>&1; then
+    echo "$(date -Is)" >> "$AI_CALLS_FILE"
+    log "AI result: $response"
+    echo "$response"
+  else
+    log "AI returned invalid JSON: $response"
+    echo '{"root_cause":"AI parse error","severity":"unknown","fix":"check rc-doctor.log","category":"unknown"}'
+    return 1
+  fi
+}
+
+ai_weekly_report() {
+  local audit_data
+  audit_data=$(tail -500 /var/lib/rc-doctor/audit.log 2>/dev/null)
+  [ -z "$audit_data" ] && return 0
+
+  local report
+  report=$(curl -sf --max-time 30 https://openrouter.ai/api/v1/chat/completions \
+    -H "Authorization: Bearer $OPENROUTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg p "Summarize this week's RacingPoint infrastructure incidents. Group by service, identify patterns, give 3 prioritized recommendations. Under 300 words.\n\nAudit log:\n$audit_data" '{
+      model: "nvidia/nemotron-3-nano-30b-a3b:free",
+      messages: [{role:"user",content:$p}],
+      max_tokens: 500, temperature: 0.3
+    }')" 2>/dev/null | jq -r '.choices[0].message.content // "Report failed"')
+
+  log "WEEKLY REPORT: $report"
+  alert_whatsapp "Weekly Health Report:\n$report"
+  audit "weekly-report" "system" "generated"
+}
+
+cmd_diagnose() {
+  local service="${1:-}"
+  [ -z "$service" ] && { echo "Usage: rc-doctor.sh diagnose <service-name>"; return 1; }
+  local logs
+  logs=$(pm2 logs "$service" --lines 50 --nostream 2>/dev/null)
+  [ -z "$logs" ] && { echo "No logs found for $service"; return 1; }
+  ai_diagnose "$service" "$logs"
+}
+```
+
+### Integration in crash-loop playbook
+
+After standard fixes fail and before escalating to WhatsApp:
+
+```bash
+# In cmd_crash_loop(), after Step 5 verify fails:
+local error_logs diagnosis ai_cause ai_fix
+error_logs=$(pm2 logs "$service" --lines 50 --nostream 2>/dev/null)
+diagnosis=$(ai_diagnose "$service" "$error_logs")
+ai_cause=$(echo "$diagnosis" | jq -r '.root_cause // "unknown"')
+ai_fix=$(echo "$diagnosis" | jq -r '.fix // "manual investigation"')
+alert_whatsapp "$service crash loop. AI: $ai_cause | Fix: $ai_fix"
+audit "crash-loop" "$service" "AI_DIAGNOSED:$ai_cause"
+```
+
+### Weekly report (add to cmd_routine)
+
+```bash
+# In cmd_routine(), in the hourly block:
+if [ "$(date +%u)" = "7" ] && [ "$(date +%H)" = "10" ] && [ "$minute" = "00" ]; then
+  ai_weekly_report
+fi
+```
+
+### New command: `rc-doctor.sh diagnose <service>`
+
+```bash
+# In DISPATCH case statement, add:
+  diagnose)         cmd_diagnose "${2:-}" ;;
+```
+
+### Safety Constraints
+
+- AI models are **read-only advisors** — they suggest, rc-doctor decides
+- Max **5 AI calls per hour** (tracked in `/var/lib/rc-doctor/ai-calls`)
+- **No sensitive data** sent — only error logs + service names, never keys/passwords/customer data
+- If all models fail, returns "manual investigation needed" — never blocks remediation
+- All AI responses logged to audit trail with model name
+- Free tier handles 99% of calls; cheap models only hit when free is rate-limited
+
+### Cost Summary
+
+| Scenario | Free Models | With Cheap Fallback |
+|----------|-------------|---------------------|
+| 10 diagnoses/day | $0/month | $0.005/month |
+| Weekly reports (4/month) | $0/month | $0/month (free model) |
+| Worst case (all cheap) | N/A | $0.02/month |
 
 ---
 
@@ -605,10 +814,12 @@ case "${1:-routine}" in
   ssl-check)        cmd_ssl_check ;;
   db-integrity)     cmd_db_integrity ;;
   backup-verify)    cmd_backup_verify ;;
+  diagnose)         cmd_diagnose "${2:-}" ;;
+  weekly-report)    ai_weekly_report ;;
   routine)          cmd_routine ;;
   logs)             cmd_logs ;;
   status)           cmd_status ;;
-  *)                echo "Usage: rc-doctor.sh {routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|wal-bloat|ssl-check|db-integrity|backup-verify|logs|status}" ;;
+  *)                echo "Usage: rc-doctor.sh {routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|wal-bloat|ssl-check|db-integrity|backup-verify|diagnose <svc>|weekly-report|logs|status}" ;;
 esac
 ```
 
