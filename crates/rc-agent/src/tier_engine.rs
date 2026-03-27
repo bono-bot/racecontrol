@@ -351,25 +351,43 @@ fn tier1_ensure_ssh_key() -> Option<String> {
     const ADMIN_KEY_PATH: &str = r"C:\ProgramData\ssh\administrators_authorized_keys";
 
     // P2: Derive user home from USERNAME env var instead of hardcoding "User"
+    // MMA Round 2 fix (3/3 consensus): sanitize USERNAME against path traversal
     let user_key_path = std::env::var("USERNAME")
+        .ok()
+        .filter(|u| !u.is_empty() && u.len() <= 32 && u.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.'))
         .map(|u| format!(r"C:\Users\{}\.ssh\authorized_keys", u))
-        .unwrap_or_else(|_| r"C:\Users\User\.ssh\authorized_keys".to_string());
+        .unwrap_or_else(|| r"C:\Users\User\.ssh\authorized_keys".to_string());
 
     let mut fixed = false;
 
     // Check + append to admin path
     if ensure_key_in_file(ADMIN_KEY_PATH, JAMES_PUBKEY) {
         // P1: Set strict ACLs — only SYSTEM and Administrators
-        let _ = std::process::Command::new("icacls")
+        // MMA Round 2 fix (2/3): check icacls exit status
+        match std::process::Command::new("icacls")
             .args([ADMIN_KEY_PATH, "/inheritance:r", "/grant", "SYSTEM:F", "/grant", "Administrators:F"])
-            .output();
-        tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {} + ACLs set", ADMIN_KEY_PATH);
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {} + ACLs set", ADMIN_KEY_PATH);
+            }
+            Ok(out) => {
+                tracing::warn!(target: LOG_TARGET, status = %out.status, "Tier 1: SSH key deployed but icacls FAILED on {}", ADMIN_KEY_PATH);
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Tier 1: SSH key deployed but icacls spawn failed");
+            }
+        }
         fixed = true;
     }
 
     // Check + append to user path
     if ensure_key_in_file(&user_key_path, JAMES_PUBKEY) {
-        tracing::info!(target: LOG_TARGET, path = %user_key_path, "Tier 1: deployed SSH key to user authorized_keys");
+        // MMA Round 2 fix (Grok 4.1): also set ACLs on user key path
+        let _ = std::process::Command::new("icacls")
+            .args([&user_key_path, "/inheritance:r", "/grant", "SYSTEM:F", "/grant", "Administrators:F"])
+            .output();
+        tracing::info!(target: LOG_TARGET, path = %user_key_path, "Tier 1: deployed SSH key to user authorized_keys + ACLs set");
         fixed = true;
     }
 
