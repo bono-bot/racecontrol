@@ -31,6 +31,12 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 
 ---
 
+## 2026-03-27
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| Mar 27 IST | James | `0ffbab2b` | fix(ac-launcher): ai_count u32→Option\<u32\> — multi-model audit (GPT-5.4+Claude+Gemini) found trackday+ai_count=0 still spawned default traffic. Now None=unspecified (trackday default), Some(0)=explicitly solo, Some(N)=generate N. 3 new tests. Deployed all 8 pods. |
+
 ## 2026-03-26
 
 | Timestamp | Author | Commit | Summary |
