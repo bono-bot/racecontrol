@@ -134,9 +134,23 @@ export function DeployPanel({ deployStates, onDeploy }: DeployPanelProps) {
   }
 
   const handleDeploy = () => {
-    if (!binaryUrl.trim()) return;
+    const url = binaryUrl.trim();
+    if (!url) return;
+    // Validate URL is from trusted LAN hosts only
+    const TRUSTED_HOSTS = ["192.168.31.27", "192.168.31.23", "localhost", "127.0.0.1"];
+    try {
+      const parsed = new URL(url);
+      if (!TRUSTED_HOSTS.includes(parsed.hostname)) {
+        alert(`Deploy blocked: ${parsed.hostname} is not a trusted host.\nAllowed: ${TRUSTED_HOSTS.join(", ")}`);
+        return;
+      }
+    } catch {
+      alert("Invalid URL format");
+      return;
+    }
+    if (!confirm(`Deploy ${url} to ALL pods? This will restart rc-agent on every pod.`)) return;
     setDeploying(true);
-    onDeploy(binaryUrl.trim());
+    onDeploy(url);
   };
 
   return (

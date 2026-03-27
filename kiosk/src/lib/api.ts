@@ -7,7 +7,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   (typeof window !== "undefined"
     ? `${window.location.protocol}//${window.location.host}`
-    : "http://localhost:8080");
+    : "");
 
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 500;
