@@ -342,3 +342,89 @@ pub enum IncidentSeverity {
     High,
     Critical,
 }
+
+// ─── v26.1 Agent Harness Types ──────────────────────────────────────────────
+
+/// Graded evaluation of a solution by an adversarial evaluator (Principle 3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolutionGrade {
+    /// Root cause accuracy (1-5): did we find the actual cause?
+    pub root_cause_accuracy: u8,
+    /// Fix completeness (1-5): handles all variants?
+    pub fix_completeness: u8,
+    /// Verification evidence (1-5): concrete proof it works?
+    pub verification_evidence: u8,
+    /// Side effect safety (1-5): breaks anything else?
+    pub side_effect_safety: u8,
+    /// Weighted total (0.0-5.0): 35% + 25% + 25% + 15%
+    pub weighted_total: f64,
+    /// Which model evaluated (MUST differ from diagnostician).
+    pub evaluator_model: String,
+    /// Evaluator's notes and reasoning.
+    pub evaluator_notes: String,
+    pub graded_at: DateTime<Utc>,
+}
+
+impl SolutionGrade {
+    pub fn compute_weighted_total(rca: u8, fc: u8, ve: u8, ses: u8) -> f64 {
+        (rca as f64 * 0.35) + (fc as f64 * 0.25) + (ve as f64 * 0.25) + (ses as f64 * 0.15)
+    }
+}
+
+/// State of a diagnostic session running inside the harness (Principle 1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticSession {
+    pub session_id: String,
+    pub node: String,
+    pub phase: DiagnosticPhase,
+    pub anomaly_summary: String,
+    pub hypotheses: Vec<Hypothesis>,
+    /// Ralph Wiggum loop iteration count (Principle 6).
+    pub ralph_wiggum_loops: u32,
+    pub max_loops: u32,
+    pub tokens_used: u64,
+    pub budget_spent: f64,
+    pub grade: Option<SolutionGrade>,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Diagnostic harness phases — must progress sequentially.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticPhase {
+    Detect,
+    Hypothesize,
+    Test,
+    Evaluate,
+    Validate,
+    Promote,
+    Escalated,
+}
+
+/// A hypothesis being tracked through the Cause Elimination process.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hypothesis {
+    pub id: String,
+    pub description: String,
+    pub status: HypothesisStatus,
+    pub evidence: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HypothesisStatus {
+    Untested,
+    Testing,
+    Confirmed,
+    Eliminated,
+}
+
+/// A deterministic validation check in the Ralph Wiggum loop (Principle 6).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationCheck {
+    pub check_type: String,
+    pub target: String,
+    pub expected: String,
+    pub actual: Option<String>,
+    pub passed: bool,
+}

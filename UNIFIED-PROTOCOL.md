@@ -392,6 +392,17 @@ grep -c "UNTRIAGED\|TODO\|OPEN" audit/results/cross-model-report-*/CROSS-MODEL-R
 | > 30 days | **WARNING:** Run at least a quick pre-deploy check (Qwen3, $0.05) before any deploy |
 | Never | **BLOCK:** Run full 5-model audit before first deploy |
 
+### 0.6 — Agent Harness Checks (v3.1)
+```bash
+# Check model assumption registry freshness (Principle 5)
+ls -la .planning/model-assumptions.toml 2>/dev/null
+# If older than 90 days: schedule assumption audit this session
+
+# Check active diagnostic sessions on pods (Principle 1)
+# Any session stuck in HYPOTHESIZE/TEST for >1 hour = likely context anxiety
+curl -s http://192.168.31.23:8080/api/v1/mesh/stats
+```
+
 ### Phase 0 Gate
 - [ ] Fleet health checked, offline pods investigated
 - [ ] MAINTENANCE_MODE cleared on any stuck pods
@@ -400,6 +411,7 @@ grep -c "UNTRIAGED\|TODO\|OPEN" audit/results/cross-model-report-*/CROSS-MODEL-R
 - [ ] Server build_id matches HEAD (or rebuild queued)
 - [ ] LOGBOOK reviewed for recent context
 - [ ] Multi-model audit freshness checked (< 30 days or quick audit scheduled)
+- [ ] Model assumption registry checked (< 90 days, Principle 5)
 
 **If any check fails → Phase D (Debug) with Phase 0 context**
 
@@ -914,6 +926,27 @@ Maintain `audit/suppress.json` with time-bound suppressions:
 - R1: Over-detailed reasoning restating the obvious
 - MiMo: "Missing health check" when one exists — verify with grep
 
+### 3.11 — Adversarial Evaluator Gate (v3.1, Principle 2)
+For mesh intelligence solutions and any AI-diagnosed fix:
+1. **Evaluator model MUST differ from diagnostician model** (Principle 2)
+2. Evaluator grades on 4-criterion rubric (Principle 3):
+   - Root Cause Accuracy (35%): actual cause or just correlation?
+   - Fix Completeness (25%): handles all variants or just observed case?
+   - Verification Evidence (25%): concrete proof or "it should work"?
+   - Side Effect Safety (15%): breaks anything else?
+3. Score ≥ 4.0 → proceed. Score 3.0-3.9 → flag for human review. Score < 3.0 → iterate.
+
+### 3.12 — Ralph Wiggum Deterministic Loop (v3.1, Principle 6)
+After AI evaluation passes, run deterministic checks that **cannot lie:**
+1. Select checks by problem domain (service: ProcessAlive + HttpStatus + PortOpen)
+2. Run ALL checks sequentially
+3. ANY failure → loop back to diagnostician with specific failure reason
+4. Diagnostician must address the SPECIFIC failure (not just retry)
+5. Max 5 loops → escalate to human with full loop history
+6. ALL checks pass → proceed to deploy
+
+**The loop CANNOT be exited by AI decision. Only by passing all checks or reaching max loops.**
+
 ### Phase 3 Gate
 - [ ] Exact behavior path tested (not proxies)
 - [ ] Domain-matched verification completed
@@ -925,6 +958,8 @@ Maintain `audit/suppress.json` with time-bound suppressions:
 - [ ] Multi-model audit completed (Tier A minimum, Tier B/C if risk-triggered)
 - [ ] All consensus P1 findings resolved
 - [ ] All two-model P1 findings triaged
+- [ ] Adversarial evaluator grade ≥ 3.0 (if AI-diagnosed fix, Principle 2+3)
+- [ ] Ralph Wiggum loop passed (if mesh solution, Principle 6)
 
 **If verification fails → Phase D (Debug) with Phase 3 context**
 
@@ -1621,6 +1656,21 @@ After multi-model diagnosis, update the debug file:
 
 Then return to **D.2 Step 3 (Test & Eliminate)** with the new hypotheses.
 
+### D.11 — Diagnostic Harness Enforcement (v3.1, Principle 1)
+When a pod's diagnostic engine enters Phase D autonomously:
+1. **Harness state machine enforced:** DETECT → HYPOTHESIZE (≥3) → TEST (≥1) → EVALUATE → VALIDATE
+2. Engine CANNOT skip phases — `advance_phase()` validates preconditions
+3. EVALUATE model MUST differ from the diagnosing model (Principle 2)
+4. VALIDATE runs Ralph Wiggum deterministic checks (Principle 6)
+5. If loops exceed 5 → auto-escalate to human via WhatsApp
+
+### D.12 — Context Management for Pod Diagnostic Engines (v3.1, Principle 4)
+Pod engines run on smaller OpenRouter models (8K-32K context). During complex diagnoses:
+1. **Compaction after each phase:** Raw logs → structured summary, traces discarded from context
+2. **Hard reset at 80% context usage:** Save `DiagnosticSession` state to JSON, kill session, restart fresh
+3. **Budget tracking:** If approaching daily limit, downgrade to cheaper model (Tier 3 vs Tier 4)
+4. **Handoff prompt:** New session receives structured state, resumes from saved phase
+
 ### Phase D Exit Gate
 - [ ] Root cause confirmed with evidence (not just theory)
 - [ ] Fix applied (smallest reversible change)
@@ -1631,6 +1681,9 @@ Then return to **D.2 Step 3 (Test & Eliminate)** with the new hypotheses.
 - [ ] Knowledge base updated (if new pattern)
 - [ ] Post-incident multi-model audit run (if production incident)
 - [ ] Multi-model diagnosis used if first loop failed (D.10)
+- [ ] Diagnostic harness phases completed in order (Principle 1, if autonomous)
+- [ ] Evaluator grade ≥ 3.0 from different model (Principle 2, if autonomous)
+- [ ] Ralph Wiggum loop passed (Principle 6, if autonomous)
 - [ ] Return to failing lifecycle phase and continue
 
 ---

@@ -1,0 +1,76 @@
+# Model Assumption Registry — v26.1 Agent Harness
+# Every constraint in the harness encodes an assumption about model limitations.
+# These assumptions go stale as models improve. Audit quarterly.
+#
+# Format:
+#   [assumptions.<name>]
+#   constraint = "What the harness enforces"
+#   assumes = "What model limitation this compensates for"
+#   model_when_set = "Which model version this was designed for"
+#   last_audited = "YYYY-MM-DD"
+#   triggered_count = N  # How many times this constraint fired in the last quarter
+#   remove_when = "Condition under which this constraint is no longer needed"
+
+[assumptions.min_3_hypotheses]
+constraint = "Diagnostician must generate >=3 hypotheses before testing"
+assumes = "Model tends to fixate on first hypothesis without exploring alternatives"
+model_when_set = "qwen3-235b, deepseek-r1"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model reliably explores 3+ hypotheses unprompted in >90% of cases"
+
+[assumptions.different_evaluator_model]
+constraint = "Verifier must be a different model than Diagnostician"
+assumes = "Same model approves its own work — blind to its own failure modes"
+model_when_set = "all current models"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model demonstrates genuine self-criticism in >80% of blind A/B tests"
+
+[assumptions.max_5_ralph_wiggum_loops]
+constraint = "Ralph Wiggum loop max 5 iterations before human escalation"
+assumes = "After 5 failed fix attempts, the model is stuck and a human is more effective"
+model_when_set = "qwen3/deepseek-r1/mimo-v2"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model success rate on loops 6-10 exceeds 30%"
+
+[assumptions.context_reset_at_80_percent]
+constraint = "Hard context reset when usage exceeds 80% of model window"
+assumes = "Models degrade and rush to conclusions when context is nearly full"
+model_when_set = "qwen3 (8K), deepseek-r1 (32K), mimo-v2 (32K)"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Models maintain quality in final 20% of context (test with held-out eval set)"
+
+[assumptions.compaction_after_each_phase]
+constraint = "Compact diagnostic context after each harness phase"
+assumes = "Raw logs and traces fill context quickly on small-window models"
+model_when_set = "qwen3 (8K)"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model context windows exceed 128K consistently"
+
+[assumptions.anti_slop_rubric_weighting]
+constraint = "Rubric penalizes generic restart fixes (Root Cause = 1, Completeness = 1)"
+assumes = "Models produce 'restart the service' as default fix without investigating root cause"
+model_when_set = "all current models"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model produces specific root cause analysis >85% of the time without rubric pressure"
+
+[assumptions.sequential_phase_gates]
+constraint = "Diagnostic harness phases must progress sequentially (no skipping)"
+assumes = "Without explicit gates, model declares 'done' after first plausible fix"
+model_when_set = "all current models"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "Model naturally follows full Cause Elimination process >90% of the time"
+
+[assumptions.opus_no_context_reset]
+constraint = "Opus 4.6 uses compaction only, no hard context resets"
+assumes = "1M context window is sufficient for any single diagnostic session"
+model_when_set = "claude-opus-4-6 (1M)"
+last_audited = "2026-03-27"
+triggered_count = 0
+remove_when = "N/A — this is a positive assumption (no constraint needed)"
