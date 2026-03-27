@@ -198,7 +198,11 @@ run_audit() {
 
   cd "$REPO_ROOT"
   local audit_output
-  audit_output=$(AUDIT_PIN="$AUDIT_PIN" bash audit/audit.sh $audit_flags 2>&1) || true
+  local audit_rc=0
+  audit_output=$(AUDIT_PIN="$AUDIT_PIN" bash audit/audit.sh $audit_flags 2>&1) || audit_rc=$?
+  if [[ "$audit_rc" -ne 0 ]]; then
+    log WARN "audit.sh exited with code $audit_rc — proceeding with stale data"
+  fi
   echo "$audit_output" >> "$LOG_FILE"
 
   # Parse audit results
@@ -601,12 +605,21 @@ Full report: $RESULT_DIR/auto-detect.log"
       affected_pods=$(jq -r '[.[].pod_ip] | unique | length' "$RESULT_DIR/findings.json" 2>/dev/null || echo "0")
 
       if [[ "$BUGS_UNFIXED" -gt 0 ]] || [[ "$affected_pods" -ge 3 ]]; then
+        local _dedup_file="${RESULT_DIR}/.escalation_dedup_$$"
+        : > "$_dedup_file"
         jq -r '.[] | "\(.pod_ip) \(.issue_type) \(.severity)"' "$RESULT_DIR/findings.json" 2>/dev/null | \
         while read -r pod_ip issue_type severity; do
           if [[ -n "$pod_ip" ]] && [[ -n "$issue_type" ]]; then
+            local dedup_key="${issue_type}:${severity:-P1}"
+            if grep -qxF "$dedup_key" "$_dedup_file" 2>/dev/null; then
+              log INFO "[DEDUP] skipping duplicate escalation for $dedup_key"
+              continue
+            fi
+            echo "$dedup_key" >> "$_dedup_file"
             escalate_human "$pod_ip" "$issue_type" "${severity:-P1}"
           fi
         done
+        rm -f "$_dedup_file"
       fi
     fi
   fi

@@ -382,23 +382,34 @@ impl AppState {
     /// Also initializes config_push_seq from MAX(seq_num) + 1 in config_push_queue.
     /// Called once at startup after AppState is constructed.
     pub async fn load_feature_flags(&self) {
-        match sqlx::query_as::<_, FeatureFlagRow>(
-            "SELECT name, enabled, default_value, overrides, version, updated_at FROM feature_flags",
-        )
-        .fetch_all(&self.db)
-        .await
-        {
-            Ok(rows) => {
-                let count = rows.len();
-                let mut cache = self.feature_flags.write().await;
-                for row in rows {
-                    cache.insert(row.name.clone(), row);
+        let mut loaded = false;
+        for attempt in 1..=3 {
+            match sqlx::query_as::<_, FeatureFlagRow>(
+                "SELECT name, enabled, default_value, overrides, version, updated_at FROM feature_flags",
+            )
+            .fetch_all(&self.db)
+            .await
+            {
+                Ok(rows) => {
+                    let count = rows.len();
+                    let mut cache = self.feature_flags.write().await;
+                    for row in rows {
+                        cache.insert(row.name.clone(), row);
+                    }
+                    tracing::info!("Loaded {} feature flags into cache", count);
+                    loaded = true;
+                    break;
                 }
-                tracing::info!("Loaded {} feature flags into cache", count);
+                Err(e) => {
+                    tracing::warn!("Failed to load feature flags from DB (attempt {}/3): {}", attempt, e);
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
             }
-            Err(e) => {
-                tracing::warn!("Failed to load feature flags from DB: {}", e);
-            }
+        }
+        if !loaded {
+            tracing::error!("Feature flags could not be loaded after 3 attempts — running with empty cache");
         }
 
         // Initialize config_push_seq from MAX(seq_num) + 1

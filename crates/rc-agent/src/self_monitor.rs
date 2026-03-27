@@ -275,6 +275,15 @@ fn check_sentry_alive_on_port(port: u16) -> bool {
 const MAX_RESTARTS: u32 = 5;
 static RESTART_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// Reset the restart counter back to 0. Call after a successful WS connection
+/// confirms the agent is stable, so transient restart budget is restored.
+pub fn reset_restart_count() {
+    let prev = RESTART_COUNT.swap(0, Ordering::SeqCst);
+    if prev > 0 {
+        tracing::info!(target: LOG_TARGET, "Restart count reset (was {})", prev);
+    }
+}
+
 /// Sentry-aware relaunch: prefer yielding to rc-sentry (clean exit + sentinel)
 /// over spawning a new PowerShell process (which leaks ~90MB per restart).
 ///

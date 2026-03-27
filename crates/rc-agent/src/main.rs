@@ -1162,6 +1162,9 @@ async fn main() -> Result<()> {
 
         state.heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
 
+        // WS connected successfully — reset restart counter so transient budget is restored.
+        self_monitor::reset_restart_count();
+
         // Inner event loop — runs until connection is lost.
         // All per-connection state (intervals, timers, crash_recovery, launch_state, etc.)
         // is initialized inside ConnectionState::new() by event_loop::run().

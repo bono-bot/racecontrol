@@ -71,6 +71,10 @@ pub fn spawn(state: Arc<AppState>) {
         }
     };
 
+    if state.config.bono.relay_secret.as_deref().unwrap_or("").is_empty() {
+        tracing::warn!("Bono relay: relay_secret is not configured — inbound command endpoint will reject all requests");
+    }
+
     tracing::info!("Bono relay spawned — pushing events to {}", webhook_url);
 
     tokio::spawn(async move {

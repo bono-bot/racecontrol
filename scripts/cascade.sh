@@ -62,13 +62,13 @@ _emit_finding() {
     local updated
     updated=$(jq --argjson f "$finding" '. + [$f]' "$findings_file" 2>/dev/null)
     if [[ -n "$updated" ]]; then
-      printf '%s' "$updated" > "$findings_file"
+      printf '%s' "$updated" > "${findings_file}.tmp" && mv "${findings_file}.tmp" "$findings_file"
     else
       # jq parse failed — reinitialize array and add this finding
-      jq -n --argjson f "$finding" '[$f]' > "$findings_file"
+      jq -n --argjson f "$finding" '[$f]' > "${findings_file}.tmp" && mv "${findings_file}.tmp" "$findings_file"
     fi
   else
-    jq -n --argjson f "$finding" '[$f]' > "$findings_file"
+    jq -n --argjson f "$finding" '[$f]' > "${findings_file}.tmp" && mv "${findings_file}.tmp" "$findings_file"
   fi
 
   # Log finding

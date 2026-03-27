@@ -188,7 +188,8 @@ async fn expire_reservations(state: &Arc<AppState>) -> anyhow::Result<()> {
     let expired = sqlx::query_as::<_, (String, String, Option<String>)>(
         "SELECT id, driver_id, debit_intent_id FROM reservations
          WHERE status IN ('pending_debit', 'confirmed')
-         AND expires_at < datetime('now')"
+         AND expires_at < datetime('now')
+         LIMIT 100"
     )
     .fetch_all(&state.db)
     .await?;

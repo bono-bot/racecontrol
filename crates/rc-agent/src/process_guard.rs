@@ -688,17 +688,21 @@ async fn audit_startup_folder(
 
 /// Parse `reg query` stdout into a list of value names.
 /// Input format per line: "    ValueName    REG_SZ    C:\path\to\exe"
+/// Value names may contain spaces (e.g. "Steam Client Bootstrapper"),
+/// so we split on the REG_ type token rather than whitespace.
 /// Returns only lines that are actual values (skip HKEY header lines and blank lines).
 pub(crate) fn parse_run_key_entries(stdout: &str) -> Vec<String> {
     stdout.lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with("HKEY"))
         .filter_map(|line| {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 && parts[1].starts_with("REG_") {
-                Some(parts[0].to_string())
-            } else {
-                None
+            // Find "    REG_" pattern — the type token is preceded by whitespace
+            let trimmed = line.trim_start();
+            let reg_pos = trimmed.find("    REG_")?;
+            let name = trimmed[..reg_pos].trim();
+            if name.is_empty() {
+                return None;
             }
+            Some(name.to_string())
         })
         .collect()
 }

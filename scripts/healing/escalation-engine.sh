@@ -34,19 +34,22 @@ AUTO_DETECT_CONFIG="${REPO_ROOT}/audit/results/auto-detect-config.json"
 # ─── HEAL-08: _auto_fix_enabled ──────────────────────────────────────────────
 # Reads auto_fix_enabled from config JSON at call time (not startup).
 # NO_FIX=true env var overrides config (returns 1 = disabled).
-# Missing config = enabled (fail-safe). jq parse failure = enabled (fail-safe).
+# Missing config = disabled (safe default). jq parse failure = disabled (safe default).
 _auto_fix_enabled() {
   # NO_FIX override takes precedence
   if [[ "${NO_FIX:-false}" == "true" ]]; then return 1; fi
 
-  # Missing config = fail-safe enabled
-  if [[ ! -f "$AUTO_DETECT_CONFIG" ]]; then return 0; fi
+  # Missing config = disabled (safe default — require explicit opt-in)
+  if [[ ! -f "$AUTO_DETECT_CONFIG" ]]; then
+    log WARN "[HEAL-08] auto-detect config missing ($AUTO_DETECT_CONFIG) — auto-fix disabled"
+    return 1
+  fi
 
-  # Parse config; jq failure = fail-safe enabled
+  # Parse config; jq failure = disabled (safe default)
   local val
-  val=$(jq -r '.auto_fix_enabled // true' "$AUTO_DETECT_CONFIG" 2>/dev/null || echo "true")
-  if [[ "$val" == "false" ]]; then return 1; fi
-  return 0
+  val=$(jq -r '.auto_fix_enabled // false' "$AUTO_DETECT_CONFIG" 2>/dev/null || echo "false")
+  if [[ "$val" == "true" ]]; then return 0; fi
+  return 1
 }
 export -f _auto_fix_enabled
 
@@ -56,6 +59,14 @@ export -f _auto_fix_enabled
 _sentinel_gate() {
   local pod_ip="$1" tier_name="$2"
   if ! check_pod_sentinels "$pod_ip"; then
+    # Check if MAINTENANCE_MODE is stale (>15 min old)
+    local mm_age
+    mm_age=$(safe_remote_exec "$pod_ip" 8090 \
+      "powershell -NoProfile -Command \"if(Test-Path C:\\RacingPoint\\MAINTENANCE_MODE){((Get-Date)-(Get-Item C:\\RacingPoint\\MAINTENANCE_MODE).LastWriteTime).TotalMinutes}else{0}\"" 10 2>/dev/null || echo "0")
+    mm_age=$(printf '%s' "$mm_age" | tr -d '[:space:]' | cut -d'.' -f1)
+    if [[ "${mm_age:-0}" -gt 15 ]]; then
+      log WARN "[HEAL] STALE MAINTENANCE_MODE on $pod_ip — sentinel is ${mm_age} minutes old (>15min). Manual clear may be needed."
+    fi
     emit_fix "heal" "$pod_ip" "SENTINEL_BLOCK_${tier_name}" "sentinel_active" "blocked"
     log WARN "[HEAL] sentinel block: $pod_ip at $tier_name"
     return 1
@@ -364,12 +375,20 @@ escalate_pod() {
     return 0
   fi
 
-  # Billing gate: do not attempt fixes on active billing sessions
-  if ! is_pod_idle "$pod_ip"; then
-    emit_fix "heal" "$pod_ip" "SKIP_BILLING_ACTIVE" "billing_active" "skipped"
-    log INFO "[HEAL] billing active on $pod_ip — skipping escalation"
-    return 0
-  fi
+  # Billing gate: do not attempt fixes on active billing sessions (pods only)
+  # Skip billing check for non-pod identifiers (fleet, cloud, server, etc.)
+  case "$pod_ip" in
+    192.168.31.89|192.168.31.33|192.168.31.28|192.168.31.88|192.168.31.86|192.168.31.87|192.168.31.38|192.168.31.91)
+      if ! is_pod_idle "$pod_ip"; then
+        emit_fix "heal" "$pod_ip" "SKIP_BILLING_ACTIVE" "billing_active" "skipped"
+        log INFO "[HEAL] billing active on $pod_ip — skipping escalation"
+        return 0
+      fi
+      ;;
+    *)
+      log INFO "[HEAL] non-pod identifier '$pod_ip' — skipping billing gate"
+      ;;
+  esac
 
   # Reset fleet health cache at entry (Pitfall 4 — stale cache causes billing gate to pass incorrectly)
   _FLEET_HEALTH_CACHE=""

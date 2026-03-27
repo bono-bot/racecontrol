@@ -44,7 +44,13 @@ pub fn spawn(state: Arc<AppState>) {
         None => return,
     };
 
-    let secret = cloud.terminal_secret.clone().unwrap_or_default();
+    let secret = match cloud.terminal_secret.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => {
+            tracing::warn!("Remote terminal: terminal_secret is not configured — terminal task will NOT spawn (no auth)");
+            return;
+        }
+    };
 
     if !api_url.starts_with("https://") {
         tracing::warn!("Remote terminal polling over HTTP (not HTTPS) — commands and secrets are transmitted in plaintext: {}", api_url);

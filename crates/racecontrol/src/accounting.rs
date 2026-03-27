@@ -240,7 +240,7 @@ pub async fn post_topup(
     };
 
     let desc = format!("Wallet topup ({}) for driver {}", method, driver_id);
-    let _ = post_journal_entry(
+    if let Err(e) = post_journal_entry(
         state,
         &desc,
         Some("wallet_transaction"),
@@ -259,7 +259,9 @@ pub async fn post_topup(
             },
         ],
     )
-    .await;
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
 }
 
 /// Post journal entry for a bonus credit.
@@ -271,7 +273,7 @@ pub async fn post_bonus(
     txn_id: Option<&str>,
 ) {
     let desc = format!("Bonus credit for driver {}", driver_id);
-    let _ = post_journal_entry(
+    if let Err(e) = post_journal_entry(
         state,
         &desc,
         Some("wallet_transaction"),
@@ -290,7 +292,9 @@ pub async fn post_bonus(
             },
         ],
     )
-    .await;
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
 }
 
 /// Post journal entry for a session debit.
@@ -302,7 +306,7 @@ pub async fn post_session_debit(
     session_id: &str,
 ) {
     let desc = format!("Racing session {} for driver {}", session_id, driver_id);
-    let _ = post_journal_entry(
+    if let Err(e) = post_journal_entry(
         state,
         &desc,
         Some("billing_session"),
@@ -321,7 +325,9 @@ pub async fn post_session_debit(
             },
         ],
     )
-    .await;
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
 }
 
 /// Post journal entry for a wallet debit (cafe, merchandise, penalty).
@@ -341,7 +347,7 @@ pub async fn post_wallet_debit(
     };
 
     let desc = format!("{} for driver {}", desc_prefix, driver_id);
-    let _ = post_journal_entry(
+    if let Err(e) = post_journal_entry(
         state,
         &desc,
         Some("wallet_transaction"),
@@ -360,7 +366,9 @@ pub async fn post_wallet_debit(
             },
         ],
     )
-    .await;
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
 }
 
 /// Post journal entry for a refund.
@@ -372,7 +380,7 @@ pub async fn post_refund(
     reference_id: Option<&str>,
 ) {
     let desc = format!("Refund to driver {}", driver_id);
-    let _ = post_journal_entry(
+    if let Err(e) = post_journal_entry(
         state,
         &desc,
         Some("refund"),
@@ -391,7 +399,9 @@ pub async fn post_refund(
             },
         ],
     )
-    .await;
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
 }
 
 // ─── Financial Reports ──────────────────────────────────────────────────────
@@ -445,9 +455,9 @@ pub async fn get_trial_balance(
         .iter()
         .filter(|r| r.4 != 0 || r.5 != 0) // Skip accounts with no activity
         .map(|r| {
-            total_debit += r.4;
-            total_credit += r.5;
-            let balance = r.4 - r.5;
+            total_debit = total_debit.checked_add(r.4).unwrap_or(i64::MAX);
+            total_credit = total_credit.checked_add(r.5).unwrap_or(i64::MAX);
+            let balance = r.4.checked_sub(r.5).unwrap_or(0);
             json!({
                 "account_id": r.0,
                 "code": r.1,
@@ -516,10 +526,10 @@ pub async fn get_profit_loss(
     for r in &rows {
         let amount = if r.3 == "revenue" {
             // Revenue: credit - debit (net credits)
-            r.5 - r.4
+            r.5.checked_sub(r.4).unwrap_or(0)
         } else {
             // Expense: debit - credit (net debits)
-            r.4 - r.5
+            r.4.checked_sub(r.5).unwrap_or(0)
         };
 
         if amount == 0 {
@@ -534,10 +544,10 @@ pub async fn get_profit_loss(
         });
 
         if r.3 == "revenue" {
-            total_revenue += amount;
+            total_revenue = total_revenue.checked_add(amount).unwrap_or(i64::MAX);
             revenue_items.push(item);
         } else {
-            total_expenses += amount;
+            total_expenses = total_expenses.checked_add(amount).unwrap_or(i64::MAX);
             expense_items.push(item);
         }
     }
@@ -547,7 +557,7 @@ pub async fn get_profit_loss(
         "expenses": expense_items,
         "total_revenue_paise": total_revenue,
         "total_expenses_paise": total_expenses,
-        "net_profit_paise": total_revenue - total_expenses,
+        "net_profit_paise": total_revenue.checked_sub(total_expenses).unwrap_or(0),
     }))
 }
 
@@ -578,8 +588,8 @@ pub async fn get_balance_sheet(state: &Arc<AppState>) -> Result<Value, String> {
         // Asset accounts have a normal debit balance (debit - credit)
         // Liability/Equity accounts have a normal credit balance (credit - debit)
         let balance = match r.3.as_str() {
-            "asset" => r.4 - r.5,
-            _ => r.5 - r.4,
+            "asset" => r.4.checked_sub(r.5).unwrap_or(0),
+            _ => r.5.checked_sub(r.4).unwrap_or(0),
         };
 
         if balance == 0 {
@@ -595,15 +605,15 @@ pub async fn get_balance_sheet(state: &Arc<AppState>) -> Result<Value, String> {
 
         match r.3.as_str() {
             "asset" => {
-                total_assets += balance;
+                total_assets = total_assets.checked_add(balance).unwrap_or(i64::MAX);
                 assets.push(item);
             }
             "liability" => {
-                total_liabilities += balance;
+                total_liabilities = total_liabilities.checked_add(balance).unwrap_or(i64::MAX);
                 liabilities.push(item);
             }
             "equity" => {
-                total_equity += balance;
+                total_equity = total_equity.checked_add(balance).unwrap_or(i64::MAX);
                 equity.push(item);
             }
             _ => {}
@@ -615,7 +625,7 @@ pub async fn get_balance_sheet(state: &Arc<AppState>) -> Result<Value, String> {
     let retained = pnl.get("net_profit_paise").and_then(|v| v.as_i64()).unwrap_or(0);
 
     if retained != 0 {
-        total_equity += retained;
+        total_equity = total_equity.checked_add(retained).unwrap_or(i64::MAX);
         equity.push(json!({
             "account_id": "acc_retained",
             "code": 3100,
@@ -624,7 +634,7 @@ pub async fn get_balance_sheet(state: &Arc<AppState>) -> Result<Value, String> {
         }));
     }
 
-    let is_balanced = total_assets == total_liabilities + total_equity;
+    let is_balanced = total_assets == total_liabilities.checked_add(total_equity).unwrap_or(i64::MAX);
 
     Ok(json!({
         "assets": assets,

@@ -188,10 +188,45 @@ ollama_model = "qwen2.5:3b"
     )
 }
 
+/// Check if a deploy state transition is valid.
+fn is_valid_transition(from: &DeployState, to: &DeployState) -> bool {
+    match (from, to) {
+        // Any state can transition to Failed
+        (_, DeployState::Failed { .. }) => true,
+        // Idle/Complete/Failed/WaitingSession can start a new deploy
+        (DeployState::Idle | DeployState::Complete | DeployState::Failed { .. } | DeployState::WaitingSession, DeployState::Killing | DeployState::Downloading { .. }) => true,
+        // Normal forward progression
+        (DeployState::Killing, DeployState::WaitingDead) => true,
+        (DeployState::WaitingDead, DeployState::Downloading { .. }) => true,
+        (DeployState::Downloading { .. }, DeployState::Downloading { .. } | DeployState::SizeCheck) => true,
+        (DeployState::SizeCheck, DeployState::Starting) => true,
+        (DeployState::Starting, DeployState::VerifyingHealth) => true,
+        (DeployState::VerifyingHealth, DeployState::Complete | DeployState::RollingBack | DeployState::Idle) => true,
+        (DeployState::RollingBack, DeployState::Complete | DeployState::Idle) => true,
+        // WaitingSession can resume
+        (DeployState::WaitingSession, DeployState::WaitingSession) => true,
+        // Reset to idle
+        (_, DeployState::Idle) => true,
+        _ => false,
+    }
+}
+
 /// Update deploy state for a pod, broadcast progress to dashboard, and log.
 async fn set_deploy_state(state: &Arc<AppState>, pod_id: &str, deploy_state: DeployState) {
     let message = deploy_step_label(&deploy_state);
     let timestamp = Utc::now().to_rfc3339();
+
+    // Validate state transition
+    {
+        let deploy_states = state.pod_deploy_states.read().await;
+        let current = deploy_states.get(pod_id).cloned().unwrap_or_default();
+        if !is_valid_transition(&current, &deploy_state) {
+            tracing::warn!(
+                "Deploy [{}]: invalid state transition {:?} -> {:?}, allowing anyway",
+                pod_id, current, deploy_state
+            );
+        }
+    }
 
     // Update AppState
     {

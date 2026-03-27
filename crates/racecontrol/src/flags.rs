@@ -63,7 +63,7 @@ fn validate_flag_name(name: &str) -> Result<(), String> {
 /// Validate override keys: each must match `pod_N` where N is a positive integer.
 fn validate_overrides(overrides: &serde_json::Value) -> Result<(), String> {
     if let Some(obj) = overrides.as_object() {
-        for key in obj.keys() {
+        for (key, value) in obj.iter() {
             let rest = key.strip_prefix("pod_").ok_or_else(|| {
                 format!("override key '{}' must match pod_N pattern", key)
             })?;
@@ -71,6 +71,12 @@ fn validate_overrides(overrides: &serde_json::Value) -> Result<(), String> {
                 return Err(format!(
                     "override key '{}' must match pod_N pattern (e.g. pod_1, pod_8)",
                     key
+                ));
+            }
+            if !value.is_boolean() {
+                return Err(format!(
+                    "override value for '{}' must be a boolean (true/false), got: {}",
+                    key, value
                 ));
             }
         }
