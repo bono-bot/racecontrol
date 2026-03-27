@@ -43,11 +43,15 @@ export default function ControlPage() {
 
   // Fetch experiences + settings once
   useEffect(() => {
-    api.listExperiences().then((res) => setExperiences(res.experiences || []));
-    api.getSettings().then((res) => {
-      if (res.settings?.venue_name) setVenueName(res.settings.venue_name);
-    });
-  }, []);
+    api.listExperiences()
+      .then((res) => setExperiences(res.experiences || []))
+      .catch(() => toastError("Failed to load experiences"));
+    api.getSettings()
+      .then((res) => {
+        if (res.settings?.venue_name) setVenueName(res.settings.venue_name);
+      })
+      .catch(() => toastError("Failed to load settings"));
+  }, [toastError]);
 
   const handleSignOut = () => {
     sessionStorage.removeItem("kiosk_staff_name");

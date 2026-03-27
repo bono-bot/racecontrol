@@ -122,7 +122,7 @@ export function WalletTopupPanel({
             placeholder="Custom amount (credits)"
             value={customAmount}
             onChange={(e) => {
-              setCustomAmount(e.target.value);
+              setCustomAmount(e.target.value.replace(/\D/g, ""));
               setAmount(0);
             }}
             className="w-full bg-rp-surface border border-rp-border rounded-lg px-4 py-2.5 text-white placeholder-rp-grey text-sm"

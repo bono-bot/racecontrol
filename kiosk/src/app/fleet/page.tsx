@@ -54,6 +54,7 @@ export default function FleetPage() {
   const [selectedMaintenancePod, setSelectedMaintenancePod] = useState<number | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
   const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
   const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
@@ -193,18 +194,32 @@ export default function FleetPage() {
                     inputMode="numeric"
                     maxLength={4}
                     value={pinInput}
-                    onChange={e => setPinInput(e.target.value.replace(/\D/g, ""))}
-                    onKeyDown={e => {
+                    onChange={e => { setPinInput(e.target.value.replace(/\D/g, "")); setPinError(""); }}
+                    onKeyDown={async e => {
                       if (e.key === "Enter" && pinInput.length === 4) {
-                        setPinVerified(true);
+                        try {
+                          const res = await api.validateStaffPin(pinInput);
+                          if (res.error) { setPinError(res.error); return; }
+                          if (res.token) sessionStorage.setItem("kiosk_staff_token", res.token);
+                          setPinVerified(true);
+                        } catch { setPinError("Network error"); }
                       }
                     }}
                     className="w-full bg-[#1A1A1A] border border-[#333333] text-white text-center text-2xl tracking-widest rounded px-4 py-2 mb-3"
                     placeholder="----"
                     autoFocus
                   />
+                  {pinError && <p className="text-red-400 text-xs mb-2">{pinError}</p>}
                   <button
-                    onClick={() => { if (pinInput.length === 4) setPinVerified(true); }}
+                    onClick={async () => {
+                      if (pinInput.length !== 4) return;
+                      try {
+                        const res = await api.validateStaffPin(pinInput);
+                        if (res.error) { setPinError(res.error); return; }
+                        if (res.token) sessionStorage.setItem("kiosk_staff_token", res.token);
+                        setPinVerified(true);
+                      } catch { setPinError("Network error"); }
+                    }}
                     disabled={pinInput.length < 4}
                     className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-40"
                     style={{ backgroundColor: "#E10600" }}

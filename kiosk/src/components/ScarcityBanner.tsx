@@ -1,12 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.host}`
-    : "http://localhost:8080");
+import { api } from "@/lib/api";
 
 interface PodStatus {
   pod_number: number;
@@ -21,13 +16,12 @@ export default function ScarcityBanner() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch(`${API_BASE}/api/v1/fleet/health`)
-        .then((r) => r.json())
+      api.fleetHealth()
         .then((d) => {
           if (!active || !Array.isArray(d?.pods)) return;
-          const pods: PodStatus[] = d.pods;
+          const pods = d.pods;
           setTotal(pods.length);
-          setAvailable(pods.filter((p) => p.ws_connected && p.http_reachable).length);
+          setAvailable(pods.filter((p: PodStatus) => p.ws_connected && p.http_reachable).length);
         })
         .catch(() => {});
     };

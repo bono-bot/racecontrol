@@ -132,7 +132,7 @@ export default function WalletTopup({
               placeholder="Custom amount (credits)"
               value={customAmount}
               onChange={(e) => {
-                setCustomAmount(e.target.value);
+                setCustomAmount(e.target.value.replace(/\D/g, ""));
                 setAmount(0);
               }}
               className="w-full bg-[#222] border border-[#333] rounded-lg px-4 py-3 text-white placeholder-[#5A5A5A] text-sm"

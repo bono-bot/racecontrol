@@ -1,12 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.host}`
-    : "http://localhost:8080");
+import { fetchApi } from "@/lib/api";
 
 interface DisplayTier {
   id: string;
@@ -37,8 +32,7 @@ export default function PricingDisplay({ onSelectTier, hasUsedTrial }: Props) {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch(`${API_BASE}/api/v1/pricing/display`)
-        .then((r) => r.json())
+      fetchApi<{ tiers?: DisplayTier[] }>("/pricing/display")
         .then((d) => {
           if (active && d?.tiers) setTiers(d.tiers);
         })
