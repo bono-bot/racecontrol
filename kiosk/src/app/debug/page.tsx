@@ -234,12 +234,16 @@ export default function DebugPage() {
 
   async function handleDismiss() {
     if (!currentIncident) return;
-    await api.resolveDebugIncident(currentIncident.id, "dismissed");
-    setCurrentIncident(null);
-    setCurrentPlaybook(null);
-    setDiagnosis(null);
-    setDiagnoseError(null);
-    loadData();
+    try {
+      await api.resolveDebugIncident(currentIncident.id, "dismissed");
+      setCurrentIncident(null);
+      setCurrentPlaybook(null);
+      setDiagnosis(null);
+      setDiagnoseError(null);
+      loadData();
+    } catch {
+      setDiagnoseError("Failed to dismiss incident");
+    }
   }
 
   function handleSignOut() {

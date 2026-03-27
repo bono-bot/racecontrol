@@ -231,10 +231,10 @@ export default function FleetPage() {
                 <div>
                   <p className="text-sm text-gray-400 mb-2">Failed checks:</p>
                   <ul className="list-disc list-inside text-sm text-white mb-4 space-y-1">
-                    {pod.maintenance_failures.map((f, i) => (
+                    {(pod.maintenance_failures ?? []).map((f, i) => (
                       <li key={i}>{f}</li>
                     ))}
-                    {pod.maintenance_failures.length === 0 && (
+                    {(!pod.maintenance_failures || pod.maintenance_failures.length === 0) && (
                       <li className="text-gray-500">No details available</li>
                     )}
                   </ul>

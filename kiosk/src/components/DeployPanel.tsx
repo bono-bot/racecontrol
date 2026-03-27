@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DeployState } from "@/lib/types";
 
 // ─── Color mapping for deploy states ──────────────────────────────────────────
@@ -128,10 +128,12 @@ export function DeployPanel({ deployStates, onDeploy }: DeployPanelProps) {
       s.state !== "waiting_session"
   );
 
-  // Reset deploying flag when all activity stops
-  if (deploying && !anyActive) {
-    setDeploying(false);
-  }
+  // Reset deploying flag when all activity stops (in useEffect, not during render)
+  useEffect(() => {
+    if (deploying && !anyActive) {
+      setDeploying(false);
+    }
+  }, [deploying, anyActive]);
 
   const handleDeploy = () => {
     const url = binaryUrl.trim();
