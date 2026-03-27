@@ -350,16 +350,30 @@ fn attempt_restart(svc: &ServiceConfig) -> bool {
     }
 }
 
+/// Rate-limit alerts: first at 4, then at milestones 10, 25, 50, then every 50.
+/// Prevents flooding Bono with identical "[AI-HEALER] X DOWN" messages.
+fn should_alert(count: u32) -> bool {
+    matches!(count, 4 | 10 | 25 | 50) || (count > 50 && count % 50 == 0)
+}
+
 /// Determine the graduated action for a given failure count.
 /// count=1: log + wait + tail logs (Restart with first_failure reason)
 /// count=2: attempt restart (Restart with restart_attempted reason)
 /// count=3: query Ollama AI for diagnosis (Diagnose action)
-/// count>=4: alert Bono with full diagnosis (AlertStaff)
+/// count=4: first alert to Bono
+/// count=5+: alert only at milestones (10, 25, 50, then every 50)
+///           to avoid flooding comms with identical alerts.
 pub(crate) fn graduated_action(count: u32) -> (RecoveryAction, String) {
-    if count >= 4 {
+    if count >= 4 && should_alert(count) {
         (
             RecoveryAction::AlertStaff,
             format!("repeated_failure_count:{}", count),
+        )
+    } else if count >= 4 {
+        // Still failing but suppress alert (rate limited)
+        (
+            RecoveryAction::Restart,
+            format!("failure_count:{}_alert_suppressed", count),
         )
     } else if count == 3 {
         (
@@ -559,6 +573,40 @@ mod tests {
     fn test_graduated_action_count_10_is_alert_staff() {
         let (action, _reason) = graduated_action(10);
         assert_eq!(action, RecoveryAction::AlertStaff);
+    }
+
+    #[test]
+    fn test_graduated_action_count_5_is_suppressed() {
+        let (action, reason) = graduated_action(5);
+        assert_eq!(action, RecoveryAction::Restart);
+        assert!(reason.contains("alert_suppressed"));
+    }
+
+    #[test]
+    fn test_graduated_action_count_50_is_alert() {
+        let (action, _) = graduated_action(50);
+        assert_eq!(action, RecoveryAction::AlertStaff);
+    }
+
+    #[test]
+    fn test_graduated_action_count_100_is_alert() {
+        let (action, _) = graduated_action(100);
+        assert_eq!(action, RecoveryAction::AlertStaff);
+    }
+
+    #[test]
+    fn test_should_alert_milestones() {
+        assert!(should_alert(4));
+        assert!(should_alert(10));
+        assert!(should_alert(25));
+        assert!(should_alert(50));
+        assert!(should_alert(100));
+        assert!(should_alert(150));
+        assert!(!should_alert(5));
+        assert!(!should_alert(6));
+        assert!(!should_alert(15));
+        assert!(!should_alert(51));
+        assert!(!should_alert(99));
     }
 
     #[test]
