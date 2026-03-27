@@ -157,6 +157,12 @@ if [ -n "$LOCAL_SHA256" ]; then
     fi
 fi
 
+# ─── Step 2c: Clear sentinel files ────────────────────────────────────
+info "Clearing sentinel files on server..."
+curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH 2>nul & echo CLEARED"}' > /dev/null 2>&1
+
 # ─── Step 3: Stop racecontrol via bat window kill ────────────────────
 info "Stopping racecontrol (killing bat wrapper + process)..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \

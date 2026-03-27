@@ -39,12 +39,22 @@ function Save-State($state) {
     $state | ConvertTo-Json | Set-Content -Path $stateFile -ErrorAction SilentlyContinue
 }
 
+$expectedBuildId = ""  # Set after deploy; empty = skip build_id check
+
 function Test-ServerHealth {
     try {
         $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
             $json = $response.Content | ConvertFrom-Json
-            if ($json.status -eq "ok") { return $true }
+            if ($json.status -eq "ok") {
+                # Check build_id if expected value is configured
+                if ($expectedBuildId -and $json.build_id) {
+                    if ($json.build_id -ne $expectedBuildId) {
+                        Write-Log "WARNING: build_id mismatch - expected=$expectedBuildId actual=$($json.build_id)"
+                    }
+                }
+                return $true
+            }
         }
         return $false
     } catch {

@@ -41,6 +41,11 @@ const MODEL_CONFIG = {
   'x-ai/grok-code-fast-1':               { short: 'grok-code', ctx: 256000, priceIn: 0.20, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
   'qwen/qwen3-coder':                    { short: 'qwen3-coder', ctx: 262144, priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
   'bytedance-seed/seed-2.0-mini':        { short: 'seed2-mini', ctx: 262144, priceIn: 0.10, priceOut: 0.40, timeout: 180000, maxOut: 16000 },
+  // Round 4 models — new providers (2026-03-27)
+  'nvidia/nemotron-3-super-120b-a12b':   { short: 'nemotron-super', ctx: 262144, priceIn: 0.10, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
+  'z-ai/glm-4.7':                        { short: 'glm-4.7', ctx: 202752, priceIn: 0.39, priceOut: 1.75, timeout: 180000, maxOut: 16000 },
+  'tencent/hunyuan-a13b-instruct':       { short: 'hunyuan', ctx: 131072, priceIn: 0.14, priceOut: 0.57, timeout: 180000, maxOut: 16000 },
+  'inception/mercury-coder':             { short: 'mercury-coder', ctx: 128000, priceIn: 0.25, priceOut: 0.75, timeout: 180000, maxOut: 16000 },
 };
 
 const config = MODEL_CONFIG[MODEL];

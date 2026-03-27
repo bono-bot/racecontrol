@@ -37,7 +37,7 @@ case "$APP" in
   admin)
     SRC="C:/Users/bono/racingpoint/racingpoint-admin"
     REMOTE_DIR='C:\RacingPoint\admin'
-    PORT=3200
+    PORT=3201
     ZIP_NAME="admin-deploy.zip"
     SERVICE_NAME="racingpoint-admin"
     ;;

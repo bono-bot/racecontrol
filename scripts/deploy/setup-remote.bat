@@ -41,7 +41,7 @@ echo    Network profile set to Private
 REM ── Step 2: Enable and configure WinRM ─────────────────────
 echo [2/4] Enabling WinRM...
 winrm quickconfig -quiet 1>%NUL% 2>%NUL%
-winrm set winrm/config/service @{AllowUnencrypted="true"} 1>%NUL% 2>%NUL%
+winrm set winrm/config/service @{AllowUnencrypted="false"} 1>%NUL% 2>%NUL%
 winrm set winrm/config/service/auth @{Basic="true"} 1>%NUL% 2>%NUL%
 sc config WinRM start=auto 1>%NUL%
 net start WinRM 1>%NUL% 2>%NUL%
@@ -49,8 +49,9 @@ echo    WinRM enabled and set to auto-start
 
 REM ── Step 3: Firewall rule ──────────────────────────────────
 echo [3/4] Setting firewall rule...
-netsh advfirewall firewall add rule name="WinRM-HTTP" dir=in action=allow protocol=TCP localport=5985 1>%NUL% 2>%NUL%
-echo    Firewall rule added for port 5985
+netsh advfirewall firewall delete rule name="WinRM-HTTP" 1>%NUL% 2>%NUL%
+netsh advfirewall firewall add rule name="WinRM-James-Only" dir=in action=allow protocol=TCP localport=5985 remoteip=192.168.31.27 1>%NUL% 2>%NUL%
+echo    Firewall rule added for port 5985 (James .27 only)
 
 REM ── Step 4: Verify ─────────────────────────────────────────
 echo [4/4] Verifying...
@@ -64,7 +65,7 @@ if ERRORLEVEL 1 (
     echo    [OK]   WinRM is running
 )
 
-netsh advfirewall firewall show rule name="WinRM-HTTP" 1>%NUL% 2>%NUL%
+netsh advfirewall firewall show rule name="WinRM-James-Only" 1>%NUL% 2>%NUL%
 if ERRORLEVEL 1 (
     echo    [FAIL] Firewall rule missing
     set /a PROBLEMS+=1

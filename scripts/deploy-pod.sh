@@ -42,6 +42,7 @@ else
             pod-3) echo "192.168.31.28" ;; pod-4) echo "192.168.31.88" ;;
             pod-5) echo "192.168.31.86" ;; pod-6) echo "192.168.31.87" ;;
             pod-7) echo "192.168.31.38" ;; pod-8) echo "192.168.31.91" ;;
+            pos) echo "192.168.31.20" ;;
             *) echo "" ;;
         esac
     }
@@ -120,6 +121,12 @@ deploy_pod() {
         info "$POD_NAME: SHA256 check skipped (hash unavailable)"
     fi
 
+    # Clear sentinel files before deploy (PP-06: MAINTENANCE_MODE blocks pods silently)
+    info "$POD_NAME: Clearing sentinel files..."
+    curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH C:\\RacingPoint\\rcagent-restart-sentinel.txt 2>nul & echo CLEARED"}' > /dev/null 2>&1
+
     # Stop rc-agent (kill bat wrapper first to prevent auto-relaunch, then kill process)
     info "$POD_NAME: Stopping rc-agent..."
     curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
@@ -184,6 +191,18 @@ deploy_pod() {
         pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} matches expected"
     else
         pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} (no expected build_id to compare)"
+    fi
+
+    # Verify Session 1 context (PP-01: Session 0 kills all GUI)
+    SESSION_CHECK=$(curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"tasklist /V /FO CSV | findstr rc-agent"}' 2>/dev/null || echo "")
+    if echo "$SESSION_CHECK" | grep -qi "services"; then
+        fail "$POD_NAME: rc-agent running in Session 0 — GUI will NOT work. Kill + let RCWatchdog restart."
+    elif echo "$SESSION_CHECK" | grep -qi "console"; then
+        pass "$POD_NAME: rc-agent in Session 1 (Console) — GUI OK"
+    else
+        info "$POD_NAME: Session context check inconclusive"
     fi
 
     # Verify bat sync (post-deploy)
