@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://bono-bot: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@github.com/bono-bot/racecontrol.git"
+    "url": "git+ssh://git@github.com/bono-bot/racecontrol.git"
   },
   "keywords": [],
   "author": "",
