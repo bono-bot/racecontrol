@@ -510,6 +510,9 @@ fn service_routes() -> Router<Arc<AppState>> {
         .route("/deploy-log", get(list_deploy_logs))
         // App health monitor (Phase 179: current probe results for admin/kiosk/web)
         .route("/app-health", get(get_app_health))
+        // Mesh Intelligence Cloud KB sync (v26.0 Phase 227)
+        .route("/cloud/mesh/sync", post(cloud_mesh_sync))
+        .route("/cloud/mesh/pull", get(cloud_mesh_pull))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -17370,4 +17373,81 @@ async fn mesh_retire_solution(
         Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
         Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
     }
+}
+
+// ─── Cloud Mesh KB Sync (v26.0 Phase 227) ───────────────────────────────────
+
+/// Venue pushes fleet-verified + hardened solutions to cloud KB.
+/// Request body: { "venue_id": "rp-hyderabad", "solutions": [...] }
+async fn cloud_mesh_sync(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let venue_id = body.get("venue_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let solutions = match body.get("solutions").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return Json(serde_json::json!({ "ok": false, "error": "solutions array required" })),
+    };
+
+    let mut imported = 0u32;
+    let mut errors = 0u32;
+
+    for sol_val in solutions {
+        // Parse and tag with venue_id
+        let mut sol: rc_common::mesh_types::MeshSolution = match serde_json::from_value(sol_val.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("Cloud mesh sync: failed to parse solution: {e}");
+                errors += 1;
+                continue;
+            }
+        };
+        sol.venue_id = Some(venue_id.to_string());
+
+        if let Err(e) = crate::fleet_kb::insert_solution(&state.db, &sol).await {
+            tracing::warn!("Cloud mesh sync: failed to insert solution {}: {e}", sol.id);
+            errors += 1;
+        } else {
+            imported += 1;
+        }
+    }
+
+    tracing::info!("Cloud mesh sync from venue {venue_id}: imported={imported} errors={errors}");
+    Json(serde_json::json!({ "ok": true, "imported": imported, "errors": errors }))
+}
+
+/// New venue pulls the full cloud KB to seed their local fleet KB.
+/// Query params: ?venue_id=xxx (optional — excludes own solutions to avoid loops)
+async fn cloud_mesh_pull(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let requesting_venue = params.get("venue_id").map(|s| s.as_str());
+
+    // Pull all fleet_verified + hardened solutions
+    let verified = crate::fleet_kb::list_solutions(&state.db, Some("fleet_verified"), 500, 0).await.unwrap_or_default();
+    let hardened = crate::fleet_kb::list_solutions(&state.db, Some("hardened"), 500, 0).await.unwrap_or_default();
+
+    let mut all: Vec<rc_common::mesh_types::MeshSolution> = verified.into_iter().chain(hardened).collect();
+
+    // Exclude requesting venue's own solutions (prevent sync loop)
+    if let Some(vid) = requesting_venue {
+        all.retain(|s| s.venue_id.as_deref() != Some(vid));
+    }
+
+    // Mark external solutions for the requesting venue
+    for sol in &mut all {
+        if sol.venue_id.is_some() && sol.venue_id.as_deref() != requesting_venue {
+            // Tag as external — needs local verification before auto-apply
+            if let Some(tags) = sol.tags.as_mut() {
+                if !tags.contains(&"external".to_string()) {
+                    tags.push("external".to_string());
+                }
+            } else {
+                sol.tags = Some(vec!["external".to_string()]);
+            }
+        }
+    }
+
+    Json(serde_json::json!({ "solutions": all, "count": all.len() }))
 }
