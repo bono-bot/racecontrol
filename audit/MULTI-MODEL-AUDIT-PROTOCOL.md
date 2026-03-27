@@ -328,13 +328,42 @@ If a model consistently produces <3 unique findings after 3 audit runs, consider
 
 ## 11. Bono-Specific Notes
 
-Bono can run this protocol independently from the VPS:
+### Bono's Infrastructure
+
+Bono runs on VPS (srv1422716.hstgr.cloud) with **Perplexity MCP** as his primary external model access — NOT direct OpenRouter API. This means:
+
+- Bono has `pplx_smart_query`, `pplx_claude_opus`, `pplx_gemini_pro_think`, `pplx_gpt54` etc. via MCP
+- These call Perplexity's API, NOT OpenRouter directly
+- The `multi-model-audit.js` script requires direct OpenRouter HTTPS access + Node.js
+
+### Option A: James Runs Audits, Bono Reviews (RECOMMENDED)
+
+James runs all 5 OpenRouter model audits from the on-site machine (already proven), pushes results to git. Bono pulls and reviews the cross-model report using his Perplexity MCP for any follow-up research.
+
+```
+James workflow:
+1. cd ~/racingpoint/racecontrol
+2. OPENROUTER_KEY="..." run 5 models in parallel (see Section 4)
+3. node scripts/cross-model-analysis.js
+4. git add audit/results/ && git commit && git push
+5. Notify Bono via WS + INBOX.md
+
+Bono workflow:
+1. git pull racecontrol
+2. Read audit/results/cross-model-report-YYYY-MM-DD/CROSS-MODEL-REPORT.md
+3. Use Perplexity MCP (pplx_smart_query) for follow-up research on findings
+4. Add Bono-perspective review as Opus to the findings
+5. Push review to git, notify James
+```
+
+### Option B: Bono Runs Directly (if Node.js available on VPS)
+
+If Bono's VPS has Node.js and outbound HTTPS to openrouter.ai:
 
 ```bash
-# Clone racecontrol repo (or use existing)
 cd ~/racecontrol
 
-# Set OpenRouter key (store in ~/.bashrc or vault)
+# Use James's OpenRouter key (shared securely, NOT committed to git)
 export OPENROUTER_KEY="sk-or-v1-..."
 
 # Run full audit
@@ -347,15 +376,22 @@ wait
 
 # Cross-reference
 node scripts/cross-model-analysis.js
-
-# Results in audit/results/cross-model-report-YYYY-MM-DD/
 ```
 
-**Coordination with James:**
-- Bono runs the 5-model audit (OpenRouter)
-- James (Opus) reviews the cross-model report
+**Prerequisites:** Node.js v18+, outbound HTTPS to openrouter.ai, OpenRouter API key.
+**Key sharing:** Pass via comms-link WS (encrypted), NEVER commit to git or INBOX.md.
+
+### Option C: Bono Uses Perplexity MCP Models
+
+Bono can use his Perplexity MCP to run individual model queries against code snippets, but this is manual and doesn't scale to the full 7-batch protocol. Best used for **targeted follow-up** on specific findings, not the full audit.
+
+### Coordination Protocol
+
+- **James** owns the OpenRouter account and runs the 5-model automated audit
+- **Bono** reviews cross-model findings from git + adds Opus domain review
 - Both contribute domain knowledge for the final triage
 - Results pushed to racecontrol repo for shared access
+- **NEVER commit OpenRouter API keys to git** — share via WS or env vars only
 
 ---
 
