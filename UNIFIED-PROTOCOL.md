@@ -254,6 +254,56 @@ ssh ADMIN@100.125.108.37 "schtasks /Run /TN StartRCTemp"
 #    - go2rtc camera streams stop → cameras offline (non-critical)
 ```
 
+### Bono-VPS-Down Playbook
+**Trigger:** Bono VPS (srv1422716.hstgr.cloud) is unreachable — Uptime Kuma alerts fire.
+
+**What dies immediately:**
+- PWA (app.racingpoint.cloud) — customer-facing web app
+- Admin dashboard (admin.racingpoint.cloud)
+- Venue dashboard (dashboard.racingpoint.cloud)
+- WhatsApp bot — customer messages go unanswered
+- Discord bot — server goes silent
+- API Gateway — proxy layer down
+- Cloud RaceControl — cloud sync stops (venue switches to local-only)
+- Comms-link WS server — James loses relay path to Bono
+- All cron jobs: DB backups, git sync, server monitoring
+- Hiring bot
+
+**What survives:**
+- Venue server (.23) — billing, pods, games, kiosk all run independently
+- James (.27) — all local operations, deployments, fleet management
+- Pods — fully self-sufficient via RCWatchdog
+- GitHub — both AIs can push/pull independently
+- Google Drive backups — last successful offsite backup is preserved
+
+**James's recovery playbook:**
+```bash
+# 1. Verify VPS is actually down (not just WS disconnect)
+ping srv1422716.hstgr.cloud -c 3
+curl -s --max-time 5 https://app.racingpoint.cloud/api/v1/health
+
+# 2. If down, try SSH via Tailscale
+ssh root@100.70.177.44 "pm2 status" 2>&1
+
+# 3. If SSH works: restart services
+ssh root@100.70.177.44 "pm2 restart all"
+
+# 4. If SSH fails: VPS is hard-down → contact Hostinger support
+# Hostinger panel: https://hpanel.hostinger.com/
+# Alternative: Uday restarts VPS from Hostinger dashboard
+
+# 5. Meanwhile: venue operates local-only
+#    - Billing works (local server)
+#    - Games work (pods are independent)
+#    - Cloud sync paused (auto-resumes when VPS returns)
+#    - Customer WhatsApp messages queue in Evolution API (delivered when bot restarts)
+```
+
+**Monitoring (active):**
+- Uptime Kuma on :3001 checks 11 services every 60-300s
+- WhatsApp alert to Uday on any service down
+- James's comms-link client reconnect loop detects WS drop
+
 ### Both-Down Playbook (Worst Case)
 1. Pods continue running games independently (RCWatchdog keeps rc-agent alive)
 2. ALL management, billing, leaderboards, cloud sync are offline
