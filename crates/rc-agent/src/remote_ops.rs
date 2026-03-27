@@ -54,6 +54,8 @@ static EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(MAX_CONCURRENT_EXECS);
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 /// SHA256 of the running rc-agent binary, computed once at startup (OTA-10).
 static BINARY_SHA256: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// SHA256 of start-rcagent.bat, computed once at startup (bat drift detection).
+static BAT_SHA256: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Compute SHA256 of the running rc-agent.exe binary. Called once at startup.
 /// Stored in BINARY_SHA256 OnceLock for the /health endpoint (OTA-10).
@@ -83,6 +85,25 @@ pub fn init_binary_sha256() {
         }
     };
     let _ = BINARY_SHA256.set(hash);
+}
+
+/// Compute SHA256 of start-rcagent.bat next to the binary. Called once at startup.
+pub fn init_bat_sha256() {
+    use sha2::{Digest, Sha256};
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    let bat_path = match exe_dir {
+        Some(dir) => dir.join("start-rcagent.bat"),
+        None => return,
+    };
+    let hash = match std::fs::read(&bat_path) {
+        Ok(data) => {
+            let mut hasher = Sha256::new();
+            hasher.update(&data);
+            format!("{:x}", hasher.finalize())
+        }
+        Err(_) => return,
+    };
+    let _ = BAT_SHA256.set(hash);
 }
 
 /// Global billing gate for deploy safety. Set by event_loop on BillingStarted/Stopped.
@@ -374,6 +395,7 @@ async fn health() -> Json<serde_json::Value> {
         "version": VERSION,
         "build_id": BUILD_ID,
         "binary_sha256": BINARY_SHA256.get().map(|s| s.as_str()).unwrap_or("unknown"),
+        "bat_sha256": BAT_SHA256.get().map(|s| s.as_str()).unwrap_or("unknown"),
         "uptime_secs": uptime,
         "exec_slots_available": available_exec_slots,
         "exec_slots_total": MAX_CONCURRENT_EXECS,

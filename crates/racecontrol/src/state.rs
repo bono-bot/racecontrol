@@ -181,9 +181,7 @@ pub struct AppState {
     /// Phase 104: Per-pod process violation history. Keyed by pod_id.
     /// Capped at 100 entries per pod. Never cleared on disconnect.
     pub pod_violations: RwLock<HashMap<String, ViolationStore>>,
-    /// Cached services health (kiosk/web/admin). Updated by probe loop every 15s.
-    /// Read by fleet_health_handler for zero-latency response.
-    pub services_health: RwLock<HashMap<String, bool>>,
+    // Services health is sourced from app_health_monitor::get_current_health() — no AppState field needed.
     /// Latest venue config snapshot from on-premise server (via comms-link sync_push).
     /// None until first config_snapshot received.
     pub venue_config: RwLock<Option<VenueConfigSnapshot>>,
@@ -267,7 +265,6 @@ impl AppState {
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
             pod_violations: RwLock::new(HashMap::new()),
-            services_health: RwLock::new(HashMap::new()),
             venue_config: RwLock::new(None),
             field_cipher,
             warn_scanner_last_escalated: RwLock::new(None),

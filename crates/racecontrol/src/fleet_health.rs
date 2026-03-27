@@ -71,6 +71,10 @@ pub struct FleetHealthStore {
     /// Cleared entry on "deleted". Serialized as a Vec<String> for API response.
     pub active_sentinels: Vec<String>,
 
+    /// SHA256 of start-rcagent.bat on this pod (bat drift detection).
+    /// Populated from agent /health response by probe loop.
+    pub bat_sha256: Option<String>,
+
     // ─── Crash loop detection (Phase 9b) ─────────────────────────────────
     /// Timestamps of recent StartupReports (sliding window, max 10 entries).
     /// Used to detect crash loops: >3 reports in 5 minutes with uptime < 30s.
@@ -166,6 +170,9 @@ pub struct PodFleetStatus {
     /// Empty if no sentinels are active. Populated from SentinelChange WS events.
     #[serde(default)]
     pub active_sentinels: Vec<String>,
+    /// SHA256 of start-rcagent.bat on this pod. Used to detect bat drift.
+    /// null = old agent without bat_sha256 or probe hasn't succeeded yet.
+    pub bat_sha256: Option<String>,
     /// Phase 9b: True if the pod is crash-looping (>3 short-uptime restarts in 5 min).
     #[serde(default)]
     pub crash_loop: bool,
@@ -333,21 +340,22 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                             .timeout(Duration::from_secs(3))
                             .send()
                             .await;
-                        let (reachable, build_id, uptime_secs) = match result {
+                        let (reachable, build_id, uptime_secs, bat_sha256) = match result {
                             Ok(r) if r.status().is_success() => {
-                                // Parse JSON to extract build_id and uptime_secs.
+                                // Parse JSON to extract build_id, uptime_secs, bat_sha256.
                                 match r.json::<serde_json::Value>().await.ok() {
                                     Some(v) => {
                                         let build_id = v.get("build_id").and_then(|b| b.as_str().map(String::from));
                                         let uptime = v.get("uptime_secs").and_then(|u| u.as_u64());
-                                        (true, build_id, uptime)
+                                        let bat = v.get("bat_sha256").and_then(|b| b.as_str().map(String::from));
+                                        (true, build_id, uptime, bat)
                                     }
-                                    None => (true, None, None),
+                                    None => (true, None, None, None),
                                 }
                             }
-                            _ => (false, None, None),
+                            _ => (false, None, None, None),
                         };
-                        (pod_id, reachable, build_id, uptime_secs)
+                        (pod_id, reachable, build_id, uptime_secs, bat_sha256)
                     }
                 })
                 .collect();
@@ -357,12 +365,15 @@ pub fn start_probe_loop(state: Arc<AppState>) {
 
             // Write probe results into pod_fleet_health.
             let mut fleet = state.pod_fleet_health.write().await;
-            for (pod_id, reachable, build_id, uptime_secs) in results {
+            for (pod_id, reachable, build_id, uptime_secs, bat_sha256) in results {
                 let store = fleet.entry(pod_id.clone()).or_default();
                 store.http_reachable = reachable;
                 store.last_http_check = Some(now);
                 if let Some(id) = build_id {
                     store.build_id = Some(id);
+                }
+                if let Some(bat) = bat_sha256 {
+                    store.bat_sha256 = Some(bat);
                 }
 
                 // Phase 9b fix: Auto-clear stale crash_loop flag.
@@ -384,33 +395,8 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                 }
             }
 
-            // Probe local Next.js services in parallel (kiosk, web, admin) — every 15s.
-            let svc_checks: Vec<(&str, &str)> = vec![
-                ("kiosk", "http://127.0.0.1:3300/kiosk/api/health"),
-                ("web", "http://127.0.0.1:3200/api/health"),
-                ("admin", "http://127.0.0.1:3201/api/health"),
-            ];
-            let svc_futs: Vec<_> = svc_checks.iter().map(|(name, url)| {
-                let client = probe_client.clone();
-                let name = name.to_string();
-                let url = url.to_string();
-                async move {
-                    let ok = client.get(&url).send().await
-                        .map(|r| r.status().is_success())
-                        .unwrap_or(false);
-                    if !ok {
-                        tracing::warn!(
-                            target: "fleet-health",
-                            "Service {} is DOWN (checked {}). Staff cannot use this service.",
-                            name, url
-                        );
-                    }
-                    (name, ok)
-                }
-            }).collect();
-            let svc_results = futures_util::future::join_all(svc_futs).await;
-            let svc_status: HashMap<String, bool> = svc_results.into_iter().collect();
-            *state.services_health.write().await = svc_status;
+            // Services health is handled by app_health_monitor (30s, WhatsApp alerts, DB logging).
+            // No duplicate probing needed here.
         }
     });
 }
@@ -464,6 +450,7 @@ pub async fn fleet_health_handler(
                     last_violation_at: None,
                     idle_health_fail_count: 0,
                     idle_health_failures: vec![],
+                    bat_sha256: None,
                     crash_loop: false,
                 });
             }
@@ -510,6 +497,7 @@ pub async fn fleet_health_handler(
                 let idle_health_fail_count = store.map(|s| s.idle_health_fail_count).unwrap_or(0);
                 let idle_health_failures = store.map(|s| s.idle_health_failures.clone()).unwrap_or_default();
                 let active_sentinels = store.map(|s| s.active_sentinels.clone()).unwrap_or_default();
+                let bat_sha256 = store.and_then(|s| s.bat_sha256.clone());
                 let crash_loop = store.map(|s| s.crash_loop).unwrap_or(false);
 
                 result.push(PodFleetStatus {
@@ -531,27 +519,31 @@ pub async fn fleet_health_handler(
                     idle_health_fail_count,
                     idle_health_failures,
                     active_sentinels,
+                    bat_sha256,
                     crash_loop,
                 });
             }
         }
     }
 
-    // Read cached services health (updated every 15s by probe loop — zero latency).
-    // If map is empty, probe loop hasn't run yet — report "pending" not "down".
+    // Read services health from app_health_monitor (30s probe cycle, WhatsApp alerts, DB logging).
+    // Single source of truth — no duplicate probing.
     let services = {
-        let svc = state.services_health.read().await;
+        let entries = crate::app_health_monitor::get_current_health().await;
         let mut m = serde_json::Map::new();
-        let not_yet_probed = svc.is_empty();
-        for name in &["kiosk", "web", "admin"] {
-            let status = if not_yet_probed {
-                "pending"
-            } else if svc.get(*name).copied().unwrap_or(false) {
-                "ok"
-            } else {
-                "down"
-            };
-            m.insert(name.to_string(), json!(status));
+        if entries.is_empty() {
+            // Monitor hasn't run first cycle yet — report "pending" not "down".
+            for name in &["kiosk", "web", "admin"] {
+                m.insert(name.to_string(), json!("pending"));
+            }
+        } else {
+            for entry in &entries {
+                m.insert(entry.app.clone(), json!({
+                    "status": entry.status,
+                    "response_ms": entry.response_ms,
+                    "last_checked": entry.last_checked,
+                }));
+            }
         }
         Value::Object(m)
     };
