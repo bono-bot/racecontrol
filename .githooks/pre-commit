@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-commit hook: Cross-process impact detection + repo guard
+# Pre-commit hook: Cross-process impact detection + repo guard + co-dev conflict detection
 # Warns when staged files affect downstream services via DEPENDENCIES.json
 
 node "$(dirname "$0")/../scripts/check-dependencies.js" 2>/dev/null
@@ -12,6 +12,19 @@ if [ -n "$BAD" ]; then
   echo "Wrong repo? cd to the correct directory."
   exit 1
 fi
+
+# Co-dev conflict guard: warn when committing files modified by the other developer recently
+# Prevents silent overwrites between James and Bono
+STAGED=$(git diff --cached --name-only)
+for file in $STAGED; do
+  LAST_AUTHOR=$(git log -1 --format='%ae' -- "$file" 2>/dev/null)
+  MY_EMAIL=$(git config user.email 2>/dev/null)
+  if [ -n "$LAST_AUTHOR" ] && [ -n "$MY_EMAIL" ] && [ "$LAST_AUTHOR" != "$MY_EMAIL" ]; then
+    LAST_WHEN=$(git log -1 --format='%ar' -- "$file" 2>/dev/null)
+    echo "WARNING: $file was last modified by $LAST_AUTHOR ($LAST_WHEN)"
+    echo "  Verify your changes don't overwrite their work (git diff HEAD -- $file)"
+  fi
+done
 
 # Warn on .unwrap() in Rust (standing rule)
 UNWRAPS=$(git diff --cached -- '*.rs' | grep -n '^\+.*\.unwrap()' | head -5)

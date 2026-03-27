@@ -1242,6 +1242,7 @@ COMMS_PSK="85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0" COM
 - [ ] Cascade audit done
 - [ ] LOGBOOK updated
 - [ ] Git pushed + Bono notified
+- [ ] **Session evaluation by DIFFERENT agent or external model (Principle 2)** — self-scoring is prohibited. Use OpenRouter external model, co-developer (James/Bono), or Perplexity MCP. Evaluator grades on 4-criterion rubric (RCA/FC/VE/SES).
 
 **All checks pass → SHIPPED. Any fail → DO NOT SHIP. Fix first.**
 
