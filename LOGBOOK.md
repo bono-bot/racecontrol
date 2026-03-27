@@ -928,3 +928,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-27 13:25 IST | James | 7b0c6bac | Multi-Model AI Audit Protocol v1.0 + multi-model-audit.js + cross-model-analysis.js + gemini-audit.js |
 | 2026-03-27 13:50 IST | James | 8a7b3a08 | Fix audit protocol Section 11: Bono uses Perplexity MCP not OpenRouter |
 | 2026-03-27 16:30 IST | James | 4768815c | fix(api): /customer/packages 500 — hour_restriction→hour_start+hour_end, defensive migration, PWA type fix |
+| 2026-03-27 14:05 IST | James | f7706c9d | Standing rule: verify recipient infrastructure before sending instructions |
+| 2026-03-27 14:15 IST | James | 6af66aa (comms-link) | Sync 6 missing standing rules from racecontrol to comms-link CLAUDE.md |
