@@ -5,13 +5,13 @@
 **Owner split:** James (Phases 217-221, 224-226) | Bono (Phases 222-223, 227-228)
 
 ## Diagnostic Engine (James — Phase 217)
-- [ ] **DIAG-01**: Each node detects anomalies automatically (health fail, crash, game fail, display mismatch, error spike, WS disconnect, sentinel, violation spike)
+- [x] **DIAG-01**: Each node detects anomalies automatically (health fail, crash, game fail, display mismatch, error spike, WS disconnect, sentinel, violation spike)
 - [ ] **DIAG-02**: Tier 1 deterministic fixes applied without AI (clear MAINTENANCE_MODE, kill orphans, restart service)
 - [ ] **DIAG-03**: Tier 2 KB lookup matches problem signatures against local + fleet KB before models
 - [ ] **DIAG-04**: Tier 3 single-model diagnosis (Qwen3, ~$0.05) when KB has no match
 - [ ] **DIAG-05**: Tier 4 full 4-model parallel diagnosis (R1+V3+MiMo+Gemini, ~$3) when Tier 3 fails
 - [ ] **DIAG-06**: Tier 5 human escalation via WhatsApp when all automated tiers fail
-- [ ] **DIAG-07**: Engine runs on 5-min scheduled scan + anomaly trigger
+- [x] **DIAG-07**: Engine runs on 5-min scheduled scan + anomaly trigger
 
 ## Knowledge Base (James — Phase 218)
 - [ ] **KB-01**: Local SQLite KB: solutions with problem_key, symptoms, root_cause, fix_action, confidence, cost, source_node

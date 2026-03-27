@@ -3646,7 +3646,7 @@ Plans:
 1. rc-agent detects health failures, crashes, sentinel files, error spikes within 30s
 2. Tier 1 deterministic fixes apply automatically (MAINTENANCE_MODE clear, orphan kill)
 3. 5-min periodic scan runs without impacting pod performance
-- [ ] 229-01-PLAN: Diagnostic engine core + anomaly detection triggers
+- [x] 229-01-PLAN: Diagnostic engine core + anomaly detection triggers
 - [ ] 229-02-PLAN: 5-tier decision tree + auto-fix actions
 
 ### Phase 230: Local Knowledge Base (James, Day 1)
