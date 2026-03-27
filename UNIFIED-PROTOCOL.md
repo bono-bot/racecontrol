@@ -1659,11 +1659,13 @@ AUDIT_PIN=261121 bash audit/audit.sh --mode full --auto-fix --notify --commit
 **Notifications:** Bono dual-channel (WS + INBOX.md), WhatsApp to Uday via Evolution API.
 
 ### A.2 — Full Multi-Model Code Audit [M:full]
-If not already run at Phase 3/5, run the complete 5-model audit:
+If not already run at Phase 3/5, run the multi-round deep audit. For milestones, run at least 3 rounds (General + Code + Reasoning). For quarterly audit, run all 5 rounds.
+
+**Quick single-round audit (standard milestone):**
 ```bash
 export OPENROUTER_KEY="sk-or-v1-..."
 
-# All 5 OpenRouter models in parallel across all 7 batches
+# Round 1: General-purpose (5 models in parallel)
 MODEL="qwen/qwen3-235b-a22b-2507" node scripts/multi-model-audit.js &
 MODEL="deepseek/deepseek-chat-v3-0324" node scripts/multi-model-audit.js &
 MODEL="xiaomi/mimo-v2-pro" node scripts/multi-model-audit.js &
@@ -1671,14 +1673,51 @@ MODEL="deepseek/deepseek-r1-0528" node scripts/multi-model-audit.js &
 MODEL="google/gemini-2.5-pro-preview-03-25" node scripts/multi-model-audit.js &
 wait
 
-# Cross-model analysis
+# Cross-model analysis + Opus review
 node scripts/cross-model-analysis.js
-
-# Opus review
-echo "Review: audit/results/cross-model-report-$(date +%Y-%m-%d)/CROSS-MODEL-REPORT.md"
 ```
 
-**The 7 Audit Batches:**
+**Deep 5-round audit (quarterly, or after major security changes):**
+```bash
+export OPENROUTER_KEY="sk-or-v1-..."
+
+# Round 1: General-purpose (5 models) — finds logic bugs, missing validation
+for M in "qwen/qwen3-235b-a22b-2507" "deepseek/deepseek-chat-v3-0324" "xiaomi/mimo-v2-pro" "deepseek/deepseek-r1-0528" "google/gemini-2.5-pro-preview-03-25"; do
+  MODEL="$M" node scripts/multi-model-audit.js &
+done; wait
+# → Opus review, fix findings, commit
+
+# Round 2: General (different providers) — finds schema/transaction bugs
+for M in "openai/gpt-5-mini" "x-ai/grok-4.1-fast" "meta-llama/llama-4-maverick" "mistralai/mistral-small-2603"; do
+  MODEL="$M" node scripts/multi-model-audit.js &
+done; wait
+# → Opus review, fix findings, commit
+
+# Round 3: Code-specialized — finds edge cases, race conditions
+for M in "openai/gpt-5.1-codex-mini" "x-ai/grok-code-fast-1" "qwen/qwen3-coder" "bytedance-seed/seed-2.0-mini"; do
+  MODEL="$M" node scripts/multi-model-audit.js &
+done; wait
+# → Opus review, fix findings, commit
+
+# Round 4: New providers — finds deploy/config issues
+for M in "nvidia/nemotron-3-super-120b-a12b" "z-ai/glm-4.7" "tencent/hunyuan-a13b-instruct" "inception/mercury-coder"; do
+  MODEL="$M" node scripts/multi-model-audit.js &
+done; wait
+# → Opus review, fix findings, commit
+
+# Round 5: Reasoning/thinking models — finds hardcoded secrets, auth gaps, XSS
+for M in "openai/gpt-5.4-nano" "moonshotai/kimi-k2.5" "baidu/ernie-4.5-300b-a47b" "qwen/qwen3-235b-a22b-thinking-2507"; do
+  MODEL="$M" node scripts/multi-model-audit.js &
+done; wait
+# → Opus review, fix findings, commit
+
+# Final cross-model analysis across ALL rounds
+node scripts/cross-model-analysis.js
+```
+
+**Critical:** Each round's Opus review must maintain a running "already-fixed" list. Pass this list to the Opus reviewer so it doesn't re-report fixed bugs. Each round fixes bugs BEFORE the next round runs, so later rounds audit the hardened codebase.
+
+**The 7 Audit Batches (per model):**
 
 | Batch | Scope | Key Files | Focus |
 |---|---|---|---|
@@ -1689,6 +1728,24 @@ echo "Review: audit/results/cross-model-report-$(date +%Y-%m-%d)/CROSS-MODEL-REP
 | 05 | Audit/Healing Pipeline | `audit/lib/`, `audit/phases/`, `scripts/detectors/` | Race conditions, billing gate, notifications |
 | 06 | Deploy/Infra | `scripts/deploy/`, `Cargo.toml`, `.cargo/config.toml` | Pipeline integrity, credentials, binary verification |
 | 07 | Standing Rules | `CLAUDE.md` (both repos) | Rule conflicts, gaps, stale references |
+
+**Model performance data (2026-03-27 deep audit, 21 models, 112 bugs):**
+
+| Model | Unique Finds | Cost | Best Discovery | Recommendation |
+|---|---|---|---|---|
+| DeepSeek R1 | 18 | $0.43 | Safe mode AtomicBool desync, LMU handle leak | KEEP — best reasoner |
+| MiMo v2 Pro | 16 | $0.77 | Duplicate wallet top-up, billing stuck pending | KEEP — operational gaps |
+| Grok Code Fast | 15 | $0.25 | Registry parser whitespace, boolean skip | KEEP — code-specialized champion |
+| Kimi K2.5 | 12 | $1.50 | Hardcoded secrets, fail-open auth, env exfiltration | KEEP — security architecture |
+| GPT-5.4 Nano | 10 | $0.80 | rc-sentry fail-open, fleet cache stale, JSONL corruption | KEEP — reasoning at low cost |
+| GPT-5 Mini | 8 | $0.40 | SQL injection in ai.rs, schema mismatch | KEEP — solid general-purpose |
+| Gemini 2.5 Pro | 7 | $1.65 | suppress.json phase mismatch | CONSIDER REPLACE — expensive, low unique finds |
+| DeepSeek V3 | 5 | $0.16 | Session 0 detection gap (confirmed real incident) | KEEP — cheap, finds real bugs |
+| Codex Mini | 5 | $0.50 | Remote terminal no-auth, scheduler unbounded | KEEP — code-focused |
+| Mercury Coder | 4 | $0.19 | Sentinel watcher file injection | KEEP — cheap, code-focused |
+| Qwen3 235B | 2 | $0.05 | Volume scanner, low unique | KEEP — cheapest, good for Tier A |
+| Qwen3 Coder | 0 | $0.21 | Zero actionable (generic boilerplate) | REPLACE — worst performer |
+| Qwen3 Thinking | 0 (after R5) | $1.00 | Duplicated Kimi K2.5 findings | CONSIDER REPLACE — slow, redundant |
 
 ### A.3 — Audit Gap Analysis
 After running both audits, check the gap report for systemic issues:
@@ -1734,14 +1791,15 @@ COMMS_PSK="85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0" COM
 
 ### When to Run Phase A
 
-| Trigger | Fleet Audit? | Multi-Model? | Models |
-|---|---|---|---|
-| After milestone ship | YES | YES (full) | All 5 + Opus |
-| After security incident | Targeted tiers | YES (affected batches) | Gemini + R1 |
-| Monthly maintenance | YES | YES (full) | All 5 + Opus |
-| After dependency update | Tier 1 + 2 | Batch 06 only | Any 1 + mechanical |
-| New crate/service added | Tier 1 | YES (new batch) | V3 + R1 + MiMo |
-| Quick pre-deploy check | No | Batch for changed crate | Qwen3 ($0.05) |
+| Trigger | Fleet Audit? | Multi-Model? | Rounds | Models | Est. Cost |
+|---|---|---|---|---|---|
+| After milestone ship | YES | YES (standard) | 2-3 | General + Code + Reasoning | ~$5-7 |
+| After security incident | Targeted tiers | YES (deep R5) | 1 focused | 4 reasoning models | ~$2.50 |
+| Monthly maintenance | YES | YES (standard) | 2-3 | General + Code + Reasoning | ~$5-7 |
+| Quarterly deep audit | YES | YES (deep) | 5 | All 21 models | ~$9 |
+| After dependency update | Tier 1 + 2 | Batch 06 only | 1 | Any 1 + mechanical | ~$0.05 |
+| New crate/service added | Tier 1 | YES (new batch) | 1 | V3 + R1 + MiMo | ~$1.50 |
+| Quick pre-deploy check | No | Batch for changed crate | 1 | Qwen3 ($0.05) | ~$0.05 |
 
 ---
 
@@ -1762,7 +1820,43 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 | **5: Ship** | [M:gate] | 4th Ultimate Rule layer | Yes (milestones) | ~$3-5 | 30 min |
 | **D: Debug** | [M:post-incident] | Targeted R1 + MiMo | No | ~$1.20 | 10 min |
 | **D: Debug** | [M:diagnose] | 4-model parallel diagnosis (when 1st loop fails) | No (produces hypotheses) | ~$3.01 | 10-15 min |
-| **A: Post-Ship** | [M:full] | All 5 models, 7 batches | Creates tickets | ~$3-5 | 30 min |
+| **A: Post-Ship** | [M:full] | Multi-round deep audit (see A.2) | Creates tickets | ~$9 | 2-3 hours |
+
+### Proven Multi-Round Deep Audit Method (2026-03-27)
+
+**The key discovery:** Different MODEL TYPES find different BUG CLASSES. General-purpose models find logic bugs. Code-specialized models find edge cases. Reasoning/thinking models find security architecture gaps (hardcoded secrets, fail-open auth, XSS). Running multiple rounds of the same type yields diminishing returns — but switching types breaks the curve.
+
+**5-Round Method (21 models, $9, 112 bugs):**
+
+| Round | Model Type | Models | Bugs | Cost | What They Find |
+|---|---|---|---|---|---|
+| **R1** | General-purpose | Gemini 2.5, DeepSeek V3, R1, Qwen3 235B, MiMo v2 Pro | 39 | $3.06 | Logic bugs, missing validation, state machine gaps, absence-based issues |
+| **R2** | General (different providers) | GPT-5 Mini, Grok 4.1, Llama 4 Maverick, Mistral Small 4 | 19 | $1.07 | SQL injection, schema mismatch, transaction bugs |
+| **R3** | Code-specialized | GPT-5.1 Codex Mini, Grok Code Fast, Qwen3 Coder, Seed 2.0 | 16 | $1.50 | Registry parser whitespace, boolean validation, race conditions, off-by-one |
+| **R4** | New providers | Nemotron Super, GLM 4.7, Hunyuan, Mercury Coder | 7 | $1.00 | Deploy pipeline hygiene, config conflicts |
+| **R5** | Reasoning/thinking | GPT-5.4 Nano, Kimi K2.5, ERNIE 4.5, Qwen3 235B Thinking | 31 | $2.50 | Hardcoded secrets (6), fail-open auth, XSS, memory leaks, escalation loops |
+
+**Diminishing returns curve: 39 → 19 → 16 → 7 → 31.** Rounds 1-4 followed expected decay. Round 5 (reasoning models) BROKE the curve by finding an entirely different vulnerability surface. This proves model-type diversity matters more than model-count diversity.
+
+**Recommended audit strategy:**
+
+| Depth | Rounds | Model Types | Models | Cost | Finds |
+|---|---|---|---|---|---|
+| **Quick** | 1 round | General-purpose | 3-5 models | ~$1-3 | ~20-40 bugs |
+| **Standard** | 2 rounds | General + Code-specialized | 8-10 models | ~$4-5 | ~40-60 bugs |
+| **Deep** | 3+ rounds | General + Code + Reasoning | 12-21 models | ~$7-9 | ~70-112 bugs |
+
+**Critical rule:** Always include at least one reasoning/thinking model (DeepSeek R1, Kimi K2.5, GPT-5.4 Nano, Qwen3 Thinking). These find security architecture issues that all other model types miss.
+
+**Each round follows the same workflow:**
+1. Configure new models in `scripts/multi-model-audit.js` (MODEL_CONFIG)
+2. Run 4 models in parallel: `MODEL="..." node scripts/multi-model-audit.js &`
+3. Run cross-model analysis: `node scripts/cross-model-analysis.js`
+4. Opus reviews new findings, filters against already-fixed list
+5. Fix all actionable bugs, compile, commit, push
+6. Next round uses the updated codebase (fixes from prior round included)
+
+**Cost efficiency:** $9 total for 112 bugs = **$0.08/bug**. Best single-round value: R5 at $2.50 for 31 bugs ($0.08/bug, 14 P1s including 6 hardcoded secrets).
 
 ### Cost Summary
 
@@ -1771,11 +1865,12 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 | Mechanical self-audit | $0 | Every change |
 | Tier A (1 model, diff-only) | ~$0.05 | Every change |
 | Tier B (3 models, targeted) | ~$0.50-1.50 | Risk-triggered |
-| Tier C (5 models, full) | ~$3-5 | Milestones, monthly |
+| Tier C (5 models, full, single round) | ~$3-5 | Milestones, monthly |
+| Deep audit (5 rounds, 21 models) | ~$9 | Major milestones, quarterly |
 | Post-incident (2 models) | ~$1.20 | After incidents |
-| **Monthly total (estimate)** | **~$10-15** | With 2-3 milestones |
+| **Monthly total (estimate)** | **~$10-20** | With 2-3 milestones |
 
-**Compare:** Opus-only equivalent would cost ~$187 per full audit and still miss 48 bugs.
+**Compare:** Opus-only equivalent would cost ~$187 per full audit and still miss 48+ bugs. The 21-model deep audit at $9 found 112 bugs — 10x more at 5% of the cost.
 
 ### James/Bono Coordination
 
@@ -1789,17 +1884,52 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 **Problem:** OpenRouter models get deprecated, pricing changes, versions drift silently.
 
 **Registry file:** `audit/model-registry.json`
+
+**21 models across 5 rounds, organized by type:**
+
+| Type | Round | Model | Cost/1M (in/out) | Unique Finds | Status |
+|---|---|---|---|---|---|
+| **General** | R1 | `qwen/qwen3-235b-a22b-2507` | $0.07/$0.10 | 2 | KEEP (cheapest Tier A) |
+| **General** | R1 | `deepseek/deepseek-chat-v3-0324` | $0.20/$0.77 | 5 | KEEP (found Session 0 gap) |
+| **General** | R1 | `deepseek/deepseek-r1-0528` | $0.45/$2.15 | 18 | KEEP (best reasoner) |
+| **General** | R1 | `google/gemini-2.5-pro-preview-03-25` | $1.25/$10 | 7 | REVIEW (expensive) |
+| **General** | R1 | `xiaomi/mimo-v2-pro` | $1.00/$3.00 | 16 | KEEP (operational gaps) |
+| **General** | R2 | `openai/gpt-5-mini` | $0.25/$2.00 | 8 | KEEP |
+| **General** | R2 | `x-ai/grok-4.1-fast` | $0.20/$0.50 | 4 | KEEP |
+| **General** | R2 | `meta-llama/llama-4-maverick` | $0.15/$0.60 | 3 | KEEP |
+| **General** | R2 | `mistralai/mistral-small-2603` | $0.15/$0.60 | 4 | KEEP |
+| **Code** | R3 | `openai/gpt-5.1-codex-mini` | $0.25/$2.00 | 5 | KEEP |
+| **Code** | R3 | `x-ai/grok-code-fast-1` | $0.20/$1.50 | 15 | KEEP (code champion) |
+| **Code** | R3 | `qwen/qwen3-coder` | $0.22/$1.00 | 0 | REPLACE |
+| **Code** | R3 | `bytedance-seed/seed-2.0-mini` | $0.10/$0.40 | 1 | REVIEW (very slow) |
+| **Provider** | R4 | `nvidia/nemotron-3-super-120b-a12b` | $0.10/$0.50 | 2 | KEEP (cheap) |
+| **Provider** | R4 | `z-ai/glm-4.7` | $0.39/$1.75 | 1 | REVIEW (slow) |
+| **Provider** | R4 | `tencent/hunyuan-a13b-instruct` | $0.14/$0.57 | 0 | REPLACE (failed) |
+| **Provider** | R4 | `inception/mercury-coder` | $0.25/$0.75 | 4 | KEEP |
+| **Reasoning** | R5 | `openai/gpt-5.4-nano` | $0.20/$1.25 | 10 | KEEP |
+| **Reasoning** | R5 | `moonshotai/kimi-k2.5` | $0.45/$2.20 | 12 | KEEP (security arch) |
+| **Reasoning** | R5 | `baidu/ernie-4.5-300b-a47b` | $0.28/$1.10 | 3 | KEEP |
+| **Reasoning** | R5 | `qwen/qwen3-235b-a22b-thinking-2507` | $0.15/$1.50 | 0 | REVIEW (redundant) |
+
 ```json
 {
-  "registry_updated": "2026-03-27",
-  "quarterly_review_due": "2026-06-27",
+  "registry_updated": "2026-03-28",
+  "quarterly_review_due": "2026-06-28",
   "monthly_cost_ceiling": 50,
-  "per_session_cost_ceiling": 10,
+  "per_session_cost_ceiling": 20,
+  "deep_audit_results": {
+    "date": "2026-03-27",
+    "rounds": 5,
+    "models": 21,
+    "total_bugs": 112,
+    "total_cost": 9.00,
+    "cost_per_bug": 0.08
+  },
   "models": {
     "scanner": {
       "id": "qwen/qwen3-235b-a22b-2507",
       "pinned_version": "2507",
-      "role": "Volume scanner",
+      "role": "Volume scanner, Tier A quick check",
       "max_cost_per_call": 0.20,
       "fallback": "deepseek/deepseek-chat-v3-0324",
       "last_validated": "2026-03-27",
@@ -1837,12 +1967,36 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
       "max_cost_per_call": 3.00,
       "fallback": "deepseek/deepseek-r1-0528",
       "last_validated": "2026-03-27"
+    },
+    "code_champion": {
+      "id": "x-ai/grok-code-fast-1",
+      "pinned_version": null,
+      "role": "Code-specialized: edge cases, race conditions, parser bugs",
+      "max_cost_per_call": 1.00,
+      "fallback": "openai/gpt-5.1-codex-mini",
+      "last_validated": "2026-03-27"
+    },
+    "security_arch": {
+      "id": "moonshotai/kimi-k2.5",
+      "pinned_version": null,
+      "role": "Reasoning: hardcoded secrets, fail-open auth, XSS, env exfiltration",
+      "max_cost_per_call": 2.00,
+      "fallback": "openai/gpt-5.4-nano",
+      "last_validated": "2026-03-27"
+    },
+    "reasoning_cheap": {
+      "id": "openai/gpt-5.4-nano",
+      "pinned_version": null,
+      "role": "Reasoning at low cost: fleet cache, escalation loops, memory leaks",
+      "max_cost_per_call": 1.00,
+      "fallback": "moonshotai/kimi-k2.5",
+      "last_validated": "2026-03-27"
     }
   },
   "cost_controls": {
     "alert_at_monthly_spend": 30,
     "hard_stop_at_monthly_spend": 50,
-    "require_human_approval_above": 10
+    "require_human_approval_above": 20
   }
 }
 ```
@@ -1850,9 +2004,11 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 **Rules:**
 - **Quarterly review:** Check model availability, pricing, benchmark against historical findings
 - **Fallback chain:** If primary model unavailable → use fallback → if fallback unavailable → skip (never block on API)
-- **Cost ceiling:** $10/session without human approval, $50/month hard stop
+- **Cost ceiling:** $20/session without human approval, $50/month hard stop
 - **Version pinning:** Include version suffix in model ID. After model update, run side-by-side on benchmark PRs before switching
 - **Retirement:** If a model finds <3 unique real bugs in 3 consecutive audits, replace it
+- **Type diversity:** Every audit MUST include at least one model from each type (General, Code, Reasoning). Same-type-only audits miss entire vulnerability surfaces.
+- **Round ordering:** General first (broadest coverage), Code second (finds edge cases in fixed code), Reasoning last (finds architectural gaps that persist through fixes)
 
 ---
 
@@ -2069,3 +2225,4 @@ Focus on: [specific area this model is strong at]"
 | 2.0 | 2026-03-27 | Multi-Model AI Audit Protocol integrated across all phases. Ultimate Rule upgraded to 4 layers. Phase A (Post-Ship Audit) added. Phase M reference added. OpenRouter 5-model stack with tiered activation. Audit Gap Analysis integrated. |
 | 2.1 | 2026-03-27 | Fixed 3 WARNs (POS PC, ConspitLink, NTP). Added D.10 Multi-Model Diagnostic Escalation (4 OpenRouter models). Debug Order → 5-Tier. |
 | 3.0 | 2026-03-27 | **External audit response.** 5-model adversarial audit scored D+/C-. Fixed all 7 gaps: Phase E (Emergency Fast-Path, 7-min recovery), Phase B (Break-Glass, AI autonomous authority), Phase I (Island Mode, pods without management), Model Registry (version pinning, cost ceiling $50/mo), Phase V (Physical Venue — hardware, cleaning, safety), PROTOCOL-QUICK-REF.md (lean 150-line operational core), Appendix E (adversarial external audit replacing self-audit). Protocol flow now: E(emergency) > B(break-glass) > I(island) > 0-5(lifecycle) > D(debug) > A(audit). |
+| 3.1 | 2026-03-28 | **Multi-Round Deep Audit Method.** Documented proven 5-round, 21-model, $9/112-bug methodology in Phase M. Key discovery: model TYPE diversity (General→Code→Reasoning) matters more than model COUNT. Reasoning models broke diminishing returns curve (R4=7 bugs → R5=31 bugs) by finding hardcoded secrets, fail-open auth, XSS — an entirely different vulnerability surface. Updated Phase A.2 with full 5-round execution scripts. Model registry expanded to 21 models with per-model performance data. Added 3 new registry roles (code_champion, security_arch, reasoning_cheap). Type diversity rule: every audit MUST include General + Code + Reasoning. |
