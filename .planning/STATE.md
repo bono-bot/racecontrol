@@ -19,7 +19,7 @@ progress:
 Phase: 241 (event-backbone) — NOT STARTED
 Plan: 0 of TBD
 Status: Ready to plan
-Last activity: 2026-03-27 — v27.0 Meshed Intelligence milestone initialized (10 phases, 241-250, 33 requirements)
+Last activity: 2026-03-27 — v26.1 Meshed Intelligence milestone initialized (10 phases, 241-250, 33 requirements)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -27,8 +27,8 @@ Progress: [░░░░░░░░░░] 0%
 
 See: .planning/PROJECT.md (updated 2026-03-27)
 See: .planning/MESHED-INTELLIGENCE.md (v26 architecture design)
-See: .planning/REQUIREMENTS-v27.md (v27 requirements — 33 reqs, 8 categories)
-See: .planning/research-v27/SUMMARY.md (3-model council + 4-researcher synthesis)
+See: .planning/REQUIREMENTS-v26.1.md (v26.1 requirements — 33 reqs, 8 categories)
+See: .planning/research-v26.1/SUMMARY.md (3-model council + 4-researcher synthesis)
 See: UNIFIED-PROTOCOL.md (operations protocol v3.0)
 
 **Core value:** Self-healing AI fleet — every node diagnoses itself, solutions propagate fleet-wide, no issue debugged twice

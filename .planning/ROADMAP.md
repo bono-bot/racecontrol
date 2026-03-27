@@ -3773,19 +3773,19 @@ Plans:
 | 239 | Multi-Venue Cloud KB | Bono | 3-4 | CLOUD-01–03 | 1 |
 | 240 | Fleet Reports | Bono | 4 | REPORT-01–04 | 1 |
 | **Total** | | | **4 days** | **62 reqs** | **20 plans** |
-# Roadmap: Racing Point eSports — v27.0 Meshed Intelligence
+# Roadmap: Racing Point eSports — v26.1 Meshed Intelligence
 
 ## Overview
 
-v27.0 replaces the hub-and-spoke WebSocket polling architecture with an event-driven mesh using NATS JetStream as the backbone. The migration is additive — existing health probes, billing sync, and fleet ops run in parallel throughout. Ten phases deliver the mesh in strict dependency order: event backbone first, pod publishers second, server-side consumers third, resilience validation fourth, peer discovery fifth, camera fusion sixth, AI agent coordination seventh, predictive operations eighth, capacity intelligence ninth, and full integration validation last. At completion, every venue node (8 pods, server, POS, 13 cameras, two AI agents) participates in a unified event fabric enabling lateral awareness, autonomous coordination, and resilient degraded-mode operation.
+v26.1 replaces the hub-and-spoke WebSocket polling architecture with an event-driven mesh using NATS JetStream as the backbone. The migration is additive — existing health probes, billing sync, and fleet ops run in parallel throughout. Ten phases deliver the mesh in strict dependency order: event backbone first, pod publishers second, server-side consumers third, resilience validation fourth, peer discovery fifth, camera fusion sixth, AI agent coordination seventh, predictive operations eighth, capacity intelligence ninth, and full integration validation last. At completion, every venue node (8 pods, server, POS, 13 cameras, two AI agents) participates in a unified event fabric enabling lateral awareness, autonomous coordination, and resilient degraded-mode operation.
 
 ## Milestones
 
-- 🚧 **v27.0 Meshed Intelligence** - Phases 241-250 (in progress)
+- 🚧 **v26.1 Meshed Intelligence** - Phases 241-250 (in progress)
 
 ## Phases
 
-### 🚧 v27.0 Meshed Intelligence (In Progress)
+### 🚧 v26.1 Meshed Intelligence (In Progress)
 
 **Milestone Goal:** Replace hub-and-spoke monitoring with an event-driven mesh; every venue node publishes and subscribes to a shared event fabric.
 

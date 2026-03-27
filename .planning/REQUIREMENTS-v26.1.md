@@ -3,7 +3,7 @@
 **Defined:** 2026-03-27
 **Core Value:** Every venue node publishes and subscribes to a shared event fabric, enabling lateral awareness, autonomous coordination, and resilient degraded-mode operation.
 
-## v27.0 Requirements
+## v26.1 Requirements
 
 Requirements for Meshed Intelligence milestone. Each maps to roadmap phases.
 
@@ -138,7 +138,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RESIL-05 | Phase 250 | Pending |
 
 **Coverage:**
-- v27.0 requirements: 33 total
+- v26.1 requirements: 33 total
 - Mapped to phases: 33
 - Unmapped: 0
 
