@@ -104,12 +104,18 @@ if [ -d "${REPO_DIR}/.git" ]; then
     if [ "$LATEST_COMMIT_TIME" -gt "$BINARY_MTIME" ] 2>/dev/null; then
         echo -e "  ${RED}!!${NC}    ${RED}WARNING: Staged binary is OLDER than latest racecontrol commit!${NC}"
         echo -e "  ${RED}!!${NC}    ${RED}Run ./scripts/stage-release.sh first to rebuild.${NC}"
-        echo ""
-        read -p "  Continue anyway? (y/N) " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Aborted."
-            exit 1
+        if [ "${FORCE_DEPLOY:-}" = "1" ]; then
+            echo -e "  ${YELLOW}!!${NC}    FORCE_DEPLOY=1 — proceeding with stale binary"
+        elif [ -t 0 ]; then
+            echo ""
+            read -p "  Continue anyway? (y/N) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Aborted."
+                exit 1
+            fi
+        else
+            fail "Stale binary — non-interactive mode. Set FORCE_DEPLOY=1 to override."
         fi
     fi
 fi

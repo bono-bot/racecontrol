@@ -138,6 +138,18 @@ $BUILD_AGENT  && BUILD_TARGETS="$BUILD_TARGETS --bin rc-agent"
 $BUILD_SERVER && BUILD_TARGETS="$BUILD_TARGETS --bin racecontrol"
 $BUILD_SENTRY && BUILD_TARGETS="$BUILD_TARGETS --bin rc-sentry"
 
+# ─── Step 1b: Run tests before building (N20: no tests before staging) ──
+info "Running cargo tests..."
+TEST_PKGS=""
+$BUILD_AGENT  && TEST_PKGS="$TEST_PKGS -p rc-agent"
+$BUILD_SERVER && TEST_PKGS="$TEST_PKGS -p racecontrol"
+TEST_PKGS="$TEST_PKGS -p rc-common"
+if ! cargo test $TEST_PKGS 2>&1 | tail -10; then
+    fail "Tests failed! Fix before staging."
+    exit 1
+fi
+pass "All tests passed"
+
 info "Building release binaries (this may take a few minutes)..."
 echo "  cargo build --release${BUILD_TARGETS}"
 if ! cargo build --release $BUILD_TARGETS 2>&1 | tail -5; then

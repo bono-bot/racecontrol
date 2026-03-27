@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export REPO_ROOT
 COMMS_LINK_DIR="$(cd "$REPO_ROOT/../comms-link" && pwd)"
-COMMS_PSK="${COMMS_PSK:-85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0}"
+COMMS_PSK="${COMMS_PSK:?FATAL: COMMS_PSK env var required — do not hardcode}"
 COMMS_URL="${COMMS_URL:-ws://srv1422716.hstgr.cloud:8765}"
 RELAY_URL="${RELAY_URL:-http://localhost:8766}"
 SERVER_URL="${SERVER_URL:-http://192.168.31.23:8080}"

@@ -31,6 +31,20 @@ fail() { echo -e "  ${RED}FAIL${NC}  $1"; FAILURES=$((FAILURES+1)); }
 info() { echo -e "  ${YELLOW}...${NC}   $1"; }
 FAILURES=0
 
+# ─── Deploy lock (F49: prevent concurrent deploys) ────────────────────
+LOCK_FILE="/tmp/deploy-pod.lock"
+if [ -f "$LOCK_FILE" ]; then
+    LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "0")
+    LOCK_AGE=$(( $(date +%s) - $(stat -c%Y "$LOCK_FILE" 2>/dev/null || echo "0") ))
+    if kill -0 "$LOCK_PID" 2>/dev/null && [ "$LOCK_AGE" -lt 600 ]; then
+        fail "Another deploy (PID $LOCK_PID) is in progress (${LOCK_AGE}s). Wait or remove $LOCK_FILE"
+        exit 1
+    fi
+    echo -e "  ${YELLOW}!!${NC}    Stale lock (PID $LOCK_PID dead or age ${LOCK_AGE}s) — removing"
+fi
+echo "$$" > "$LOCK_FILE"
+trap "rm -f '$LOCK_FILE'" EXIT
+
 # Source pod map if available
 POD_MAP="${SCRIPT_DIR}/../tests/e2e/lib/pod-map.sh"
 if [ -f "$POD_MAP" ]; then
@@ -127,6 +141,13 @@ deploy_pod() {
         -H "Content-Type: application/json" \
         -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH C:\\RacingPoint\\rcagent-restart-sentinel.txt 2>nul & echo CLEARED"}' > /dev/null 2>&1
 
+    # Set OTA_DEPLOYING sentinel with Unix epoch for TTL enforcement (F15+N5)
+    # Sentinel auto-expires after 10 min — watchdogs must check file age, not just existence
+    OTA_EPOCH=$(date +%s)
+    curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d "{\"cmd\":\"echo ${OTA_EPOCH} > C:\\\\RacingPoint\\\\OTA_DEPLOYING & echo SENTINEL_SET\"}" > /dev/null 2>&1
+
     # Stop rc-agent (kill bat wrapper first to prevent auto-relaunch, then kill process)
     info "$POD_NAME: Stopping rc-agent..."
     curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
@@ -193,6 +214,11 @@ deploy_pod() {
         pass "$POD_NAME: rc-agent UP — build_id ${ACTUAL_BUILD} (no expected build_id to compare)"
     fi
 
+    # Clear OTA_DEPLOYING sentinel (F15)
+    curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "Content-Type: application/json" \
+        -d '{"cmd":"del /Q C:\\RacingPoint\\OTA_DEPLOYING 2>nul & echo OTA_CLEARED"}' > /dev/null 2>&1
+
     # Verify Session 1 context (PP-01: Session 0 kills all GUI)
     SESSION_CHECK=$(curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
         -H "Content-Type: application/json" \
@@ -237,6 +263,9 @@ pass "rc-agent.exe binary valid (${BINARY_SIZE} bytes)"
 LOCAL_SHA256=$(sha256sum "${BINARY_DIR}/rc-agent.exe" 2>/dev/null | awk '{print $1}' || certutil -hashfile "${BINARY_DIR}/rc-agent.exe" SHA256 2>/dev/null | grep -v hash | grep -v Cert | tr -d '[:space:]' || echo "")
 if [ -n "$LOCAL_SHA256" ]; then
     pass "Local SHA256: ${LOCAL_SHA256:0:16}..."
+else
+    fail "Cannot compute SHA256 of local binary — deploy integrity cannot be verified"
+    exit 1
 fi
 
 # Record expected build_id from git HEAD (if inside a git repo)
@@ -268,12 +297,14 @@ fi
 cp "${SCRIPT_DIR}/deploy/start-rcagent.bat" "${BINARY_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/deploy/start-rcsentry.bat" "${BINARY_DIR}/" 2>/dev/null || true
 
-# Start HTTP server
+# Start HTTP server (N11: add auto-kill timeout to prevent hanging)
 info "Starting HTTP file server on :${SERVE_PORT}..."
 cd "${BINARY_DIR}"
 python3 -m http.server ${SERVE_PORT} --bind 0.0.0.0 > /dev/null 2>&1 &
 HTTP_PID=$!
-trap "kill $HTTP_PID 2>/dev/null" EXIT
+trap "kill $HTTP_PID 2>/dev/null; rm -f '$LOCK_FILE'" EXIT
+# Auto-kill HTTP server after 10 minutes to prevent stale server
+( sleep 600 && kill $HTTP_PID 2>/dev/null ) &
 sleep 1
 
 if [ "$TARGET" = "all" ]; then
