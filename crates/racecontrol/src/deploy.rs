@@ -428,19 +428,18 @@ async fn deploy_pod_inner(
         "deploy",
     );
 
+    // Hash-based versioning: download as rc-agent-<hash>.exe
+    // The bat file swap logic finds any rc-agent-????????*.exe and renames it
+    let build_hash: &str = env!("GIT_HASH");
+    let staged_name = format!("rc-agent-{}.exe", build_hash);
+
     // Clean any stale staging binary first
-    let _ = exec_on_pod(
-        &state,
-        &pod_id,
-        &pod_ip,
-        "del /F C:\\RacingPoint\\rc-agent-new.exe",
-        5000,
-    )
-    .await;
+    let clean_cmd = format!("del /F C:\\RacingPoint\\{}", staged_name);
+    let _ = exec_on_pod(&state, &pod_id, &pod_ip, &clean_cmd, 5000).await;
 
     let download_cmd = format!(
-        "curl.exe -s -f -o C:\\RacingPoint\\rc-agent-new.exe {}",
-        binary_url
+        "curl.exe -s -f -o C:\\RacingPoint\\{} {}",
+        staged_name, binary_url
     );
     match exec_on_pod(&state, &pod_id, &pod_ip, &download_cmd, 120_000).await {
         Ok((success, _stdout, stderr)) => {
@@ -477,12 +476,12 @@ async fn deploy_pod_inner(
         &state,
         &pod_id,
         &pod_ip,
-        "dir C:\\RacingPoint\\rc-agent-new.exe",
+        &format!("dir C:\\RacingPoint\\{}", staged_name),
         5000,
     )
     .await;
     match dir_result {
-        Ok((_, stdout, _)) => match parse_file_size_from_dir(&stdout, "rc-agent-new.exe") {
+        Ok((_, stdout, _)) => match parse_file_size_from_dir(&stdout, &staged_name) {
             Some(size) => {
                 if let Err(reason) = validate_binary_size(size) {
                     set_deploy_state(

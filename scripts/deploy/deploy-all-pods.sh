@@ -8,9 +8,11 @@ set -e
 JAMES_IP="192.168.31.27"
 HTTP_PORT="9998"
 BINARY_URL="http://$JAMES_IP:$HTTP_PORT/rc-agent.exe"
+# Hash-based versioning: staged binary named with git hash
+GIT_HASH=$(cd "$(dirname "$0")/../.." && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DEST="C:\\RacingPoint\\rc-agent.exe"
-DEST_NEW="C:\\RacingPoint\\rc-agent-new.exe"
-DEST_OLD="C:\\RacingPoint\\rc-agent-old.exe"
+DEST_STAGED="C:\\RacingPoint\\rc-agent-${GIT_HASH}.exe"
+DEST_PREV="C:\\RacingPoint\\rc-agent-prev.exe"
 START_BAT="C:\\RacingPoint\\start-rcagent.bat"
 
 declare -A PODS=(
@@ -29,12 +31,11 @@ declare -A PODS=(
 make_ps_cmd() {
   local url="$1"
   cat <<EOF
-Invoke-WebRequest '$url' -OutFile '$DEST_NEW';
-if (Test-Path '$DEST') { Rename-Item '$DEST' '$DEST_OLD' -Force };
-Move-Item '$DEST_NEW' '$DEST' -Force;
+Invoke-WebRequest '$url' -OutFile '$DEST_STAGED';
+if (Test-Path '$DEST') { Rename-Item '$DEST' '$DEST_PREV' -Force };
+Move-Item '$DEST_STAGED' '$DEST' -Force;
 Get-Process rc-agent -ErrorAction SilentlyContinue | Stop-Process -Force;
 Start-Sleep 2;
-Remove-Item '$DEST_OLD' -Force -ErrorAction SilentlyContinue;
 Start-Process '$START_BAT'
 EOF
 }

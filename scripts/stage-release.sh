@@ -141,8 +141,8 @@ $BUILD_SENTRY && BUILD_TARGETS="$BUILD_TARGETS --bin rc-sentry"
 # ─── Step 1b: Run tests before building (N20: no tests before staging) ──
 info "Running cargo tests..."
 TEST_PKGS=""
-$BUILD_AGENT  && TEST_PKGS="$TEST_PKGS -p rc-agent"
-$BUILD_SERVER && TEST_PKGS="$TEST_PKGS -p racecontrol"
+$BUILD_AGENT  && TEST_PKGS="$TEST_PKGS -p rc-agent-crate"
+$BUILD_SERVER && TEST_PKGS="$TEST_PKGS -p racecontrol-crate"
 TEST_PKGS="$TEST_PKGS -p rc-common"
 if ! cargo test $TEST_PKGS 2>&1 | tail -10; then
     fail "Tests failed! Fix before staging."
@@ -164,8 +164,11 @@ info "Copying binaries to staging..."
 
 copy_and_hash() {
     local BINARY="$1"
+    local BASE_NAME="${BINARY%.exe}"
     local SOURCE="${REPO_DIR}/target/release/${BINARY}"
     local DEST="${STAGING_DIR}/${BINARY}"
+    # Hash-based versioned copy: rc-agent-<hash>.exe for deploy
+    local VERSIONED="${STAGING_DIR}/${BASE_NAME}-${GIT_HASH}.exe"
 
     if [ ! -f "$SOURCE" ]; then
         fail "${BINARY}: not found in target/release/"
@@ -173,10 +176,12 @@ copy_and_hash() {
     fi
 
     cp "$SOURCE" "$DEST"
+    cp "$SOURCE" "$VERSIONED"
     local SIZE=$(stat -c%s "$DEST" 2>/dev/null || wc -c < "$DEST" 2>/dev/null || echo "0")
     local HASH=$(sha256sum "$DEST" 2>/dev/null | awk '{print $1}' || certutil -hashfile "$DEST" SHA256 2>/dev/null | grep -v hash | grep -v Cert | tr -d '[:space:]' || echo "unknown")
 
     pass "${BINARY}: staged (${SIZE} bytes, sha256=${HASH:0:16}...)"
+    pass "  + ${BASE_NAME}-${GIT_HASH}.exe (versioned copy)"
     echo "$HASH"
 }
 

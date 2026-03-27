@@ -29,11 +29,19 @@ const START_SCRIPT_CONTENT: &str = "@echo off\r\n\
     netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
     taskkill /F /IM rc-agent.exe 1>nul 2>nul\r\n\
     timeout /t 3 /nobreak 1>nul\r\n\
-    if not exist rc-agent-new.exe goto :start_agent\r\n\
-    del /Q rc-agent.exe 1>nul 2>nul\r\n\
+    rem --- Binary swap (hash-based versioning) ---\r\n\
+    set \"STAGED=\"\r\n\
+    for /f \"delims=\" %%F in ('dir /B /O-D rc-agent-????????*.exe 2^^^>nul') do (\r\n\
+        if not \"%%F\"==\"rc-agent.exe\" (\r\n\
+            if not defined STAGED set \"STAGED=%%F\"\r\n\
+        )\r\n\
+    )\r\n\
+    if not defined STAGED goto :start_agent\r\n\
+    del /Q rc-agent-prev.exe 1>nul 2>nul\r\n\
+    if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul\r\n\
     timeout /t 1 /nobreak 1>nul\r\n\
     if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
-    move rc-agent-new.exe rc-agent.exe 1>nul\r\n\
+    ren \"%STAGED%\" rc-agent.exe 1>nul\r\n\
     :start_agent\r\n\
     start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
 

@@ -20,12 +20,21 @@ taskkill /F /IM ConspitLink2.0.exe 1>nul 2>nul
 taskkill /F /IM rc-agent.exe 1>nul 2>nul
 timeout /t 3 /nobreak 1>nul
 
-rem --- Binary swap ---
-if not exist rc-agent-new.exe goto :skip_swap
-del /Q rc-agent.exe 1>nul 2>nul
+rem --- Binary swap (hash-based versioning) ---
+rem Look for staged binary: rc-agent-<hash>.exe (8+ hex chars, not the running binary)
+set "STAGED="
+for /f "delims=" %%F in ('dir /B /O-D rc-agent-????????*.exe 2^>nul') do (
+    if not "%%F"=="rc-agent.exe" (
+        if not defined STAGED set "STAGED=%%F"
+    )
+)
+if not defined STAGED goto :skip_swap
+rem Rename current binary to rc-agent-prev.exe (keep ONE rollback)
+del /Q rc-agent-prev.exe 1>nul 2>nul
+if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul
 timeout /t 1 /nobreak 1>nul
 if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul
-move rc-agent-new.exe rc-agent.exe 1>nul
+ren "%STAGED%" rc-agent.exe 1>nul
 :skip_swap
 
 rem --- Start ConspitLink singleton then rc-agent ---
