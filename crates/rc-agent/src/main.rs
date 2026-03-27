@@ -2,6 +2,7 @@ mod ac_launcher;
 #[cfg(feature = "ai-debugger")]
 mod ai_debugger;
 mod app_state;
+mod budget_tracker;
 mod feature_flags;
 mod billing_guard;
 mod event_loop;
