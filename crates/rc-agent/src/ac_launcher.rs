@@ -284,8 +284,32 @@ fn bootstrap_ac_config() -> Result<()> {
     Ok(())
 }
 
+/// Validate that a content identifier (car, track, skin) is a safe directory name.
+/// Rejects path traversal (../, absolute paths) and shell metacharacters.
+fn validate_content_id(value: &str, field: &str) -> Result<()> {
+    if value.is_empty() {
+        return Ok(()); // Empty is allowed (defaults apply)
+    }
+    if value.contains("..") || value.contains('/') || value.contains('\\')
+        || value.starts_with(':') || value.contains('\0')
+    {
+        anyhow::bail!("Invalid {}: path traversal or illegal character rejected (got {:?})", field, value);
+    }
+    Ok(())
+}
+
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     tracing::info!(target: LOG_TARGET, "AC launch: {} @ {} for {}", params.car, params.track, params.driver);
+
+    // Security: validate content identifiers against path traversal
+    validate_content_id(&params.car, "car")?;
+    validate_content_id(&params.track, "track")?;
+    validate_content_id(&params.skin, "skin")?;
+    validate_content_id(&params.track_config, "track_config")?;
+    for ai_car in &params.ai_cars {
+        validate_content_id(&ai_car.model, "ai_car.model")?;
+        validate_content_id(&ai_car.skin, "ai_car.skin")?;
+    }
 
     // Step 0: Ensure all config files exist (self-healing bootstrap)
     bootstrap_ac_config()?;
@@ -934,7 +958,8 @@ fn write_session_block(ini: &mut String, index: usize, name: &str, session_type:
     let _ = writeln!(ini, "\n[SESSION_{}]", index);
     let _ = writeln!(ini, "NAME={}", name);
     let _ = writeln!(ini, "DURATION_MINUTES={}", duration);
-    let _ = writeln!(ini, "SPAWN_SET={}", if session_type == 4 { "START" } else { "PIT" });
+    // Hotlap (4) and Race (3) start from grid; Practice (1) and Qualify (2) from pit
+    let _ = writeln!(ini, "SPAWN_SET={}", if session_type >= 3 { "START" } else { "PIT" });
     let _ = writeln!(ini, "TYPE={}", session_type);
     let _ = writeln!(ini, "LAPS=0");
     let _ = writeln!(ini, "STARTING_POSITION={}", starting_pos);
@@ -1045,11 +1070,16 @@ fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
 
     let content = build_race_ini_string(params);
 
+    // Validate INI integrity: must have critical sections
+    if !content.contains("[RACE]") || !content.contains("[CAR_0]") || !content.contains("[SESSION_0]") {
+        anyhow::bail!("race.ini generation failed: missing critical section (RACE/CAR_0/SESSION_0)");
+    }
+
     if let Some(parent) = race_ini_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&race_ini_path, content.as_bytes())?;
-    tracing::info!(target: LOG_TARGET, "Wrote race.ini to {}", race_ini_path.display());
+    tracing::info!(target: LOG_TARGET, "Wrote race.ini ({} bytes) to {}", content.len(), race_ini_path.display());
     Ok(())
 }
 
@@ -1145,14 +1175,25 @@ fn find_cm_exe() -> Option<std::path::PathBuf> {
 /// Launch AC via Content Manager's acmanager:// URI protocol.
 /// For single-player: `acmanager://race/config` (uses current race.ini)
 /// For multiplayer: `acmanager://race/online?ip=...&httpPort=...&password=...`
+///
+/// SECURITY: All URI components are sanitized to prevent command injection.
+/// Shell metacharacters (&|;<>`"') in server_ip/password would escape the URI
+/// and execute arbitrary commands via `cmd /c start`.
 fn launch_via_cm(params: &AcLaunchParams) -> Result<()> {
     let uri = if params.game_mode == "multi" {
-        let mut uri = format!(
-            "acmanager://race/online?ip={}&httpPort={}",
-            params.server_ip, params.server_http_port,
-        );
+        // Sanitize: reject shell metacharacters that could escape URI context in cmd.exe
+        let sanitize = |s: &str, field: &str| -> Result<String> {
+            if s.chars().any(|c| matches!(c, '&' | '|' | ';' | '<' | '>' | '`' | '"' | '\'' | '%' | '^' | '(' | ')')) {
+                anyhow::bail!("Invalid character in {}: shell metacharacter rejected", field);
+            }
+            Ok(s.to_string())
+        };
+        let ip = sanitize(&params.server_ip, "server_ip")?;
+        let port = params.server_http_port; // u16, safe
+        let mut uri = format!("acmanager://race/online?ip={}&httpPort={}", ip, port);
         if !params.server_password.is_empty() {
-            uri.push_str(&format!("&password={}", params.server_password));
+            let pw = sanitize(&params.server_password, "server_password")?;
+            uri.push_str(&format!("&password={}", pw));
         }
         uri
     } else {
@@ -2029,6 +2070,7 @@ mod tests {
 
         let session = sections.get("SESSION_0").expect("SESSION_0 must exist");
         assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("3"), "Race is TYPE=3");
+        assert_eq!(session.get("SPAWN_SET").map(|s| s.as_str()), Some("START"), "Race must spawn from grid, not pit");
     }
 
     #[test]
