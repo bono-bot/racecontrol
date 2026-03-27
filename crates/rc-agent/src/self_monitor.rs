@@ -251,9 +251,9 @@ const GRACEFUL_RELAUNCH_SENTINEL: &str = r"C:\RacingPoint\GRACEFUL_RELAUNCH";
 /// before deciding how to relaunch rc-agent.
 const SENTRY_PORT: u16 = 8091;
 
-/// Timeout for the TCP connect attempt to rc-sentry. 2 seconds is long enough
-/// to handle a briefly-busy listener, short enough not to delay relaunch.
-const SENTRY_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+/// Bug #18: Timeout for the TCP connect attempt to rc-sentry. 5 seconds handles
+/// slow startup and busy listener without false negatives.
+const SENTRY_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Check if rc-sentry is alive by attempting TCP connect to localhost:8091.
 /// Returns true if connection succeeds within 2 seconds.
@@ -381,15 +381,15 @@ mod tests {
     }
 
     #[test]
-    fn check_sentry_alive_returns_within_2_seconds() {
+    fn check_sentry_alive_returns_within_5_seconds() {
         use std::time::Instant;
         let start = Instant::now();
         // Port 19998 should be unoccupied (no listener) — tests the timeout path
         let _ = check_sentry_alive_on_port(19998);
         let elapsed = start.elapsed();
         assert!(
-            elapsed.as_secs() <= 2,
-            "check_sentry_alive should complete within 2s, took {:?}",
+            elapsed.as_secs() <= 5,
+            "check_sentry_alive should complete within 5s, took {:?}",
             elapsed
         );
     }

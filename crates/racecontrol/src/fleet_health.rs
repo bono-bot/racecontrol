@@ -196,6 +196,12 @@ pub fn store_startup_report(
     store.hid_detected = Some(hid_detected);
     store.udp_ports_bound = Some(udp_ports_bound.to_vec());
 
+    // Bug #8: Clear last_sentry_crash on recovery — pod is healthy again
+    if store.last_sentry_crash.is_some() {
+        tracing::info!(target: "fleet-health", "Clearing last_sentry_crash — pod recovered (StartupReport received)");
+        store.last_sentry_crash = None;
+    }
+
     // ─── Phase 9b: Crash loop detection ──────────────────────────────────
     // Track startup timestamps for short-uptime restarts (uptime < 30s).
     // If >3 such restarts in a 5-minute window → crash loop detected.
@@ -280,12 +286,19 @@ pub fn get_active_sentinels(store: &FleetHealthStore) -> Vec<String> {
 pub fn start_probe_loop(state: Arc<AppState>) {
     tokio::spawn(async move {
         // Dedicated short-timeout client for health probes.
-        let probe_client = reqwest::Client::builder()
+        // Bug #20: Replace .expect() with graceful error handling
+        let probe_client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(3))
             .connect_timeout(Duration::from_secs(3))
             .pool_max_idle_per_host(0)
             .build()
-            .expect("Failed to build fleet probe HTTP client");
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to build fleet probe HTTP client: {} — probe loop will not run", e);
+                return;
+            }
+        };
 
         let mut ticker = tokio::time::interval(Duration::from_secs(15));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -360,10 +373,14 @@ pub fn start_probe_loop(state: Arc<AppState>) {
 pub async fn fleet_health_handler(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let pods_snapshot = state.pods.read().await;
-    let senders = state.agent_senders.read().await;
-    let fleet = state.pod_fleet_health.read().await;
-    let violations = state.pod_violations.read().await;
+    // Bug #9: Acquire and release each lock sequentially to avoid holding 4 read locks.
+    let pods_snapshot = { state.pods.read().await.clone() };
+    let senders_snapshot: HashMap<String, bool> = {
+        let senders = state.agent_senders.read().await;
+        senders.iter().map(|(k, v)| (k.clone(), v.is_closed())).collect()
+    };
+    let fleet_snapshot = { state.pod_fleet_health.read().await.clone() };
+    let violations_snapshot = { state.pod_violations.read().await.clone() };
 
     let mut result: Vec<PodFleetStatus> = Vec::with_capacity(8);
 
@@ -402,13 +419,13 @@ pub async fn fleet_health_handler(
                 let pod_id = &info.id;
 
                 // WS connected = sender exists and channel is still open.
-                let ws_connected = senders
+                let ws_connected = senders_snapshot
                     .get(pod_id)
-                    .map(|s| !s.is_closed())
+                    .map(|closed| !closed)
                     .unwrap_or(false);
 
                 // Fleet health store for version, uptime, http state.
-                let store = fleet.get(pod_id);
+                let store = fleet_snapshot.get(pod_id);
 
                 let http_reachable = store.map(|s| s.http_reachable).unwrap_or(false);
                 let version = store.and_then(|s| s.version.clone());
@@ -433,7 +450,7 @@ pub async fn fleet_health_handler(
                 let in_maintenance = store.map(|s| s.in_maintenance).unwrap_or(false);
                 let maintenance_failures = store.map(|s| s.maintenance_failures.clone()).unwrap_or_default();
 
-                let vstore = violations.get(pod_id.as_str());
+                let vstore = violations_snapshot.get(pod_id.as_str());
                 let now = Utc::now();
                 let violation_count_24h = vstore.map(|vs| vs.violation_count_24h(now)).unwrap_or(0);
                 let last_violation_at = vstore.and_then(|vs| vs.last_violation_at()).map(String::from);

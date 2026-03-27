@@ -26,6 +26,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const READ_TIMEOUT: Duration = Duration::from_secs(3);
 const HYSTERESIS_THRESHOLD: u8 = 3; // consecutive failures before crash
+const POST_CRASH_COOLDOWN: Duration = Duration::from_secs(60);
 
 const LOG_TARGET: &str = "watchdog";
 
@@ -40,6 +41,8 @@ pub enum WatchdogState {
     Suspect(u8),
     /// rc-agent confirmed crashed after HYSTERESIS_THRESHOLD failures.
     Crashed,
+    /// Post-crash cooldown — wait before returning to Healthy to avoid rapid re-trigger.
+    Cooldown(std::time::Instant),
 }
 
 /// Context gathered after a crash is detected.
@@ -287,6 +290,32 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
 
                     // Crashed → should not stay here, but handle gracefully
                     (WatchdogState::Crashed, _) => WatchdogState::Crashed,
+
+                    // Cooldown → wait POST_CRASH_COOLDOWN before returning to Healthy
+                    (WatchdogState::Cooldown(since), true) => {
+                        if since.elapsed() >= POST_CRASH_COOLDOWN {
+                            tracing::info!(target: "state", prev = "Cooldown", next = "Healthy",
+                                "FSM transition: Cooldown -> Healthy (cooldown elapsed)");
+                            let _ = recovery_logger.log(&RecoveryDecision::new(
+                                machine.clone(),
+                                "rc-agent.exe",
+                                RecoveryAuthority::RcSentry,
+                                RecoveryAction::AlertStaff,
+                                "fsm:Cooldown->Healthy",
+                            ));
+                            WatchdogState::Healthy
+                        } else {
+                            tracing::debug!(target: LOG_TARGET, "post-crash cooldown: {}s remaining",
+                                (POST_CRASH_COOLDOWN - since.elapsed()).as_secs());
+                            WatchdogState::Cooldown(*since)
+                        }
+                    }
+                    // Cooldown but poll failed → back to Suspect
+                    (WatchdogState::Cooldown(_), false) => {
+                        tracing::warn!(target: "state", prev = "Cooldown", next = "Suspect(1)",
+                            "FSM transition: Cooldown -> Suspect(1)");
+                        WatchdogState::Suspect(1)
+                    }
                 };
 
                 if state == WatchdogState::Crashed {
@@ -295,7 +324,7 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     // while a new binary is being downloaded and swapped in.
                     if restart_suppressed {
                         tracing::warn!(target: LOG_TARGET, "restart suppressed by kill_watchdog_restart flag — skipping crash handler this tick");
-                        state = WatchdogState::Healthy;
+                        state = WatchdogState::Cooldown(std::time::Instant::now());
                     } else {
                         let ctx = build_crash_context();
                         tracing::info!(
@@ -309,8 +338,9 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                             break;
                         }
 
-                        // Return to healthy — Phase 103 handles fix+restart via the channel
-                        state = WatchdogState::Healthy;
+                        // Enter cooldown — 60s before accepting health as "recovered"
+                        // Prevents rapid Crashed→Healthy→Suspect→Crashed oscillation
+                        state = WatchdogState::Cooldown(std::time::Instant::now());
                     }
                 }
 

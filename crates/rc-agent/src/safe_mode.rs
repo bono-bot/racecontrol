@@ -213,7 +213,10 @@ while ($true) {
             }
         }
 
-        tracing::warn!(target: LOG_TARGET, "WMI watcher exited");
+        // Bug #15: Kill the PowerShell child on thread exit to prevent leaked processes (~90MB each).
+        let _ = child.kill();
+        let _ = child.wait();
+        tracing::warn!(target: LOG_TARGET, "WMI watcher exited — PowerShell child cleaned up");
     });
 
     rx

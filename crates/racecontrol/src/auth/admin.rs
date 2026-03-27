@@ -76,6 +76,7 @@ fn clear_lockout_on_success() {
 // ---- Request / Response types ------------------------------------------------
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminLoginRequest {
     pub pin: String,
 }

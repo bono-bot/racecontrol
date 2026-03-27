@@ -134,6 +134,9 @@ fn cleanup_old_logs(log_dir: &std::path::Path) {
 
 /// Guard against recursive panics in the hook
 static PANIC_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Graceful shutdown flag — set by Ctrl+C / SIGTERM handler.
+/// Background tasks can check this to exit cleanly.
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// Lock screen state handle — set after LockScreenManager is created, used by panic hook
 static PANIC_LOCK_STATE: OnceLock<std::sync::Arc<std::sync::Mutex<lock_screen::LockScreenState>>> = OnceLock::new();
 
@@ -944,6 +947,25 @@ async fn main() -> Result<()> {
     // Runs as a dedicated OS thread (not tokio) — notify uses sync mpsc internally.
     sentinel_watcher::spawn(state.ws_exec_result_tx.clone(), state.pod_id.clone());
     tracing::info!(target: LOG_TARGET, "Sentinel file watcher spawned (watching C:\\RacingPoint\\)");
+
+    // ─── Graceful Shutdown Handler ──────────────────────────────────────────
+    // Ctrl+C on Windows (covers SIGTERM-equivalent). Sets SHUTDOWN_REQUESTED flag
+    // so background tasks can exit cleanly and FFB is zeroed before process exit.
+    {
+        let ffb_shutdown = state.ffb.clone();
+        tokio::spawn(async move {
+            if let Ok(()) = tokio::signal::ctrl_c().await {
+                tracing::info!(target: LOG_TARGET, "Shutdown signal received (Ctrl+C) — initiating graceful shutdown");
+                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                // Zero FFB as a safety measure before exit
+                let _ = tokio::task::spawn_blocking(move || {
+                    ffb_shutdown.zero_force_with_retry(3, 100);
+                }).await;
+                tracing::info!(target: LOG_TARGET, "Graceful shutdown complete — exiting");
+                std::process::exit(0);
+            }
+        });
+    }
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state

@@ -299,6 +299,17 @@ pub async fn create_cafe_promo(
         ));
     }
 
+    // Validate time window: if both start and end are provided, start must be before end
+    // (overnight promos like 22:00-02:00 are allowed — only reject identical times)
+    if let (Some(ref start), Some(ref end)) = (&req.start_time, &req.end_time) {
+        if start == end {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "start_time and end_time must be different"})),
+            ));
+        }
+    }
+
     let id = Uuid::new_v4().to_string();
     let config_str = serde_json::to_string(&req.config).map_err(|e| {
         (
@@ -384,6 +395,16 @@ pub async fn update_cafe_promo(
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "no fields to update"})),
         ));
+    }
+
+    // Validate time window when both times are provided in this update
+    if let (Some(ref start), Some(ref end)) = (&req.start_time, &req.end_time) {
+        if start == end {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "start_time and end_time must be different"})),
+            ));
+        }
     }
 
     set_clauses.push("updated_at = datetime('now')".to_string());

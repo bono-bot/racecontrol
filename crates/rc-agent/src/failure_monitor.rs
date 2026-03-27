@@ -153,8 +153,13 @@ pub fn spawn(
 
             prev_hid_connected = state.hid_connected;
 
+            // Bug #24: Skip UDP silence checks if the current sim doesn't support telemetry
+            let sim_has_telemetry = state.sim_type
+                .map(|st| matches!(st, SimType::AssettoCorsa | SimType::AssettoCorsaEvo | SimType::F125 | SimType::IRacing | SimType::LeMansUltimate | SimType::Forza))
+                .unwrap_or(true); // Default true for unknown sims (conservative)
+
             // TELEM-01: UDP silence 60s while billing active + game running
-            if state.billing_active && state.game_pid.is_some() && !state.recovery_in_progress {
+            if state.billing_active && state.game_pid.is_some() && !state.recovery_in_progress && sim_has_telemetry {
                 let udp_silent_60 = state
                     .last_udp_secs_ago
                     .map(|s| s >= TELEM_GAP_SECS)
@@ -211,10 +216,15 @@ pub fn spawn(
             }
 
             // CRASH-01: Game freeze — game running + UDP silent 30s + low CPU + hung window
+            // Bug #24: Skip if the current sim doesn't support UDP telemetry
             if let Some(game_pid) = state.game_pid {
-                let udp_silent = state.last_udp_secs_ago
-                    .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
-                    .unwrap_or(false);
+                let udp_silent = if sim_has_telemetry {
+                    state.last_udp_secs_ago
+                        .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
+                        .unwrap_or(false)
+                } else {
+                    false // No telemetry = can't detect freeze via UDP silence
+                };
 
                 if udp_silent && status.game_running.load(Ordering::Relaxed) {
                     // Check CPU + IsHungAppWindow only when UDP silence threshold already met

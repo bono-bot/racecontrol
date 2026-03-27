@@ -44,6 +44,42 @@ static EXEC_SLOTS: AtomicUsize = AtomicUsize::new(0);
 static THREAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// Cached service key from RCSENTRY_SERVICE_KEY env var. Empty = permissive mode.
+static SERVICE_KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Get the configured service key (cached on first call).
+fn service_key() -> &'static str {
+    SERVICE_KEY.get_or_init(|| {
+        std::env::var("RCSENTRY_SERVICE_KEY").unwrap_or_default()
+    })
+}
+
+/// SEC-EXEC-02: Check X-Service-Key header on protected endpoints.
+/// When RCSENTRY_SERVICE_KEY is unset/empty, all requests pass (permissive mode).
+/// Returns true if the request is authorized, false otherwise.
+fn check_service_key(request: &str) -> bool {
+    let expected = service_key();
+    if expected.is_empty() {
+        return true; // Permissive mode — no key configured
+    }
+
+    // Extract X-Service-Key header value from raw HTTP request
+    let provided = request
+        .lines()
+        .find(|l| l.to_ascii_lowercase().starts_with("x-service-key:"))
+        .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim())
+        .unwrap_or("");
+
+    // Constant-time comparison to prevent timing attacks
+    if expected.len() != provided.len() {
+        return false;
+    }
+    let mut result: u8 = 0;
+    for (a, b) in expected.as_bytes().iter().zip(provided.as_bytes()) {
+        result |= a ^ b;
+    }
+    result == 0
+}
 
 struct SlotGuard;
 
@@ -404,12 +440,23 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         _ => return send_response(&mut stream, 400, "Bad Request"),
     };
 
+    // Public routes (no auth required)
     match (method, path) {
-        ("GET", "/ping") => send_plain(&mut stream, 200, "pong"),
+        ("GET", "/ping") => return send_plain(&mut stream, 200, "pong"),
+        ("OPTIONS", _) => return send_cors_preflight(&mut stream),
+        ("GET", "/health") => return handle_health(&mut stream),
+        ("GET", "/version") => return handle_version(&mut stream),
+        _ => {} // Fall through to protected routes
+    }
+
+    // SEC-EXEC-02: Protected routes require X-Service-Key when configured
+    if !check_service_key(&request) {
+        tracing::warn!("Unauthorized request to {path} — invalid or missing X-Service-Key");
+        return send_response(&mut stream, 401, r#"{"error":"unauthorized"}"#);
+    }
+
+    match (method, path) {
         ("POST", "/exec") => handle_exec(&mut stream, &request),
-        ("OPTIONS", _) => send_cors_preflight(&mut stream),
-        ("GET", "/health") => handle_health(&mut stream),
-        ("GET", "/version") => handle_version(&mut stream),
         ("GET", "/flags") => handle_flags(&mut stream),
         ("GET", p) if p.starts_with("/files") => handle_files(&mut stream, p),
         ("GET", "/processes") => handle_processes(&mut stream),

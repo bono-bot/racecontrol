@@ -338,6 +338,32 @@ Audit for:
 Be specific. Reference exact rule text when flagging issues.`
   });
 
+  // Batch 8: Frontend (Next.js/TypeScript)
+  const kioskSrc = readFilesFromDir(path.join(REPO_ROOT, 'kiosk', 'src'), ['.ts', '.tsx']);
+  const webSrc = readFilesFromDir(path.join(REPO_ROOT, 'web', 'src'), ['.ts', '.tsx']);
+  const adminSrc = readFilesFromDir(path.join(REPO_ROOT, 'admin', 'src'), ['.ts', '.tsx']);
+  rawBatches.push({
+    name: '08-frontend-nextjs', title: 'Frontend Apps (Next.js/TypeScript — Kiosk, Web, Admin)',
+    prompt: `Audit the three Next.js frontend applications:
+- kiosk (:3300): customer-facing pod control, game selection wizard, billing session display
+- web (:3200): staff dashboard, fleet overview, billing management, leaderboards
+- admin (:3201): admin panel, fleet management, feature flags, system health
+
+Focus on:
+1. XSS: any use of unsafe innerHTML, unescaped user input in JSX, URL parameter injection
+2. AUTH TOKEN HANDLING: where are JWTs stored (localStorage vs httpOnly cookie)? Are tokens sent to correct origins only? Token refresh logic gaps?
+3. CORS: are fetch/axios calls restricted to expected origins? Any wildcard CORS?
+4. COOKIE FLAGS: httpOnly, secure, sameSite on auth cookies
+5. EXPOSED NEXT_PUBLIC_ VARS: grep for NEXT_PUBLIC_ — any secrets leaked? Any vars defaulting to localhost (breaks remote browsers)?
+6. SSR/CSR BOUNDARY: sessionStorage/localStorage read in useState initializer (hydration mismatch)? useEffect+hydrated pattern used correctly?
+7. UNSAFE HTML RENDERING: any usage of React unsafe HTML injection? Is input sanitized before rendering?
+8. API URL CONSTRUCTION: any string concatenation with user input in fetch URLs?
+9. WEBSOCKET SECURITY: WS connections authenticated? Reconnection logic safe?
+10. ERROR BOUNDARIES: do pages have error boundaries or do component errors crash the entire app?
+
+${bundleFiles([...kioskSrc, ...webSrc, ...adminSrc])}`
+  });
+
   // Auto-split batches that exceed context
   let batches = [];
   for (const batch of rawBatches) {

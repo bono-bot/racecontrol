@@ -805,7 +805,10 @@ pub async fn send_pin_whatsapp(state: &Arc<AppState>, driver_id: &str, pin: &str
             "text": message,
         });
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
         match client.post(&url).header("apikey", evo_key).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {
                 tracing::info!("Reservation PIN sent via WhatsApp for driver {}", driver_id);

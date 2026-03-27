@@ -65,7 +65,10 @@ pub async fn query_ollama(
     model: &str,
     messages: &[Value],
 ) -> anyhow::Result<String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .unwrap_or_default();
     let resp = client
         .post(&format!("{}/api/chat", url))
         .json(&json!({
@@ -115,7 +118,10 @@ pub async fn query_anthropic(
         .filter(|m| m.get("role").and_then(|r| r.as_str()) != Some("system"))
         .collect();
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .unwrap_or_default();
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", api_key)

@@ -32,7 +32,8 @@ pub struct FailureMode {
 #[derive(Debug, Serialize)]
 pub struct LaunchStatsResponse {
     pub success_rate: f64,
-    pub avg_time_to_track_ms: Option<i64>,
+    // Bug #21: Changed from i64 to f64 to preserve sub-millisecond precision from AVG()
+    pub avg_time_to_track_ms: Option<f64>,
     pub p95_time_to_track_ms: Option<i64>,
     pub total_launches: i64,
     pub common_failure_modes: Vec<FailureMode>,
@@ -162,7 +163,7 @@ pub async fn launch_stats_handler(
 
     let response = LaunchStatsResponse {
         success_rate,
-        avg_time_to_track_ms: avg_ms.map(|v| v as i64),
+        avg_time_to_track_ms: avg_ms, // Bug #21: pass f64 directly, no truncation
         p95_time_to_track_ms: p95,
         total_launches: total,
         common_failure_modes: failure_modes,

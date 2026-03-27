@@ -244,7 +244,13 @@ async fn kiosk_proxy(
                 if attempt > 0 {
                     tracing::info!("Proxy succeeded on attempt {} for {}", attempt + 1, url);
                 }
-                return builder.body(axum::body::Body::from(body)).unwrap().into_response();
+                return match builder.body(axum::body::Body::from(body)) {
+                    Ok(resp) => resp.into_response(),
+                    Err(e) => {
+                        tracing::error!("Failed to build proxy response: {e}");
+                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                    }
+                };
             }
             Err(e) => {
                 last_err = format!("{e}");
@@ -259,12 +265,17 @@ async fn kiosk_proxy(
     // All 3 retries exhausted — show branded error page
     tracing::warn!("Proxy failed after 3 attempts for {}: {}", url, last_err);
     let service = if is_kiosk { "Kiosk" } else { "Dashboard" };
-    axum::response::Response::builder()
+    match axum::response::Response::builder()
         .status(StatusCode::BAD_GATEWAY)
         .header("content-type", "text/html; charset=utf-8")
         .body(axum::body::Body::from(backend_unavailable_page(service, port)))
-        .unwrap()
-        .into_response()
+    {
+        Ok(resp) => resp.into_response(),
+        Err(e) => {
+            tracing::error!("Failed to build error page response: {e}");
+            StatusCode::BAD_GATEWAY.into_response()
+        }
+    }
 }
 
 /// Branded error page shown when the kiosk or dashboard backend is unreachable.
@@ -663,7 +674,9 @@ async fn main() -> anyhow::Result<()> {
                 match tokio::net::TcpListener::bind(&ts_addr).await {
                     Ok(ts_listener) => {
                         tracing::info!("Bono relay endpoint on http://{} (Tailscale interface)", ts_addr);
-                        axum::serve(ts_listener, relay_router).await.unwrap();
+                        if let Err(e) = axum::serve(ts_listener, relay_router).await {
+                            tracing::error!("Bono relay server on {} exited with error: {e}", ts_addr);
+                        }
                     }
                     Err(e) => {
                         tracing::error!(
@@ -722,6 +735,7 @@ async fn main() -> anyhow::Result<()> {
                 .allow_headers(tower_http::cors::Any)
                 .allow_credentials(false)
         )
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB request body limit
         .layer(TraceLayer::new_for_http())
         .layer(axum_mw::from_fn(classify_source_middleware))
         .with_state(state.clone());

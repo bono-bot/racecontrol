@@ -22,6 +22,9 @@ struct FlagsCacheFile {
     flags: HashMap<String, bool>,
     kill_switches: HashMap<String, bool>,
     version: u64,
+    /// Bug #22: Binary version that wrote this cache. Used for compatibility warning.
+    #[serde(default)]
+    binary_version: Option<String>,
 }
 
 /// In-memory feature flag store for rc-agent.
@@ -64,6 +67,17 @@ impl FeatureFlags {
 
         match serde_json::from_str::<FlagsCacheFile>(&data) {
             Ok(cache) => {
+                // Bug #22: Warn if the cache was written by a different binary version
+                let current_version = env!("CARGO_PKG_VERSION");
+                if let Some(ref cached_ver) = cache.binary_version {
+                    if cached_ver != current_version {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            "Flags cache written by binary v{} but current binary is v{} — using cached flags but they may be stale",
+                            cached_ver, current_version
+                        );
+                    }
+                }
                 tracing::info!(
                     target: LOG_TARGET,
                     "Loaded flags cache: {} flags, {} kill switches, version={}",
@@ -219,6 +233,7 @@ impl FeatureFlags {
             flags: self.flags.clone(),
             kill_switches: self.kill_switches.clone(),
             version: self.version,
+            binary_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         };
 
         let json = match serde_json::to_string(&cache) {

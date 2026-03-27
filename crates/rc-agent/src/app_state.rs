@@ -89,3 +89,10 @@ pub struct AppState {
     /// Set to true via GUARD_CONFIRMED fleet exec command.
     pub(crate) guard_confirmed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
+
+impl AppState {
+    pub fn set_safe_mode_active(&mut self, active: bool) {
+        self.safe_mode.active = active;
+        self.safe_mode_active.store(active, std::sync::atomic::Ordering::SeqCst);
+    }
+}

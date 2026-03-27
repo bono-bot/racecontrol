@@ -163,6 +163,24 @@ export COMMIT
 export DRY_RUN
 
 # ---------------------------------------------------------------------------
+# PID lock: prevent parallel audit corruption
+# ---------------------------------------------------------------------------
+LOCK_FILE="$SCRIPT_DIR/.audit.lock"
+
+if [ -f "$LOCK_FILE" ]; then
+  EXISTING_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+  if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+    echo "ERROR: Another audit is running (PID: $EXISTING_PID). Aborting." >&2
+    exit 2
+  fi
+  # Stale lock file — previous run crashed without cleanup
+  rm -f "$LOCK_FILE"
+fi
+
+echo $$ > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+
+# ---------------------------------------------------------------------------
 # check_prerequisites: jq, curl, AUDIT_PIN
 # ---------------------------------------------------------------------------
 check_prerequisites() {
@@ -289,6 +307,48 @@ echo "Venue state: $VENUE_STATE"
 
 # Initialization phase result
 emit_result "00" "0" "james-local" "PASS" "P3" "Audit framework initialized" "$AUDIT_MODE" "$VENUE_STATE"
+
+# ---------------------------------------------------------------------------
+# Phase 0 Self-Test: verify emit_result and result counting work correctly
+# Only runs on full audits (skip if --phase or --tier is specified)
+# ---------------------------------------------------------------------------
+if [[ -z "$AUDIT_PHASE" ]] && [[ -z "$AUDIT_TIER" ]]; then
+  echo "--- Phase 0: Self-Test ---"
+
+  # Create temporary phase results
+  SELFTEST_PASS_FILE="$RESULT_DIR/phase-ST-pass.json"
+  SELFTEST_FAIL_FILE="$RESULT_DIR/phase-ST-fail.json"
+
+  emit_result "ST" "0" "self-test-pass" "PASS" "P3" "Self-test: expected PASS" "$AUDIT_MODE" "$VENUE_STATE"
+  emit_result "ST" "0" "self-test-fail" "FAIL" "P3" "Self-test: expected FAIL" "$AUDIT_MODE" "$VENUE_STATE"
+
+  # Count results from self-test phase files
+  ST_PASS_COUNT=0
+  ST_FAIL_COUNT=0
+  for f in "$RESULT_DIR"/phase-ST-*.json; do
+    [ -f "$f" ] || continue
+    st_status=$(jq -r '.status // "UNKNOWN"' "$f" 2>/dev/null || echo "UNKNOWN")
+    case "$st_status" in
+      PASS) ST_PASS_COUNT=$((ST_PASS_COUNT+1)) ;;
+      FAIL) ST_FAIL_COUNT=$((ST_FAIL_COUNT+1)) ;;
+    esac
+  done
+
+  # Verify expected counts: 1 PASS, 1 FAIL
+  if [[ "$ST_PASS_COUNT" -eq 1 ]] && [[ "$ST_FAIL_COUNT" -eq 1 ]]; then
+    echo "Self-test PASSED: 1 PASS + 1 FAIL as expected"
+  else
+    echo "ERROR: Self-test FAILED — expected 1 PASS + 1 FAIL, got ${ST_PASS_COUNT} PASS + ${ST_FAIL_COUNT} FAIL" >&2
+    echo "The audit framework (emit_result / result counting) is broken. Aborting." >&2
+    exit 2
+  fi
+
+  # Clean up self-test files so they don't pollute real results
+  rm -f "$RESULT_DIR"/phase-ST-*.json
+
+  echo "--- Phase 0: Self-Test Complete ---"
+  echo ""
+fi
 
 # ---------------------------------------------------------------------------
 # load_phases: source phase scripts by mode (EXEC-05)

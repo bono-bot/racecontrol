@@ -21,6 +21,7 @@ use crate::game_process::GameExeConfig;
 use rc_common::types::SimType;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentConfig {
     pub pod: PodConfig,
     pub core: CoreConfig,

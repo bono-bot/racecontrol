@@ -298,6 +298,20 @@ pub fn sector_times_ms(
     (Some(s1), Some(s2), Some(s3))
 }
 
+// Bug #17: Explicit Drop for LmuAdapter to ensure SHM handles are released.
+impl Drop for LmuAdapter {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            if self.scoring_shm.is_some() || self.telemetry_shm.is_some() {
+                tracing::debug!(target: LOG_TARGET, "LmuAdapter dropped — releasing SHM handles");
+            }
+            self.scoring_shm = None;
+            self.telemetry_shm = None;
+        }
+    }
+}
+
 // ─── LmuAdapter methods ───────────────────────────────────────────────────────
 
 impl LmuAdapter {

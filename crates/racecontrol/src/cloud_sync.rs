@@ -211,6 +211,12 @@ pub fn spawn(state: Arc<AppState>) {
         const PUSH_BACKOFF_BASE_SECS: u64 = 5;   // 5s, 10s, 20s, 40s, 80s, 160s, 300s cap
         const PUSH_BACKOFF_CAP_SECS: u64 = 300;   // 5 minutes max
 
+        // Circuit breaker for HTTP fallback — after 5 consecutive failures, open for 60s.
+        let mut http_fail_count: u32 = 0;
+        let mut http_open_until: Option<Instant> = None;
+        const HTTP_CB_THRESHOLD: u32 = 5;
+        const HTTP_CB_OPEN_SECS: u64 = 60;
+
         loop {
             interval.tick().await;
 
@@ -284,16 +290,59 @@ pub fn spawn(state: Arc<AppState>) {
                 } else {
                     // Relay unavailable: fall back to HTTP but rate-limit to original interval
                     if last_http_fallback.elapsed() >= Duration::from_secs(fallback_interval_secs) {
-                        if let Err(e) = sync_once_http(&state, &api_url).await {
-                            tracing::error!("Cloud sync HTTP fallback failed: {}", e);
+                        // Circuit breaker: skip if open
+                        if let Some(open_until) = http_open_until {
+                            if Instant::now() < open_until {
+                                continue;
+                            }
+                            // Half-open: try one request
+                            http_open_until = None;
+                        }
+                        match sync_once_http(&state, &api_url).await {
+                            Ok(()) => {
+                                if http_fail_count > 0 {
+                                    tracing::info!("Cloud sync HTTP fallback recovered after {} failures", http_fail_count);
+                                }
+                                http_fail_count = 0;
+                            }
+                            Err(e) => {
+                                http_fail_count += 1;
+                                tracing::error!("Cloud sync HTTP fallback failed (#{}/{}): {}", http_fail_count, HTTP_CB_THRESHOLD, e);
+                                if http_fail_count >= HTTP_CB_THRESHOLD {
+                                    tracing::warn!("Cloud sync HTTP circuit breaker OPEN for {}s", HTTP_CB_OPEN_SECS);
+                                    http_open_until = Some(Instant::now() + Duration::from_secs(HTTP_CB_OPEN_SECS));
+                                    http_fail_count = 0;
+                                }
+                            }
                         }
                         last_http_fallback = Instant::now();
                     }
                 }
             } else {
                 // No relay configured: always use HTTP
-                if let Err(e) = sync_once_http(&state, &api_url).await {
-                    tracing::error!("Cloud sync failed: {}", e);
+                // Circuit breaker: skip if open
+                if let Some(open_until) = http_open_until {
+                    if Instant::now() < open_until {
+                        continue;
+                    }
+                    http_open_until = None;
+                }
+                match sync_once_http(&state, &api_url).await {
+                    Ok(()) => {
+                        if http_fail_count > 0 {
+                            tracing::info!("Cloud sync recovered after {} failures", http_fail_count);
+                        }
+                        http_fail_count = 0;
+                    }
+                    Err(e) => {
+                        http_fail_count += 1;
+                        tracing::error!("Cloud sync failed (#{}/{}): {}", http_fail_count, HTTP_CB_THRESHOLD, e);
+                        if http_fail_count >= HTTP_CB_THRESHOLD {
+                            tracing::warn!("Cloud sync HTTP circuit breaker OPEN for {}s", HTTP_CB_OPEN_SECS);
+                            http_open_until = Some(Instant::now() + Duration::from_secs(HTTP_CB_OPEN_SECS));
+                            http_fail_count = 0;
+                        }
+                    }
                 }
             }
         }

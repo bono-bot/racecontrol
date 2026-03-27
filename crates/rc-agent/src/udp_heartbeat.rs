@@ -91,6 +91,8 @@ async fn run_inner(
     let mut last_pong = Instant::now();
     let mut core_was_dead = false;
     let mut recv_buf = [0u8; 64];
+    let mut recent_sequences: [u32; 10] = [0; 10];
+    let mut seq_index: usize = 0;
 
     let ping_interval = Duration::from_secs(PING_INTERVAL_SECS);
     let dead_timeout = Duration::from_secs(DEAD_TIMEOUT_SECS);
@@ -117,6 +119,8 @@ async fn run_inner(
 
                 // Fire and forget — UDP send should never block
                 let _ = socket.send(&ping.to_bytes()).await;
+                recent_sequences[seq_index % 10] = sequence;
+                seq_index = seq_index.wrapping_add(1);
                 sequence = sequence.wrapping_add(1);
 
                 // Check if core is dead (no pong for DEAD_TIMEOUT_SECS)
@@ -147,14 +151,25 @@ async fn run_inner(
                                 core_was_dead = false;
                             }
 
-                            // Handle server flags
+                            // Only accept force flags if the pong's sequence matches a recently-sent ping.
+                            // Prevents blind spoofing of force_restart/force_reconnect commands.
+                            let seq_known = recent_sequences.contains(&pong.sequence);
+
                             if pong.flags.force_reconnect() {
-                                tracing::info!(target: LOG_TARGET, "UDP heartbeat: core requested force reconnect");
-                                let _ = event_tx.send(HeartbeatEvent::ForceReconnect).await;
+                                if seq_known {
+                                    tracing::info!(target: LOG_TARGET, "UDP heartbeat: core requested force reconnect");
+                                    let _ = event_tx.send(HeartbeatEvent::ForceReconnect).await;
+                                } else {
+                                    tracing::warn!(target: LOG_TARGET, seq = pong.sequence, "UDP heartbeat: ignoring force_reconnect — sequence not in recent window");
+                                }
                             }
                             if pong.flags.force_restart() {
-                                tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested force restart");
-                                let _ = event_tx.send(HeartbeatEvent::ForceRestart).await;
+                                if seq_known {
+                                    tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested force restart");
+                                    let _ = event_tx.send(HeartbeatEvent::ForceRestart).await;
+                                } else {
+                                    tracing::warn!(target: LOG_TARGET, seq = pong.sequence, "UDP heartbeat: ignoring force_restart — sequence not in recent window");
+                                }
                             }
                         }
                     }

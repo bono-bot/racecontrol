@@ -2160,7 +2160,9 @@ async fn update_pricing_tier(
     let price_paise = body.get("price_paise").and_then(|v| v.as_i64());
     let is_active = body.get("is_active").and_then(|v| v.as_bool());
 
-    // Build dynamic update query
+    // Build dynamic update query.
+    // SAFETY: Column names are hardcoded string literals below — not from user input.
+    // All values use bind parameters (?). No SQL injection risk.
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
 
@@ -2317,6 +2319,8 @@ async fn update_billing_rate(
     // sim_type: present in body = update (even if null to clear); absent = don't touch
     let sim_type_in_body = body.get("sim_type").map(|v| v.as_str().map(|s| s.to_string()));
 
+    // SAFETY: Column names are hardcoded string literals below — not from user input.
+    // All values use bind parameters (?). No SQL injection risk.
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
 
@@ -3310,6 +3314,7 @@ async fn billing_session_summary(
 // ─── Billing Refund ───────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BillingRefundRequest {
     amount_paise: i64,
     method: String,       // "wallet", "cash", "upi"
@@ -3608,10 +3613,11 @@ async fn launch_game(
     }
 
     // Inject duration_minutes from active billing session into launch_args.
-    // For AC with session splitting, use split_duration_minutes instead of full duration.
+    // Uses REMAINING time (not allocated) so mid-session relaunches get correct duration.
+    // Ceiling division ensures AC session >= billing time (no early AC expiry).
     let launch_args = if let Some(args) = launch_args_raw {
-        let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
-            "SELECT allocated_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+        let session_info = sqlx::query_as::<_, (i64, i64, Option<i64>)>(
+            "SELECT allocated_seconds, driving_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
         )
         .bind(pod_id)
         .fetch_optional(&state.db)
@@ -3620,8 +3626,13 @@ async fn launch_game(
         .flatten();
 
         let duration_minutes: u32 = match &session_info {
-            Some((secs, Some(split_mins))) if sim_type_str == "assetto_corsa" => *split_mins as u32,
-            Some((secs, _)) => (*secs as u32) / 60,
+            // Split sessions: use fixed split duration (each segment is independent)
+            Some((_, _, Some(split_mins))) if sim_type_str == "assetto_corsa" => *split_mins as u32,
+            // Non-split: use remaining time with ceiling division
+            Some((allocated, driven, _)) => {
+                let remaining_secs = (*allocated as u32).saturating_sub(*driven as u32);
+                (remaining_secs + 59) / 60  // ceiling division — AC never expires before billing
+            }
             None => 60,
         };
 
@@ -4113,6 +4124,8 @@ async fn update_ac_preset(
     let name = body.get("name").and_then(|v| v.as_str());
     let config = body.get("config").and_then(|c| serde_json::from_value::<AcLanSessionConfig>(c.clone()).ok());
 
+    // SAFETY: Column names are hardcoded string literals below — not from user input.
+    // All values use bind parameters (?). No SQL injection risk.
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
 
@@ -4540,6 +4553,7 @@ async fn list_ac_cars(State(_state): State<Arc<AppState>>) -> Json<Value> {
 // ─── Auth Endpoints ────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AssignCustomerRequest {
     pod_id: String,
     driver_id: String,
@@ -4600,6 +4614,7 @@ async fn pending_auth_token_for_pod(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ValidatePinRequest {
     pod_id: String,
     pin: String,
@@ -4622,6 +4637,7 @@ async fn validate_pin(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct KioskValidatePinRequest {
     pin: String,
     pod_id: Option<String>,
@@ -4666,6 +4682,7 @@ fn prune_pin_lockout_entries(map: &mut std::collections::HashMap<std::net::IpAdd
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct KioskRedeemPinRequest {
     pin: String,
 }
@@ -4815,6 +4832,7 @@ async fn validate_qr(
 // ─── Customer PWA Endpoints ────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CustomerLoginRequest {
     phone: String,
 }
@@ -4846,6 +4864,7 @@ async fn customer_resend_otp(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct VerifyOtpRequest {
     phone: String,
     otp: String,
@@ -5524,6 +5543,7 @@ async fn customer_stats(
 // ─── Customer Registration ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CustomerRegisterRequest {
     name: String,
     nickname: Option<String>,
@@ -6321,6 +6341,7 @@ async fn get_wallet(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TopupRequest {
     amount_paise: i64,
     method: String, // cash, card, upi
@@ -6333,6 +6354,10 @@ async fn topup_wallet(
     Path(driver_id): Path<String>,
     Json(req): Json<TopupRequest>,
 ) -> Json<Value> {
+    if req.amount_paise <= 0 {
+        return Json(json!({ "error": "amount_paise must be greater than 0" }));
+    }
+
     let txn_type = match req.method.as_str() {
         "cash" => "topup_cash",
         "card" => "topup_card",
@@ -6403,6 +6428,7 @@ async fn topup_wallet(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DebitRequest {
     amount_paise: i64,
     reason: String, // cafe, merchandise, penalty, etc.
@@ -6506,6 +6532,7 @@ async fn all_wallet_transactions(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RefundRequest {
     amount_paise: i64,
     notes: Option<String>,
@@ -6674,6 +6701,7 @@ struct CustomBookingOptions {
 fn default_ffb_preset() -> String { "medium".to_string() }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BookSessionRequest {
     experience_id: Option<String>,
     pricing_tier_id: String,
@@ -7286,6 +7314,8 @@ async fn update_kiosk_experience(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    // SAFETY: Column names are hardcoded string literals below — not from user input.
+    // All values use bind parameters (?). No SQL injection risk.
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
 
@@ -8960,6 +8990,7 @@ async fn check_terminal_auth(state: &AppState, headers: &axum::http::HeaderMap) 
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TerminalAuthRequest {
     pin: String,
 }
@@ -9241,6 +9272,7 @@ async fn employee_daily_pin(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EmployeeDebugUnlockRequest {
     pin: String,
     pod_id: String,
@@ -9265,6 +9297,7 @@ async fn employee_debug_unlock(
 // ─── Staff ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StaffValidatePinRequest {
     pin: String,
 }
@@ -9316,6 +9349,7 @@ async fn staff_validate_pin(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateStaffRequest {
     name: String,
     phone: String,
@@ -16069,6 +16103,7 @@ mod watchdog_crash_report_tests {
 // ─── PWA: Customer game launch request ─────────────────────────────────────
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct GameRequestBody {
     pod_id: String,
     sim_type: SimType,

@@ -1,6 +1,6 @@
-# Racing Point Operations Audit Protocol — 62 Phases
+# Racing Point Operations Audit Protocol — 68 Phases
 
-**Version:** 3.2 | **Created:** 2026-03-23 | **Updated:** 2026-03-26 | **Author:** James Vowles
+**Version:** 3.3 | **Created:** 2026-03-23 | **Updated:** 2026-03-27 | **Author:** James Vowles
 **Coverage:** 100% — all 173+ runtime modules, 200+ standing rules, 241 API endpoints, 12 E2E journeys
 **Standing Rule:** Run this audit before shipping any milestone, after major incidents, or weekly during operations.
 
@@ -340,6 +340,37 @@ curl -s http://localhost:11434/api/tags | jq '.models[].name'
 
 ---
 
+## Phase 67: Meta-Monitor Liveness
+**What:** Verifies that self-healing and self-debugging systems are ACTUALLY RUNNING, not just that their code exists. Previous audits (phases 10, 66) checked watchdog-state.json (proxy) and script existence (code) -- this phase checks process liveness, scheduled task registration, output recency, and healing toggle consistency. Checks the TERRITORY, not the MAP.
+
+```bash
+# CHECK 1: rc-watchdog.exe process running on James (.27)
+tasklist /FI "IMAGENAME eq rc-watchdog.exe" /FO CSV | grep -c "rc-watchdog"
+
+# CHECK 2: rc-watchdog log recency (last cycle within 5 min)
+grep "check run complete" C:/Users/bono/.claude/rc-watchdog.log.$(date -u '+%Y-%m-%d') | tail -1
+
+# CHECK 3: CommsLink-DaemonWatchdog scheduled task registered
+schtasks.exe //Query //TN "CommsLink-DaemonWatchdog" //FO LIST
+
+# CHECK 4: AutoDetect-Daily scheduled task registered
+schtasks.exe //Query //TN "AutoDetect-Daily" //FO LIST
+
+# CHECK 5: RCWatchdog Run key (boot persistence)
+reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" //v RCWatchdog
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" //v RCWatchdog
+
+# CHECK 6: auto-detect suggestions.jsonl recency (last run within 26h)
+tail -1 C:/Users/bono/racingpoint/racecontrol/audit/results/suggestions.jsonl | jq '.run_ts'
+
+# CHECK 7: auto-detect-config.json healing toggles
+jq '{auto_fix_enabled, self_patch_enabled}' C:/Users/bono/racingpoint/racecontrol/audit/results/auto-detect-config.json
+```
+
+**Fix loop trigger:** rc-watchdog.exe not running (P1), either scheduled task not registered (P1), watchdog log stale >5min (P1), suggestions stale >26h (P2), auto_fix_enabled=false (P2), RCWatchdog Run key missing (P2).
+
+---
+
 # TIER 2: Core Services (Phases 11-16)
 
 ## Phase 11: API Data Integrity
@@ -483,6 +514,22 @@ curl -s "http://192.168.31.23:8080/api/v1/logs?lines=50" | grep -i "recovery::"
 
 ---
 
+## Phase 63: Boot Resilience Check
+**What:** Verify periodic_tasks (boot resilience background tasks) are running on each pod. Checks the rc-agent health endpoint for a `periodic_tasks` field and validates task statuses (running vs failed). Pods with older builds that lack this field get a WARN. Venue-closed pods that are unreachable get QUIET instead of FAIL.
+
+```bash
+# Check each pod for periodic_tasks in health response
+for IP in $PODS; do
+  HEALTH=$(curl -s --max-time 10 http://$IP:8090/health)
+  echo "=== $IP ==="
+  echo "$HEALTH" | jq '{periodic_tasks: (.periodic_tasks // "not present")}'
+done
+```
+
+**Fix loop trigger:** Any pod with failed periodic tasks (P2), all pods missing periodic_tasks field (pre-v25.0 build), any pod unreachable during open hours (P2).
+
+---
+
 # TIER 3: Display & UX (Phases 17-20)
 
 ## Phase 17: Lock Screen & Blanking
@@ -558,6 +605,59 @@ done
 ```
 
 **Fix loop trigger:** Edge not in kiosk mode, kiosk URL not loading from pod.
+
+---
+
+## Phase 64: Sentinel Alert Wiring
+**What:** Verify OBS-01 (MAINTENANCE_MODE WhatsApp alert) and OBS-04 (sentinel file WebSocket events) wiring exists. Checks fleet health for an `active_sentinels` field on pod responses. Skipped (QUIET) when venue is closed since live alert delivery cannot be verified.
+
+```bash
+# Check fleet health for active_sentinels field (OBS-04 wiring)
+FLEET=$(curl -s --max-time 10 http://192.168.31.23:8080/api/v1/fleet/health)
+echo "$FLEET" | jq '[.[] | select(has("active_sentinels"))] | length'
+echo "$FLEET" | jq '[.[] | .active_sentinels // [] | length] | add // 0'
+```
+
+**Fix loop trigger:** Fleet health endpoint unreachable (P1), active_sentinels field missing from all pods (server may need OBS-04 deployment).
+
+---
+
+## Phase 65: Verification Chain Health
+**What:** Verify that verification chain infrastructure from COV-01..05 is active on the server. Checks server health for `verification_chains`, `chain_status`, or `verification` fields. Falls back to uptime check as proxy for healthy operation if chain fields are not yet exposed in the health endpoint.
+
+```bash
+# Check server health for chain-related fields
+HEALTH=$(curl -s --max-time 10 http://192.168.31.23:8080/api/v1/health)
+echo "$HEALTH" | jq '{build_id, uptime_secs, has_chains: (has("verification_chains") or has("chain_status") or has("verification"))}'
+```
+
+**Fix loop trigger:** Server health unreachable (P1), build_id missing (P2), uptime=0 with no chain fields (P2).
+
+---
+
+## Phase 68: Kiosk Game Launch Timer
+**What:** Verifies kiosk renders a launch countdown timer during waiting_for_game state. Checks that LaunchingView and LiveSessionPanel both show elapsed/countdown timer elements (not just a bare spinner), and that the progress bar has correct color classes (must NOT be always-red from identical ternary branches). Also does a runtime check that the kiosk control page loads with Next.js static assets.
+
+**Root cause for adding this phase (2026-03-26):** Kiosk showed only "Game Loading..." spinner with no timer during game launch. Staff couldn't tell if a game had been loading 5s or 175s out of 180s timeout. Progress bar was always red (both branches of ternary evaluated to bg-rp-red).
+
+```bash
+# CHECK 1: LaunchingView has elapsed_seconds + LAUNCH_TIMEOUT_SECS + progress
+grep -c 'elapsed_seconds' kiosk/src/components/PodKioskView.tsx
+grep -c 'LAUNCH_TIMEOUT_SECS' kiosk/src/components/PodKioskView.tsx
+grep -c 'progress.*%' kiosk/src/components/PodKioskView.tsx
+
+# CHECK 2: LiveSessionPanel has timer banner
+grep -c 'elapsed_seconds\|LaunchTimerBanner\|LAUNCH_TIMEOUT' kiosk/src/components/LiveSessionPanel.tsx
+
+# CHECK 3: Progress bar NOT always-red (both branches same color = bug)
+grep -c 'isLow.*bg-rp-red.*bg-rp-red' kiosk/src/components/PodKioskView.tsx  # should be 0
+grep -c 'bg-emerald\|bg-green\|bg-blue' kiosk/src/components/PodKioskView.tsx  # should be >0
+
+# CHECK 4: Runtime — kiosk page loads with static assets
+curl -s http://192.168.31.23:3300/kiosk/control | grep -c '_next/static'
+```
+
+**Fix loop trigger:** No elapsed_seconds in LaunchingView (P1), always-red progress bar detected (P1 -- identical ternary branches), no healthy color states (P2), kiosk page missing static assets (P2).
 
 ---
 
@@ -1774,6 +1874,47 @@ echo "(Manual: stage a file with a credential, verify pre-commit blocks it)"
 
 ---
 
+# TIER 19: Backend-Dashboard Sync (Phase 66)
+
+## Phase 66: Autonomous Pipeline Sync
+**What:** Verifies v26.0 autonomous detection/healing features have dashboard visibility and all supporting infrastructure exists. Runs 8 checks: (1) auto-detect-config.json has auto_fix_enabled and self_patch_enabled toggles, (2) all 6 detector scripts exist and pass bash syntax check, (3) escalation-engine.sh exists and is syntax-valid, (4) coord-state.sh coordination module exists, (5) 4 intelligence scripts present (pattern-tracker, trend-analyzer, suggestion-engine, self-patch), (6) test-auto-detect.sh test suite exists, (7) venue shutdown API + kiosk page + boot-time fix all present, (8) admin dashboard has v26.0 visibility (detection findings, toggle UI).
+
+```bash
+# CHECK 1: Config toggles
+jq '{auto_fix_enabled, self_patch_enabled}' audit/results/auto-detect-config.json
+
+# CHECK 2: All 6 detectors exist + syntax valid
+for det in detect-config-drift detect-bat-drift detect-log-anomaly detect-crash-loop detect-flag-desync detect-schema-gap; do
+  bash -n scripts/detectors/${det}.sh && echo "$det: OK" || echo "$det: FAIL"
+done
+
+# CHECK 3: Escalation engine
+bash -n scripts/healing/escalation-engine.sh && echo "escalation: OK" || echo "escalation: FAIL"
+
+# CHECK 4: Coordination module
+bash -n scripts/coordination/coord-state.sh && echo "coord: OK" || echo "coord: FAIL"
+
+# CHECK 5: Intelligence scripts (4 modules)
+for mod in pattern-tracker trend-analyzer suggestion-engine self-patch; do
+  test -f scripts/intelligence/${mod}.sh && echo "$mod: OK" || echo "$mod: MISSING"
+done
+
+# CHECK 6: Test suite
+bash -n audit/test/test-auto-detect.sh && echo "test suite: OK" || echo "test suite: FAIL"
+
+# CHECK 7: Venue shutdown components
+test -f crates/racecontrol/src/venue_shutdown.rs && echo "shutdown API: OK"
+test -f kiosk/src/app/shutdown/page.tsx && echo "shutdown page: OK"
+test -f scripts/boot-time-fix.sh && echo "boot-time fix: OK"
+
+# CHECK 8: Admin dashboard v26.0 visibility
+grep -rl "suggestions\|auto-detect\|autodetect\|escalation" ../racingpoint-admin/src/app/ 2>/dev/null | head -3
+```
+
+**Fix loop trigger:** Config toggles missing (P2), any detector missing or syntax-invalid (P1), escalation engine missing (P1), coordination module missing (P1), intelligence scripts missing (P2), test suite missing (P2), venue shutdown components missing (P1), admin dashboard has no v26.0 pages (P2).
+
+---
+
 # TIER 20: Cross-Boundary Serialization (Phase 62)
 
 ## Phase 62: TypeScript↔Rust Field Contract Validation
@@ -2004,123 +2145,6 @@ TIER 20: CROSS-BOUNDARY SERIALIZATION (62)
 
 OVERALL: PASS / FAIL / PARTIAL
 TIERS PASSED: __ / 20
-PHASES PASSED: __ / 62
-ISSUES FOUND: ___
-FIXED DURING AUDIT: ___
-DEFERRED: ___
-```
-
-```
-AUDIT DATE: _______________
-AUDITOR: _______________
-DURATION: _______________
-
-TIER 1: INFRASTRUCTURE (1-10)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-| 1 | Fleet Inventory          |        |       |
-| 2 | Config Integrity         |        |       |
-| 3 | Network & Tailscale      |        |       |
-| 4 | Firewall & Ports         |        |       |
-| 5 | Pod Power & WoL          |        |       |
-| 6 | Orphan Processes         |        |       |
-| 7 | Process Guard & Allowlist|        |       |
-| 8 | Sentinel Files           |        |       |
-| 9 | Self-Monitor & Self-Heal |        |       |
-|10 | AI Healer / Watchdog     |        |       |
-
-TIER 2: CORE SERVICES (11-16)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|11 | API Data Integrity       |        |       |
-|12 | WebSocket Flows          |        |       |
-|13 | rc-agent Exec            |        |       |
-|14 | rc-sentry Health         |        |       |
-|15 | Preflight Checks         |        |       |
-|16 | Cascade Guard & Recovery |        |       |
-
-TIER 3: DISPLAY & UX (17-20)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|17 | Lock Screen & Blanking   |        |       |
-|18 | Overlay Suppression      |        |       |
-|19 | Display Resolution       |        |       |
-|20 | Kiosk Browser Health     |        |       |
-
-TIER 4: BILLING & COMMERCE (21-25)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|21 | Pricing & Billing        |        |       |
-|22 | Wallet & Payments        |        |       |
-|23 | Reservations & Booking   |        |       |
-|24 | Accounting               |        |       |
-|25 | Cafe Menu & Inventory    |        |       |
-
-TIER 5: GAMES & HARDWARE (26-29)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|26 | Game Catalog & Launcher  |        |       |
-|27 | AC Server & Telemetry    |        |       |
-|28 | FFB & Hardware           |        |       |
-|29 | Multiplayer & Friends    |        |       |
-
-TIER 6: NOTIFICATIONS & MARKETING (30-34)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|30 | WhatsApp Alerter         |        |       |
-|31 | Email Alerts             |        |       |
-|32 | Discord Integration      |        |       |
-|33 | Cafe Marketing & PNG     |        |       |
-|34 | Psychology & Gamification|        |       |
-
-TIER 7: DATA & SYNC (35-38)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|35 | Cloud Sync Bidirectional |        |       |
-|36 | DB Schema & Migrations   |        |       |
-|37 | Activity Log & Compliance|        |       |
-|38 | Bono Relay & Failover    |        |       |
-
-TIER 8: ADVANCED SYSTEMS (39-42)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|39 | Feature Flags            |        |       |
-|40 | Scheduler & Action Queue |        |       |
-|41 | Config Push & OTA        |        |       |
-|42 | Error Aggregator & Alerts|        |       |
-
-TIER 9: CAMERAS & AI (43-44)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|43 | Camera Pipeline          |        |       |
-|44 | Face Detection & Counter |        |       |
-
-TIER 10: OPS & COMPLIANCE (45-47)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|45 | Log Health & Rotation    |        |       |
-|46 | Comms-Link E2E           |        |       |
-|47 | Standing Rules Compliance|        |       |
-
-TIER 11: E2E JOURNEYS (48-50)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|48 | Customer Journey E2E     |        |       |
-|49 | Staff / POS Journey E2E  |        |       |
-|50 | Security & Auth E2E      |        |       |
-
-TIER 12: SECURITY GATES & PIPELINE (61)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|61 | Security Gate & Deploy   |        |       |
-
-TIER 13: CROSS-BOUNDARY SERIALIZATION (62)
-| # | Phase                    | Status | Notes |
-|---|--------------------------|--------|-------|
-|62 | TS↔Rust Field Contract   |        |       |
-
-OVERALL: PASS / FAIL / PARTIAL
-TIERS PASSED: __ / 13
 PHASES PASSED: __ / 62
 ISSUES FOUND: ___
 FIXED DURING AUDIT: ___

@@ -329,6 +329,30 @@ pub async fn deploy_pod(
     pod_ip: String,
     binary_url: String,
 ) {
+    // Bug #12: Global 5-minute timeout — if deploy hasn't completed, mark as failed.
+    const DEPLOY_GLOBAL_TIMEOUT_SECS: u64 = 300;
+    let state_timeout = state.clone();
+    let pod_id_timeout = pod_id.clone();
+    if tokio::time::timeout(
+        Duration::from_secs(DEPLOY_GLOBAL_TIMEOUT_SECS),
+        deploy_pod_inner(state.clone(), pod_id.clone(), pod_ip, binary_url),
+    )
+    .await
+    .is_err()
+    {
+        let reason = format!("Deploy timed out after {}s — marking as failed", DEPLOY_GLOBAL_TIMEOUT_SECS);
+        tracing::error!("Deploy [{}]: {}", pod_id_timeout, reason);
+        set_deploy_state(&state_timeout, &pod_id_timeout, DeployState::Failed { reason }).await;
+    }
+}
+
+/// Inner deploy function wrapped by the global timeout in deploy_pod.
+async fn deploy_pod_inner(
+    state: Arc<AppState>,
+    pod_id: String,
+    pod_ip: String,
+    binary_url: String,
+) {
     // Step 0: Validate binary URL is reachable BEFORE killing old process
     tracing::info!("Deploy [{}]: validating binary URL: {}", pod_id, binary_url);
     match state

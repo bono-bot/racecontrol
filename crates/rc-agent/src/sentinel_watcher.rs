@@ -53,8 +53,10 @@ pub fn spawn(tx: mpsc::Sender<AgentMessage>, pod_id: String) {
 
         let mut watcher = match RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let _ = notify_tx.send(event);
+                match res {
+                    Ok(event) => { let _ = notify_tx.send(event); }
+                    // Bug #16: Log notify errors instead of silently dropping them
+                    Err(e) => { eprintln!("[sentinel_watcher] notify error: {}", e); }
                 }
             },
             notify::Config::default(),
@@ -82,8 +84,11 @@ pub fn spawn(tx: mpsc::Sender<AgentMessage>, pod_id: String) {
 
         tracing::info!(target: LOG_TARGET, "watching {} for sentinel files", WATCH_DIR);
 
+        // Bug #16: Use recv_timeout so thread doesn't hang forever if watcher dies silently
+        const RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
         loop {
-            match notify_rx.recv() {
+            match notify_rx.recv_timeout(RECV_TIMEOUT) {
                 Ok(event) => {
                     let action = match event.kind {
                         EventKind::Create(_) => "created",
@@ -143,7 +148,10 @@ pub fn spawn(tx: mpsc::Sender<AgentMessage>, pod_id: String) {
                         }
                     }
                 }
-                Err(_) => {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    continue; // Normal — no sentinel changes in the timeout window
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     // notify_rx closed — watcher dropped or thread shutting down
                     tracing::error!(target: LOG_TARGET, "notify channel closed — stopping sentinel watcher");
                     return;

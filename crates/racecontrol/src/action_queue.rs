@@ -160,10 +160,12 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
             experience_id,
             pod_id,
         } => {
+            // Bug #19: Redact driver_id in logs
+            let redacted_driver = if driver_id.len() > 4 { format!("{}***", &driver_id[..4]) } else { "***".to_string() };
             tracing::info!(
                 "Action: BookingCreated booking={} driver={} tier={} pod={:?}",
                 booking_id,
-                driver_id,
+                redacted_driver,
                 pricing_tier_id,
                 pod_id
             );
@@ -204,12 +206,28 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
             amount_paise,
             transaction_id,
         } => {
+            // Bug #19: Redact driver_id in logs
+            let redacted_driver = if driver_id.len() > 4 { format!("{}***", &driver_id[..4]) } else { "***".to_string() };
             tracing::info!(
                 "Action: WalletTopUp driver={} amount={} txn={}",
-                driver_id,
+                redacted_driver,
                 amount_paise,
                 transaction_id
             );
+
+            // Bug #10: Idempotency check — skip if this transaction already exists
+            let existing: Option<(String,)> = sqlx::query_as(
+                "SELECT id FROM wallet_transactions WHERE id = ? AND type = 'topup'",
+            )
+            .bind(transaction_id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
+
+            if existing.is_some() {
+                tracing::info!("WalletTopUp txn={} already processed — skipping (idempotent)", transaction_id);
+                return Ok(());
+            }
 
             // Credit the local wallet
             let _ = sqlx::query(
@@ -253,10 +271,12 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
             token_id,
             driver_id,
         } => {
+            // Bug #19: Redact driver_id in logs
+            let redacted_driver = if driver_id.len() > 4 { format!("{}***", &driver_id[..4]) } else { "***".to_string() };
             tracing::info!(
                 "Action: QrConfirmed token={} driver={}",
                 token_id,
-                driver_id
+                redacted_driver
             );
 
             // Mark the QR auth token as consuming — billing will be triggered

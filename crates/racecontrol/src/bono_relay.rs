@@ -97,20 +97,36 @@ pub fn spawn(state: Arc<AppState>) {
 }
 
 /// POST a single event to Bono's webhook URL.
+/// Bug #13: Retries once after a 2s delay if the first attempt fails.
 async fn push_event(
     state: &Arc<AppState>,
     webhook_url: &str,
     event: &BonoEvent,
 ) -> anyhow::Result<()> {
-    state
+    let result = state
         .http_client
         .post(webhook_url)
         .json(event)
         .timeout(Duration::from_secs(5))
         .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Webhook POST failed: {}", e))?;
-    Ok(())
+        .await;
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(first_err) => {
+            tracing::debug!("Bono webhook first attempt failed: {} — retrying in 2s", first_err);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            state
+                .http_client
+                .post(webhook_url)
+                .json(event)
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Webhook POST failed after retry: {}", e))?;
+            Ok(())
+        }
+    }
 }
 
 // ─── Relay Endpoint ───────────────────────────────────────────────────────────

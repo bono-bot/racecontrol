@@ -51,6 +51,14 @@ pub fn configure() -> FirewallResult {
 
     match (icmp_ok, tcp_ok) {
         (true, true) => {
+            // Bug #23: Verify rules were actually applied by querying them
+            let icmp_verified = verify_rule_exists(RULE_ICMP);
+            let tcp_verified = verify_rule_exists(RULE_TCP);
+            if !icmp_verified || !tcp_verified {
+                let msg = format!("netsh add succeeded but verification failed — ICMP={}, TCP={}", icmp_verified, tcp_verified);
+                tracing::error!(target: LOG_TARGET, "{}", msg);
+                return FirewallResult::Failed(msg);
+            }
             tracing::info!(
                 target: LOG_TARGET,
                 "Firewall configured — ICMP + TCP 8090 open (profile=any)"
@@ -109,6 +117,30 @@ fn build_delete_args(name: &str) -> Vec<String> {
         "rule".into(),
         format!("name={}", name),
     ]
+}
+
+/// Bug #23: Verify a firewall rule exists by querying netsh.
+fn verify_rule_exists(name: &str) -> bool {
+    let name_arg = format!("name={}", name);
+    let args = vec!["advfirewall", "firewall", "show", "rule", name_arg.as_str()];
+    let mut cmd = Command::new("netsh");
+    cmd.args(&args);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    match cmd.output() {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                !stdout.contains("No rules match")
+            } else {
+                false
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "failed to verify rule {}: {}", name, e);
+            false
+        }
+    }
 }
 
 /// Execute a netsh command. Returns true if exit code is 0.

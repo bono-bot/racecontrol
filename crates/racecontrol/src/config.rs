@@ -2,6 +2,7 @@ use serde::Deserialize;
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub venue: VenueConfig,
     pub server: ServerConfig,
