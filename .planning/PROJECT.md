@@ -126,8 +126,8 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Fleet Intelligence Reports: weekly automated WhatsApp report to Uday
 
 **Owner split:**
-- **James (on-site):** Phases 217-218 (Engine+KB), 219-220 (OpenRouter+Budget), 221 (Gossip), 224-225 (Predict+Score), 226 (Night Ops)
-- **Bono (VPS, 24/7):** Phases 222-223 (Coordinator+Dashboard), 227-228 (Multi-Venue+Reports)
+- **James (on-site):** Phases 229-230 (Engine+KB), 231-232 (OpenRouter+Budget), 233 (Gossip), 236-237 (Predict+Score), 238 (Night Ops)
+- **Bono (VPS, 24/7):** Phases 234-235 (Coordinator+Dashboard), 239-240 (Multi-Venue+Reports)
 
 **Budget:** $10/day/pod + $20/day/server = $100/day fleet. Monthly ~$3,000.
 

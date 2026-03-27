@@ -3633,126 +3633,126 @@ Plans:
 
 ---
 
-## v26.0 Meshed Intelligence — Self-Healing AI Fleet (Phases 217-228)
+## v26.0 Meshed Intelligence — Self-Healing AI Fleet (Phases 229-240)
 
 **Goal:** Every node autonomously diagnoses and heals itself. Solutions propagate via gossip mesh. 4-day sprint.
 **Owner split:** James (217-221, 224-226) | Bono (222-223, 227-228)
 **Budget:** $10/day/pod + $20/day/server = $100/day fleet
 
-### Phase 217: Diagnostic Engine (James, Day 1)
+### Phase 229: Diagnostic Engine (James, Day 1)
 **Goal:** 5-tier autonomous anomaly detection + auto-fix per node
 **Requirements:** DIAG-01 to DIAG-07
 **Success criteria:**
 1. rc-agent detects health failures, crashes, sentinel files, error spikes within 30s
 2. Tier 1 deterministic fixes apply automatically (MAINTENANCE_MODE clear, orphan kill)
 3. 5-min periodic scan runs without impacting pod performance
-- [ ] 217-01-PLAN: Diagnostic engine core + anomaly detection triggers
-- [ ] 217-02-PLAN: 5-tier decision tree + auto-fix actions
+- [ ] 229-01-PLAN: Diagnostic engine core + anomaly detection triggers
+- [ ] 229-02-PLAN: 5-tier decision tree + auto-fix actions
 
-### Phase 218: Local Knowledge Base (James, Day 1)
+### Phase 230: Local Knowledge Base (James, Day 1)
 **Goal:** SQLite KB per node with solution storage + confidence scoring
 **Requirements:** KB-01 to KB-06
 **Success criteria:**
 1. Solutions stored with problem_key, root_cause, fix_action, confidence
 2. Problem signature normalization matches across pods with same issue
 3. Confidence auto-updates on success/failure
-- [ ] 218-01-PLAN: KB schema + CRUD + problem signature normalization
-- [ ] 218-02-PLAN: Confidence scoring + TTL expiration + experiment tracking
+- [ ] 230-01-PLAN: KB schema + CRUD + problem signature normalization
+- [ ] 230-02-PLAN: Confidence scoring + TTL expiration + experiment tracking
 
-### Phase 219: OpenRouter Integration (James, Day 2)
+### Phase 231: OpenRouter Integration (James, Day 2)
 **Goal:** 4 OpenRouter models callable from rc-agent Rust code
 **Requirements:** API-01 to API-05
 **Success criteria:**
 1. Qwen3 returns structured diagnosis for a test symptom (<5s, <$0.10)
 2. All 4 models callable in parallel with role-specific prompts
 3. Response parsing extracts root_cause, confidence, fix_action
-- [ ] 219-01-PLAN: Rust HTTP client + OpenRouter API + response parsing
-- [ ] 219-02-PLAN: Model registry + fallback chain + role-specific prompts
+- [ ] 231-01-PLAN: Rust HTTP client + OpenRouter API + response parsing
+- [ ] 231-02-PLAN: Model registry + fallback chain + role-specific prompts
 
-### Phase 220: Budget Manager (James, Day 2)
+### Phase 232: Budget Manager (James, Day 2)
 **Goal:** Per-node cost tracking with hard ceilings and graceful degradation
 **Requirements:** BUDGET-01 to BUDGET-06
 **Success criteria:**
 1. Daily budget resets at midnight IST
 2. Model calls blocked when ceiling reached (returns fallback, not error)
 3. Budget status visible on /health endpoint
-- [ ] 220-01-PLAN: Budget tracker + ceiling enforcement + health exposure
+- [ ] 232-01-PLAN: Budget tracker + ceiling enforcement + health exposure
 
-### Phase 221: Mesh Gossip Protocol (James, Day 3)
+### Phase 233: Mesh Gossip Protocol (James, Day 3)
 **Goal:** Solutions propagate between pods and server via existing WebSocket
 **Requirements:** MESH-01 to MESH-06
 **Success criteria:**
 1. Pod solving an issue → server receives solution digest within 5s
 2. Server broadcasts to all other pods within 10s
 3. Second pod encountering same issue skips diagnosis, applies KB solution
-- [ ] 221-01-PLAN: WS message types + gossip handlers in rc-agent
-- [ ] 221-02-PLAN: WS message types + gossip handlers in racecontrol
-- [ ] 221-03-PLAN: First-responder rule + experiment dedup + environment matching
+- [ ] 233-01-PLAN: WS message types + gossip handlers in rc-agent
+- [ ] 233-02-PLAN: WS message types + gossip handlers in racecontrol
+- [ ] 233-03-PLAN: First-responder rule + experiment dedup + environment matching
 
-### Phase 222: Server Coordinator (Bono, Day 1-2)
+### Phase 234: Server Coordinator (Bono, Day 1-2)
 **Goal:** Fleet KB with canary promotion + pattern detection on server
 **Requirements:** COORD-01 to COORD-06
 **Success criteria:**
 1. Fleet KB aggregates solutions from all pods
 2. Solution promoted to fleet-verified after 3 successes on 2+ pods
 3. Systemic alert fires when 3+ pods report same symptom in 5 min
-- [ ] 222-01-PLAN: Fleet KB schema + aggregation from gossip messages
-- [ ] 222-02-PLAN: Promotion pipeline (candidate → verified → hardened)
-- [ ] 222-03-PLAN: Pattern detection + demotion logic
+- [ ] 234-01-PLAN: Fleet KB schema + aggregation from gossip messages
+- [ ] 234-02-PLAN: Promotion pipeline (candidate → verified → hardened)
+- [ ] 234-03-PLAN: Pattern detection + demotion logic
 
-### Phase 223: Admin Dashboard (Bono, Day 3-4)
+### Phase 235: Admin Dashboard (Bono, Day 3-4)
 **Goal:** Mesh Intelligence page in admin panel
 **Requirements:** DASH-01 to DASH-05
 **Success criteria:**
 1. Page loads at :3201/mesh-intelligence showing all 9 nodes
 2. Solution feed updates in real-time
 3. Budget tracker shows per-node spend
-- [ ] 223-01-PLAN: API endpoints for mesh data (solutions, budget, models)
-- [ ] 223-02-PLAN: Next.js mesh-intelligence page (feed, budget, KB browser)
+- [ ] 235-01-PLAN: API endpoints for mesh data (solutions, budget, models)
+- [ ] 235-02-PLAN: Next.js mesh-intelligence page (feed, budget, KB browser)
 
-### Phase 224: Predictive Maintenance (James, Day 3)
+### Phase 236: Predictive Maintenance (James, Day 3)
 **Goal:** Threshold-based anomaly detection for hardware and software trends
 **Requirements:** PRED-01 to PRED-06
 **Success criteria:**
 1. GPU temp >80C triggers alert before throttling
 2. Disk <10GB triggers auto-cleanup
 3. Error spike across 3+ pods triggers systemic alert
-- [ ] 224-01-PLAN: Telemetry collectors + threshold engine + alert dispatch
+- [ ] 236-01-PLAN: Telemetry collectors + threshold engine + alert dispatch
 
-### Phase 225: Customer Experience Scoring (James, Day 4)
+### Phase 237: Customer Experience Scoring (James, Day 4)
 **Goal:** Per-pod quality score with auto-rotation
 **Requirements:** CX-01 to CX-04
 **Success criteria:**
 1. Score calculated from 5 weighted metrics
 2. Pod auto-removed from rotation at score <50%
 3. Fleet average visible on dashboard
-- [ ] 225-01-PLAN: Score calculation + auto-rotation + dashboard API
+- [ ] 237-01-PLAN: Score calculation + auto-rotation + dashboard API
 
-### Phase 226: Night Operations (James, Day 4)
+### Phase 238: Night Operations (James, Day 4)
 **Goal:** Autonomous midnight maintenance cycle
 **Requirements:** NIGHT-01 to NIGHT-04
 **Success criteria:**
 1. Scheduled task runs at midnight IST
 2. Full health + diagnose + fix + audit cycle completes
 3. Morning report sent to Uday via WhatsApp
-- [ ] 226-01-PLAN: Night ops scheduler + maintenance pipeline + morning report
+- [ ] 238-01-PLAN: Night ops scheduler + maintenance pipeline + morning report
 
-### Phase 227: Multi-Venue Cloud KB (Bono, Day 3-4)
+### Phase 239: Multi-Venue Cloud KB (Bono, Day 3-4)
 **Goal:** Fleet KB syncs to cloud for multi-venue sharing
 **Requirements:** CLOUD-01 to CLOUD-03
 **Success criteria:**
 1. Fleet KB syncs to Bono VPS every 30 min
 2. New venue can pull full KB and apply immediately
-- [ ] 227-01-PLAN: Cloud KB sync protocol + pull endpoint
+- [ ] 239-01-PLAN: Cloud KB sync protocol + pull endpoint
 
-### Phase 228: Fleet Intelligence Reports (Bono, Day 4)
+### Phase 240: Fleet Intelligence Reports (Bono, Day 4)
 **Goal:** Weekly automated intelligence report to Uday
 **Requirements:** REPORT-01 to REPORT-04
 **Success criteria:**
 1. Weekly report generated from fleet KB + incident log
 2. Per-model performance included
 3. Delivered via WhatsApp
-- [ ] 228-01-PLAN: Report generator + WhatsApp delivery
+- [ ] 240-01-PLAN: Report generator + WhatsApp delivery
 
 ---
 
@@ -3760,16 +3760,16 @@ Plans:
 
 | # | Phase | Owner | Day | Requirements | Plans |
 |---|-------|-------|-----|-------------|-------|
-| 217 | Diagnostic Engine | James | 1 | DIAG-01–07 | 2 |
-| 218 | Local Knowledge Base | James | 1 | KB-01–06 | 2 |
-| 219 | OpenRouter Integration | James | 2 | API-01–05 | 2 |
-| 220 | Budget Manager | James | 2 | BUDGET-01–06 | 1 |
-| 221 | Mesh Gossip Protocol | James | 3 | MESH-01–06 | 3 |
-| 222 | Server Coordinator | Bono | 1-2 | COORD-01–06 | 3 |
-| 223 | Admin Dashboard | Bono | 3-4 | DASH-01–05 | 2 |
-| 224 | Predictive Maintenance | James | 3 | PRED-01–06 | 1 |
-| 225 | Customer Experience | James | 4 | CX-01–04 | 1 |
-| 226 | Night Operations | James | 4 | NIGHT-01–04 | 1 |
-| 227 | Multi-Venue Cloud KB | Bono | 3-4 | CLOUD-01–03 | 1 |
-| 228 | Fleet Reports | Bono | 4 | REPORT-01–04 | 1 |
+| 229 | Diagnostic Engine | James | 1 | DIAG-01–07 | 2 |
+| 230 | Local Knowledge Base | James | 1 | KB-01–06 | 2 |
+| 231 | OpenRouter Integration | James | 2 | API-01–05 | 2 |
+| 232 | Budget Manager | James | 2 | BUDGET-01–06 | 1 |
+| 233 | Mesh Gossip Protocol | James | 3 | MESH-01–06 | 3 |
+| 234 | Server Coordinator | Bono | 1-2 | COORD-01–06 | 3 |
+| 235 | Admin Dashboard | Bono | 3-4 | DASH-01–05 | 2 |
+| 236 | Predictive Maintenance | James | 3 | PRED-01–06 | 1 |
+| 237 | Customer Experience | James | 4 | CX-01–04 | 1 |
+| 238 | Night Operations | James | 4 | NIGHT-01–04 | 1 |
+| 239 | Multi-Venue Cloud KB | Bono | 3-4 | CLOUD-01–03 | 1 |
+| 240 | Fleet Reports | Bono | 4 | REPORT-01–04 | 1 |
 | **Total** | | | **4 days** | **62 reqs** | **20 plans** |
