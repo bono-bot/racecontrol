@@ -13,18 +13,33 @@ if [ -n "$BAD" ]; then
   exit 1
 fi
 
-# Co-dev conflict guard: warn when committing files modified by the other developer recently
-# Prevents silent overwrites between James and Bono
+# Co-dev conflict guard: BLOCK when committing files modified by the other developer
+# within the last 24 hours. Prevents silent overwrites between James and Bono.
+# Override with ALLOW_CODEV_OVERWRITE=1 git commit (must be explicit)
 STAGED=$(git diff --cached --name-only)
+CODEV_CONFLICTS=0
 for file in $STAGED; do
   LAST_AUTHOR=$(git log -1 --format='%ae' -- "$file" 2>/dev/null)
   MY_EMAIL=$(git config user.email 2>/dev/null)
   if [ -n "$LAST_AUTHOR" ] && [ -n "$MY_EMAIL" ] && [ "$LAST_AUTHOR" != "$MY_EMAIL" ]; then
-    LAST_WHEN=$(git log -1 --format='%ar' -- "$file" 2>/dev/null)
-    echo "WARNING: $file was last modified by $LAST_AUTHOR ($LAST_WHEN)"
-    echo "  Verify your changes don't overwrite their work (git diff HEAD -- $file)"
+    # Check if their change was within 24 hours
+    LAST_EPOCH=$(git log -1 --format='%ct' -- "$file" 2>/dev/null)
+    NOW_EPOCH=$(date +%s)
+    AGE_HOURS=$(( (NOW_EPOCH - LAST_EPOCH) / 3600 ))
+    if [ "$AGE_HOURS" -lt 24 ]; then
+      LAST_WHEN=$(git log -1 --format='%ar' -- "$file" 2>/dev/null)
+      echo "BLOCKED: $file was modified by $LAST_AUTHOR ($LAST_WHEN)"
+      echo "  Review: git diff HEAD -- $file"
+      echo "  Override: ALLOW_CODEV_OVERWRITE=1 git commit ..."
+      CODEV_CONFLICTS=$((CODEV_CONFLICTS + 1))
+    fi
   fi
 done
+if [ "$CODEV_CONFLICTS" -gt 0 ] && [ -z "$ALLOW_CODEV_OVERWRITE" ]; then
+  echo ""
+  echo "ERROR: $CODEV_CONFLICTS file(s) modified by co-developer in last 24h."
+  exit 1
+fi
 
 # Warn on .unwrap() in Rust (standing rule)
 UNWRAPS=$(git diff --cached -- '*.rs' | grep -n '^\+.*\.unwrap()' | head -5)
