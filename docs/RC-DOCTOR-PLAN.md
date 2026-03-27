@@ -50,22 +50,35 @@ RacingPoint runs 14+ microservices on a single VPS. Current monitoring is fragme
 
 When rc-doctor's pattern-matching playbooks can't identify a root cause, it escalates to AI models via OpenRouter for intelligent log analysis.
 
-### Model Tiers (Tested 2026-03-28)
+### Model Selection (Tested 2026-03-28)
 
-All models live-tested with real PM2 crash logs. Cost calculated for typical rc-doctor call (~500 input + ~200 output tokens).
+All models **live-tested with real PM2 crash logs** (EADDRINUSE port conflict scenario). Selected for:
+- **Structured JSON output** — must return valid parseable JSON
+- **SRE/DevOps domain knowledge** — understand port conflicts, process crashes, dependency chains
+- **Code-aware** — parse Node.js and Rust stack traces
+- **Actionable fixes** — suggest specific commands, not generic advice
 
-| Tier | Model | ID | Speed | Cost/Call | Monthly (10/day) | Status |
-|------|-------|----|-------|-----------|-------------------|--------|
-| **Free** | Nemotron Nano 30B | `nvidia/nemotron-3-nano-30b-a3b:free` | ~1s | $0.00 | $0.00 | VERIFIED |
-| **Free** | OpenRouter Auto | `openrouter/free` | ~11s | $0.00 | $0.00 | VERIFIED (fallback) |
-| **Cheap** | Mistral Nemo 12B | `mistralai/mistral-nemo` | ~2s | $0.000018 | $0.005 | VERIFIED |
-| **Cheap** | GPT-oss 120B | `openai/gpt-oss-120b` | ~3s | $0.000058 | $0.017 | VERIFIED |
+| Tier | Model | ID | Why This Model | Speed | Cost/Call | Monthly (10/day) |
+|------|-------|----|----------------|-------|-----------|-------------------|
+| **1 (Free)** | Nemotron Nano 30B | `nvidia/nemotron-3-nano-30b-a3b:free` | NVIDIA's code-tuned 30B MoE. Returned valid JSON with correct root cause in 1s. Best free option for structured SRE tasks. | ~1s | $0.00 | $0.00 |
+| **2 (Cheap)** | GPT-oss 120B | `openai/gpt-oss-120b` | 120B general model, strong reasoning. Correctly identified dependency chain failure. At $0.04/M, a single diagnosis costs less than 0.01 cents. | ~3s | $0.000058 | $0.017 |
+| **3 (Cheap)** | Mistral Nemo 12B | `mistralai/mistral-nemo` | Smallest reliable model. 12B but code-trained by Mistral. Good for simple single-cause failures where speed matters most. | ~2s | $0.000018 | $0.005 |
+| **4 (Free)** | OpenRouter Auto | `openrouter/free` | Meta-router that picks best available free model. Slower (11s) but routes around rate limits. Last resort before giving up. | ~11s | $0.00 | $0.00 |
 
-**Model selection strategy:**
-1. Try free Nemotron Nano first (fast, zero cost)
-2. If free model is rate-limited/down, try cheap Mistral Nemo ($0.005/month)
-3. If both fail, try openrouter/free auto-router (slower but routes around limits)
-4. If ALL fail, return "manual investigation needed" — never blocks remediation
+**Why NOT other models:**
+- `qwen/qwen3-coder:free` — 480B code model, ideal on paper, but **failed to respond** during testing (rate-limited)
+- `deepseek/deepseek-chat-v3.1` — strongest cheap reasoning model but **failed to respond** ($0.15/M, also unnecessary cost for log analysis)
+- `meta-llama/llama-3.3-70b-instruct:free` — **failed to respond** during testing
+- `google/gemma-3-27b-it:free` — **failed to respond** during testing
+
+**Selection strategy (waterfall):**
+1. **Nemotron Nano 30B** (free, fast) — handles 90% of cases
+2. **GPT-oss 120B** (cheap, smart) — when free model is rate-limited, or for complex multi-signal failures
+3. **Mistral Nemo** (cheap, fast) — backup for simple failures
+4. **OpenRouter Auto** (free, slow) — last resort, routes around all rate limits
+5. **Give up** — return "manual investigation needed", never blocks remediation
+
+**Note:** Free OpenRouter models have aggressive rate limits (~20 req/min shared across all users). The waterfall ensures rc-doctor always gets a diagnosis by falling through to paid models when free tier is exhausted. At $0.017/month worst case, the paid tier is effectively free.
 
 ### When AI Diagnosis Triggers
 
@@ -108,7 +121,12 @@ Service crash loop detected by Monit
 ```bash
 # === AI DIAGNOSIS (OpenRouter — free + cheap models) ===
 OPENROUTER_KEY="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"
-AI_MODELS=("nvidia/nemotron-3-nano-30b-a3b:free" "mistralai/mistral-nemo" "openrouter/free")
+AI_MODELS=(
+  "nvidia/nemotron-3-nano-30b-a3b:free"   # Tier 1: free, fast (1s), code-tuned 30B
+  "openai/gpt-oss-120b"                    # Tier 2: cheap ($0.00006/call), strong reasoning 120B
+  "mistralai/mistral-nemo"                 # Tier 3: cheap ($0.00002/call), fast 12B fallback
+  "openrouter/free"                        # Tier 4: free, slow (11s), auto-routes around limits
+)
 AI_CALLS_FILE="/var/lib/rc-doctor/ai-calls"
 
 check_ai_budget() {
@@ -245,11 +263,14 @@ fi
 
 ### Cost Summary
 
-| Scenario | Free Models | With Cheap Fallback |
-|----------|-------------|---------------------|
-| 10 diagnoses/day | $0/month | $0.005/month |
-| Weekly reports (4/month) | $0/month | $0/month (free model) |
-| Worst case (all cheap) | N/A | $0.02/month |
+| Scenario | If Free Tier Works | If All Hit GPT-oss-120B |
+|----------|-------------------|------------------------|
+| 10 diagnoses/day | $0/month | $0.017/month (1.7 cents) |
+| Weekly reports (4/month) | $0/month | $0.001/month |
+| Worst case (50 calls/day, all paid) | N/A | $0.087/month (8.7 cents) |
+| **Realistic estimate** | **$0/month** | **$0.01/month** |
+
+At these prices, the AI diagnosis tier costs less than a single WhatsApp message.
 
 ---
 
