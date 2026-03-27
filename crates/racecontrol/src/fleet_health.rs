@@ -220,7 +220,9 @@ pub fn store_startup_report(
         if recent_count > 3 && !store.crash_loop {
             store.crash_loop = true;
             tracing::error!(
-                "CRASH LOOP DETECTED: {} short-uptime restarts in 5 minutes (uptime={}s)",
+                target: "fleet-health",
+                "CRASH LOOP DETECTED: {} short-uptime restarts in 5 minutes (uptime={}s). \
+                 Requires investigation — reboot pod if OS state is corrupt.",
                 recent_count, uptime_secs
             );
         }
@@ -331,17 +333,21 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                             .timeout(Duration::from_secs(3))
                             .send()
                             .await;
-                        let (reachable, build_id) = match result {
+                        let (reachable, build_id, uptime_secs) = match result {
                             Ok(r) if r.status().is_success() => {
-                                // Parse JSON to extract build_id.
-                                let build_id = r.json::<serde_json::Value>().await
-                                    .ok()
-                                    .and_then(|v| v.get("build_id")?.as_str().map(String::from));
-                                (true, build_id)
+                                // Parse JSON to extract build_id and uptime_secs.
+                                match r.json::<serde_json::Value>().await.ok() {
+                                    Some(v) => {
+                                        let build_id = v.get("build_id").and_then(|b| b.as_str().map(String::from));
+                                        let uptime = v.get("uptime_secs").and_then(|u| u.as_u64());
+                                        (true, build_id, uptime)
+                                    }
+                                    None => (true, None, None),
+                                }
                             }
-                            _ => (false, None),
+                            _ => (false, None, None),
                         };
-                        (pod_id, reachable, build_id)
+                        (pod_id, reachable, build_id, uptime_secs)
                     }
                 })
                 .collect();
@@ -351,12 +357,30 @@ pub fn start_probe_loop(state: Arc<AppState>) {
 
             // Write probe results into pod_fleet_health.
             let mut fleet = state.pod_fleet_health.write().await;
-            for (pod_id, reachable, build_id) in results {
-                let store = fleet.entry(pod_id).or_default();
+            for (pod_id, reachable, build_id, uptime_secs) in results {
+                let store = fleet.entry(pod_id.clone()).or_default();
                 store.http_reachable = reachable;
                 store.last_http_check = Some(now);
                 if let Some(id) = build_id {
                     store.build_id = Some(id);
+                }
+
+                // Phase 9b fix: Auto-clear stale crash_loop flag.
+                // The StartupReport path can only SET crash_loop (uptime always <30s at boot).
+                // This probe-based clearing provides the self-healing path:
+                // if the pod has been stable for 5+ minutes, it's no longer crash-looping.
+                if store.crash_loop {
+                    if let Some(uptime) = uptime_secs {
+                        if uptime >= 300 {
+                            store.crash_loop = false;
+                            store.startup_timestamps.clear();
+                            tracing::info!(
+                                target: "fleet-health",
+                                "Crash loop cleared for {}: stable uptime {}s (probe-based auto-clear)",
+                                pod_id, uptime
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -485,8 +509,39 @@ pub async fn fleet_health_handler(
         }
     }
 
+    // Probe local Next.js services (kiosk, web, admin) — fast localhost checks.
+    let probe_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .ok();
+    let services = if let Some(client) = probe_client {
+        let checks = vec![
+            ("kiosk", "http://127.0.0.1:3300/kiosk/api/health"),
+            ("web", "http://127.0.0.1:3200/api/health"),
+            ("admin", "http://127.0.0.1:3201/api/health"),
+        ];
+        let mut service_status = serde_json::Map::new();
+        for (name, url) in checks {
+            let ok = client.get(url).send().await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            if !ok {
+                tracing::warn!(
+                    target: "fleet-health",
+                    "Service {} is DOWN (checked {}). Staff cannot use this service.",
+                    name, url
+                );
+            }
+            service_status.insert(name.to_string(), json!(if ok { "ok" } else { "down" }));
+        }
+        Value::Object(service_status)
+    } else {
+        json!({"kiosk": "unknown", "web": "unknown", "admin": "unknown"})
+    };
+
     Json(json!({
         "pods": result,
+        "services": services,
         "timestamp": Utc::now().to_rfc3339(),
     }))
 }
