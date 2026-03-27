@@ -1,224 +1,109 @@
-# Requirements: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
+# Requirements: v26.0 Meshed Intelligence — Self-Healing AI Fleet
 
-**Defined:** 2026-03-26
-**Core Value:** Every user-visible system breakage is detected by the audit — no false PASSes
+**Defined:** 2026-03-27
+**Core Value:** Every node diagnoses itself, solutions propagate fleet-wide, no issue debugged twice
+**Owner split:** James (Phases 217-221, 224-226) | Bono (Phases 222-223, 227-228)
 
-## v1 Requirements
+## Diagnostic Engine (James — Phase 217)
+- [ ] **DIAG-01**: Each node detects anomalies automatically (health fail, crash, game fail, display mismatch, error spike, WS disconnect, sentinel, violation spike)
+- [ ] **DIAG-02**: Tier 1 deterministic fixes applied without AI (clear MAINTENANCE_MODE, kill orphans, restart service)
+- [ ] **DIAG-03**: Tier 2 KB lookup matches problem signatures against local + fleet KB before models
+- [ ] **DIAG-04**: Tier 3 single-model diagnosis (Qwen3, ~$0.05) when KB has no match
+- [ ] **DIAG-05**: Tier 4 full 4-model parallel diagnosis (R1+V3+MiMo+Gemini, ~$3) when Tier 3 fails
+- [ ] **DIAG-06**: Tier 5 human escalation via WhatsApp when all automated tiers fail
+- [ ] **DIAG-07**: Engine runs on 5-min scheduled scan + anomaly trigger
 
-### Wrong Layer (WL) — Check the consuming service, not just infrastructure
+## Knowledge Base (James — Phase 218)
+- [ ] **KB-01**: Local SQLite KB: solutions with problem_key, symptoms, root_cause, fix_action, confidence, cost, source_node
+- [ ] **KB-02**: Experiments table prevents duplicate work across fleet
+- [ ] **KB-03**: Problem signature normalization (error_type + error_code + component + context_hash)
+- [ ] **KB-04**: Environment fingerprinting (OS, GPU driver, build_id, hardware_class)
+- [ ] **KB-05**: Confidence scoring: success / (success + fail), auto-demotion on failure
+- [ ] **KB-06**: TTL expiration: 90 days unused → auto-archive
 
-- [ ] **WL-01**: Phase 09 self-monitor check verifies liveness beyond uptime proxy (log recency or dedicated health field)
-- [ ] **WL-02**: Phase 10 AI healer check test-queries Ollama model qwen2.5:3b for a parseable response, not just /api/tags
-- [ ] **WL-03**: Phase 15 preflight check queries rc-agent preflight subsystem status, not just overall health=ok
-- [ ] **WL-04**: Phase 44 face detection check verifies face-audit.jsonl has entries within last 10 minutes
+## OpenRouter Integration (James — Phase 219)
+- [ ] **API-01**: Rust HTTP client calls OpenRouter with model-specific prompts + structured parsing
+- [ ] **API-02**: 4 models: Qwen3 (scanner), DeepSeek R1 (reasoner), DeepSeek V3 (code), Gemini 2.5 Pro (security)
+- [ ] **API-03**: Model registry: version pinning, fallback chain, quarterly review flag
+- [ ] **API-04**: Role-specific system prompts (Reasoner, Code Expert, SRE, Security)
+- [ ] **API-05**: Response parsing: root_cause, confidence, fix_action, risk_level
 
-### Count vs Health (CH) — Verify items work, not just that they exist
+## Budget Manager (James — Phase 220)
+- [ ] **BUDGET-01**: Per-node daily tracking ($10/pod, $20/server) with midnight IST reset
+- [ ] **BUDGET-02**: Per-incident cost tracking
+- [ ] **BUDGET-03**: Hard ceiling: block model calls when daily budget exhausted
+- [ ] **BUDGET-04**: Graceful degradation: ceiling → mechanical fallback, never blocks ops
+- [ ] **BUDGET-05**: Monthly tracking with configurable alerts + hard stop
+- [ ] **BUDGET-06**: Budget status on health endpoint for dashboard
 
-- [x] **CH-01**: Phase 07 allowlist check spot-verifies known-good process (svchost.exe) is present, not just count >= 100
-- [x] **CH-02**: Phase 25 menu check verifies at least one item has available=true
-- [x] **CH-03**: Phase 39 feature flags check verifies at least one flag with enabled=true exists
-- [x] **CH-04**: Phase 56 OpenAPI check spot-verifies 3-5 critical endpoints by name (app-health, flags, guard/whitelist)
+## Mesh Gossip Protocol (James — Phase 221)
+- [ ] **MESH-01**: Solution announcement via existing WS (compact digest)
+- [ ] **MESH-02**: Solution request: fetch full details from any peer
+- [ ] **MESH-03**: Experiment announcement: prevent duplicate fleet-wide diagnosis
+- [ ] **MESH-04**: Heartbeat with KB bloom filter for sync detection
+- [ ] **MESH-05**: First-responder rule: only first node spends model budget
+- [ ] **MESH-06**: Environment-aware propagation: same env → apply, different → candidate
 
-### Config Validation (CV) — Verify credentials and config values are correct
+## Server Coordinator (Bono — Phase 222)
+- [ ] **COORD-01**: Fleet KB aggregation from all pods
+- [ ] **COORD-02**: Canary promotion: 3+ successes across 2+ pods → fleet-verified
+- [ ] **COORD-03**: Hardening: 10+ successes, 0 failures → Tier 1 deterministic
+- [ ] **COORD-04**: Pattern detection: 3+ pods same symptom in 5 min → systemic alert
+- [ ] **COORD-05**: Solution demotion: confidence <0.5 → back to candidate
+- [ ] **COORD-06**: Fleet-wide experiment dedup
 
-- [x] **CV-01**: Phase 02 config check validates ws_connect_timeout >= 600ms in racecontrol.toml
-- [x] **CV-02**: Phase 02 config check validates app_health monitoring URLs contain correct ports
-- [x] **CV-03**: Phase 30 WhatsApp check tests Evolution API live connection state
-- [x] **CV-04**: Phase 31 email check proactively verifies OAuth token expiry date
+## Admin Dashboard (Bono — Phase 223)
+- [ ] **DASH-01**: Mesh Intelligence page at :3201/mesh-intelligence
+- [ ] **DASH-02**: Real-time solution feed
+- [ ] **DASH-03**: Budget tracker per node with charts
+- [ ] **DASH-04**: Model performance metrics
+- [ ] **DASH-05**: Knowledge Base browser with search/filter/promote/retire
 
-### Dashboard/UI (UI) — Verify user-facing pages render correctly
+## Predictive Maintenance (James — Phase 224)
+- [ ] **PRED-01**: ConspitLink reconnection rate trending → USB alert
+- [ ] **PRED-02**: Edge process count trending → memory leak restart
+- [ ] **PRED-03**: GPU temp >80C → thermal alert
+- [ ] **PRED-04**: rc-agent restart >2/day → stability alert
+- [ ] **PRED-05**: Disk <10GB → auto-cleanup
+- [ ] **PRED-06**: Error spike 3+ pods → systemic alert
 
-- [ ] **UI-01**: Phase 20 kiosk check verifies static file serving from pod perspective (_next/static/ returns 200)
-- [ ] **UI-02**: Phase 26 game catalog check verifies kiosk game selection page renders expected game count
-- [ ] **UI-03**: Phase 44 check verifies Next.js cameras page at :3200/cameras loads
+## Customer Experience Scoring (James — Phase 225)
+- [ ] **CX-01**: Per-pod score: launch success (30%), session completion (25%), display (20%), hardware (15%), billing (10%)
+- [ ] **CX-02**: Score <80% → flagged for maintenance
+- [ ] **CX-03**: Score <50% → auto-removed from rotation + alert
+- [ ] **CX-04**: Fleet average on dashboard
 
-### Cross-Service (XS) — Verify the dependency chain end-to-end
+## Night Operations (James — Phase 226)
+- [ ] **NIGHT-01**: Midnight maintenance: health → diagnose → fix → audit → report
+- [ ] **NIGHT-02**: Windows Update check + install + reboot + verify off-hours
+- [ ] **NIGHT-03**: Apply pending fleet-verified fixes
+- [ ] **NIGHT-04**: Morning report to Uday: "Fleet ready"
 
-- [ ] **XS-01**: Phase 35+36 cloud sync check compares venue and cloud driver updated_at timestamps (< 5 min delta)
-- [ ] **XS-02**: Phase 07+09 cross-check verifies allowlist background task ran recently when safe_mode inactive
+## Multi-Venue Cloud KB (Bono — Phase 227)
+- [ ] **CLOUD-01**: Fleet KB syncs to Bono VPS cloud DB
+- [ ] **CLOUD-02**: New venue pulls entire KB on day 1
+- [ ] **CLOUD-03**: Cross-venue solution propagation
 
-### Structural Fixes (SF) — False PASSes and inoperative checks
-
-- [x] **SF-01**: Phase 19 display resolution check measures resolution via rc-agent exec (not hardcoded 1920x1080)
-- [x] **SF-02**: Phase 21 billing endpoint unreachable returns WARN during venue hours (not PASS)
-- [x] **SF-03**: Phase 53 watchdog check treats ps_count=0 as WARN (watchdog dead)
-
-### Operational (OP) — Startup reliability
-
-- [x] **OP-01**: go2rtc warmup integrated into start-rcsentry-ai.bat (prevents NVR RTSP flood)
-
-## v2 Requirements
-
-- **DV-01**: rc-sentry-ai staggered camera startup (requires ONNX build env)
-- **DV-02**: Phase 38+46 relay E2E cross-check verifies VPS comms-link WS state
-- **DV-03**: Phase 39 runtime flag behavioral verification on rc-agent
-
-## Out of Scope
-
-| Feature | Reason |
-|---------|--------|
-| Rewriting audit in Rust/Python | Pure bash+jq by design |
-| Adding phases beyond 60 | Fix existing phases only |
-| rc-sentry-ai Rust code changes | ONNX build env unavailable |
-
-## Traceability
-
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| CV-01 | Phase 202 | Complete |
-| CV-02 | Phase 202 | Complete |
-| CV-03 | Phase 202 | Complete |
-| CV-04 | Phase 202 | Complete |
-| SF-01 | Phase 202 | Complete |
-| SF-02 | Phase 202 | Complete |
-| SF-03 | Phase 202 | Complete |
-| OP-01 | Phase 202 | Complete |
-| WL-01 | Phase 203 | Pending |
-| WL-02 | Phase 203 | Pending |
-| WL-03 | Phase 203 | Pending |
-| WL-04 | Phase 203 | Pending |
-| CH-01 | Phase 203 | Complete |
-| CH-02 | Phase 203 | Complete |
-| CH-03 | Phase 203 | Complete |
-| CH-04 | Phase 203 | Complete |
-| XS-01 | Phase 204 | Pending |
-| XS-02 | Phase 204 | Pending |
-| UI-01 | Phase 204 | Pending |
-| UI-02 | Phase 204 | Pending |
-| UI-03 | Phase 204 | Pending |
-
-**Coverage:**
-- v1 requirements: 22 total
-- Mapped to phases: 22/22
-- Unmapped: 0
-
----
-
-# Requirements: v26.0 Autonomous Bug Detection & Self-Healing
-
-**Defined:** 2026-03-26
-**Core Value:** Fully autonomous infrastructure health — detect, fix, cascade, and notify without human intervention
-
-## v1 Requirements
-
-### Scheduling & Execution (SCHED)
-
-- [x] **SCHED-01**: James auto-detect runs daily at 2:30 AM IST via Windows Task Scheduler without human trigger
-- [x] **SCHED-02**: Bono auto-detect runs daily at 2:35 AM IST via cron (5-min offset prevents race condition)
-- [x] **SCHED-03**: Run guard prevents overlapping auto-detect executions (PID file lock)
-- [x] **SCHED-04**: Escalation cooldown prevents repeated WhatsApp alerts for same issue within 6 hours
-- [x] **SCHED-05**: Venue-state-aware timing — full mode during closed hours, quick mode if triggered during open hours
-
-### Detection Expansion (DET)
-
-- [x] **DET-01**: Config drift detection compares running racecontrol.toml values against canonical expected values
-- [x] **DET-02**: Bat file drift detection compares pod start-rcagent.bat checksums against repo canonical version
-- [x] **DET-03**: Log anomaly detection scans pod JSONL logs for ERROR/PANIC rate exceeding threshold (>10/hour open, >2/hour closed)
-- [x] **DET-04**: Crash loop detection flags pods with >3 rc-agent restarts in 30 minutes
-- [x] **DET-05**: Feature flag sync check verifies all 8 pods have identical enabled flag set
-- [x] **DET-06**: Schema drift detection compares cloud and venue DB table schemas for column mismatches
-- [x] **DET-07**: Cascade module (cascade.sh) sources into auto-detect.sh, shares env (BUGS_FOUND, LOG_FILE)
-
-### Self-Healing & Escalation (HEAL)
-
-- [x] **HEAL-01**: Expanded auto-fix whitelist adds: WoL for powered-off pods, MAINTENANCE_MODE auto-clear after 30 min, stale bat file replacement
-- [x] **HEAL-02**: 5-tier escalation ladder: retry (2x) → restart (schtasks) → WoL → cloud failover → Uday WhatsApp
-- [x] **HEAL-03**: Each escalation tier checks sentinel files (OTA_DEPLOYING, MAINTENANCE_MODE) before acting
-- [x] **HEAL-04**: WhatsApp silence conditions: no alert for QUIET findings, max 1 alert per issue per 6 hours, venue-closed findings deferred to morning
-- [x] **HEAL-05**: Post-fix verification — every auto-fix is followed by re-check to confirm resolution
-- [x] **HEAL-06**: Fixes follow Audit Protocol debugging methodology: Cause Elimination Process (document symptom → hypothesize → test & eliminate → fix confirmed cause → verify) — not blind whitelist matching
-- [x] **HEAL-07**: Live-sync model — fixes apply immediately on detection and confirmed diagnosis (not batched to end of run), each fix pushed to affected system the moment it's verified
-- [x] **HEAL-08**: Global toggle `auto_fix_enabled` in auto-detect config (toggle via relay command, admin API, or TOML edit) — when OFF, system detects and reports only, never applies fixes
-
-### Bono Coordination (COORD)
-
-- [x] **COORD-01**: AUTO_DETECT_ACTIVE mutex via relay — prevents James and Bono from fixing simultaneously
-- [x] **COORD-02**: Bono failover requires confirmed Tailscale offline status (not just timeout) before activating
-- [x] **COORD-03**: Delegation protocol — Bono checks James alive first, delegates if so, only runs independently when James confirmed down
-- [x] **COORD-04**: After James recovery, Bono deactivates cloud failover and syncs findings
-
-### Self-Improving Intelligence (LEARN)
-
-- [x] **LEARN-01**: Detection pattern tracker logs findings across runs to suggestions.jsonl (bug type, frequency, pod, fix applied, success)
-- [x] **LEARN-02**: Suggestion engine analyzes patterns and generates improvement proposals with evidence + confidence score
-- [x] **LEARN-03**: Suggestions auto-categorized: "new audit check", "threshold tune", "new auto-fix candidate", "standing rule gap", "cascade coverage gap", "self-patch"
-- [x] **LEARN-04**: Trend analysis flags statistical outliers (e.g. "Pod 3 has 4x more sentinel clears than fleet average")
-- [x] **LEARN-05**: Approved suggestions sync to standing-rules-registry.json, suppress.json, or APPROVED_FIXES and pushed to both AIs
-- [x] **LEARN-06**: Suggestion inbox viewable via API endpoint or Markdown report
-- [x] **LEARN-07**: Self-patch loop — the system can modify its own v26.0 scripts (auto-detect.sh, cascade.sh, fixes.sh, detectors) to improve detection accuracy, fix coverage, or threshold tuning, then commit + push + notify
-- [x] **LEARN-08**: Self-patch follows same Cause Elimination methodology — change is diagnosed (why is detection wrong?), patched, verified (re-run detects correctly), and logged. Reverts automatically if verification fails
-- [x] **LEARN-09**: Self-patch toggle `self_patch_enabled` — independent of `auto_fix_enabled` (can detect+fix infrastructure without self-modifying, or vice versa)
-
-### Pipeline Testing (TEST)
-
-- [x] **TEST-01**: Integration test suite for auto-detect.sh validates each of the 6 steps independently
-- [x] **TEST-02**: Injected anomaly fixtures test each detector (fake config drift, fake log anomaly, fake build mismatch)
-- [x] **TEST-03**: Escalation ladder test verifies tier progression with mocked pod responses
-- [x] **TEST-04**: Bono coordination test verifies mutex acquisition and delegation protocol
-
-## v2 Requirements
-
-- **DET-08**: Real-time continuous health polling (30s interval) — separate from nightly audit
-- **LEARN-10**: Ollama-powered suggestion reasoning (Tier 3 AI analysis of patterns)
-- **HEAL-09**: Auto-rollback on failed deploys (binary swap to -prev.exe)
-- **DET-09**: Network partition detection (pods reachable via LAN but not WS)
-
-## Out of Scope
-
-| Feature | Reason |
-|---------|--------|
-| Autonomous binary deployment | Too risky without human gate — OTA pipeline handles this separately |
-| Real-time log streaming | Excessive bandwidth; query-on-demand fits 8-min budget |
-| Per-pod compile-time variants | Single-binary-tier policy (v22.0 standing rule) |
-| Direct TOML value overwrites | Config drift is detected and reported, not silently corrected — human reviews proposed changes |
+## Fleet Intelligence Reports (Bono — Phase 228)
+- [ ] **REPORT-01**: Weekly report: issues, auto-resolved, escalated, MTTR, budget, KB growth
+- [ ] **REPORT-02**: Per-model performance tracking
+- [ ] **REPORT-03**: Recommendations: model swaps, new Tier 1 checks, patterns
+- [ ] **REPORT-04**: Delivered via WhatsApp to Uday
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| SCHED-01 | Phase 211 | Complete |
-| SCHED-02 | Phase 211 | Complete |
-| SCHED-03 | Phase 211 | Complete |
-| SCHED-04 | Phase 211 | Complete |
-| SCHED-05 | Phase 211 | Complete |
-| DET-01 | Phase 212 | Complete |
-| DET-02 | Phase 212 | Complete |
-| DET-03 | Phase 212 | Complete |
-| DET-04 | Phase 212 | Complete |
-| DET-05 | Phase 212 | Complete |
-| DET-06 | Phase 212 | Complete |
-| DET-07 | Phase 212 | Complete |
-| HEAL-01 | Phase 213 | Complete |
-| HEAL-02 | Phase 213 | Complete |
-| HEAL-03 | Phase 213 | Complete |
-| HEAL-04 | Phase 213 | Complete |
-| HEAL-05 | Phase 213 | Complete |
-| HEAL-06 | Phase 213 | Complete |
-| HEAL-07 | Phase 213 | Complete |
-| HEAL-08 | Phase 213 | Complete |
-| COORD-01 | Phase 214 | Complete |
-| COORD-02 | Phase 214 | Complete |
-| COORD-03 | Phase 214 | Complete |
-| COORD-04 | Phase 214 | Complete |
-| LEARN-01 | Phase 215 | Complete |
-| LEARN-02 | Phase 215 | Complete |
-| LEARN-03 | Phase 215 | Complete |
-| LEARN-04 | Phase 215 | Complete |
-| LEARN-05 | Phase 215 | Complete |
-| LEARN-06 | Phase 215 | Complete |
-| LEARN-07 | Phase 215 | Complete |
-| LEARN-08 | Phase 215 | Complete |
-| LEARN-09 | Phase 215 | Complete |
-| TEST-01 | Phase 216 | Complete |
-| TEST-02 | Phase 216 | Complete |
-| TEST-03 | Phase 216 | Complete |
-| TEST-04 | Phase 216 | Complete |
-
-**Coverage:**
-- v1 requirements: 37 total
-- Mapped to phases: 37/37
-- Unmapped: 0
-
----
-*Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after adding HEAL-06/07/08 (Audit Protocol methodology, live-sync, toggle) and LEARN-07/08/09 (self-patch loop)*
+| Phase | Owner | Requirements | Count |
+|---|---|---|---|
+| 217 | James | DIAG-01 to DIAG-07 | 7 |
+| 218 | James | KB-01 to KB-06 | 6 |
+| 219 | James | API-01 to API-05 | 5 |
+| 220 | James | BUDGET-01 to BUDGET-06 | 6 |
+| 221 | James | MESH-01 to MESH-06 | 6 |
+| 222 | Bono | COORD-01 to COORD-06 | 6 |
+| 223 | Bono | DASH-01 to DASH-05 | 5 |
+| 224 | James | PRED-01 to PRED-06 | 6 |
+| 225 | James | CX-01 to CX-04 | 4 |
+| 226 | James | NIGHT-01 to NIGHT-04 | 4 |
+| 227 | Bono | CLOUD-01 to CLOUD-03 | 3 |
+| 228 | Bono | REPORT-01 to REPORT-04 | 4 |
+| **Total** | | | **62** |
