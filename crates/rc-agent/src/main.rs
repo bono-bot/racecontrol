@@ -259,6 +259,21 @@ async fn main() -> Result<()> {
         startup_log::write_phase("self_heal", "no_repairs_needed");
     }
 
+    // Auto-clear stale OTA_DEPLOYING sentinel (>10 min = failed/aborted deploy)
+    {
+        let ota_sentinel = exe_dir.join("OTA_DEPLOYING");
+        if ota_sentinel.exists() {
+            if let Ok(meta) = std::fs::metadata(&ota_sentinel) {
+                if let Ok(modified) = meta.modified() {
+                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_secs(600) {
+                        eprintln!("[rc-agent] Clearing stale OTA_DEPLOYING sentinel (>10min old)");
+                        let _ = std::fs::remove_file(&ota_sentinel);
+                    }
+                }
+            }
+        }
+    }
+
     // Load and validate config — fail fast with branded lock screen error on any issue
     let config = match load_config() {
         Ok(cfg) => cfg,

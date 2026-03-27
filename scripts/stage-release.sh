@@ -210,6 +210,11 @@ EOF
 
 pass "Release manifest written: ${MANIFEST}"
 
+# ─── Step 5: Sign manifest with SHA256 ────────────────────────────────
+MANIFEST_HASH=$(sha256sum "$MANIFEST" | cut -d' ' -f1)
+echo "${MANIFEST_HASH}  release-manifest.toml" > "${MANIFEST}.sha256"
+pass "Manifest signed: ${MANIFEST}.sha256 (${MANIFEST_HASH:0:16}...)"
+
 # ─── Summary ─────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

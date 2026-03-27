@@ -32,6 +32,15 @@ detect_crash_loop() {
   local today_log
   today_log="C:\\RacingPoint\\rc-agent-$(date -u '+%Y-%m-%d').jsonl"
 
+  # Bug #30: Also check yesterday's log if near UTC midnight (within window_minutes)
+  local utc_hour utc_min yesterday_log
+  utc_hour=$(date -u '+%H')
+  utc_min=$(date -u '+%M')
+  yesterday_log=""
+  if [[ "$utc_hour" == "00" ]] && [[ "$utc_min" -lt "$window_minutes" ]]; then
+    yesterday_log="C:\\RacingPoint\\rc-agent-$(date -u -d 'yesterday' '+%Y-%m-%d' 2>/dev/null || date -u -v-1d '+%Y-%m-%d' 2>/dev/null).jsonl"
+  fi
+
   for pod_ip in 192.168.31.89 192.168.31.33 192.168.31.28 192.168.31.88 192.168.31.86 192.168.31.87 192.168.31.38 192.168.31.91; do
 
     # Search JSONL log for startup indicator lines
@@ -39,6 +48,20 @@ detect_crash_loop() {
     local response
     response=$(safe_remote_exec "$pod_ip" 8090 \
       "findstr /C:\"config_loaded\" /C:\"listening on\" /C:\"started\" \"${today_log}\"" 15)
+
+    # If near UTC midnight, also search yesterday's log and combine
+    if [[ -n "$yesterday_log" ]]; then
+      local yesterday_response
+      yesterday_response=$(safe_remote_exec "$pod_ip" 8090 \
+        "findstr /C:\"config_loaded\" /C:\"listening on\" /C:\"started\" \"${yesterday_log}\"" 15 2>/dev/null || true)
+      local yesterday_stdout
+      yesterday_stdout=$(printf '%s' "$yesterday_response" | jq -r '.stdout // ""' 2>/dev/null)
+      if [[ -n "$yesterday_stdout" ]]; then
+        local today_stdout
+        today_stdout=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)
+        response=$(printf '{"stdout":"%s\\n%s"}' "$yesterday_stdout" "$today_stdout" | jq -c '{stdout: .stdout}' 2>/dev/null || echo "$response")
+      fi
+    fi
 
     local stdout
     stdout=$(printf '%s' "$response" | jq -r '.stdout // ""' 2>/dev/null)

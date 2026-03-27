@@ -84,6 +84,15 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     let suspect_flag: i32 = if !sanity_ok || !sector_sum_ok { 1 } else { 0 };
 
     // 1. Insert lap into DB (with car_class from billing session lookup)
+    // Use a transaction to ensure lap INSERT + PB update + record update are atomic.
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("Failed to begin lap transaction: {}", e);
+            return false;
+        }
+    };
+
     let result = sqlx::query(
         "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
@@ -104,11 +113,12 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&car_class)
     .bind(suspect_flag)
     .bind(format!("{:?}", lap.session_type).to_lowercase())
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(e) = result {
         tracing::error!("Failed to insert lap: {}", e);
+        let _ = tx.rollback().await;
         return false;
     }
 
@@ -117,7 +127,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         if lap.lap_time_ms < min_ms {
             let _ = sqlx::query("UPDATE laps SET review_required = 1 WHERE id = ?")
                 .bind(&lap.id)
-                .execute(&state.db)
+                .execute(&mut *tx)
                 .await;
             tracing::info!(
                 "[lap-filter] LAP-02 review_required: lap {} on {} is {}ms < floor {}ms",
@@ -135,7 +145,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&normalized_track)
     .bind(&lap.car)
     .bind(&sim_type_str)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .ok()
     .flatten();
@@ -160,7 +170,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         .bind(&sim_type_str)
         .bind(lap.lap_time_ms as i64)
         .bind(&lap.id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await;
 
         tracing::info!(
@@ -213,7 +223,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
              FROM drivers WHERE id = ?",
         )
         .bind(&lap.driver_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(&mut *tx)
         .await
         .ok()
         .flatten()
@@ -236,7 +246,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         .bind(&lap.driver_id)
         .bind(lap.lap_time_ms as i64)
         .bind(&lap.id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await;
 
         tracing::info!(
@@ -303,8 +313,14 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     )
     .bind(lap.lap_time_ms as i64)
     .bind(&lap.driver_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await;
+
+    // Commit the transaction (lap + PB + record + stats are now atomic)
+    if let Err(e) = tx.commit().await {
+        tracing::error!("Failed to commit lap transaction: {}", e);
+        return false;
+    }
 
     // Update driving passport with this track+car combo
     psychology::update_driving_passport(state, &lap.driver_id, &normalized_track, &lap.car, lap.lap_time_ms as i64).await;

@@ -32,6 +32,16 @@ const MAX_LOG_BYTES: u64 = 512 * 1024; // 512 KB
 /// (standing rule #2: never run server binaries on pod machines).
 const CRITICAL_BINARIES: &[&str] = &["racecontrol.exe"];
 
+/// System-critical processes that must NEVER be killed regardless of allowlist.
+/// Killing these causes BSOD, logoff, or system instability.
+const NEVER_KILL: &[&str] = &[
+    "csrss.exe", "smss.exe", "wininit.exe", "services.exe", "lsass.exe",
+    "winlogon.exe", "svchost.exe", "dwm.exe", "explorer.exe", "system",
+    "registry", "ntoskrnl.exe", "conhost.exe", "fontdrvhost.exe",
+    "sihost.exe", "taskhostw.exe", "runtimebroker.exe",
+    "rc-agent.exe", "rc-sentry.exe", "rc-sentry-ai.exe",
+];
+
 /// Result of a single process scan cycle — used for first-scan threshold validation (BOOT-04).
 pub struct ScanResult {
     pub total_processes: usize,
@@ -323,6 +333,10 @@ async fn run_scan_cycle(
             continue;
         }
         if is_self_excluded(own_pid, parent_pid, name) {
+            continue;
+        }
+        // Never-kill system processes: skip silently
+        if NEVER_KILL.iter().any(|&n| n.eq_ignore_ascii_case(name)) {
             continue;
         }
         // Whitelisted processes: skip

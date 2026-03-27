@@ -1,6 +1,6 @@
 [
   {
-    "phase": "17",
+    "phase": "19",
     "host_pattern": "pod-91-.*",
     "message_pattern": "1024x768",
     "reason": "Pod 8 NVIDIA Surround not configured - waiting for physical setup",

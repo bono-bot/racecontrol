@@ -191,6 +191,15 @@ fn kill_process_by_pid(pid: u32) -> anyhow::Result<()> {
 
 // ─── INI Generation ──────────────────────────────────────────────────────────
 
+fn generate_admin_password(session_name: &str, udp_port: u16) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    session_name.hash(&mut hasher);
+    udp_port.hash(&mut hasher);
+    format!("rp{:08x}", hasher.finish() as u32)
+}
+
 pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
     let cars_str = config.cars.join(";");
 
@@ -207,7 +216,7 @@ pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
          CONFIG_TRACK={}\n\
          MAX_CLIENTS={}\n\
          PASSWORD={}\n\
-         ADMIN_PASSWORD=racingpoint\n\
+         ADMIN_PASSWORD={}\n\
          UDP_PORT={}\n\
          TCP_PORT={}\n\
          HTTP_PORT={}\n\
@@ -242,6 +251,7 @@ pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
         config.track_config,
         config.max_clients,
         config.password,
+        generate_admin_password(&config.name, config.udp_port),
         config.udp_port,
         config.tcp_port,
         config.http_port,
