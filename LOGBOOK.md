@@ -937,3 +937,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-27 14:05 IST | James | f7706c9d | Standing rule: verify recipient infrastructure before sending instructions |
 | 2026-03-27 14:15 IST | James | 6af66aa (comms-link) | Sync 6 missing standing rules from racecontrol to comms-link CLAUDE.md |
 | 2026-03-27 16:45 IST | James | 47b63926 | fix(healer): remove webterm from AI-HEALER monitoring — 2,248 alert spam prevention |
+| 2026-03-27 11:39 IST | James | 6595b223 | security+reliability+ops: 31 fixes from 8-model audit (C→A grade). 7 credentials rotated, exec auth re-enabled, MAINTENANCE_MODE TTL, billing idempotency, deny_unknown_fields on 21 structs, WS sequencing, audit Phase 0 self-test, PID lock, 68 phases documented, TDR 8s, WU deferral, Edge pinned. |
