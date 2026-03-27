@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Racing Point - Control Portal</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0a0a0a;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .header {
+    text-align: center;
+    padding: 40px 20px 20px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .header h1 span { color: #E10600; }
+  .header p {
+    color: #888;
+    font-size: 14px;
+    margin-top: 8px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    max-width: 960px;
+    width: 100%;
+    padding: 20px;
+  }
+  .card {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 24px;
+    text-decoration: none;
+    color: #fff;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card:hover {
+    border-color: #E10600;
+    background: #1a1a1a;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(225, 6, 0, 0.15);
+  }
+  .card .icon {
+    font-size: 32px;
+    margin-bottom: 4px;
+  }
+  .card .title {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .card .desc {
+    font-size: 13px;
+    color: #888;
+    line-height: 1.4;
+  }
+  .card .url {
+    font-size: 11px;
+    color: #555;
+    font-family: monospace;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid #222;
+  }
+  .section-label {
+    max-width: 960px;
+    width: 100%;
+    padding: 20px 20px 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status.green { background: #22c55e; }
+  .status.amber { background: #f59e0b; }
+  .footer {
+    text-align: center;
+    padding: 30px;
+    color: #333;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Racing <span>Point</span></h1>
+  <p>Control Portal</p>
+</div>
+
+<div class="section-label">Staff & Operations</div>
+<div class="grid">
+  <a class="card" href="/admin/" id="admin-link">
+    <div class="icon">&#9881;</div>
+    <div class="title"><span class="status amber" id="admin-status"></span>Admin Dashboard</div>
+    <div class="desc">Fleet management, billing, drivers, events, games, and control room.</div>
+    <div class="url">:3201/admin/</div>
+  </a>
+  <a class="card" href="/kiosk/" id="kiosk-link">
+    <div class="icon">&#127918;</div>
+    <div class="title"><span class="status amber" id="kiosk-status"></span>Kiosk</div>
+    <div class="desc">Staff terminal for session management, pod control, and spectator view.</div>
+    <div class="url">:3300/kiosk/</div>
+  </a>
+  <a class="card" href="http://192.168.31.23:3200/billing" id="pos-link">
+    <div class="icon">&#128179;</div>
+    <div class="title"><span class="status amber" id="pos-status"></span>POS / Billing</div>
+    <div class="desc">Point-of-sale billing dashboard, active sessions, and payment processing.</div>
+    <div class="url">:3200/billing</div>
+  </a>
+</div>
+
+<div class="section-label">Customer Facing</div>
+<div class="grid">
+  <a class="card" href="http://192.168.31.23:3200/" id="web-link">
+    <div class="icon">&#127760;</div>
+    <div class="title"><span class="status amber" id="web-status"></span>Web Dashboard</div>
+    <div class="desc">Customer-facing leaderboards, bookings, events, and driver profiles.</div>
+    <div class="url">:3200/</div>
+  </a>
+  <a class="card" href="/register">
+    <div class="icon">&#128100;</div>
+    <div class="title">Walk-in Registration</div>
+    <div class="desc">QR code scan landing page for new customer registration.</div>
+    <div class="url">:8080/register</div>
+  </a>
+</div>
+
+<div class="section-label">System</div>
+<div class="grid">
+  <a class="card" href="/api/v1/health">
+    <div class="icon">&#128154;</div>
+    <div class="title"><span class="status green" id="rc-status"></span>RaceControl Health</div>
+    <div class="desc">Server health, build ID, and service status.</div>
+    <div class="url">:8080/api/v1/health</div>
+  </a>
+  <a class="card" href="/api/v1/fleet/health">
+    <div class="icon">&#128640;</div>
+    <div class="title">Fleet Health</div>
+    <div class="desc">All 8 pods — connectivity, build ID, uptime, and violations.</div>
+    <div class="url">:8080/api/v1/fleet/health</div>
+  </a>
+  <a class="card" href="http://192.168.31.27:1984/" target="_blank">
+    <div class="icon">&#128247;</div>
+    <div class="title">Cameras (go2rtc)</div>
+    <div class="desc">Live RTSP camera streams from 13 Dahua NVR cameras.</div>
+    <div class="url">James :1984/</div>
+  </a>
+</div>
+
+<div class="footer">Racing Point eSports &amp; Cafe &mdash; 192.168.31.23:8080/portal</div>
+
+<script>
+// Quick health checks for status dots
+const checks = [
+  { id: 'rc-status', url: '/api/v1/health' },
+  { id: 'admin-status', url: 'http://192.168.31.23:3201/admin/', link: 'admin-link', href: 'http://192.168.31.23:3201/admin/' },
+  { id: 'kiosk-status', url: 'http://192.168.31.23:3300/kiosk/', link: 'kiosk-link', href: 'http://192.168.31.23:3300/kiosk/' },
+  { id: 'pos-status', url: 'http://192.168.31.23:3200/billing' },
+  { id: 'web-status', url: 'http://192.168.31.23:3200/' },
+];
+
+checks.forEach(c => {
+  fetch(c.url, { mode: 'no-cors', cache: 'no-store' })
+    .then(() => {
+      const el = document.getElementById(c.id);
+      if (el) { el.classList.remove('amber'); el.classList.add('green'); }
+      if (c.link && c.href) { document.getElementById(c.link).href = c.href; }
+    })
+    .catch(() => {});
+});
+</script>
+
+</body>
+</html>

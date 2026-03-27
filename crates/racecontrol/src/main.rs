@@ -703,6 +703,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/register", get(|| async {
             axum::response::Html(include_str!("../../../assets/register.html"))
         }))
+        // Portal — single URL linking to all apps (kiosk, admin, POS, web)
+        .route("/portal", get(|| async {
+            axum::response::Html(include_str!("../../../assets/portal.html"))
+        }))
         // Health check at root
         .route("/", get(|| async {
             axum::Json(serde_json::json!({
