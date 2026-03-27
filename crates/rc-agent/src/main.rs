@@ -19,6 +19,7 @@ mod game_process;
 mod knowledge_base;
 mod kiosk;
 mod lock_screen;
+mod mesh_gossip;
 mod openrouter;
 mod overlay;
 mod pre_flight;

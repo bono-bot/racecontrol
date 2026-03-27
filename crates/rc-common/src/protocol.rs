@@ -293,6 +293,46 @@ pub enum AgentMessage {
         timestamp: String,
     },
 
+    // ─── Mesh Intelligence (v26.0 Phase 233) ────────────────────────────────
+
+    /// Pod announces a solved diagnostic issue to the server for fleet propagation.
+    /// Server stores in fleet KB and broadcasts to other pods.
+    MeshSolutionAnnounce {
+        problem_hash: String,
+        problem_key: String,
+        solution_version: u32,
+        confidence: f64,
+        fix_type: String,
+        source_node: String,
+        environment_tags: Vec<String>,
+        cost_to_diagnose: f64,
+        summary: String,
+    },
+
+    /// Pod requests full solution details from the server (after receiving a digest).
+    MeshSolutionRequest {
+        problem_hash: String,
+        requesting_node: String,
+    },
+
+    /// Pod announces it is actively diagnosing an issue — other pods should wait.
+    MeshExperimentAnnounce {
+        problem_key: String,
+        hypothesis: String,
+        status: String,
+        node: String,
+        estimated_cost: f64,
+    },
+
+    /// Pod sends periodic KB digest for sync detection.
+    MeshHeartbeat {
+        node: String,
+        kb_size: u32,
+        kb_hash: String,
+        budget_remaining: f64,
+        last_diagnosis: Option<String>,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -532,6 +572,35 @@ pub enum CoreToAgentMessage {
 
     /// v22.0: Server pushes kill switch activation/deactivation
     KillSwitch(KillSwitchPayload),
+
+    // ─── Mesh Intelligence (v26.0 Phase 233) ────────────────────────────────
+
+    /// Server broadcasts a fleet-verified or newly-announced solution to all pods.
+    MeshSolutionBroadcast {
+        problem_hash: String,
+        problem_key: String,
+        root_cause: String,
+        fix_action: String,
+        fix_type: String,
+        confidence: f64,
+        source_node: String,
+        promotion_status: String,
+    },
+
+    /// Server broadcasts an experiment announcement to prevent duplicate diagnosis.
+    MeshExperimentBroadcast {
+        problem_key: String,
+        hypothesis: String,
+        node: String,
+        estimated_cost: f64,
+    },
+
+    /// Server alerts all pods of a systemic issue (3+ pods same symptom).
+    MeshSystemicAlert {
+        problem_key: String,
+        affected_pods: Vec<String>,
+        timestamp: String,
+    },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
