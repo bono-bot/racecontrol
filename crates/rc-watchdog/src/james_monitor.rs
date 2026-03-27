@@ -7,8 +7,8 @@
 //!   failure count 4+: alert Bono with full diagnosis + symptoms
 //!   recovered: reset count, log pattern for future memory
 //!
-//! Services monitored (9 total):
-//!   Local (.27): ollama, comms-link, rc-sentry, webterm, claude-code, go2rtc
+//! Services monitored (8 total):
+//!   Local (.27): ollama, comms-link, rc-sentry, claude-code, go2rtc
 //!   Server (.23): racecontrol, kiosk, dashboard
 //!   Network: tailscale connectivity to Bono VPS
 
@@ -75,15 +75,10 @@ fn services() -> Vec<ServiceConfig> {
             }),
             log_path: Some(r"C:\RacingPoint\rc-sentry-ai.log"),
         },
-        ServiceConfig {
-            name: "webterm",
-            check: ServiceCheck::Http("http://127.0.0.1:9999"),
-            restart_cmd: Some(RestartCmd {
-                exe: r"C:\Users\bono\AppData\Local\Programs\Python\Python312\python.exe",
-                args: &[r"C:\Users\bono\racingpoint\deploy-staging\webterm.py"],
-            }),
-            log_path: None,
-        },
+        // webterm (port 9999) REMOVED from monitoring 2026-03-27.
+        // Reason: Uday-only tool, generated 2,248 identical alerts in 4 days.
+        // Rate-limiting (86df6087) reduced spam but webterm is not critical infrastructure.
+        // Restart manually if needed: python deploy-staging/webterm.py
         ServiceConfig {
             name: "claude-code",
             check: ServiceCheck::Process("claude"),
