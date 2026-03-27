@@ -3773,3 +3773,164 @@ Plans:
 | 239 | Multi-Venue Cloud KB | Bono | 3-4 | CLOUD-01–03 | 1 |
 | 240 | Fleet Reports | Bono | 4 | REPORT-01–04 | 1 |
 | **Total** | | | **4 days** | **62 reqs** | **20 plans** |
+# Roadmap: Racing Point eSports — v27.0 Meshed Intelligence
+
+## Overview
+
+v27.0 replaces the hub-and-spoke WebSocket polling architecture with an event-driven mesh using NATS JetStream as the backbone. The migration is additive — existing health probes, billing sync, and fleet ops run in parallel throughout. Ten phases deliver the mesh in strict dependency order: event backbone first, pod publishers second, server-side consumers third, resilience validation fourth, peer discovery fifth, camera fusion sixth, AI agent coordination seventh, predictive operations eighth, capacity intelligence ninth, and full integration validation last. At completion, every venue node (8 pods, server, POS, 13 cameras, two AI agents) participates in a unified event fabric enabling lateral awareness, autonomous coordination, and resilient degraded-mode operation.
+
+## Milestones
+
+- 🚧 **v27.0 Meshed Intelligence** - Phases 241-250 (in progress)
+
+## Phases
+
+### 🚧 v27.0 Meshed Intelligence (In Progress)
+
+**Milestone Goal:** Replace hub-and-spoke monitoring with an event-driven mesh; every venue node publishes and subscribes to a shared event fabric.
+
+- [ ] **Phase 241: Event Backbone** - NATS 2.12 Windows Service + JetStream streams + event envelope schema
+- [ ] **Phase 242: Pod Event Publishers** - rc-agent async-nats clients + heartbeat + parallel write feature flag
+- [ ] **Phase 243: Server Subscriber + Digital Twin** - racecontrol NATS consumer + KV_PODS bucket + KV Watch
+- [ ] **Phase 244: Degraded Mode** - SQLite transactional outbox + tiered degradation + event replay
+- [ ] **Phase 245: Peer Discovery + Leader Election** - mDNS pod self-registration + static IP fallback + server-down coordinator
+- [ ] **Phase 246: Camera Fusion** - NVR webhook bridge + fusion service + confidence scoring + fused output events
+- [ ] **Phase 247: AI Agent Mesh** - Blackboard KV + intent-based commands + graph workflows + circuit breaker
+- [ ] **Phase 248: Predictive Operations** - EWMA risk scoring + demand forecasting + prediction event subjects
+- [ ] **Phase 249: Capacity Intelligence** - Live capacity dashboard + historical load analysis + stress test framework
+- [ ] **Phase 250: Unified Protocol** - End-to-end integration tests + mesh topology validator + event flow tracer + chaos gate
+
+## Phase Details
+
+### Phase 241: Event Backbone
+**Goal**: NATS 2.12 is running as a Windows Service on .23 with JetStream persisted to disk, 7 streams defined, and the event envelope standard committed to shared-types — every future publisher has a locked schema to build against
+**Depends on**: Nothing (first phase)
+**Requirements**: EBUS-01, EBUS-02, EBUS-05
+**Success Criteria** (what must be TRUE):
+  1. `nats server info` on .23 returns `jetstream: true` and the JetStream store directory is on disk (not in-memory) after a service restart
+  2. All 7 streams (PODS, CAMERAS, POS, AI, FUSION, VENUE, AUDIT) are visible via natscli with correct retention and subject bindings
+  3. The `EventEnvelope` struct with `version: u32` field exists in the shared-types crate and compiles across all workspace members
+  4. A natscli publish + subscribe round-trip on each of the 7 stream subjects succeeds from the server console
+**Plans**: TBD
+
+### Phase 242: Pod Event Publishers
+**Goal**: All 8 pods are publishing heartbeat and health events to NATS every 5s via async-nats while the existing 30s WebSocket probe continues unchanged — dual-write is live with a per-pod toggle
+**Depends on**: Phase 241
+**Requirements**: EBUS-03, EBUS-04, MESH-01
+**Success Criteria** (what must be TRUE):
+  1. With `MESH_ENABLED=true`, natscli stream view on PODS shows heartbeat events arriving from all 8 pods at 5s intervals
+  2. With `MESH_ENABLED=false`, no NATS events are emitted and existing WebSocket health probes are unaffected
+  3. Killing the NATS server mid-session does not interrupt a running race — Tier 0 (racing) continues and the pod SQLite outbox accumulates pending events
+  4. Re-enabling NATS after a kill shows pending outbox events available for future replay
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 243: Server Subscriber + Digital Twin
+**Goal**: racecontrol consumes pod events from NATS and the KV_PODS digital twin is kept current so the admin fleet dashboard can read live state via KV Watch instead of 30s HTTP polling
+**Depends on**: Phase 242
+**Requirements**: MESH-02
+**Success Criteria** (what must be TRUE):
+  1. The KV_PODS bucket shows a key per pod with TTL=120s; stale pods expire automatically when no heartbeat arrives
+  2. The admin control room fleet grid reflects a pod state change (e.g., session start) within 2s without a page refresh
+  3. The existing 30s HTTP polling path still works as a fallback — disabling KV Watch falls back gracefully
+  4. The Bono VPS leaf node connects to .23 via Tailscale and its NATS client can subscribe to `pod.>` subjects
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 244: Degraded Mode
+**Goal**: Pod state changes and billing events are never silently lost when NATS is unreachable — the transactional outbox guarantees durability, tiered degradation ensures racing never halts, and replay on reconnect restores full mesh state
+**Depends on**: Phase 243
+**Requirements**: RESIL-01, RESIL-02, RESIL-03, RESIL-04
+**Success Criteria** (what must be TRUE):
+  1. Killing NATS while a billing event is written results in the event appearing in the pod SQLite `event_spool` table, not lost — it replays after NATS reconnects
+  2. With NATS down, a pod can start and complete a racing session without any error, hang, or data loss (Tier 0 is fully isolated from NATS availability)
+  3. On NATS reconnect, the admin dashboard shows the control room "reconnecting" banner clear within 30s and spooled events appear in the stream without duplicates
+  4. After simulated split-brain (server restart), a billing event written on a pod wins over any server-side stale read for the same session
+**Plans**: TBD
+
+### Phase 245: Peer Discovery + Leader Election
+**Goal**: Pods discover each other via mDNS without static configuration, and when the server is unreachable one pod becomes the coordinator so the fleet can continue minimal self-management operations
+**Depends on**: Phase 244
+**Requirements**: MESH-03, MESH-04
+**Success Criteria** (what must be TRUE):
+  1. A newly-started pod appears in every other pod's peer list within 30s without any manual configuration
+  2. If mDNS fails (Tailscale reconnect scenario), pods fall back to the static 192.168.31.x table and maintain peer awareness with no operator intervention
+  3. When the server .23 is unreachable for 60s, the lowest-IP online pod elects itself coordinator and the control room shows the degraded-mode banner
+  4. When the server comes back, the elected coordinator yields and mesh state converges within 60s
+**Plans**: TBD
+
+### Phase 246: Camera Fusion
+**Goal**: NVR motion webhooks are bridged onto the NATS event bus and the fusion service correlates camera detection events with pod state inside a 5s window, producing venue-level facts with a confidence score
+**Depends on**: Phase 243
+**Requirements**: FUSE-01, FUSE-02, FUSE-03, FUSE-04
+**Success Criteria** (what must be TRUE):
+  1. When a camera detects motion, a `camera.<id>.detection` event appears in the CAMERAS stream within 2s of the NVR webhook firing
+  2. The fusion service publishes a `fusion.pod.<id>.occupied` event when a camera detection and a pod active-session event overlap within the 5s window
+  3. When camera input is missing for a pod (camera offline), the fusion service still publishes an event with a reduced confidence score rather than emitting nothing
+  4. `fusion.safety.*` and `fusion.queue.*` events appear in the FUSION stream and are visible in the admin dashboard
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 247: AI Agent Mesh
+**Goal**: James and Bono subscribe to the venue event mesh, coordinate via a shared blackboard, and all remediation actions flow through an intent controller that enforces cooldowns and circuit-breaks runaway automation before it reaches pods
+**Depends on**: Phase 244
+**Requirements**: AIAG-01, AIAG-02, AIAG-03, AIAG-04
+**Success Criteria** (what must be TRUE):
+  1. James and Bono each have a working subscription to `venue.>` and their observations appear as entries in the KV_BLACKBOARD bucket
+  2. When James emits an `ai.james.intent` event, the intent controller approves or rejects it and publishes the result to `ai.command.approved` or `ai.command.rejected` before any pod action executes
+  3. If an automated remediation is triggered on the same pod more than once within 5 minutes, the second intent is rejected by the cooldown gate
+  4. After 3 automated actions on any single pod within 60s, the circuit breaker fires, all automation halts for that pod, and Uday receives a WhatsApp alert
+**Plans**: TBD
+
+### Phase 248: Predictive Operations
+**Goal**: EWMA-based risk scores for each pod are published continuously to the mesh so the admin dashboard and AI agents can act proactively before hardware faults occur, and demand forecasting pre-warms pods ahead of busy periods
+**Depends on**: Phase 243, Phase 246
+**Requirements**: PRED-01, PRED-02, PRED-03
+**Success Criteria** (what must be TRUE):
+  1. A `venue.prediction.risk.<id>` event is published for each pod at least once per minute, with a risk level (LOW/MEDIUM/HIGH) and the top contributing metric
+  2. The admin control room shows a risk indicator per pod that updates in real time without a page refresh
+  3. Demand forecast fires a pod pre-warm suggestion event during a period that historically precedes a busy window (verifiable from session history)
+  4. An AI agent (James or Bono) receives and logs a prediction event from `venue.prediction.*` without any manual trigger
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 249: Capacity Intelligence
+**Goal**: Real-time and historical capacity metrics across all pods and the server are visible in a live dashboard, breaking points are identified via stress testing before they surface in production
+**Depends on**: Phase 243, Phase 246
+**Requirements**: CAPI-01, CAPI-02, CAPI-03
+**Success Criteria** (what must be TRUE):
+  1. The capacity dashboard shows CPU, RAM, GPU, disk, and network metrics for all 8 pods and the server, updating live with configurable alert thresholds
+  2. A historical load report for any 7-30 day window identifies the top 3 bottlenecks and shows capacity headroom per metric
+  3. Running the stress test framework with all 8 pods, 13 cameras, POS, and both AI agents active produces a breaking-point report identifying the first resource to saturate
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 250: Unified Protocol
+**Goal**: A single command validates the entire mesh end-to-end, every phase's integration tests pass as a regression gate, and chaos testing scripts prove the mesh survives NATS outages, pod failures, and network partitions
+**Depends on**: Phase 247, Phase 248, Phase 249
+**Requirements**: UPRO-01, UPRO-02, UPRO-03, UPRO-04, UPRO-05, RESIL-05
+**Success Criteria** (what must be TRUE):
+  1. `upro health` (single command) returns green for the full chain: NATS → pod publishers → KV twin → fusion → AI blackboard → prediction → capacity
+  2. The mesh topology validator confirms all expected subscriptions, KV buckets, streams, and leaf node connections are active with zero missing entries
+  3. Injecting a tagged test event at any entry point (pod heartbeat, camera detection, AI intent) produces a traceable path report showing every service that consumed it
+  4. Chaos scripts (NATS down, pod failure, network partition) run without leaving the mesh in a broken state — all recovery behaviors verified automatically
+  5. No phase can be marked shipped in future milestones until the UPRO regression gate passes against all previously shipped categories
+**Plans**: TBD
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 → 247 → 248 → 249 → 250
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 241. Event Backbone | 0/TBD | Not started | - |
+| 242. Pod Event Publishers | 0/TBD | Not started | - |
+| 243. Server Subscriber + Digital Twin | 0/TBD | Not started | - |
+| 244. Degraded Mode | 0/TBD | Not started | - |
+| 245. Peer Discovery + Leader Election | 0/TBD | Not started | - |
+| 246. Camera Fusion | 0/TBD | Not started | - |
+| 247. AI Agent Mesh | 0/TBD | Not started | - |
+| 248. Predictive Operations | 0/TBD | Not started | - |
+| 249. Capacity Intelligence | 0/TBD | Not started | - |
+| 250. Unified Protocol | 0/TBD | Not started | - |
