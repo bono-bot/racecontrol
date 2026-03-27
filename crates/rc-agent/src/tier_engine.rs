@@ -337,45 +337,82 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
 }
 
 /// Ensure James's SSH public key is deployed for remote access.
-/// Writes to both admin and user authorized_keys locations.
-/// Idempotent — only writes if key is missing or different.
+/// Appends to authorized_keys (never overwrites) and sets Windows ACLs.
+/// Idempotent — skips if exact key line already present.
+///
+/// Multi-model audit fixes (Qwen3 + Grok 4.1):
+/// - P1: Append-only (don't overwrite existing keys)
+/// - P1: Set ACLs via icacls after write
+/// - P1: Exact full-line match (not substring)
+/// - P2: Derive user path from USERNAME env var
+/// - P2: Log errors on fs failures
 fn tier1_ensure_ssh_key() -> Option<String> {
     const JAMES_PUBKEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpwLi/oX9iymSjea6I3iG6QUQmX9XsJ0fDma/3MTLQ/ james@racingpoint.in";
     const ADMIN_KEY_PATH: &str = r"C:\ProgramData\ssh\administrators_authorized_keys";
-    const USER_KEY_PATH: &str = r"C:\Users\User\.ssh\authorized_keys";
+
+    // P2: Derive user home from USERNAME env var instead of hardcoding "User"
+    let user_key_path = std::env::var("USERNAME")
+        .map(|u| format!(r"C:\Users\{}\.ssh\authorized_keys", u))
+        .unwrap_or_else(|_| r"C:\Users\User\.ssh\authorized_keys".to_string());
 
     let mut fixed = false;
 
-    // Check admin path
-    let admin_ok = std::fs::read_to_string(ADMIN_KEY_PATH)
-        .map(|c| c.contains("AAAAC3NzaC1lZDI1NTE5"))
-        .unwrap_or(false);
-
-    if !admin_ok {
-        let _ = std::fs::create_dir_all(r"C:\ProgramData\ssh");
-        if std::fs::write(ADMIN_KEY_PATH, format!("{}\n", JAMES_PUBKEY)).is_ok() {
-            tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {}", ADMIN_KEY_PATH);
-            fixed = true;
-        }
+    // Check + append to admin path
+    if ensure_key_in_file(ADMIN_KEY_PATH, JAMES_PUBKEY) {
+        // P1: Set strict ACLs — only SYSTEM and Administrators
+        let _ = std::process::Command::new("icacls")
+            .args([ADMIN_KEY_PATH, "/inheritance:r", "/grant", "SYSTEM:F", "/grant", "Administrators:F"])
+            .output();
+        tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {} + ACLs set", ADMIN_KEY_PATH);
+        fixed = true;
     }
 
-    // Check user path
-    let user_ok = std::fs::read_to_string(USER_KEY_PATH)
-        .map(|c| c.contains("AAAAC3NzaC1lZDI1NTE5"))
-        .unwrap_or(false);
-
-    if !user_ok {
-        let _ = std::fs::create_dir_all(r"C:\Users\User\.ssh");
-        if std::fs::write(USER_KEY_PATH, format!("{}\n", JAMES_PUBKEY)).is_ok() {
-            tracing::info!(target: LOG_TARGET, "Tier 1: deployed SSH key to {}", USER_KEY_PATH);
-            fixed = true;
-        }
+    // Check + append to user path
+    if ensure_key_in_file(&user_key_path, JAMES_PUBKEY) {
+        tracing::info!(target: LOG_TARGET, path = %user_key_path, "Tier 1: deployed SSH key to user authorized_keys");
+        fixed = true;
     }
 
     if fixed {
         Some("deployed SSH key for remote access".to_string())
     } else {
         None
+    }
+}
+
+/// Ensure a specific key line exists in an authorized_keys file.
+/// Appends if missing, never overwrites. Returns true if key was added.
+fn ensure_key_in_file(path: &str, pubkey: &str) -> bool {
+    // P1: Exact full-line match — read existing content
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let key_present = existing.lines().any(|line| line.trim() == pubkey.trim());
+
+    if key_present {
+        return false;
+    }
+
+    // Create parent dir if needed
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(target: LOG_TARGET, path = %path, error = %e, "Failed to create SSH dir");
+            return false;
+        }
+    }
+
+    // P1: Append, don't overwrite — preserve existing keys
+    use std::io::Write;
+    let result = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| writeln!(f, "{}", pubkey));
+
+    match result {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, path = %path, error = %e, "Failed to write SSH key");
+            false
+        }
     }
 }
 
