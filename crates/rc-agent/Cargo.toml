@@ -42,6 +42,9 @@ hidapi = "2"
 # Process monitoring (cross-platform)
 sysinfo = "0.33"
 
+# Local SQLite knowledge base (Phase 230 — Meshed Intelligence Tier 2)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # HTTP client for AI debugger (optional — only needed when ai-debugger feature is enabled)
 reqwest = { version = "0.12", features = ["json"], optional = true }
 
