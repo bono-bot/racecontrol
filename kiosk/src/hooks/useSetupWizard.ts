@@ -212,6 +212,7 @@ export function useSetupWizard() {
       game_mode: isMulti ? "multi" : "single",
       aids,
       conditions: { damage: 0 },
+      // session_type: Rust ac_launcher accepts both "weekend" and "race_weekend"
       session_type: state.sessionType,
       // ai_level: numeric 0-100 value matching rc-agent's AcLaunchParams.ai_level
       ai_level: AI_DIFFICULTY_TO_LEVEL[state.aiDifficulty] ?? 87,
@@ -219,13 +220,36 @@ export function useSetupWizard() {
       ai_count: state.aiEnabled ? state.aiCount : 0,
     };
 
+    // Race Weekend: allocate sub-session times (practice 20%, qualify 20%, race gets remainder).
+    // duration_minutes is injected server-side from billing, but these proportions are fixed.
+    // The agent uses weekend_practice_minutes/weekend_qualify_minutes from launch_args.
+    // Minimum 5 min per sub-session: AC requires out-lap before timed laps, so <5min = 0 viable laps.
+    if (state.sessionType === "race_weekend") {
+      const tierDuration = state.selectedTier?.duration_minutes ?? 30;
+      const MIN_SUB_SESSION = 5; // AC out-lap + 1 flying lap needs ~4-5 min on most tracks
+      const practice = Math.max(MIN_SUB_SESSION, Math.floor(tierDuration * 0.2));
+      const qualify = Math.max(MIN_SUB_SESSION, Math.floor(tierDuration * 0.2));
+      // Guard: if practice+qualify would exceed 80% of total, cap both to fit
+      const maxSubTotal = Math.floor(tierDuration * 0.8);
+      if (practice + qualify > maxSubTotal) {
+        const half = Math.floor(maxSubTotal / 2);
+        args.weekend_practice_minutes = Math.max(1, half);
+        args.weekend_qualify_minutes = Math.max(1, half);
+      } else {
+        args.weekend_practice_minutes = practice;
+        args.weekend_qualify_minutes = qualify;
+      }
+    }
+
     // Multiplayer fields
     if (isMulti) {
       args.server_ip = state.serverIp;
-      args.server_port = state.serverPort;
-      args.server_http_port = state.serverHttpPort;
+      // Port validation: must be integer 1-65535. Default to AC standard ports on invalid input.
+      const port = Number(state.serverPort);
+      args.server_port = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 9600;
+      const httpPort = Number(state.serverHttpPort);
+      args.server_http_port = Number.isInteger(httpPort) && httpPort >= 1 && httpPort <= 65535 ? httpPort : 8081;
       args.server_password = state.serverPassword;
-      args.multiplayer_mode = state.multiplayerMode;
     }
 
     return JSON.stringify(args);

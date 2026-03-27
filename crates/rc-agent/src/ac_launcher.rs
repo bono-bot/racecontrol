@@ -167,7 +167,7 @@ pub struct AcLaunchParams {
 
     // --- Session type configuration ---
     #[serde(default = "default_session_type")]
-    pub session_type: String, // "practice", "race", "hotlap", "trackday", "weekend"
+    pub session_type: String, // "practice", "race", "hotlap", "trackday", "weekend" (or "race_weekend")
 
     // --- AI opponent configuration ---
     #[serde(default)]
@@ -298,8 +298,19 @@ fn validate_content_id(value: &str, field: &str) -> Result<()> {
     Ok(())
 }
 
+/// Accepted session_type values. Used for validation at launch boundary.
+const VALID_SESSION_TYPES: &[&str] = &["practice", "hotlap", "race", "trackday", "weekend", "race_weekend"];
+
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     tracing::info!(target: LOG_TARGET, "AC launch: {} @ {} for {}", params.car, params.track, params.driver);
+
+    // Validate session_type at launch boundary — reject typos/unknown values early
+    if !VALID_SESSION_TYPES.contains(&params.session_type.as_str()) {
+        anyhow::bail!(
+            "Unknown session_type {:?} — expected one of {:?}",
+            params.session_type, VALID_SESSION_TYPES
+        );
+    }
 
     // Security: validate content identifiers against path traversal
     validate_content_id(&params.car, "car")?;
@@ -990,34 +1001,53 @@ fn write_session_blocks(ini: &mut String, params: &AcLaunchParams) {
             // Track Day: TYPE=1 (practice-style open session with AI traffic)
             write_session_block(ini, 0, "Track Day", 1, params.duration_minutes, 1, false);
         }
-        "weekend" => {
+        "weekend" | "race_weekend" => {
             // Race Weekend: P -> Q -> R sequence
             // Time allocation: practice and qualify use their dedicated fields,
             // race gets remaining time (minimum 1 minute).
-            let sub_total = params.weekend_practice_minutes + params.weekend_qualify_minutes;
-            if sub_total >= params.duration_minutes {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    "Weekend time overflow: practice({}m) + qualify({}m) = {}m >= total({}m). Race gets minimum 1m.",
-                    params.weekend_practice_minutes, params.weekend_qualify_minutes, sub_total, params.duration_minutes
-                );
-            }
+            //
+            // CLAMP: Kiosk computes sub-session times from tier duration, but the server
+            // may inject a different (smaller) duration_minutes for split sessions or
+            // remaining billing time. Scale sub-sessions proportionally to fit.
+            let (practice_mins, qualify_mins) = {
+                let p = params.weekend_practice_minutes;
+                let q = params.weekend_qualify_minutes;
+                let total = params.duration_minutes;
+                let sub_total = p + q;
+                if sub_total > 0 && sub_total >= total {
+                    // Scale down proportionally, reserving at least 1 min for race
+                    let available = total.saturating_sub(1); // reserve 1 min for race
+                    let scaled_p = (available as u64 * p as u64 / sub_total as u64) as u32;
+                    let scaled_q = available.saturating_sub(scaled_p);
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "Weekend time overflow: practice({}m) + qualify({}m) = {}m >= total({}m). \
+                         Clamped to practice={}m, qualify={}m, race={}m.",
+                        p, q, sub_total, total,
+                        scaled_p.max(1), scaled_q.max(1),
+                        total.saturating_sub(scaled_p.max(1)).saturating_sub(scaled_q.max(1)).max(1)
+                    );
+                    (scaled_p.max(1), scaled_q.max(1))
+                } else {
+                    (p, q)
+                }
+            };
             let mut session_index = 0;
 
-            if params.weekend_practice_minutes > 0 {
-                write_session_block(ini, session_index, "Practice", 1, params.weekend_practice_minutes, 1, false);
+            if practice_mins > 0 {
+                write_session_block(ini, session_index, "Practice", 1, practice_mins, 1, false);
                 session_index += 1;
             }
 
-            if params.weekend_qualify_minutes > 0 {
-                write_session_block(ini, session_index, "Qualifying", 2, params.weekend_qualify_minutes, 1, false);
+            if qualify_mins > 0 {
+                write_session_block(ini, session_index, "Qualifying", 2, qualify_mins, 1, false);
                 session_index += 1;
             }
 
             // Race gets remaining time, minimum 1 minute
             let race_time = params.duration_minutes
-                .saturating_sub(params.weekend_practice_minutes)
-                .saturating_sub(params.weekend_qualify_minutes)
+                .saturating_sub(practice_mins)
+                .saturating_sub(qualify_mins)
                 .max(1);
             write_session_block(ini, session_index, "Race", 3, race_time, params.starting_position, params.formation_lap);
         }
@@ -2956,6 +2986,157 @@ mod tests {
             "999 AI capped to 19 + 1 player = 20 CARS");
         assert!(sections.contains_key("CAR_19"), "Must have CAR_19");
         assert!(!sections.contains_key("CAR_20"), "Must NOT have CAR_20");
+    }
+
+    // --- PP-08 Contract Tests: Kiosk ↔ AcLaunchParams field alignment ---
+    // These tests use JSON shaped exactly as kiosk buildLaunchArgs() produces it.
+    // If any test breaks, the kiosk and ac_launcher are out of sync.
+
+    #[test]
+    fn test_kiosk_contract_single_practice() {
+        // Exact JSON shape from kiosk buildLaunchArgs() for single player practice
+        let json = r#"{
+            "car": "ks_ferrari_488",
+            "track": "monza",
+            "driver": "Test Driver",
+            "difficulty": "easy",
+            "transmission": "auto",
+            "ffb": "medium",
+            "game": "assetto_corsa",
+            "game_mode": "single",
+            "aids": {"abs":1,"tc":1,"stability":1,"autoclutch":1,"ideal_line":0},
+            "conditions": {"damage":0},
+            "session_type": "practice",
+            "ai_level": 75,
+            "ai_count": 0
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Kiosk single-practice JSON must deserialize into AcLaunchParams");
+        assert_eq!(params.car, "ks_ferrari_488");
+        assert_eq!(params.driver, "Test Driver");
+        assert_eq!(params.transmission, "auto");
+        assert_eq!(params.ai_level, 75);
+        assert_eq!(params.ai_count, Some(0));
+        assert_eq!(params.session_type, "practice");
+        // "difficulty" and "game" fields are kiosk-only — serde silently ignores them
+    }
+
+    #[test]
+    fn test_kiosk_contract_race_weekend() {
+        // Kiosk sends "race_weekend" (not "weekend") — agent must accept both
+        let json = r#"{
+            "car": "ks_ferrari_488",
+            "track": "monza",
+            "driver": "Test Driver",
+            "difficulty": "medium",
+            "transmission": "manual",
+            "ffb": "high",
+            "game": "assetto_corsa",
+            "game_mode": "single",
+            "aids": {"abs":1,"tc":1,"stability":0,"autoclutch":0,"ideal_line":0},
+            "conditions": {"damage":0},
+            "session_type": "race_weekend",
+            "ai_level": 87,
+            "ai_count": 5,
+            "weekend_practice_minutes": 6,
+            "weekend_qualify_minutes": 6
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Kiosk race_weekend JSON must deserialize");
+        assert_eq!(params.session_type, "race_weekend");
+        assert_eq!(params.weekend_practice_minutes, 6);
+        assert_eq!(params.weekend_qualify_minutes, 6);
+
+        // Verify race_weekend produces correct INI (same as "weekend")
+        let ini = build_race_ini_string(&params);
+        assert!(ini.contains("[SESSION_0]"), "race_weekend must produce practice session");
+        assert!(ini.contains("[SESSION_1]"), "race_weekend must produce qualify session");
+        assert!(ini.contains("[SESSION_2]"), "race_weekend must produce race session");
+    }
+
+    #[test]
+    fn test_kiosk_contract_multiplayer() {
+        // Kiosk sends server_port as number (fixed from string bug)
+        let json = r#"{
+            "car": "ks_ferrari_488",
+            "track": "monza",
+            "driver": "Test Driver",
+            "difficulty": "hard",
+            "transmission": "manual",
+            "ffb": "high",
+            "game": "assetto_corsa",
+            "game_mode": "multi",
+            "aids": {"abs":0,"tc":0,"stability":0,"autoclutch":0,"ideal_line":0},
+            "conditions": {"damage":0},
+            "session_type": "practice",
+            "ai_level": 98,
+            "ai_count": 0,
+            "server_ip": "192.168.31.23",
+            "server_port": 9600,
+            "server_http_port": 8081,
+            "server_password": "test123"
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Kiosk multiplayer JSON must deserialize");
+        assert_eq!(params.game_mode, "multi");
+        assert_eq!(params.server_ip, "192.168.31.23");
+        assert_eq!(params.server_port, 9600);
+        assert_eq!(params.server_http_port, 8081);
+        assert_eq!(params.server_password, "test123");
+    }
+
+    #[test]
+    fn test_kiosk_contract_weekend_split_session_clamp() {
+        // Nemotron finding: kiosk computes weekend times from 30min tier,
+        // but server injects duration_minutes=10 for a 3-way split.
+        // Sub-session times MUST be clamped to fit within the injected duration.
+        let json = r#"{
+            "car": "ks_ferrari_488",
+            "track": "monza",
+            "session_type": "race_weekend",
+            "weekend_practice_minutes": 6,
+            "weekend_qualify_minutes": 6,
+            "duration_minutes": 10,
+            "server_ip": "", "server_port": 0, "server_http_port": 0, "server_password": ""
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+
+        // Total session time in INI must NOT exceed duration_minutes (10)
+        let sections = parse_ini(&ini);
+        let mut total_time: u32 = 0;
+        for i in 0..3 {
+            let key = format!("SESSION_{}", i);
+            if let Some(s) = sections.get(&key) {
+                if let Some(t) = s.get("TIME") {
+                    total_time += t.parse::<u32>().unwrap_or(0);
+                }
+            }
+        }
+        assert!(total_time <= 10,
+            "Weekend split: total session time ({} min) must not exceed duration_minutes (10). \
+             Billing leak if practice+qualify overflow.",
+            total_time);
+        // Must still have all 3 sessions
+        assert!(ini.contains("[SESSION_0]"), "Must have practice");
+        assert!(ini.contains("[SESSION_1]"), "Must have qualify");
+        assert!(ini.contains("[SESSION_2]"), "Must have race");
+    }
+
+    #[test]
+    fn test_kiosk_contract_string_port_rejected() {
+        // Before the fix, kiosk sent server_port as a string — this MUST fail deserialization
+        let json = r#"{
+            "car": "ks_ferrari_488",
+            "track": "monza",
+            "game_mode": "multi",
+            "server_ip": "192.168.31.23",
+            "server_port": "9600",
+            "server_http_port": "8081",
+            "server_password": ""
+        }"#;
+        let result = serde_json::from_str::<AcLaunchParams>(json);
+        assert!(result.is_err(), "String-typed server_port must fail deserialization — kiosk must send numbers");
     }
 
 }
