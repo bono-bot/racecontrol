@@ -181,76 +181,79 @@ async fn run_supervised(mut event_rx: mpsc::Receiver<DiagnosticEvent>, budget: A
 }
 
 /// Run all 5 tiers in sequence for a single DiagnosticEvent.
+///
+/// TESTING MODE: Model calls run FIRST (Tier 1/2), deterministic/KB run after (Tier 3/4).
+/// This exercises the OpenRouter pipeline on every diagnostic event.
+/// TODO: Revert to production order (deterministic→KB→model→parallel→human) after testing.
 async fn run_tiers(
     event: &DiagnosticEvent,
     circuit_breaker: &mut CircuitBreaker,
     budget: &Arc<RwLock<BudgetTracker>>,
 ) -> TierResult {
-    // T1: Tier 1 uses spawn_blocking for sync ops
-    let t1 = tier1_deterministic(event).await;
-    if matches!(t1, TierResult::Fixed { .. }) {
-        return t1;
-    }
-
-    // Tier 2: KB lookup (sync but fast — SQLite read is <1ms)
-    let t2 = tier2_kb_lookup(event);
-    if matches!(t2, TierResult::Fixed { .. }) {
-        return t2;
-    }
+    // ── TESTING TIER ORDER: Models first, deterministic second ──
 
     // C1: Check circuit breaker before model calls
     if circuit_breaker.is_open() {
-        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping Tier 3/4, escalating to Tier 5");
-        return tier5_human_escalation(event);
-    }
-
-    // C3: Budget pre-check before Tier 3
-    {
-        let mut bt = budget.write().await;
-        if !bt.can_spend(TIER3_ESTIMATED_COST) {
-            tracing::info!(target: LOG_TARGET, tier = 3u8, "Budget ceiling — skipping Tier 3/4");
-            return tier5_human_escalation(event);
-        }
-    }
-
-    // Tier 3: Single model
-    let t3 = tier3_single_model(event).await;
-    match &t3 {
-        TierResult::Fixed { .. } => {
-            circuit_breaker.record_success();
-            // C3: Record actual spend
+        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — falling through to deterministic tiers");
+    } else {
+        // Tier 1 (testing): Single model call — was Tier 3 in production
+        // C3: Budget pre-check
+        {
             let mut bt = budget.write().await;
-            bt.record_spend(TIER3_ESTIMATED_COST);
-            return t3;
+            if !bt.can_spend(TIER3_ESTIMATED_COST) {
+                tracing::info!(target: LOG_TARGET, tier = 1u8, "Budget ceiling — skipping model tiers");
+            } else {
+                drop(bt); // release lock before async call
+                let t1_model = tier3_single_model(event).await;
+                match &t1_model {
+                    TierResult::Fixed { .. } => {
+                        circuit_breaker.record_success();
+                        let mut bt = budget.write().await;
+                        bt.record_spend(TIER3_ESTIMATED_COST);
+                        tracing::info!(target: LOG_TARGET, "TESTING: Tier 1 (single model) resolved anomaly");
+                        return t1_model;
+                    }
+                    TierResult::FailedToFix { .. } => {
+                        circuit_breaker.record_failure();
+                    }
+                    _ => {}
+                }
+
+                // Tier 2 (testing): 4-model parallel — was Tier 4 in production
+                {
+                    let mut bt = budget.write().await;
+                    if bt.can_spend(TIER4_ESTIMATED_COST) {
+                        drop(bt);
+                        let t2_multi = tier4_multi_model(event).await;
+                        match &t2_multi {
+                            TierResult::Fixed { .. } => {
+                                circuit_breaker.record_success();
+                                let mut bt = budget.write().await;
+                                bt.record_spend(TIER4_ESTIMATED_COST);
+                                tracing::info!(target: LOG_TARGET, "TESTING: Tier 2 (4-model parallel) resolved anomaly");
+                                return t2_multi;
+                            }
+                            TierResult::FailedToFix { .. } => {
+                                circuit_breaker.record_failure();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
         }
-        TierResult::FailedToFix { .. } => {
-            circuit_breaker.record_failure();
-        }
-        _ => {}
     }
 
-    // C3: Budget pre-check before Tier 4
-    {
-        let mut bt = budget.write().await;
-        if !bt.can_spend(TIER4_ESTIMATED_COST) {
-            tracing::info!(target: LOG_TARGET, tier = 4u8, "Budget ceiling — skipping Tier 4");
-            return tier5_human_escalation(event);
-        }
+    // Tier 3 (testing): Deterministic — was Tier 1 in production
+    let t3_det = tier1_deterministic(event).await;
+    if matches!(t3_det, TierResult::Fixed { .. }) {
+        return t3_det;
     }
 
-    // Tier 4: 4-model parallel
-    let t4 = tier4_multi_model(event).await;
-    match &t4 {
-        TierResult::Fixed { .. } => {
-            circuit_breaker.record_success();
-            let mut bt = budget.write().await;
-            bt.record_spend(TIER4_ESTIMATED_COST);
-            return t4;
-        }
-        TierResult::FailedToFix { .. } => {
-            circuit_breaker.record_failure();
-        }
-        _ => {}
+    // Tier 4 (testing): KB lookup — was Tier 2 in production
+    let t4_kb = tier2_kb_lookup(event);
+    if matches!(t4_kb, TierResult::Fixed { .. }) {
+        return t4_kb;
     }
 
     // Tier 5: Human escalation
