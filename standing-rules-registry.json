@@ -2,10 +2,10 @@
   {
     "id": "SR-ULTIMATE-001",
     "category": "ultimate",
-    "summary": "Three verification layers before shipping (Quality Gate + E2E + Standing Rules)",
+    "summary": "Four verification layers before shipping (Quality Gate + E2E + Standing Rules + Multi-Model AI Audit)",
     "type": "HUMAN-CONFIRM",
     "check_command": null,
-    "checklist": ["Quality Gate (comms-link test/run-all.sh) passed?", "E2E live round-trip (exec, chain, health) verified?", "Standing rules compliance checked (auto-push, Bono synced, watchdog, rules categorized)?"]
+    "checklist": ["Quality Gate (comms-link test/run-all.sh) passed?", "E2E live round-trip (exec, chain, health) verified?", "Standing rules compliance checked (auto-push, Bono synced, watchdog, rules categorized)?", "Multi-Model AI Audit: all consensus/two-model P1 findings resolved, all P2s triaged?"]
   },
   {
     "id": "SR-ULTIMATE-002",

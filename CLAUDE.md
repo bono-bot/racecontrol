@@ -86,10 +86,10 @@
 
 ### Ultimate Rule
 
-**Before marking ANY milestone or phase as shipped, run all three verification layers:**
+**Before marking ANY milestone or phase as shipped, run all FOUR verification layers (see UNIFIED-PROTOCOL.md Phase 5 Gate for full details):**
 
 ```bash
-# 1. Quality Gate — automated tests (contract + integration + syntax)
+# 1. Quality Gate — automated tests (contract + integration + syntax + security)
 cd C:/Users/bono/racingpoint/comms-link && COMMS_PSK="..." bash test/run-all.sh
 
 # 2. E2E — live round-trip verification
@@ -98,10 +98,14 @@ curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[{"command":"
 curl -s http://localhost:8766/relay/health   # health + connection mode
 
 # 3. Standing Rules — check compliance (auto-push, Bono synced, watchdog running, rules categorized)
+
+# 4. Multi-Model AI Audit — cross-model consensus findings triaged (for milestones)
+# See UNIFIED-PROTOCOL.md Phase 5.4 for tiered audit approach (Tier A/B/C)
+# Full 5-model audit: ~$3-5 via OpenRouter (Qwen3, DeepSeek V3, DeepSeek R1, MiMo v2, Gemini 2.5)
 ```
 
-**All three must pass. No exceptions. No "I'll verify later."**
-_Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Every bug was caught only by manual E2E after deploy. This rule ensures automated + live + compliance verification happens BEFORE shipped._
+**All four must pass. No exceptions. No "I'll verify later."**
+_Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Multi-model audit on 2026-03-27 found 48 additional bugs — 7 critical P1s no single model caught. The 4th layer catches what homogeneous testing cannot._
 
 **4. Visual verification for display-affecting deploys:**
 Any change that touches lock screen, Edge kiosk, overlay, blanking, or browser launch MUST include a visual check — ask the user "are the screens showing correctly?" BEFORE marking shipped. Build IDs, fleet health, and cargo tests cannot catch flicker, misalignment, or rendering issues. Do NOT declare "PASS" from terminal output alone when the change affects what customers see.
@@ -435,6 +439,8 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
+| `UNIFIED-PROTOCOL.md` | Unified Operations Protocol v2.0 — all 147+ rules mapped to lifecycle phases (Plan→Create→Verify→Deploy→Ship→Debug→Audit) with Multi-Model AI Audit integration |
+| `audit/MULTI-MODEL-AUDIT-PROTOCOL.md` | Multi-Model AI Audit Protocol — 5 OpenRouter models, 7 batches, cross-model consensus |
 | `.cargo\config.toml` | Static CRT build config |
 
 ---
