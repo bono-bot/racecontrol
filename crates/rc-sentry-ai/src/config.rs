@@ -88,6 +88,7 @@ pub struct DetectionConfig {
     #[serde(default = "default_confidence")]
     pub confidence_threshold: f32,
     #[serde(default = "default_nms_threshold")]
+    #[allow(dead_code)]
     pub nms_threshold: f32,
 }
 

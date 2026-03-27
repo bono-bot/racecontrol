@@ -38,6 +38,7 @@ pub const DIALOG_PROCESSES: &[&str] = &[
 /// Racing-themed difficulty tiers controlling AI_LEVEL only.
 /// Assists are completely independent (user decision).
 /// AI_AGGRESSION is not used (deferred -- uncertain CSP support).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DifficultyTier {
@@ -48,6 +49,7 @@ pub enum DifficultyTier {
     Alien,
 }
 
+#[allow(dead_code)]
 impl DifficultyTier {
     /// AI_LEVEL range (inclusive) for this tier.
     pub fn range(&self) -> (u32, u32) {
@@ -96,6 +98,7 @@ impl DifficultyTier {
 
 /// Map an AI_LEVEL value (0-100) to its difficulty tier.
 /// Returns None for values outside all tier ranges (0-69, 101+), indicating "Custom".
+#[allow(dead_code)]
 pub fn tier_for_level(ai_level: u32) -> Option<DifficultyTier> {
     for tier in DifficultyTier::all() {
         let (low, high) = tier.range();
@@ -113,6 +116,7 @@ pub struct AiCarSlot {
     pub skin: String,
     pub driver_name: String,
     #[serde(default = "default_ai_level")]
+    #[allow(dead_code)]
     pub ai_level: u32, // 0-100
 }
 
@@ -122,7 +126,7 @@ fn default_session_type() -> String { "practice".to_string() }
 fn default_starting_position() -> u32 { 1 }
 
 // AI driver names moved to rc-common::ai_names (shared between rc-agent and racecontrol)
-use rc_common::ai_names::{AI_DRIVER_NAMES, pick_ai_names};
+use rc_common::ai_names::pick_ai_names;
 
 const LOG_TARGET: &str = "ac-launcher";
 
@@ -144,6 +148,7 @@ pub struct AcLaunchParams {
     #[serde(default)]
     pub aids: Option<AcAids>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub conditions: Option<AcConditions>,
     #[serde(default = "default_duration")]
     pub duration_minutes: u32,
@@ -212,6 +217,7 @@ pub struct AcAids {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct AcConditions {
     #[serde(default)]
+    #[allow(dead_code)]
     pub damage: u8,
 }
 
@@ -430,6 +436,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
 
 /// Update AUTO_SHIFTER in race.ini without restarting AC.
 /// Customer can press Ctrl+R or restart from pits for it to take effect.
+#[allow(dead_code)]
 pub fn set_transmission(transmission: &str) -> Result<()> {
     let race_ini_path = dirs_next::document_dir()
         .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
@@ -1729,6 +1736,7 @@ fn bring_game_to_foreground() {
 /// Full pod cleanup after a session ends.
 /// Kills game, dismisses error dialogs, minimizes background windows
 /// (including Conspit Link), and ensures the lock screen is in the foreground.
+#[allow(dead_code)]
 pub fn cleanup_after_session() {
     tracing::info!(target: LOG_TARGET, "Starting post-session cleanup...");
 

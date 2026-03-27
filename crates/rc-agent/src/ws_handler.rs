@@ -67,7 +67,6 @@ pub(crate) async fn handle_ws_exec(
         cmd_proc.args(["/C", &cmd]).kill_on_drop(true);
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd_proc.creation_flags(CREATE_NO_WINDOW);
         }

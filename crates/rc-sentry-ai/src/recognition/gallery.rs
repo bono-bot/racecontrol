@@ -49,12 +49,14 @@ impl Gallery {
     }
 
     /// Replace all gallery entries (used for periodic reload from DB).
+    #[allow(dead_code)]
     pub async fn reload(&self, new_entries: Vec<GalleryEntry>) {
         let mut entries = self.entries.write().await;
         *entries = new_entries;
     }
 
     /// Return the number of entries in the gallery.
+    #[allow(dead_code)]
     pub async fn entry_count(&self) -> usize {
         self.entries.read().await.len()
     }

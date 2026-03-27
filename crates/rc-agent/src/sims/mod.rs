@@ -25,6 +25,7 @@ pub trait SimAdapter: Send + Sync {
     fn poll_lap_completed(&mut self) -> Result<Option<LapData>>;
 
     /// Get current session info
+    #[allow(dead_code)]
     fn session_info(&self) -> Result<Option<SessionInfo>>;
 
     /// Disconnect from telemetry source

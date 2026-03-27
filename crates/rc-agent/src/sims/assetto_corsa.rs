@@ -88,9 +88,12 @@ mod graphics {
     pub const I_CURRENT_TIME: usize = 140;    // i32, current lap time in ms
     pub const I_LAST_TIME: usize = 144;       // i32, last completed lap time in ms
     pub const I_BEST_TIME: usize = 148;       // i32, session best lap time in ms
+    #[allow(dead_code)]
     pub const IS_IN_PIT: usize = 160;         // i32, 1 if in pit lane
     pub const LAST_SECTOR_TIME: usize = 168;  // i32, last sector split time in ms
+    #[allow(dead_code)]
     pub const NUMBER_OF_LAPS: usize = 172;    // i32, total laps in session (0 = unlimited)
+    #[allow(dead_code)]
     pub const NORMALIZED_CAR_POSITION: usize = 248; // f32, 0.0-1.0 track progress
     // isValidLap is deep in the extended struct (~offset 1408+), not reliably accessible
     // We still track it but acknowledge it may read incorrect data

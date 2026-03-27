@@ -434,7 +434,7 @@ async fn main() -> Result<()> {
         telemetry_ports: config.telemetry_ports.ports.clone(),
         ..DetectorConfig::default()
     };
-    let mut detector = DrivingDetector::new(&detector_config);
+    let detector = DrivingDetector::new(&detector_config);
 
     // FFB safety controller — zero wheelbase torque on session end/startup
     let ffb = std::sync::Arc::new(FfbController::new(
@@ -464,7 +464,7 @@ async fn main() -> Result<()> {
     }
 
     // Channel for detector signals from HID/UDP tasks
-    let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
+    let (signal_tx, signal_rx) = mpsc::channel::<DetectorSignal>(256);
 
     // Create sim adapter (None for unsupported sims — they still run heartbeats)
     let mut adapter: Option<Box<dyn SimAdapter>> = match sim_type {
@@ -535,10 +535,10 @@ async fn main() -> Result<()> {
     // Game process state — now bundled in AppState (game_process, last_ac_status, ac_status_stable_since)
 
     // AI debugger result channel
-    let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
+    let (ai_result_tx, ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
 
     // WebSocket command result channel — spawned tasks send results here, select loop drains and sends via ws_tx
-    let (ws_exec_result_tx, mut ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
+    let (ws_exec_result_tx, ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
 
     // Failure monitor state watch channel — main.rs event loop writes, failure_monitor reads
     let (failure_monitor_tx, failure_monitor_rx) =
@@ -546,7 +546,7 @@ async fn main() -> Result<()> {
 
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
     let kiosk_enabled = config.kiosk.enabled;
-    let mut kiosk = KioskManager::new();
+    let kiosk = KioskManager::new();
     if kiosk_enabled {
         kiosk.activate();
         tracing::info!(target: LOG_TARGET, "Kiosk mode ENABLED");
@@ -556,7 +556,7 @@ async fn main() -> Result<()> {
 
     // Lock screen for customer authentication (PIN / QR)
     // Always start the lock screen server so customers can enter PINs
-    let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
+    let (lock_event_tx, lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
     let mut lock_screen = LockScreenManager::new(lock_event_tx);
     // POS-01: Disable browser launch on auxiliary devices (POS, staff terminals).
     // State tracking and HTTP server still active for health/debug, but no Edge overlay.
@@ -597,7 +597,7 @@ async fn main() -> Result<()> {
     lock_screen.show_startup_connecting();
 
     // Racing HUD overlay for in-session display
-    let mut overlay = OverlayManager::new();
+    let overlay = OverlayManager::new();
     overlay.start_server();
     tracing::info!(target: LOG_TARGET, "Overlay server started on port 18925");
 
@@ -650,7 +650,7 @@ async fn main() -> Result<()> {
 
     // ─── UDP Heartbeat (fast liveness detection alongside WebSocket) ─────────
     let heartbeat_status = std::sync::Arc::new(udp_heartbeat::HeartbeatStatus::new());
-    let (heartbeat_event_tx, mut heartbeat_event_rx) = mpsc::channel::<udp_heartbeat::HeartbeatEvent>(16);
+    let (heartbeat_event_tx, heartbeat_event_rx) = mpsc::channel::<udp_heartbeat::HeartbeatEvent>(16);
 
     // Parse core IP from WebSocket URL (ws://IP:PORT/path → IP)
     let core_ip = config.core.url
@@ -1050,8 +1050,11 @@ async fn main() -> Result<()> {
                         Err(e) => tracing::debug!(target: "guard", "Whitelist re-fetch error: {}", e),
                     }
                 }
+                
                 #[allow(unreachable_code)]
-                tracing::error!(target: "guard", "Whitelist re-fetch task exited unexpectedly");
+                {
+                    tracing::error!(target: "guard", "Whitelist re-fetch task exited unexpectedly");
+                }
             });
             tracing::info!(target: LOG_TARGET, "Process guard whitelist re-fetch task spawned (interval=300s)");
         }
@@ -1089,7 +1092,7 @@ async fn main() -> Result<()> {
     // reconnections — only the WebSocket is re-established.
     let mut reconnect_attempt: u32 = 0;
     let mut startup_complete_logged = false;
-    let mut startup_report_sent = false;
+    let mut _startup_report_sent = false;
     // SESSION-04: WS 30s grace window — suppress Disconnected screen for brief drops.
     // Billing, game, and overlay keep running during the grace window.
     let mut ws_disconnected_at: Option<std::time::Instant> = None;
@@ -1119,7 +1122,7 @@ async fn main() -> Result<()> {
     loop {
         // Reset startup report flag on each reconnection — so racecontrol always gets
         // version + uptime after it restarts (fixes null version/uptime for long-running pods)
-        startup_report_sent = false;
+        _startup_report_sent = false;
 
         // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
         let url = active_url.read().await.clone();
@@ -1172,7 +1175,7 @@ async fn main() -> Result<()> {
                 continue;
             }
         };
-        let (mut ws_tx, mut ws_rx) = ws_stream.split();
+        let (mut ws_tx, ws_rx) = ws_stream.split();
 
         // Register this pod (include current game state so core can resync)
         let register_msg = AgentMessage::Register(PodInfo {
@@ -1217,7 +1220,7 @@ async fn main() -> Result<()> {
         }
 
         // Send startup report once per process lifetime (HEAL-02)
-        if !startup_report_sent {
+        if !_startup_report_sent {
             let config_path = state.exe_dir.join("rc-agent.toml");
             let startup_report = AgentMessage::StartupReport {
                 pod_id: state.pod_id.clone(),
@@ -1244,7 +1247,7 @@ async fn main() -> Result<()> {
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {
                     tracing::info!(target: LOG_TARGET, "Sent startup report to core (crash_recovery={})", state.crash_recovery_startup);
-                    startup_report_sent = true;
+                    _startup_report_sent = true;
                 } else {
                     tracing::warn!(target: LOG_TARGET, "Failed to send startup report — will retry next connect");
                 }

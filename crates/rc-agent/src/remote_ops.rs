@@ -162,6 +162,7 @@ async fn require_service_key(
 
 /// Start the remote ops HTTP server on the given port.
 /// Spawns an async task — returns immediately.
+#[allow(dead_code)]
 pub fn start(port: u16) {
     START_TIME.get_or_init(Instant::now);
 

@@ -85,6 +85,7 @@ impl AuditWriter {
 
     /// Async version of log -- waits for channel capacity.
     /// Use from async handlers that can afford to wait.
+    #[allow(dead_code)]
     pub async fn log_async(&self, entry: AuditEntry) {
         if let Err(e) = self.tx.send(entry).await {
             tracing::warn!(error = %e, "audit log channel closed, entry dropped");

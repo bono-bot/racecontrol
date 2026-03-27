@@ -30,6 +30,7 @@ struct LapRecord {
     sector1_ms: Option<u32>,
     sector2_ms: Option<u32>,
     sector3_ms: Option<u32>,
+    #[allow(dead_code)]
     valid: bool,
 }
 
@@ -37,6 +38,7 @@ struct LapRecord {
 #[derive(Debug, Clone)]
 struct OverlayData {
     active: bool,
+    #[allow(dead_code)]
     driver_name: String,
     remaining_seconds: u32,
     allocated_seconds: u32,

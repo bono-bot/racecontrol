@@ -61,6 +61,7 @@ pub enum LockScreenState {
     Hidden,
     /// PIN entry screen.
     PinEntry {
+        #[allow(dead_code)]
         token_id: String,
         driver_name: String,
         pricing_tier_name: String,
@@ -69,6 +70,7 @@ pub enum LockScreenState {
     },
     /// QR code display screen.
     QrDisplay {
+        #[allow(dead_code)]
         token_id: String,
         qr_payload: String,
         driver_name: String,
@@ -125,6 +127,7 @@ pub enum LockScreenState {
     /// The technical error details are logged to stderr only; this screen shows
     /// a generic message so customers do not see internal configuration details.
     ConfigError {
+        #[allow(dead_code)]
         message: String,
     },
     /// Kiosk lockdown — unauthorized software detected.
@@ -259,6 +262,7 @@ impl LockScreenManager {
     /// Polls `127.0.0.1:{port}` with a 100ms connect timeout, retrying every 50ms.
     /// Gives up after 5 seconds and logs a warning — does NOT panic.
     /// This eliminates the ERR_CONNECTION_REFUSED race condition (LOCK-01).
+    #[allow(dead_code)]
     pub async fn wait_for_self_ready(&mut self) {
         let addr = format!("127.0.0.1:{}", self.port)
             .parse::<std::net::SocketAddr>()
@@ -571,6 +575,7 @@ impl LockScreenManager {
     }
 
     /// Returns true if the lock screen is currently showing the MaintenanceRequired page.
+    #[allow(dead_code)]
     pub fn is_maintenance_required(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         matches!(*state, LockScreenState::MaintenanceRequired { .. })
@@ -1520,7 +1525,7 @@ fn render_between_sessions_page(
     };
     let session_mins = driving_seconds / 60;
     let session_secs = driving_seconds % 60;
-    let balance_rupees = wallet_balance_paise as f64 / 100.0;
+    let _balance_rupees = wallet_balance_paise as f64 / 100.0;
     let remaining_splits = total_splits.saturating_sub(current_split_number);
 
     let content = format!(
@@ -2193,6 +2198,7 @@ mod tests {
 
 /// Render session summary page with top speed and race position params.
 /// Conditionally adds stat cards for top speed (when > 0) and race position (when Some).
+#[allow(dead_code)]
 pub fn render_session_summary_page_full(
     driver_name: &str,
     total_laps: u32,

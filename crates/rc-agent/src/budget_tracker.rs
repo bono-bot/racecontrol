@@ -15,6 +15,7 @@ const LOG_TARGET: &str = "budget-tracker";
 pub const DEFAULT_POD_DAILY_LIMIT: f64 = 10.0;
 
 /// Default daily budget for server ($20/day)
+#[allow(dead_code)]
 pub const DEFAULT_SERVER_DAILY_LIMIT: f64 = 20.0;
 
 /// Minimum reserve — if remaining < this, block model calls
@@ -31,6 +32,7 @@ fn ist_today() -> NaiveDate {
 }
 
 /// Budget status exposed via health endpoint (BUDGET-06)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct BudgetStatus {
     pub daily_limit: f64,
@@ -158,6 +160,7 @@ impl BudgetTracker {
     }
 
     /// Get current budget status for health endpoint (BUDGET-06).
+    #[allow(dead_code)]
     pub fn status(&mut self) -> BudgetStatus {
         self.maybe_reset();
         let remaining = (self.daily_limit - self.spent_today).max(0.0);
@@ -173,6 +176,7 @@ impl BudgetTracker {
     }
 
     /// Get remaining budget for today
+    #[allow(dead_code)]
     pub fn remaining(&mut self) -> f64 {
         self.maybe_reset();
         (self.daily_limit - self.spent_today).max(0.0)

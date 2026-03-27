@@ -5,8 +5,6 @@
 //! Atomic write (tmp + rename) prevents corruption.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::Path;
 
 const LOG_TARGET: &str = "debug-memory";
 const MEMORY_PATH: &str = r"C:\RacingPoint\debug-memory-sentry.json";

@@ -126,6 +126,7 @@ const VEH_LAST_SECTOR1_OFF: usize = 152;  // f64 — mLastSector1 (S1 time)
 const VEH_LAST_SECTOR2_OFF: usize = 160;  // f64 — mLastSector2 (S1+S2 cumulative)
 const VEH_LAST_LAP_TIME_OFF: usize = 168; // f64 — mLastLapTime
 const VEH_IS_PLAYER_OFF: usize = 196;     // u8 — mIsPlayer
+#[allow(dead_code)]
 const VEH_IN_PITS_OFF: usize = 198;      // u8 — mInPits
 
 // rF2Telemetry buffer layout:
@@ -140,6 +141,7 @@ const VEH_IN_PITS_OFF: usize = 198;      // u8 — mInPits
 // rF2VehicleTelemetry (128 bytes, simplified for our use):
 // Sourced from rF2Data.cs; we only need speed/throttle/brake/gear/rpm.
 const TELEMETRY_INFO_OFFSET: usize = 12;
+#[allow(dead_code)]
 const TEL_NUM_VEHICLES_OFF: usize = 0; // i32 relative to rF2TelemetryInfo
 
 // rF2VehicleTelemetry vehicle entry size: 1440 bytes (full)
@@ -171,6 +173,7 @@ const TEL_VEHICLE_SIZE: usize = 1440;
 // We use a simpler approach: compute speed from mLocalVel magnitude.
 // mLocalVel is at offset 32, rF2Vec3 = {x: f64, y: f64, z: f64}
 
+#[allow(dead_code)]
 const TEL_VEH_ID_OFF: usize = 0;         // i32
 const TEL_VEH_LOCAL_VEL_OFF: usize = 32; // rF2Vec3 (x,y,z f64) — for speed
 const TEL_VEH_GEAR_OFF: usize = 200;     // i32 — mGear (-1=reverse, 0=neutral, 1..=n=gears)

@@ -133,6 +133,7 @@ impl RestartTracker {
     }
 
     /// Reset backoff (called on successful recovery — e.g. rc-agent stays up for 5+ minutes).
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.restarts.clear();
         self.backoff_index = 0;
@@ -646,6 +647,7 @@ pub fn restart_service() -> CrashDiagResult {
 /// Used to verify rc-agent actually started after schtasks /Run.
 /// Polls at SPAWN_VERIFY_POLL (500ms) intervals for SPAWN_VERIFY_TIMEOUT (10s) (SPAWN-01).
 #[cfg(not(test))]
+#[allow(dead_code)]
 fn verify_service_started(health_addr: &str, _timeout: Duration) -> bool {
     let start = std::time::Instant::now();
     // Wait initial delay — give the bat script time to swap binaries
@@ -898,6 +900,7 @@ pub fn enter_maintenance_mode(reason: &str, restart_count: u32, diagnostic_conte
 }
 
 /// Read the maintenance mode payload. Returns None if not in maintenance or file is not JSON.
+#[allow(dead_code)]
 pub fn read_maintenance_payload() -> Option<MaintenanceModePayload> {
     #[cfg(test)]
     {

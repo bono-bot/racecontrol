@@ -351,7 +351,7 @@ pub struct HealthFailure {
 /// - `binary_sha256`: from pod's /health endpoint (computed once at startup)
 /// - `expected_sha256`: from manifest.binaries.rc_agent_sha256
 pub fn health_check_pod(
-    pod_id: &str,
+    _pod_id: &str,
     ws_connected: bool,
     http_reachable: bool,
     binary_sha256: Option<&str>,
@@ -387,6 +387,7 @@ const OTA_SENTINEL_CONTENT: &str = "ota_pipeline_in_progress\n";
 const SENTRY_FLAGS_PATH: &str = r"C:\RacingPoint\sentry-flags.json";
 
 /// Session wait timeout — how long to wait for active billing sessions to end.
+#[allow(dead_code)]
 const SESSION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// Write OTA sentinel to each pod via rc-agent /write endpoint.

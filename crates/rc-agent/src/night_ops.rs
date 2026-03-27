@@ -20,7 +20,7 @@
 
 use serde::Serialize;
 
-use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+use crate::knowledge_base::{KnowledgeBase, KB_PATH};
 use crate::predictive_maintenance::{self, PredictiveState};
 
 const LOG_TARGET: &str = "night-ops";
@@ -47,7 +47,7 @@ pub async fn run_night_cycle() -> NightOpsReport {
     tracing::info!(target: LOG_TARGET, "Night operations cycle starting");
 
     let mut issues_found = 0u32;
-    let mut issues_resolved = 0u32;
+    let issues_resolved = 0u32;
 
     // Step 1: Health check — run predictive maintenance scan
     tracing::info!(target: LOG_TARGET, "Step 1: Predictive maintenance scan");
@@ -153,6 +153,7 @@ fn check_morning_readiness() -> bool {
 
 /// Format the night ops report for WhatsApp delivery.
 /// NIGHT-04: Morning report to Uday.
+#[allow(dead_code)]
 pub fn format_morning_report(report: &NightOpsReport, pod_id: &str) -> String {
     format!(
         "Racing Point Night Ops — Pod {}\n\

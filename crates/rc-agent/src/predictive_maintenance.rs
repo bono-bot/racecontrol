@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Predictive Maintenance — threshold-based anomaly detection for hardware and software trends.
 //!
 //! Instead of waiting for failure, detects degradation patterns and alerts BEFORE impact.

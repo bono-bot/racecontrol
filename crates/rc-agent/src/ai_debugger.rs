@@ -1130,7 +1130,7 @@ fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 }
 
 // Pattern 15 (DISP-04): Browser dead — lock screen expects browser but Edge not running
-fn fix_browser_dead(snapshot: &PodStateSnapshot) -> AutoFixResult {
+fn fix_browser_dead(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(test)]
     {
         return AutoFixResult {

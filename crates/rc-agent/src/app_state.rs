@@ -28,7 +28,9 @@ pub struct AppState {
     pub(crate) pod_id: String,
     pub(crate) pod_info: PodInfo,
     pub(crate) config: AgentConfig,
+    #[allow(dead_code)]
     pub(crate) sim_type: SimType,
+    #[allow(dead_code)]
     pub(crate) installed_games: Vec<SimType>,
     pub(crate) ffb: Arc<FfbController>,
     pub(crate) detector: DrivingDetector,
@@ -95,6 +97,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(dead_code)]
     pub fn set_safe_mode_active(&mut self, active: bool) {
         self.safe_mode.active = active;
         self.safe_mode_active.store(active, std::sync::atomic::Ordering::SeqCst);

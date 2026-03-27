@@ -221,7 +221,6 @@ async fn take_screenshot() -> Result<Vec<u8>, String> {
         cmd.args(["-NoProfile", "-Command", &ps_script]);
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
         cmd.output().await.map_err(|e| format!("powershell exec failed: {}", e))?

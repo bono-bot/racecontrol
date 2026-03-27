@@ -54,6 +54,7 @@ pub struct DuplicateWarning {
 }
 
 /// Error response body.
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
@@ -62,6 +63,7 @@ pub struct ErrorResponse {
 }
 
 /// Enrollment status based on embedding count (default threshold of 3).
+#[allow(dead_code)]
 pub fn enrollment_status(embedding_count: u64) -> &'static str {
     enrollment_status_with_threshold(embedding_count, 3)
 }

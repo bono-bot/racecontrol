@@ -578,10 +578,54 @@ flock -n 200 || { echo "Another rc-doctor instance running, exiting"; exit 0; }
 
 LOG="/var/log/rc-doctor.log"
 AUDIT="/var/lib/rc-doctor/audit.log"
+STATE_DIR="/var/lib/rc-doctor"
+DISABLED_FILE="$STATE_DIR/DISABLED"
 MAX_ACTIONS_PER_HOUR=10
 
 log() { echo "[$(date -Is)] $*" | tee -a "$LOG"; }
 audit() { echo "[$(date -Is)] ACTION=$1 TARGET=$2 RESULT=$3" >> "$AUDIT"; }
+
+# === ENABLE / DISABLE TOGGLE ===
+# Sentinel-file based: touch DISABLED to stop all automated actions.
+# Manual commands (status, logs, enable, disable) always work.
+# Monit-triggered commands (crash-loop, disk-pressure, memory-pressure) respect the toggle.
+# This allows safe maintenance windows without stopping monitoring.
+
+cmd_enable() {
+  if [ -f "$DISABLED_FILE" ]; then
+    rm -f "$DISABLED_FILE"
+    log "RC-Doctor ENABLED (removed $DISABLED_FILE)"
+    audit "toggle" "rc-doctor" "enabled"
+    echo "RC-Doctor is now ENABLED"
+  else
+    echo "RC-Doctor is already ENABLED"
+  fi
+}
+
+cmd_disable() {
+  local reason="${1:-manual}"
+  mkdir -p "$STATE_DIR"
+  echo "disabled_at=$(date -Is) reason=$reason" > "$DISABLED_FILE"
+  log "RC-Doctor DISABLED (reason: $reason)"
+  audit "toggle" "rc-doctor" "disabled:$reason"
+  alert_whatsapp "RC-Doctor DISABLED by operator (reason: $reason). Automated remediation paused."
+  echo "RC-Doctor is now DISABLED (reason: $reason)"
+  echo "Run 'rc-doctor.sh enable' to re-enable."
+}
+
+is_enabled() {
+  [ ! -f "$DISABLED_FILE" ]
+}
+
+# Guard: skip automated actions when disabled. Allows explicit manual override with --force.
+check_enabled_or_exit() {
+  if [ -f "$DISABLED_FILE" ] && [ "${FORCE:-}" != "1" ]; then
+    local disabled_info
+    disabled_info=$(cat "$DISABLED_FILE" 2>/dev/null || echo "unknown")
+    log "SKIP: RC-Doctor is DISABLED ($disabled_info). Use --force or 'rc-doctor.sh enable' to resume."
+    exit 0
+  fi
+}
 
 # === SAFETY RAILS ===
 check_billing_active() {
@@ -618,6 +662,7 @@ alert_whatsapp() {
 # === PLAYBOOKS ===
 
 cmd_disk_pressure() {
+  check_enabled_or_exit
   log "PLAYBOOK: disk-pressure"
   local before after freed
   before=$(df / --output=pcent | tail -1 | tr -d '% ')
@@ -650,6 +695,7 @@ cmd_disk_pressure() {
 }
 
 cmd_memory_pressure() {
+  check_enabled_or_exit
   log "PLAYBOOK: memory-pressure"
 
   # Step 1: Find top memory consumer among PM2 processes
@@ -670,6 +716,7 @@ cmd_memory_pressure() {
 }
 
 cmd_crash_loop() {
+  check_enabled_or_exit
   local service="${1:-unknown}"
   log "PLAYBOOK: crash-loop for $service"
 
@@ -877,6 +924,7 @@ cmd_backup_verify() {
 }
 
 cmd_routine() {
+  check_enabled_or_exit
   # Called by systemd timer every 60s - lightweight checks only
   cmd_wal_bloat
 
@@ -904,6 +952,11 @@ cmd_logs() {
 
 cmd_status() {
   echo "=== RC-Doctor Status ==="
+  if is_enabled; then
+    echo "State: ENABLED"
+  else
+    echo "State: DISABLED ($(cat "$DISABLED_FILE" 2>/dev/null || echo 'unknown'))"
+  fi
   echo "Last run: $(stat -c %y /var/lock/rc-doctor.lock 2>/dev/null || echo 'never')"
   echo "Actions this hour: $(grep -c "$(date +%Y-%m-%dT%H)" "$AUDIT" 2>/dev/null || echo 0)/$MAX_ACTIONS_PER_HOUR"
   echo ""
@@ -920,7 +973,12 @@ cmd_status() {
 # === DISPATCH ===
 mkdir -p /var/lib/rc-doctor
 
+# Support --force flag to bypass disabled state
+[[ "${*}" == *"--force"* ]] && export FORCE=1
+
 case "${1:-routine}" in
+  enable)           cmd_enable ;;
+  disable)          cmd_disable "${2:-manual}" ;;
   disk-pressure)    cmd_disk_pressure ;;
   memory-pressure)  cmd_memory_pressure ;;
   crash-loop)       cmd_crash_loop "${2:-}" ;;
@@ -935,7 +993,12 @@ case "${1:-routine}" in
   routine)          cmd_routine ;;
   logs)             cmd_logs ;;
   status)           cmd_status ;;
-  *)                echo "Usage: rc-doctor.sh {routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|wal-bloat|ssl-check|db-integrity|backup-verify|diagnose <svc>|audit <svc>|weekly-report|logs|status}" ;;
+  *)                echo "Usage: rc-doctor.sh {enable|disable [reason]|status|routine|disk-pressure|memory-pressure|crash-loop <svc>|stale-binary|...}"
+                    echo ""
+                    echo "Toggle:  enable / disable [reason]"
+                    echo "Info:    status / logs"
+                    echo "Force:   any-command --force  (bypass disabled state)"
+                    ;;
 esac
 ```
 
@@ -972,6 +1035,52 @@ chmod +x /root/bin/rc-doctor.sh
 systemctl daemon-reload
 systemctl enable --now rc-doctor.timer
 ```
+
+### Remote Control (from James or Bono)
+
+RC-Doctor can be toggled remotely without SSH using the comms-link relay:
+
+**From James (venue):**
+```bash
+# Check status
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d '{"command":"custom","custom_command":"rc-doctor.sh status"}'
+
+# Disable (e.g., maintenance window)
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d '{"command":"custom","custom_command":"rc-doctor.sh disable maintenance-window"}'
+
+# Re-enable
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d '{"command":"custom","custom_command":"rc-doctor.sh enable"}'
+
+# Force a specific playbook even when disabled
+curl -s -X POST http://localhost:8766/relay/exec/run \
+  -H "Content-Type: application/json" \
+  -d '{"command":"custom","custom_command":"rc-doctor.sh disk-pressure --force"}'
+```
+
+**Via SSH fallback:**
+```bash
+ssh root@100.70.177.44 "rc-doctor.sh disable deploy-in-progress"
+ssh root@100.70.177.44 "rc-doctor.sh enable"
+ssh root@100.70.177.44 "rc-doctor.sh status"
+```
+
+**Toggle behavior:**
+| Command | When Disabled | When Enabled |
+|---------|--------------|--------------|
+| `enable` | Removes DISABLED file, resumes all automation | No-op ("already enabled") |
+| `disable [reason]` | No-op (already disabled) | Writes DISABLED file, pauses all automation |
+| `status` | Shows DISABLED + reason + last run | Shows ENABLED + metrics |
+| `logs` | Always works | Always works |
+| `routine` | Exits immediately (logged) | Runs normally |
+| `crash-loop <svc>` | Exits immediately (logged) | Runs normally |
+| `disk-pressure` | Exits immediately (logged) | Runs normally |
+| Any command `--force` | **Runs anyway** (bypasses disabled) | Runs normally |
 
 ---
 

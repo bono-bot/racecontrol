@@ -34,6 +34,7 @@ pub struct ServiceConfig {
 }
 
 pub enum ServiceCheck {
+    #[allow(dead_code)]
     Http(&'static str),    // URL to GET
     HttpJson(&'static str, &'static str), // URL, required JSON field (verifies content, not just 200)
     HttpMinBytes(&'static str, usize), // URL, minimum response body size — catches "200 OK but empty"

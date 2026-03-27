@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Mesh Gossip — solution propagation between pods and server.
 //!
 //! Handles sending and receiving mesh intelligence messages over the existing

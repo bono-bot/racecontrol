@@ -222,7 +222,9 @@ pub fn spawn(
 
         // If loop exits (only on channel close), log it
         #[allow(unreachable_code)]
-        tracing::warn!(target: "state", task = "diagnostic_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
+        {
+            tracing::warn!(target: "state", task = "diagnostic_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
+        }
     });
 }
 

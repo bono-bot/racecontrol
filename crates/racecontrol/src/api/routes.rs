@@ -14949,7 +14949,7 @@ async fn deploy_rolling_handler(
 /// Returns 202 Accepted; pipeline runs as background task.
 /// Returns 409 if a pipeline is already running.
 async fn ota_deploy_handler(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     body: String,
 ) -> impl IntoResponse {
     use crate::ota_pipeline;

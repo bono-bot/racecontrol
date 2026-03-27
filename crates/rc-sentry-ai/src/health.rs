@@ -98,7 +98,7 @@ async fn health_handler(State(state): State<SharedState>) -> Json<Value> {
 /// Privacy API routes (combined state for audit + DB access).
 pub fn privacy_router(privacy_state: Arc<crate::privacy::deletion::PrivacyState>) -> axum::Router {
     use axum::routing::{delete, get};
-    let consent_audit = privacy_state.audit.clone();
+    let _consent_audit = privacy_state.audit.clone();
     axum::Router::new()
         .route(
             "/api/v1/privacy/consent",

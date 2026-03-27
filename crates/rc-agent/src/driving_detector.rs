@@ -12,10 +12,13 @@ pub struct DetectorConfig {
     /// Throttle/brake minimum threshold to count as active input
     pub pedal_threshold: f32,
     /// UDP ports to monitor for game telemetry
+    #[allow(dead_code)]
     pub telemetry_ports: Vec<u16>,
     /// Conspit wheelbase USB Vendor ID (OpenFFBoard default: 0x1209)
+    #[allow(dead_code)]
     pub wheelbase_vid: u16,
     /// Conspit wheelbase USB Product ID (OpenFFBoard default: 0xFFB0)
+    #[allow(dead_code)]
     pub wheelbase_pid: u16,
 }
 

@@ -61,6 +61,7 @@ const CMD_FXM_RESET: u32 = 0x01;
 const CMD_IDLESPRING: u32 = 0x05;
 
 /// 80% power cap as HID value: (80 * 65535) / 100 = 52428
+#[allow(dead_code)]
 pub const POWER_CAP_80_PERCENT: i64 = 52428;
 
 /// Force Feedback controller for the Conspit Ares wheelbase.
@@ -77,6 +78,7 @@ pub struct FfbController {
 /// Trait seam for FFB commands — abstracts HID write surface for testing.
 /// Production: FfbController implements via hidapi.
 /// Tests: mockall generates MockTestBackend.
+#[allow(dead_code)]
 pub trait FfbBackend: Send + Sync {
     fn zero_force(&self) -> Result<bool, String>;
     fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool;
@@ -130,6 +132,7 @@ impl FfbController {
     /// (Ok(false)) is not retried — it's a permanent condition.
     ///
     /// Safe to call from panic hook (sync, no async, no allocator dependency).
+    #[allow(dead_code)]
     pub fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool {
         for i in 1..=attempts {
             match self.zero_force() {
@@ -213,6 +216,7 @@ impl FfbController {
     ///
     /// Sends to OpenFFBoard Axis class power command.
     /// Returns Ok(true) if sent, Ok(false) if device not found.
+    #[allow(dead_code)]
     pub fn set_gain(&self, percent: u8) -> Result<bool, String> {
         let percent = percent.clamp(10, 100);
         let device = match self.open_vendor_interface() {
@@ -241,6 +245,7 @@ impl FfbController {
     /// Clear all orphaned DirectInput force-feedback effects.
     /// Sends fxm.reset (Effects Manager class 0x0A03, cmd 0x01).
     /// Returns Ok(true) if sent, Ok(false) if device not found.
+    #[allow(dead_code)]
     pub fn fxm_reset(&self) -> Result<bool, String> {
         let device = match self.open_vendor_interface() {
             Some(dev) => dev,
@@ -260,6 +265,7 @@ impl FfbController {
     /// Sends axis.idlespring (Axis class 0x0A01, cmd 0x05).
     /// Value range TBD empirically — start low (500-2000), test on hardware.
     /// Returns Ok(true) if sent, Ok(false) if device not found.
+    #[allow(dead_code)]
     pub fn set_idle_spring(&self, value: i64) -> Result<bool, String> {
         let device = match self.open_vendor_interface() {
             Some(dev) => dev,
@@ -436,6 +442,7 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
 }
 
 /// Get current crash count (number of watchdog-triggered restarts since agent start).
+#[allow(dead_code)]
 pub fn get_crash_count() -> u32 {
     CONSPIT_CRASH_COUNT.load(Ordering::Relaxed)
 }

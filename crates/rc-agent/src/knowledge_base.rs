@@ -43,6 +43,7 @@ pub struct Solution {
 }
 
 /// A row from the experiments table.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Experiment {
     pub id: String,
@@ -127,6 +128,7 @@ impl KnowledgeBase {
     }
 
     /// Return the underlying connection for direct queries.
+    #[allow(dead_code)]
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
@@ -243,6 +245,7 @@ impl KnowledgeBase {
 
     /// Record an experiment in the experiments table.
     /// Uses INSERT OR IGNORE — experiments are append-only, never overwrite.
+    #[allow(dead_code)]
     pub fn record_experiment(&self, exp: &Experiment) -> anyhow::Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO experiments (
@@ -270,6 +273,7 @@ impl KnowledgeBase {
 
     /// Find an open experiment (result IS NULL) for a given problem_key.
     /// Used by Phase 231 to avoid starting duplicate diagnosis work.
+    #[allow(dead_code)]
     pub fn get_open_experiment(&self, problem_key: &str) -> anyhow::Result<Option<Experiment>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, problem_key, hypothesis, test_plan, result, cost, node, created_at

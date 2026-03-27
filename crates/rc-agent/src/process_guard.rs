@@ -957,7 +957,7 @@ pub(crate) async fn run_schtasks_audit(
 
     let entries = parse_schtasks_csv(&stdout);
 
-    for (task_path, task_name) in entries {
+    for (task_path, _task_name) in entries {
         // Skip Windows system tasks unconditionally
         if task_path.starts_with("\\Microsoft\\") {
             continue;

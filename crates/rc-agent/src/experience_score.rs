@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Customer Experience Scoring — per-pod quality score for Meshed Intelligence.
 //!
 //! Weighted score from 5 metrics:

@@ -194,7 +194,10 @@ pub fn spawn(
             } // end #[cfg(feature = "ai-debugger")]
         }
         // OBS-05: Lifecycle event — task exit (loop broke, unexpected)
-        tracing::warn!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: exit");
+        #[allow(unreachable_code)]
+        {
+            tracing::warn!(target: "state", task = "self_monitor", event = "lifecycle", "lifecycle: exit");
+        }
     });
 }
 

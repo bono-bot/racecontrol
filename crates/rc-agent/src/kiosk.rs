@@ -66,9 +66,12 @@ pub fn set_server_allowlist(names: Vec<String>) {
 
 #[derive(Clone, Debug)]
 pub struct TempAllowEntry {
+    #[allow(dead_code)]
     pub exe_path: String,
     pub added_at: Instant,
+    #[allow(dead_code)]
     pub sighting_count: u32,
+    #[allow(dead_code)]
     pub notified: bool,
 }
 
@@ -514,11 +517,13 @@ impl KioskManager {
     }
 
     /// Add a process name to the allow list (e.g., the current game).
+    #[allow(dead_code)]
     pub fn allow_process(&mut self, name: &str) {
         self.allowed_extra.insert(name.to_lowercase());
     }
 
     /// Remove a process from the extra allow list.
+    #[allow(dead_code)]
     pub fn disallow_process(&mut self, name: &str) {
         self.allowed_extra.remove(&name.to_lowercase());
     }
@@ -597,6 +602,7 @@ impl KioskManager {
     }
 
     /// Get the lockdown reason message.
+    #[allow(dead_code)]
     pub fn lockdown_reason(&self) -> String {
         self.lockdown_reason.lock()
             .map(|r| r.clone())
@@ -934,12 +940,14 @@ mod windows_impl {
     use super::LOG_TARGET;
 
     #[cfg(feature = "keyboard-hook")]
+    #[allow(dead_code)]
     static HOOK_HANDLE: AtomicPtr<winapi::shared::windef::HHOOK__> =
         AtomicPtr::new(ptr::null_mut());
 
     /// Low-level keyboard hook callback.
     /// Blocks: Win key, Alt+Tab, Alt+F4, Ctrl+Esc, Alt+Esc, F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+L.
     #[cfg(feature = "keyboard-hook")]
+    #[allow(dead_code)]
     unsafe extern "system" fn keyboard_hook_proc(
         code: i32,
         w_param: WPARAM,
@@ -1006,6 +1014,7 @@ mod windows_impl {
     }
 
     #[cfg(feature = "keyboard-hook")]
+    #[allow(dead_code)]
     pub fn install_keyboard_hook() {
         unsafe {
             let hook = winuser::SetWindowsHookExW(
@@ -1024,6 +1033,7 @@ mod windows_impl {
     }
 
     #[cfg(feature = "keyboard-hook")]
+    #[allow(dead_code)]
     pub fn remove_keyboard_hook() {
         let hook = HOOK_HANDLE.swap(ptr::null_mut(), Ordering::SeqCst);
         if !hook.is_null() {
@@ -1128,8 +1138,6 @@ mod windows_impl {
 #[cfg(windows)]
 pub use windows_impl::{hide_taskbar, apply_gpo_lockdown, remove_gpo_lockdown};
 
-#[cfg(all(windows, feature = "keyboard-hook"))]
-pub use windows_impl::{install_keyboard_hook, remove_keyboard_hook};
 
 // ─── Non-Windows stubs ─────────────────────────────────────────────────────
 

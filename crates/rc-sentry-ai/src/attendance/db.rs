@@ -116,6 +116,7 @@ pub fn get_attendance_for_day(conn: &Connection, day: &str) -> rusqlite::Result<
 }
 
 /// Get the most recent `logged_at` timestamp for a person on a given day.
+#[allow(dead_code)]
 pub fn get_last_seen(
     conn: &Connection,
     person_id: i64,
@@ -188,6 +189,7 @@ fn compute_shift_minutes(clock_in: &str, clock_out: &str) -> Option<i64> {
 }
 
 /// Get a single shift entry for a person on a given day.
+#[allow(dead_code)]
 pub fn get_shift(conn: &Connection, person_id: i64, day: &str) -> rusqlite::Result<Option<ShiftEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, person_id, person_name, day, clock_in, clock_out, shift_minutes

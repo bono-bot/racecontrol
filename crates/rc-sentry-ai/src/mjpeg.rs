@@ -24,6 +24,7 @@ use crate::nvr::NvrClient;
 /// Cached snapshot with timestamp for staleness detection.
 struct CachedSnapshot {
     data: Bytes,
+    #[allow(dead_code)]
     fetched_at: Instant,
 }
 
@@ -147,6 +148,7 @@ impl LayoutState {
 pub struct MjpegState {
     pub frame_buf: FrameBuffer,
     pub cameras: Vec<CameraConfig>,
+    #[allow(dead_code)]
     pub service_port: u16,
     pub nvr_channels: u32,
     pub snapshot_cache: Arc<SnapshotCache>,

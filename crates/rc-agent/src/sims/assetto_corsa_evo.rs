@@ -68,6 +68,7 @@ mod physics {
 // Graphics (acpmf_graphics) — updates ~10Hz
 // NOTE: EVO Early Access — these may all read zero (Pitfall 1 in RESEARCH.md).
 mod graphics {
+    #[allow(dead_code)]
     pub const STATUS: usize = 4;              // i32, AC_STATUS
     pub const COMPLETED_LAPS: usize = 132;    // i32
     pub const CURRENT_SECTOR_INDEX: usize = 164; // i32, 0=S1 1=S2 2=S3

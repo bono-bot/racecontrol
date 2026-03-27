@@ -79,8 +79,10 @@ pub struct DiagnosisResult {
 #[derive(Debug, Clone)]
 pub struct ModelResponse {
     pub model_id: String,
+    #[allow(dead_code)]
     pub role: String,
     pub diagnosis: Option<DiagnosisResult>,
+    #[allow(dead_code)]
     pub raw_text: String,
     pub cost_estimate: f64,
     pub error: Option<String>,

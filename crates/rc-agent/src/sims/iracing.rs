@@ -490,6 +490,7 @@ impl IracingAdapter {
 
 /// Check whether iRacing shared memory is enabled by reading `Documents/iRacing/app.ini`.
 /// Warns via tracing if not enabled — does not block launch.
+#[allow(dead_code)]
 pub fn check_iracing_shm_enabled() -> bool {
     match dirs_next::document_dir() {
         Some(mut path) => {
@@ -505,6 +506,7 @@ pub fn check_iracing_shm_enabled() -> bool {
 }
 
 /// Same as `check_iracing_shm_enabled` but accepts an explicit path for testability.
+#[allow(dead_code)]
 pub fn check_iracing_shm_enabled_at(path: &std::path::Path) -> bool {
     let content = match std::fs::read_to_string(path) {
         Ok(s) => s,
