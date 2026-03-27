@@ -31,6 +31,8 @@ pub mod flags;
 pub mod fleet_alert;
 pub mod fleet_health;
 pub mod fleet_kb;
+pub mod mesh_handler;
+pub mod promotion;
 pub mod friends;
 pub mod game_launcher;
 pub mod metrics;
