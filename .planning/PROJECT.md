@@ -107,34 +107,42 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Pod 8 canary-first testing for all changes
 - Backward compatible with existing kiosk/PWA launch flow
 
-## Current Milestone: v26.0 Autonomous Bug Detection & Self-Healing
+## Current Milestone: v26.0 Meshed Intelligence — Self-Healing AI Fleet
 
-**Goal:** Build a fully autonomous bug detection and self-healing system that runs without human intervention, using all debugging features (Audit Protocol, Standing Rules, E2E, Debug First Time Right) with cascade awareness across all programs and Bono failover when James is down.
+**Goal:** Every node (8 pods + server) autonomously diagnoses and heals itself using the Unified Protocol + 4 OpenRouter models. Solutions propagate via gossip mesh — solve once, apply everywhere. No issue debugged twice. 4-day sprint with James (on-site, pods) + Bono (VPS 24/7, server/cloud/dashboard).
 
 **Target features:**
-- James-side autonomous pipeline (auto-detect.sh): 6-step chain — Audit → Quality Gate → E2E → Cascade → Standing Rules → Notify
-- Bono-side failover (bono-auto-detect.sh): independent detection + cloud failover activation when James is down
-- Scheduled execution: James Task Scheduler + Bono cron (daily 2:30 AM IST)
-- Expanded auto-fix engine: config drift detection, log anomaly detection, sync verification
-- Cascade engine: build drift detection, pod consistency, cloud-venue sync, comms-link sync
-- Integration test suite for autonomous pipeline (verify each step works correctly)
-- Standing rules enforcement automation (unpushed commits, relay health, bat file sync)
-- WhatsApp escalation to Uday for critical unfixed issues
-- Chain templates for relay-triggered detection (auto-detect-bono, sync-and-verify)
+- Diagnostic Engine per node: 5-tier autonomous diagnosis (deterministic → KB → single model → 4-model → human)
+- Local SQLite Knowledge Base per node: solutions + experiments + confidence scoring
+- OpenRouter Integration: 4 models (Qwen3, DeepSeek R1, DeepSeek V3, Gemini 2.5 Pro) embedded in rc-agent
+- Budget Manager: $10/day/pod hard cap, $20/day/server, cost tracking + mechanical fallback at ceiling
+- Mesh Gossip Protocol: solution propagation via existing WebSocket (announce → verify → promote → harden)
+- Server Coordinator: fleet KB aggregation, canary promotion (3+ successes → fleet-verified), pattern detection
+- Admin Dashboard: mesh intelligence page (solution feed, budget tracker, model performance, KB browser)
+- Predictive Maintenance: threshold-based anomaly detection (USB, GPU temp, disk, error rate)
+- Customer Experience Scoring: per-pod quality score with auto-rotation at <50%
+- Night Operations: autonomous midnight maintenance cycle (audit + diagnose + fix + report)
+- Multi-Venue Cloud KB: solutions sync across venues via Bono VPS
+- Fleet Intelligence Reports: weekly automated WhatsApp report to Uday
 
-**Foundation already built (this session):**
-- scripts/auto-detect.sh (committed b54e4585) — tested, 6-step pipeline works
-- scripts/bono-auto-detect.sh — deployed to VPS, cron active
-- chains.json updated with auto-detect-bono + sync-and-verify templates
-- First test run detected real bugs: build drift + cloud-venue mismatch
+**Owner split:**
+- **James (on-site):** Phases 217-218 (Engine+KB), 219-220 (OpenRouter+Budget), 221 (Gossip), 224-225 (Predict+Score), 226 (Night Ops)
+- **Bono (VPS, 24/7):** Phases 222-223 (Coordinator+Dashboard), 227-228 (Multi-Venue+Reports)
+
+**Budget:** $10/day/pod + $20/day/server = $100/day fleet. Monthly ~$3,000.
+
+**Foundation:** Unified Protocol v3.0 (A-/A grade), existing rc-agent WS, SQLite, fleet exec, audit.sh, multi-model audit scripts.
+
+**Design doc:** .planning/MESHED-INTELLIGENCE.md
 
 **Constraints:**
-- Bash + jq only (no compiled dependencies) — consistent with audit framework
-- Must not increase audit runtime beyond 8 minutes (full mode)
-- Auto-fixes are whitelist-only — no risky operations without confirmation
-- Billing sessions NEVER interrupted (idle gate check)
-- Must work from both James (LAN) and Bono (Tailscale) perspectives
-- Daily cron must not conflict with existing Bono monitors (bono-server-monitor, bono-racecontrol-monitor)
+- Rust/Axum stack — rc-agent changes require binary rebuild + fleet deploy
+- Must not break existing billing, lock screen, session management, or recovery systems
+- OpenRouter API key via env var, NEVER in code or git
+- Budget hard caps enforced in code — ceiling hit = mechanical fallback, never blocks ops
+- Pod 8 canary-first for all pod-side changes
+- Shared types in rc-common for solution schema + gossip messages
+- Backward compatible with existing kiosk/PWA/admin flows
 
 ## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
