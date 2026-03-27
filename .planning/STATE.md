@@ -28,7 +28,7 @@ Progress: [██████████] 98%
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Fully autonomous infrastructure health — detect, fix, cascade, and notify without human intervention
-**Current focus:** v24.0 Game Launch & Billing Rework — remaining: phases 198 (plans 02-03), 199, 200-02, 201
+**Current focus:** v24.0 COMPLETE (all 8 phases shipped 2026-03-26). No active milestone — next work TBD.
 
 ## GSD Audit Notes (2026-03-27)
 
@@ -41,7 +41,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 **ROADMAP checkbox drift:** ~172 plan-level `[ ]` entries exist under shipped `[x]` phases — cosmetic, does not affect actual progress.
 
-**Genuinely pending:** v24.0 (7 plans), v10.0 ConspitLink (9 plans, low priority), Admin Phase 167 (1 plan, code exists)
+**Genuinely pending:** v10.0 ConspitLink (9 plans, low priority), Admin Phase 167 (1 plan, code exists)
+**NOTE:** v24.0 was found FULLY SHIPPED during audit — all 8 phases, 18 plans executed per git log. Plan checkboxes are stale.
 
 ## Accumulated Context
 
