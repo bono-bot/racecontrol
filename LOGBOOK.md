@@ -36,6 +36,7 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | Timestamp | Author | Commit | Summary |
 |-----------|--------|--------|---------|
 | Mar 27 IST | James | `0ffbab2b` | fix(ac-launcher): ai_count u32→Option\<u32\> — multi-model audit (GPT-5.4+Claude+Gemini) found trackday+ai_count=0 still spawned default traffic. Now None=unspecified (trackday default), Some(0)=explicitly solo, Some(N)=generate N. 3 new tests. Deployed all 8 pods. |
+| Mar 27 IST | James | `3d3a7417` | security+fix(ac-launcher): 4-model OpenRouter audit (Gemini+DeepSeek R1+Qwen3+MiMo). C1: command injection in launch_via_cm (shell metachars in server_ip). C2: path traversal in car/track/skin. C4: race SPAWN_SET=PIT→START. C5: INI post-build validation. $0.30 total. Deployed all 8 pods. |
 
 ## 2026-03-26
 
@@ -938,3 +939,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-27 14:15 IST | James | 6af66aa (comms-link) | Sync 6 missing standing rules from racecontrol to comms-link CLAUDE.md |
 | 2026-03-27 16:45 IST | James | 47b63926 | fix(healer): remove webterm from AI-HEALER monitoring — 2,248 alert spam prevention |
 | 2026-03-27 11:39 IST | James | 6595b223 | security+reliability+ops: 31 fixes from 8-model audit (C→A grade). 7 credentials rotated, exec auth re-enabled, MAINTENANCE_MODE TTL, billing idempotency, deny_unknown_fields on 21 structs, WS sequencing, audit Phase 0 self-test, PID lock, 68 phases documented, TDR 8s, WU deferral, Edge pinned. |
+| 2026-03-27 19:30 IST | James | f17c1b36 | fix: 8 remaining audit bugs — NEVER_KILL (19 system processes), AC admin password randomized, lap_tracker transaction, OTA_DEPLOYING 10min auto-clear, crash detector midnight fix, manifest SHA256, suppress.json phase 17→19 |
