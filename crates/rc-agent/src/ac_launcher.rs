@@ -323,7 +323,14 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         .args(["/IM", "AssettoCorsa.exe", "/F"])
         .output();
     // AC-01: Poll for acs.exe absence (max 5s) instead of hardcoded 2s sleep
-    wait_for_acs_exit(5);
+    // Prevent double AC instance: if kill times out, retry once then abort
+    if !wait_for_acs_exit(5) {
+        tracing::warn!(target: LOG_TARGET, "acs.exe still running after 5s kill timeout — force-killing again");
+        let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+        if !wait_for_acs_exit(3) {
+            anyhow::bail!("Cannot kill existing acs.exe after 8s — aborting launch to prevent double instance");
+        }
+    }
 
     // Step 2: Write race.ini + assists.ini + apps preset
     tracing::info!(target: LOG_TARGET, "Writing race.ini + assists.ini + apps preset...");
@@ -987,6 +994,14 @@ fn write_session_blocks(ini: &mut String, params: &AcLaunchParams) {
             // Race Weekend: P -> Q -> R sequence
             // Time allocation: practice and qualify use their dedicated fields,
             // race gets remaining time (minimum 1 minute).
+            let sub_total = params.weekend_practice_minutes + params.weekend_qualify_minutes;
+            if sub_total >= params.duration_minutes {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Weekend time overflow: practice({}m) + qualify({}m) = {}m >= total({}m). Race gets minimum 1m.",
+                    params.weekend_practice_minutes, params.weekend_qualify_minutes, sub_total, params.duration_minutes
+                );
+            }
             let mut session_index = 0;
 
             if params.weekend_practice_minutes > 0 {
