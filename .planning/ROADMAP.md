@@ -262,22 +262,23 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 - [x] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition (completed 2026-03-24)
 - [x] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition (completed 2026-03-24)
 
-## v17.0 Cloud Platform (Phases 120–129)
+## v17.0 Cloud Platform (Phases 120–129) — SUPERSEDED by PWA v1.0
 
-Deploy three existing web properties (customer PWA, admin panel, live dashboard) to racingpoint.cloud subdomains, add remote booking with PIN-based zero-staff game launch, and harden the cloud-local sync layer for production reliability.
+> **SUPERSEDED 2026-03-27:** All 10 phases completed in `pwa/.planning/` (PWA v1.0, SHIPPED 2026-03-22).
+> The PWA repo is authoritative. These main ROADMAP entries are stale duplicates — do not plan or execute them.
 
 **Planning artifacts:** `pwa/.planning/` (separate GSD project, phases numbered 1-10 there → mapped to 120-129 here)
 
-- [ ] **Phase 120: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS
-- [ ] **Phase 121: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
+- [x] **Phase 120: Cloud Infrastructure** - SUPERSEDED by PWA Phase 1 (completed 2026-03-21)
+- [x] **Phase 121: API + PWA Cloud Deploy** - SUPERSEDED by PWA Phase 2 (completed 2026-03-21)
 - [x] **Phase 122: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint (completed 2026-03-21)
 - [x] **Phase 123: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
 - [x] **Phase 124: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches (completed 2026-03-21)
-- [ ] **Phase 125: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud
-- [ ] **Phase 126: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud
-- [ ] **Phase 127: CI/CD Pipeline** - Automated build and deploy on push to main. **v22.0 integration:** Use OTA-08 (deploy state machine) for both cloud and local deploy orchestration — shared pipeline architecture with wave-based rollout, health gates, and auto-rollback. Standing rules gate (gate-check.sh) required before any deploy.
-- [ ] **Phase 128: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
-- [ ] **Phase 129: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
+- [x] **Phase 125: Admin Panel Cloud Deploy** - SUPERSEDED by PWA Phase 6 (completed 2026-03-22)
+- [x] **Phase 126: Dashboard Cloud Deploy** - SUPERSEDED by PWA Phase 7 (completed 2026-03-22)
+- [x] **Phase 127: CI/CD Pipeline** - SUPERSEDED by PWA Phase 8 (completed 2026-03-22)
+- [x] **Phase 128: Health Monitoring + Alerts** - SUPERSEDED by PWA Phase 9 (completed 2026-03-22)
+- [x] **Phase 129: Operational Hardening** - SUPERSEDED by PWA Phase 10 (completed 2026-03-22)
 
 ## Phase Details
 
@@ -1739,8 +1740,9 @@ Plans:
 | 118. Live Camera Feeds | 2/2 | Complete    | 2026-03-21 |
 | 119. NVR Playback Proxy | 3/3 | Complete    | 2026-03-21 |
 
-## v17.0 Cloud Platform -- Phase Details
+## v17.0 Cloud Platform -- Phase Details (SUPERSEDED by PWA v1.0)
 
+> **SUPERSEDED:** All phases completed in PWA repo. Details below are historical reference only.
 > Planning artifacts live in `pwa/.planning/` (PWA phases 1-10 → unified phases 120-129)
 
 ### Phase 120: Cloud Infrastructure

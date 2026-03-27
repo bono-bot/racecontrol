@@ -28,7 +28,20 @@ Progress: [██████████] 98%
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Fully autonomous infrastructure health — detect, fix, cascade, and notify without human intervention
-**Current focus:** v26.0 Autonomous Bug Detection & Self-Healing — Phase 211: Safe Scheduling Foundation
+**Current focus:** v24.0 Game Launch & Billing Rework — remaining: phases 198 (plans 02-03), 199, 200-02, 201
+
+## GSD Audit Notes (2026-03-27)
+
+**Superseded/closed (no new work needed):**
+- v6.0 Salt Fleet (phases 36-40): DEPRECATED, superseded by v22.0
+- v17.0 Cloud Platform (phases 120-129): SUPERSEDED by PWA v1.0 (all 10 phases shipped)
+- comms-link v3.0: SUPERSEDED by racecontrol v18.0 + v26.0 (20/25 reqs shipped)
+- deploy-staging phases 2-5: SUPERSEDED by racecontrol v20.0-v22.0 deploy infra
+- Phase 217 (Session 1 Enforcement): ALREADY SHIPPED (RCWatchdog service deployed 2026-03-26)
+
+**ROADMAP checkbox drift:** ~172 plan-level `[ ]` entries exist under shipped `[x]` phases — cosmetic, does not affect actual progress.
+
+**Genuinely pending:** v24.0 (7 plans), v10.0 ConspitLink (9 plans, low priority), Admin Phase 167 (1 plan, code exists)
 
 ## Accumulated Context
 
