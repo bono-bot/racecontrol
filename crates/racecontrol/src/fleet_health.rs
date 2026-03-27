@@ -384,26 +384,32 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                 }
             }
 
-            // Probe local Next.js services (kiosk, web, admin) — runs every 15s.
-            let svc_checks = vec![
+            // Probe local Next.js services in parallel (kiosk, web, admin) — every 15s.
+            let svc_checks: Vec<(&str, &str)> = vec![
                 ("kiosk", "http://127.0.0.1:3300/kiosk/api/health"),
                 ("web", "http://127.0.0.1:3200/api/health"),
                 ("admin", "http://127.0.0.1:3201/api/health"),
             ];
-            let mut svc_status = HashMap::new();
-            for (name, url) in svc_checks {
-                let ok = probe_client.get(url).send().await
-                    .map(|r| r.status().is_success())
-                    .unwrap_or(false);
-                if !ok {
-                    tracing::warn!(
-                        target: "fleet-health",
-                        "Service {} is DOWN (checked {}). Staff cannot use this service.",
-                        name, url
-                    );
+            let svc_futs: Vec<_> = svc_checks.iter().map(|(name, url)| {
+                let client = probe_client.clone();
+                let name = name.to_string();
+                let url = url.to_string();
+                async move {
+                    let ok = client.get(&url).send().await
+                        .map(|r| r.status().is_success())
+                        .unwrap_or(false);
+                    if !ok {
+                        tracing::warn!(
+                            target: "fleet-health",
+                            "Service {} is DOWN (checked {}). Staff cannot use this service.",
+                            name, url
+                        );
+                    }
+                    (name, ok)
                 }
-                svc_status.insert(name.to_string(), ok);
-            }
+            }).collect();
+            let svc_results = futures_util::future::join_all(svc_futs).await;
+            let svc_status: HashMap<String, bool> = svc_results.into_iter().collect();
             *state.services_health.write().await = svc_status;
         }
     });
@@ -532,12 +538,20 @@ pub async fn fleet_health_handler(
     }
 
     // Read cached services health (updated every 15s by probe loop — zero latency).
+    // If map is empty, probe loop hasn't run yet — report "pending" not "down".
     let services = {
         let svc = state.services_health.read().await;
         let mut m = serde_json::Map::new();
+        let not_yet_probed = svc.is_empty();
         for name in &["kiosk", "web", "admin"] {
-            let status = svc.get(*name).copied().unwrap_or(false);
-            m.insert(name.to_string(), json!(if status { "ok" } else { "down" }));
+            let status = if not_yet_probed {
+                "pending"
+            } else if svc.get(*name).copied().unwrap_or(false) {
+                "ok"
+            } else {
+                "down"
+            };
+            m.insert(name.to_string(), json!(status));
         }
         Value::Object(m)
     };
