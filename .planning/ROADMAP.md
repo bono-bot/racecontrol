@@ -295,7 +295,7 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 **Plans**: 2 plans
 
 Plans:
-- [ ] 36-01-PLAN.md — WSL2 mirrored networking + salt-master 3008 install + Hyper-V firewall rule (INFRA-01, INFRA-02, INFRA-03)
+- [x] 36-01-PLAN.md — WSL2 mirrored networking + salt-master 3008 install + Hyper-V firewall rule (INFRA-01, INFRA-02, INFRA-03)
 - [ ] 36-02-PLAN.md — salt-api rest_cherrypy config + Windows Task Scheduler autostart (INFRA-04, INFRA-05)
 
 ### Phase 37: Pod 8 Minion Bootstrap
@@ -375,8 +375,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 41-01-PLAN.md — Shared shell library (lib/common.sh, lib/pod-map.sh) + refactor existing scripts (FOUND-01, FOUND-02)
-- [ ] 41-02-PLAN.md — Playwright install + config + cargo-nextest install + config (FOUND-03, FOUND-05)
+- [x] 41-01-PLAN.md — Shared shell library (lib/common.sh, lib/pod-map.sh) + refactor existing scripts (FOUND-01, FOUND-02)
+- [x] 41-02-PLAN.md — Playwright install + config + cargo-nextest install + config (FOUND-03, FOUND-05)
 
 ### Phase 42: Kiosk Source Prep + Browser Smoke
 **Goal**: The kiosk wizard components have `data-testid` attributes on every interactive element (game selector, track selector, car selector, wizard step indicators, next/back buttons), a pre-test cleanup fixture stops stale games and ends stale billing before each run, and the browser smoke spec confirms every kiosk route returns 200 in a real Chromium instance with no SSR errors, no React error boundaries, and no uncaught JS exceptions
@@ -391,8 +391,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 42-01-PLAN.md — Add data-testid attributes to kiosk wizard source files (FOUND-06)
-- [ ] 42-02-PLAN.md — Pre-test cleanup fixture + browser smoke spec + keyboard nav (FOUND-04, FOUND-07, BROW-01, BROW-07)
+- [x] 42-01-PLAN.md — Add data-testid attributes to kiosk wizard source files (FOUND-06)
+- [x] 42-02-PLAN.md — Pre-test cleanup fixture + browser smoke spec + keyboard nav (FOUND-04, FOUND-07, BROW-01, BROW-07)
 
 ### Phase 43: Wizard Flows + API Pipeline Tests
 **Goal**: All 5 sim wizard flows are exercised step-by-step in Playwright (AC: 13-step full flow; F1 25/EVO/Rally/iRacing: 5-step simplified flow), experience filtering and staff mode bypass are validated in the browser, and curl-based API tests confirm the full billing lifecycle, per-game launch with PID verification, game state machine transitions, and Steam dialog auto-dismissal on Pod 8
@@ -407,8 +407,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 43-01-PLAN.md — Playwright wizard spec: AC flow, non-AC flow, staff mode, experience filtering, UI navigation (BROW-02, BROW-03, BROW-04, BROW-05, BROW-06)
-- [ ] 43-02-PLAN.md — Shell API scripts: billing lifecycle + per-game launch with state polling, Steam dismiss, error screenshot (API-01, API-02, API-03, API-04, API-05)
+- [x] 43-01-PLAN.md — Playwright wizard spec: AC flow, non-AC flow, staff mode, experience filtering, UI navigation (BROW-02, BROW-03, BROW-04, BROW-05, BROW-06)
+- [x] 43-02-PLAN.md — Shell API scripts: billing lifecycle + per-game launch with state polling, Steam dismiss, error screenshot (API-01, API-02, API-03, API-04, API-05)
 
 ### Phase 44: Deploy Verification + Master Script
 **Goal**: A single `run-all.sh` entry point runs all test phases in sequence, aborts on preflight failure, collects exit codes from each phase, writes a `results/summary.json`, and exits with the total failure count — making it usable as a pre-deploy gate; deploy verification confirms binary swap, detects EADDRINUSE after kiosk restart, and validates all 8 pods reconnect after a rolling restart
@@ -422,8 +422,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 44-01-PLAN.md — Deploy verification script: binary swap, port conflict, fleet health, AI debugger routing (DEPL-01, DEPL-02, DEPL-04)
-- [ ] 44-02-PLAN.md — Master run-all.sh orchestrator: phase-gated sequential runner with summary.json (DEPL-03)
+- [x] 44-01-PLAN.md — Deploy verification script: binary swap, port conflict, fleet health, AI debugger routing (DEPL-01, DEPL-02, DEPL-04)
+- [x] 44-02-PLAN.md — Master run-all.sh orchestrator: phase-gated sequential runner with summary.json (DEPL-03)
 
 ### Phase 45: CLOSE_WAIT Fix + Connection Hygiene
 **Goal**: Eliminate the CLOSE_WAIT socket leak on port 8090 that causes 5/8 pods to accumulate 100-134 stuck sockets and trigger unnecessary self-relaunches every ~5 minutes — fix the remote_ops axum server to properly close HTTP connections, fix fleet_health.rs to reuse a shared reqwest client, add SO_REUSEADDR to all UDP game telemetry sockets, mark UDP sockets non-inheritable (matching ea30ca3 treatment for :8090), and increase exec slots from 4→8 or separate health checks from exec pool
@@ -439,8 +439,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 45-01-PLAN.md — rc-agent socket hygiene: Connection:close middleware, UDP SO_REUSEADDR + non-inherit, OnceLock Ollama client, MAX_CONCURRENT_EXECS 4->8 (CONN-HYG-01, CONN-HYG-02, CONN-HYG-03, CONN-HYG-04, CONN-HYG-05)
-- [ ] 45-02-PLAN.md — fleet_health.rs pool_max_idle_per_host(0) + close-wait.sh E2E test (CONN-HYG-01)
+- [x] 45-01-PLAN.md — rc-agent socket hygiene: Connection:close middleware, UDP SO_REUSEADDR + non-inherit, OnceLock Ollama client, MAX_CONCURRENT_EXECS 4->8 (CONN-HYG-01, CONN-HYG-02, CONN-HYG-03, CONN-HYG-04, CONN-HYG-05)
+- [x] 45-02-PLAN.md — fleet_health.rs pool_max_idle_per_host(0) + close-wait.sh E2E test (CONN-HYG-01)
 
 ### Phase 46: Crash Safety + Panic Hook
 **Goal**: rc-agent never leaves a pod in an unsafe state after a crash — custom panic hook zeroes FFB and shows error lock screen, all server port bindings are checked at startup with clear error messages on failure, FFB zero retries 3 times before escalating, and a BootVerification message is sent to the server after all subsystems initialize
@@ -456,8 +456,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 46-01-PLAN.md — FFB zero retry + StartupReport protocol extension + server-side fleet health update (SAFETY-03, SAFETY-04, SAFETY-05)
-- [ ] 46-02-PLAN.md — Panic hook + port-bind signaling + BootVerification wiring + startup-verify.sh E2E (SAFETY-01, SAFETY-02, SAFETY-04, SAFETY-05)
+- [x] 46-01-PLAN.md — FFB zero retry + StartupReport protocol extension + server-side fleet health update (SAFETY-03, SAFETY-04, SAFETY-05)
+- [x] 46-02-PLAN.md — Panic hook + port-bind signaling + BootVerification wiring + startup-verify.sh E2E (SAFETY-01, SAFETY-02, SAFETY-04, SAFETY-05)
 
 ### Phase 47: Local LLM Fleet Deployment
 **Goal**: Every pod runs Ollama locally with the rp-debug model (qwen3:0.6b base, Racing Point system prompt), rc-agent queries localhost:11434 for AI diagnosis with Windows Event Viewer + rc-bot-events.log fed as context (PodErrorContext), Ollama timeout reduced to 30s, and pattern memory pre-seeded with 7 deterministic fix patterns
@@ -472,8 +472,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 47-01-PLAN.md — Modelfile expansion (14 keywords) + seed-debug-memory.sh (7 patterns) (LLM-03, LLM-04)
-- [ ] 47-02-PLAN.md — ollama-health.sh E2E test: model presence + response time <5s (LLM-01, LLM-02)
+- [x] 47-01-PLAN.md — Modelfile expansion (14 keywords) + seed-debug-memory.sh (7 patterns) (LLM-03, LLM-04)
+- [x] 47-02-PLAN.md — ollama-health.sh E2E test: model presence + response time <5s (LLM-01, LLM-02)
 
 ### Phase 48: Dynamic Kiosk Allowlist
 **Goal**: Staff can add allowed processes via the admin panel instead of requiring code changes + rebuild + redeploy to all 8 pods — server stores allowlist in DB, serves it via API, rc-agent fetches it on startup and every 5 minutes, merges with hardcoded baseline, and local LLM classifies unknown processes as ALLOW/BLOCK/ASK
@@ -489,8 +489,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 48-01-PLAN.md — Server-side kiosk_allowlist DB table + CRUD API endpoints + admin panel UI (ALLOW-01, ALLOW-02, ALLOW-05)
-- [ ] 48-02-PLAN.md — rc-agent server-fetched allowlist poll + LLM process classifier + E2E test script (ALLOW-03, ALLOW-04, ALLOW-05)
+- [x] 48-01-PLAN.md — Server-side kiosk_allowlist DB table + CRUD API endpoints + admin panel UI (ALLOW-01, ALLOW-02, ALLOW-05)
+- [x] 48-02-PLAN.md — rc-agent server-fetched allowlist poll + LLM process classifier + E2E test script (ALLOW-03, ALLOW-04, ALLOW-05)
 
 ### Phase 49: Session Lifecycle Autonomy
 **Goal**: rc-agent autonomously handles session end-of-life — auto-ends orphaned billing after configurable timeout, resets pod to idle after session, pauses billing on game crash with auto-resume, and fast-reconnects WebSocket without full relaunch when server blips
@@ -506,8 +506,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 49-01-PLAN.md � Protocol + schema + orphan auto-end + idle PinEntry + blank_timer target (SESSION-01, SESSION-02)
-- [ ] 49-02-PLAN.md � Crash recovery state machine + WS grace window + E2E test (SESSION-03, SESSION-04)
+- [x] 49-01-PLAN.md � Protocol + schema + orphan auto-end + idle PinEntry + blank_timer target (SESSION-01, SESSION-02)
+- [x] 49-02-PLAN.md � Crash recovery state machine + WS grace window + E2E test (SESSION-03, SESSION-04)
 
 ### Phase 50: LLM Self-Test + Fleet Health
 **Goal**: rc-agent runs 18 deterministic self-test probes at startup and on-demand (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), feeds results to local LLM for a HEALTHY/DEGRADED/CRITICAL verdict with correlation analysis and auto-fix recommendations, server exposes /api/v1/pods/{id}/self-test endpoint for fleet-wide health checks, and auto-fix patterns 8-14 are wired into ai_debugger.rs (DirectX reset, shader cache clear, memory pressure, DLL repair, Steam restart, performance throttle, network adapter reset)
@@ -523,9 +523,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 50-01-PLAN.md — self_test.rs 18 probes + LLM verdict + protocol extensions + startup integration (SELFTEST-01, SELFTEST-02, SELFTEST-06)
-- [ ] 50-02-PLAN.md — Auto-fix patterns 8-14 in ai_debugger.rs (SELFTEST-04)
-- [ ] 50-03-PLAN.md — Server endpoint + WS plumbing + agent handler + pod-health.sh E2E + run-all.sh integration (SELFTEST-03, SELFTEST-05)
+- [x] 50-01-PLAN.md — self_test.rs 18 probes + LLM verdict + protocol extensions + startup integration (SELFTEST-01, SELFTEST-02, SELFTEST-06)
+- [x] 50-02-PLAN.md — Auto-fix patterns 8-14 in ai_debugger.rs (SELFTEST-04)
+- [x] 50-03-PLAN.md — Server endpoint + WS plumbing + agent handler + pod-health.sh E2E + run-all.sh integration (SELFTEST-03, SELFTEST-05)
 
 ### Phase 51: CLAUDE.md + Custom Skills
 **Goal**: Claude Code sessions always start with full Racing Point context — pod IPs, crate names, naming conventions, constraints — and James can trigger structured deploy and incident workflows with single slash commands, no manual copy-paste of context
@@ -540,8 +540,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 51-01-PLAN.md — CLAUDE.md: project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order) (SKILL-01)
-- [ ] 51-02-PLAN.md — Custom skills: /rp:deploy, /rp:deploy-server, /rp:pod-status, /rp:incident (SKILL-02, SKILL-03, SKILL-04, SKILL-05)
+- [x] 51-01-PLAN.md — CLAUDE.md: project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order) (SKILL-01)
+- [x] 51-02-PLAN.md — Custom skills: /rp:deploy, /rp:deploy-server, /rp:pod-status, /rp:incident (SKILL-02, SKILL-03, SKILL-04, SKILL-05)
 
 ### Phase 52: MCP Servers
 **Goal**: Claude Code can query Gmail, Google Sheets, Google Calendar, and the racecontrol REST API directly from any session — James describes what he needs in plain language and Claude fetches live data without manual curl or browser lookups
@@ -555,8 +555,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 52-01-PLAN.md — Google Workspace MCP: wire racingpoint-google OAuth into Claude Code MCP config, verify Gmail + Sheets + Calendar (MCP-01, MCP-02, MCP-03)
-- [ ] 52-02-PLAN.md — rc-ops-mcp: Node.js MCP server exposing racecontrol REST endpoints; Claude Code MCP config entry (MCP-04)
+- [x] 52-01-PLAN.md — Google Workspace MCP: wire racingpoint-google OAuth into Claude Code MCP config, verify Gmail + Sheets + Calendar (MCP-01, MCP-02, MCP-03)
+- [x] 52-02-PLAN.md — rc-ops-mcp: Node.js MCP server exposing racecontrol REST endpoints; Claude Code MCP config entry (MCP-04)
 
 ### Phase 53: Deployment Automation
 **Goal**: The staging HTTP server and webterm start automatically when James's machine boots; every deploy runs a verification script confirming binary size changed, /health returns 200, and all agents reconnected; the deploy script enforces canary-first and requires explicit approval before fleet rollout
@@ -569,8 +569,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 53-01-PLAN.md — Task Scheduler ONLOGON autostart for staging HTTP :9998 + webterm :9999 + auto-start.sh test (DEPLOY-01)
-- [ ] 53-02-PLAN.md — /rp:deploy-fleet skill: canary Pod 8 + verify.sh + approval gate + sequential fleet deploy (DEPLOY-02, DEPLOY-03)
+- [x] 53-01-PLAN.md — Task Scheduler ONLOGON autostart for staging HTTP :9998 + webterm :9999 + auto-start.sh test (DEPLOY-01)
+- [x] 53-02-PLAN.md — /rp:deploy-fleet skill: canary Pod 8 + verify.sh + approval gate + sequential fleet deploy (DEPLOY-02, DEPLOY-03)
 
 ### Phase 54: Structured Logging + Error Rate Alerting
 **Goal**: racecontrol and rc-agent write structured JSON logs to daily-rotating files so incidents can be investigated with jq; racecontrol watches its own error rate and emails James and Uday when it exceeds a configurable threshold
@@ -583,9 +583,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — racecontrol structured logging: tracing-subscriber JSON format + daily file rotation via tracing-appender (MON-01)
-- [ ] 54-02-PLAN.md — rc-agent structured logging: same tracing-subscriber JSON setup + daily rotation (MON-02)
-- [ ] 54-03-PLAN.md — Error rate alerting in racecontrol: sliding window counter + threshold config + email via send_email.js (MON-03)
+- [x] 54-01-PLAN.md — racecontrol structured logging: tracing-subscriber JSON format + daily file rotation via tracing-appender (MON-01)
+- [x] 54-02-PLAN.md — rc-agent structured logging: same tracing-subscriber JSON setup + daily rotation (MON-02)
+- [x] 54-03-PLAN.md — Error rate alerting in racecontrol: sliding window counter + threshold config + email via send_email.js (MON-03)
 
 ### Phase 55: Netdata Fleet Deploy
 **Goal**: Netdata agent is installed on the racecontrol server (.23) and all 8 pods, collecting real-time CPU/RAM/disk/network metrics with auto-generated dashboards — pods deployed via rc-agent :8090 exec without physical access
@@ -598,8 +598,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 55-01-PLAN.md — Download MSI + deploy script + verification script + server install (MON-04)
-- [ ] 55-02-PLAN.md — Canary Pod 8 + fleet rollout Pods 1-7 via rc-agent :8090 exec (MON-05)
+- [x] 55-01-PLAN.md — Download MSI + deploy script + verification script + server install (MON-04)
+- [x] 55-02-PLAN.md — Canary Pod 8 + fleet rollout Pods 1-7 via rc-agent :8090 exec (MON-05)
 
 ### Phase 56: WhatsApp Alerting + Weekly Report
 **Goal**: Uday receives a WhatsApp message within 60 seconds of a P0 event and a recovery notification when it clears; every Monday morning an email lands in Uday's inbox summarizing the previous week's fleet performance
@@ -612,8 +612,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
-- [ ] 56-02-PLAN.md — Weekly report: scheduled task; query racecontrol DB for sessions/uptime/credits; compose + email via send_email.js (MON-07)
+- [x] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
+- [x] 56-02-PLAN.md — Weekly report: scheduled task; query racecontrol DB for sessions/uptime/credits; compose + email via send_email.js (MON-07)
 
 ### Phase 57: Session-End Safety
 **Goal**: When a game session ends, the wheelbase returns to center safely within 2 seconds — no stuck rotation, no snap-back, no staff intervention
@@ -643,7 +643,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 58-01-PLAN.md — Hardened restart with crash-count, config backup/verify, minimize retry (PROC-01, PROC-02, PROC-03, PROC-04)
+- [x] 58-01-PLAN.md — Hardened restart with crash-count, config backup/verify, minimize retry (PROC-01, PROC-02, PROC-03, PROC-04)
 - [ ] 58-02-PLAN.md — Wire watchdog to hardened restart + Pod 8 hardware verification (PROC-01, PROC-04)
 
 ### Phase 59: Auto-Switch Configuration
@@ -657,10 +657,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 59-01-PLAN.md — Implement ensure_auto_switch_config + unit tests + main.rs wiring
-- [ ] 59-02-PLAN.md — Deploy to Pod 8 canary + human verification
-- [ ] 59-03-PLAN.md — [GAP] Add 4th game key from Pod 8 inspection + redeploy
-- [ ] 59-04-PLAN.md — [GAP] Human verification of auto-switch on Pod 8 hardware
+- [x] 59-01-PLAN.md — Implement ensure_auto_switch_config + unit tests + main.rs wiring
+- [x] 59-02-PLAN.md — Deploy to Pod 8 canary + human verification
+- [x] 59-03-PLAN.md — [GAP] Add 4th game key from Pod 8 inspection + redeploy
+- [x] 59-04-PLAN.md — [GAP] Human verification of auto-switch on Pod 8 hardware
 
 ### Phase 60: Pre-Launch Profile Loading
 **Goal**: rc-agent ensures the correct preset is loaded BEFORE the game starts, with a safe fallback if the game is unrecognized
@@ -672,7 +672,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 60-01-PLAN.md -- Implement pre_load_game_preset + wire into LaunchGame handler (PROF-03, PROF-05)
+- [x] 60-01-PLAN.md -- Implement pre_load_game_preset + wire into LaunchGame handler (PROF-03, PROF-05)
 
 ### Phase 61: FFB Preset Tuning
 **Goal**: Every venue game has a tuned FFB preset that feels right on the Ares 8Nm hardware, with correct steering angles and force limits
@@ -760,11 +760,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 66-01-PLAN.md — DHCP reservation + static IP on server .23 (INFRA-01)
-- [ ] 66-02-PLAN.md — Server exec verification via rc-agent :8090 over Tailscale/LAN (INFRA-02)
-- [ ] 66-03-PLAN.md — Comms-link exec wiring: Bono ExecHandler + 4 failover commands (INFRA-03)
-- [ ] 66-04-PLAN.md — James exec_request send endpoint (INFRA-03, gap closure)
-- [ ] 66-05-PLAN.md — Infrastructure verification checkpoint: router + Bono deploy + round-trip (INFRA-01, INFRA-03, gap closure)
+- [x] 66-01-PLAN.md — DHCP reservation + static IP on server .23 (INFRA-01)
+- [x] 66-02-PLAN.md — Server exec verification via rc-agent :8090 over Tailscale/LAN (INFRA-02)
+- [x] 66-03-PLAN.md — Comms-link exec wiring: Bono ExecHandler + 4 failover commands (INFRA-03)
+- [x] 66-04-PLAN.md — James exec_request send endpoint (INFRA-03, gap closure)
+- [x] 66-05-PLAN.md — Infrastructure verification checkpoint: router + Bono deploy + round-trip (INFRA-01, INFRA-03, gap closure)
 
 ### Phase 67: Config Sync
 **Goal**: TOML-based venue configuration (pod definitions, branding, venue metadata) from racecontrol.toml is mirrored to Bono's cloud racecontrol so failover has a current config to run on. Note: billing rates and game catalog are DB-based and already synced via cloud_sync.rs SYNC_TABLES -- this phase covers TOML config only.
@@ -777,8 +777,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 67-01-PLAN.md -- James-side config watcher + sanitizer (SYNC-01, SYNC-02)
-- [ ] 67-02-PLAN.md -- Cloud racecontrol config_snapshot handler (SYNC-03)
+- [x] 67-01-PLAN.md -- James-side config watcher + sanitizer (SYNC-01, SYNC-02)
+- [x] 67-02-PLAN.md -- Cloud racecontrol config_snapshot handler (SYNC-03)
 
 ### Phase 68: Pod SwitchController
 **Goal**: Any rc-agent pod can switch its WebSocket target from .23 to Bono's VPS and back at runtime without a process restart, and self_monitor will not fight the intentional switch
@@ -792,8 +792,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 68-01-PLAN.md -- Protocol + Config + HeartbeatStatus contracts with unit tests (FAIL-01, FAIL-03, FAIL-04)
-- [ ] 68-02-PLAN.md -- Runtime URL switching + self-monitor guard wiring (FAIL-02, FAIL-03, FAIL-04)
+- [x] 68-01-PLAN.md -- Protocol + Config + HeartbeatStatus contracts with unit tests (FAIL-01, FAIL-03, FAIL-04)
+- [x] 68-02-PLAN.md -- Runtime URL switching + self-monitor guard wiring (FAIL-02, FAIL-03, FAIL-04)
 
 ### Phase 69: Health Monitor & Failover Orchestration
 **Goal**: James automatically detects when .23 is unreachable, waits to confirm it is not a transient AC-launch CPU spike, then coordinates with Bono to promote cloud racecontrol as primary and switch all pods — with Uday notified
@@ -808,10 +808,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 69-01-PLAN.md — Health probe FSM + failover orchestrator + wiring in james/index.js (HLTH-01, HLTH-02, HLTH-03, ORCH-01, ORCH-04)
-- [ ] 69-02-PLAN.md — Broadcast endpoint on racecontrol + split-brain guard on rc-agent (ORCH-02, ORCH-03)
-- [ ] 69-03-PLAN.md — Bono secondary watchdog for venue power outage (HLTH-04)
-- [ ] 69-04-PLAN.md — Gap closure: notification fixes (COMMAND_REGISTRY + WhatsApp + email) (ORCH-04)
+- [x] 69-01-PLAN.md — Health probe FSM + failover orchestrator + wiring in james/index.js (HLTH-01, HLTH-02, HLTH-03, ORCH-01, ORCH-04)
+- [x] 69-02-PLAN.md — Broadcast endpoint on racecontrol + split-brain guard on rc-agent (ORCH-02, ORCH-03)
+- [x] 69-03-PLAN.md — Bono secondary watchdog for venue power outage (HLTH-04)
+- [x] 69-04-PLAN.md — Gap closure: notification fixes (COMMAND_REGISTRY + WhatsApp + email) (ORCH-04)
 
 ### Phase 70: Failback & Data Reconciliation
 **Goal**: When .23 comes back online, sessions created during failover are merged into local DB, and pods automatically reconnect to .23 — Uday notified of the all-clear
@@ -825,8 +825,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 70-01-PLAN.md — import_sessions Rust endpoint (INSERT OR IGNORE for cloud session sync)
-- [ ] 70-02-PLAN.md — HealthMonitor server_recovery + FailoverOrchestrator.initiateFailback() + COMMAND_REGISTRY + wiring
+- [x] 70-01-PLAN.md — import_sessions Rust endpoint (INSERT OR IGNORE for cloud session sync)
+- [x] 70-02-PLAN.md — HealthMonitor server_recovery + FailoverOrchestrator.initiateFailback() + COMMAND_REGISTRY + wiring
 
 
 
@@ -846,8 +846,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 71-01-PLAN.md -- rc-common exec.rs with feature-gated run_cmd_sync/run_cmd_async + tokio isolation verification
-- [ ] 71-02-PLAN.md -- rc-sentry hardening: timeout, truncation, concurrency cap, TCP read fix, tracing
+- [x] 71-01-PLAN.md -- rc-common exec.rs with feature-gated run_cmd_sync/run_cmd_async + tokio isolation verification
+- [x] 71-02-PLAN.md -- rc-sentry hardening: timeout, truncation, concurrency cap, TCP read fix, tracing
 
 ### Phase 72: rc-sentry Endpoint Expansion + Integration Tests
 **Goal**: rc-sentry becomes a complete fallback operations tool with process visibility, file inspection, and health confirmation -- all endpoints covered by integration tests running against an ephemeral port
@@ -877,8 +877,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 73-01-PLAN.md — FfbBackend trait seam + mockall mock tests (TEST-03)
-- [ ] 73-02-PLAN.md — billing_guard timer tests (TEST-01) + failure_monitor requirement-named tests (TEST-02)
+- [x] 73-01-PLAN.md — FfbBackend trait seam + mockall mock tests (TEST-03)
+- [x] 73-02-PLAN.md — billing_guard timer tests (TEST-01) + failure_monitor requirement-named tests (TEST-02)
 
 ### Phase 74: rc-agent Decomposition
 **Goal**: rc-agent main.rs is reduced from ~3,400 lines to ~150 lines by extracting config types, AppState, WebSocket handler, and event loop into focused modules -- each module under 500 lines and testable in isolation
@@ -892,10 +892,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 74-01-PLAN.md -- Extract config types and load/validate functions to config.rs (DECOMP-01)
-- [ ] 74-02-PLAN.md -- Extract pre-loop shared state to AppState struct in app_state.rs (DECOMP-02)
-- [ ] 74-03-PLAN.md -- Extract WebSocket message handler to ws_handler.rs (DECOMP-03)
-- [ ] 74-04-PLAN.md -- Extract inner select! loop to event_loop.rs with ConnectionState (DECOMP-04)
+- [x] 74-01-PLAN.md -- Extract config types and load/validate functions to config.rs (DECOMP-01)
+- [x] 74-02-PLAN.md -- Extract pre-loop shared state to AppState struct in app_state.rs (DECOMP-02)
+- [x] 74-03-PLAN.md -- Extract WebSocket message handler to ws_handler.rs (DECOMP-03)
+- [x] 74-04-PLAN.md -- Extract inner select! loop to event_loop.rs with ConnectionState (DECOMP-04)
 
 ## v12.0 Operations Security -- Phase Details
 
@@ -912,8 +912,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 75-01-PLAN.md -- Security audit document (endpoint inventory, PII map, CORS/HTTPS/auth state)
-- [ ] 75-02-PLAN.md -- Secrets env var migration + JWT key auto-generation
+- [x] 75-01-PLAN.md -- Security audit document (endpoint inventory, PII map, CORS/HTTPS/auth state)
+- [x] 75-02-PLAN.md -- Secrets env var migration + JWT key auto-generation
 
 ### Phase 76: API Authentication & Admin Protection
 **Goal**: No unauthenticated request can manipulate billing, start sessions, or access the admin panel
@@ -935,7 +935,7 @@ Plans:
 - [x] 76-03-PLAN.md -- rc-agent service key auth (AUTH-06)
 - [x] 76-04-PLAN.md -- Rate limiting + bot wallet check + session integrity (AUTH-04,05, SESS-02,03)
 - [x] 76-05-PLAN.md -- Dashboard frontend PIN gate + idle timeout (ADMIN-01,03)
-- [ ] 76-06-PLAN.md -- Switch permissive to strict JWT enforcement (AUTH-01,02,03, SESS-01)
+- [x] 76-06-PLAN.md -- Switch permissive to strict JWT enforcement (AUTH-01,02,03, SESS-01)
 
 ### Phase 77: Transport Security
 **Goal**: All browser-to-server traffic (PWA and admin dashboard) is encrypted in transit
@@ -949,8 +949,8 @@ Plans:
   5. Security response headers (CSP, X-Frame-Options, X-Content-Type-Options, HSTS) are present on all HTML responses
 **Plans**: 2 plans
 Plans:
-- [ ] 77-01-PLAN.md — TLS cert generation module, ServerConfig extension, rcgen + axum-server deps (TLS-02, TLS-04)
-- [ ] 77-02-PLAN.md — Dual-port HTTPS wiring, security headers, CORS update, kiosk API_BASE fix, TLS-03 Bono coordination (TLS-01, TLS-03, TLS-04, KIOSK-06)
+- [x] 77-01-PLAN.md — TLS cert generation module, ServerConfig extension, rcgen + axum-server deps (TLS-02, TLS-04)
+- [x] 77-02-PLAN.md — Dual-port HTTPS wiring, security headers, CORS update, kiosk API_BASE fix, TLS-03 Bono coordination (TLS-01, TLS-03, TLS-04, KIOSK-06)
 
 ### Phase 78: Kiosk & Session Hardening
 **Goal**: A customer sitting at a pod cannot escape the kiosk, access other users' data, or keep a session running after payment expires
@@ -966,9 +966,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 78-01-PLAN.md — Pod lockdown: Edge kiosk flags, keyboard hook enhancement, USB/accessibility/TaskMgr registry (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
-- [ ] 78-02-PLAN.md — Network source tagging middleware + staff route protection from pod IPs (KIOSK-07, KIOSK-05)
-- [ ] 78-03-PLAN.md — Session-scoped kiosk tokens + KioskLockdown auto-pause billing + WhatsApp alert (SESS-04, SESS-05)
+- [x] 78-01-PLAN.md — Pod lockdown: Edge kiosk flags, keyboard hook enhancement, USB/accessibility/TaskMgr registry (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
+- [x] 78-02-PLAN.md — Network source tagging middleware + staff route protection from pod IPs (KIOSK-07, KIOSK-05)
+- [x] 78-03-PLAN.md — Session-scoped kiosk tokens + KioskLockdown auto-pause billing + WhatsApp alert (SESS-04, SESS-05)
 
 ### Phase 79: Data Protection
 **Goal**: Customer PII is encrypted at rest and scrubbed from logs, with self-service data export and deletion
@@ -983,9 +983,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 79-01-PLAN.md -- Crypto foundation: FieldCipher + key management + AppState wiring
-- [ ] 79-02-PLAN.md -- Schema migration + query updates + log redaction
-- [ ] 79-03-PLAN.md -- Customer data export + deletion endpoints
+- [x] 79-01-PLAN.md -- Crypto foundation: FieldCipher + key management + AppState wiring
+- [x] 79-02-PLAN.md -- Schema migration + query updates + log redaction
+- [x] 79-03-PLAN.md -- Customer data export + deletion endpoints
 
 ### Phase 80: Audit Trail & Defense in Depth
 **Goal**: Every sensitive admin action is logged and alertable, with remaining security gaps closed
@@ -999,8 +999,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 80-01-PLAN.md -- Audit trail infrastructure + WA alerts on admin actions (ADMIN-04, ADMIN-05)
-- [ ] 80-02-PLAN.md -- PIN rotation alerting + HMAC-SHA256 sync signing (ADMIN-06, AUTH-07)
+- [x] 80-01-PLAN.md -- Audit trail infrastructure + WA alerts on admin actions (ADMIN-04, ADMIN-05)
+- [x] 80-02-PLAN.md -- PIN rotation alerting + HMAC-SHA256 sync signing (ADMIN-06, AUTH-07)
 
 ## v13.0 Multi-Game Launcher -- Phase Details
 
@@ -1017,9 +1017,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 81-01-PLAN.md -- Backend: non-AC crash recovery + DashboardEvent variant + PWA game request endpoint
-- [ ] 81-02-PLAN.md -- Frontend: GamePickerPanel direct launch + GameLaunchRequestBanner + game logos + pod card display
-- [ ] 81-03-PLAN.md -- TOML game profiles + end-to-end build verification + kiosk visual checkpoint
+- [x] 81-01-PLAN.md -- Backend: non-AC crash recovery + DashboardEvent variant + PWA game request endpoint
+- [x] 81-02-PLAN.md -- Frontend: GamePickerPanel direct launch + GameLaunchRequestBanner + game logos + pod card display
+- [x] 81-03-PLAN.md -- TOML game profiles + end-to-end build verification + kiosk visual checkpoint
 
 ### Phase 82: Billing and Session Lifecycle
 **Goal**: Customers are charged only for actual gameplay time, with billing starting when the game is playable and stopping cleanly on exit or crash
@@ -1033,9 +1033,9 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 82-01-PLAN.md — Server billing foundation: shared types, DB migration, per-game rate engine, protocol update
-- [ ] 82-02-PLAN.md — Agent PlayableSignal dispatch: per-sim billing triggers, 30s exit grace timer, Loading state
-- [ ] 82-03-PLAN.md — UI updates: admin pricing Game column, kiosk Loading state badge with count-up timer
+- [x] 82-01-PLAN.md — Server billing foundation: shared types, DB migration, per-game rate engine, protocol update
+- [x] 82-02-PLAN.md — Agent PlayableSignal dispatch: per-sim billing triggers, 30s exit grace timer, Loading state
+- [x] 82-03-PLAN.md — UI updates: admin pricing Game column, kiosk Loading state badge with count-up timer
 
 ### Phase 83: F1 25 Telemetry
 **Goal**: F1 25 lap times and sector splits are captured and emitted as structured events
@@ -1126,12 +1126,12 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 106-01-PLAN.md — build_id root span + main.rs migration (66 calls)
-- [ ] 106-02-PLAN.md — ws_handler, event_loop, ac_launcher migration (164 calls)
-- [ ] 106-03-PLAN.md — ffb_controller, ai_debugger, kiosk, lock_screen migration (114 calls)
-- [ ] 106-04-PLAN.md — remote_ops, self_monitor, self_heal, game_process, overlay, billing_guard, pre_flight migration (79 calls)
-- [ ] 106-05-PLAN.md — small files + sim modules migration (68 calls)
-- [ ] 106-06-PLAN.md — final audit + full test suite verification
+- [x] 106-01-PLAN.md — build_id root span + main.rs migration (66 calls)
+- [x] 106-02-PLAN.md — ws_handler, event_loop, ac_launcher migration (164 calls)
+- [x] 106-03-PLAN.md — ffb_controller, ai_debugger, kiosk, lock_screen migration (114 calls)
+- [x] 106-04-PLAN.md — remote_ops, self_monitor, self_heal, game_process, overlay, billing_guard, pre_flight migration (79 calls)
+- [x] 106-05-PLAN.md — small files + sim modules migration (68 calls)
+- [x] 106-06-PLAN.md — final audit + full test suite verification
 
 ---
 
@@ -1181,8 +1181,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 91-01-PLAN.md — Backend: PbAchieved event broadcast, shared percentile function, enhanced session detail API, active session events polling endpoint, NPM dependencies
-- [ ] 91-02-PLAN.md — Frontend: Confetti component, sonner Toaster, peak-end session detail rewrite, active session PB polling with toast
+- [x] 91-01-PLAN.md — Backend: PbAchieved event broadcast, shared percentile function, enhanced session detail API, active session events polling endpoint, NPM dependencies
+- [x] 91-02-PLAN.md — Frontend: Confetti component, sonner Toaster, peak-end session detail rewrite, active session PB polling with toast
 
 ### Phase 92: Retention Loops
 **Goal**: Customers are drawn back through streaks, loss-framed notifications, and unpredictable bonus rewards
@@ -1197,8 +1197,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 92-01-PLAN.md — Backend: variable_reward_log table, 4 retention functions (PB beaten notify, variable rewards, streak-at-risk, membership expiry), wiring in lap_tracker/billing/scheduler/passport API
-- [ ] 92-02-PLAN.md — PWA: Passport streak card with grace urgency indicator, longest streak display, full build verification
+- [x] 92-01-PLAN.md — Backend: variable_reward_log table, 4 retention functions (PB beaten notify, variable rewards, streak-at-risk, membership expiry), wiring in lap_tracker/billing/scheduler/passport API
+- [x] 92-02-PLAN.md — PWA: Passport streak card with grace urgency indicator, longest streak display, full build verification
 
 ### Phase 93: Community & Tribal Identity
 **Goal**: Discord becomes a living community hub with automated weekly rituals and record alerts
@@ -1212,8 +1212,8 @@ Plans:
 **Plans**: 2 plans (planned 2026-03-21)
 
 Plans:
-- [ ] 93-01-PLAN.md — Discord bot scheduler: weekly leaderboard, track record alerts, time trial/tournament ritual posts (COMM-01, COMM-02, COMM-04)
-- [ ] 93-02-PLAN.md — Copy identity sweep: replace "customer" with "driver" across WhatsApp bot, Discord bot, and PWA (COMM-03)
+- [x] 93-01-PLAN.md — Discord bot scheduler: weekly leaderboard, track record alerts, time trial/tournament ritual posts (COMM-01, COMM-02, COMM-04)
+- [x] 93-02-PLAN.md — Copy identity sweep: replace "customer" with "driver" across WhatsApp bot, Discord bot, and PWA (COMM-03)
 
 ### Phase 94: Pricing & Conversion
 **Goal**: Booking and pricing experience uses anchoring, real scarcity, and social proof to increase conversion
@@ -1397,8 +1397,8 @@ Every customer session begins with automated health verification. On BillingStar
   5. When disable_preflight = true in rc-agent.toml, BillingStarted proceeds directly to show_active_session() with no pre_flight::run() call — rollback escape hatch works
 **Plans**: 2 plans
 Plans:
-- [ ] 97-01-PLAN.md — rc-common protocol variants + PreflightConfig
-- [ ] 97-02-PLAN.md — pre_flight.rs module + ws_handler.rs gate wiring
+- [x] 97-01-PLAN.md — rc-common protocol variants + PreflightConfig
+- [x] 97-02-PLAN.md — pre_flight.rs module + ws_handler.rs gate wiring
 
 ### Phase 98: MaintenanceRequired Lock Screen + Display Checks
 **Goal**: A pod that fails pre-flight shows a branded "Maintenance Required — Staff Notified" lock screen and stays blocked with two explicit exit paths — staff sends ClearMaintenance from kiosk, or 30 seconds of successful auto-retry self-clears the pod; display checks (HTTP probe and window rect) are wired into the pre-flight gate
@@ -1510,8 +1510,8 @@ Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry,
 **Plans**: 2 plans
 
 Plans:
-- [ ] 107-01-PLAN.md — Risk inventory of all rc-agent anti-cheat behaviors + pod OS edition verification (AUDIT-01, AUDIT-03)
-- [ ] 107-02-PLAN.md — ConspitLink ProcMon audit + per-game compatibility matrix (AUDIT-02, AUDIT-04)
+- [x] 107-01-PLAN.md — Risk inventory of all rc-agent anti-cheat behaviors + pod OS edition verification (AUDIT-01, AUDIT-03)
+- [x] 107-02-PLAN.md — ConspitLink ProcMon audit + per-game compatibility matrix (AUDIT-02, AUDIT-04)
 
 ### Phase 108: Keyboard Hook Replacement
 **Goal**: The SetWindowsHookEx global keyboard hook installed by Phase 78 is fully removed from rc-agent source and permanently replaced by GPO registry key writes -- kiosk lockdown is equally effective without any hook, and no hook install/uninstall cycle is ever visible to a running anti-cheat driver
@@ -1525,7 +1525,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 108-01-PLAN.md — Replace keyboard hook with GPO registry keys + Pod 8 canary verification (HARD-01, VALID-03)
+- [x] 108-01-PLAN.md — Replace keyboard hook with GPO registry keys + Pod 8 canary verification (HARD-01, VALID-03)
 
 ### Phase 109: Safe Mode State Machine
 **Goal**: rc-agent automatically enters a defined safe mode within 1 second of a protected game launching, disables all risky subsystems (process guard, Ollama queries, registry writes) for the duration of the game plus a 30-second cooldown, and defaults to safe mode at startup if a protected game is already running -- billing, lock screen, and WebSocket exec are unaffected throughout
@@ -1540,8 +1540,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 109-01-PLAN.md — SafeMode struct, WMI watcher, startup detection, AppState integration (SAFE-01, SAFE-02, SAFE-03)
-- [ ] 109-02-PLAN.md — Event loop wiring, subsystem gates, SAFE-07 verification (SAFE-01 through SAFE-07)
+- [x] 109-01-PLAN.md — SafeMode struct, WMI watcher, startup detection, AppState integration (SAFE-01, SAFE-02, SAFE-03)
+- [x] 109-02-PLAN.md — Event loop wiring, subsystem gates, SAFE-07 verification (SAFE-01 through SAFE-07)
 
 ### Phase 110: Telemetry Gating
 **Goal**: Shared memory telemetry readers for iRacing and LMU defer their MapViewOfFile connection until 5 seconds after the game process is stable, UDP telemetry sockets exist only while their corresponding game is active, and AC EVO telemetry is feature-flagged off by default until its anti-cheat status is confirmed at full release
@@ -1555,8 +1555,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 110-01-PLAN.md -- Shared memory deferred connect (5s) + AC EVO feature flag (HARD-03, HARD-05)
-- [ ] 110-02-PLAN.md -- UDP socket lifecycle gating to Running state (HARD-04)
+- [x] 110-01-PLAN.md -- Shared memory deferred connect (5s) + AC EVO feature flag (HARD-03, HARD-05)
+- [x] 110-02-PLAN.md -- UDP socket lifecycle gating to Running state (HARD-04)
 
 ### Phase 111: Code Signing + Per-Game Canary Validation
 **NOTE (v22.0):** Binary identity (SHA256 hash) and canary Pod 8 pattern are formalized in v22.0 OTA-02 and OTA-10. Code signing should integrate with the OTA release manifest (OTA-01) — signtool runs during the build step, signed hash goes into release-manifest.toml. Per-game canary validation should use the v22.0 canary wave infrastructure rather than a separate process.
@@ -1571,7 +1571,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 111-01-PLAN.md — Build and deploy latest rc-agent to Pod 8 (canary)
+- [x] 111-01-PLAN.md — Build and deploy latest rc-agent to Pod 8 (canary)
 - [ ] 111-02-PLAN.md — Per-game canary validation (F1 25, iRacing, LMU) + billing continuity + HARD-02 deferred
 
 ## v15.0 Progress
@@ -1646,9 +1646,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 114-01-PLAN.md -- Quality gates (blur, pose, size) and CLAHE lighting normalization
-- [ ] 114-02-PLAN.md -- ArcFace recognizer and face alignment
-- [ ] 114-03-PLAN.md -- Embedding gallery, face tracker, config, and pipeline integration
+- [x] 114-01-PLAN.md -- Quality gates (blur, pose, size) and CLAHE lighting normalization
+- [x] 114-02-PLAN.md -- ArcFace recognizer and face alignment
+- [x] 114-03-PLAN.md -- Embedding gallery, face tracker, config, and pipeline integration
 
 ### Phase 115: Face Enrollment System
 **Goal**: Staff can add, update, and remove face profiles to build the recognition database
@@ -1662,8 +1662,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 115-01-PLAN.md -- Data layer: extend DB CRUD (phone, get/list/update/delete) + gallery mutations + enrollment types
-- [ ] 115-02-PLAN.md -- Enrollment API: HTTP handlers, photo processing pipeline, duplicate detection, main.rs wiring
+- [x] 115-01-PLAN.md -- Data layer: extend DB CRUD (phone, get/list/update/delete) + gallery mutations + enrollment types
+- [x] 115-02-PLAN.md -- Enrollment API: HTTP handlers, photo processing pipeline, duplicate detection, main.rs wiring
 
 ### Phase 116: Attendance Engine
 **Goal**: Automatically log attendance when recognized faces appear on camera, with staff shift tracking
@@ -1721,9 +1721,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 119-01-PLAN.md -- NVR CGI API client and config (nvr.rs, NvrConfig, digest auth)
-- [ ] 119-02-PLAN.md -- Playback proxy endpoints (search, stream, events)
-- [ ] 119-03-PLAN.md -- Dashboard playback page with timeline and event markers
+- [x] 119-01-PLAN.md -- NVR CGI API client and config (nvr.rs, NvrConfig, digest auth)
+- [x] 119-02-PLAN.md -- Playback proxy endpoints (search, stream, events)
+- [x] 119-03-PLAN.md -- Dashboard playback page with timeline and event markers
 ## v16.0 Progress
 
 **Execution Order:** 112 -> 113 -> 114 -> 115 -> 116 -> 117 -> 118 -> 119
@@ -1884,8 +1884,8 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
   5. Lookup always tries the dynamic Map first, falling through to the static COMMAND_REGISTRY on a miss
 **Plans**: 2 plans
 Plans:
-- [ ] 130-01-PLAN.md — Protocol types + DynamicCommandRegistry class
-- [ ] 130-02-PLAN.md — Unified lookup integration + HTTP registration + persistence
+- [x] 130-01-PLAN.md — Protocol types + DynamicCommandRegistry class
+- [x] 130-02-PLAN.md — Unified lookup integration + HTTP registration + persistence
 
 ### Phase 131: Shell Relay
 **Goal**: Either AI can execute an arbitrary approved binary on the other's machine, but only after Uday approves via WhatsApp
@@ -1899,7 +1899,7 @@ Plans:
   5. Shell relay uses execFile with shell:false and the same sanitized env as static commands — no shell injection surface exists
 **Plans**: 2 plans
 Plans:
-- [ ] 131-01-PLAN.md — ShellRelayHandler class + TDD tests + James/Bono wiring
+- [x] 131-01-PLAN.md — ShellRelayHandler class + TDD tests + James/Bono wiring
 
 ### Phase 132: Chain Orchestration
 **Goal**: Either side can execute a multi-step chain where each step receives the previous step's output and the whole chain returns one structured result
@@ -1913,8 +1913,8 @@ Plans:
   5. A chain that exceeds its chain-level timeout is aborted mid-execution and returns a chain_result with a TIMEOUT status
 **Plans**: 2 plans
 Plans:
-- [ ] 132-01-PLAN.md — TDD ExecResultBroker + ChainOrchestrator classes
-- [ ] 132-02-PLAN.md — Wire into james/index.js + bono/index.js + refactor FailoverOrchestrator
+- [x] 132-01-PLAN.md — TDD ExecResultBroker + ChainOrchestrator classes
+- [x] 132-02-PLAN.md — Wire into james/index.js + bono/index.js + refactor FailoverOrchestrator
 
 ### Phase 133: Task Delegation + Audit Trail
 **Goal**: Either AI can transparently delegate a chain to the other machine and receive results, with every execution logged to an append-only audit file on both sides
@@ -1928,8 +1928,8 @@ Plans:
   5. The audit file is append-only and does not truncate on daemon restart — entries accumulate across sessions
 **Plans**: 2 plans
 Plans:
-- [ ] 133-01-PLAN.md — AuditLogger class + delegation protocol types (TDD)
-- [ ] 133-02-PLAN.md — Wire delegation + audit into james/index.js + bono/index.js
+- [x] 133-01-PLAN.md — AuditLogger class + delegation protocol types (TDD)
+- [x] 133-02-PLAN.md — Wire delegation + audit into james/index.js + bono/index.js
 
 ### Phase 134: Advanced Chain Features + Integration Hardening
 **Goal**: Chains support templates, output substitution, per-step retry, survive WS reconnects, and either AI can query what commands the other exposes
@@ -1984,8 +1984,8 @@ Plans:
   4. james_watchdog.ps1 detects a stopped comms-link process and restarts it — the watchdog itself is managed by Task Scheduler with a repeat interval
 **Plans**: 2 plans
 Plans:
-- [ ] 135-01-PLAN.md — Create james_watchdog.ps1 and register-comms-watchdog.js
-- [ ] 135-02-PLAN.md — Register Task Scheduler task, verify boot Run key, integration test
+- [x] 135-01-PLAN.md — Create james_watchdog.ps1 and register-comms-watchdog.js
+- [x] 135-02-PLAN.md — Register Task Scheduler task, verify boot Run key, integration test
 
 ### Phase 136: Chain Endpoint + Visibility
 **Goal**: /relay/chain/run returns chain results synchronously (no 504), and callers can always tell whether the relay is connected before sending
@@ -2037,8 +2037,8 @@ Close 6 architectural gaps that prevented the system from self-healing when Edge
 **Plans**: 2 plans
 
 Plans:
-- [ ] 137-01-PLAN.md -- close_browser() safe mode gate + count_edge_processes helper + tests (BWDOG-03, BWDOG-04)
-- [ ] 137-02-PLAN.md -- Browser watchdog loop in event_loop: liveness poll + stacking detection (BWDOG-01, BWDOG-02)
+- [x] 137-01-PLAN.md -- close_browser() safe mode gate + count_edge_processes helper + tests (BWDOG-03, BWDOG-04)
+- [x] 137-02-PLAN.md -- Browser watchdog loop in event_loop: liveness poll + stacking detection (BWDOG-01, BWDOG-02)
 
 ### Phase 138: Idle Health Monitor
 **Goal**: Pods continuously verify their own health during idle periods and self-heal display failures before they require human intervention or server escalation
@@ -2053,8 +2053,8 @@ Plans:
 
 Plans:
 - [x] 138-01-PLAN.md -- IdleHealthFailed protocol variant in rc-common (IDLE-03)
-- [ ] 138-02-PLAN.md -- Agent idle health loop: 60s interval, billing/safe-mode skip, HTTP+rect probes, self-heal, hysteresis (IDLE-01, IDLE-02, IDLE-03, IDLE-04)
-- [ ] 138-03-PLAN.md -- Server handler: IdleHealthFailed ws/mod.rs arm + FleetHealthStore fields + fleet API (IDLE-03)
+- [x] 138-02-PLAN.md -- Agent idle health loop: 60s interval, billing/safe-mode skip, HTTP+rect probes, self-heal, hysteresis (IDLE-01, IDLE-02, IDLE-03, IDLE-04)
+- [x] 138-03-PLAN.md -- Server handler: IdleHealthFailed ws/mod.rs arm + FleetHealthStore fields + fleet API (IDLE-03)
 
 ### Phase 139: Healer Edge Recovery
 **Goal**: The racecontrol pod healer can trigger a full Edge relaunch on any pod via a new WS protocol message -- no SSH, no exec endpoint, just the existing WebSocket connection
@@ -2068,7 +2068,7 @@ Plans:
 
 Plans:
 - [x] 139-01-PLAN.md -- HealAction::RelaunchLockScreen in pod_healer.rs + ForceRelaunchBrowser in protocol.rs (HEAL-01, HEAL-02)
-- [ ] 139-02-PLAN.md -- rc-agent ForceRelaunchBrowser WS handler + billing-state guard (HEAL-03)
+- [x] 139-02-PLAN.md -- rc-agent ForceRelaunchBrowser WS handler + billing-state guard (HEAL-03)
 
 ### Phase 140: AI Action Execution Whitelist
 **Goal**: The AI debugger can act on its own Tier 3/4 recommendations for pre-approved safe actions rather than just logging suggestions -- with all actions audited and blocked during anti-cheat safe mode
@@ -2096,8 +2096,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 141-01-PLAN.md -- WARN log scanner in healer cycle: 5-min rolling window + threshold counter (WARN-01, WARN-02)
-- [ ] 141-02-PLAN.md -- WARN deduplication + grouped escalation payload + AI query dispatch (WARN-03)
+- [x] 141-01-PLAN.md -- WARN log scanner in healer cycle: 5-min rolling window + threshold counter (WARN-01, WARN-02)
+- [x] 141-02-PLAN.md -- WARN deduplication + grouped escalation payload + AI query dispatch (WARN-03)
 
 ## v17.0 Progress
 
@@ -2155,8 +2155,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 143-01-PLAN.md — Integration test scaffold: daemon start/stop harness, exec_request round-trip, from-field relay test (INTEG-01, INTEG-03)
-- [ ] 143-02-PLAN.md — Chain integration test + cross-platform syntax check + contract tests (INTEG-02, INTEG-04, INTEG-05)
+- [x] 143-01-PLAN.md — Integration test scaffold: daemon start/stop harness, exec_request round-trip, from-field relay test (INTEG-01, INTEG-03)
+- [x] 143-02-PLAN.md — Chain integration test + cross-platform syntax check + contract tests (INTEG-02, INTEG-04, INTEG-05)
 
 ### Phase 144: GSD Quality Gate
 **Goal**: Integration tests run automatically as part of GSD phase verification — a single command invokes them and failures prevent a phase from being marked complete
@@ -2210,7 +2210,7 @@ Transform the basic 13-camera snapshot grid into a professional NVR dashboard �
   4. NVR credentials (Admin@123) do not appear in any go2rtc.yaml stream name or in any URL visible to browser JavaScript — all 13 streams are accessible by canonical name only
 **Plans**: 1 plan
 Plans:
-- [ ] 145-01-PLAN.md — Register 13 NVR channels + CORS in go2rtc, restart, verify WebRTC + snapshot coexistence
+- [x] 145-01-PLAN.md — Register 13 NVR channels + CORS in go2rtc, restart, verify WebRTC + snapshot coexistence
 
 ### Phase 146: Backend Config and API
 **Goal**: rc-sentry-ai serves a complete camera metadata API that both frontend targets can use, and user layout preferences persist across sessions via server-side storage
@@ -2223,8 +2223,8 @@ Plans:
   4. rc-sentry-ai.toml is never written to at runtime — all mutable user preferences go to camera-layout.json only
 **Plans**: 2 plans
 Plans:
-- [ ] 146-01-PLAN.md — Extend CameraConfig with display_name/display_order/zone and update /api/v1/cameras response
-- [ ] 146-02-PLAN.md — Add GET/PUT /api/v1/cameras/layout endpoints with camera-layout.json persistence
+- [x] 146-01-PLAN.md — Extend CameraConfig with display_name/display_order/zone and update /api/v1/cameras response
+- [x] 146-02-PLAN.md — Add GET/PUT /api/v1/cameras/layout endpoints with camera-layout.json persistence
 
 ### Phase 147: cameras.html Dashboard Rewrite
 **Goal**: Staff can monitor all 13 cameras from the rc-sentry-ai embedded dashboard with professional NVR controls — layout switching, drag-to-rearrange, and instant WebRTC fullscreen
@@ -2239,9 +2239,9 @@ Plans:
   6. Each camera tile shows a green/yellow/red status indicator and the tile's friendly display name from the API — offline cameras are visually distinct from live ones
 **Plans**: 3 plans
 Plans:
-- [ ] 147-01-PLAN.md — Core HTML structure + CSS grid layout modes + status indicators + snapshot polling
-- [ ] 147-02-PLAN.md — Drag-to-rearrange + zone grouping + layout persistence
-- [ ] 147-03-PLAN.md — WebRTC fullscreen + singleton + pre-warm + loading state
+- [x] 147-01-PLAN.md — Core HTML structure + CSS grid layout modes + status indicators + snapshot polling
+- [x] 147-02-PLAN.md — Drag-to-rearrange + zone grouping + layout persistence
+- [x] 147-03-PLAN.md — WebRTC fullscreen + singleton + pre-warm + loading state
 
 ### Phase 148: Web Dashboard Page
 **Goal**: The same professional camera dashboard is accessible from the server web dashboard at :3200 with an identical feature set — staff can use either deployment interchangeably
@@ -2253,7 +2253,7 @@ Plans:
   3. Next.js hydration completes without mismatch errors — localStorage is only read inside useEffect with a hydrated flag, never in a useState initializer
 **Plans**: 1 plan
 Plans:
-- [ ] 148-01-PLAN.md — Complete page.tsx rewrite with all 12 camera dashboard features (layouts, drag, zones, WebRTC, pre-warm)
+- [x] 148-01-PLAN.md — Complete page.tsx rewrite with all 12 camera dashboard features (layouts, drag, zones, WebRTC, pre-warm)
 
 ## v16.1 Progress
 
@@ -2286,8 +2286,8 @@ Deliver a complete cafe operations layer for Racing Point eSports and Cafe -- me
 **Plans**: 2 plans
 
 Plans:
-- [ ] 149-01-PLAN.md -- Backend: SQLite schema (cafe_categories + cafe_items) + Rust cafe.rs CRUD module + route registration
-- [ ] 149-02-PLAN.md -- Frontend: TypeScript types + api methods + sidebar nav + /cafe admin page with side panel
+- [x] 149-01-PLAN.md -- Backend: SQLite schema (cafe_categories + cafe_items) + Rust cafe.rs CRUD module + route registration
+- [x] 149-02-PLAN.md -- Frontend: TypeScript types + api methods + sidebar nav + /cafe admin page with side panel
 
 ### Phase 150: Menu Import
 **Goal**: Admin can bulk-import cafe menu items from Excel/CSV spreadsheets with preview-and-confirm flow, plus upload item images
@@ -2316,8 +2316,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 151-01-PLAN.md -- POS cafe menu display (kiosk CafeMenuPanel)
-- [ ] 151-02-PLAN.md -- PWA cafe menu page (customer-facing /cafe)
+- [x] 151-01-PLAN.md -- POS cafe menu display (kiosk CafeMenuPanel)
+- [x] 151-02-PLAN.md -- PWA cafe menu page (customer-facing /cafe)
 
 ### Phase 152: Inventory Tracking
 **Goal**: Admin has full visibility into stock levels and can manage inventory for all countable items
@@ -2333,7 +2333,7 @@ Plans:
 
 Plans:
 - [x] 152-01-PLAN.md -- Backend: DB migration + inventory columns + restock API endpoint
-- [ ] 152-02-PLAN.md -- Frontend: TypeScript types + inventory tab UI + restock flow
+- [x] 152-02-PLAN.md -- Frontend: TypeScript types + inventory tab UI + restock flow
 
 ### Phase 153: Inventory Alerts
 **Goal**: Staff never misses a low-stock situation -- alerts fire through three independent channels when thresholds are breached
@@ -2347,8 +2347,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 153-01-PLAN.md -- Backend: cafe_alerts module (WA + email), last_stock_alert_at cooldown, low-stock API route
-- [ ] 153-02-PLAN.md -- Frontend: LowStockItem type + api method + warning banner in cafe admin page
+- [x] 153-01-PLAN.md -- Backend: cafe_alerts module (WA + email), last_stock_alert_at cooldown, low-stock API route
+- [x] 153-02-PLAN.md -- Frontend: LowStockItem type + api method + warning banner in cafe admin page
 
 ### Phase 154: Ordering Core
 **Goal**: Customers can order cafe items and pay from their RP wallet -- the core value delivery
@@ -2365,9 +2365,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 154-01-PLAN.md -- Backend: cafe_orders table, atomic place_order handler, receipt generation, stock info in public menu
-- [ ] 154-02-PLAN.md -- PWA: cart state, checkout flow, wallet balance display, order submission
-- [ ] 154-03-PLAN.md -- POS kiosk: order builder, customer selection, staff-assisted ordering
+- [x] 154-01-PLAN.md -- Backend: cafe_orders table, atomic place_order handler, receipt generation, stock info in public menu
+- [x] 154-02-PLAN.md -- PWA: cart state, checkout flow, wallet balance display, order submission
+- [x] 154-03-PLAN.md -- POS kiosk: order builder, customer selection, staff-assisted ordering
 
 ### Phase 155: Receipts & Order History
 **Goal**: Every order produces a physical receipt and digital record that staff and customers can reference
@@ -2396,8 +2396,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 156-01-PLAN.md -- Backend: cafe_promos DB migration, CRUD handlers (cafe_promos.rs), admin routes
-- [ ] 156-02-PLAN.md -- Admin UI: Promos tab on /cafe page with dynamic form per type, CRUD, stacking group
+- [x] 156-01-PLAN.md -- Backend: cafe_promos DB migration, CRUD handlers (cafe_promos.rs), admin routes
+- [x] 156-02-PLAN.md -- Admin UI: Promos tab on /cafe page with dynamic form per type, CRUD, stacking group
 
 ### Phase 157: Promotions Integration
 **Goal**: Active promos are visible to customers and staff, and discounts apply automatically at checkout
@@ -2412,7 +2412,7 @@ Plans:
 
 Plans:
 - [x] 157-01-PLAN.md — Backend: list_active_promos endpoint, evaluate_promos engine, DB migration, place_cafe_order_inner wiring
-- [ ] 157-02-PLAN.md — Frontend: promo banner display in PWA and POS, applied discount in checkout confirmation
+- [x] 157-02-PLAN.md — Frontend: promo banner display in PWA and POS, applied discount in checkout confirmation
 
 ### Phase 158: Marketing & Content
 **Goal**: Cafe promos and menu updates reach customers through auto-generated visual content and broadcast messages
@@ -2426,8 +2426,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 158-01-PLAN.md — Backend: satori PNG generation API route (Next.js) + Rust broadcast endpoint with 24h rate limit
-- [ ] 158-02-PLAN.md — Admin UI: Marketing tab on /cafe page with Generate Graphic buttons per promo and WhatsApp broadcast form
+- [x] 158-01-PLAN.md — Backend: satori PNG generation API route (Next.js) + Rust broadcast endpoint with 24h rate limit
+- [x] 158-02-PLAN.md — Admin UI: Marketing tab on /cafe page with Generate Graphic buttons per promo and WhatsApp broadcast form
 
 ## v19.0 Progress
 
@@ -2472,7 +2472,7 @@ Replace all dumb restart-loop watchdogs with intelligent AI-driven recovery that
 
 Plans:
 - [x] 159-01-PLAN.md — rc-common recovery contracts (RecoveryAuthority, ProcessOwnership, RecoveryDecision, RecoveryLogger)
-- [ ] 159-02-PLAN.md — CascadeGuard wired into AppState and pod_healer
+- [x] 159-02-PLAN.md — CascadeGuard wired into AppState and pod_healer
 
 ### Phase 160: RC-Sentry AI Migration
 **Goal**: rc-sentry stops blindly restarting rc-agent and instead checks pattern memory, distinguishes graceful restarts from real crashes, escalates to Ollama for unknown patterns, and logs every decision — blind 5s health poll + restart loop replaced end-to-end
@@ -2486,8 +2486,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 160-01-PLAN.md — Sentinel detection + RecoveryLogger wiring (SENT-03, SENT-04)
-- [ ] 160-02-PLAN.md — Pattern-aware escalation + pre-restart Ollama query (SENT-01, SENT-02)
+- [x] 160-01-PLAN.md — Sentinel detection + RecoveryLogger wiring (SENT-03, SENT-04)
+- [x] 160-02-PLAN.md — Pattern-aware escalation + pre-restart Ollama query (SENT-01, SENT-02)
 
 ### Phase 161: Pod Monitor Merge
 **Goal**: pod_monitor and pod_healer become a single recovery authority — pod_monitor's WoL/restart logic merges into pod_healer, the separate restart path is deleted, maintenance-offline pods are never woken, and recovery uses a 4-step graduated response instead of immediate restart
@@ -2516,8 +2516,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 162-01-PLAN.md — Core james monitor binary: failure_state, bono_alert, james_monitor (JWAT-01, JWAT-02, JWAT-03)
-- [ ] 162-02-PLAN.md — Deploy binary, Task Scheduler registration, retire james_watchdog.ps1 (JWAT-01)
+- [x] 162-01-PLAN.md — Core james monitor binary: failure_state, bono_alert, james_monitor (JWAT-01, JWAT-02, JWAT-03)
+- [x] 162-02-PLAN.md — Deploy binary, Task Scheduler registration, retire james_watchdog.ps1 (JWAT-01)
 
 ## v17.1 Progress
 
@@ -2558,9 +2558,9 @@ Note: Phases 160, 161, and 162 all depend on Phase 159 (foundation). Phases 160/
   5. cargo audit on all Rust crates shows zero vulnerabilities, or each is documented with an upgrade-or-defer decision
 **Plans:** 3/3 plans complete
 Plans:
-- [ ] 170-01-PLAN.md — Archive dead repos and catalogue non-git folders
-- [ ] 170-02-PLAN.md — Normalize git config and .gitignore across active repos
-- [ ] 170-03-PLAN.md — Audit npm and cargo dependencies for vulnerabilities
+- [x] 170-01-PLAN.md — Archive dead repos and catalogue non-git folders
+- [x] 170-02-PLAN.md — Normalize git config and .gitignore across active repos
+- [x] 170-03-PLAN.md — Audit npm and cargo dependencies for vulnerabilities
 
 ### Phase 171: Bug Fixes
 **Goal**: All 4 known bugs blocking daily operations are patched and deployed across all 8 pods and the server
@@ -2574,7 +2574,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 171-01-PLAN.md — Patch all 4 bugs: auto-seed pods on startup (BUG-01), process guard report_only config (BUG-03), confirm bat fixes for orphan PowerShell (BUG-02) and Variable_dump (BUG-04)
+- [x] 171-01-PLAN.md — Patch all 4 bugs: auto-seed pods on startup (BUG-01), process guard report_only config (BUG-03), confirm bat fixes for orphan PowerShell (BUG-02) and Variable_dump (BUG-04)
 
 ### Phase 172: Standing Rules Sync
 **Goal**: Relevant standing rules from racecontrol CLAUDE.md are propagated to every active repo, Bono VPS repos are updated with matching rules, and a compliance check script verifies rule presence across all repos in one command
@@ -2606,9 +2606,9 @@ Plans:
 
 Plans:
 - [x] 173-01-PLAN.md — API boundary document (all 4 boundaries, key shapes)
-- [ ] 173-02-PLAN.md — shared-types package + kiosk type wiring
-- [ ] 173-03-PLAN.md — admin wiring + OpenAPI spec + Swagger UI
-- [ ] 173-04-PLAN.md — contract tests (Vitest, fixtures) + GitHub Actions CI
+- [x] 173-02-PLAN.md — shared-types package + kiosk type wiring
+- [x] 173-03-PLAN.md — admin wiring + OpenAPI spec + Swagger UI
+- [x] 173-04-PLAN.md — contract tests (Vitest, fixtures) + GitHub Actions CI
 
 ### Phase 174: Health Monitoring & Unified Deploy
 **Goal**: Every running service exposes /health, a central script polls all services and reports status, deploy-staging has a clean git status, and unified deploy scripts plus a runbook cover every service with post-deploy health verification built in
@@ -2627,8 +2627,8 @@ Plans:
 - [x] 174-01-PLAN.md — Add /health to kiosk and web dashboard Next.js apps
 - [x] 174-02-PLAN.md — Fix comms-link relay /health, verify racecontrol + rc-sentry
 - [x] 174-03-PLAN.md — Triage deploy-staging 719 dirty files (gitignore + commit)
-- [ ] 174-04-PLAN.md — Create check-health.sh and deploy.sh with post-deploy health check
-- [ ] 174-05-PLAN.md — Deployment runbook + REPO-04/REPO-05 live verification checkpoint
+- [x] 174-04-PLAN.md — Create check-health.sh and deploy.sh with post-deploy health check
+- [x] 174-05-PLAN.md — Deployment runbook + REPO-04/REPO-05 live verification checkpoint
 
 ### Phase 175: E2E Validation
 **Goal**: The full 231-test E2E suite executes on both POS and Kiosk, cross-cutting sync tests verify real-time state propagation, and every test failure is fixed or documented as a known issue with root cause
@@ -2642,8 +2642,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 175-01-PLAN.md — Build run-e2e.sh test runner + E2E-REPORT-TEMPLATE.md (E2E-01, E2E-02 framework)
-- [ ] 175-02-PLAN.md — Cross-sync test guide, triage structure, human execution checkpoint (E2E-03, E2E-04)
+- [x] 175-01-PLAN.md — Build run-e2e.sh test runner + E2E-REPORT-TEMPLATE.md (E2E-01, E2E-02 framework)
+- [x] 175-02-PLAN.md — Cross-sync test guide, triage structure, human execution checkpoint (E2E-03, E2E-04)
 
 ## v21.0 Progress
 
@@ -2688,9 +2688,9 @@ Plans:
   7. rc-sentry Cargo.toml lists watchdog, tier1-fixes, and ai-diagnosis as optional features; default features include all three; bare build (--no-default-features) produces a remote-exec-only binary
 **Plans**: 3 plans
 Plans:
-- [ ] 176-01-PLAN.md — Protocol forward-compat (Unknown catch-all + 7 new WS message stubs)
-- [ ] 176-02-PLAN.md — Cargo feature gates for rc-agent and rc-sentry
-- [ ] 176-03-PLAN.md — CI minimal-build verification + single-binary-tier policy doc
+- [x] 176-01-PLAN.md — Protocol forward-compat (Unknown catch-all + 7 new WS message stubs)
+- [x] 176-02-PLAN.md — Cargo feature gates for rc-agent and rc-sentry
+- [x] 176-03-PLAN.md — CI minimal-build verification + single-binary-tier policy doc
 
 ### Phase 177: Server-Side Registry + Config Foundation
 **Goal**: Operators can create and read feature flags and queue config pushes via REST endpoints, with all changes persisted to SQLite and an audit log recording every mutation
@@ -2722,8 +2722,8 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 178-01-PLAN.md -- In-memory flag cache, disk persistence, WS handlers (FlagSync, KillSwitch), FlagCacheSync on reconnect
-- [ ] 178-02-PLAN.md -- ConfigPush hot-reload, ConfigAck flow, sentry-flags.json bridge, LaunchGame flag gate
-- [ ] 178-03-PLAN.md -- TypeScript WS message types + contract tests (SYNC-03)
+- [x] 178-02-PLAN.md -- ConfigPush hot-reload, ConfigAck flow, sentry-flags.json bridge, LaunchGame flag gate
+- [x] 178-03-PLAN.md -- TypeScript WS message types + contract tests (SYNC-03)
 
 ### Phase 179: OTA Pipeline
 **Goal**: New rc-agent and rc-sentry releases can be deployed to the full fleet via a state-machine-driven pipeline that gates every wave on health checks, skips pods with active billing sessions, auto-rolls back on failure, and is impossible to interrupt without a trace. rc-sentry deploys independently from rc-agent (different binary, different restart sequence) but shares the same canary-first pipeline and health gate infrastructure.
@@ -2740,10 +2740,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 179-01-PLAN.md -- ReleaseManifest, PipelineState, SHA256, deploy-state.json persistence
-- [ ] 179-02-PLAN.md -- Wave orchestrator, health gate, session gating
-- [ ] 179-03-PLAN.md -- Auto-rollback, OTA sentinel coordination, check-health.sh extension
-- [ ] 179-04-PLAN.md -- API endpoints, pipeline integration, human verification
+- [x] 179-01-PLAN.md -- ReleaseManifest, PipelineState, SHA256, deploy-state.json persistence
+- [x] 179-02-PLAN.md -- Wave orchestrator, health gate, session gating
+- [x] 179-03-PLAN.md -- Auto-rollback, OTA sentinel coordination, check-health.sh extension
+- [x] 179-04-PLAN.md -- API endpoints, pipeline integration, human verification
 
 ### Phase 180: Admin Dashboard UI
 **Goal**: Operators can toggle feature flags per-pod or fleet-wide and trigger OTA releases from the admin dashboard, with live wave progress, pod drain status, and rollback controls visible without a terminal
@@ -2758,7 +2758,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 180-01-PLAN.md -- Feature Flags page + OTA Releases page + API types + nav entries
+- [x] 180-01-PLAN.md -- Feature Flags page + OTA Releases page + API types + nav entries
 
 ### Phase 181: Standing Rules Gate
 **Goal**: Every standing rule is classified as AUTO, HUMAN-CONFIRM, or INFORMATIONAL and the appropriate enforcement mechanism fires at every pipeline step -- no gate can be bypassed, and HUMAN-CONFIRM rules pause the pipeline with a named checklist
@@ -2775,9 +2775,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 181-01-PLAN.md -- Standing rules registry + OTA Pipeline rules in CLAUDE.md
-- [ ] 181-02-PLAN.md -- gate-check.sh pre-deploy and post-wave gate script
-- [ ] 181-03-PLAN.md -- Pipeline integration (Paused state) + Bono sync
+- [x] 181-01-PLAN.md -- Standing rules registry + OTA Pipeline rules in CLAUDE.md
+- [x] 181-02-PLAN.md -- gate-check.sh pre-deploy and post-wave gate script
+- [x] 181-03-PLAN.md -- Pipeline integration (Paused state) + Bono sync
 
 ### Phase 182: Cross-Milestone Integration
 **Goal**: All active milestones updated to use v22.0's OTA pipeline, feature flags, and config push — overlapping phases superseded or merged, future phases gain v22.0 as a dependency
@@ -2793,7 +2793,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
+- [x] 187-01-PLAN.md � Sentry-aware relaunch logic + build verification
 
 ## v22.0 Progress
 
@@ -2841,7 +2841,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 183-01-PLAN.md — Recovery events ring buffer, POST/GET handlers, deploy to server
+- [x] 183-01-PLAN.md — Recovery events ring buffer, POST/GET handlers, deploy to server
 
 ### Phase 184: rc-sentry Crash Handler Upgrade
 **Goal**: rc-sentry's crash handler executes Tier 1 deterministic fixes, checks Tier 2 pattern memory for instant replay, queries Tier 3 Ollama for unknown patterns, escalates to staff after 3+ failures, verifies that spawned processes actually started, and reports every attempt to the recovery events API -- replacing blind restart-loop with a 4-tier graduated response
@@ -2858,9 +2858,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 184-01-PLAN.md — Graduated crash handler with spawn verification, server_reachable, recovery event reporting (Tier 1+2)
-- [ ] 184-02-PLAN.md — Tier 3 Ollama diagnosis + Tier 4 WhatsApp escalation
-- [ ] 184-03-PLAN.md — Session 1 spawn path for GUI process launches
+- [x] 184-01-PLAN.md — Graduated crash handler with spawn verification, server_reachable, recovery event reporting (Tier 1+2)
+- [x] 184-02-PLAN.md — Tier 3 Ollama diagnosis + Tier 4 WhatsApp escalation
+- [x] 184-03-PLAN.md — Session 1 spawn path for GUI process launches
 
 ### Phase 185: pod_healer WoL Coordination
 **Goal**: pod_healer queries the recovery events API before escalating to Wake-on-LAN -- if rc-sentry already restarted the pod with spawn_verified: true within the last 60 seconds, WoL is skipped; a WOL_SENT sentinel is written via rc-sentry before sending WoL so all recovery systems see the escalation
@@ -2875,8 +2875,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 185-01-PLAN.md -- Recovery coordination primitives (ProcessOwnership, RecoveryIntentStore, GRACEFUL_RELAUNCH sentinel checking)
-- [ ] 185-02-PLAN.md -- Context-aware WoL (recovery event query, MAINTENANCE_MODE check, WOL_SENT sentinel)
+- [x] 185-01-PLAN.md -- Recovery coordination primitives (ProcessOwnership, RecoveryIntentStore, GRACEFUL_RELAUNCH sentinel checking)
+- [x] 185-02-PLAN.md -- Context-aware WoL (recovery event query, MAINTENANCE_MODE check, WOL_SENT sentinel)
 
 ### Phase 186: MAINTENANCE_MODE Auto-Clear
 **Goal**: MAINTENANCE_MODE stops being a silent permanent pod killer -- it now carries a JSON diagnostic payload (reason, timestamp, restart count), auto-clears after 30 minutes or when WOL_SENT sentinel exists, and sends a WhatsApp alert to staff the moment it activates on any pod
@@ -2891,7 +2891,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 186-01-PLAN.md — JSON maintenance payload, 30-min auto-clear, WOL_SENT immediate clear, WhatsApp alert on activation
+- [x] 186-01-PLAN.md — JSON maintenance payload, 30-min auto-clear, WOL_SENT immediate clear, WhatsApp alert on activation
 
 ### Phase 187: self_monitor Coordination
 **Goal**: rc-agent's self_monitor yields to rc-sentry when sentry is reachable -- instead of spawning a PowerShell process to relaunch itself (leaking 90MB per restart), self_monitor writes GRACEFUL_RELAUNCH and exits cleanly, letting rc-sentry handle the restart through the verified Session 1 spawn path
@@ -2905,7 +2905,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
+- [x] 187-01-PLAN.md — Sentry-aware relaunch logic + build verification
 
 ### Phase 188: James Watchdog + rc-watchdog Grace Window
 **Goal**: james_watchdog.ps1's blind 2-minute service check is replaced by a Rust-based AI watchdog using shared ollama.rs from rc-common with graduated Tier 1-4 response; rc-watchdog adds a 30-second grace window that reads sentry-restart-breadcrumb.txt before acting, plus spawn verification after session1 launch
@@ -2919,7 +2919,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 188-01-PLAN.md — Shared ollama.rs, spawn verification, sentry breadcrumb grace window
+- [x] 188-01-PLAN.md — Shared ollama.rs, spawn verification, sentry breadcrumb grace window
 
 ## v17.1 Progress
 
@@ -2967,9 +2967,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 189-01-PLAN.md — audit.sh entry point + stub lib/core.sh: mode parsing, prereq checks (jq/curl/AUDIT_PIN), IST result dir init, auth acquisition, exit codes 0/1/2
-- [ ] 189-02-PLAN.md — lib/core.sh full implementation: emit_result (9-field JSON), http_get (quote strip), safe_remote_exec (temp file pattern), safe_ssh_capture (banner protection), get_session_token (AUDIT_PIN from env), venue_state_detect, ist_now
-- [ ] 189-03-PLAN.md — Phase 01 Fleet Inventory proof-of-concept: phase01.sh (server+pods health), QUIET logic for closed venue, audit.sh phase runner wiring, end-to-end validation
+- [x] 189-01-PLAN.md — audit.sh entry point + stub lib/core.sh: mode parsing, prereq checks (jq/curl/AUDIT_PIN), IST result dir init, auth acquisition, exit codes 0/1/2
+- [x] 189-02-PLAN.md — lib/core.sh full implementation: emit_result (9-field JSON), http_get (quote strip), safe_remote_exec (temp file pattern), safe_ssh_capture (banner protection), get_session_token (AUDIT_PIN from env), venue_state_detect, ist_now
+- [x] 189-03-PLAN.md — Phase 01 Fleet Inventory proof-of-concept: phase01.sh (server+pods health), QUIET logic for closed venue, audit.sh phase runner wiring, end-to-end validation
 
 ### Phase 190: Phase Scripts Tiers 1-9 (Sequential Baseline)
 **Goal**: All v3.0 phases 1-34 (tiers 1-9) run non-interactively in sequential mode and produce correct PASS/WARN/FAIL/QUIET results — verified against the live fleet before parallelism is introduced
@@ -2984,9 +2984,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 190-01-PLAN.md — Tiers 1-3: infrastructure checks (server health, build IDs, network), core services (racecontrol, rc-agent, rc-sentry), display/UX (lock screen, Edge, blanking)
-- [ ] 190-02-PLAN.md — Tiers 4-6: billing/session lifecycle, games/hardware (AC, FFB, USB), notifications (WhatsApp, comms-link)
-- [ ] 190-03-PLAN.md — Tiers 7-9: cloud/PWA (Bono VPS, app.racingpoint.cloud), security (JWT, firewall, process guard), data/analytics (laps DB, leaderboard, telemetry)
+- [x] 190-01-PLAN.md — Tiers 1-3: infrastructure checks (server health, build IDs, network), core services (racecontrol, rc-agent, rc-sentry), display/UX (lock screen, Edge, blanking)
+- [x] 190-02-PLAN.md — Tiers 4-6: billing/session lifecycle, games/hardware (AC, FFB, USB), notifications (WhatsApp, comms-link)
+- [x] 190-03-PLAN.md — Tiers 7-9: cloud/PWA (Bono VPS, app.racingpoint.cloud), security (JWT, firewall, process guard), data/analytics (laps DB, leaderboard, telemetry)
 
 ### Phase 191: Parallel Engine and Phase Scripts Tiers 10-18
 **Goal**: All 60 v3.0 phases are ported and the audit runtime drops from ~24 minutes to ~6 minutes via parallel pod queries — file-based semaphore enforces the 4-concurrent-connection cap, no output interleaving, no ARP flood on the venue LAN
@@ -3001,9 +3001,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 191-01-PLAN.md — lib/parallel.sh: file-based semaphore (max 4 concurrent), pod_loop helper, 200ms stagger, audit.sh tier 10-18 dispatch
-- [ ] 191-02-PLAN.md — Tiers 10-12 phase scripts (phases 45-53): Ops/Compliance, E2E Journeys, Code Quality
-- [ ] 191-03-PLAN.md — Tiers 13-18 phase scripts (phases 54-60): Registry, Data Integrity, Test Suites, Cloud, Customer Flows, Cross-System Chains
+- [x] 191-01-PLAN.md — lib/parallel.sh: file-based semaphore (max 4 concurrent), pod_loop helper, 200ms stagger, audit.sh tier 10-18 dispatch
+- [x] 191-02-PLAN.md — Tiers 10-12 phase scripts (phases 45-53): Ops/Compliance, E2E Journeys, Code Quality
+- [x] 191-03-PLAN.md — Tiers 13-18 phase scripts (phases 54-60): Registry, Data Integrity, Test Suites, Cloud, Customer Flows, Cross-System Chains
 
 ### Phase 192: Intelligence Layer
 **Goal**: Two consecutive audit runs produce a delta report that correctly identifies regressions (PASS to FAIL), improvements (FAIL to PASS), and new issues — and known recurring issues can be suppressed with mandatory expiry dates so they appear as SUPPRESSED rather than cluttering the FAIL list
@@ -3018,10 +3018,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 192-01-PLAN.md — Results storage: audit/results/YYYY-MM-DD_HH-MM/ directory, latest symlink, results/index.json audit run history (RSLT-01, RSLT-02, RSLT-04)
-- [ ] 192-02-PLAN.md — lib/delta.sh: jq-based join on phase/host between runs; REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categories; mode-aware and venue-state-aware comparison (INTL-01, INTL-02)
-- [ ] 192-03-PLAN.md — suppress.json schema + expiry enforcement + SUPPRESSED status emission (INTL-03, INTL-04, INTL-08); severity scoring P1/P2/P3 per phase (INTL-05)
-- [ ] 192-04-PLAN.md — generate-report.sh: Markdown report with tier tables, delta section, suppressed section, fix log, overall verdict; summary JSON with counts (INTL-06, INTL-07)
+- [x] 192-01-PLAN.md — Results storage: audit/results/YYYY-MM-DD_HH-MM/ directory, latest symlink, results/index.json audit run history (RSLT-01, RSLT-02, RSLT-04)
+- [x] 192-02-PLAN.md — lib/delta.sh: jq-based join on phase/host between runs; REGRESSION/IMPROVEMENT/PERSISTENT/NEW_ISSUE/STABLE categories; mode-aware and venue-state-aware comparison (INTL-01, INTL-02)
+- [x] 192-03-PLAN.md — suppress.json schema + expiry enforcement + SUPPRESSED status emission (INTL-03, INTL-04, INTL-08); severity scoring P1/P2/P3 per phase (INTL-05)
+- [x] 192-04-PLAN.md — generate-report.sh: Markdown report with tier tables, delta section, suppressed section, fix log, overall verdict; summary JSON with counts (INTL-06, INTL-07)
 
 ### Phase 193: Auto-Fix, Notifications, and Results Management
 **Goal**: Operators can run `bash audit/audit.sh --mode full --auto-fix --notify --commit` and get the full pipeline — safe fixes executed on idle pods, Bono notified via comms-link, Uday's phone gets a WhatsApp summary with P1/P2 counts, and results committed to git — all gated so no fix ever touches an active billing session
@@ -3036,9 +3036,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 193-01-PLAN.md — lib/fixes.sh: approved-fixes whitelist, is_pod_idle() gate, OTA_DEPLOYING/MAINTENANCE_MODE sentinel checks, FIX-01 through FIX-08 implementations, per-fix audit log
-- [ ] 193-02-PLAN.md — lib/notify.sh: comms-link WS relay + INBOX.md dual-channel (NOTF-01, NOTF-02), WhatsApp via Bono relay Evolution API (NOTF-03), --notify flag gate (NOTF-04), delta summary in notification (NOTF-05)
-- [ ] 193-03-PLAN.md — RSLT-03 git commit of results; end-to-end integration test of full pipeline with all flags
+- [x] 193-01-PLAN.md — lib/fixes.sh: approved-fixes whitelist, is_pod_idle() gate, OTA_DEPLOYING/MAINTENANCE_MODE sentinel checks, FIX-01 through FIX-08 implementations, per-fix audit log
+- [x] 193-02-PLAN.md — lib/notify.sh: comms-link WS relay + INBOX.md dual-channel (NOTF-01, NOTF-02), WhatsApp via Bono relay Evolution API (NOTF-03), --notify flag gate (NOTF-04), delta summary in notification (NOTF-05)
+- [x] 193-03-PLAN.md — RSLT-03 git commit of results; end-to-end integration test of full pipeline with all flags
 
 ## v23.0 Progress
 
@@ -3088,7 +3088,7 @@ Plans:
   5. **REGRESSION**: All existing `cargo test` pass after normalization changes -- zero test regressions
 **Plans**: 1 plan
 Plans:
-- [ ] 194-01-PLAN.md -- normalize_pod_id() in rc-common + replace all alt-id workarounds in racecontrol
+- [x] 194-01-PLAN.md -- normalize_pod_id() in rc-common + replace all alt-id workarounds in racecontrol
 
 ### Phase 195: Metrics Foundation
 **Goal**: Every game launch, billing event, and crash recovery is recorded in dual storage (SQLite for queries, JSONL for immutable audit) with queryable APIs -- the data backbone that powers dynamic timeouts, intelligence, and debugging
@@ -3105,9 +3105,9 @@ Plans:
   8. **ERROR LOGGING**: `log_game_event()` DB insert failure produces a `tracing::error!` log entry AND writes to JSONL fallback -- grep server logs for "launch_event insert failed" confirms error is visible
 **Plans**: 3 plans
 Plans:
-- [ ] 195-01-PLAN.md — Launch events schema, metrics module, JSONL writer, fix log_game_event error swallowing
-- [ ] 195-02-PLAN.md — Billing accuracy events and recovery events tables + recording functions
-- [ ] 195-03-PLAN.md — REST API endpoints for launch-stats and billing-accuracy queries
+- [x] 195-01-PLAN.md — Launch events schema, metrics module, JSONL writer, fix log_game_event error swallowing
+- [x] 195-02-PLAN.md — Billing accuracy events and recovery events tables + recording functions
+- [x] 195-03-PLAN.md — REST API endpoints for launch-stats and billing-accuracy queries
 
 ### Phase 196: Game Launcher Structural Rework
 **Goal**: The monolithic launch_game() is decomposed into per-game trait implementations with correct billing gates, state machine transitions, and error propagation -- structural bugs fixed before adding resilience features
@@ -3127,8 +3127,8 @@ Plans:
   11. **EXTERNALLY TRACKED**: Restart server while game is running on pod -- agent reports Running, tracker created with `externally_tracked=true` and `launch_args=None`. Auto-relaunch knows it cannot retry this game
 **Plans**: 2 plans
 Plans:
-- [ ] 196-01-PLAN.md — GameLauncherImpl trait + billing gate fixes + JSON validation
-- [ ] 196-02-PLAN.md — State machine fixes + broadcast reliability + feature flag gate
+- [x] 196-01-PLAN.md — GameLauncherImpl trait + billing gate fixes + JSON validation
+- [x] 196-02-PLAN.md — State machine fixes + broadcast reliability + feature flag gate
 
 ### Phase 197: Launch Resilience & AC Hardening
 **Goal**: Game launches are resilient with dynamic timeouts tuned from historical data, pre-launch health checks, structured error taxonomy, auto-retry with clean state reset, and AC-specific reliability improvements -- launch failures recover automatically in under 60 seconds
@@ -3153,8 +3153,8 @@ Plans:
   16. **ARG PARSING**: Launch args with spaces in path (`C:\Program Files\Steam\steamapps\common\F1 25\F1_25.exe`) handled correctly. Verify: game launches, no "file not found" from split_whitespace bug
 **Plans**: 2 plans
 Plans:
-- [ ] 197-01-PLAN.md — Server-side: dynamic timeout, error taxonomy, atomic Race Engineer, WhatsApp alert, stop_game fix
-- [ ] 197-02-PLAN.md — Agent-side: pre-launch checks, AC polling waits, CM timeout, fresh PID, arg parsing fix
+- [x] 197-01-PLAN.md — Server-side: dynamic timeout, error taxonomy, atomic Race Engineer, WhatsApp alert, stop_game fix
+- [x] 197-02-PLAN.md — Agent-side: pre-launch checks, AC polling waits, CM timeout, fresh PID, arg parsing fix
 
 ### Phase 198: On-Track Billing
 **Goal**: Billing starts only when the customer car is on-track and controllable, pauses on crash, resumes on successful relaunch -- customers are never charged for loading screens, shader compilation, or crashed games
@@ -3175,9 +3175,9 @@ Plans:
   12. **CONFIGURABLE TIMEOUTS**: All billing timeouts in racecontrol.toml: `multiplayer_wait_timeout_secs = 60`, `pause_auto_end_timeout_secs = 600`, `launch_timeout_per_attempt_secs = 180`, `idle_drift_threshold_secs = 300`, `offline_grace_secs = 300`. Change multiplayer_wait to 90 → restart server → multiplayer wait is 90s. Verify: `grep "multiplayer timeout" server.log` shows 90s
 **Plans**: 3 plans
 Plans:
-- [ ] 198-01-PLAN.md — Foundation types (CancelledNoPlayable, BillingConfig) + AC False-Live guard + process fallback crash guard
-- [ ] 198-02-PLAN.md — Server billing: WaitingForGame broadcast, cancelled_no_playable records, AC timer sync, multiplayer error handling, configurable timeouts
-- [ ] 198-03-PLAN.md — Billing tests + human verification
+- [x] 198-01-PLAN.md — Foundation types (CancelledNoPlayable, BillingConfig) + AC False-Live guard + process fallback crash guard
+- [x] 198-02-PLAN.md — Server billing: WaitingForGame broadcast, cancelled_no_playable records, AC timer sync, multiplayer error handling, configurable timeouts
+- [x] 198-03-PLAN.md — Billing tests + human verification
 
 ### Phase 199: Crash Recovery
 **Goal**: When a game crashes during launch or mid-session, the system performs a full clean-slate reset and relaunches within 60 seconds total, with recovery actions informed by historical success data -- the customer session continues with minimal interruption
@@ -3195,8 +3195,8 @@ Plans:
   9. **CONCURRENT PROTECTION**: Two rapid crashes on same pod (<100ms apart) → only ONE recovery sequence initiated. Counter increments once. Verify: server log shows exactly one "Race Engineer: relaunching" entry, not two
 **Plans**: 2 plans
 Plans:
-- [ ] 199-01-PLAN.md -- Server-side: force_clean protocol, history-informed recovery, enriched events, exit_codes, staff alert, null-args guard
-- [ ] 199-02-PLAN.md -- Agent-side: force_clean handling, safe mode cooldown suppression, exit grace verification, unit tests
+- [x] 199-01-PLAN.md -- Server-side: force_clean protocol, history-informed recovery, enriched events, exit_codes, staff alert, null-args guard
+- [x] 199-02-PLAN.md -- Agent-side: force_clean handling, safe mode cooldown suppression, exit grace verification, unit tests
 
 ### Phase 200: Self-Improving Intelligence
 **Goal**: The system uses accumulated launch data to warn about unreliable combos, suggest alternatives, and display reliability insights to staff -- every launch makes the system smarter without manual threshold tuning
@@ -3215,7 +3215,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 200-01-PLAN.md — Combo reliability table, query/update functions, warning injection in launch response, auto-retry cap tuning
-- [ ] 200-02-PLAN.md — Alternatives suggestion API + admin launch matrix endpoint
+- [x] 200-02-PLAN.md — Alternatives suggestion API + admin launch matrix endpoint
 
 ### Phase 201: Frontend Integration & Type Sync
 **Goal**: All 4 frontend apps (kiosk, web dashboard, admin, PWA) correctly handle new billing states, game states, and metrics — with type safety enforced by contract tests and CI. No customer-facing UI breaks when the backend ships new states.
@@ -3241,9 +3241,9 @@ Plans:
   17. **KIOSK + WEB + ADMIN REBUILD**: All 3 Next.js apps rebuilt with updated shared-types. `NEXT_PUBLIC_` vars set correctly. Static files serving verified (`curl _next/static/` returns 200). Verify: health endpoints + static file check on all 3 apps
 **Plans**: 3 plans
 Plans:
-- [ ] 201-01-PLAN.md -- Shared types sync, contract tests, drift prevention, OpenAPI update
-- [ ] 201-02-PLAN.md -- Kiosk UI: loading state, crash recovery, reliability warning
-- [ ] 201-03-PLAN.md -- Web/admin: StatusBadge, billing pages, metrics API client, launch matrix page
+- [x] 201-01-PLAN.md -- Shared types sync, contract tests, drift prevention, OpenAPI update
+- [x] 201-02-PLAN.md -- Kiosk UI: loading state, crash recovery, reliability warning
+- [x] 201-03-PLAN.md -- Web/admin: StatusBadge, billing pages, metrics API client, launch matrix page
 
 ## v24.0 Progress
 
@@ -3293,8 +3293,8 @@ Plans:
   8. go2rtc warmup step exists in start-rcsentry-ai.bat and executes before rc-sentry-ai starts
 **Plans**: 2 plans
 Plans:
-- [ ] 202-01-PLAN.md — Config value validation (phase02) + billing/watchdog severity fixes (phase21, phase53)
-- [ ] 202-02-PLAN.md — WhatsApp/email service checks (phase30, phase31) + display resolution fix (phase19) + go2rtc warmup bat
+- [x] 202-01-PLAN.md — Config value validation (phase02) + billing/watchdog severity fixes (phase21, phase53)
+- [x] 202-02-PLAN.md — WhatsApp/email service checks (phase30, phase31) + display resolution fix (phase19) + go2rtc warmup bat
 
 ### Phase 203: Deep Service Verification
 **Goal**: Audit phase scripts that currently check infrastructure proxies (process count, uptime, HTTP 200) are upgraded to verify the actual consuming service is functional
@@ -3311,8 +3311,8 @@ Plans:
   8. Audit Phase 56 OpenAPI check spot-verifies 3-5 critical endpoint names (app-health, flags, guard/whitelist) are present in the spec
 **Plans**: 2 plans
 Plans:
-- [ ] 203-01-PLAN.md — Wrong Layer fixes: self-monitor log recency, Ollama model query, preflight subsystem, face-audit recency
-- [ ] 203-02-PLAN.md — Count vs Health fixes: allowlist content spot-check, menu availability, flag enabled state, OpenAPI endpoint names
+- [x] 203-01-PLAN.md — Wrong Layer fixes: self-monitor log recency, Ollama model query, preflight subsystem, face-audit recency
+- [x] 203-02-PLAN.md — Count vs Health fixes: allowlist content spot-check, menu availability, flag enabled state, OpenAPI endpoint names
 
 ### Phase 204: Cross-Service & UI End-to-End
 **Goal**: Audit phase scripts verify end-to-end dependency chains and user-facing page rendering — the final layer that catches breakages invisible to individual service checks
@@ -3326,8 +3326,8 @@ Plans:
   5. Audit Phase 44 cameras check verifies the Next.js cameras page at :3200/cameras loads successfully (not just that go2rtc is running)
 **Plans**: 2 plans
 Plans:
-- [ ] 204-01-PLAN.md -- Cross-service dependency chain checks (XS-01, XS-02)
-- [ ] 204-02-PLAN.md -- UI rendering verification checks (UI-01, UI-02, UI-03)
+- [x] 204-01-PLAN.md -- Cross-service dependency chain checks (XS-01, XS-02)
+- [x] 204-02-PLAN.md -- UI rendering verification checks (UI-01, UI-02, UI-03)
 
 ## v23.1 Progress
 
@@ -3371,7 +3371,7 @@ Plans:
   4. Hot-path and cold-path variants are distinguishable: billing/WS path chains use async fire-and-forget; config/allowlist chains use synchronous verification -- documented in module-level rustdoc
 **Plans:** 3/3 plans complete
 Plans:
-- [ ] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
+- [x] 205-01-PLAN.md — VerifyStep trait, VerificationChain builder, VerificationError enum, spawn_periodic_refetch
 
 ### Phase 206: Observable State Transitions
 **Goal**: Every degraded state in the system emits an observable signal at the moment it occurs -- operators learn of pod failures, config fallbacks, and empty allowlists within 30 seconds, not after downstream symptoms appear
@@ -3385,8 +3385,8 @@ Plans:
   5. rc-sentry watchdog.rs FSM transitions from Healthy to Suspect(N) produce a RecoveryLogger entry on EVERY transition (not just on Crashed) -- verified by reading JSONL after triggering a suspect count increment
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 206-01-PLAN.md -- Config fallback logging, empty allowlist auto-response, FSM transition logging
-- [ ] 206-02-PLAN.md -- Sentinel file watcher, SentinelChange WS protocol, fleet health active_sentinels, MAINTENANCE_MODE WhatsApp alert
+- [x] 206-01-PLAN.md -- Config fallback logging, empty allowlist auto-response, FSM transition logging
+- [x] 206-02-PLAN.md -- Sentinel file watcher, SentinelChange WS protocol, fleet health active_sentinels, MAINTENANCE_MODE WhatsApp alert
 
 ### Phase 207: Boot Resilience
 **Goal**: Any resource fetched at startup that fails to load due to server transience self-heals within one re-fetch cycle -- no resource stays at its boot-time default indefinitely
@@ -3400,7 +3400,7 @@ Plans:
 **Plans:** 2/2 plans complete
 Plans:
 - [x] 207-01-PLAN.md -- Feature flags periodic re-fetch via spawn_periodic_refetch + CLAUDE.md boot resilience standing rule (completed 2026-03-26)
-- [ ] 207-02-PLAN.md -- First-scan validation for process guard + GUARD_CONFIRMED fleet exec command
+- [x] 207-02-PLAN.md -- First-scan validation for process guard + GUARD_CONFIRMED fleet exec command
 
 ### Phase 208: Chain Verification Integration
 **Goal**: The 4 critical parse/transform chains responsible for 5+ documented incidents each log their intermediate step values -- a failing chain produces a log line naming the exact step and raw value that failed, not just a downstream symptom
@@ -3429,8 +3429,8 @@ Plans:
   5. LOGBOOK.md exists at repo root with a defined header format and at least one sample entry demonstrating the Cause Elimination template -- future entries can be verified against the format by grep
 **Plans**: 2 plans
 Plans:
-- [ ] 209-01-PLAN.md -- Domain-matched verification gate (Suite 5) in gate-check.sh (GATE-01, GATE-02, GATE-03, GATE-04)
-- [ ] 209-02-PLAN.md -- fix_log.sh Cause Elimination helper + LOGBOOK.md template (GATE-05)
+- [x] 209-01-PLAN.md -- Domain-matched verification gate (Suite 5) in gate-check.sh (GATE-01, GATE-02, GATE-03, GATE-04)
+- [x] 209-02-PLAN.md -- fix_log.sh Cause Elimination helper + LOGBOOK.md template (GATE-05)
 
 ### Phase 210: Startup Enforcement and Fleet Audit
 **Goal**: All 8 pods run bat files that match the canonical repo version, bat syntax violations are detected before deploy, and the fleet audit system includes 5 new v25.0-specific phases that permanently verify debug quality on every audit run
@@ -3444,8 +3444,8 @@ Plans:
   5. Deploying rc-agent to any pod via deploy-pod.sh includes a bat file sync step that downloads the canonical bat from the repo and deploys it alongside the binary -- verified by checking that a pod with a stale bat before deploy has a matching bat after deploy
 **Plans**: 2 plans
 Plans:
-- [ ] 210-01-PLAN.md -- bat-scanner.sh with drift detection and syntax validation (BAT-01, BAT-02)
-- [ ] 210-02-PLAN.md -- 5 new audit phases, deploy bat sync, Debug Quality report section (BAT-03, BAT-04, AUDIT-01, AUDIT-02, AUDIT-03)
+- [x] 210-01-PLAN.md -- bat-scanner.sh with drift detection and syntax validation (BAT-01, BAT-02)
+- [x] 210-02-PLAN.md -- 5 new audit phases, deploy bat sync, Debug Quality report section (BAT-03, BAT-04, AUDIT-01, AUDIT-02, AUDIT-03)
 
 ## v25.0 Progress
 
@@ -3521,8 +3521,8 @@ Foundation scripts already exist: `scripts/auto-detect.sh`, `scripts/bono-auto-d
   5. When triggered during venue-open hours, auto-detect runs in quick mode with shorter per-pod timeouts and does not attempt fix actions that require pod idle state
 **Plans**: 2 plans
 Plans:
-- [ ] 211-01-PLAN.md — Safety gates: PID guard, escalation cooldown, venue-aware mode, sentinel check
-- [ ] 211-02-PLAN.md — Task Scheduler registration (02:30 IST) + Bono cron correction (02:35 IST)
+- [x] 211-01-PLAN.md — Safety gates: PID guard, escalation cooldown, venue-aware mode, sentinel check
+- [x] 211-02-PLAN.md — Task Scheduler registration (02:30 IST) + Bono cron correction (02:35 IST)
 
 ### Phase 211.1: Venue Shutdown Button (INSERTED)
 **Goal**: Staff can safely shut down all venue infrastructure from kiosk with pre-shutdown audit gate, billing drain check, and ordered shutdown sequence
@@ -3536,9 +3536,9 @@ Plans:
   5. On next boot, James reads pre-shutdown findings and applies safe auto-fixes
 **Plans**: 3 plans
 Plans:
-- [ ] 211.1-01-PLAN.md — API endpoint + shutdown orchestration script
-- [ ] 211.1-02-PLAN.md — Kiosk shutdown page with PIN auth + progress UI
-- [ ] 211.1-03-PLAN.md — Boot-time fix script + Bono fallback wiring
+- [x] 211.1-01-PLAN.md — API endpoint + shutdown orchestration script
+- [x] 211.1-02-PLAN.md — Kiosk shutdown page with PIN auth + progress UI
+- [x] 211.1-03-PLAN.md — Boot-time fix script + Bono fallback wiring
 
 ### Phase 212: Detection Expansion
 **Goal**: The auto-detect pipeline detects config drift, bat file regression, log anomalies, crash loops, flag desync, and schema gaps — every detection traces to a documented historical incident
@@ -3552,8 +3552,8 @@ Plans:
   5. When any two pods have a different set of enabled feature flags, DET-05 reports the specific flag name and which pods diverge — not just "flags out of sync"
 **Plans**: 2 plans
 Plans:
-- [ ] 212-01-PLAN.md — Cascade framework + config drift, bat drift, log anomaly detectors
-- [ ] 212-02-PLAN.md — Crash loop, flag desync, schema gap detectors + pipeline validation
+- [x] 212-01-PLAN.md — Cascade framework + config drift, bat drift, log anomaly detectors
+- [x] 212-02-PLAN.md — Crash loop, flag desync, schema gap detectors + pipeline validation
 
 ### Phase 213: Self-Healing & Escalation
 **Goal**: Detected issues trigger graduated, sentinel-aware fix attempts ending in human escalation only when automation is exhausted — and every fix action is verifiable, togglable, and follows documented methodology
@@ -3567,8 +3567,8 @@ Plans:
   5. Setting auto_fix_enabled = false causes the next auto-detect run to produce a full detection report with no fix actions applied — the toggle is honored without restarting the pipeline
 **Plans**: 2 plans
 Plans:
-- [ ] 213-01-PLAN.md — Escalation engine core + 3 new APPROVED_FIXES + auto_fix_enabled toggle
-- [ ] 213-02-PLAN.md — Live-sync wiring into detectors + WhatsApp silence + pipeline integration
+- [x] 213-01-PLAN.md — Escalation engine core + 3 new APPROVED_FIXES + auto_fix_enabled toggle
+- [x] 213-02-PLAN.md — Live-sync wiring into detectors + WhatsApp silence + pipeline integration
 
 ### Phase 214: Bono Coordination
 **Goal**: James and Bono never fix the same pod concurrently — Bono acts independently only when James is confirmed down, and re-coordinates the moment James recovers
@@ -3598,10 +3598,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 215-01-PLAN.md — Pattern tracker + trend analysis (LEARN-01, LEARN-04)
-- [ ] 215-02-PLAN.md — Suggestion engine + categorization + inbox API (LEARN-02, LEARN-03, LEARN-06)
-- [ ] 215-03-PLAN.md — Approved suggestion sync to target files (LEARN-05)
-- [ ] 215-04-PLAN.md — Self-patch loop with CE methodology + toggle (LEARN-07, LEARN-08, LEARN-09)
+- [x] 215-01-PLAN.md — Pattern tracker + trend analysis (LEARN-01, LEARN-04)
+- [x] 215-02-PLAN.md — Suggestion engine + categorization + inbox API (LEARN-02, LEARN-03, LEARN-06)
+- [x] 215-03-PLAN.md — Approved suggestion sync to target files (LEARN-05)
+- [x] 215-04-PLAN.md — Self-patch loop with CE methodology + toggle (LEARN-07, LEARN-08, LEARN-09)
 
 ### Phase 216: Pipeline Self-Test Suite
 **Goal**: Every detector and escalation tier can be verified against known-good and known-bad inputs without touching live infrastructure — the test suite confirms that detection is correct before each production run
@@ -3615,8 +3615,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 216-01-PLAN.md -- Fixture files + pipeline step tests + detector fixture tests (TEST-01, TEST-02)
-- [ ] 216-02-PLAN.md -- Escalation ladder test + coordination mutex test (TEST-03, TEST-04)
+- [x] 216-01-PLAN.md -- Fixture files + pipeline step tests + detector fixture tests (TEST-01, TEST-02)
+- [x] 216-02-PLAN.md -- Escalation ladder test + coordination mutex test (TEST-03, TEST-04)
 
 ## v26.0 Progress
 

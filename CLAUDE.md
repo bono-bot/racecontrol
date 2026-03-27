@@ -189,6 +189,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 
 ### Process
 
+- **ROADMAP plan checkbox sync on completion.** When a plan's SUMMARY.md is committed, the SAME commit MUST update the corresponding `- [ ]` checkbox in ROADMAP.md to `- [x]`. Phase-level `[x]` markers are NOT sufficient — plan-level checkboxes must also be updated. Verification: `grep "^- \[ \] <plan-id>-PLAN" .planning/ROADMAP.md` must return zero hits for the just-completed plan.
+  _Why: 2026-03-27 audit found 172 stale `[ ]` plan entries under shipped `[x]` phases. v24.0 (8 phases, 18 plans, fully shipped) was falsely reported as incomplete because the audit trusted plan checkboxes (metadata proxy) instead of git history (ground truth). Same class of bug as "health passes but blanking is broken" — the standing rule "verify the EXACT behavior, not proxies" applies to GSD tracking too._
 - **Refactor Second** — characterization tests first, verify green, then refactor. No exceptions.
   _Why: Refactoring without a green test baseline turns every compile error into an unknown regression._
 - **Cross-Process Updates** — changing a feature? Update ALL: rc-agent, racecontrol, PWA, Admin, Gateway, Dashboard. This means ALL ENVIRONMENTS too — venue (.23), cloud (Bono VPS), and James (.27). Deploy to one and forget the other = schema divergence.
