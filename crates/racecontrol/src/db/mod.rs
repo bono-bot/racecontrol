@@ -1524,6 +1524,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Migration: ensure hour_start/hour_end columns exist (older DBs may have hour_restriction instead)
+    let _ = sqlx::query("ALTER TABLE packages ADD COLUMN hour_start INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE packages ADD COLUMN hour_end INTEGER")
+        .execute(pool)
+        .await;
+
     // Seed default packages
     sqlx::query(
         "INSERT OR IGNORE INTO packages (id, name, description, num_rigs, duration_minutes, price_paise, includes_cafe, cafe_budget_paise, sort_order)

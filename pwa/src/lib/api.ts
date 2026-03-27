@@ -577,7 +577,8 @@ export interface PackageInfo {
   price_display: string;
   includes_cafe: boolean;
   day_restriction: string | null;
-  hour_restriction: string | null;
+  hour_start: number | null;
+  hour_end: number | null;
 }
 
 export interface MembershipTier {

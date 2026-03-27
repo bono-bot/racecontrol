@@ -10483,9 +10483,9 @@ async fn customer_apply_coupon(
 async fn customer_list_packages(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, i64, i64, i64, bool, Option<String>, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i64, i64, i64, bool, Option<String>, Option<i64>, Option<i64>)>(
         "SELECT id, name, description, num_rigs, duration_minutes, price_paise,
-                includes_cafe, day_restriction, hour_restriction
+                includes_cafe, day_restriction, hour_start, hour_end
          FROM packages WHERE is_active = 1
          ORDER BY price_paise ASC",
     )
@@ -10504,7 +10504,8 @@ async fn customer_list_packages(
                 "price_display": format!("₹{}", p.5 / 100),
                 "includes_cafe": p.6,
                 "day_restriction": p.7,
-                "hour_restriction": p.8,
+                "hour_start": p.8,
+                "hour_end": p.9,
             })).collect();
             Json(json!({ "packages": list }))
         }
