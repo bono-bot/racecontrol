@@ -29,6 +29,7 @@ mod pre_flight;
 mod remote_ops;
 mod safe_mode;
 mod self_heal;
+mod startup_cleanup;
 #[cfg(feature = "process-guard")]
 mod process_guard;
 mod self_monitor;
@@ -266,6 +267,26 @@ async fn main() -> Result<()> {
         startup_log::write_phase("self_heal", &format!("repairs={}", repairs.join(",")));
     } else {
         startup_log::write_phase("self_heal", "no_repairs_needed");
+    }
+
+    // Run startup cleanup (stale binaries, orphan processes, bloatware Run keys)
+    // Runs after self_heal to operate on a stable, repaired baseline.
+    // All steps are fail-open — errors logged at WARN, never abort startup.
+    let cleanup_result = startup_cleanup::run(&exe_dir);
+    if cleanup_result.files_deleted > 0 || !cleanup_result.errors.is_empty() {
+        startup_log::write_phase(
+            "startup_cleanup",
+            &format!(
+                "ok={}/{} files={} bytes={} errors={}",
+                cleanup_result.steps_succeeded,
+                cleanup_result.steps_attempted,
+                cleanup_result.files_deleted,
+                cleanup_result.bytes_reclaimed,
+                cleanup_result.errors.len()
+            ),
+        );
+    } else {
+        startup_log::write_phase("startup_cleanup", "clean");
     }
 
     // Auto-clear stale OTA_DEPLOYING sentinel (>10 min = failed/aborted deploy)

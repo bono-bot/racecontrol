@@ -22,28 +22,56 @@ const LOG_TARGET: &str = "self-heal";
 const CONFIG_TEMPLATE: &str = include_str!("../../../deploy/rc-agent.template.toml");
 
 /// Full start-rcagent.bat content with CRLF line endings.
-/// v11.2: Added RUST_BACKTRACE=1 and stderr redirect for sentry crash analysis.
-const START_SCRIPT_CONTENT: &str = "@echo off\r\n\
-    cd /d C:\\RacingPoint\r\n\
-    set RUST_BACKTRACE=1\r\n\
-    netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
-    taskkill /F /IM rc-agent.exe 1>nul 2>nul\r\n\
-    timeout /t 3 /nobreak 1>nul\r\n\
-    rem --- Binary swap (hash-based versioning) ---\r\n\
-    set \"STAGED=\"\r\n\
-    for /f \"delims=\" %%F in ('dir /B /O-D rc-agent-????????*.exe 2^^^>nul') do (\r\n\
-        if not \"%%F\"==\"rc-agent.exe\" (\r\n\
-            if not defined STAGED set \"STAGED=%%F\"\r\n\
-        )\r\n\
+/// v27.0: Unified rich version — bloatware kills, power settings, deprecated binary cleanup,
+/// hash-based swap, and stderr redirect. Single source of truth for all pods.
+const START_SCRIPT_CONTENT: &str = "\
+@echo off\r\n\
+cd /d C:\\RacingPoint\r\n\
+set RUST_BACKTRACE=1\r\n\
+\r\n\
+rem --- Enforce power settings (prevents ConspitLink flicker regression) ---\r\n\
+powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 1>nul 2>nul\r\n\
+powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>nul 2>nul\r\n\
+powercfg /SETDCVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>nul 2>nul\r\n\
+powercfg /SETACTIVE SCHEME_CURRENT 1>nul 2>nul\r\n\
+\r\n\
+rem --- Firewall rule ---\r\n\
+netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
+\r\n\
+rem --- Kill bloatware and prevent process multiplication ---\r\n\
+taskkill /F /IM Variable_dump.exe 1>nul 2>nul\r\n\
+taskkill /F /IM \"Creative Cloud UI Helper.exe\" 1>nul 2>nul\r\n\
+taskkill /F /IM M365Copilot.exe 1>nul 2>nul\r\n\
+taskkill /F /IM Copilot.exe 1>nul 2>nul\r\n\
+taskkill /F /IM ClockifyWindows.exe 1>nul 2>nul\r\n\
+taskkill /F /IM OneDrive.exe 1>nul 2>nul\r\n\
+taskkill /F /IM powershell.exe 1>nul 2>nul\r\n\
+taskkill /F /IM ConspitLink2.0.exe 1>nul 2>nul\r\n\
+taskkill /F /IM rc-agent.exe 1>nul 2>nul\r\n\
+timeout /t 3 /nobreak 1>nul\r\n\
+\r\n\
+rem --- Clean deprecated binary naming (pre-hash era) ---\r\n\
+del /Q rc-agent-old.exe 1>nul 2>nul\r\n\
+del /Q rc-agent-new.exe 1>nul 2>nul\r\n\
+del /Q rc-agent-swap.exe 1>nul 2>nul\r\n\
+del /Q rc-sentry-old.exe 1>nul 2>nul\r\n\
+del /Q rc-sentry-new.exe 1>nul 2>nul\r\n\
+\r\n\
+rem --- Binary swap (hash-based versioning) ---\r\n\
+set \"STAGED=\"\r\n\
+for /f \"delims=\" %%F in ('dir /B /O-D rc-agent-????????*.exe 2^^^>nul') do (\r\n\
+    if not \"%%F\"==\"rc-agent.exe\" (\r\n\
+        if not defined STAGED set \"STAGED=%%F\"\r\n\
     )\r\n\
-    if not defined STAGED goto :start_agent\r\n\
-    del /Q rc-agent-prev.exe 1>nul 2>nul\r\n\
-    if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul\r\n\
-    timeout /t 1 /nobreak 1>nul\r\n\
-    if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
-    ren \"%STAGED%\" rc-agent.exe 1>nul\r\n\
-    :start_agent\r\n\
-    start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
+)\r\n\
+if not defined STAGED goto :start_agent\r\n\
+del /Q rc-agent-prev.exe 1>nul 2>nul\r\n\
+if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul\r\n\
+timeout /t 1 /nobreak 1>nul\r\n\
+if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
+ren \"%STAGED%\" rc-agent.exe 1>nul\r\n\
+:start_agent\r\n\
+start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
 
 /// Result of the self-heal check-and-repair cycle.
 #[derive(Debug)]
@@ -88,13 +116,24 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
         }
     }
 
-    // 2. Start script
+    // 2. Start script — overwrite if missing OR drifted from embedded template.
+    //    Single source of truth: the embedded START_SCRIPT_CONTENT is canonical.
     let script_path = exe_dir.join("start-rcagent.bat");
-    if !script_path.exists() {
-        tracing::warn!(target: LOG_TARGET, "start-rcagent.bat missing -- attempting repair");
+    let script_needs_repair = if !script_path.exists() {
+        tracing::warn!(target: LOG_TARGET, "start-rcagent.bat missing");
+        true
+    } else {
+        // Compare on-disk content with embedded template
+        match fs::read(&script_path) {
+            Ok(on_disk) => on_disk != START_SCRIPT_CONTENT.as_bytes(),
+            Err(_) => true,
+        }
+    };
+    if script_needs_repair {
+        tracing::warn!(target: LOG_TARGET, "start-rcagent.bat needs update -- writing canonical version");
         match repair_start_script(&script_path) {
             Ok(()) => {
-                tracing::warn!(target: LOG_TARGET, "start-rcagent.bat recreated");
+                tracing::warn!(target: LOG_TARGET, "start-rcagent.bat updated to canonical version");
                 result.script_repaired = true;
             }
             Err(e) => {
@@ -431,15 +470,32 @@ mod tests {
     }
 
     #[test]
-    fn test_no_repair_when_exists() {
+    fn test_no_repair_when_exists_and_canonical() {
         let dir = tempdir().unwrap();
-        // Create both files so they already exist
+        // Create config (any valid content — self_heal only checks existence)
         fs::write(dir.path().join("rc-agent.toml"), "[pod]\nnumber = 1").unwrap();
-        fs::write(dir.path().join("start-rcagent.bat"), "@echo off").unwrap();
+        // Create script with the EXACT canonical content (drift detection must see no diff)
+        fs::write(dir.path().join("start-rcagent.bat"), START_SCRIPT_CONTENT).unwrap();
 
         let result = run(dir.path());
         assert!(!result.config_repaired, "Should not repair existing config");
-        assert!(!result.script_repaired, "Should not repair existing script");
+        assert!(!result.script_repaired, "Should not repair canonical script");
         // registry_repaired depends on the actual system state, so we don't assert it here
+    }
+
+    #[test]
+    fn test_repairs_drifted_script() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("rc-agent.toml"), "[pod]\nnumber = 1").unwrap();
+        // Write a DRIFTED script (different from canonical)
+        fs::write(dir.path().join("start-rcagent.bat"), "@echo off\r\nold version\r\n").unwrap();
+
+        let result = run(dir.path());
+        assert!(!result.config_repaired, "Should not repair existing config");
+        assert!(result.script_repaired, "Should repair drifted script");
+
+        // Verify the script was overwritten with canonical content
+        let content = fs::read(dir.path().join("start-rcagent.bat")).unwrap();
+        assert_eq!(content, START_SCRIPT_CONTENT.as_bytes());
     }
 }
