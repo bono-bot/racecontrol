@@ -86,9 +86,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Backend reservation module + API endpoints (create/get/modify/cancel) + PIN generation + WhatsApp delivery
-- [ ] 04-02-PLAN.md — Scheduler expiry cleanup + automatic wallet refund for expired reservations
-- [ ] 04-03-PLAN.md — PWA remote booking flow + /reservations management page
+- [x] 04-01-PLAN.md — Backend reservation module + API endpoints (create/get/modify/cancel) + PIN generation + WhatsApp delivery
+- [x] 04-02-PLAN.md — Scheduler expiry cleanup + automatic wallet refund for expired reservations
+- [x] 04-03-PLAN.md — PWA remote booking flow + /reservations management page
 
 ### Phase 5: Kiosk PIN Launch
 **Goal**: Customer enters PIN at venue kiosk and the game auto-launches on an assigned pod with zero staff interaction
@@ -102,8 +102,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Backend redeem-pin endpoint: PIN validation, pod assignment, billing defer, game launch, rate limiting + lockout
-- [ ] 05-02-PLAN.md — Kiosk PIN entry UI: PinRedeemScreen component, alphanumeric grid, success/error/lockout states
+- [x] 05-01-PLAN.md — Backend redeem-pin endpoint: PIN validation, pod assignment, billing defer, game launch, rate limiting + lockout
+- [x] 05-02-PLAN.md — Kiosk PIN entry UI: PinRedeemScreen component, alphanumeric grid, success/error/lockout states
 
 ### Phase 6: Admin Panel Cloud Deploy
 **Goal**: Uday can manage all business operations remotely from admin.racingpoint.cloud
@@ -186,9 +186,9 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 2. API + PWA Cloud Deploy | 2/2 | Complete    | 2026-03-21 |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
-| 5. Kiosk PIN Launch | 0/2 | Complete    | 2026-03-21 |
+| 5. Kiosk PIN Launch | 2/2 | Complete    | 2026-03-21 |
 | 6. Admin Panel Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
 | 7. Dashboard Cloud Deploy | 2/2 | Complete    | 2026-03-22 |
-| 8. CI/CD Pipeline | 0/1 | Complete    | 2026-03-22 |
+| 8. CI/CD Pipeline | 1/1 | Complete    | 2026-03-22 |
 | 9. Health Monitoring + Alerts | 2/2 | Complete    | 2026-03-22 |
 | 10. Operational Hardening | 1/1 | Complete    | 2026-03-22 |
