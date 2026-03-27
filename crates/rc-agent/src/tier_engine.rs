@@ -233,15 +233,53 @@ fn tier1_kill_orphans() -> Vec<String> {
 // ─── Tier 2: Knowledge Base (DIAG-03) — Stub ────────────────────────────────
 
 fn tier2_kb_lookup(event: &DiagnosticEvent) -> TierResult {
-    // Problem key normalization — will be fully implemented in Phase 230
-    let problem_key = format!("{:?}", event.trigger);
-    tracing::debug!(
-        target: LOG_TARGET,
-        tier = 2u8,
-        problem_key = %problem_key,
-        "KB lookup: no match (KB not yet implemented — Phase 230 will add SQLite KB)"
-    );
-    TierResult::Stub { tier: 2, note: "KB not yet implemented — Phase 230" }
+    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+    let env_fp = knowledge_base::fingerprint_env(event.build_id);
+    let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+
+    // Open KB — if it fails (first run, corrupt DB), skip Tier 2 gracefully
+    let kb = match KnowledgeBase::open(KB_PATH) {
+        Ok(kb) => kb,
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, tier = 2u8, error = %e, "KB unavailable — skipping Tier 2");
+            return TierResult::NotApplicable { tier: 2 };
+        }
+    };
+
+    match kb.lookup(&problem_hash) {
+        Ok(Some(solution)) => {
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = 2u8,
+                problem_key = %problem_key,
+                problem_hash = %problem_hash,
+                confidence = solution.confidence,
+                root_cause = %solution.root_cause,
+                fix_type = %solution.fix_type,
+                "KB hit: applying known solution"
+            );
+            TierResult::Fixed {
+                tier: 2,
+                action: format!("KB match (confidence: {:.2}): {}", solution.confidence, solution.root_cause),
+            }
+        }
+        Ok(None) => {
+            tracing::debug!(
+                target: LOG_TARGET,
+                tier = 2u8,
+                problem_key = %problem_key,
+                problem_hash = %problem_hash,
+                "KB miss: no solution with confidence >= 0.8"
+            );
+            TierResult::NotApplicable { tier: 2 }
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, tier = 2u8, error = %e, "KB lookup error — skipping Tier 2");
+            TierResult::NotApplicable { tier: 2 }
+        }
+    }
 }
 
 // ─── Tier 3: Single Model (DIAG-04) — Stub ──────────────────────────────────
