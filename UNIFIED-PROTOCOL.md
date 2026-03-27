@@ -1,4 +1,4 @@
-# Racing Point Unified Operations Protocol v2.0
+# Racing Point Unified Operations Protocol v3.0
 
 **Purpose:** Single protocol that governs every phase of work — Plan, Create, Verify, Deploy, Ship, and Debug. All 147+ standing rules, debugging methodologies, audit phases, investigation techniques, and the Multi-Model AI Audit Protocol are mapped to the lifecycle phase where they activate. No rule exists outside this flow.
 
@@ -13,7 +13,7 @@ Phase 0: SESSION START ──→ Phase 1: PLAN ──→ Phase 2: CREATE ──�
      │                        │  [M:advisory]    │  [M:mechanical]    │  [M:targeted]      │                   │  [M:gate]
      │                        │                  │                    │                    │                   │
      └─── Phase D: DEBUG ◄────┴──────────────────┴────────────────────┴────────────────────┘                   │
-              │  [M:post-incident]                                                                             │
+              │  [M:post-incident] [M:diagnose]                                                                │
               └─── fix ──→ return to failing phase ──→ continue ──→ ─────────────────────────────────────────→ │
                                                                                                                │
                                                                                                           LOGBOOK
@@ -27,6 +27,239 @@ Phase 0: SESSION START ──→ Phase 1: PLAN ──→ Phase 2: CREATE ──�
 **Debug is an escape hatch, not a separate workflow.** When any phase fails, you enter Phase D with the failing phase as context, fix the issue, then return to continue.
 
 **Audit is the final verification.** After shipping, run the full fleet audit (68-phase) + multi-model code audit to catch anything the lifecycle missed.
+
+### Gate Classification: Mandatory vs Contextual
+
+The protocol has 169 gate items. **Not all apply every time.**
+
+| Tag | When | Items |
+|---|---|---|
+| **MANDATORY** | Every change, always | ~38 |
+| **CONTEXTUAL** | Only when that domain is touched | ~95 |
+| **MILESTONE** | Only when shipping a v-numbered release | ~36 |
+
+**GREEN mode:** ~38 mandatory items. Contextual items auto-trigger when relevant.
+**AMBER/RED mode:** ~7-10 Phase E items only. Everything else deferred.
+**Ship mode:** All items including MILESTONE-tagged.
+
+**The 20 Always-Check Items (GREEN mode core):**
+
+| # | Check | Phase |
+|---|---|---|
+| 1 | Fleet health + MAINTENANCE_MODE clear | 0 |
+| 2 | Server build_id vs HEAD | 0 |
+| 3 | Prompt quality verified | 1 |
+| 4 | Past fixes checked (LOGBOOK, git) | 1 |
+| 5 | `cargo test` passes (3 crates) | 2 |
+| 6 | No `.unwrap()` in new Rust | 2 |
+| 7 | No `any` in new TypeScript | 2 |
+| 8 | Pre-commit hooks pass | 2 |
+| 9 | Security gate passes | 2 |
+| 10 | `touch build.rs` after commits | 2 |
+| 11 | Cascade update completed | 2 |
+| 12 | Exact behavior path tested (not proxies) | 3 |
+| 13 | Pod 8 canary first (if pod change) | 3 |
+| 14 | Multi-model Tier A audit (diff-only, $0.05) | 3 |
+| 15 | Security gate pre-deploy | 4 |
+| 16 | Build_id matches post-deploy | 4 |
+| 17 | Previous binary preserved | 4 |
+| 18 | Quality Gate (run-all.sh) | 5 |
+| 19 | E2E round-trip (exec + chain + health) | 5 |
+| 20 | LOGBOOK + git push + Bono notified | 5 |
+
+Everything else is contextual — triggered by what domain the change touches.
+
+---
+
+## Phase E: EMERGENCY FAST-PATH
+
+**This phase OVERRIDES all others.** When customers are affected RIGHT NOW, skip the lifecycle and stabilize first.
+
+### When to Activate Phase E
+- Customer in venue unable to race (pod down, game won't launch, billing broken)
+- Multiple pods offline simultaneously
+- Server unreachable and bookings exist within 2 hours
+- Any incident during a tournament or event
+
+### The 7-Minute Recovery Protocol
+
+**Minute 0-2: TRIAGE**
+```
+1. How many pods affected? (1 = local, 3+ = systemic)
+2. Are customers waiting RIGHT NOW? (yes = stabilize, no = can investigate)
+3. Is the server reachable? (yes = use fleet exec, no = SSH/physical)
+```
+
+**Minute 2-5: STABILIZE** (pick the fastest option)
+
+| Symptom | Action | Command |
+|---|---|---|
+| Pod frozen/crashed | Reboot pod | `shutdown /r /t 5 /f` via SSH or physical |
+| Game won't launch | Kill orphans + restart rc-agent | `taskkill /F /IM rc-agent.exe` → RCWatchdog auto-restarts in Session 1 |
+| Blanking screen stuck | Clear sentinel + restart | `del MAINTENANCE_MODE` → restart rc-agent |
+| Server down | Restart via schtasks | `ssh ADMIN@100.125.108.37 "schtasks /Run /TN StartRCTemp"` |
+| Billing broken | Switch to manual tracking | Paper log: pod#, start time, customer name |
+| Cloud sync down | Disable sync, run local-only | Pods + server continue without cloud |
+| Multiple pods down | Mark bad pods out of rotation | Move customers to working pods, investigate after |
+
+**Minute 5-7: COMMUNICATE**
+- Tell customer: "We're fixing it, ~5 minutes" or "Moving you to Pod X"
+- If unrecoverable: offer free session later / partial refund
+- WhatsApp Uday if >2 pods affected or >15 min downtime
+
+### Phase E Rules
+1. **Stabilize FIRST, investigate SECOND.** A running pod with unknown root cause beats a down pod with perfect diagnosis.
+2. **NO gate checks during emergency.** Skip Phase 0-5 entirely. Fix now, audit later.
+3. **ONE person decides.** During Phase E, the first responder (James, Bono, or Uday) owns all decisions. No consensus required.
+4. **Log AFTER recovery.** Write LOGBOOK entry after service is restored, not during.
+5. **Max 15 minutes in Phase E.** If not stabilized in 15 min, the issue is structural — exit Phase E, enter Phase D (Debug) with full methodology.
+6. **Minute 16 auto-escalation:** If Phase E ceiling is breached, these fire automatically:
+   - WhatsApp alert to Uday: "INCIDENT OPEN >15min — [symptom] — [pods affected]"
+   - Affected pods marked out of rotation (customers moved to working pods)
+   - Paper billing activated for remaining pods
+   - Full Phase D investigation begins
+7. **Post-emergency:** After recovery, run Phase D root cause analysis + post-incident multi-model audit (D.9.1).
+
+### Operating Modes
+
+The protocol operates in 3 tiers. **You are always in exactly one mode.**
+
+| Mode | Trigger | What's Active | Checklist Size |
+|---|---|---|---|
+| **GREEN (Normal)** | No incidents, routine work | Full lifecycle (Phase 0→5), all gates | ~40 mandatory items |
+| **AMBER (Incident)** | 1-2 pods affected, no customers impacted | Phase E fast-path, reduced gates | ~10 items (triage + stabilize) |
+| **RED (Major)** | 3+ pods, customers affected, server down, or tournament | Phase E → Break-Glass → Island Mode | ~7 items (stabilize + communicate + log) |
+
+**Mode transitions:**
+- GREEN → AMBER: any pod failure detected
+- AMBER → RED: customer impact confirmed OR 3+ pods affected OR server unreachable
+- RED → AMBER: service restored, customers served
+- AMBER → GREEN: root cause fixed + verified
+- Any → RED: tournament/event in progress + any failure
+
+### Cost Ceiling Failure Mode
+
+When the $50/month OpenRouter ceiling is hit mid-session:
+1. **All AI model audits silently fall back to mechanical-only checks** ($0, grep-based)
+2. Tier A/B/C multi-model audits return "SKIPPED — cost ceiling reached" (not FAIL)
+3. Diagnostic escalation (D.10) falls back to Tier 3 (Local Ollama) instead of OpenRouter
+4. WhatsApp alert to Uday: "AI audit budget exhausted for the month"
+5. Next month: budget resets automatically
+6. **This NEVER blocks shipping or recovery** — cost ceiling is a budget control, not a safety gate
+
+### Phase E Exit
+- [ ] All affected pods back in service (or marked out of rotation)
+- [ ] Customers served or compensated
+- [ ] LOGBOOK entry written (symptom, action taken, time to recovery)
+- [ ] Root cause investigation scheduled (Phase D)
+
+---
+
+## Phase B: BREAK-GLASS (Human Unreachable)
+
+**Trigger:** Uday is unreachable for >30 minutes AND a decision requires human authority.
+
+### AI Agent Autonomous Authority (pre-approved actions)
+
+**James and Bono CAN do without human approval:**
+- Restart any service (rc-agent, racecontrol, watchdog, kiosk)
+- Clear sentinel files (MAINTENANCE_MODE, OTA_DEPLOYING)
+- Reboot any pod
+- Deploy a PREVIOUSLY VERIFIED binary (rollback to `*-prev.exe`)
+- Kill orphan processes
+- Disable cloud sync temporarily
+- Send WhatsApp alerts
+- Run diagnostics and audits
+- Commit + push code changes
+- Mark pods out of rotation
+
+**James and Bono CANNOT do without human approval:**
+- Deploy a NEW binary (never-before-deployed build)
+- Change billing rates or pricing
+- Modify customer data (refunds, wallet adjustments)
+- Change network infrastructure (firewall rules, Tailscale config)
+- Delete production data
+- Spend money (OpenRouter API calls >$10 in a session)
+- Make promises to customers (free sessions, refunds)
+
+### Break-Glass Escalation Ladder
+
+```
+Minute 0:   Try Uday via WhatsApp (primary)
+Minute 5:   Try Uday via phone call
+Minute 15:  Try Uday via email
+Minute 30:  BREAK-GLASS activates — agents operate autonomously within approved scope
+Minute 60:  If still unreachable, agents log all actions taken + send summary when Uday returns
+```
+
+### Break-Glass Log
+Every action taken under Break-Glass must be logged:
+```
+## BREAK-GLASS LOG — YYYY-MM-DD HH:MM IST
+Trigger: Uday unreachable since HH:MM
+Actions taken:
+1. [timestamp] [action] [reason] [result]
+2. [timestamp] [action] [reason] [result]
+Uday notified: [when contact restored]
+```
+
+---
+
+## Phase I: ISLAND MODE (Pods Run Without Management)
+
+**Trigger:** James PC (.27) is dead, OR server (.23) is dead, OR both are dead.
+
+### Pod Island Mode Capabilities
+
+Each pod can run independently when the management layer is unavailable:
+
+| Capability | Without Server (.23) | Without James (.27) | Without Both |
+|---|---|---|---|
+| Game launch | YES (local game catalog cache) | YES (server manages) | YES (cached) |
+| Steering/FFB | YES (local HID, ConspitLink) | YES | YES |
+| Billing tracking | NO (server-side) → paper fallback | YES (server tracks) | NO → paper |
+| Session timing | YES (local rc-agent timer) | YES | YES |
+| Leaderboards | NO (server-side) → show "offline" | YES | NO |
+| Cloud sync | NO | YES (Bono VPS direct) | NO |
+| Diagnostics | Limited (rc-sentry only) | YES (server + fleet health) | Limited |
+| Recovery/restart | YES (RCWatchdog auto-restart) | YES | YES |
+
+### Server-Down Playbook
+```bash
+# 1. Verify server is actually down (not just network)
+ping 192.168.31.23 -c 3
+curl -s http://192.168.31.23:8080/api/v1/health --max-time 5
+
+# 2. If down, try restart via SSH
+ssh ADMIN@100.125.108.37 "schtasks /Run /TN StartRCTemp"
+
+# 3. If SSH fails, physical restart needed → notify Uday
+
+# 4. Meanwhile, pods continue running:
+#    - Games already launched keep running
+#    - New launches use cached game catalog
+#    - Billing switches to paper tracking
+#    - Pods auto-recover via RCWatchdog if rc-agent crashes
+```
+
+### James-PC-Down Playbook
+```bash
+# 1. Bono takes over operations via VPS
+# 2. Bono can reach server directly: ssh ADMIN@100.125.108.37
+# 3. Bono can reach pods via server fleet exec: POST /api/v1/fleet/exec
+# 4. James watchdog services (rc-watchdog, comms-link relay) are down:
+#    - Watchdog auto-recovery stops → manual monitoring needed
+#    - Comms-link relay stops → use SSH to Bono VPS directly
+#    - Ollama unavailable → skip Tier 3 debugging
+#    - go2rtc camera streams stop → cameras offline (non-critical)
+```
+
+### Both-Down Playbook (Worst Case)
+1. Pods continue running games independently (RCWatchdog keeps rc-agent alive)
+2. ALL management, billing, leaderboards, cloud sync are offline
+3. Staff use paper tracking: pod#, customer name, start time, end time
+4. When either system comes back: reconcile paper logs into billing DB
+5. Notify Uday immediately — this is a physical-presence-required situation
 
 ---
 
@@ -415,15 +648,24 @@ ALL pod changes go to Pod 8 first:
 - **SR-TESTING-007:** Test display changes on ONE pod before fleet-wide
 
 ### 3.5 — Multi-Machine Verification
-After frontend deploys:
-1. Verify from server (localhost) — baseline
-2. Verify from James's browser (192.168.31.23:3200) — LAN
-3. Verify from POS (192.168.31.20) — different machine
-4. Check `_next/static/` URL returns 200, not 404
-5. WebSocket connects (not just REST)
+After frontend deploys, verify from EVERY machine type — not just the server:
+
+| Step | Machine | IP | What to verify |
+|---|---|---|---|
+| 1 | Server (localhost) | 192.168.31.23 | Baseline — HTML loads, API responds |
+| 2 | James PC (browser) | 192.168.31.27 → .23:3200 | LAN — JS/CSS load, WebSocket connects |
+| 3 | POS PC | 192.168.31.20 → .23:3200 | Different machine — full interactivity, billing flows |
+| 4 | Spectator | 192.168.31.200 → .23:3200 | WiFi client — WebSocket over WiFi stable |
+
+**Per-machine checks:**
+- [ ] `_next/static/` URL returns 200 (not 404) — proves static file serving works
+- [ ] WebSocket connects (not just REST) — `NEXT_PUBLIC_WS_URL` must be set
+- [ ] All `NEXT_PUBLIC_` env vars have values (grep `.env.production.local`)
+- [ ] POS PC billing flow works end-to-end (not just page load)
 
 **Rules activated:**
 - **SR-DEBUGGING-004:** Frontend verified from non-server browser
+- **SR-TESTING (POS):** POS uses web dashboard (:3200/billing), NOT kiosk (:3300)
 - `NEXT_PUBLIC_` env vars baked at build time — rebuild with correct LAN IP
 
 ### 3.6 — Regression Testing
@@ -438,7 +680,64 @@ For intermittent bugs: test multiple times (50+), zero failures required.
 For race conditions: add random delays, run 1000 times.
 "It seems more stable" = NOT verified.
 
-### 3.8 — Multi-Model AI Code Audit [M:targeted]
+### 3.8 — Hardware & ConspitLink Verification
+For changes touching sim hardware, game launch, FFB, pedals, or HID devices:
+
+**ConspitLink checks:**
+- [ ] Power plan: High Performance on all pods (`powercfg /getactivescheme` = `8c5e7fda`)
+- [ ] USB Selective Suspend: DISABLED (`powercfg /query` AC+DC = `0x00000000`)
+- [ ] ConspitLink `"Forced update"`: `"false"` in `GameToBaseConfig.json`
+- [ ] ConspitLink singleton: only 1 instance running (`tasklist | findstr ConspitLink | wc -l` = 1)
+- [ ] No `??????????` garbled entries in ConspitLink logs (reconnection events)
+- [ ] No `Bind failed` errors (port conflict from multiple instances)
+
+**Game launch hardware checks:**
+- [ ] Wheelbase detected (OpenFFBoard VID:0x1209 PID:0xFFB0)
+- [ ] Pedal input responsive (CPP.LITE on all pods)
+- [ ] race.ini AI_LEVEL matches kiosk selection (not hardcoded)
+- [ ] assists.ini matches difficulty preset
+
+**Regression prevention:**
+- [ ] `start-rcagent.bat` includes power settings enforcement
+- [ ] `start-rcagent.bat` includes ConspitLink singleton guard (kill-all before start)
+- [ ] `start-rcagent.bat` kills orphan Variable_dump.exe + stale powershell.exe
+
+**Rules activated:**
+- **ConspitLink standing rules** from CLAUDE.md (power plan, forced update, singleton)
+- **Regression Prevention:** Every manual fix must have code-enforced startup verification
+
+### 3.9 — NTP & Time Sync Verification
+Verify time synchronization across all machines to prevent log correlation errors:
+
+```bash
+# Check NTP sync on server
+ssh ADMIN@100.125.108.37 "w32tm /query /status | findstr Source"
+
+# Check time skew between James and server
+JAMES_TIME=$(date +%s)
+SERVER_TIME=$(ssh ADMIN@100.125.108.37 "powershell -c \"[int](Get-Date -UFormat %s)\"" 2>/dev/null)
+SKEW=$((JAMES_TIME - SERVER_TIME))
+echo "Time skew: ${SKEW}s (must be < 5s)"
+
+# Verify pods sync to server (via rc-agent /health timestamp)
+for pod in 89 33 28 88 86 87 38 91; do
+  POD_TIME=$(curl -s http://192.168.31.$pod:8090/health 2>/dev/null | jq -r '.timestamp // "unreachable"')
+  echo "Pod $pod: $POD_TIME"
+done
+```
+
+**Thresholds:**
+- [ ] Server↔James skew < 5 seconds
+- [ ] Pod↔Server skew < 10 seconds (pods sync via NTP to router)
+- [ ] All LOGBOOK timestamps in IST (UTC+5:30), not UTC
+
+**Why:** Racecontrol logs are UTC, operations are IST. A 5-hour misread caused "5 unexplained restarts" (actually 1 real + 4 deploys). NTP drift between machines causes log correlation errors, making incident timelines unreliable.
+
+**Rules activated:**
+- **SR-PROCESS-005:** Convert timestamps UTC→IST before counting events
+- **Audit Gap OB-01:** NTP/time sync verification
+
+### 3.10 — Multi-Model AI Code Audit [M:targeted]
 
 **Tiered approach** — don't run 5 models on every change. Escalate based on risk.
 
@@ -903,14 +1202,15 @@ Start over when:
 
 **Restart protocol:** Close all → write what you know for certain → write what's ruled out → list NEW hypotheses → begin fresh from D.1.
 
-### D.1 — 4-Tier Debug Order (WHERE to look)
+### D.1 — 5-Tier Debug Order (WHERE to look)
 
-| Tier | Method | When | Action |
-|------|--------|------|--------|
-| **1** | **Deterministic** | Always first | Stale sockets, game cleanup, temp files, WerFault, MAINTENANCE_MODE sentinel — apply without LLM |
-| **2** | **Memory** | After Tier 1 fails | Check LOGBOOK.md + commit history + knowledge base for identical past incident |
-| **3** | **Local Ollama** | After Tier 2 fails | Query qwen2.5:3b at James .27:11434 |
-| **4** | **Cloud Claude** | Last resort | Escalate — NOT auto-triggered |
+| Tier | Method | When | Action | Cost |
+|------|--------|------|--------|------|
+| **1** | **Deterministic** | Always first | Stale sockets, game cleanup, temp files, WerFault, MAINTENANCE_MODE sentinel — apply without LLM | $0 |
+| **2** | **Memory** | After Tier 1 fails | Check LOGBOOK.md + commit history + knowledge base for identical past incident | $0 |
+| **3** | **Local Ollama** | After Tier 2 fails | Query qwen2.5:3b at James .27:11434 | $0 |
+| **4** | **Multi-Model Diagnosis** | After first loop fails (D.10 trigger) | 4 OpenRouter models (R1 + V3 + MiMo + Gemini) diagnose in parallel — see D.10 | ~$3 |
+| **5** | **Cloud Claude** | Last resort | Full Opus escalation — NOT auto-triggered | subscription |
 
 **Tier 1 checklist (deterministic):**
 - [ ] MAINTENANCE_MODE sentinel present? → Clear it
@@ -1113,6 +1413,164 @@ wait
 
 **Output:** Near-miss findings added to knowledge base, fed into next Phase 1 risk tagging.
 
+### D.10 — Multi-Model Diagnostic Escalation [M:diagnose]
+
+**Trigger:** When the first debug loop (D.1→D.7) fails to find root cause — specifically when ANY restart condition from D.0 is met:
+- 2+ hours with no progress
+- 3+ "fixes" that didn't work
+- Can't explain the current behavior
+- Fix works but you don't know why
+
+**Instead of restarting with the same perspective, escalate to 4 diverse AI models via OpenRouter for parallel diagnosis.** Each model brings a different cognitive approach to the same evidence.
+
+#### The 4-Model Diagnostic Stack
+
+| Slot | Model | OpenRouter ID | Diagnostic Strength | Cost |
+|---|---|---|---|---|
+| **Reasoner** | DeepSeek R1 | `deepseek/deepseek-r1-0528` | Chain-of-thought reasoning, absence detection, state machine logic | ~$0.43 |
+| **Code Expert** | DeepSeek V3 | `deepseek/deepseek-chat-v3-0324` | Deep code pattern matching, Windows-specific bugs, Session 0/1 | ~$0.16 |
+| **SRE** | MiMo v2 Pro | `xiaomi/mimo-v2-pro` | Operational thinking, stuck states, recovery conflicts, "3am failures" | ~$0.77 |
+| **Security** | Gemini 2.5 Pro | `google/gemini-2.5-pro-preview-03-25` | Security audit, credential leaks, auth gaps, config errors | ~$1.65 |
+| | | | **Total diagnostic cost** | **~$3.01** |
+
+#### Why These 4 Models (Diversity Matrix)
+
+| Axis | Models | Why Diversity Matters |
+|---|---|---|
+| **Training data** | DeepSeek (Chinese) vs Gemini (Google) vs MiMo (Xiaomi) | Different codebases seen during training → different pattern recognition |
+| **Architecture** | R1 (chain-of-thought reasoning) vs V3 (standard) | Reasoning models find logic bugs; standard models find pattern bugs |
+| **Context window** | MiMo (1M) vs V3 (163K) | Larger context = more cross-file correlation |
+| **Thinking style** | R1 (asks "what should be here?") vs MiMo (asks "what breaks at 3am?") vs V3 (asks "what does this code actually do?") vs Gemini (asks "is this secure?") | 4 different questions on the same evidence |
+
+#### Execution Protocol
+
+**Step 1: Prepare the diagnostic brief** (from debug file state)
+
+Write a diagnostic brief JSON file containing ALL evidence gathered so far:
+```bash
+# Extract from .planning/debug/{slug}.md
+cat > /tmp/diagnostic-brief.json << BRIEF
+{
+  "symptom": "<from Symptoms section>",
+  "expected": "<from Symptoms.expected>",
+  "actual": "<from Symptoms.actual>",
+  "errors": "<from Symptoms.errors>",
+  "reproduction": "<from Symptoms.reproduction>",
+  "eliminated_hypotheses": [
+    "<hypothesis 1: evidence that disproved it>",
+    "<hypothesis 2: evidence that disproved it>"
+  ],
+  "evidence_collected": [
+    "<finding 1>",
+    "<finding 2>"
+  ],
+  "files_investigated": [
+    "<file1.rs:line>",
+    "<file2.ts:line>"
+  ],
+  "what_we_know_for_certain": "<observable facts only>",
+  "what_we_cannot_explain": "<the core mystery>"
+}
+BRIEF
+```
+
+**Step 2: Run 4 models in parallel**
+
+Each model gets the diagnostic brief + relevant source code + a role-specific system prompt:
+
+```bash
+export OPENROUTER_KEY="sk-or-v1-..."
+
+# Reasoner: "What logical flaw explains ALL the evidence?"
+MODEL="deepseek/deepseek-r1-0528" ROLE="reasoner" \
+  node scripts/multi-model-diagnose.js /tmp/diagnostic-brief.json &
+
+# Code Expert: "What does the actual code path do differently than expected?"
+MODEL="deepseek/deepseek-chat-v3-0324" ROLE="code_expert" \
+  node scripts/multi-model-diagnose.js /tmp/diagnostic-brief.json &
+
+# SRE: "What operational state or interaction could cause this?"
+MODEL="xiaomi/mimo-v2-pro" ROLE="sre" \
+  node scripts/multi-model-diagnose.js /tmp/diagnostic-brief.json &
+
+# Security: "Is there a config error, auth issue, or credential problem?"
+MODEL="google/gemini-2.5-pro-preview-03-25" ROLE="security" \
+  node scripts/multi-model-diagnose.js /tmp/diagnostic-brief.json &
+
+wait
+echo "All 4 diagnoses complete"
+```
+
+**Step 3: Cross-reference diagnoses**
+
+```bash
+node scripts/cross-model-diagnosis.js
+# Output: .planning/debug/{slug}-diagnosis.md
+```
+
+**Step 4: Opus synthesis** (James reviews)
+
+Read all 4 diagnoses and look for:
+1. **Consensus** (2+ models agree on same root cause) → HIGH confidence, test immediately
+2. **Novel hypothesis** (one model suggests something nobody else considered) → ADD to hypothesis list
+3. **Contradictions** (models disagree) → The disagreement itself reveals the ambiguity — design an experiment that resolves it
+4. **Absence findings** (R1 says "there should be a timeout here but isn't") → Check if the absence explains the symptom
+
+#### Role-Specific System Prompts
+
+**Reasoner (R1):**
+> You are debugging a system where the first investigation loop failed. You have ALL evidence collected so far, including eliminated hypotheses. Your job: find the logical flaw that explains ALL observed behavior. Focus on: state machine transitions, absence of expected checks, timing/ordering assumptions, and what the eliminated hypotheses have in common (they may share a false assumption).
+
+**Code Expert (V3):**
+> You are debugging a Rust/TypeScript monorepo on Windows. You have the symptom, evidence, and eliminated hypotheses. Your job: trace the ACTUAL code execution path and find where it diverges from the expected path. Focus on: Windows-specific behavior (Session 0/1, cmd.exe quoting, DETACHED_PROCESS), serde silent field drops, type mismatches between frontends and Rust structs, and off-by-one/boundary errors.
+
+**SRE (MiMo):**
+> You are an SRE investigating a production issue that has resisted initial debugging. You have evidence and eliminated hypotheses. Your job: think about OPERATIONAL state — what state could the system be in that makes this behavior make sense? Focus on: stale sentinel files, recovery system conflicts (watchdog vs self-monitor vs WoL), resource exhaustion (sockets, memory, file handles), and "works on restart but fails after N hours" patterns.
+
+**Security (Gemini):**
+> You are a security auditor investigating an issue that may have a security or configuration root cause. You have evidence and eliminated hypotheses. Your job: check for configuration errors, credential/auth issues, and permission problems. Focus on: wrong config file loaded (SSH banner corruption, stale cache), auth token expiry mid-operation, file permission issues, and environment variable not set/wrong value.
+
+#### When to Use Multi-Model Diagnosis
+
+| Situation | Use Multi-Model? | Why |
+|---|---|---|
+| First debug loop found root cause | NO | Standard D.1→D.7 was sufficient |
+| 2+ hours, no progress | **YES** | Fresh perspectives from 4 different cognitive approaches |
+| 3+ failed fixes | **YES** | Your mental model is wrong — need diverse hypotheses |
+| Intermittent bug, can't reproduce | **YES** | R1 (reasoning about conditions) + MiMo (operational state) |
+| Bug only on specific pod/machine | **YES** | V3 (Windows-specific) + Gemini (config/environment) |
+| Security-related incident | **YES** | Gemini (primary) + all others (cross-validate) |
+| Simple typo/obvious fix | NO | Overkill — just fix it |
+
+#### Cost Control
+
+| Diagnostic Scope | Models | Cost |
+|---|---|---|
+| Full 4-model parallel | R1 + V3 + MiMo + Gemini | ~$3.01 |
+| Quick 2-model (budget) | R1 + V3 | ~$0.59 |
+| SRE-focused (operational) | MiMo + R1 | ~$1.20 |
+| Security-focused | Gemini + V3 | ~$1.81 |
+
+**Monthly budget for diagnostics:** ~$10-15 (covers 3-5 full diagnostic escalations).
+
+#### Integration with Debug File Protocol
+
+After multi-model diagnosis, update the debug file:
+
+```markdown
+## Multi-Model Diagnosis (D.10 Escalation)
+<!-- APPEND after diagnosis -->
+
+- timestamp: [when run]
+  models: [R1, V3, MiMo, Gemini]
+  consensus: [what 2+ models agreed on]
+  novel_hypotheses: [new ideas from individual models]
+  contradictions: [where models disagreed and why]
+  next_action: [which hypothesis to test first]
+```
+
+Then return to **D.2 Step 3 (Test & Eliminate)** with the new hypotheses.
+
 ### Phase D Exit Gate
 - [ ] Root cause confirmed with evidence (not just theory)
 - [ ] Fix applied (smallest reversible change)
@@ -1122,6 +1580,7 @@ wait
 - [ ] LOGBOOK entry written
 - [ ] Knowledge base updated (if new pattern)
 - [ ] Post-incident multi-model audit run (if production incident)
+- [ ] Multi-model diagnosis used if first loop failed (D.10)
 - [ ] Return to failing lifecycle phase and continue
 
 ---
@@ -1252,6 +1711,7 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 | **3: Verify** | [M:targeted] | Tier A/B/C based on risk | Yes (consensus P1) | $0.05-5.00 | 3-30 min |
 | **5: Ship** | [M:gate] | 4th Ultimate Rule layer | Yes (milestones) | ~$3-5 | 30 min |
 | **D: Debug** | [M:post-incident] | Targeted R1 + MiMo | No | ~$1.20 | 10 min |
+| **D: Debug** | [M:diagnose] | 4-model parallel diagnosis (when 1st loop fails) | No (produces hypotheses) | ~$3.01 | 10-15 min |
 | **A: Post-Ship** | [M:full] | All 5 models, 7 batches | Creates tickets | ~$3-5 | 30 min |
 
 ### Cost Summary
@@ -1273,6 +1733,134 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 - **Bono** reviews cross-model findings from git + adds domain review via Perplexity MCP
 - Results stored in `audit/results/` in racecontrol repo — shared access via git
 - **NEVER commit OpenRouter API keys to git** — share via WS or env vars only
+
+### Model Registry (Version Pinning + Cost Controls)
+
+**Problem:** OpenRouter models get deprecated, pricing changes, versions drift silently.
+
+**Registry file:** `audit/model-registry.json`
+```json
+{
+  "registry_updated": "2026-03-27",
+  "quarterly_review_due": "2026-06-27",
+  "monthly_cost_ceiling": 50,
+  "per_session_cost_ceiling": 10,
+  "models": {
+    "scanner": {
+      "id": "qwen/qwen3-235b-a22b-2507",
+      "pinned_version": "2507",
+      "role": "Volume scanner",
+      "max_cost_per_call": 0.20,
+      "fallback": "deepseek/deepseek-chat-v3-0324",
+      "last_validated": "2026-03-27",
+      "retirement_trigger": "<3 unique findings in 3 consecutive audits"
+    },
+    "code_expert": {
+      "id": "deepseek/deepseek-chat-v3-0324",
+      "pinned_version": "0324",
+      "role": "Code pattern matching",
+      "max_cost_per_call": 0.50,
+      "fallback": "qwen/qwen3-235b-a22b-2507",
+      "last_validated": "2026-03-27"
+    },
+    "reasoner": {
+      "id": "deepseek/deepseek-r1-0528",
+      "pinned_version": "0528",
+      "role": "Absence detection, logic bugs",
+      "max_cost_per_call": 1.00,
+      "fallback": "deepseek/deepseek-chat-v3-0324",
+      "last_validated": "2026-03-27"
+    },
+    "sre": {
+      "id": "xiaomi/mimo-v2-pro",
+      "pinned_version": null,
+      "role": "Operational gaps, stuck states",
+      "max_cost_per_call": 2.00,
+      "fallback": "deepseek/deepseek-r1-0528",
+      "last_validated": "2026-03-27",
+      "risk_note": "Obscure provider — may vanish with 30 days notice"
+    },
+    "security": {
+      "id": "google/gemini-2.5-pro-preview-03-25",
+      "pinned_version": "03-25",
+      "role": "Security checklists, credentials",
+      "max_cost_per_call": 3.00,
+      "fallback": "deepseek/deepseek-r1-0528",
+      "last_validated": "2026-03-27"
+    }
+  },
+  "cost_controls": {
+    "alert_at_monthly_spend": 30,
+    "hard_stop_at_monthly_spend": 50,
+    "require_human_approval_above": 10
+  }
+}
+```
+
+**Rules:**
+- **Quarterly review:** Check model availability, pricing, benchmark against historical findings
+- **Fallback chain:** If primary model unavailable → use fallback → if fallback unavailable → skip (never block on API)
+- **Cost ceiling:** $10/session without human approval, $50/month hard stop
+- **Version pinning:** Include version suffix in model ID. After model update, run side-by-side on benchmark PRs before switching
+- **Retirement:** If a model finds <3 unique real bugs in 3 consecutive audits, replace it
+
+---
+
+## Phase V: PHYSICAL VENUE OPERATIONS
+
+**The protocol above covers software. This phase covers the physical venue that software can't see.**
+
+### Daily Opening Checklist (before first customer)
+
+**Hardware (per pod):**
+- [ ] Steering wheel centered and responsive (no dead zone drift)
+- [ ] Pedals firm (no spongy brake, no stuck throttle)
+- [ ] Quick release locked (wheel doesn't wobble)
+- [ ] Seat belt functional (for motion rigs)
+- [ ] Monitor(s) powered on, no dead pixels blocking view
+- [ ] Headphones clean and working (L+R channels)
+- [ ] USB cables not stressed or pinched
+
+**Venue:**
+- [ ] HVAC running (sim rigs generate significant heat — 8 pods = ~2kW thermal load)
+- [ ] Temperature < 28°C at pod level
+- [ ] Fire extinguisher accessible and in-date
+- [ ] Emergency exits clear
+- [ ] First aid kit stocked
+- [ ] Cleaning supplies available (wipes, spray, cloths)
+
+**Between sessions:**
+- [ ] Wipe steering wheel + pedals (sweat)
+- [ ] Wipe headphones
+- [ ] Check for spilled drinks near electronics
+- [ ] Reset seat position to neutral
+
+### Weekly Hardware Audit
+- [ ] Check all cable connections (USB, DisplayPort, power)
+- [ ] Inspect brake springs (fatigue → snapping risk)
+- [ ] Check FFB motor temperature (Conspit Ares 8Nm — should not be hot to touch when idle)
+- [ ] Verify ConspitLink connections: no `Bind failed` or `device timeout` in logs
+- [ ] Test emergency stop on each pod (if equipped)
+- [ ] Check UPS battery status (if equipped)
+- [ ] Inspect for physical damage: dents, cracks, loose bolts on rig frame
+
+### Customer Safety Rules
+1. Brief new customers on controls (steering, pedals, paddle shifters) before first session
+2. Warn about motion sickness risk — offer breaks, keep water available
+3. No food/drinks within arm's reach of electronics
+4. Children under 12 require adult supervision
+5. Maximum session without break: 2 hours (fatigue causes accidents in rig)
+6. If customer reports nausea/dizziness: end session immediately, offer water + seat in lobby
+
+### Incident Types Software Can't Detect
+| Incident | Detection | Response |
+|---|---|---|
+| Spilled drink on electronics | Staff visual check | Power off pod immediately, dry, test before reuse |
+| Broken pedal spring | Customer complaint | Mark pod out of rotation, order replacement |
+| USB cable damage | Intermittent disconnects | Replace cable, not the port |
+| Overheating (HVAC failure) | Staff feels it / thermometer | Open doors, reduce to 4 pods, call HVAC service |
+| Customer injury | Staff observation | First aid, incident report, notify Uday |
+| Theft of peripheral | Post-session inventory | Report to Uday, check camera footage |
 
 ---
 
@@ -1365,9 +1953,69 @@ For production incidents (pod down, customer-facing failure), use `/rp-incident`
 
 ---
 
+## Appendix E: Adversarial External Audit Protocol
+
+**Problem:** Self-written audits always pass. A protocol auditing itself with 100% pass rate proves the audit is weak, not the protocol is strong.
+
+### Monthly External Audit (5 Perplexity Models)
+
+Every month, send the protocol to 5 DIFFERENT AI models via Perplexity MCP and ask them to break it:
+
+```
+Prompt template:
+"Critique this operations protocol HARSHLY. You are a hostile auditor.
+Find: gaps, contradictions, failure modes, unrealistic assumptions,
+and things that would make an incident WORSE if followed. Grade A+ to F.
+Focus on: [specific area this model is strong at]"
+```
+
+| Model | Focus Area | What It Catches |
+|---|---|---|
+| Gemini Pro (think) | Scale appropriateness, cost analysis | Over-engineering, wrong cost/benefit |
+| GPT-5.4 (think) | Human factors, compliance fatigue | Checkbox theater, missing emergency paths |
+| Nemotron | SRE anti-patterns, MTTR analysis | Toil, alert fatigue, config drift |
+| Claude Sonnet (think) | Gaps, contradictions, graceful degradation | Rule collisions, single points of failure |
+| Sonar (quick) | Business operations, opportunity cost | Scale mismatch, missing physical realities |
+
+### Scoring
+
+**Cross-model consensus determines real grade:**
+
+| Models Agreeing | Finding Type | Action |
+|---|---|---|
+| 5/5 agree on gap | Critical structural flaw | Fix in next session |
+| 4/5 agree | Important gap | Fix within 1 week |
+| 3/5 agree | Notable concern | Add to backlog |
+| 2/5 agree | Worth investigating | Review next quarter |
+| 1/5 only | Possible false positive | Note but don't act |
+
+**Grade calculation:**
+- Start at A+
+- Each 5/5 consensus gap: -1 full grade (A+ → A → B+ ...)
+- Each 4/5 gap: -0.5 grade
+- Each 3/5 gap: -0.25 grade
+- Below C-: protocol needs major revision before next ship
+
+### Adversarial Audit Rules
+1. **Never send the protocol to itself** — the auditing models must NOT have written the protocol
+2. **Include the self-audit results** — show the 100% pass rate and ask "why is this wrong?"
+3. **Rotate models quarterly** — as new models appear, swap in fresh perspectives
+4. **Track grade over time** — if grade improves month over month, the process is working
+5. **Fix gaps BEFORE running the self-audit** — external audit drives changes, self-audit confirms them
+
+### Audit History
+
+| Date | External Grade | Consensus Gaps | Action Taken |
+|---|---|---|---|
+| 2026-03-27 | D+/C- (5 models) | 3x 5/5 (over-engineered, compliance fatigue, increases MTTR) | Added Phase E/B/I/V, model registry, quick-ref, adversarial audit |
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-03-27 | Initial unified protocol — 147+ rules mapped to 6 lifecycle phases |
-| 2.0 | 2026-03-27 | Multi-Model AI Audit Protocol integrated across all phases. Ultimate Rule upgraded to 4 layers. Phase A (Post-Ship Audit) added. Phase M reference added. OpenRouter 5-model stack (Qwen3, DeepSeek V3, DeepSeek R1, MiMo v2 Pro, Gemini 2.5 Pro) with tiered activation (mechanical → lightweight → targeted → full). Audit Gap Analysis from 48 cross-model findings integrated. |
+| 2.0 | 2026-03-27 | Multi-Model AI Audit Protocol integrated across all phases. Ultimate Rule upgraded to 4 layers. Phase A (Post-Ship Audit) added. Phase M reference added. OpenRouter 5-model stack with tiered activation. Audit Gap Analysis integrated. |
+| 2.1 | 2026-03-27 | Fixed 3 WARNs (POS PC, ConspitLink, NTP). Added D.10 Multi-Model Diagnostic Escalation (4 OpenRouter models). Debug Order → 5-Tier. |
+| 3.0 | 2026-03-27 | **External audit response.** 5-model adversarial audit scored D+/C-. Fixed all 7 gaps: Phase E (Emergency Fast-Path, 7-min recovery), Phase B (Break-Glass, AI autonomous authority), Phase I (Island Mode, pods without management), Model Registry (version pinning, cost ceiling $50/mo), Phase V (Physical Venue — hardware, cleaning, safety), PROTOCOL-QUICK-REF.md (lean 150-line operational core), Appendix E (adversarial external audit replacing self-audit). Protocol flow now: E(emergency) > B(break-glass) > I(island) > 0-5(lifecycle) > D(debug) > A(audit). |
