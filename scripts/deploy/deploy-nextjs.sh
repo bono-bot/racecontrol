@@ -20,6 +20,12 @@
 # =============================================================================
 set -euo pipefail
 
+# RC_JWT_SECRET must be set in the environment — never hardcode secrets
+if [[ -z "${RC_JWT_SECRET:-}" ]]; then
+  echo "ERROR: RC_JWT_SECRET env var is not set. Export it before running this script." >&2
+  exit 1
+fi
+
 START_EPOCH=$(date +%s)
 APP="${1:-}"
 SERVER="${2:-ADMIN@192.168.31.23}"
@@ -110,7 +116,7 @@ start_node_on_server() {
     \\\$env:PORT = '$PORT'
     \\\$env:HOSTNAME = '0.0.0.0'
     \\\$env:RC_URL = '$RC_URL'
-    \\\$env:RC_JWT_SECRET = 'UKLvoxSUMRPsKckeN17vJ-ORNgkTpfVO2MvS_JA5TMo'
+    \\\$env:RC_JWT_SECRET = '$RC_JWT_SECRET'
     Start-Process -FilePath 'C:\\Program Files\\nodejs\\node.exe' \`
       -ArgumentList 'server.js' \`
       -WorkingDirectory '$REMOTE_DIR' \`

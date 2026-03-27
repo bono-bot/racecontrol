@@ -38,6 +38,7 @@ check_suppression() {
   local today
   today=$(TZ=Asia/Kolkata date '+%Y-%m-%d')
 
+  # Pre-validate: filter out entries with invalid expires_date (must be YYYY-MM-DD)
   local reason
   reason=$(jq -r \
     --arg phase   "$phase"   \
@@ -47,6 +48,7 @@ check_suppression() {
     '
       .[] |
       select(.phase == $phase) |
+      select(.expires_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) |
       select(.expires_date >= $today) |
       select(.host_pattern as $pat | $host | test($pat)) |
       select(

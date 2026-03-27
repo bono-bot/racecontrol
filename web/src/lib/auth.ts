@@ -1,5 +1,10 @@
 const TOKEN_KEY = "rp_staff_jwt";
 
+// ACCEPTED RISK: JWT stored in localStorage. This is a LAN-only kiosk system
+// with no public internet exposure. Moving to httpOnly cookies requires server-side
+// session management (Set-Cookie on login, cookie-based auth middleware in Axum).
+// TODO: Migrate to httpOnly cookies when server auth is refactored.
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);

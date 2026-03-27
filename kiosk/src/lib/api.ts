@@ -20,9 +20,12 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch(`${API_BASE}/api/v1${path}`, {
         headers,
+        signal: controller.signal,
         ...options,
       });
       if (!res.ok) {
@@ -32,11 +35,13 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       return res.json();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      // Only retry on network errors (TypeError from fetch), not HTTP errors (4xx/5xx)
-      const isNetworkError = err instanceof TypeError;
+      // Only retry on network errors (TypeError from fetch / AbortError from timeout), not HTTP errors (4xx/5xx)
+      const isNetworkError = err instanceof TypeError || (err instanceof DOMException && err.name === 'AbortError');
       if (!isNetworkError || attempt >= MAX_RETRIES) break;
       // Exponential backoff: 500ms, 1000ms
       await new Promise((r) => setTimeout(r, RETRY_BASE_MS * Math.pow(2, attempt)));
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

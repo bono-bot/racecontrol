@@ -30,14 +30,18 @@ _ip_to_pod_number() {
 export -f _ip_to_pod_number
 
 _FLEET_HEALTH_CACHE=""
+_FLEET_HEALTH_CACHE_TIME=0
 
 is_pod_idle() {
   local pod_ip="$1"
   local pod_num
   pod_num=$(_ip_to_pod_number "$pod_ip")
   if [[ -z "$pod_num" ]]; then return 1; fi
-  if [[ -z "$_FLEET_HEALTH_CACHE" ]]; then
+  local now; now=$(date +%s)
+  local cache_age=$(( now - _FLEET_HEALTH_CACHE_TIME ))
+  if [[ -z "$_FLEET_HEALTH_CACHE" ]] || [[ "$cache_age" -gt 5 ]]; then
     _FLEET_HEALTH_CACHE=$(curl -s -m 8 "${FLEET_HEALTH_ENDPOINT:-http://192.168.31.23:8080/api/v1/fleet/health}" 2>/dev/null || echo "")
+    _FLEET_HEALTH_CACHE_TIME=$now
   fi
   if [[ -z "$_FLEET_HEALTH_CACHE" ]]; then return 1; fi
   if ! printf "%s" "$_FLEET_HEALTH_CACHE" | jq -e "." >/dev/null 2>&1; then return 1; fi

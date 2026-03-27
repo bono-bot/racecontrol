@@ -209,9 +209,11 @@ async fn take_screenshot() -> Result<Vec<u8>, String> {
     let tmp = std::env::temp_dir().join("rc_debug_screenshot.png");
     let tmp_path = tmp.to_string_lossy().to_string();
 
+    // Escape single quotes in the path to prevent PowerShell injection (replace ' with '')
+    let safe_path = tmp_path.replace('\\', "\\\\").replace('\'', "''");
     let ps_script = format!(
         r#"Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $b = New-Object System.Drawing.Bitmap($s.Width, $s.Height); $g = [System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($s.Location, [System.Drawing.Point]::Empty, $s.Size); $b.Save('{}'); $g.Dispose(); $b.Dispose()"#,
-        tmp_path.replace('\\', "\\\\")
+        safe_path
     );
 
     let output = {

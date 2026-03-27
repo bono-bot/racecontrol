@@ -216,15 +216,16 @@ async fn set_deploy_state(state: &Arc<AppState>, pod_id: &str, deploy_state: Dep
     let message = deploy_step_label(&deploy_state);
     let timestamp = Utc::now().to_rfc3339();
 
-    // Validate state transition
+    // Validate state transition — reject invalid transitions
     {
         let deploy_states = state.pod_deploy_states.read().await;
         let current = deploy_states.get(pod_id).cloned().unwrap_or_default();
         if !is_valid_transition(&current, &deploy_state) {
-            tracing::warn!(
-                "Deploy [{}]: invalid state transition {:?} -> {:?}, allowing anyway",
+            tracing::error!(
+                "Deploy [{}]: REJECTED invalid state transition {:?} -> {:?}",
                 pod_id, current, deploy_state
             );
+            return;
         }
     }
 

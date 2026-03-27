@@ -129,6 +129,13 @@ pub async fn credit(
         .map_err(|e| format!("DB error committing credit transaction: {}", e))?;
 
     // Post double-entry journal entry (fire-and-forget, non-blocking)
+    // WARNING: Journal posting runs AFTER wallet tx commit — if this fails, the wallet
+    // balance is updated but the journal is inconsistent. Cannot combine into same tx
+    // because journal_entries/journal_entry_lines use a separate begin/commit in accounting.rs.
+    tracing::warn!(
+        "wallet credit {}: journal posting outside wallet transaction — inconsistency risk if journal write fails",
+        txn_id
+    );
     match txn_type {
         "topup_cash" | "topup_card" | "topup_upi" | "topup_online" => {
             accounting::post_topup(state, driver_id, amount_paise, txn_type, staff_id, Some(&txn_id)).await;
@@ -230,6 +237,13 @@ pub async fn debit(
         .map_err(|e| format!("DB error committing debit transaction: {}", e))?;
 
     // Post double-entry journal entry for all debit types
+    // WARNING: Journal posting runs AFTER wallet tx commit — if this fails, the wallet
+    // balance is updated but the journal is inconsistent. Cannot combine into same tx
+    // because journal_entries/journal_entry_lines use a separate begin/commit in accounting.rs.
+    tracing::warn!(
+        "wallet debit {}: journal posting outside wallet transaction — inconsistency risk if journal write fails",
+        txn_id
+    );
     accounting::post_wallet_debit(state, driver_id, amount_paise, txn_type, Some(&txn_id)).await;
 
     tracing::info!(

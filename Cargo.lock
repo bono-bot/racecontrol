@@ -3579,6 +3579,7 @@ dependencies = [
  "rand 0.8.5",
  "rc-common",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "serial_test",

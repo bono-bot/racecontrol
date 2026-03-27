@@ -86,8 +86,8 @@ fn is_rc_agent_running() -> bool {
             output_contains_agent(&stdout)
         }
         Err(e) => {
-            tracing::warn!("Failed to run tasklist: {} — assuming rc-agent is running", e);
-            true // Conservative: assume running if can't check
+            tracing::warn!("Failed to run tasklist: {} — assuming rc-agent is NOT running", e);
+            false // Return false on error so watchdog can attempt restart
         }
     }
 }

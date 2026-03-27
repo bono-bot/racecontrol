@@ -40,8 +40,8 @@ async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &
     #[cfg(feature = "http-client")]
     {
     let client = orphan_client();
-    let url = format!("{}/billing/session/{}/end?reason={}", core_base_url, session_id, end_reason);
-    match client.post(&url).send().await {
+    let base_url = format!("{}/billing/session/{}/end", core_base_url, session_id);
+    match client.post(&base_url).query(&[("reason", end_reason)]).send().await {
         Ok(resp) => resp.status().is_success(),
         Err(e) => {
             tracing::warn!(target: LOG_TARGET, "orphan end HTTP failed: {}", e);

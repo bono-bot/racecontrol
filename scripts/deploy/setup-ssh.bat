@@ -100,7 +100,8 @@ echo ListenAddress ::
 echo.
 echo PubkeyAuthentication yes
 echo AuthorizedKeysFile .ssh/authorized_keys
-echo PasswordAuthentication yes
+echo PasswordAuthentication no
+echo MaxAuthTries 3
 echo PermitEmptyPasswords no
 echo.
 echo Subsystem sftp sftp-server.exe

@@ -197,6 +197,9 @@ pub fn log_event(event: &str) {
 
 /// Count TCP connections in CLOSE_WAIT state on local port 8090.
 /// Runs netstat locally — no network call.
+///
+/// NOTE: Locale dependency — netstat output text ("CLOSE_WAIT") may differ on
+/// non-English Windows locales. Known limitation; acceptable for our English-locale pods.
 fn count_close_wait_on_8090() -> usize {
     let Ok(out) = std::process::Command::new("netstat").args(["-ano"]).output() else {
         return 0;

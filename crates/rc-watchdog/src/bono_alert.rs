@@ -5,8 +5,9 @@
 const NODE_EXE: &str = r"C:\Program Files\nodejs\node.exe";
 const SEND_MSG_JS: &str = r"C:\Users\bono\racingpoint\comms-link\send-message.js";
 const COMMS_DIR: &str = r"C:\Users\bono\racingpoint\comms-link";
-const COMMS_PSK: &str = "85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0";
-const COMMS_URL: &str = "ws://srv1422716.hstgr.cloud:8765";
+// Env var names for COMMS_PSK and COMMS_URL (must be set in environment)
+// COMMS_PSK — pre-shared key for comms-link WS authentication
+// COMMS_URL — WebSocket URL for comms-link server (e.g. ws://srv1422716.hstgr.cloud:8765)
 
 /// Alert Bono via comms-link WebSocket. Returns Ok(()) even if node.exe is absent.
 pub fn alert_bono(message: &str) -> std::io::Result<()> {
@@ -15,12 +16,27 @@ pub fn alert_bono(message: &str) -> std::io::Result<()> {
 
 /// Inner function for testability — accepts custom node executable path.
 pub fn alert_bono_with_exe(node_exe: &str, message: &str) -> std::io::Result<()> {
+    let comms_psk = match std::env::var("COMMS_PSK") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            tracing::error!("bono_alert: COMMS_PSK env var is unset or empty — cannot send alert");
+            return Ok(());
+        }
+    };
+    let comms_url = match std::env::var("COMMS_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            tracing::error!("bono_alert: COMMS_URL env var is unset or empty — cannot send alert");
+            return Ok(());
+        }
+    };
+
     let mut cmd = std::process::Command::new(node_exe);
     cmd.arg(SEND_MSG_JS)
         .arg(message)
         .current_dir(COMMS_DIR)
-        .env("COMMS_PSK", COMMS_PSK)
-        .env("COMMS_URL", COMMS_URL);
+        .env("COMMS_PSK", &comms_psk)
+        .env("COMMS_URL", &comms_url);
 
     #[cfg(windows)]
     {
@@ -30,8 +46,27 @@ pub fn alert_bono_with_exe(node_exe: &str, message: &str) -> std::io::Result<()>
 
     match cmd.spawn() {
         Ok(mut child) => {
-            // Wait for node to exit (~1-2s for WS message send)
-            let _ = child.wait();
+            // Wait for node to exit with 5-second timeout
+            let timeout = std::time::Duration::from_secs(5);
+            let start = std::time::Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => {
+                        if start.elapsed() >= timeout {
+                            tracing::warn!("bono_alert: node process exceeded 5s timeout, killing");
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => {
+                        tracing::warn!("bono_alert: error waiting for node: {}", e);
+                        break;
+                    }
+                }
+            }
             Ok(())
         }
         Err(e) => {

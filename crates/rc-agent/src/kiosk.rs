@@ -480,7 +480,9 @@ impl KioskManager {
             hide_taskbar(true);
             // ─── SAFE-06: skip registry write during protected game session ───
             if !self.safe_mode_active.load(Ordering::Relaxed) {
-                apply_gpo_lockdown();
+                if let Err(e) = apply_gpo_lockdown() {
+                    tracing::warn!(target: LOG_TARGET, "GPO lockdown failed: {}", e);
+                }
             } else {
                 tracing::info!(target: LOG_TARGET, "safe mode active — GPO lockdown registry write deferred");
             }
@@ -1034,7 +1036,8 @@ mod windows_impl {
 
     /// Apply GPO registry keys to block Win key and Task Manager.
     /// Replaces SetWindowsHookEx keyboard hook -- safe for anti-cheat.
-    pub fn apply_gpo_lockdown() {
+    /// Returns Err with the first failure encountered.
+    pub fn apply_gpo_lockdown() -> Result<(), String> {
         use std::process::Command;
         use std::os::windows::process::CommandExt;
 
@@ -1056,13 +1059,18 @@ mod windows_impl {
                 }
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    tracing::error!(target: LOG_TARGET, "Kiosk: GPO write failed for {}\\{}: {}", subkey, value_name, stderr.trim());
+                    let msg = format!("GPO write failed for {}\\{}: {}", subkey, value_name, stderr.trim());
+                    tracing::error!(target: LOG_TARGET, "Kiosk: {}", msg);
+                    return Err(msg);
                 }
                 Err(e) => {
-                    tracing::error!(target: LOG_TARGET, "Kiosk: failed to spawn reg.exe for {}\\{}: {}", subkey, value_name, e);
+                    let msg = format!("failed to spawn reg.exe for {}\\{}: {}", subkey, value_name, e);
+                    tracing::error!(target: LOG_TARGET, "Kiosk: {}", msg);
+                    return Err(msg);
                 }
             }
         }
+        Ok(())
     }
 
     /// Remove GPO registry keys -- restores Win key and Task Manager access.
@@ -1129,7 +1137,7 @@ pub use windows_impl::{install_keyboard_hook, remove_keyboard_hook};
 pub fn hide_taskbar(_hide: bool) {}
 
 #[cfg(not(windows))]
-pub fn apply_gpo_lockdown() {}
+pub fn apply_gpo_lockdown() -> Result<(), String> { Ok(()) }
 
 #[cfg(not(windows))]
 pub fn remove_gpo_lockdown() {}

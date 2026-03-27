@@ -300,8 +300,18 @@ async fn run_scan_cycle(
             })
             .collect::<Vec<_>>()
     })
-    .await
-    .unwrap_or_default();
+    .await;
+
+    let procs = match procs {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(target: LOG_TARGET, "spawn_blocking process scan panicked: {} — reporting scan_failed", e);
+            return Ok(ScanResult {
+                total_processes: 0,
+                violation_count: 0,
+            });
+        }
+    };
 
     let wl = whitelist.read().await;
     let violation_action = wl.violation_action.clone();

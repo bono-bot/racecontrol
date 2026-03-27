@@ -66,15 +66,20 @@ emit_fix() {
   local ts; ts=$(ist_now)
   mkdir -p "${RESULT_DIR:-/tmp/audit-fallback}"
   local fixfile="${RESULT_DIR:-/tmp/audit-fallback}/fixes.jsonl"
-  jq -n \
+  local _fix_line
+  _fix_line=$(jq -n \
     --arg phase       "$phase"       \
     --arg host        "$host"        \
     --arg action      "$action"      \
     --arg before      "$before_state" \
     --arg after       "$after_state"  \
     --arg timestamp   "$ts"          \
-    '{phase:$phase,host:$host,action:$action,before:$before,after:$after,timestamp:$timestamp}' \
-    >> "$fixfile"
+    '{phase:$phase,host:$host,action:$action,before:$before,after:$after,timestamp:$timestamp}')
+  # flock-based file locking to prevent parallel JSONL corruption
+  (
+    flock -x 200
+    printf '%s\n' "$_fix_line" >> "$fixfile"
+  ) 200>"${fixfile}.lock"
 }
 export -f emit_fix
 

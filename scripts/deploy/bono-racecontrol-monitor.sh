@@ -46,13 +46,15 @@ send_whatsapp() {
     local phone="$2"
     local evo_url="${EVOLUTION_URL:-http://localhost:53622}"
     local evo_instance="${EVOLUTION_INSTANCE:-Racing Point Reception}"
-    local evo_key="${EVOLUTION_API_KEY:-zNAKEHsXudyqL3dFngyBJAZWw9W4hWN0}"
-    if [ -n "$evo_key" ]; then
-        curl -s -X POST "${evo_url}/message/sendText/${evo_instance}" \
-            -H "Content-Type: application/json" \
-            -H "apikey: ${evo_key}" \
-            -d "{\"number\":\"${phone}\",\"text\":\"${message}\"}" > /dev/null 2>&1
+    local evo_key="${EVOLUTION_API_KEY:-}"
+    if [ -z "$evo_key" ]; then
+        log "ERROR: EVOLUTION_API_KEY env var is not set — cannot send WhatsApp"
+        return 1
     fi
+    curl -s -X POST "${evo_url}/message/sendText/${evo_instance}" \
+        -H "Content-Type: application/json" \
+        -H "apikey: ${evo_key}" \
+        -d "{\"number\":\"${phone}\",\"text\":\"${message}\"}" > /dev/null 2>&1
 }
 
 send_alert() {

@@ -2,7 +2,13 @@
 REM RacingPoint - Tailscale install for pods (run from pendrive as Admin)
 REM Usage: install-tailscale.bat <pod_number>
 
-set PREAUTH_KEY=tskey-auth-kQ9nLvZ96111CNTRL-KTchwRr5G5GGnsCaN6VJ4GddhRpf8NVcd
+if "%TAILSCALE_AUTH_KEY%"=="" (
+    echo ERROR: TAILSCALE_AUTH_KEY environment variable is not set.
+    echo Usage: set TAILSCALE_AUTH_KEY=tskey-auth-... ^& install-tailscale.bat 1
+    pause
+    exit /b 1
+)
+set PREAUTH_KEY=%TAILSCALE_AUTH_KEY%
 set TS_EXE=C:\Program Files\Tailscale\tailscale.exe
 
 if "%1"=="" (

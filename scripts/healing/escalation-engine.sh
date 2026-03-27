@@ -369,9 +369,21 @@ export -f _verify_schema_gap
 escalate_pod() {
   local pod_ip="$1" issue_type="$2" severity="${3:-P1}"
 
+  # Concurrent escalation guard: flock per pod to prevent overlapping escalations
+  local lock_dir="/tmp/escalation-locks"
+  mkdir -p "$lock_dir" 2>/dev/null || true
+  local lock_file="$lock_dir/pod-${pod_ip//\./-}.lock"
+  exec 9>"$lock_file"
+  if ! flock -n 9; then
+    log INFO "[HEAL] escalation already in progress for $pod_ip — skipping"
+    exec 9>&-
+    return 0
+  fi
+
   # HEAL-08: check toggle at call time
   if ! _auto_fix_enabled; then
     log INFO "[HEAL] auto_fix_enabled=false — detect-only mode, skipping escalation for $pod_ip $issue_type"
+    exec 9>&-
     return 0
   fi
 
@@ -397,8 +409,38 @@ escalate_pod() {
 
   local tier_result verify_result
 
+  # ── Persistent attempt cap: 5 attempts per tier per (pod, issue) per 24h ──
+  local _attempt_dir="${REPO_ROOT}/audit/results/escalation-attempts"
+  mkdir -p "$_attempt_dir"
+
+  _check_attempt_cap() {
+    local _cap_pod="$1" _cap_issue="$2" _cap_tier="$3"
+    local _cap_file="${_attempt_dir}/${_cap_pod//\./_}_${_cap_issue}_${_cap_tier}.count"
+    local _cap_count=0 _cap_ts=0
+    if [[ -f "$_cap_file" ]]; then
+      _cap_count=$(head -1 "$_cap_file" 2>/dev/null | cut -d'|' -f1)
+      _cap_ts=$(head -1 "$_cap_file" 2>/dev/null | cut -d'|' -f2)
+      _cap_count="${_cap_count:-0}"
+      _cap_ts="${_cap_ts:-0}"
+    fi
+    local _cap_now; _cap_now=$(date +%s)
+    local _cap_age=$(( _cap_now - _cap_ts ))
+    # Reset counter if older than 24h
+    if [[ "$_cap_age" -gt 86400 ]]; then
+      _cap_count=0
+      _cap_ts=$_cap_now
+    fi
+    if [[ "$_cap_count" -ge 5 ]]; then
+      log WARN "[HEAL] attempt cap reached: $_cap_pod $_cap_issue $_cap_tier ($_cap_count/5 in 24h)"
+      return 1
+    fi
+    _cap_count=$((_cap_count + 1))
+    echo "${_cap_count}|${_cap_ts}" > "$_cap_file"
+    return 0
+  }
+
   # ── Tier 1: Retry ──
-  if _sentinel_gate "$pod_ip" "retry"; then
+  if _sentinel_gate "$pod_ip" "retry" && _check_attempt_cap "$pod_ip" "$issue_type" "retry"; then
     log INFO "[HEAL] Tier 1 (retry): $pod_ip"
     tier_result=$(attempt_retry "$pod_ip" 2>/dev/null || echo "UNRESOLVED")
     if [[ "$tier_result" == "RESOLVED" ]]; then
@@ -413,7 +455,7 @@ escalate_pod() {
   fi
 
   # ── Tier 2: Restart ──
-  if _sentinel_gate "$pod_ip" "restart"; then
+  if _sentinel_gate "$pod_ip" "restart" && _check_attempt_cap "$pod_ip" "$issue_type" "restart"; then
     log INFO "[HEAL] Tier 2 (restart): $pod_ip"
     tier_result=$(attempt_restart "$pod_ip" 2>/dev/null || echo "UNRESOLVED")
     if [[ "$tier_result" == "RESOLVED" ]]; then
@@ -428,7 +470,7 @@ escalate_pod() {
   fi
 
   # ── Tier 3: WoL ──
-  if _sentinel_gate "$pod_ip" "wol"; then
+  if _sentinel_gate "$pod_ip" "wol" && _check_attempt_cap "$pod_ip" "$issue_type" "wol"; then
     log INFO "[HEAL] Tier 3 (wol): $pod_ip"
     tier_result=$(attempt_wol "$pod_ip" 2>/dev/null || echo "UNRESOLVED")
     if [[ "$tier_result" == "RESOLVED" ]]; then
@@ -443,7 +485,7 @@ escalate_pod() {
   fi
 
   # ── Tier 4: Cloud failover ──
-  if _sentinel_gate "$pod_ip" "cloud_failover"; then
+  if _sentinel_gate "$pod_ip" "cloud_failover" && _check_attempt_cap "$pod_ip" "$issue_type" "cloud_failover"; then
     log INFO "[HEAL] Tier 4 (cloud_failover): $pod_ip"
     tier_result=$(attempt_cloud_failover "$pod_ip" 2>/dev/null || echo "UNRESOLVED")
     if [[ "$tier_result" == "RESOLVED" ]]; then

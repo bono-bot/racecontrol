@@ -22,8 +22,12 @@ const WS_BASE =
   (typeof window !== "undefined"
     ? `ws://${window.location.hostname}:8080/ws/dashboard`
     : "ws://localhost:8080/ws/dashboard");
+// ACCEPTED RISK: NEXT_PUBLIC_WS_TOKEN is exposed in the client bundle.
+// This is a LAN-only kiosk system with no public internet exposure.
+// The token is sent via Sec-WebSocket-Protocol header instead of URL query
+// string to avoid logging in server access logs and browser history.
 const WS_TOKEN = process.env.NEXT_PUBLIC_WS_TOKEN || "";
-const WS_URL = WS_TOKEN ? `${WS_BASE}?token=${WS_TOKEN}` : WS_BASE;
+const WS_URL = WS_BASE;
 
 interface DashboardEvent {
   event: string;
@@ -50,6 +54,7 @@ export type { AssistanceRequest };
 export function useKioskSocket() {
   const ws = useRef<WebSocket | null>(null);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const [pods, setPods] = useState<Map<string, Pod>>(new Map());
   const [latestTelemetry, setLatestTelemetry] = useState<Map<string, TelemetryFrame>>(new Map());
@@ -79,7 +84,9 @@ export function useKioskSocket() {
   const connect = useCallback(() => {
     if (ws.current?.readyState === WebSocket.OPEN) return;
 
-    const socket = new WebSocket(WS_URL);
+    const socket = WS_TOKEN
+      ? new WebSocket(WS_URL, [WS_TOKEN])
+      : new WebSocket(WS_URL);
 
     socket.onopen = () => {
       // Clear any pending disconnect timer -- we reconnected in time
@@ -87,6 +94,7 @@ export function useKioskSocket() {
         clearTimeout(disconnectTimerRef.current);
         disconnectTimerRef.current = null;
       }
+      reconnectAttemptRef.current = 0;
       setConnected(true);
       console.log("[Kiosk] Connected to RaceControl");
     };
@@ -320,7 +328,13 @@ export function useKioskSocket() {
     };
 
     socket.onclose = () => {
-      console.log("[Kiosk] Disconnected, retrying in 3s...");
+      // Exponential backoff with jitter: 1s base, 30s max
+      const attempt = reconnectAttemptRef.current;
+      const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30_000);
+      const jitter = Math.random() * baseDelay * 0.3;
+      const delay = Math.round(baseDelay + jitter);
+      reconnectAttemptRef.current = attempt + 1;
+      console.log(`[Kiosk] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1})...`);
       // Two-phase UI debounce:
       // 1. After 5s: show "Reconnecting..." (soft indicator, no alarm)
       // 2. After 15s: show "Disconnected" (hard indicator, something is wrong)
@@ -333,8 +347,8 @@ export function useKioskSocket() {
           console.log("[Kiosk] 15s debounce expired -- marking disconnected");
         }, 15_000);
       }
-      // Retry connection immediately (separate from UI debounce)
-      setTimeout(connect, 3000);
+      // Retry connection with exponential backoff (separate from UI debounce)
+      setTimeout(connect, delay);
     };
 
     socket.onerror = () => {

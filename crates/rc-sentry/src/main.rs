@@ -55,12 +55,20 @@ fn service_key() -> &'static str {
 }
 
 /// SEC-EXEC-02: Check X-Service-Key header on protected endpoints.
-/// When RCSENTRY_SERVICE_KEY is unset/empty, all requests pass (permissive mode).
+/// When RCSENTRY_SERVICE_KEY is unset/empty AND RCSENTRY_PERMISSIVE_MODE=1, all requests pass.
+/// When RCSENTRY_SERVICE_KEY is unset/empty AND RCSENTRY_PERMISSIVE_MODE is NOT "1", deny all.
 /// Returns true if the request is authorized, false otherwise.
 fn check_service_key(request: &str) -> bool {
     let expected = service_key();
     if expected.is_empty() {
-        return true; // Permissive mode — no key configured
+        let permissive = std::env::var("RCSENTRY_PERMISSIVE_MODE")
+            .unwrap_or_default();
+        if permissive == "1" {
+            tracing::warn!("RCSENTRY_SERVICE_KEY unset — permissive mode active (RCSENTRY_PERMISSIVE_MODE=1)");
+            return true;
+        }
+        tracing::warn!("RCSENTRY_SERVICE_KEY unset and RCSENTRY_PERMISSIVE_MODE != 1 — denying request");
+        return false;
     }
 
     // Extract X-Service-Key header value from raw HTTP request
@@ -342,6 +350,7 @@ fn main() {
             .expect("spawn crash handler thread");
     } // end #[cfg(feature = "watchdog")]
 
+    const MAX_CONCURRENT_CONNECTIONS: usize = 32;
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
     loop {
         handles.retain(|h| !h.is_finished());
@@ -354,6 +363,11 @@ fn main() {
         }
         match listener.accept() {
             Ok((stream, _)) => {
+                if handles.len() >= MAX_CONCURRENT_CONNECTIONS {
+                    tracing::warn!("connection limit reached ({MAX_CONCURRENT_CONNECTIONS}), rejecting");
+                    drop(stream);
+                    continue;
+                }
                 let n = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
                 if let Ok(h) = std::thread::Builder::new()
                     .name(format!("sentry-handler-{n}"))

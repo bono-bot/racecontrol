@@ -129,6 +129,11 @@ async fn probe_tcp_port(name: &str, addr: &str) -> ProbeResult {
 
 /// Parse netstat output and determine if a UDP port is bound.
 /// Extracted for unit testability.
+///
+/// NOTE: Locale dependency — netstat output text (column headers, state names like
+/// "LISTENING", "UDP") may differ on non-English Windows locales. This is a known
+/// limitation. We match on protocol keywords which are generally locale-invariant,
+/// but edge cases may exist on fully localized Windows installations.
 pub fn probe_udp_port_from_netstat_output(port: u16, netstat_stdout: &str) -> ProbeStatus {
     let target = format!(":{} ", port);
     let target_eol = format!(":{}\r", port);
