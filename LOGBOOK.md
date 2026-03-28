@@ -987,3 +987,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 10:30 IST | James | 173175d9 | SEC-08 OTP argon2id hashing (hash_otp/verify_otp_hash) + SEC-06 audit_log DELETE trigger |
 | 2026-03-29 10:35 IST | James | b73f7be0 | SEC-09 PII masking (mask_phone/mask_email) for cashier role in driver list/detail/full-profile endpoints |
 | 2026-03-29 10:40 IST | James | d1fdb927 | docs: 254-02 SUMMARY.md + STATE/ROADMAP/REQUIREMENTS updates (SEC-03/06/08/09 complete) |
+| 2026-03-28 19:30 IST | James | e527e315 | feat(254-03): SEC-05 self-topup block (Option<Extension<StaffClaims>>, cashier/manager blocked) + SEC-10 game launch mutex (Arc<tokio::sync::Mutex> in AppState) |
+| 2026-03-28 19:35 IST | James | 9d378350 | feat(254-03): SEC-07 WSS TLS — connect_with_tls_config(), native-tls connector, tls_ca_cert_path/tls_skip_verify in CoreConfig, native-tls = 0.2 direct dep |
+| 2026-03-28 19:40 IST | James | b5694798 | docs(254-03): 254-03-SUMMARY.md, Phase 254 COMPLETE (3/3 plans), SEC-05/07/10 done in REQUIREMENTS.md |
