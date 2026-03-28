@@ -1228,6 +1228,32 @@ curl -s http://localhost:8766/relay/health
 
 All three must return valid responses with REALTIME connection mode.
 
+### 5.2.5 — Financial Flow E2E (Layer 2.5)
+
+**MANDATORY for ANY change touching billing, wallet, pricing, or session management.**
+
+Trace actual currency values through the complete lifecycle:
+```
+1. Create customer → verify wallet_balance = 0
+2. Top-up ₹1000 → verify wallet_balance = 100000 paise
+3. Book 30-min session (₹700) → verify wallet_debit_paise = 70000
+4. Launch game → verify billing_status = 'active'
+5. End session early (15 min) → verify:
+   - refund_paise = (remaining_seconds * wallet_debit_paise) / allocated_seconds
+   - wallet_balance reflects original_debit - actual_cost + refund
+   - NOT wallet_balance = original - overwritten_value (F-05 bug class)
+6. Cancel session before launch → verify full refund
+7. Normal session end (full duration) → verify zero refund
+```
+
+**Anti-pattern this catches:** Any function that UPDATEs and then SELECTs the same DB
+column in the same scope. The SELECT gets the value you just wrote, not the original.
+
+_Why: F-05 (P1, 2026-03-28) — `end_billing_session()` overwrote `wallet_debit_paise`
+before reading it for refund calc. 32+ model audits across 6 MMA rounds missed it.
+Only manual ₹-value tracing caught it. MMA prompts now include "Category 10: Financial
+Data Flow" but this E2E layer is the structural fix._
+
 ### 5.3 — Standing Rules Compliance
 - [ ] Auto-push clean (no unpushed commits)
 - [ ] Bono notified (INBOX.md + WS message)
