@@ -970,3 +970,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-28 00:56 IST | James | 4a28f6eb | docs(251-02): 251-02-SUMMARY.md, STATE.md, ROADMAP updated, FSM-10 + RESIL-03 marked complete |
 
 | 2026-03-28 01:37 IST | James | 8bffcca0 | 252-02: compute_refund() unified function + CAS guards on both session-end paths + tier alignment test (FATM-04/05/06) |
+| 2026-03-29 01:59 IST | James | 61c73467 | feat(252-03): background reconciliation job — 30min wallet balance drift detection, WhatsApp alert, GET/POST admin endpoints (FATM-12) |
+| 2026-03-29 01:59 IST | James | 12b9d344 | docs(252-03): 252-03-SUMMARY.md, STATE.md Phase 252 complete, FATM-12 marked done in REQUIREMENTS.md |
