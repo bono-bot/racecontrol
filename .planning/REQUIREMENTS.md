@@ -22,12 +22,12 @@
 
 ### State Machine Integrity (FSM)
 
-- [ ] **FSM-01**: Billing session state transitions validated via server-side allowed-transitions table (current_state + event → new_state or REJECT)
+- [x] **FSM-01**: Billing session state transitions validated via server-side allowed-transitions table (current_state + event → new_state or REJECT)
 - [ ] **FSM-02**: Cross-FSM invariant enforced: billing=active requires game≠Idle (phantom billing guard)
 - [ ] **FSM-03**: Cross-FSM invariant enforced: game=Running requires billing≠cancelled (free gaming guard)
 - [ ] **FSM-04**: Crash recovery atomically pauses billing before any relaunch attempt
 - [ ] **FSM-05**: StopGame handled in every recovery FSM state (not silently dropped)
-- [ ] **FSM-06**: Billing pause timeout and crash recovery auto-end share a single authoritative end-session trigger
+- [x] **FSM-06**: Billing pause timeout and crash recovery auto-end share a single authoritative end-session trigger
 - [ ] **FSM-07**: Split session modeled as parent order with child entitlements, each with immutable duration and state
 - [ ] **FSM-08**: Split transition persisted to DB before any new launch command issued
 - [x] **FSM-09**: Billing timer state persisted to DB every 60 seconds (survives server restart)
@@ -150,12 +150,12 @@ Updated during roadmap creation (2026-03-29).
 | FATM-05 | Phase 252 | Complete |
 | FATM-06 | Phase 252 | Complete |
 | FATM-12 | Phase 252 | Complete |
-| FSM-01 | Phase 253 | Pending |
+| FSM-01 | Phase 253 | Complete |
 | FSM-02 | Phase 253 | Pending |
 | FSM-03 | Phase 253 | Pending |
 | FSM-04 | Phase 253 | Pending |
 | FSM-05 | Phase 253 | Pending |
-| FSM-06 | Phase 253 | Pending |
+| FSM-06 | Phase 253 | Complete |
 | FSM-07 | Phase 253 | Pending |
 | FSM-08 | Phase 253 | Pending |
 | SEC-01 | Phase 254 | Pending |
