@@ -33,7 +33,10 @@
   2. After a server restart mid-session, billing timer state is recovered from the DB (no silent time loss)
   3. Pod timer writes are staggered by pod index so writes never cluster at the same second
   4. Any billing session with no agent heartbeat for 5+ minutes is automatically flagged and staff is alerted within the next detection cycle
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 251-01-PLAN.md — WAL verification, schema migration (elapsed_seconds + last_timer_sync_at), staggered 60s timer persistence
+- [ ] 251-02-PLAN.md — Orphaned session detection on startup and background 5-minute job with WhatsApp alerting
 
 ### Phase 252: Financial Atomicity Core
 **Goal**: Every money-moving operation is atomic, idempotent, and race-condition-free — no double charges, no overspend, no balance drift
@@ -153,7 +156,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 251. Database Foundation | 0/? | Not started | - |
+| 251. Database Foundation | 0/2 | Planned | - |
 | 252. Financial Atomicity Core | 0/? | Not started | - |
 | 253. State Machine Hardening | 0/? | Not started | - |
 | 254. Security Hardening | 0/? | Not started | - |
