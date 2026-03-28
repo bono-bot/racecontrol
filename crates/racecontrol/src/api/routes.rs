@@ -491,6 +491,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
+        // FATM-12: Reconciliation (admin only)
+        .route("/reconciliation/status", get(reconciliation_status))
+        .route("/reconciliation/run", post(reconciliation_run))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
@@ -17993,4 +17996,17 @@ async fn cloud_mesh_pull(
     }
 
     Json(serde_json::json!({ "solutions": all, "count": all.len() }))
+}
+
+// ─── FATM-12: Reconciliation handlers ───────────────────────────────────────
+
+/// GET /api/v1/reconciliation/status — returns last reconciliation run info.
+async fn reconciliation_status() -> Json<serde_json::Value> {
+    Json(billing::get_reconciliation_status())
+}
+
+/// POST /api/v1/reconciliation/run — triggers an immediate reconciliation run.
+async fn reconciliation_run(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    billing::run_reconciliation_public(&state).await;
+    Json(billing::get_reconciliation_status())
 }

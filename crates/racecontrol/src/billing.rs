@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
@@ -1924,6 +1925,141 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
             tracing::error!("Background orphan detection query failed: {}", e);
         }
     }
+}
+
+// ─── FATM-12: Background Reconciliation Job ─────────────────────────────────
+
+/// Module-level statics for lightweight reconciliation status (never runs blocking I/O).
+/// Using `std::sync::OnceLock` + `AtomicI64` — no external crate dependency.
+static LAST_RECONCILIATION_AT: std::sync::OnceLock<std::sync::RwLock<Option<String>>> =
+    std::sync::OnceLock::new();
+static LAST_DRIFT_COUNT: AtomicI64 = AtomicI64::new(-1); // -1 = never run
+static LAST_DURATION_MS: AtomicI64 = AtomicI64::new(0);
+
+fn reconciliation_status_lock() -> &'static std::sync::RwLock<Option<String>> {
+    LAST_RECONCILIATION_AT.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Spawn background reconciliation job (FATM-12).
+/// Every 30 minutes, compares wallet.balance_paise against SUM(wallet_transactions.amount_paise).
+/// Logs discrepancies at ERROR and sends WhatsApp alert.
+pub fn spawn_reconciliation_job(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        // Initial delay: 60s after startup (avoid boot storm)
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(1800)); // 30 min
+        loop {
+            interval.tick().await;
+            run_reconciliation(&state).await;
+        }
+    });
+    tracing::info!(
+        "FATM-12: Reconciliation job started (30-min interval, 60s initial delay)"
+    );
+}
+
+/// Public wrapper so the admin endpoint can trigger an immediate reconciliation run.
+pub async fn run_reconciliation_public(state: &Arc<AppState>) {
+    run_reconciliation(state).await;
+}
+
+/// Inner reconciliation logic.
+async fn run_reconciliation(state: &Arc<AppState>) {
+    tracing::info!("RECONCILIATION: Starting wallet balance check");
+    let start = std::time::Instant::now();
+
+    // For each wallet, compare balance_paise to SUM(wallet_transactions.amount_paise).
+    // wallet_transactions.amount_paise is signed: positive for credits, negative for debits.
+    let result = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT w.driver_id,
+                w.balance_paise,
+                COALESCE((SELECT SUM(wt.amount_paise)
+                          FROM wallet_transactions wt
+                          WHERE wt.driver_id = w.driver_id), 0) AS computed_balance
+         FROM wallets w
+         HAVING ABS(w.balance_paise - computed_balance) > 0
+         LIMIT 100",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match result {
+        Ok(rows) if rows.is_empty() => {
+            tracing::info!(
+                "RECONCILIATION: All wallets balanced (took {:?})",
+                start.elapsed()
+            );
+            update_reconciliation_status(0, start.elapsed());
+        }
+        Ok(rows) => {
+            let count = rows.len();
+            tracing::error!(
+                "RECONCILIATION: {} wallet(s) with balance drift detected!",
+                count
+            );
+            let mut details = Vec::new();
+            for (driver_id, actual, computed) in &rows {
+                let drift = actual - computed;
+                let short_id = &driver_id[..8.min(driver_id.len())];
+                tracing::error!(
+                    "RECONCILIATION DRIFT: driver={}, wallet_balance={}p, txn_sum={}p, drift={}p",
+                    driver_id,
+                    actual,
+                    computed,
+                    drift
+                );
+                details.push(format!("{}: {}p drift", short_id, drift));
+            }
+
+            // WhatsApp alert gated on config.alerting.enabled (same pattern as orphan detection)
+            let alert_msg = format!(
+                "RECONCILIATION ALERT: {} wallet(s) with balance drift.\n{}",
+                count,
+                details.join("\n")
+            );
+            whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+
+            update_reconciliation_status(count, start.elapsed());
+        }
+        Err(e) => {
+            tracing::error!("RECONCILIATION: Query failed: {}", e);
+        }
+    }
+}
+
+/// Update in-memory reconciliation status (non-blocking, infallible).
+fn update_reconciliation_status(drift_count: usize, duration: std::time::Duration) {
+    let ts = chrono::Utc::now().to_rfc3339();
+    // unwrap_or_else handles poisoned locks — we prefer stale data over a panic
+    *reconciliation_status_lock()
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = Some(ts);
+    LAST_DRIFT_COUNT.store(drift_count as i64, Ordering::Relaxed);
+    LAST_DURATION_MS.store(duration.as_millis() as i64, Ordering::Relaxed);
+}
+
+/// Returns the last reconciliation run status as JSON for the admin endpoint.
+pub fn get_reconciliation_status() -> serde_json::Value {
+    let last_at = reconciliation_status_lock()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let drift_count = LAST_DRIFT_COUNT.load(Ordering::Relaxed);
+    let status = if drift_count < 0 {
+        "never_run"
+    } else if drift_count == 0 {
+        "healthy"
+    } else {
+        "drift_detected"
+    };
+    serde_json::json!({
+        "last_run_at": last_at,
+        "drift_count": if drift_count >= 0 { Some(drift_count) } else { None::<i64> },
+        "last_duration_ms": LAST_DURATION_MS.load(Ordering::Relaxed),
+        "interval_seconds": 1800,
+        "status": status
+    })
 }
 
 // ─── Dashboard Command Handler ──────────────────────────────────────────────

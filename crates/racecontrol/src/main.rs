@@ -162,10 +162,13 @@ async fn jwt_error_to_401(
 }
 
 /// Web dashboard paths that get proxied to the staff dashboard on port 3200.
+/// MMA Round 4 P1 fix: /login was missing — AuthGate redirects unauthenticated
+/// users to /login, causing 404 on POS billing kiosk. Added ALL web app routes.
 const WEB_DASHBOARD_PATHS: &[&str] = &[
     "/billing", "/presenter", "/leaderboards", "/drivers", "/pods",
     "/telemetry", "/games", "/ai", "/sessions", "/bookings",
     "/events", "/settings", "/ac-lan", "/ac-sessions", "/results",
+    "/login", "/cameras", "/cafe", "/book", "/flags", "/ota",
 ];
 
 /// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300,
@@ -640,6 +643,9 @@ async fn main() -> anyhow::Result<()> {
             billing::detect_orphaned_sessions_background(&orphan_state).await;
         }
     });
+
+    // Spawn wallet reconciliation background task (FATM-12: every 30 minutes)
+    billing::spawn_reconciliation_job(state.clone());
 
     // Spawn game health check loop (5 second interval)
     let game_state = state.clone();
