@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: executing
-stopped_at: Completed 255-03-PLAN.md
-last_updated: "2026-03-28T23:49:30.895Z"
+status: verifying
+stopped_at: Completed 255-02-PLAN.md
+last_updated: "2026-03-28T23:52:46.106Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
-  completed_phases: 151
+  completed_phases: 152
   total_plans: 367
-  completed_plans: 361
+  completed_plans: 362
   percent: 98
 ---
 
@@ -18,7 +18,7 @@ progress:
 
 Phase: 255 (legal-compliance) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
 Progress: [██████████] 98% (349/355 plans)
@@ -70,6 +70,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 254-security-hardening P03 | 90 | 2 tasks | 6 files |
 | Phase 255-legal-compliance P01 | 25 | 2 tasks | 3 files |
 | Phase 255-legal-compliance P03 | 25 | 1 tasks | 3 files |
+| Phase 255-legal-compliance P02 | 35 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -136,11 +137,14 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - last_activity_at update is non-critical post-commit — failure does not affect billing start or topup result (LEGAL-08)
 - Background job LIMIT 500 per cycle bounds write pressure; consent_revoked drivers excluded from job (already anonymized at revocation time) (LEGAL-08)
 - Shared anonymize_driver_pii helper called by both customer POST /customer/revoke-consent and staff POST /drivers/{id}/revoke-consent (LEGAL-09)
+- Waiver gate is hard block in start_billing — billing returns error if waiver_signed=0; placed before trial check and wallet ops (LEGAL-03)
+- Guardian OTP reuses existing hash_otp/verify_otp_hash from auth — SEC-08 compliance by reuse, no new crypto primitives (LEGAL-04)
+- Minor disclosure endpoint in public_routes (no auth) — kiosk must show Indian Contract Act text during registration (LEGAL-06)
 
 ## Session Continuity
 
-Stopped at: Completed 255-03-PLAN.md
-Next action: Phase 255 in progress — Plan 01 (LEGAL-01/02/07) complete. Proceed to Plan 02.
+Stopped at: Completed 255-02-PLAN.md
+Next action: Phase 255 complete — all 3 plans done. Proceed to Phase 256.
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
