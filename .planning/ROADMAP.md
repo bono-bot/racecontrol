@@ -3934,3 +3934,60 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 248. Predictive Operations | 0/TBD | Not started | - |
 | 249. Capacity Intelligence | 0/TBD | Not started | - |
 | 250. Unified Protocol | 0/TBD | Not started | - |
+
+---
+
+## v27.0 Workflow Integrity & Compliance Hardening (Phases 251-260)
+
+- [ ] **Phase 251: Database Foundation** — SQLite WAL mode, staggered timer writes, orphaned session detection
+  - Requirements: RESIL-01, RESIL-02, FSM-09, FSM-10, RESIL-03
+  - **Plans**: TBD
+
+- [ ] **Phase 252: Financial Atomicity Core** — Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
+  - Requirements: FATM-01, FATM-02, FATM-03, FATM-04, FATM-05, FATM-06, FATM-12
+  - **Plans**: TBD
+
+- [ ] **Phase 253: State Machine Hardening** — Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
+  - Requirements: FSM-01, FSM-02, FSM-03, FSM-04, FSM-05, FSM-06, FSM-07, FSM-08
+  - **Plans**: TBD
+
+- [ ] **Phase 254: Security Hardening** — INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
+  - Requirements: SEC-01, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, SEC-08, SEC-09, SEC-10
+  - **Plans**: TBD
+
+- [ ] **Phase 255: Legal Compliance** — GST separation, invoice generation, waiver gate, minor consent flow, data retention
+  - Requirements: LEGAL-01, LEGAL-02, LEGAL-03, LEGAL-04, LEGAL-05, LEGAL-06, LEGAL-07, LEGAL-08, LEGAL-09
+  - **Plans**: TBD
+
+- [ ] **Phase 256: Game-Specific Hardening** — Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
+  - Requirements: GAME-01, GAME-02, GAME-03, GAME-04, GAME-05, GAME-06, GAME-07, GAME-08
+  - **Plans**: TBD
+
+- [ ] **Phase 257: Billing Edge Cases** — Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
+  - Requirements: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05, BILL-06, BILL-07, BILL-08
+  - **Plans**: TBD
+
+- [ ] **Phase 258: Staff Controls & Deployment Safety** — Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
+  - Requirements: STAFF-01, STAFF-02, STAFF-03, STAFF-04, STAFF-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05
+  - **Plans**: TBD
+
+- [ ] **Phase 259: Coupon & Discount System** — Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
+  - Requirements: FATM-07, FATM-08, FATM-09, FATM-10, FATM-11
+  - **Plans**: TBD
+
+- [ ] **Phase 260: Notifications, Resilience & UX** — Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
+  - Requirements: UX-01, UX-02, UX-03, UX-04, UX-05, UX-06, UX-07, UX-08, RESIL-04, RESIL-05, RESIL-06, RESIL-07, RESIL-08
+  - **Plans**: TBD
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 251. Database Foundation | 0/TBD | Not started | - |
+| 252. Financial Atomicity Core | 0/TBD | Not started | - |
+| 253. State Machine Hardening | 0/TBD | Not started | - |
+| 254. Security Hardening | 0/TBD | Not started | - |
+| 255. Legal Compliance | 0/TBD | Not started | - |
+| 256. Game-Specific Hardening | 0/TBD | Not started | - |
+| 257. Billing Edge Cases | 0/TBD | Not started | - |
+| 258. Staff Controls & Deployment Safety | 0/TBD | Not started | - |
+| 259. Coupon & Discount System | 0/TBD | Not started | - |
+| 260. Notifications, Resilience & UX | 0/TBD | Not started | - |
