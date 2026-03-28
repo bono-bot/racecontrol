@@ -144,6 +144,37 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Shared types in rc-common for solution schema + gossip messages
 - Backward compatible with existing kiosk/PWA/admin flows
 
+## Current Milestone: v27.0 Workflow Integrity & Compliance Hardening
+
+**Goal:** Fix all 72 MMA audit findings (22 P0, 30 P1, 20 P2) across the entire customer-to-session pipeline — financial atomicity, state machine integrity, security, safety, legal compliance (India), game-specific flows, deployment safety, staff controls, and UX.
+
+**Target features:**
+- Financial atomicity: Single-transaction billing start (wallet debit + session + journal), idempotency keys on all money-moving POSTs, row-level wallet locking (SELECT FOR UPDATE)
+- State machine integrity: Formal FSM transition table with server-side CAS writes, cross-FSM invariants (billing vs game state), session finalization guards (single terminal write)
+- Security: INI injection whitelist (car/track names), FFB GAIN cap at 100, PIN CAS redemption, RBAC roles (cashier/manager/superadmin), WSS for WebSocket, audit log append-only
+- Legal compliance (India): 18% GST separation in double-entry journal, DPDP Act parental consent for under-18, enhanced waiver with guardian flow, Consumer Protection Act pricing/refund display
+- Game-specific hardening: Steam pre-launch validation, process name corrections (F1/iRacing/LMU/Forza), Forza session enforcer, AC EVO config adapter, iRacing subscription check
+- Deployment safety: OTA session drain, graceful agent shutdown with auto-refund, billing timer DB persistence (60s heartbeat)
+- Staff controls: Self-top-up block, discount approval gates, coupon state machine (available→reserved→redeemed→released), staff abuse analytics
+- Billing improvements: Tier/rate price alignment (Rs.700 → Rs.750 or rate adjustment), split session FSM, extension atomicity, inactivity detection
+- UX: Session countdown warnings (5min/1min), PWA game-request timeout (10min TTL), notification outbox with retry, dispute portal
+- Resilience: SQLite WAL mode, staggered billing timer writes, reconciliation jobs, orphaned session detection, hardware health heartbeats
+
+**Key decisions:**
+- GST rate is 18% (28% slab removed — confirmed by owner)
+- Data localization OK — Hostinger Mumbai datacenter
+- RBI PPI: Closed-system wallet = no license needed (venue-only, no transfers/withdrawals)
+- Minor waiver: Indian Contract Act 1872 makes waivers unenforceable for minors — need operational solution (mandatory guardian presence + video consent + enhanced insurance)
+- Tier vs rate alignment: will align `tier_30min` price to match rate calculation or vice versa
+
+**Constraints:**
+- Rust/Axum + Next.js stack — changes span racecontrol server, rc-agent, rc-common, kiosk, PWA, admin
+- Must not break existing billing, session management, game launch, or recovery systems
+- SQLite remains the database (no PostgreSQL migration in this milestone)
+- Pod 8 canary-first for all agent-side changes
+- Backward compatible with existing deployed kiosk/PWA/admin flows
+- Financial changes require E2E verification: create → topup → book → launch → end → verify balance
+
 ## Shipped Milestone: v17.1 Watchdog-to-AI Migration (2026-03-25)
 
 **Delivered:** Replaced all dumb restart-loop watchdogs with 4-tier graduated AI recovery. 6 phases, 9 plans, 21 requirements. Recovery events API (ring buffer + fleet alert), spawn verification (500ms/10s health poll), Session 1 spawn path (WTSQueryUserToken), ProcessOwnership registry + RecoveryIntentStore (2-min TTL), GRACEFUL_RELAUNCH sentinel deconfliction, context-aware WoL (skips when sentry handled), MAINTENANCE_MODE JSON payload with 30-min auto-clear + WOL_SENT immediate-clear + WhatsApp alert, self_monitor yields to sentry (eliminates orphan PowerShell), shared ollama.rs in rc-common, sentry breadcrumb grace window in rc-watchdog.
