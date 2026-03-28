@@ -80,7 +80,11 @@ Plans:
   3. A cashier cannot access pricing reports or system config; a manager cannot access system config — role gates enforced at API layer
   4. A staff member cannot top up their own wallet — the API rejects self-top-up for non-superadmin roles
   5. OTP codes stored in the database are bcrypt hashes — a database dump reveals no plaintext OTPs
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 254-01-PLAN.md — Server-side launch_args validation, FFB cap, RBAC role middleware and endpoint gating
+- [ ] 254-02-PLAN.md — OTP argon2 hashing, audit log immutability trigger, PIN CAS verification, PII masking
+- [ ] 254-03-PLAN.md — Self-topup block, WSS TLS configuration, agent game launch mutex
 
 ### Phase 255: Legal Compliance
 **Goal**: Every session is legally auditable: GST is correctly separated, waivers are enforced, and minor protections are active
@@ -167,7 +171,7 @@ Plans:
 | 251. Database Foundation | 2/2 | Complete | 2026-03-28 |
 | 252. Financial Atomicity Core | 3/3 | Complete | 2026-03-28 |
 | 253. State Machine Hardening | 3/3 | Complete | 2026-03-28 |
-| 254. Security Hardening | 0/? | Not started | - |
+| 254. Security Hardening | 0/3 | Planned | - |
 | 255. Legal Compliance | 0/? | Not started | - |
 | 256. Game-Specific Hardening | 0/? | Not started | - |
 | 257. Billing Edge Cases | 0/? | Not started | - |
