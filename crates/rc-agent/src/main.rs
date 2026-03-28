@@ -50,7 +50,7 @@ use anyhow::Result;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, RwLock};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::Message, Connector};
 
 use app_state::AppState;
 use feature_flags::FeatureFlags;
@@ -142,6 +142,76 @@ fn cleanup_old_logs(log_dir: &std::path::Path) {
             }
         }
     }
+}
+
+/// SEC-07: Connect to a WebSocket URL with TLS support.
+///
+/// For ws:// URLs: uses plain `connect_async` (no change from previous behaviour).
+/// For wss:// URLs: builds a native-tls connector.
+///   - If `tls_ca_cert_path` is set, the custom CA cert is added to the trust store.
+///   - If `tls_skip_verify` is true, certificate verification is disabled (LAN only).
+///   - Otherwise, system root certificates are used (standard TLS verification).
+async fn connect_with_tls_config(
+    url: &str,
+    core_cfg: &config::CoreConfig,
+) -> Result<(tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, tokio_tungstenite::tungstenite::http::Response<Option<Vec<u8>>>), tokio_tungstenite::tungstenite::Error> {
+    if !url.starts_with("wss://") {
+        // Plain ws:// — use existing connect_async unchanged (zero regression risk).
+        return connect_async(url).await;
+    }
+
+    // Build native-tls connector for wss://
+    let tls_connector = {
+        let mut builder = native_tls::TlsConnector::builder();
+
+        if core_cfg.tls_skip_verify {
+            tracing::warn!(
+                target: "ws",
+                "SEC-07: TLS certificate verification DISABLED (tls_skip_verify=true). \
+                 Use only for LAN testing with self-signed certs — never in production."
+            );
+            builder.danger_accept_invalid_certs(true);
+            builder.danger_accept_invalid_hostnames(true);
+        } else if let Some(ref ca_path) = core_cfg.tls_ca_cert_path {
+            match std::fs::read(ca_path) {
+                Ok(bytes) => {
+                    match native_tls::Certificate::from_pem(&bytes) {
+                        Ok(cert) => {
+                            builder.add_root_certificate(cert);
+                            tracing::info!(target: "ws", "SEC-07: Custom CA cert loaded from {}", ca_path);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                target: "ws",
+                                "SEC-07: Failed to parse custom CA cert from {}: {} — \
+                                 falling back to system roots",
+                                ca_path, e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        target: "ws",
+                        "SEC-07: Failed to read custom CA cert from {}: {} — \
+                         falling back to system roots",
+                        ca_path, e
+                    );
+                }
+            }
+        }
+
+        match builder.build() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(target: "ws", "SEC-07: Failed to build TLS connector: {}", e);
+                return connect_async(url).await;
+            }
+        }
+    };
+
+    let connector = Connector::NativeTls(tls_connector);
+    tokio_tungstenite::connect_async_tls_with_config(url, None, false, Some(connector)).await
 }
 
 /// Guard against recursive panics in the hook

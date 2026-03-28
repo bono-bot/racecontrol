@@ -3574,6 +3574,7 @@ dependencies = [
  "http-body-util",
  "mdns-sd",
  "mockall",
+ "native-tls",
  "notify",
  "qrcode",
  "rand 0.8.5",

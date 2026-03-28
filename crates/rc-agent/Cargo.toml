@@ -33,6 +33,9 @@ socket2 = "0.5"
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
 
+# TLS connector for wss:// WebSocket connections (SEC-07)
+native-tls = "0.2"
+
 # mDNS
 mdns-sd = "0.12"
 

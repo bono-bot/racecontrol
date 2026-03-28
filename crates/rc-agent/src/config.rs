@@ -239,6 +239,17 @@ pub struct CoreConfig {
     /// Must match racecontrol's cloud.terminal_secret.
     #[serde(default)]
     pub ws_secret: Option<String>,
+    /// SEC-07: Path to a custom CA certificate file (PEM format) for wss:// connections.
+    /// Used when the server uses a self-signed certificate (common on venue LAN).
+    /// When set, the agent trusts this CA in addition to the system root store.
+    /// Leave unset for public certificates signed by a trusted root CA.
+    #[serde(default)]
+    pub tls_ca_cert_path: Option<String>,
+    /// SEC-07: Skip TLS certificate verification for wss:// connections.
+    /// DANGEROUS: only use for LAN development/testing with self-signed certs.
+    /// Default: false. Do NOT set true in production.
+    #[serde(default)]
+    pub tls_skip_verify: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -486,6 +497,8 @@ mod tests {
                 url: "ws://192.168.31.23:8080/ws/agent".to_string(),
                 failover_url: None,
                 ws_secret: None,
+                tls_ca_cert_path: None,
+                tls_skip_verify: false,
             },
             wheelbase: WheelbaseConfig::default(),
             telemetry_ports: TelemetryPortsConfig::default(),
