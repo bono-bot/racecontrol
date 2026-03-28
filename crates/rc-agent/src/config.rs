@@ -329,10 +329,19 @@ pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     let mut paths: Vec<std::path::PathBuf> = Vec::new();
 
     // Determine config filename from binary name — rc-pos-agent.exe uses rc-pos-agent.toml
+    // Strip hash suffixes (rc-pos-agent-a0224366 → rc-pos-agent) and test hashes
     let config_name = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-        .map(|stem| format!("{}.toml", stem))
+        .and_then(|stem| {
+            // Only use binary-derived name for known agent binaries
+            if stem.starts_with("rc-pos-agent") {
+                // Strip hash suffix: rc-pos-agent-a0224366 → rc-pos-agent
+                Some("rc-pos-agent.toml".to_string())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "rc-agent.toml".to_string());
 
     // Primary: exe directory (correct on Windows regardless of CWD)
@@ -471,6 +480,7 @@ mod tests {
                 sim: "assetto_corsa".to_string(),
                 sim_ip: default_sim_ip(),
                 sim_port: default_sim_port(),
+                node_type: NodeType::Pod,
             },
             core: CoreConfig {
                 url: "ws://192.168.31.23:8080/ws/agent".to_string(),
