@@ -133,6 +133,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/mesh/stats", get(mesh_stats))
         // Cameras health proxy — checks go2rtc on James (.27:1984)
         .route("/cameras/health", get(cameras_health_proxy))
+        // POS lockdown read — public so POS agent/kiosk can poll without JWT (MMA Round 1 fix: 2/3 consensus)
+        // POST (write) stays in staff_routes
+        .route("/pos/lockdown", get(get_pos_lockdown))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -370,8 +373,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // GET moved to public_routes (rc-agent fetches without auth)
         .route("/config/kiosk-allowlist", post(add_kiosk_allowlist_entry))
         .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
-        // POS
-        .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
+        // POS — POST only (write), GET moved to public_routes (MMA Round 1 fix: POS agent polls without JWT)
+        .route("/pos/lockdown", post(set_pos_lockdown))
         // AI (staff)
         .route("/ai/chat", post(ai_chat))
         .route("/ai/diagnose", post(ai_diagnose))
@@ -7795,18 +7798,49 @@ async fn update_kiosk_settings(
 
 // ─── POS Lockdown ─────────────────────────────────────────────────────────
 
-/// GET /pos/lockdown — returns current lockdown state for POS polling script
+/// GET /pos/lockdown — returns current lockdown state for POS polling script.
+///
+/// MMA Round 1 fixes (2/3 consensus):
+/// - P2: Moved to public_routes — POS agent polls without JWT
+///
+/// MMA Round 2 fixes (2/3 consensus):
+/// - P1: On DB error, serve last-known-good cached state (fail-safe)
+///   Uses a static AtomicBool cache updated on each successful DB read.
+///   Only defaults to unlocked on first-ever read before any DB contact.
+/// - P3: Don't leak "db_error" field to unauthenticated clients
 async fn get_pos_lockdown(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let locked = sqlx::query_scalar::<_, String>(
+    use std::sync::atomic::{AtomicBool, Ordering};
+    // Cache last-known-good lockdown state (MMA Round 2 P1: fail-safe, not fail-open)
+    static CACHED_LOCKED: AtomicBool = AtomicBool::new(false);
+    static CACHE_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    match sqlx::query_scalar::<_, String>(
         "SELECT value FROM kiosk_settings WHERE key = 'pos_lockdown'",
     )
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten()
-    .unwrap_or_else(|| "true".to_string());
-
-    Json(json!({ "locked": locked == "true" }))
+    {
+        Ok(Some(val)) => {
+            let locked = val == "true";
+            CACHED_LOCKED.store(locked, Ordering::Relaxed);
+            CACHE_INITIALIZED.store(true, Ordering::Relaxed);
+            Json(json!({ "locked": locked }))
+        }
+        Ok(None) => {
+            CACHED_LOCKED.store(false, Ordering::Relaxed);
+            CACHE_INITIALIZED.store(true, Ordering::Relaxed);
+            Json(json!({ "locked": false }))
+        }
+        Err(e) => {
+            tracing::warn!("POS lockdown DB query failed, serving cached state: {e}");
+            let cached = if CACHE_INITIALIZED.load(Ordering::Relaxed) {
+                CACHED_LOCKED.load(Ordering::Relaxed)
+            } else {
+                false // No cache yet (fresh startup) — default unlocked
+            };
+            Json(json!({ "locked": cached }))
+        }
+    }
 }
 
 /// POST /pos/lockdown — toggle lockdown state from admin dashboard

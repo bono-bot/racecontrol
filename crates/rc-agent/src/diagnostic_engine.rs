@@ -499,16 +499,29 @@ fn check_pos_kiosk_health() -> Option<DiagnosticTrigger> {
 /// POS check: Can we reach the racecontrol server?
 /// Performs a simple TCP connect probe to port 8080.
 /// MMA-POS: Uses env var or default for server IP (avoid hardcode drift).
+///
+/// MMA Round 1 fix (2/3 consensus):
+/// - P1: Replace .expect() with graceful parse error handling (no panic)
 fn check_pos_network_health() -> Option<DiagnosticTrigger> {
     use std::net::TcpStream;
 
-    // Try to connect to racecontrol on the known server IP
     let server_ip = std::env::var("RACECONTROL_SERVER_IP").unwrap_or_else(|_| "192.168.31.23".to_string());
     let server_addr = format!("{}:8080", server_ip);
-    match TcpStream::connect_timeout(
-        &server_addr.parse().expect("valid socket addr"),
-        Duration::from_secs(5),
-    ) {
+
+    // MMA Round 1 P1 fix: graceful parse instead of .expect() panic
+    let sock_addr: std::net::SocketAddr = match server_addr.parse() {
+        Ok(addr) => addr,
+        Err(e) => {
+            tracing::error!(target: LOG_TARGET, addr = %server_addr, error = %e,
+                "POS network: invalid server address — check RACECONTROL_SERVER_IP env var");
+            return Some(DiagnosticTrigger::PosNetworkDown {
+                server_ip: server_ip.clone(),
+                detail: format!("Invalid server address '{}': {}", server_addr, e),
+            });
+        }
+    };
+
+    match TcpStream::connect_timeout(&sock_addr, Duration::from_secs(5)) {
         Ok(_) => None,
         Err(e) => {
             tracing::warn!(target: LOG_TARGET, "POS network: cannot reach racecontrol at {} — {}", server_addr, e);

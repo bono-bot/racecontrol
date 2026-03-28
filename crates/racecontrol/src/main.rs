@@ -183,9 +183,33 @@ async fn kiosk_proxy(
     // - /kiosk* (including /kiosk/_next/*) → kiosk on port 3300
     // - /_next/* (bare, no /kiosk prefix) → web dashboard on port 3200
     // - Dashboard pages (/billing, /presenter, etc.) → web dashboard on port 3200
+    //
+    // MMA Round 1 P2 fix (2/3 consensus): Handle /kiosk/<dashboard-path> gracefully.
+    // The kiosk app has NO /billing page — if someone navigates to /kiosk/billing,
+    // redirect them to /billing (the web dashboard) instead of returning a 404.
     let is_kiosk = path_and_query.starts_with("/kiosk");
     let is_dashboard = path_and_query.starts_with("/_next")
         || WEB_DASHBOARD_PATHS.iter().any(|p| path_and_query.starts_with(p));
+
+    // MMA Round 2 fixes (3-model consensus):
+    // - P1: Use strip_prefix (safe, no panic on edge cases)
+    // - P1: Validate redirect target starts with "/" (prevent open redirect via //evil.com)
+    // - P2: Use temporary redirect (307, not 308) — avoid permanent cache in kiosk Edge
+    // - P2: Exact path segment match (not starts_with) — prevent /kiosk/billing-old matching
+    if is_kiosk {
+        if let Some(after_kiosk) = path_and_query.strip_prefix("/kiosk") {
+            // Extract just the path portion (before any query string) for matching
+            let path_part = after_kiosk.split('?').next().unwrap_or(after_kiosk);
+            // Exact match: path must be exactly a dashboard path OR dashboard path + "/"
+            let is_dashboard_redirect = WEB_DASHBOARD_PATHS.iter().any(|p| {
+                path_part == *p || path_part.starts_with(&format!("{}/", p))
+            });
+            // Security: redirect target must start with "/" (not "//") to prevent open redirect
+            if is_dashboard_redirect && after_kiosk.starts_with('/') && !after_kiosk.starts_with("//") {
+                return axum::response::Redirect::temporary(after_kiosk).into_response();
+            }
+        }
+    }
 
     if !is_kiosk && !is_dashboard {
         return (StatusCode::NOT_FOUND, "Not found").into_response();

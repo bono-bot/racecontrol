@@ -928,40 +928,60 @@ fn tier1_kill_orphans() -> Vec<String> {
 /// Only called when billing is NOT active. Kills all msedge.exe, then launches
 /// Edge in kiosk mode pointing at the billing dashboard.
 /// Returns true if restart was initiated successfully.
+///
+/// MMA Round 1 fixes (3/3 consensus):
+/// - P1: Use RACECONTROL_SERVER_IP env var instead of hardcoded IP
+/// - P1: Use non-blocking sleep (spawn_blocking wraps this sync fn)
+/// - P2: Try both x64 and x86 Edge paths
+/// - P2: Log kill failures for visibility
 fn tier1_restart_edge_kiosk() -> bool {
     // Kill existing Edge processes
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, false);
     let mut killed = 0u32;
+    let mut kill_failed = 0u32;
     for (_pid, proc_) in sys.processes() {
         let name = proc_.name().to_string_lossy().to_lowercase();
         if name.contains("msedge") {
             if proc_.kill() {
                 killed += 1;
+            } else {
+                kill_failed += 1;
             }
         }
     }
-    if killed > 0 {
-        tracing::info!(target: LOG_TARGET, killed = killed, "POS: killed {} Edge processes before restart", killed);
+    if killed > 0 || kill_failed > 0 {
+        tracing::info!(target: LOG_TARGET, killed = killed, failed = kill_failed,
+            "POS: killed {} Edge processes ({} failed) before restart", killed, kill_failed);
     }
 
     // Small delay to let processes fully exit
+    // NOTE: This is a sync function called via spawn_blocking from the async tier engine
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // MMA-POS: Relaunch Edge in kiosk mode pointing at billing dashboard.
-    // Use full path to Edge to avoid PATH issues. Add --no-first-run to skip setup wizard.
-    let edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+    // MMA Round 1 P1 fix: derive billing URL from env var (same as check_pos_network_health)
+    let server_ip = std::env::var("RACECONTROL_SERVER_IP")
+        .unwrap_or_else(|_| "192.168.31.23".to_string());
+    let billing_url = format!("http://{}:8080/billing", server_ip);
+
+    // MMA Round 1 P2 fix: try x64 path first, fall back to x86
+    let edge_x64 = r"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
+    let edge_x86 = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+    let edge_path = if std::path::Path::new(edge_x64).exists() { edge_x64 } else { edge_x86 };
+
     let result = std::process::Command::new(edge_path)
-        .args(["--kiosk", "http://192.168.31.23:3200/billing", "--edge-kiosk-type=fullscreen", "--no-first-run"])
+        .args(["--kiosk", &billing_url, "--edge-kiosk-type=fullscreen", "--no-first-run"])
         .spawn();
 
     match result {
-        Ok(_) => {
-            tracing::info!(target: LOG_TARGET, "POS: Edge kiosk restart initiated");
+        Ok(child) => {
+            tracing::info!(target: LOG_TARGET, pid = child.id(), url = %billing_url, edge = %edge_path,
+                "POS: Edge kiosk restart initiated");
             true
         }
         Err(e) => {
-            tracing::error!(target: LOG_TARGET, error = %e, "POS: failed to restart Edge kiosk");
+            tracing::error!(target: LOG_TARGET, error = %e, edge = %edge_path,
+                "POS: failed to restart Edge kiosk — check Edge installation path");
             false
         }
     }
