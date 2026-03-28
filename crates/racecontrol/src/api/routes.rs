@@ -1552,6 +1552,35 @@ mod pod_status_summary_tests {
     }
 }
 
+// ─── SEC-09: PII masking helpers ──────────────────────────────────────────
+
+/// Mask a phone number, showing only the first 2 and last 2 digits.
+/// Example: "9876543210" → "98****10"
+fn mask_phone(phone: &str) -> String {
+    if phone.len() <= 4 {
+        return "****".to_string();
+    }
+    format!("{}****{}", &phone[..2], &phone[phone.len() - 2..])
+}
+
+/// Mask an email address, showing only the first 2 chars and the domain.
+/// Example: "user@example.com" → "us***@example.com"
+fn mask_email(email: &str) -> String {
+    match email.find('@') {
+        Some(at) if at > 2 => format!("{}***{}", &email[..2], &email[at..]),
+        _ => "***@***".to_string(),
+    }
+}
+
+/// Returns `true` if PII should be masked for the given staff claims.
+/// Only manager and superadmin roles may see full PII.
+fn should_mask_pii(claims: &Option<axum::Extension<crate::auth::middleware::StaffClaims>>) -> bool {
+    match claims {
+        Some(ext) => ext.role != "manager" && ext.role != "superadmin",
+        None => true, // no claims = mask by default
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ListDriversQuery {
     search: Option<String>,
@@ -1560,7 +1589,9 @@ struct ListDriversQuery {
 async fn list_drivers(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListDriversQuery>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
 ) -> Json<Value> {
+    let mask = should_mask_pii(&claims);
     let rows = if let Some(ref search) = params.search {
         // MMA-P2: Escape LIKE wildcards and limit length to prevent enumeration + DoS
         let sanitized: String = search.chars()
@@ -1608,11 +1639,16 @@ async fn list_drivers(
 
     match rows {
         Ok(drivers) => {
-            let list: Vec<Value> = drivers.iter().map(|d| json!({
-                "id": d.0, "name": d.1, "email": d.2, "phone": d.3,
-                "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
-                "waiver_signed": d.7, "has_used_trial": d.8, "created_at": d.9,
-            })).collect();
+            let list: Vec<Value> = drivers.iter().map(|d| {
+                // SEC-09: mask PII for cashier role
+                let email = d.2.as_deref().map(|e| if mask { mask_email(e) } else { e.to_string() });
+                let phone = d.3.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
+                json!({
+                    "id": d.0, "name": d.1, "email": email, "phone": phone,
+                    "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
+                    "waiver_signed": d.7, "has_used_trial": d.8, "created_at": d.9,
+                })
+            }).collect();
             Json(json!({ "drivers": list, "total": total, "waiver_count": waiver_count }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -1665,7 +1701,12 @@ async fn create_driver(
     }
 }
 
-async fn get_driver(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+async fn get_driver(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
+) -> Json<Value> {
+    let mask = should_mask_pii(&claims);
     let row = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64)>(
         "SELECT id, name, email, phone, total_laps, total_time_ms FROM drivers WHERE id = ?"
     )
@@ -1674,17 +1715,27 @@ async fn get_driver(State(state): State<Arc<AppState>>, Path(id): Path<String>) 
     .await;
 
     match row {
-        Ok(Some(d)) => Json(json!({
-            "id": d.0, "name": d.1, "email": d.2, "phone": d.3,
-            "total_laps": d.4, "total_time_ms": d.5,
-        })),
+        Ok(Some(d)) => {
+            // SEC-09: mask PII for cashier role
+            let email = d.2.as_deref().map(|e| if mask { mask_email(e) } else { e.to_string() });
+            let phone = d.3.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
+            Json(json!({
+                "id": d.0, "name": d.1, "email": email, "phone": phone,
+                "total_laps": d.4, "total_time_ms": d.5,
+            }))
+        },
         Ok(None) => Json(json!({ "error": "Driver not found" })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
 
 /// GET /drivers/{id}/full-profile — comprehensive driver profile for admin
-async fn get_driver_full_profile(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+async fn get_driver_full_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
+) -> Json<Value> {
+    let mask = should_mask_pii(&claims);
     // Core driver info (10 fields)
     let core = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, Option<String>, bool, Option<String>)>(
         "SELECT id, name, email, phone, total_laps, total_time_ms,
@@ -1719,14 +1770,19 @@ async fn get_driver_full_profile(State(state): State<Arc<AppState>>, Path(id): P
             .unwrap_or(false)
     });
 
+    // SEC-09: mask PII for cashier role
+    let email = c.2.as_deref().map(|e| if mask { mask_email(e) } else { e.to_string() });
+    let phone = c.3.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
+    let guardian_phone = waiver.4.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
+
     let driver_json = json!({
-        "id": c.0, "name": c.1, "email": c.2, "phone": c.3,
+        "id": c.0, "name": c.1, "email": email, "phone": phone,
         "total_laps": c.4, "total_time_ms": c.5,
         "customer_id": c.6, "nickname": c.7, "has_used_trial": c.8,
         "dob": c.9,
         "waiver_signed": waiver.0, "waiver_signed_at": waiver.1,
         "waiver_version": waiver.2, "guardian_name": waiver.3,
-        "guardian_phone": waiver.4, "has_signature": waiver.5.is_some(),
+        "guardian_phone": guardian_phone, "has_signature": waiver.5.is_some(),
         "show_nickname_on_leaderboard": waiver.6, "is_minor": is_minor,
     });
 
@@ -3868,6 +3924,19 @@ async fn launch_game(
 
         let mut parsed: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
         parsed["duration_minutes"] = serde_json::json!(duration_minutes);
+
+        // SEC-01: Validate launch_args fields for INI injection chars BEFORE WS send.
+        // Reject at the server boundary — 400 returned immediately, nothing reaches the agent.
+        if let Err(e) = crate::api::security::validate_launch_args(&parsed) {
+            return Json(json!({ "error": format!("Invalid launch_args: {}", e) }));
+        }
+
+        // SEC-02: Sanitize FFB GAIN — cap to 100 (physical motor safety).
+        if let Some(ffb_str) = parsed.get("ffb").and_then(|v| v.as_str()) {
+            let safe_ffb = crate::api::security::sanitize_ffb_gain(ffb_str);
+            parsed["ffb"] = serde_json::json!(safe_ffb);
+        }
+
         Some(parsed.to_string())
     } else {
         None
@@ -6583,10 +6652,25 @@ struct TopupRequest {
 async fn topup_wallet(
     State(state): State<Arc<AppState>>,
     Path(driver_id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
     Json(req): Json<TopupRequest>,
 ) -> Json<Value> {
     if req.amount_paise <= 0 {
         return Json(json!({ "error": "amount_paise must be greater than 0" }));
+    }
+
+    // SEC-05: Staff self-top-up block — cashier/manager cannot top up their own wallet.
+    // Superadmin is exempt (audit trail exists for all transactions).
+    if let Some(ref ext) = claims {
+        if ext.0.sub == driver_id && ext.0.role != "superadmin" {
+            tracing::warn!(
+                staff_id = %ext.0.sub,
+                target_driver = %driver_id,
+                role = %ext.0.role,
+                "SEC-05: Self-topup blocked for non-superadmin"
+            );
+            return Json(json!({ "error": "Staff cannot top up their own wallet. Contact a superadmin." }));
+        }
     }
 
     // FATM-02: Idempotency check for topup
