@@ -570,6 +570,32 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Guardian OTP columns (LEGAL-04/05) ──────────────────────────────────
+    // Stored argon2-hashed OTP for guardian consent verification (SEC-08 compliant).
+    // guardian_otp_verified is reset to 0 when a new OTP is sent (send_guardian_otp).
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_otp_code TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_otp_expires_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_otp_verified BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_otp_verified_at TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Minor session tracking on billing_sessions (LEGAL-04/05) ────────────
+    // guardian_present: staff confirmed guardian physically present at counter.
+    // is_minor_session: computed at billing-start from driver DOB, denormalised for reporting.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN guardian_present BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN is_minor_session BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+
     // ─── Auth tokens (single-use session PINs + QR codes) ──────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -3099,6 +3125,52 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await;
+
+    // ─── LEGAL-08: Data retention configuration ──────────────────────────────
+    // data_retention_config: single-row config table seeded with DPDP Act defaults.
+    // financial_records_years = 8: Income Tax Act requires 8-year financial record retention.
+    // pii_inactive_months = 24: DPDP Act data minimization — anonymize PII after 2 years of inactivity.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS data_retention_config (
+            id TEXT PRIMARY KEY,
+            financial_records_years INTEGER NOT NULL DEFAULT 8,
+            pii_inactive_months INTEGER NOT NULL DEFAULT 24,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("INSERT OR IGNORE INTO data_retention_config (id) VALUES ('default')")
+        .execute(pool)
+        .await?;
+
+    // ─── LEGAL-08: Driver retention tracking columns ──────────────────────────
+    // last_activity_at: updated on billing start and wallet topup — keeps active customers
+    //   from being anonymized by the daily background job.
+    // pii_anonymized / pii_anonymized_at: set when background job or revocation wipes PII.
+    // consent_revoked / consent_revoked_at: set when guardian or driver invokes right of erasure.
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN last_activity_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN pii_anonymized BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN pii_anonymized_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN consent_revoked BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN consent_revoked_at TEXT")
+        .execute(pool)
+        .await;
+
+    // Index for daily background job — queries inactive drivers by last_activity_at
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_drivers_last_activity ON drivers(last_activity_at)",
+    )
+    .execute(pool)
+    .await?;
 
     tracing::info!("Database migrations complete");
     Ok(())

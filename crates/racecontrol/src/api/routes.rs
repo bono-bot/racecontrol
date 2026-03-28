@@ -120,6 +120,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Pricing psychology (v14.0 Phase 94) — public for customer-facing /book page
         .route("/pricing/display", get(pricing_display_handler))
         .route("/pricing/social-proof", get(pricing_social_proof_handler))
+        // Legal disclosure (LEGAL-06) — public so kiosk can fetch during minor registration flow
+        .route("/legal/minor-waiver-disclosure", get(minor_waiver_disclosure))
         // Metrics API (METRICS-05, METRICS-06) — operational metrics for admin dashboard + intelligence
         .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
@@ -229,6 +231,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         // Cafe ordering (customer self-service — driver_id from JWT, not body)
         .route("/customer/cafe/orders", post(cafe::place_cafe_order_customer))
         .route("/customer/cafe/orders/history", get(cafe::list_customer_orders))
+        // LEGAL-09: Consent revocation (DPDP Act — right of erasure for driver or guardian via PWA)
+        .route("/customer/revoke-consent", post(revoke_consent_handler))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -293,6 +297,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
         .route("/drivers/{id}/full-profile", get(get_driver_full_profile))
+        // LEGAL-09: Staff-initiated consent revocation (cashier+ — guardian calls venue, staff processes)
+        .route("/drivers/{id}/revoke-consent", post(staff_revoke_consent_handler))
         // Sessions
         .route("/sessions", get(list_sessions).post(create_session))
         .route("/sessions/{id}", get(get_session))
@@ -2289,6 +2295,18 @@ async fn pricing_social_proof_handler(State(state): State<Arc<AppState>>) -> Jso
     }))
 }
 
+/// LEGAL-06: Return minor waiver liability disclosure text.
+/// Public endpoint — kiosk fetches this during minor registration to display the Indian Contract Act
+/// limitation text and guardian consent requirements before the guardian signs.
+async fn minor_waiver_disclosure() -> Json<Value> {
+    Json(json!({
+        "disclosure_text": "Under the Indian Contract Act 1872, agreements with persons under 18 years of age are void. This waiver acknowledgment is signed by the guardian on behalf of the minor participant. Racing Point maintains additional liability insurance coverage for participants under 18. The guardian assumes responsibility for the minor's conduct and safety during the session. This acknowledgment does not constitute a binding waiver of the minor's legal rights.",
+        "requires_guardian_signature": true,
+        "requires_guardian_otp": true,
+        "requires_guardian_presence": true,
+    }))
+}
+
 async fn create_pricing_tier(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
@@ -2801,9 +2819,11 @@ async fn start_billing(
         None => return Json(json!({ "error": format!("Pricing tier '{}' not found or inactive", pricing_tier_id) })),
     };
 
-    // Look up driver (name + trial status)
-    let driver_info = sqlx::query_as::<_, (String, bool, bool)>(
-        "SELECT name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
+    // Look up driver (name + trial status + waiver + DOB + guardian consent)
+    let driver_info = sqlx::query_as::<_, (String, bool, bool, bool, Option<String>, bool, Option<String>)>(
+        "SELECT name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0), \
+         COALESCE(waiver_signed, 0), dob, COALESCE(guardian_otp_verified, 0), guardian_name \
+         FROM drivers WHERE id = ?",
     )
     .bind(driver_id)
     .fetch_optional(&state.db)
@@ -2811,10 +2831,52 @@ async fn start_billing(
     .ok()
     .flatten();
 
-    let (driver_name, has_used_trial, unlimited_trials) = match driver_info {
+    let (driver_name, has_used_trial, unlimited_trials, waiver_signed, dob, guardian_otp_verified, guardian_name) = match driver_info {
         Some(d) => d,
         None => return Json(json!({ "error": format!("Driver '{}' not found", driver_id) })),
     };
+
+    // LEGAL-03: Waiver gate — billing blocked if waiver not signed
+    if !waiver_signed {
+        return Json(json!({ "error": "Waiver signing required before billing. Please complete registration." }));
+    }
+
+    // LEGAL-04/05: Minor protection — check age from DOB
+    let is_minor = if let Some(ref dob_str) = dob {
+        if let Ok(dob_date) = chrono::NaiveDate::parse_from_str(dob_str, "%Y-%m-%d") {
+            use chrono::Datelike;
+            let today = chrono::Utc::now().date_naive();
+            // Conservative manual age check: compare year/month/day to avoid fractional year rounding
+            let age_years = today.year() - dob_date.year()
+                - if (today.month(), today.day()) < (dob_date.month(), dob_date.day()) { 1 } else { 0 };
+            age_years < 18
+        } else {
+            false // Cannot parse DOB — treat as adult
+        }
+    } else {
+        false // No DOB on record — treat as adult
+    };
+
+    // Parse guardian_present flag from request body (staff must explicitly confirm)
+    let guardian_present_flag = body.get("guardian_present").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if is_minor {
+        // LEGAL-04: Guardian OTP must be verified before billing a minor
+        if !guardian_otp_verified {
+            return Json(json!({
+                "error": "Minor customer: guardian OTP verification required before billing",
+                "minor_flow_required": true,
+                "guardian_name": guardian_name,
+            }));
+        }
+        // LEGAL-05: Staff must confirm guardian physical presence
+        if !guardian_present_flag {
+            return Json(json!({
+                "error": "Minor customer: staff must confirm guardian physical presence (guardian_present=true)",
+                "minor_flow_required": true,
+            }));
+        }
+    }
 
     // Trial eligibility check
     if is_trial && has_used_trial && !unlimited_trials {
@@ -3005,8 +3067,9 @@ async fn start_billing(
         "INSERT INTO billing_sessions \
          (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
           started_at, staff_id, split_count, split_duration_minutes, \
-          wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key) \
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key, \
+          guardian_present, is_minor_session) \
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(driver_id)
@@ -3024,6 +3087,8 @@ async fn start_billing(
     .bind(original_price_paise)
     .bind(&applied_discount_reason)
     .bind(idempotency_key.as_deref())
+    .bind(guardian_present_flag)
+    .bind(is_minor)
     .execute(&mut *tx)
     .await {
         drop(tx); // rolls back wallet debit atomically
@@ -3056,6 +3121,16 @@ async fn start_billing(
         state.record_api_error("billing/start");
         return Json(json!({ "error": format!("Transaction commit failed: {}", e) }));
     }
+
+    // ─── Post-commit: LEGAL-08 activity tracking — update last_activity_at ─────
+    // Non-critical: failure does NOT affect billing. Keeps active customers from being
+    // anonymized by the daily data-retention background job.
+    let _ = sqlx::query(
+        "UPDATE drivers SET last_activity_at = datetime('now') WHERE id = ?",
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
 
     // ─── Post-commit: record coupon redemption + audit trail (non-critical) ───
     if let Some(ref cid) = applied_coupon_id {
@@ -6930,6 +7005,15 @@ async fn topup_wallet(
         &state.config, "Wallet Topup",
         &format!("{} paise for driver {}", req.amount_paise, driver_id),
     ).await;
+
+    // LEGAL-08: Update last_activity_at — wallet topup is customer activity.
+    // Non-critical: failure does not affect the topup result.
+    let _ = sqlx::query(
+        "UPDATE drivers SET last_activity_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .execute(&state.db)
+    .await;
 
     Json(json!({
         "status": "ok",
@@ -17361,6 +17445,227 @@ async fn customer_data_delete(
 
     tracing::info!("Customer {} deleted their data (DPDP compliance)", driver_id);
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+// ─── LEGAL-09: Consent revocation (customer-initiated via PWA) ───────────────
+/// POST /api/v1/customer/revoke-consent
+///
+/// Allows a driver (or guardian acting on behalf of a minor) to invoke the DPDP Act
+/// right of erasure. Anonymizes PII immediately. Financial records (journal entries,
+/// invoices, billing_sessions) are NOT deleted — they must be retained for 8 years
+/// per the Income Tax Act.
+///
+/// Body: `{ "reason": "optional reason string" }`
+async fn revoke_consent_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("customer_request");
+    anonymize_driver_pii(&state, &driver_id, reason, None).await
+}
+
+// ─── LEGAL-09: Consent revocation (staff-initiated for guardian requests) ────
+/// POST /api/v1/drivers/{id}/revoke-consent
+///
+/// Staff endpoint for guardian-initiated revocation — guardian calls the venue,
+/// staff (cashier+) processes the data deletion request.
+///
+/// Body: `{ "reason": "optional reason string" }`
+async fn staff_revoke_consent_handler(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("guardian_request");
+    anonymize_driver_pii(&state, &driver_id, reason, Some("staff")).await
+}
+
+/// Shared PII anonymization logic for both customer- and staff-initiated consent revocation.
+///
+/// Anonymizes all PII fields on the drivers row and sets consent_revoked = 1.
+/// The driver row is retained so billing_sessions.driver_id foreign keys remain valid.
+/// Financial records (journal_entries, invoices, billing_sessions, wallet_transactions)
+/// are NOT touched — retained for 8 years per the Income Tax Act.
+async fn anonymize_driver_pii(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    reason: &str,
+    actor: Option<&str>,
+) -> Json<Value> {
+    // Check driver exists and is not already revoked
+    let row = sqlx::query_as::<_, (String, bool)>(
+        "SELECT id, COALESCE(consent_revoked, 0) FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(None) => return Json(json!({ "error": "Driver not found" })),
+        Ok(Some((_, true))) => {
+            return Json(json!({
+                "ok": true,
+                "message": "Consent was already revoked. Personal data has been anonymized previously."
+            }));
+        }
+        Err(e) => {
+            tracing::error!(driver_id = %driver_id, "consent_revocation DB lookup error: {}", e);
+            return Json(json!({ "error": "Database error" }));
+        }
+        Ok(Some(_)) => {} // proceed
+    }
+
+    // Anonymize PII — same UPDATE used by the daily background job.
+    // The driver row is KEPT so billing_session.driver_id FKs remain valid.
+    let result = sqlx::query(
+        "UPDATE drivers SET
+            name = 'ANONYMIZED-' || substr(id, 1, 8),
+            email = NULL,
+            phone = NULL,
+            phone_hash = NULL,
+            guardian_name = NULL,
+            guardian_phone = NULL,
+            guardian_phone_hash = NULL,
+            dob = NULL,
+            pii_anonymized = 1,
+            pii_anonymized_at = datetime('now'),
+            consent_revoked = 1,
+            consent_revoked_at = datetime('now')
+        WHERE id = ? AND COALESCE(pii_anonymized, 0) = 0",
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = result {
+        tracing::error!(driver_id = %driver_id, "consent_revocation anonymization failed: {}", e);
+        return Json(json!({ "error": "Failed to anonymize driver data" }));
+    }
+
+    // Audit log — record the revocation event
+    accounting::log_audit(
+        state,
+        "drivers",
+        driver_id,
+        "consent_revocation",
+        None,
+        Some(&json!({ "reason": reason, "actor": actor }).to_string()),
+        actor,
+    )
+    .await;
+
+    tracing::info!(
+        target: "legal_compliance",
+        driver_id = %driver_id,
+        reason = %reason,
+        actor = ?actor,
+        "LEGAL-09: PII anonymized via consent revocation"
+    );
+
+    Json(json!({
+        "ok": true,
+        "message": "Personal data has been anonymized. Financial records retained per legal requirements."
+    }))
+}
+
+// ─── LEGAL-08: Data retention background job ─────────────────────────────────
+/// Spawned at server startup (in main.rs). Runs daily with a 1-hour initial delay
+/// to avoid congestion at boot. Reads pii_inactive_months from data_retention_config
+/// and anonymizes drivers who have been inactive beyond that threshold.
+///
+/// Financial records (journal_entries, invoices, billing_sessions, wallet_transactions)
+/// are never touched — retained for 8 years per Income Tax Act.
+pub async fn spawn_data_retention_job(state: Arc<AppState>) {
+    tracing::info!(
+        target: "data_retention",
+        "data-retention task started (86400s interval, 3600s initial delay)"
+    );
+    // Initial delay: 1 hour — avoid boot congestion alongside orphan detector, reconciler, etc.
+    tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(86400));
+    loop {
+        interval.tick().await;
+        run_pii_anonymization_cycle(state.clone()).await;
+    }
+}
+
+/// Single anonymization cycle — called daily by spawn_data_retention_job.
+async fn run_pii_anonymization_cycle(state: Arc<AppState>) {
+    // Read retention policy from config table
+    let policy: Option<(i64,)> = sqlx::query_as(
+        "SELECT pii_inactive_months FROM data_retention_config WHERE id = 'default'",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let pii_inactive_months = policy.map(|r| r.0).unwrap_or(24);
+
+    // Find drivers inactive beyond the threshold who have not yet been anonymized
+    // and have not already revoked consent (those are handled immediately on revocation).
+    let inactive_drivers: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM drivers
+         WHERE (last_activity_at IS NULL
+                OR last_activity_at < datetime('now', '-' || ? || ' months'))
+           AND COALESCE(pii_anonymized, 0) = 0
+           AND COALESCE(consent_revoked, 0) = 0
+         LIMIT 500",
+    )
+    .bind(pii_inactive_months)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut anonymized_count: u32 = 0;
+    for (driver_id,) in inactive_drivers {
+        let result = sqlx::query(
+            "UPDATE drivers SET
+                name = 'ANONYMIZED-' || substr(id, 1, 8),
+                email = NULL,
+                phone = NULL,
+                phone_hash = NULL,
+                guardian_name = NULL,
+                guardian_phone = NULL,
+                guardian_phone_hash = NULL,
+                dob = NULL,
+                pii_anonymized = 1,
+                pii_anonymized_at = datetime('now')
+            WHERE id = ? AND COALESCE(pii_anonymized, 0) = 0",
+        )
+        .bind(&driver_id)
+        .execute(&state.db)
+        .await;
+
+        match result {
+            Ok(r) if r.rows_affected() > 0 => anonymized_count += 1,
+            Ok(_) => {} // already anonymized between SELECT and UPDATE — idempotent
+            Err(e) => tracing::warn!(
+                target: "data_retention",
+                driver_id = %driver_id,
+                "Failed to anonymize inactive driver: {}",
+                e
+            ),
+        }
+    }
+
+    tracing::info!(
+        target: "data_retention",
+        count = anonymized_count,
+        threshold_months = pii_inactive_months,
+        "PII anonymization cycle complete"
+    );
 }
 
 #[cfg(test)]
