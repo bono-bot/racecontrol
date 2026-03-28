@@ -22,7 +22,15 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
     sqlx::query("PRAGMA journal_mode=WAL").execute(&pool).await?;
     sqlx::query("PRAGMA busy_timeout=5000").execute(&pool).await?;
     sqlx::query("PRAGMA synchronous=NORMAL").execute(&pool).await?;
-    tracing::info!("SQLite pragmas set: WAL mode, busy_timeout=5000ms, synchronous=NORMAL");
+
+    // RESIL-01: Verify WAL mode actually activated — fail-fast if not.
+    // On a read-only filesystem or corrupted DB, PRAGMA journal_mode=WAL silently falls back
+    // to DELETE mode. This bail! ensures the server will NOT start in that state.
+    let wal_check: (String,) = sqlx::query_as("PRAGMA journal_mode").fetch_one(&pool).await?;
+    if wal_check.0 != "wal" {
+        anyhow::bail!("CRITICAL: SQLite WAL mode failed to activate — got '{}'. Cannot proceed safely with concurrent writes.", wal_check.0);
+    }
+    tracing::info!("SQLite WAL mode VERIFIED active (busy_timeout=5000ms, synchronous=NORMAL)");
 
     // Run migrations
     migrate(&pool).await?;
@@ -2954,6 +2962,21 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     // v26.0 Meshed Intelligence tables
     crate::fleet_kb::migrate(pool).await?;
+
+    // ─── Phase 251: Timer persistence columns (RESIL-02, FSM-09) ──────────────
+    // elapsed_seconds: total wall-clock seconds since session start (persisted every 60s)
+    // last_timer_sync_at: ISO timestamp of last successful persist, used for orphan detection
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN elapsed_seconds INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN last_timer_sync_at TEXT")
+        .execute(pool)
+        .await;
+
+    // Index for orphan detection query (Plan 02): find active sessions with stale sync timestamps
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_sessions_status_sync ON billing_sessions(status, last_timer_sync_at)")
+        .execute(pool)
+        .await?;
 
     tracing::info!("Database migrations complete");
     Ok(())
