@@ -206,6 +206,10 @@ pub struct AppState {
     /// An authority registers its intent before acting; others check before acting.
     /// Prevents simultaneous recovery by two authorities on the same pod+process.
     pub recovery_intents: std::sync::Mutex<RecoveryIntentStore>,
+    /// FSM-02: Phantom billing detector — tracks when billing=active + game=Idle condition started.
+    /// Key: pod_id. Value: Instant when the phantom billing condition was first detected.
+    /// Cleared when the condition resolves (game starts running or billing ends).
+    pub phantom_billing_start: RwLock<HashMap<String, Instant>>,
 }
 
 impl AppState {
@@ -278,6 +282,7 @@ impl AppState {
                 std::sync::Mutex::new(ownership)
             },
             recovery_intents: std::sync::Mutex::new(RecoveryIntentStore::new()),
+            phantom_billing_start: RwLock::new(HashMap::new()),
         }
     }
 

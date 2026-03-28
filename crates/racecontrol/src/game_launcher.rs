@@ -200,15 +200,17 @@ async fn launch_game(
         }
     }
 
-    // LAUNCH-02/03/04: Billing gate — check active_timers + waiting_for_game, reject paused
+    // LAUNCH-02/03/04 / FSM-03: Billing gate — check active_timers + waiting_for_game, reject paused.
+    // FSM-03: Free gaming guard — LaunchGame is rejected if no active billing session exists.
+    // TODO: FSM-03 exception for free trials (no trial concept exists yet)
     {
         let timers = state.billing.active_timers.read().await;
         let waiting = state.billing.waiting_for_game.read().await;
         let has_active = timers.contains_key(pod_id);
         let has_deferred = waiting.contains_key(pod_id);
         if !has_active && !has_deferred {
-            tracing::warn!("Launch rejected for pod {}: no active or deferred billing session", pod_id);
-            return Err(format!("Pod {} has no active billing session", pod_id));
+            tracing::warn!("FREE GAMING GUARD: Rejected LaunchGame for pod {} — no active billing session", pod_id);
+            return Err(format!("FSM-03: Pod {} has no active billing session (free gaming guard)", pod_id));
         }
         // LAUNCH-03: Reject paused sessions
         if let Some(timer) = timers.get(pod_id) {

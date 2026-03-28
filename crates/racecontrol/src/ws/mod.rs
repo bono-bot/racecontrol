@@ -367,6 +367,49 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::PodUpdate(updated));
+
+                            // FSM-02: Phantom billing guard — detect billing=active + game=Idle >30s.
+                            // Skip check if game_state is None (old agents may not send it).
+                            if let Some(reported_gs) = pod_info.game_state {
+                                let has_active_billing = {
+                                    let timers = state.billing.active_timers.read().await;
+                                    timers.get(&hb_pod_id).map_or(false, |t| {
+                                        matches!(t.status, BillingSessionStatus::Active)
+                                    })
+                                };
+                                if has_active_billing && reported_gs == GameState::Idle {
+                                    // Condition detected: billing active but game idle — start or check timer
+                                    let phantom_elapsed = {
+                                        let mut phantom = state.phantom_billing_start.write().await;
+                                        let entry = phantom.entry(hb_pod_id.clone())
+                                            .or_insert_with(std::time::Instant::now);
+                                        entry.elapsed().as_secs()
+                                    };
+                                    if phantom_elapsed > 30 {
+                                        tracing::error!(
+                                            "PHANTOM BILLING DETECTED: pod {} has billing=active but game=Idle for {}s — auto-pausing",
+                                            hb_pod_id, phantom_elapsed
+                                        );
+                                        // Auto-pause the billing timer
+                                        {
+                                            let mut timers = state.billing.active_timers.write().await;
+                                            if let Some(timer) = timers.get_mut(&hb_pod_id) {
+                                                if timer.status == BillingSessionStatus::Active {
+                                                    timer.status = BillingSessionStatus::PausedGamePause; // FSM-02: phantom guard
+                                                }
+                                            }
+                                        }
+                                        // Clear the phantom timer entry — condition resolved by pausing
+                                        state.phantom_billing_start.write().await.remove(&hb_pod_id);
+                                    }
+                                } else {
+                                    // Condition cleared: remove phantom timer entry if it exists
+                                    let has_entry = state.phantom_billing_start.read().await.contains_key(&hb_pod_id);
+                                    if has_entry {
+                                        state.phantom_billing_start.write().await.remove(&hb_pod_id);
+                                    }
+                                }
+                            }
                         }
                         AgentMessage::Telemetry(frame) => {
                             // Feed telemetry to camera controller
