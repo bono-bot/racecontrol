@@ -426,7 +426,6 @@ pub async fn handle_ws_message(
                             }
                             return Ok(HandleResult::Continue);
                         }
-                    }
                     } // Ok(quick_params)
                     } // match
                 }

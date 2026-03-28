@@ -239,6 +239,15 @@ async fn main() -> Result<()> {
   Pod Telemetry Bridge
 "#);
 
+    // Detect binary name — if rc-pos-agent, log it
+    let binary_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "rc-agent".to_string());
+    if binary_name.contains("pos") {
+        println!("  [POS Agent Mode]");
+    }
+
     // Detect crash recovery BEFORE write_phase("init") truncates the previous log
     let crash_recovery = startup_log::detect_crash_recovery();
     startup_log::write_phase("init", "");
@@ -730,6 +739,7 @@ async fn main() -> Result<()> {
         heartbeat_status.clone(),
         failure_monitor_tx.subscribe(), // watch::Receiver — cheap clone from sender
         diagnostic_event_tx.clone(),
+        config.pod.node_type,
     );
     tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
 

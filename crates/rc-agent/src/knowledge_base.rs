@@ -412,6 +412,13 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PreFlightFailed { check_name, .. } => {
             format!("preflight_failed:{}", check_name.to_lowercase())
         }
+        DiagnosticTrigger::PosKioskDown { .. } => "pos_kiosk_down".to_string(),
+        DiagnosticTrigger::PosNetworkDown { server_ip, .. } => {
+            format!("pos_network_down:{}", server_ip)
+        }
+        DiagnosticTrigger::PosBillingApiError { endpoint, .. } => {
+            format!("pos_billing_api_error:{}", endpoint)
+        }
     }
 }
 

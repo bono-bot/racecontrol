@@ -449,7 +449,10 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
         | DiagnosticTrigger::HealthCheckFail
         | DiagnosticTrigger::DisplayMismatch { .. }
         | DiagnosticTrigger::ErrorSpike { .. }
-        | DiagnosticTrigger::ViolationSpike { .. } => {}
+        | DiagnosticTrigger::ViolationSpike { .. }
+        | DiagnosticTrigger::PosKioskDown { .. }
+        | DiagnosticTrigger::PosNetworkDown { .. }
+        | DiagnosticTrigger::PosBillingApiError { .. } => {}
     }
 
     // Ensure SSH key is deployed (self-healing — re-applies on every periodic scan)
