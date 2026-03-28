@@ -340,6 +340,61 @@ curl -s http://localhost:11434/api/tags | jq '.models[].name'
 
 ---
 
+## Phase 10b: 3 Layers + Floor — VPS Self-Healing Stack
+**What:** Verifies all 4 layers of the RC-Doctor v2.2 self-healing architecture are operational on Bono VPS. A dead layer means VPS services can crash-loop with no detection (Layer 1), no restart (Layer 2), no root cause remediation (Layer 3), or no executor (Floor).
+**Standing rule:** "Audit the MONITOR, not just the MONITORED" — applies to the entire healing stack.
+
+```bash
+# LAYER 1: EYES — Uptime Kuma monitoring on port 3001
+ssh root@100.70.177.44 "curl -sf -m 5 http://localhost:3001/api/status-page/heartbeat" \
+  && echo "LAYER 1 (EYES): PASS — Uptime Kuma alive" \
+  || echo "LAYER 1 (EYES): FAIL — Uptime Kuma not responding on :3001"
+
+# LAYER 1b: External canary reachable (if configured)
+# curl -sf -m 5 http://<canary_url>/api/v1/health && echo "CANARY: PASS" || echo "CANARY: SKIP (not configured)"
+
+# LAYER 2: MUSCLE — Monit process supervision active
+ssh root@100.70.177.44 "monit summary 2>/dev/null" \
+  && echo "LAYER 2 (MUSCLE): PASS — Monit running" \
+  || echo "LAYER 2 (MUSCLE): FAIL — Monit not installed or not running"
+
+# LAYER 2b: Monit monitoring correct services (should include racecontrol, comms-link, etc.)
+ssh root@100.70.177.44 "monit summary 2>/dev/null | grep -cE '(Running|OK|Accessible)'"
+
+# LAYER 3: BRAIN — rc-doctor.sh systemd timer active and recently fired
+ssh root@100.70.177.44 "systemctl is-active rc-doctor.timer" \
+  && echo "LAYER 3 (BRAIN): timer active" \
+  || echo "LAYER 3 (BRAIN): FAIL — rc-doctor.timer not active"
+
+# LAYER 3b: rc-doctor ran within last 120 seconds
+ssh root@100.70.177.44 "journalctl -u rc-doctor.service --since '2 min ago' --no-pager -q | wc -l" \
+  | { read count; [ "$count" -gt 0 ] && echo "LAYER 3 (BRAIN): PASS — ran recently" \
+  || echo "LAYER 3 (BRAIN): WARN — no run in last 2 min"; }
+
+# FLOOR: PM2 executor — running and managing services
+ssh root@100.70.177.44 "pm2 jlist 2>/dev/null | jq 'length'" \
+  && echo "FLOOR (PM2): PASS" \
+  || echo "FLOOR (PM2): FAIL — PM2 not responding"
+
+# FLOOR-b: PM2 autorestart disabled for Monit-managed services
+ssh root@100.70.177.44 "pm2 jlist 2>/dev/null | jq '.[] | select(.pm2_env.autorestart == true) | .name'" \
+  | { read names; [ -z "$names" ] && echo "FLOOR: autorestart correctly disabled" \
+  || echo "FLOOR: WARN — autorestart still enabled for: $names"; }
+```
+
+**Summary matrix:**
+
+| Layer | Component | PASS Criteria | FAIL Recovery |
+|-------|-----------|---------------|---------------|
+| 1 EYES | Uptime Kuma :3001 | HTTP response from status API | `pm2 restart uptime-kuma` |
+| 2 MUSCLE | Monit | `monit summary` returns process list | `apt install monit && systemctl enable --now monit` |
+| 3 BRAIN | rc-doctor.sh timer | Timer active + ran in last 120s | `systemctl enable --now rc-doctor.timer` |
+| FLOOR | PM2 | `pm2 jlist` returns JSON + autorestart=false for managed | `pm2 resurrect` or `pm2 startup` |
+
+**Fix loop trigger:** Any layer FAIL (P1 — self-healing stack is down). PM2 autorestart enabled for Monit-managed services (P2 — Monit and PM2 will fight).
+
+---
+
 ## Phase 67: Meta-Monitor Liveness
 **What:** Verifies that self-healing and self-debugging systems are ACTUALLY RUNNING, not just that their code exists. Previous audits (phases 10, 66) checked watchdog-state.json (proxy) and script existence (code) -- this phase checks process liveness, scheduled task registration, output recency, and healing toggle consistency. Checks the TERRITORY, not the MAP.
 
@@ -367,7 +422,17 @@ tail -1 C:/Users/bono/racingpoint/racecontrol/audit/results/suggestions.jsonl | 
 jq '{auto_fix_enabled, self_patch_enabled}' C:/Users/bono/racingpoint/racecontrol/audit/results/auto-detect-config.json
 ```
 
-**Fix loop trigger:** rc-watchdog.exe not running (P1), either scheduled task not registered (P1), watchdog log stale >5min (P1), suggestions stale >26h (P2), auto_fix_enabled=false (P2), RCWatchdog Run key missing (P2).
+```bash
+# CHECK 8: 3 Layers + Floor — VPS self-healing stack alive (cross-ref Phase 10b)
+# Quick probe — all 4 layers reachable in one SSH session
+ssh root@100.70.177.44 "echo '--- 3LF TEST ---' && \
+  curl -sf -m 3 http://localhost:3001/api/status-page/heartbeat >/dev/null && echo 'L1 EYES: OK' || echo 'L1 EYES: FAIL' && \
+  monit summary >/dev/null 2>&1 && echo 'L2 MUSCLE: OK' || echo 'L2 MUSCLE: FAIL' && \
+  systemctl is-active rc-doctor.timer >/dev/null 2>&1 && echo 'L3 BRAIN: OK' || echo 'L3 BRAIN: FAIL' && \
+  pm2 jlist >/dev/null 2>&1 && echo 'FLOOR PM2: OK' || echo 'FLOOR PM2: FAIL'"
+```
+
+**Fix loop trigger:** rc-watchdog.exe not running (P1), either scheduled task not registered (P1), watchdog log stale >5min (P1), suggestions stale >26h (P2), auto_fix_enabled=false (P2), RCWatchdog Run key missing (P2), **any 3LF layer FAIL (P1 — VPS self-healing stack broken)**.
 
 ---
 

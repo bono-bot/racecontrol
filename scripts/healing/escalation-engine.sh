@@ -174,6 +174,15 @@ export -f attempt_wol
 attempt_cloud_failover() {
   local pod_ip="$1"
 
+  # 3 Layers + Floor pre-check: verify VPS healing stack before relying on cloud
+  local bono_vps="100.70.177.44"
+  local pm2_ok
+  pm2_ok=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "root@${bono_vps}" \
+    "pm2 jlist 2>/dev/null | jq 'length'" 2>/dev/null || echo "0")
+  if [[ "${pm2_ok:-0}" -eq 0 ]]; then
+    log WARN "[HEAL] 3LF: PM2 (Floor) not responding on Bono VPS — cloud failover unlikely to help"
+  fi
+
   # Check cooldown for fleet-level cloud failover (Pitfall 7)
   if type -t _is_cooldown_active &>/dev/null; then
     if _is_cooldown_active "fleet" "cloud_failover"; then
@@ -567,11 +576,57 @@ _run_self_test() {
   fi
 
   echo ""
+  echo "--- 3 Layers + Floor (VPS self-healing stack) ---"
+  local bono_vps="100.70.177.44"
+  local lf_pass=0 lf_total=4
+
+  # LAYER 1: EYES — Uptime Kuma
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${bono_vps}" \
+    "curl -sf -m 3 http://localhost:3001/api/status-page/heartbeat" >/dev/null 2>&1; then
+    echo "  [OK] Layer 1 (EYES) — Uptime Kuma :3001"
+    lf_pass=$((lf_pass + 1))
+  else
+    echo "  [FAIL] Layer 1 (EYES) — Uptime Kuma :3001 not responding"
+  fi
+
+  # LAYER 2: MUSCLE — Monit
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${bono_vps}" \
+    "monit summary >/dev/null 2>&1" 2>/dev/null; then
+    echo "  [OK] Layer 2 (MUSCLE) — Monit running"
+    lf_pass=$((lf_pass + 1))
+  else
+    echo "  [FAIL] Layer 2 (MUSCLE) — Monit not running"
+  fi
+
+  # LAYER 3: BRAIN — rc-doctor.sh timer
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${bono_vps}" \
+    "systemctl is-active rc-doctor.timer >/dev/null 2>&1" 2>/dev/null; then
+    echo "  [OK] Layer 3 (BRAIN) — rc-doctor.timer active"
+    lf_pass=$((lf_pass + 1))
+  else
+    echo "  [FAIL] Layer 3 (BRAIN) — rc-doctor.timer not active"
+  fi
+
+  # FLOOR: PM2 executor
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${bono_vps}" \
+    "pm2 jlist >/dev/null 2>&1" 2>/dev/null; then
+    echo "  [OK] Floor (PM2) — responding"
+    lf_pass=$((lf_pass + 1))
+  else
+    echo "  [FAIL] Floor (PM2) — not responding"
+  fi
+
+  echo "  3LF result: ${lf_pass}/${lf_total} layers alive"
+  if [[ $lf_pass -lt $lf_total ]]; then
+    all_ok=false
+  fi
+
+  echo ""
   if [[ "$all_ok" == "true" ]]; then
     echo "[escalation-engine] SELF-TEST PASS"
     return 0
   else
-    echo "[escalation-engine] SELF-TEST FAIL — missing functions or config"
+    echo "[escalation-engine] SELF-TEST FAIL — missing functions, config, or healing layers"
     return 1
   fi
 }

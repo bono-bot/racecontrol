@@ -1224,3 +1224,59 @@ This plan was audited by 6 independent AI models:
 | Nemotron Ultra 253B | Round 2 (revised) | "Meets 80% needs. Add external monitoring" |
 
 All Round 2 feedback incorporated into this v2.1 plan.
+
+---
+
+## Verification: 3 Layers + Floor Test
+
+**Run this test to confirm the entire self-healing stack is operational.** Integrated into:
+- UNIFIED-PROTOCOL Phase 0.2b (every session start)
+- AUDIT-PROTOCOL Phase 10b (every audit)
+- gate-check.sh Suite 6 (pre-deploy when healing code changes)
+- escalation-engine.sh --self-test (healing pipeline validation)
+
+### Quick Test (one SSH command)
+
+```bash
+ssh root@100.70.177.44 "echo '=== 3 LAYERS + FLOOR TEST ===' && \
+  echo -n 'L1 EYES (Uptime Kuma :3001): ' && \
+  (curl -sf -m 3 http://localhost:3001/api/status-page/heartbeat >/dev/null && echo PASS || echo FAIL) && \
+  echo -n 'L2 MUSCLE (Monit): ' && \
+  (monit summary >/dev/null 2>&1 && echo PASS || echo FAIL) && \
+  echo -n 'L3 BRAIN (rc-doctor timer): ' && \
+  (systemctl is-active rc-doctor.timer >/dev/null 2>&1 && echo PASS || echo FAIL) && \
+  echo -n 'FLOOR (PM2): ' && \
+  (pm2 jlist >/dev/null 2>&1 && echo PASS || echo FAIL) && \
+  echo '=== END TEST ==='"
+```
+
+### Expected Output (all PASS)
+
+```
+=== 3 LAYERS + FLOOR TEST ===
+L1 EYES (Uptime Kuma :3001): PASS
+L2 MUSCLE (Monit): PASS
+L3 BRAIN (rc-doctor timer): PASS
+FLOOR (PM2): PASS
+=== END TEST ===
+```
+
+### Failure Recovery Matrix
+
+| Layer | FAIL Symptom | Recovery Command | Impact While Down |
+|-------|-------------|-----------------|-------------------|
+| **L1 EYES** | No Uptime Kuma response | `pm2 restart uptime-kuma` | No monitoring/alerting — services can die silently |
+| **L2 MUSCLE** | Monit not running | `systemctl start monit` | No dependency-aware restarts — PM2 blind restarts only |
+| **L3 BRAIN** | Timer inactive/stale | `systemctl enable --now rc-doctor.timer` | No playbook remediation — disk fills, ports conflict, no cleanup |
+| **FLOOR** | PM2 down | `pm2 resurrect` | No process executor — Monit can't start/stop services |
+
+### Test Triggers
+
+| When | Automated? | How |
+|------|-----------|-----|
+| Session start | Manual | Run 0.2b in UNIFIED-PROTOCOL |
+| Pre-deploy (healing changes) | Auto | gate-check.sh Suite 6 detects healing-domain diff |
+| Audit | Manual | AUDIT-PROTOCOL Phase 10b |
+| Escalation self-test | Auto | `bash scripts/healing/escalation-engine.sh --self-test` |
+| VPS service crash | Manual | First step before debugging any VPS issue |
+| Post-incident | Manual | Phase D Exit Gate re-verification |

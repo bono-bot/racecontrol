@@ -84,12 +84,14 @@ DOMAIN_NETWORK=0
 DOMAIN_PARSE=0
 DOMAIN_BILLING=0
 DOMAIN_CONFIG=0
+DOMAIN_HEALING=0
 DETECTED_DOMAINS=()
 DOMAIN_FILES_DISPLAY=""
 DOMAIN_FILES_NETWORK=""
 DOMAIN_FILES_PARSE=""
 DOMAIN_FILES_BILLING=""
 DOMAIN_FILES_CONFIG=""
+DOMAIN_FILES_HEALING=""
 
 detect_domains() {
   # Reset flags
@@ -98,12 +100,14 @@ detect_domains() {
   DOMAIN_PARSE=0
   DOMAIN_BILLING=0
   DOMAIN_CONFIG=0
+  DOMAIN_HEALING=0
   DETECTED_DOMAINS=()
   DOMAIN_FILES_DISPLAY=""
   DOMAIN_FILES_NETWORK=""
   DOMAIN_FILES_PARSE=""
   DOMAIN_FILES_BILLING=""
   DOMAIN_FILES_CONFIG=""
+  DOMAIN_FILES_HEALING=""
 
   # Get changed files: staged first, then HEAD~1 diff
   local changed_files
@@ -177,6 +181,15 @@ detect_domains() {
     DOMAIN_FILES_CONFIG=$(echo "$config_matches" | sort -u | paste -sd ', ' -)
   fi
 
+  # Healing domain: files that touch self-healing, diagnosis, recovery, or escalation
+  local healing_matches
+  healing_matches=$(echo "$changed_files" | grep -iE '(heal|doctor|diagnos|tier_engine|tier1_fixes|escalat|self_heal|failure_monitor|predictive_maintenance|knowledge_base|watchdog|self_monitor|sentinel_watcher|startup_cleanup|game_doctor|rc-doctor)' || true)
+  if [ -n "$healing_matches" ]; then
+    DOMAIN_HEALING=1
+    DETECTED_DOMAINS+=("healing")
+    DOMAIN_FILES_HEALING=$(echo "$healing_matches" | sort -u | paste -sd ', ' -)
+  fi
+
   # Print detected domains
   if [ ${#DETECTED_DOMAINS[@]} -gt 0 ]; then
     echo "  Detected domains:"
@@ -185,6 +198,7 @@ detect_domains() {
     [ $DOMAIN_PARSE -eq 1 ] && echo "    parse: $DOMAIN_FILES_PARSE"
     [ $DOMAIN_BILLING -eq 1 ] && echo "    billing: $DOMAIN_FILES_BILLING"
     [ $DOMAIN_CONFIG -eq 1 ] && echo "    config: $DOMAIN_FILES_CONFIG"
+    [ $DOMAIN_HEALING -eq 1 ] && echo "    healing: $DOMAIN_FILES_HEALING"
   else
     echo "  No domain-specific changes detected"
   fi
@@ -582,6 +596,77 @@ EOF
     [ -n "$EVIDENCE_FLEET" ] && echo "    Fleet endpoint: $EVIDENCE_FLEET"
     [ -n "$EVIDENCE_WS" ] && echo "    WebSocket: $EVIDENCE_WS"
     echo "    Parse test: $EVIDENCE_PARSE"
+  fi
+
+  # =========================================================================
+  # Suite 6: 3 Layers + Floor — VPS self-healing stack (GATE-06)
+  # Triggered when: healing domain detected, or always in full pre-deploy mode
+  # Tests all 4 layers of RC-Doctor v2.2 on Bono VPS
+  # =========================================================================
+  if [ $DOMAIN_HEALING -eq 1 ] || [ "${THREE_LF_CHECK:-}" = "true" ]; then
+    echo ""
+    echo "============================================================"
+    printf "Suite 6: 3 Layers + Floor — VPS self-healing stack...\n"
+    echo "============================================================"
+
+    LF_FAIL=0
+    LF_CHECKED=0
+    BONO_VPS="100.70.177.44"
+
+    # LAYER 1: EYES — Uptime Kuma
+    LF_CHECKED=$((LF_CHECKED + 1))
+    L1_RESULT=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${BONO_VPS}" \
+      "curl -sf -m 5 http://localhost:3001/api/status-page/heartbeat" 2>/dev/null && echo "OK" || echo "FAIL")
+    if echo "$L1_RESULT" | grep -q "OK"; then
+      printf "  Layer 1 (EYES — Uptime Kuma :3001)... %b\n" "$pass_label"
+    else
+      printf "  Layer 1 (EYES — Uptime Kuma :3001)... %b\n" "$fail_label"
+      LF_FAIL=$((LF_FAIL + 1))
+    fi
+
+    # LAYER 2: MUSCLE — Monit
+    LF_CHECKED=$((LF_CHECKED + 1))
+    L2_RESULT=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${BONO_VPS}" \
+      "monit summary >/dev/null 2>&1 && echo OK || echo FAIL" 2>/dev/null || echo "FAIL")
+    if echo "$L2_RESULT" | grep -q "OK"; then
+      printf "  Layer 2 (MUSCLE — Monit)... %b\n" "$pass_label"
+    else
+      printf "  Layer 2 (MUSCLE — Monit)... %b\n" "$fail_label"
+      LF_FAIL=$((LF_FAIL + 1))
+    fi
+
+    # LAYER 3: BRAIN — rc-doctor.sh timer
+    LF_CHECKED=$((LF_CHECKED + 1))
+    L3_RESULT=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${BONO_VPS}" \
+      "systemctl is-active rc-doctor.timer 2>/dev/null && echo OK || echo FAIL" 2>/dev/null || echo "FAIL")
+    if echo "$L3_RESULT" | grep -q "OK"; then
+      printf "  Layer 3 (BRAIN — rc-doctor.sh timer)... %b\n" "$pass_label"
+    else
+      printf "  Layer 3 (BRAIN — rc-doctor.sh timer)... %b\n" "$fail_label"
+      LF_FAIL=$((LF_FAIL + 1))
+    fi
+
+    # FLOOR: PM2 executor
+    LF_CHECKED=$((LF_CHECKED + 1))
+    FLOOR_RESULT=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "root@${BONO_VPS}" \
+      "pm2 jlist 2>/dev/null | jq 'length' 2>/dev/null && echo OK || echo FAIL" 2>/dev/null || echo "FAIL")
+    if echo "$FLOOR_RESULT" | grep -q "OK"; then
+      printf "  Floor (PM2 executor)... %b\n" "$pass_label"
+    else
+      printf "  Floor (PM2 executor)... %b\n" "$fail_label"
+      LF_FAIL=$((LF_FAIL + 1))
+    fi
+
+    if [ $LF_FAIL -eq 0 ]; then
+      printf "  3 Layers + Floor: all %d layers alive... %b\n" "$LF_CHECKED" "$pass_label"
+      record_suite 6 "3 Layers + Floor" "PASS (${LF_CHECKED}/${LF_CHECKED} layers)"
+    else
+      printf "  3 Layers + Floor: %d/%d layers FAILED... %b\n" "$LF_FAIL" "$LF_CHECKED" "$fail_label"
+      record_suite 6 "3 Layers + Floor" "FAIL (${LF_FAIL}/${LF_CHECKED} layers down)"
+      OVERALL_FAIL=1
+    fi
+  elif [ $DOMAIN_HEALING -eq 0 ]; then
+    record_suite 6 "3 Layers + Floor" "SKIPPED (no healing-domain changes)"
   fi
 
 fi  # end pre-deploy

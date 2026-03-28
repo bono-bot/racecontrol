@@ -102,6 +102,7 @@ Everything else is contextual — triggered by what domain the change touches.
 | Billing broken | Switch to manual tracking | Paper log: pod#, start time, customer name |
 | Cloud sync down | Disable sync, run local-only | Pods + server continue without cloud |
 | Multiple pods down | Mark bad pods out of rotation | Move customers to working pods, investigate after |
+| **VPS services crash-looping** | **Run 3 Layers + Floor test** | **Check: Uptime Kuma :3001, Monit, rc-doctor timer, PM2 — fix dead layer first** |
 
 **Minute 5-7: COMMUNICATE**
 - Tell customer: "We're fixing it, ~5 minutes" or "Moving you to Pod X"
@@ -350,6 +351,40 @@ schtasks /Query /TN AutoDetect-Daily
 - **SR-TESTING-013:** Verify monitoring targets against running system, not docs
 - **Audit the MONITOR, not just the MONITORED** — process running + scheduled task registered + output fresh
 
+### 0.2b — 3 Layers + Floor Test (Bono VPS Self-Healing Stack)
+Verify all 4 layers of the RC-Doctor self-healing architecture are operational on Bono VPS.
+**Every layer must be alive.** A missing layer means VPS services can crash-loop undetected or restart without root cause analysis.
+
+```bash
+# LAYER 1: EYES — Uptime Kuma monitoring (port 3001)
+ssh root@100.70.177.44 "curl -sf -m 5 http://localhost:3001/api/status-page/heartbeat" \
+  && echo "LAYER 1 (EYES): PASS" || echo "LAYER 1 (EYES): FAIL — Uptime Kuma down"
+
+# LAYER 2: MUSCLE — Monit process supervision
+ssh root@100.70.177.44 "monit summary 2>/dev/null | head -5" \
+  && echo "LAYER 2 (MUSCLE): PASS" || echo "LAYER 2 (MUSCLE): FAIL — Monit not running"
+
+# LAYER 3: BRAIN — rc-doctor.sh systemd timer active + last run < 120s
+ssh root@100.70.177.44 "systemctl is-active rc-doctor.timer && \
+  journalctl -u rc-doctor.service --since '2 min ago' --no-pager -q | head -1" \
+  && echo "LAYER 3 (BRAIN): PASS" || echo "LAYER 3 (BRAIN): FAIL — rc-doctor timer inactive or stale"
+
+# FLOOR: PM2 executor running (autorestart disabled for Monit-managed)
+ssh root@100.70.177.44 "pm2 jlist 2>/dev/null | jq 'length'" \
+  && echo "FLOOR (PM2): PASS" || echo "FLOOR (PM2): FAIL — PM2 not responding"
+```
+
+| Layer | What to Check | PASS Criteria | FAIL Action |
+|-------|--------------|---------------|-------------|
+| **1 EYES** | Uptime Kuma :3001 | HTTP response from status page API | Restart: `pm2 restart uptime-kuma` |
+| **2 MUSCLE** | Monit | `monit summary` returns process list | Install/start: `monit` or `systemctl start monit` |
+| **3 BRAIN** | rc-doctor.sh timer | Timer active + ran within last 120s | Re-enable: `systemctl enable --now rc-doctor.timer` |
+| **FLOOR** | PM2 | `pm2 jlist` returns JSON array | Restart: `pm2 resurrect` |
+
+**Rules activated:**
+- **3LF-01:** All 4 layers must be alive before investigating any VPS service issue
+- **Audit the MONITOR, not just the MONITORED** — extends to VPS self-healing stack
+
 ### 0.3 — Context Recovery
 ```bash
 # Check for active debug sessions
@@ -408,6 +443,7 @@ curl -s http://192.168.31.23:8080/api/v1/mesh/stats
 - [ ] Fleet health checked, offline pods investigated
 - [ ] MAINTENANCE_MODE cleared on any stuck pods
 - [ ] Meta-monitors (watchdog, auto-detect) confirmed alive
+- [ ] **3 Layers + Floor test PASS on Bono VPS** (0.2b — all 4 layers alive)
 - [ ] Active debug sessions identified or none
 - [ ] Server build_id matches HEAD (or rebuild queued)
 - [ ] LOGBOOK reviewed for recent context
@@ -1333,6 +1369,7 @@ Start over when:
 - [ ] Temp files blocking? → Clean temp dirs
 - [ ] Session 0 vs Session 1? → Check with `tasklist /V /FO CSV | findstr rc-agent`
 - [ ] Edge process count zero with blanking state? → Session context wrong
+- [ ] **3 Layers + Floor alive on Bono VPS?** → If VPS issue, check all 4 layers FIRST (see 0.2b)
 
 ### D.2 — 5-Step Cause Elimination (HOW to reason)
 
@@ -1488,6 +1525,7 @@ These are ADDITIONAL checks specific to our fleet, applied on top of the general
 - [ ] **Crash loop:** >3 startups in 5 min with uptime < 30s → reboot first, investigate second
 - [ ] **Explorer restart:** NEVER on NVIDIA Surround pods (collapses triple monitors)
 - [ ] **Screenshot verification:** Triggers taskbar auto-hide — verify physically instead
+- [ ] **3 Layers + Floor (VPS issues):** Before debugging any VPS service crash/restart, verify all 4 layers alive — a dead Monit or stale rc-doctor timer means the self-healing stack itself is broken, not the service
 
 ### D.9 — Persistent Debug State
 
@@ -1711,6 +1749,7 @@ Pod engines run on smaller OpenRouter models (8K-32K context). During complex di
 - [ ] Diagnostic harness phases completed in order (Principle 1, if autonomous)
 - [ ] Evaluator grade ≥ 3.0 from different model (Principle 2, if autonomous)
 - [ ] Ralph Wiggum loop passed (Principle 6, if autonomous)
+- [ ] **3 Layers + Floor re-verified** (if VPS-related issue — all 4 layers alive post-fix)
 - [ ] Return to failing lifecycle phase and continue
 
 ---
