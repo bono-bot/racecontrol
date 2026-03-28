@@ -161,6 +161,9 @@ async fn run_supervised(
 ) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
+    // Track in-flight staff requests to prevent duplicate diagnosis for same incident
+    // (MMA OpenRouter fix: two kiosks filing for same pod creates duplicate resolutions)
+    let mut inflight_incidents: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut first_event_processed = false;
 
     loop {
@@ -212,6 +215,20 @@ async fn run_supervised(
 
             // ── Staff-triggered diagnostic requests (v27.0 Phase 2) ──
             Some(req) = staff_rx.recv() => {
+                // Dedup: skip if we're already processing this incident
+                if inflight_incidents.contains(&req.correlation_id) {
+                    tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Skipping duplicate staff request (already in-flight)");
+                    let _ = req.response_tx.send(StaffDiagnosticResult {
+                        correlation_id: req.correlation_id,
+                        tier: 0, outcome: "duplicate".to_string(), root_cause: String::new(),
+                        fix_action: String::new(), fix_type: "none".to_string(), confidence: 0.0,
+                        fix_applied: false, problem_hash: String::new(),
+                        summary: "Duplicate request — diagnosis already in progress for this incident".to_string(),
+                    });
+                    continue;
+                }
+                inflight_incidents.insert(req.correlation_id.clone());
+
                 tracing::info!(
                     target: LOG_TARGET,
                     correlation_id = %req.correlation_id,
@@ -244,7 +261,11 @@ async fn run_supervised(
                 };
                 diag_log.push(entry).await;
 
-                // Send result back to WS handler
+                // Remove from inflight BEFORE send — even if send fails (WS timed out),
+                // the diagnosis ran and future requests should not be blocked.
+                // (MMA OpenRouter Wave 2 fix: panic in send could leak the key permanently)
+                let cid = req.correlation_id.clone();
+                inflight_incidents.remove(&cid);
                 let _ = req.response_tx.send(result);
             }
 
@@ -377,11 +398,19 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::ProcessCrash { process_name } => {
             format!("ProcessCrash_{}", process_name)
         }
-        DiagnosticTrigger::DisplayMismatch { expected_edge_count, actual_edge_count } => {
-            format!("DisplayMismatch_{}_{}", expected_edge_count, actual_edge_count)
+        // DisplayMismatch: use only expected count (stable), not actual (fluctuates)
+        DiagnosticTrigger::DisplayMismatch { expected_edge_count, .. } => {
+            format!("DisplayMismatch_{}", expected_edge_count)
         }
+        // ErrorSpike: bucket by severity tier (low/medium/high/critical) so escalation
+        // is visible but minor fluctuations are deduped. Raw count changes every scan.
+        // (MMA OpenRouter Wave 2 fix: fully static key hid escalating errors)
         DiagnosticTrigger::ErrorSpike { errors_per_min } => {
-            format!("ErrorSpike_{}", errors_per_min)
+            let severity = if *errors_per_min >= 20 { "critical" }
+                else if *errors_per_min >= 10 { "high" }
+                else if *errors_per_min >= 5 { "medium" }
+                else { "low" };
+            format!("ErrorSpike_{}", severity)
         }
         DiagnosticTrigger::WsDisconnect { .. } => "WsDisconnect".to_string(),
         DiagnosticTrigger::SentinelUnexpected { file_name } => {

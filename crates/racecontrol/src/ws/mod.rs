@@ -188,23 +188,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             registered_pod_id = Some(canonical_id.clone());
                             log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
 
-                            // Store agent sender and connection ID for this pod (using canonical id)
-                            state
-                                .agent_senders
-                                .write()
-                                .await
-                                .insert(canonical_id.clone(), cmd_tx.clone());
-                            state
-                                .agent_conn_ids
-                                .write()
-                                .await
-                                .insert(canonical_id.clone(), conn_id);
-
-                            state
-                                .pods
-                                .write()
-                                .await
-                                .insert(canonical_id.clone(), pod_info.clone());
+                            // MMA-109: Scope each lock tightly — never hold across .await
+                            // Lock order: agent_senders → agent_conn_ids → pods (consistent)
+                            {
+                                state.agent_senders.write().await
+                                    .insert(canonical_id.clone(), cmd_tx.clone());
+                            }
+                            {
+                                state.agent_conn_ids.write().await
+                                    .insert(canonical_id.clone(), conn_id);
+                            }
+                            {
+                                state.pods.write().await
+                                    .insert(canonical_id.clone(), pod_info.clone());
+                            }
 
                             let _ = state
                                 .dashboard_tx
@@ -1154,10 +1151,19 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     promotion_status: "fleet_verified".to_string(),
                                 };
 
-                                // Send to OTHER connected pods (exclude origin) — clone senders first
-                                // (MMA R4-1 fix: origin pod was receiving its own fix as a broadcast)
-                                let origin_pod = registered_pod_id.clone().unwrap_or_default();
-                                let sender_snapshot: Vec<_> = {
+                                // Send to OTHER connected pods (exclude origin) — clone senders first.
+                                // If origin pod is unknown (None), skip broadcast entirely to avoid
+                                // sending to ALL pods including origin (MMA OpenRouter fix: empty string matched nobody).
+                                let origin_pod = match &registered_pod_id {
+                                    Some(id) => id.clone(),
+                                    None => {
+                                        tracing::warn!(target: "debug-bridge", "Fleet broadcast skipped — origin pod not registered");
+                                        String::new() // will skip the broadcast below
+                                    }
+                                };
+                                let sender_snapshot: Vec<_> = if origin_pod.is_empty() {
+                                    vec![] // don't broadcast if we don't know who sent it
+                                } else {
                                     let senders = state.agent_senders.read().await;
                                     senders.iter()
                                         .filter(|(id, _)| **id != origin_pod)

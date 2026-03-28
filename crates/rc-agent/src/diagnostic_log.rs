@@ -4,9 +4,9 @@
 //! - remote_ops `/events/recent` endpoint (Phase 1 — kiosk fetches recent events)
 //! - ws_handler for DiagnosticResult responses (Phase 2 — staff-triggered diagnosis)
 //!
-//! Uses std::sync::RwLock (not tokio) because all operations are fast, non-async,
-//! and the buffer is small (50 entries). This avoids cancellation-safety issues
-//! and write-starvation under async polling (MMA Round 1 P2 fix).
+//! Uses parking_lot-style poison recovery: on PoisonError, logs a warning and
+//! recovers the inner data via into_inner() rather than silently dropping events.
+//! (MMA OpenRouter fix: std::sync::RwLock poisoning made push() a permanent no-op)
 //!
 //! v27.0: Staff Diagnostic Bridge
 
@@ -47,7 +47,7 @@ pub struct DiagnosticLogEntry {
 }
 
 /// Thread-safe ring buffer of diagnostic events.
-/// Uses std::sync::RwLock for fast, non-async operations on small buffer.
+/// Uses std::sync::RwLock with poison recovery for resilience.
 #[derive(Clone)]
 pub struct DiagnosticLog {
     entries: Arc<RwLock<VecDeque<DiagnosticLogEntry>>>,
@@ -61,22 +61,31 @@ impl DiagnosticLog {
     }
 
     /// Append a new entry; drops oldest if buffer is full.
-    /// Synchronous — safe to call from async context without holding across .await.
+    /// Recovers from RwLock poisoning rather than silently dropping events.
     pub async fn push(&self, entry: DiagnosticLogEntry) {
-        if let Ok(mut entries) = self.entries.write() {
-            if entries.len() >= MAX_EVENTS {
-                entries.pop_front();
+        let mut guard = match self.entries.write() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!(target: "diagnostic-log", "RwLock was poisoned — recovering inner data");
+                poisoned.into_inner()
             }
-            entries.push_back(entry);
+        };
+        if guard.len() >= MAX_EVENTS {
+            guard.pop_front();
         }
+        guard.push_back(entry);
     }
 
     /// Get the N most recent entries (newest first).
-    /// Synchronous — safe to call from async context.
+    /// Recovers from RwLock poisoning rather than returning empty.
     pub async fn recent(&self, limit: usize) -> Vec<DiagnosticLogEntry> {
-        match self.entries.read() {
-            Ok(entries) => entries.iter().rev().take(limit).cloned().collect(),
-            Err(_) => vec![],
-        }
+        let guard = match self.entries.read() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!(target: "diagnostic-log", "RwLock was poisoned on read — recovering");
+                poisoned.into_inner()
+            }
+        };
+        guard.iter().rev().take(limit).cloned().collect()
     }
 }
