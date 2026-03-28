@@ -32,7 +32,7 @@ use_steam = true
 [games.iracing]
 exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\iRacing\\iRacingSim64DX11.exe"
 steam_app_id = 266410
-use_steam = false
+use_steam = true
 
 # ─── AI Debugger ─────────────────────────────────────────────────────────────
 # Tier 1: Pattern memory (instant). Tier 2: Local Ollama → OpenRouter fallback.
