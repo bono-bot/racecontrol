@@ -997,3 +997,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 05:30 IST | James | 1db260dc | feat(255-03): wire data retention background job at startup (LEGAL-08) |
 | 2026-03-29 05:32 IST | James | 5ea7d413 | feat(255-02): guardian OTP handlers + ROADMAP update (LEGAL-04/05) |
 | 2026-03-29 05:35 IST | James | 70213229 | docs(255-03): 255-03-SUMMARY.md complete, LEGAL-08/09 marked done, STATE.md + REQUIREMENTS.md updated |
+| 2026-03-29 05:38 IST | James | c3bece30 | docs(255-02): 255-02-SUMMARY.md, LEGAL-03/04/05/06 requirements marked done, STATE.md decisions updated |
