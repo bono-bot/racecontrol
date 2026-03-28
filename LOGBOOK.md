@@ -993,3 +993,7 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 04:57 IST | James | 6791a153 | feat(255-01): LEGAL-01/02 — post_session_debit_gst() 3-line GST journal entry, invoices table, invoice_sequence, generate_invoice() |
 | 2026-03-29 05:00 IST | James | 6e395bca | feat(255-01): LEGAL-02/07 — GET /billing/sessions/{id}/invoice, GET /customer/sessions/{id}/invoice, pricing_display adds refund_policy/pricing_policy/gst_note |
 | 2026-03-29 05:05 IST | James | d24508bc | docs(255-01): 255-01-SUMMARY.md, LEGAL-01/02/07 complete in REQUIREMENTS.md |
+| 2026-03-29 05:12 IST | James | 12c1b62f | feat(255-02): waiver gate + minor detection in start_billing + db retention schema + routes handlers (LEGAL-03/04/05/06/08/09) |
+| 2026-03-29 05:30 IST | James | 1db260dc | feat(255-03): wire data retention background job at startup (LEGAL-08) |
+| 2026-03-29 05:32 IST | James | 5ea7d413 | feat(255-02): guardian OTP handlers + ROADMAP update (LEGAL-04/05) |
+| 2026-03-29 05:35 IST | James | 70213229 | docs(255-03): 255-03-SUMMARY.md complete, LEGAL-08/09 marked done, STATE.md + REQUIREMENTS.md updated |
