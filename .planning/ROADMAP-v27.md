@@ -96,7 +96,11 @@ Plans:
   3. Billing cannot start on the POS path if the customer has not signed a waiver — the billing start endpoint rejects the request
   4. A minor customer (under 18) cannot be billed without a guardian OTP being verified and a staff presence toggle confirmed
   5. The pricing and refund policy is displayed to the customer on the kiosk before wallet top-up is accepted
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 255-01-PLAN.md — GST separation in journal entries (18% inclusive), invoices table + generation, pricing/refund policy display
+- [ ] 255-02-PLAN.md — Waiver gate in start_billing, minor detection from DOB, guardian OTP send/verify, guardian presence toggle, minor liability disclosure
+- [ ] 255-03-PLAN.md — Data retention policy (8yr financial, 24mo PII), PII anonymization background job, consent revocation endpoint
 **UI hint**: yes
 
 ### Phase 256: Game-Specific Hardening
@@ -172,7 +176,7 @@ Plans:
 | 252. Financial Atomicity Core | 3/3 | Complete | 2026-03-28 |
 | 253. State Machine Hardening | 3/3 | Complete | 2026-03-28 |
 | 254. Security Hardening | 0/3 | Planned | - |
-| 255. Legal Compliance | 0/? | Not started | - |
+| 255. Legal Compliance | 0/3 | Planned | - |
 | 256. Game-Specific Hardening | 0/? | Not started | - |
 | 257. Billing Edge Cases | 0/? | Not started | - |
 | 258. Staff Controls & Deployment Safety | 0/? | Not started | - |
