@@ -13,6 +13,7 @@ pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod billing;
+pub mod billing_fsm;
 pub mod cafe;
 pub mod cafe_alerts;
 pub mod cafe_marketing;
