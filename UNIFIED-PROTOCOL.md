@@ -1100,20 +1100,39 @@ For each pod:
 - **Regression Prevention:** Deploy bat files alongside binaries
 - **Process multiplication:** Kill-all before start-one in bat files
 
-### 4.4 — Server Deploy Sequence (racecontrol)
-7 steps, no shortcuts:
-1. Record expected build_id: `git rev-parse --short HEAD`
-2. Download first (while old process still serves :8090)
-3. SSH kill+swap: rename trick (`ren` running exe, not `move /Y`)
-4. Start via `schtasks /Run /TN StartRCTemp`
-5. Verify build_id matches
-6. Verify the EXACT fix (not just health)
-7. If fail → recover via SCP + schtasks
+### 4.4 — Server Deploy Sequence (racecontrol) — v3.0
+**MMA-hardened:** 12-model audit across 3 rounds (2026-03-28). Fixes 10 failure modes from production incident. Use `deploy-server.sh` script or follow manually.
+
+**Script:** `bash deploy-staging/deploy-server.sh [hash]`
+
+8 steps with **automatic rollback** on any failure:
+1. **Connectivity:** LAN primary (192.168.31.23), Tailscale fallback (100.125.108.37)
+2. **Download:** HTTP via :18889 primary, SCP fallback. Size verified (SSH banner filtered)
+3. **Kill:** `taskkill /F /IM racecontrol.exe` + poll-confirmed death (15s) + port-free check (10s)
+4. **Swap:** `del prev → ren current→prev → ren new→current`. On failure: **recovery guard** auto-executes `ren prev→current` to ensure a valid binary always exists (no-binary-left guard, 3-model consensus P1)
+5. **Start:** `schtasks /Run /TN StartRCTemp`, fallback `StartRCDirect`. Fail = **auto-rollback**
+6. **Build ID:** Poll 3 attempts. Mismatch = **auto-rollback**
+7. **Smoke test:** 4 endpoints (health, fleet/health, debug/activity, debug/playbooks). Any fail = **auto-rollback**
+8. **Cleanup:** Delete stale `racecontrol-*.exe` (keep only current + prev)
+
+**Rollback procedure** (automatic or manual):
+```bash
+# Automatic (deploy-server.sh does this on any step 5-7 failure):
+ssh ADMIN@192.168.31.23 "cd /d C:\RacingPoint && taskkill /F /IM racecontrol.exe 2>nul && del racecontrol.exe && ren racecontrol-prev.exe racecontrol.exe && schtasks /Run /TN StartRCTemp"
+```
+
+**NEVER:**
+- Use `timeout(read().await)` on Tokio RwLock (use `try_read()` instead — 9-model MMA consensus)
+- Deploy without testing debug endpoints (401 auth regression caught 2026-03-28)
+- Run new binary while old is still alive (port 10048 conflict)
+- Trust `schtasks` exit code as proof of process start (verify tasklist)
 
 **Rules activated:**
-- **SR-DEPLOY-003:** Server deploy 7-step procedure
+- **SR-DEPLOY-003:** Server deploy 8-step procedure (v3.0)
 - **SR-DEPLOY-013:** Server binary swap via rename, never overwrite running exe
-- **SR-DEPLOY-009:** Tailscale SSH fallback for recovery
+- **SR-DEPLOY-009:** LAN primary, Tailscale SSH fallback for recovery
+- **SR-DEPLOY-017:** Auto-rollback on start/build_id/smoke failure (MMA v3.0)
+- **SR-DEPLOY-018:** Confirmed kill with poll + port-free before swap (MMA v3.0)
 
 ### 4.5 — Cloud Deploy (Bono VPS)
 ```bash
@@ -1141,8 +1160,14 @@ Per pod:
 - [ ] Pod 8 canary deployed + verified
 - [ ] All target pods + POS PC deployed + verified
 - [ ] Server deployed + verified (if applicable)
+  - [ ] v3.0: Confirmed kill (process dead + port free before swap)
+  - [ ] v3.0: Atomic swap with recovery guard (no-binary-left)
+  - [ ] v3.0: Build ID verified (3 poll attempts)
+  - [ ] v3.0: Smoke test passed (health + fleet/health + debug/activity + debug/playbooks)
+  - [ ] v3.0: Auto-rollback tested or confirmed functional
 - [ ] Cloud deployed + verified (if applicable)
 - [ ] Bat files synced to all pods (fatal on sync failure)
+- [ ] Stale binaries cleaned (only current + prev retained on server)
 - [ ] Previous binaries preserved
 - [ ] OTA sentinel cleared
 - [ ] Session 1 verified on all pods (`tasklist /V` → Console not Services)
@@ -1735,6 +1760,54 @@ Pod engines run on smaller OpenRouter models (8K-32K context). During complex di
 2. **Hard reset at 80% context usage:** Save `DiagnosticSession` state to JSON, kill session, restart fresh
 3. **Budget tracking:** If approaching daily limit, downgrade to cheaper model (Tier 3 vs Tier 4)
 4. **Handoff prompt:** New session receives structured state, resumes from saved phase
+
+### D.13 — MMA as Architecture Decision & Code Verification
+
+When a change involves **architectural decisions** (new protocols, eliminating dependencies, changing data flow), use Multi-Model AI Audit in two phases:
+
+#### Phase A: Architecture Decision MMA (before coding)
+
+Use 6-9 diverse models to evaluate competing architectures. Select models strong in the relevant domains (streaming, security, systems programming, etc.).
+
+**Query template:**
+```
+CONTEXT: [system description, current architecture, constraints]
+QUESTION: [specific architecture options to evaluate]
+FORMAT: VERDICT (option A/B/C), RECOMMENDED_APPROACH, ARCHITECTURE, PROS/CONS, IMPLEMENTATION_STEPS, RISKS
+```
+
+**Synthesis rules:**
+1. **Consensus (6+ of 9 agree):** High confidence — proceed
+2. **Split (4-5 agree):** Investigate the disagreement — test the key differentiator
+3. **No consensus:** The question is wrong — reframe the problem
+4. **Novel insight (1 model):** Don't dismiss — verify if the insight has merit
+
+**Example:** Camera streaming architecture (this session):
+- 9 models: Gemini, GPT-4.1, DeepSeek R1, Qwen3, Sonnet, Grok, Mistral, Llama, DeepSeek V3
+- Result: 6/9 ELIMINATE go2rtc, 3/9 HYBRID — consensus to eliminate
+- Key split: HTTP-FLV vs WebRTC vs MSE — resolved by NVR probe (FLV 404, HLS 501)
+- NVR probe determined architecture, not model vote
+
+#### Phase B: Code Review MMA (after coding, before deploy)
+
+Use 3 diverse models to review the implementation for bugs, security, and quality.
+
+**Model selection:** Choose models with different strengths:
+- Reasoning model (R1): logic bugs, missing error paths, state machine flaws
+- Programming model (Qwen3/V3): code patterns, Windows quirks, performance
+- Current-knowledge model (Grok): latest API changes, library issues
+
+**Finding classification:**
+| Severity | Consensus | Action |
+|----------|-----------|--------|
+| P1 + 2/3 agree | **Must fix** before deploy |
+| P2 + 2/3 agree | **Should fix** before deploy |
+| P1 + 1/3 only | Investigate — may be false positive (stale training data) |
+| P3 any | Accept or fix opportunistically |
+
+**Cross-model consensus is the key signal.** A finding from 1 model may be noise. The same finding from 3 different architectures (different training data, different reasoning) is almost certainly real.
+
+**Cost:** Architecture MMA (9 models) ~$5-8. Code review MMA (3 models) ~$2-3. Total ~$7-11 per feature.
 
 ### Phase D Exit Gate
 - [ ] Root cause confirmed with evidence (not just theory)

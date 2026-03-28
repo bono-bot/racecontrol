@@ -46,13 +46,38 @@ impl LiveStreamState {
     }
 
     fn rtsp_url(&self, channel: u32, subtype: u32) -> String {
-        // URL-encode the password (@ → %40)
-        let encoded_pass = self.nvr_password.replace('@', "%40");
+        // Properly URL-encode username and password (handles @, /, ?, &, etc.)
+        let encoded_user = url_encode_component(&self.nvr_username);
+        let encoded_pass = url_encode_component(&self.nvr_password);
         format!(
             "rtsp://{}:{}@{}:554/cam/realmonitor?channel={}&subtype={}",
-            self.nvr_username, encoded_pass, self.nvr_host, channel, subtype
+            encoded_user, encoded_pass, self.nvr_host, channel, subtype
         )
     }
+
+    /// Redacted RTSP URL safe for logging (no credentials).
+    fn rtsp_url_redacted(&self, channel: u32, subtype: u32) -> String {
+        format!(
+            "rtsp://***:***@{}:554/cam/realmonitor?channel={}&subtype={}",
+            self.nvr_host, channel, subtype
+        )
+    }
+}
+
+/// URL-encode a string component (RFC 3986 unreserved chars pass through).
+fn url_encode_component(s: &str) -> String {
+    let mut encoded = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(b as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    encoded
 }
 
 #[derive(Deserialize)]
@@ -128,11 +153,11 @@ async fn mjpeg_proxy(
     // Stream the NVR response body directly to browser
     let body = Body::from_stream(resp.bytes_stream());
 
+    // CORS handled by CorsLayer middleware — no manual header needed
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CACHE_CONTROL, "no-cache, no-store")
-        .header("Access-Control-Allow-Origin", "*")
         .body(body)
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -148,8 +173,9 @@ async fn ws_live_handler(
     ws: WebSocketUpgrade,
 ) -> Response {
     let rtsp_url = state.rtsp_url(channel, params.subtype);
+    let rtsp_url_safe = state.rtsp_url_redacted(channel, params.subtype);
     tracing::info!(channel, subtype = params.subtype, "WebSocket live stream requested");
-    ws.on_upgrade(move |socket| ws_live_stream(socket, rtsp_url, channel))
+    ws.on_upgrade(move |socket| ws_live_stream(socket, rtsp_url, rtsp_url_safe, channel))
 }
 
 /// WebSocket live stream task: pulls RTSP from NVR, sends H.265 frames.
@@ -158,7 +184,7 @@ async fn ws_live_handler(
 /// 1. First message (text/JSON): `{"type":"init","codec":"hev1.1.6.L123.B0","width":2560,"height":1440}`
 /// 2. Subsequent messages (binary): `[u64 LE timestamp_µs][u8 flags][H.265 Annex B NALUs]`
 ///    flags: 0x01 = keyframe
-async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
+async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: String, channel: u32) {
     // Send init message with codec info
     let init_msg = serde_json::json!({
         "type": "init",
@@ -174,11 +200,11 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
         return;
     }
 
-    // Connect to NVR RTSP
+    // Connect to NVR RTSP (use redacted URL in all logs — never log credentials)
     let url = match url::Url::parse(&rtsp_url) {
         Ok(u) => u,
         Err(e) => {
-            tracing::error!(error = %e, channel, "invalid RTSP URL");
+            tracing::error!(error = %e, channel, url = %rtsp_url_safe, "invalid RTSP URL");
             let _ = socket
                 .send(Message::Text(
                     serde_json::json!({"type":"error","msg":"invalid RTSP URL"})
@@ -199,10 +225,10 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
     {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!(error = %e, channel, "RTSP DESCRIBE failed");
+            tracing::error!(error = %e, channel, url = %rtsp_url_safe, "RTSP DESCRIBE failed");
             let _ = socket
                 .send(Message::Text(
-                    serde_json::json!({"type":"error","msg":format!("RTSP error: {e}")})
+                    serde_json::json!({"type":"error","msg":"RTSP connection failed"})
                         .to_string()
                         .into(),
                 ))
@@ -247,7 +273,14 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
     tracing::info!(channel, "WebSocket H.265 stream connected to NVR");
 
     let mut frame_count: u64 = 0;
+    let mut dropped_frames: u64 = 0;
     let start = std::time::Instant::now();
+    let mut last_frame_time = std::time::Instant::now();
+    /// Minimum interval between frames sent to WS (25fps = 40ms).
+    /// Frames arriving faster are dropped to avoid overwhelming slow clients.
+    const MIN_FRAME_INTERVAL: Duration = Duration::from_millis(40);
+    /// Maximum pending WS send time before considering client too slow.
+    const WS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
     // Stream frames to WebSocket
     loop {
@@ -257,6 +290,14 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
                 match item {
                     Some(Ok(retina::codec::CodecItem::VideoFrame(frame))) => {
                         let is_key = frame.is_random_access_point();
+
+                        // Frame pacing: skip non-keyframes that arrive faster than 25fps.
+                        // Always send keyframes to avoid decoder stalls.
+                        if !is_key && last_frame_time.elapsed() < MIN_FRAME_INTERVAL {
+                            dropped_frames += 1;
+                            continue;
+                        }
+
                         let timestamp_us = start.elapsed().as_micros() as u64;
                         let data = frame.data();
 
@@ -266,15 +307,27 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
                         msg.push(if is_key { 0x01 } else { 0x00 });
                         msg.extend_from_slice(data);
 
-                        if socket.send(Message::Binary(msg.into())).await.is_err() {
-                            tracing::info!(channel, frames = frame_count, "WebSocket client disconnected");
-                            break;
+                        // Backpressure: timeout WS send to detect slow clients.
+                        // If WS can't keep up, disconnect rather than buffer unbounded.
+                        let send_result = tokio::time::timeout(
+                            WS_SEND_TIMEOUT,
+                            socket.send(Message::Binary(msg.into())),
+                        ).await;
+
+                        match send_result {
+                            Ok(Ok(())) => {
+                                frame_count += 1;
+                                last_frame_time = std::time::Instant::now();
+                            }
+                            Ok(Err(_)) => {
+                                tracing::info!(channel, frames = frame_count, "WebSocket client disconnected");
+                                break;
+                            }
+                            Err(_) => {
+                                tracing::warn!(channel, frames = frame_count, "WebSocket send timeout — slow client, disconnecting");
+                                break;
+                            }
                         }
-
-                        frame_count += 1;
-
-                        // Rate limit to ~25fps
-                        tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                     Some(Ok(_)) => {
                         // Skip audio/metadata
@@ -282,7 +335,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
                     Some(Err(e)) => {
                         tracing::warn!(error = %e, channel, "RTSP stream error");
                         let _ = socket.send(Message::Text(
-                            serde_json::json!({"type":"error","msg":format!("stream error: {e}")})
+                            serde_json::json!({"type":"error","msg":"stream error"})
                                 .to_string().into()
                         )).await;
                         break;
@@ -307,6 +360,10 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, channel: u32) {
                 }
             }
         }
+    }
+
+    if dropped_frames > 0 {
+        tracing::debug!(channel, dropped_frames, "frames dropped due to rate limiting");
     }
 
     tracing::info!(channel, frames = frame_count, "live stream session ended, RTSP connection closed");
