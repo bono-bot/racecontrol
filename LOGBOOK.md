@@ -968,3 +968,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-28 00:56 IST | James | a86f4710 | feat(251-02): detect_orphaned_sessions_on_startup + detect_orphaned_sessions_background in billing.rs |
 | 2026-03-28 00:56 IST | James | 9ef6116e | feat(251-02): wire orphan detection into startup + background task in main.rs |
 | 2026-03-28 00:56 IST | James | 4a28f6eb | docs(251-02): 251-02-SUMMARY.md, STATE.md, ROADMAP updated, FSM-10 + RESIL-03 marked complete |
+
+| 2026-03-28 01:37 IST | James | 8bffcca0 | 252-02: compute_refund() unified function + CAS guards on both session-end paths + tier alignment test (FATM-04/05/06) |
