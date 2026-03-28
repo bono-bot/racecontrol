@@ -7,9 +7,9 @@
 
 ### Financial Atomicity (FATM)
 
-- [ ] **FATM-01**: Billing start wraps wallet debit + session creation + journal entry in a single DB transaction (rollback on any failure)
-- [ ] **FATM-02**: All money-moving POSTs (/topup, /billing/start, /billing/stop, /refund) require idempotency keys; duplicate requests return original result
-- [ ] **FATM-03**: Wallet debit uses SELECT FOR UPDATE row locking to prevent parallel overspend
+- [x] **FATM-01**: Billing start wraps wallet debit + session creation + journal entry in a single DB transaction (rollback on any failure)
+- [x] **FATM-02**: All money-moving POSTs (/topup, /billing/start, /billing/stop, /refund) require idempotency keys; duplicate requests return original result
+- [x] **FATM-03**: Wallet debit uses SELECT FOR UPDATE row locking to prevent parallel overspend
 - [x] **FATM-04**: Session finalization uses compare-and-swap (UPDATE WHERE status='active') to prevent double-end/double-refund
 - [x] **FATM-05**: Tier price and rate calculation aligned — tier_30min price matches compute_session_cost(1800s) output
 - [x] **FATM-06**: Refund formula uses a single authoritative calculation path (not duplicated in multiple code paths)
@@ -143,9 +143,9 @@ Updated during roadmap creation (2026-03-29).
 | FSM-09 | Phase 251 | Complete |
 | FSM-10 | Phase 251 | Complete |
 | RESIL-03 | Phase 251 | Complete |
-| FATM-01 | Phase 252 | Pending |
-| FATM-02 | Phase 252 | Pending |
-| FATM-03 | Phase 252 | Pending |
+| FATM-01 | Phase 252 | Complete |
+| FATM-02 | Phase 252 | Complete |
+| FATM-03 | Phase 252 | Complete |
 | FATM-04 | Phase 252 | Complete |
 | FATM-05 | Phase 252 | Complete |
 | FATM-06 | Phase 252 | Complete |
