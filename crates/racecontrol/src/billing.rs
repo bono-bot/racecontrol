@@ -2753,12 +2753,15 @@ async fn end_billing_session(
             // If rows_affected() == 0, the session was already finalized by another
             // concurrent request (e.g. disconnect timeout racing with staff end).
             // In that case, skip ALL downstream work (refund, agent notify, broadcast).
+            // NOTE: Do NOT overwrite wallet_debit_paise here — it must retain the original
+            // pre-session charge for correct refund calculation downstream (F-05 fix).
+            // final_cost_paise is stored in end_reason for audit purposes.
             let cas_result = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, wallet_debit_paise = ?, ended_at = datetime('now') WHERE id = ? AND status = 'active'",
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status = 'active'",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
-            .bind(final_cost_paise)
+            .bind(format!("final_cost_paise:{}", final_cost_paise))
             .bind(session_id)
             .execute(&state.db)
             .await;
@@ -5289,6 +5292,10 @@ mod tests {
 
     #[test]
     fn test_tier_alignment_fatm05() {
+        // FATM-05: Rate-based cost for 30 min MUST match DB seed tier_30min price (75000 paise).
+        // DB seed: db/mod.rs INSERT INTO pricing_tiers ... ('tier_30min', '30 Minutes', 30, 75000, ...)
+        // Rate calc: 30 min * 2500 paise/min = 75000 paise
+        // If this test fails, either the rate or the seed diverged — fix both.
         let tiers = default_billing_rate_tiers();
         let cost = compute_session_cost(1800, &tiers);
         assert_eq!(cost.total_paise, 75000, "FATM-05: 30min cost must match tier_30min price (2500 p/min * 30 min = 75000 p = Rs.750)");
