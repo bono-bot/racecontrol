@@ -34,6 +34,7 @@ Choose models that **differ on these axes:**
 |---|---|---|
 | **Training data origin** | Western vs Chinese training corpora see different patterns | Gemini (Google) vs DeepSeek (Chinese) vs Qwen (Alibaba) |
 | **Architecture type** | Standard vs reasoning models think differently | DeepSeek V3 (standard) vs DeepSeek R1 (chain-of-thought) |
+| **Reasoning mode** | Abstract pattern reasoning vs trace-level execution reasoning find different bug classes | Non-thinking (GPT-5.4, Opus, Sonnet) vs Thinking variants (GPT-5.4 Think, Nemotron Think, Gemini Think) |
 | **Context window** | Larger context = more cross-file awareness | MiMo 1M vs DeepSeek V3 163K |
 | **Cost tier** | Cheap models for volume, expensive for depth | Qwen3 $0.05 total vs Gemini $1.65 total |
 
@@ -48,12 +49,26 @@ Choose models that **differ on these axes:**
 | **Security** | Gemini 2.5 Pro | `google/gemini-2.5-pro-preview-03-25` | Security checklists, credential scanning | $1.50-2.00 |
 | **Reviewer** | Opus 4.6 | Claude Code subscription | Cross-system architecture, false positive filtering | $0 (subscription) |
 
+### Dual Reasoning Modes (MANDATORY for Cross-System Bridges)
+
+**Discovery (v27.0, 2026-03-28):** Two fundamentally different reasoning modes exist in AI models. Both are needed — **abstract for architecture, trace-level for correctness.** Using only one mode leaves entire bug classes invisible regardless of round count.
+
+| Mode | Models | What They Find | Example Bugs Found |
+|---|---|---|---|
+| **Abstract (non-thinking)** | GPT-5.4, Opus, Sonnet, Gemini Pro | Architecture patterns, auth boundaries, lock ordering, protocol design | SQL correlation chain broken, lock held across .await, SentinelUnexpected mapping for human reports |
+| **Trace-level (thinking)** | GPT-5.4 Think, Nemotron Think, Gemini Think, Sonnet Think | Execution paths with specific values, state tracking through code | ErrorSpike_5 ≠ ErrorSpike_7 (dedup never fires), RwLock poison → `if let Ok(...)` is permanent no-op, `unwrap_or_default()` → "" matches no pod → broadcast to ALL |
+
+**Proof:** v27.0 ran 7 rounds with non-thinking models → 21 bugs. Then 2 rounds with thinking variants → 7 MORE bugs that all prior rounds missed. The thinking models found them by tracing: "if errors_per_min is 5 this scan and 7 next scan, the format! produces different strings, so the dedup map never matches."
+
+**Rule:** For any cross-system bridge audit, MUST include at least 2 rounds with thinking model variants AFTER the non-thinking rounds. Feed thinking models **actual code**, not architectural descriptions — their value comes from tracing concrete values through specific paths.
+
 ### When to Swap Models
 
 - **New model beats existing on benchmarks?** Swap in the same slot (e.g., replace Gemini with GPT-5 if cheaper/better)
 - **Budget constrained (<$1)?** Run only Qwen3 + DeepSeek V3 + Opus review (~$0.35)
 - **Security-focused audit?** Add GPT-4.1 ($2/8 per 1M) for Western security perspective
 - **Performance audit?** Add a model with strong systems programming knowledge
+- **Cross-system bridge?** Add thinking variants (GPT-5.4 Think, Gemini Think, Sonnet Think) for trace-level execution path analysis
 
 ---
 

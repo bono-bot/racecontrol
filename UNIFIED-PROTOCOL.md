@@ -2049,15 +2049,30 @@ This section summarizes how the Multi-Model AI Audit Protocol integrates into th
 
 **Diminishing returns curve: 39 → 19 → 16 → 7 → 31.** Rounds 1-4 followed expected decay. Round 5 (reasoning models) BROKE the curve by finding an entirely different vulnerability surface. This proves model-type diversity matters more than model-count diversity.
 
-**Recommended audit strategy:**
+### Dual Reasoning Modes (2026-03-28 — v27.0 Staff Diagnostic Bridge)
+
+**Key discovery:** Two fundamentally different reasoning modes exist in AI models, and **both are needed** — abstract for architecture, trace-level for correctness. Using only one mode leaves entire bug classes invisible regardless of how many rounds you run.
+
+| Mode | What It Does | What It Finds | Model Type |
+|---|---|---|---|
+| **Abstract reasoning** | Evaluates patterns, identifies structural risks, reasons about system interactions | Auth boundary gaps, lock ordering, semantic mismatches, broadcast scope, protocol design | Non-thinking (GPT-5.4, Claude Opus/Sonnet, Gemini Pro) |
+| **Trace-level reasoning** | Follows execution paths with specific values, step-by-step state tracking | Volatile dedup keys ("ErrorSpike_5" ≠ "ErrorSpike_7"), RwLock poisoning → silent blackout, empty-string filter matching nothing, panic → leaked HashSet entry | Thinking variants (GPT-5.4 Think, Nemotron Think, Gemini Think, Sonnet Think) |
+
+**Proof from v27.0:** 7 rounds with non-thinking models found 21 bugs. Then 2 rounds with thinking models found **7 MORE bugs** that all 7 prior rounds missed. The bugs were not obscure — ErrorSpike dedup was completely broken (never deduplicated), RwLock poisoning made the diagnostic log a permanent black hole, and an empty-string filter meant fleet broadcasts went to ALL pods including the origin. These are exactly the bugs that surface when a model asks "what is the value of this variable at this specific point in execution?" instead of "is this pattern generally safe?"
+
+**Recommended dual-mode audit strategy:**
 
 | Depth | Rounds | Model Types | Models | Cost | Finds |
 |---|---|---|---|---|---|
 | **Quick** | 1 round | General-purpose | 3-5 models | ~$1-3 | ~20-40 bugs |
 | **Standard** | 2 rounds | General + Code-specialized | 8-10 models | ~$4-5 | ~40-60 bugs |
 | **Deep** | 3+ rounds | General + Code + Reasoning | 12-21 models | ~$7-9 | ~70-112 bugs |
+| **Cross-system bridge** | 4+ rounds | General + Thinking + Code | 12+ models, MUST include thinking variants | ~$10-15 | Complete coverage |
 
-**Critical rule:** Always include at least one reasoning/thinking model (DeepSeek R1, Kimi K2.5, GPT-5.4 Nano, Qwen3 Thinking). These find security architecture issues that all other model types miss.
+**Critical rules:**
+- Always include at least one reasoning/thinking model (DeepSeek R1, Kimi K2.5, GPT-5.4 Nano, Qwen3 Thinking). These find security architecture issues that all other model types miss.
+- **For cross-system bridges (2+ system boundaries): MUST run both non-thinking AND thinking model variants.** Non-thinking models find the architecture bugs (Rounds 1-7). Thinking models find the execution-path bugs (Rounds 8-9). Running only one mode leaves a blind spot that more rounds of the same mode cannot fill.
+- **Thinking models should review ACTUAL CODE, not descriptions.** Their value comes from tracing concrete values through specific code paths. Feed them the real function bodies, not architectural summaries.
 
 **Each round follows the same workflow:**
 1. Configure new models in `scripts/multi-model-audit.js` (MODEL_CONFIG)
@@ -2247,7 +2262,8 @@ AUDIT_ALLOW_STALE=1 MODEL="moonshotai/kimi-k2.5" node scripts/multi-model-audit.
 - **Version pinning:** Include version suffix in model ID. After model update, run side-by-side on benchmark PRs before switching
 - **Retirement:** If a model finds <3 unique real bugs in 3 consecutive audits, replace it
 - **Type diversity:** Every audit MUST include at least one model from each type (General, Code, Reasoning). Same-type-only audits miss entire vulnerability surfaces.
-- **Round ordering:** General first (broadest coverage), Code second (finds edge cases in fixed code), Reasoning last (finds architectural gaps that persist through fixes)
+- **Dual reasoning modes (MANDATORY for cross-system bridges):** Run BOTH non-thinking models (abstract pattern reasoning) AND thinking variants (trace-level execution reasoning). Non-thinking models find architecture bugs; thinking models find execution-path bugs. Running only one mode leaves blind spots that more rounds of the same mode cannot fill. v27.0 proved this: 7 non-thinking rounds found 21 bugs, then 2 thinking rounds found 7 MORE that were invisible to abstract reasoning.
+- **Round ordering:** General first (broadest coverage), Code second (finds edge cases in fixed code), Reasoning last (finds architectural gaps that persist through fixes), **Thinking variants last** (traces specific values through code paths, finds subtle state bugs)
 
 ---
 
