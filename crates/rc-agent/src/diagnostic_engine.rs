@@ -498,11 +498,13 @@ fn check_pos_kiosk_health() -> Option<DiagnosticTrigger> {
 
 /// POS check: Can we reach the racecontrol server?
 /// Performs a simple TCP connect probe to port 8080.
+/// MMA-POS: Uses env var or default for server IP (avoid hardcode drift).
 fn check_pos_network_health() -> Option<DiagnosticTrigger> {
     use std::net::TcpStream;
 
     // Try to connect to racecontrol on the known server IP
-    let server_addr = "192.168.31.23:8080";
+    let server_ip = std::env::var("RACECONTROL_SERVER_IP").unwrap_or_else(|_| "192.168.31.23".to_string());
+    let server_addr = format!("{}:8080", server_ip);
     match TcpStream::connect_timeout(
         &server_addr.parse().expect("valid socket addr"),
         Duration::from_secs(5),
@@ -511,7 +513,7 @@ fn check_pos_network_health() -> Option<DiagnosticTrigger> {
         Err(e) => {
             tracing::warn!(target: LOG_TARGET, "POS network: cannot reach racecontrol at {} — {}", server_addr, e);
             Some(DiagnosticTrigger::PosNetworkDown {
-                server_ip: "192.168.31.23".to_string(),
+                server_ip: server_ip.clone(),
                 detail: format!("TCP connect to {} failed: {}", server_addr, e),
             })
         }

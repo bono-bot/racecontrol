@@ -948,9 +948,11 @@ fn tier1_restart_edge_kiosk() -> bool {
     // Small delay to let processes fully exit
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Relaunch Edge in kiosk mode — pointing at billing dashboard on server
-    let result = std::process::Command::new("cmd")
-        .args(["/C", "start", "", "msedge.exe", "--kiosk", "http://192.168.31.23:3200/billing", "--edge-kiosk-type=fullscreen"])
+    // MMA-POS: Relaunch Edge in kiosk mode pointing at billing dashboard.
+    // Use full path to Edge to avoid PATH issues. Add --no-first-run to skip setup wizard.
+    let edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+    let result = std::process::Command::new(edge_path)
+        .args(["--kiosk", "http://192.168.31.23:3200/billing", "--edge-kiosk-type=fullscreen", "--no-first-run"])
         .spawn();
 
     match result {

@@ -405,6 +405,20 @@ async fn main() -> Result<()> {
     let is_pos = config.pod.node_type == NodeType::Pos;
     if is_pos {
         tracing::info!(target: LOG_TARGET, "Node type: POS — game/FFB/HID/overlay subsystems DISABLED");
+    } else {
+        // MMA-POS: Warn if node_type was not explicitly set (defaulted to Pod).
+        // POS terminals running as Pod get game subsystems, wrong budget, no POS diagnostics.
+        // Check: if pod name contains "POS" but node_type is Pod, config is likely wrong.
+        let name_lower = config.pod.name.to_lowercase();
+        if name_lower.contains("pos") || name_lower.contains("billing") || name_lower.contains("terminal") {
+            tracing::error!(
+                target: LOG_TARGET,
+                "MISCONFIGURATION: Pod name '{}' suggests POS node but node_type=pod. \
+                 Add 'node_type = \"pos\"' to [pod] section in config. \
+                 Running game/FFB/HID subsystems on a billing terminal is unsafe.",
+                config.pod.name
+            );
+        }
     }
 
     // Clean up orphaned game processes from previous rc-agent instance (skip on POS)
