@@ -972,3 +972,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-28 01:37 IST | James | 8bffcca0 | 252-02: compute_refund() unified function + CAS guards on both session-end paths + tier alignment test (FATM-04/05/06) |
 | 2026-03-29 01:59 IST | James | 61c73467 | feat(252-03): background reconciliation job — 30min wallet balance drift detection, WhatsApp alert, GET/POST admin endpoints (FATM-12) |
 | 2026-03-29 01:59 IST | James | 12b9d344 | docs(252-03): 252-03-SUMMARY.md, STATE.md Phase 252 complete, FATM-12 marked done in REQUIREMENTS.md |
+| 2026-03-29 02:37 IST | James | 679dd8d9 | feat(253-01): billing_fsm.rs — BillingEvent, TRANSITION_TABLE (20 entries), validate_transition(), authoritative_end_session(), 26 tests |
+| 2026-03-29 02:37 IST | James | 4ea66610 | feat(253-01): wire validate_transition() into 9 billing.rs mutation sites — zero unguarded status mutations in production code |
+| 2026-03-29 02:37 IST | James | 0ddab791 | docs(253-01): 253-01-SUMMARY.md, STATE.md plan 2/3, FSM-01+FSM-06 complete in REQUIREMENTS.md |
