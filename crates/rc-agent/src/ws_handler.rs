@@ -663,6 +663,20 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::StopGame => {
+            // FSM-05: StopGame must be handled in every CrashRecoveryState variant.
+            // If StopGame arrives during crash recovery, the recovery timer must be cancelled
+            // to prevent a relaunch AFTER the session is already stopped.
+            match &conn.crash_recovery {
+                CrashRecoveryState::PausedWaitingRelaunch { attempt, .. } => {
+                    tracing::info!(target: LOG_TARGET, "StopGame received during crash recovery (attempt {}) — cancelling relaunch", attempt);
+                }
+                CrashRecoveryState::AutoEndPending => {
+                    tracing::info!(target: LOG_TARGET, "StopGame received during AutoEndPending — clearing");
+                }
+                CrashRecoveryState::Idle => {} // Normal case
+            }
+            conn.crash_recovery = CrashRecoveryState::Idle;
+
             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
             state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
             state.last_ac_status = None;

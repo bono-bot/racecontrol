@@ -629,21 +629,32 @@ pub async fn run(
                                 let _ = state.failure_monitor_tx.send_modify(|s| {
                                     s.billing_paused = true;
                                 });
-                                if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
+                                // FSM-04: billing pause is atomic with crash detection — BillingPaused
+                                // message is sent BEFORE relaunch attempt. If WS send fails, skip
+                                // relaunch and set AutoEndPending to avoid phantom billing.
+                                let billing_pause_sent = if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                     let pause_msg = AgentMessage::BillingPaused {
                                         pod_id: state.pod_id.clone(),
                                         billing_session_id: sid.clone(),
                                     };
-                                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&pause_msg).unwrap_or_default().into())).await;
-                                }
-                                state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
-                                let last_sim = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
-                                conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
-                                    attempt: 1,
-                                    timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
-                                    last_sim_type: last_sim,
-                                    last_launch_args: conn.last_launch_args_stored.clone(),
+                                    ws_tx.send(Message::Text(serde_json::to_string(&pause_msg).unwrap_or_default().into())).await.is_ok()
+                                } else {
+                                    // No session ID yet — billing hasn't started tracking, safe to relaunch
+                                    true
                                 };
+                                if !billing_pause_sent {
+                                    tracing::error!(target: LOG_TARGET, "FSM-04: Failed to pause billing on crash — skipping relaunch, auto-ending session");
+                                    conn.crash_recovery = CrashRecoveryState::AutoEndPending;
+                                } else {
+                                    state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
+                                    let last_sim = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
+                                    conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
+                                        attempt: 1,
+                                        timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+                                        last_sim_type: last_sim,
+                                        last_launch_args: conn.last_launch_args_stored.clone(),
+                                    };
+                                }
                             } else {
                                 tracing::info!(target: LOG_TARGET, "Game exited with no active billing — enforcing safe state");
                                 // Arm exit grace timer so server gets AcStatus::Off after 30s
