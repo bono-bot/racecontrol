@@ -35,10 +35,10 @@
 
 ### Security (SEC)
 
-- [ ] **SEC-01**: Car/track/skin names in launch_args validated against whitelist (alphanumeric + hyphen + underscore only; reject newlines, =, [)
-- [ ] **SEC-02**: FFB GAIN capped at 100 server-side before sending to agent (physical safety)
+- [x] **SEC-01**: Car/track/skin names in launch_args validated against whitelist (alphanumeric + hyphen + underscore only; reject newlines, =, [)
+- [x] **SEC-02**: FFB GAIN capped at 100 server-side before sending to agent (physical safety)
 - [x] **SEC-03**: PIN redemption uses atomic CAS (UPDATE WHERE redeemed_at IS NULL; check affected rows)
-- [ ] **SEC-04**: Role-based access control: cashier (topup, session view), manager (reports, pricing), superadmin (system config)
+- [x] **SEC-04**: Role-based access control: cashier (topup, session view), manager (reports, pricing), superadmin (system config)
 - [ ] **SEC-05**: Staff self-top-up blocked at API layer (requesting_user_id != target_user_id for non-superadmin)
 - [x] **SEC-06**: Audit log table is append-only (no DELETE permission for staff-level DB users)
 - [ ] **SEC-07**: WebSocket connections use WSS (TLS) between server and agents
@@ -158,10 +158,10 @@ Updated during roadmap creation (2026-03-29).
 | FSM-06 | Phase 253 | Complete |
 | FSM-07 | Phase 253 | Complete |
 | FSM-08 | Phase 253 | Complete |
-| SEC-01 | Phase 254 | Pending |
-| SEC-02 | Phase 254 | Pending |
+| SEC-01 | Phase 254 | Complete |
+| SEC-02 | Phase 254 | Complete |
 | SEC-03 | Phase 254 | Complete |
-| SEC-04 | Phase 254 | Pending |
+| SEC-04 | Phase 254 | Complete |
 | SEC-05 | Phase 254 | Pending |
 | SEC-06 | Phase 254 | Complete |
 | SEC-07 | Phase 254 | Pending |

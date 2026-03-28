@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
 status: completed
-stopped_at: Completed 254-02-PLAN.md
-last_updated: "2026-03-28T22:38:08.187Z"
+stopped_at: Completed 254-01-PLAN.md
+last_updated: "2026-03-28T22:46:40.108Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
   completed_phases: 150
   total_plans: 364
-  completed_plans: 357
+  completed_plans: 358
   percent: 98
 ---
 
@@ -50,7 +50,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Plan 01 DONE, Plan 02 pending |
 | 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | COMPLETE (3/3 plans) |
 | 253 | State Machine Hardening | FSM-01–08 | COMPLETE (3/3 plans) |
-| 254 | Security Hardening | SEC-01–10 | Not started |
+| 254 | Security Hardening | SEC-01–10 | In Progress (Plan 01 DONE: SEC-01/02/04, Plan 02 DONE: SEC-03/06/08/09) |
 | 255 | Legal Compliance | LEGAL-01–09 | Not started |
 | 256 | Game-Specific Hardening | GAME-01–08 | Not started |
 | 257 | Billing Edge Cases | BILL-01–08 | Not started |
@@ -66,6 +66,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 253-state-machine-hardening P02 | 30 | 2 tasks | 5 files |
 | Phase 253-state-machine-hardening P03 | 17 | 2 tasks | 4 files |
 | Phase 254 P02 | 35 | 2 tasks | 3 files |
+| Phase 254-security-hardening P01 | 45 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,14 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - WhatsApp alerts use whatsapp_alerter::send_whatsapp gated on config.alerting.enabled (FSM-10, RESIL-03)
 - Background orphan task has 300s initial delay to avoid double-alerting sessions caught by startup scan
 
+## Decisions (Phase 254)
+
+- Router::merge() for RBAC sub-routers avoids rewriting existing route list — manager+ and superadmin routes added as merged sub-routers with .layer() at end of staff_routes() (SEC-04)
+- normalized_role() maps legacy 'staff' JWTs to 'cashier' for backward compatibility — no forced re-auth needed fleet-wide (SEC-04)
+- validate_launch_args uses same allowlist as agent-side validate_content_id: ^[a-zA-Z0-9._-]{0,128}$ — defense-in-depth, server blocks before WS send to agent (SEC-01)
+- admin_login PIN auth issues 'superadmin' role (not 'admin') for consistency with 3-tier RBAC tier names (SEC-04)
+- FFB presets (light/medium/strong) pass through unchanged; only numeric values are capped at 100 or defaulted to 'medium' (SEC-02)
+
 ## Decisions (Phase 252)
 
 - std::sync::OnceLock used for reconciliation status instead of once_cell — avoids new dependency (FATM-12)
@@ -111,8 +120,8 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 
 ## Session Continuity
 
-Stopped at: Completed 254-02-PLAN.md
-Next action: Phase 253 complete (FSM-01–08) — proceed to Phase 254 (Security Hardening, SEC-01–10)
+Stopped at: Completed 254-01-PLAN.md
+Next action: Phase 254 in progress — Plans 01 (SEC-01/02/04) and 02 (SEC-03/06/08/09) complete. Proceed to Plan 03 (SEC-05/07/10: CSRF, session fixation, secrets rotation)
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
@@ -126,6 +135,13 @@ Next action: Phase 253 complete (FSM-01–08) — proceed to Phase 254 (Security
 - FATM-05: DONE (Tier alignment in compute_session_cost — 252-02)
 - FATM-06: DONE (Unified compute_refund() — 252-02)
 - FATM-12: DONE (Background reconciliation job — 61c73467)
+- SEC-01: DONE (Server-side launch_args INI injection prevention — 76e6e94c)
+- SEC-02: DONE (FFB GAIN safety cap at 100 — 76e6e94c)
+- SEC-04: DONE (Three-tier RBAC cashier/manager/superadmin — 778c6b46)
+- SEC-03: DONE (OTP argon2 hashing — 173175d9)
+- SEC-06: DONE (audit_log DELETE trigger — 173175d9)
+- SEC-08: DONE (OTP argon2 hashing — 173175d9)
+- SEC-09: DONE (PII masking in driver API responses by role — b73f7be0)
 
 Ship gate reminder (Unified Protocol v3.1):
 
