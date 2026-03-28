@@ -46,6 +46,9 @@ const NEVER_KILL: &[&str] = &[
 pub struct ScanResult {
     pub total_processes: usize,
     pub violation_count: usize,
+    /// MMA-P1: True if the scan itself failed (spawn_blocking panic).
+    /// A failed scan must NOT be treated as "0 violations" — OTA pipeline must fail-closed.
+    pub scan_failed: bool,
 }
 
 // ─── COV-04: Allowlist Verification Chain Steps ─────────────────────────────
@@ -173,6 +176,20 @@ pub fn spawn(
                 );
                 // Write the override directly into the shared whitelist so all scan paths see it
                 wl.violation_action = "report_only".to_string();
+                drop(wl);
+                // MMA-P2: Notify server about guard degradation via ProcessViolation
+                let degraded_notification = ProcessViolation {
+                    machine_id: machine_id.clone(),
+                    violation_type: ViolationType::AutoStart, // Use existing type
+                    name: "GUARD_DEGRADED:empty_allowlist".to_string(),
+                    exe_path: None,
+                    action_taken: "guard_degraded_to_report_only".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    consecutive_count: 1,
+                };
+                let _ = tx.send(AgentMessage::ProcessViolation(degraded_notification)).await;
+            } else {
+                drop(wl);
             }
         }
 
@@ -191,8 +208,13 @@ pub fn spawn(
         // grace_counts: process_name -> (consecutive_count, start_time_of_first_sighting)
         let mut grace_counts: HashMap<String, (u32, u64)> = HashMap::new();
 
+        // MMA-P1: Dedup set for autostart/schtask audit — prevents re-reporting
+        // the same entries every 5 minutes. Only report NEW entries, or re-report
+        // after 1 hour (to catch items that were removed and came back).
+        let mut audit_dedup: HashMap<String, chrono::DateTime<Utc>> = HashMap::new();
+
         // Run autostart audit immediately at startup (before first tick)
-        run_autostart_audit(&whitelist, &tx, &machine_id).await;
+        run_autostart_audit(&whitelist, &tx, &machine_id, &mut audit_dedup).await;
 
         loop {
             tokio::select! {
@@ -258,6 +280,17 @@ pub fn spawn(
                                     "FIRST_SCAN_HIGH_VIOLATIONS",
                                     &format!("{}/{} processes flagged, auto-switched to report_only, waiting for GUARD_CONFIRMED", violations, total),
                                 );
+                                // MMA-P2: Notify server about guard degradation
+                                let degraded = ProcessViolation {
+                                    machine_id: machine_id.clone(),
+                                    violation_type: ViolationType::AutoStart,
+                                    name: format!("GUARD_DEGRADED:high_violation_rate_{}_{}", violations, total),
+                                    exe_path: None,
+                                    action_taken: "guard_degraded_to_report_only".to_string(),
+                                    timestamp: Utc::now().to_rfc3339(),
+                                    consecutive_count: 1,
+                                };
+                                let _ = tx.send(AgentMessage::ProcessViolation(degraded)).await;
                             }
                         }
                     }
@@ -267,9 +300,13 @@ pub fn spawn(
                     }
                 }
                 _ = audit_interval.tick() => {
-                    run_autostart_audit(&whitelist, &tx, &machine_id).await;
+                    // MMA-Iter2-P2: Prune stale dedup entries (>2h old) to prevent unbounded growth
+                    let prune_cutoff = Utc::now() - chrono::Duration::hours(2);
+                    audit_dedup.retain(|_, ts| *ts > prune_cutoff);
+
+                    run_autostart_audit(&whitelist, &tx, &machine_id, &mut audit_dedup).await;
                     run_port_audit(&whitelist, &tx, &machine_id).await;
-                    run_schtasks_audit(&whitelist, &tx, &machine_id).await;
+                    run_schtasks_audit(&whitelist, &tx, &machine_id, &mut audit_dedup).await;
                 }
             }
         }
@@ -313,10 +350,13 @@ async fn run_scan_cycle(
     let procs = match procs {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!(target: LOG_TARGET, "spawn_blocking process scan panicked: {} — reporting scan_failed", e);
+            tracing::error!(target: LOG_TARGET, "spawn_blocking process scan panicked: {} — reporting scan_failed (NOT treating as clean)", e);
+            // MMA-P1: NEVER return 0 violations on scan failure — this is fail-open.
+            // Return scan_failed=true so OTA pipeline can fail-closed.
             return Ok(ScanResult {
                 total_processes: 0,
                 violation_count: 0,
+                scan_failed: true,
             });
         }
     };
@@ -439,6 +479,7 @@ async fn run_scan_cycle(
     Ok(ScanResult {
         total_processes,
         violation_count,
+        scan_failed: false,
     })
 }
 
@@ -551,6 +592,7 @@ pub(crate) async fn run_autostart_audit(
     whitelist: &Arc<RwLock<MachineWhitelist>>,
     tx: &mpsc::Sender<AgentMessage>,
     machine_id: &str,
+    audit_dedup: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) {
     let wl = whitelist.read().await;
     let allowed_keys: Vec<String> = wl.autostart_keys.iter().map(|s| s.to_lowercase()).collect();
@@ -566,13 +608,13 @@ pub(crate) async fn run_autostart_audit(
     // Audit HKCU Run
     audit_run_key(
         r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-        &allowed_keys, &violation_action, machine_id, tx
+        &allowed_keys, &violation_action, machine_id, tx, audit_dedup
     ).await;
 
     // Audit HKLM Run
     audit_run_key(
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-        &allowed_keys, &violation_action, machine_id, tx
+        &allowed_keys, &violation_action, machine_id, tx, audit_dedup
     ).await;
 
     // Audit per-user Startup folder
@@ -581,13 +623,13 @@ pub(crate) async fn run_autostart_audit(
             r"{}\Microsoft\Windows\Start Menu\Programs\Startup",
             appdata
         );
-        audit_startup_folder(&startup_path, &allowed_keys, &violation_action, machine_id, tx).await;
+        audit_startup_folder(&startup_path, &allowed_keys, &violation_action, machine_id, tx, audit_dedup).await;
     }
 
     // Audit all-users Startup folder
     audit_startup_folder(
         r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup",
-        &allowed_keys, &violation_action, machine_id, tx
+        &allowed_keys, &violation_action, machine_id, tx, audit_dedup
     ).await;
 }
 
@@ -597,6 +639,7 @@ async fn audit_run_key(
     violation_action: &str,
     machine_id: &str,
     tx: &mpsc::Sender<AgentMessage>,
+    audit_dedup: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) {
     let key_path_owned = key_path.to_string();
     let output = tokio::task::spawn_blocking(move || {
@@ -620,6 +663,19 @@ async fn audit_run_key(
         if is_autostart_whitelisted(&entry_name, allowed_keys) {
             continue;
         }
+
+        // MMA-P1: Dedup — skip if reported within the last hour (in report_only mode)
+        if violation_action != "kill_and_report" {
+            let dedup_key = format!("autostart:{}:{}", key_path, entry_name.to_lowercase());
+            let now = Utc::now();
+            if let Some(last_reported) = audit_dedup.get(&dedup_key) {
+                if (now - *last_reported).num_seconds() < 3600 {
+                    continue; // Already reported within the hour, skip
+                }
+            }
+            audit_dedup.insert(dedup_key, now);
+        }
+
         let action_taken = if violation_action == "kill_and_report" {
             // REMOVE stage — backup first
             backup_autostart_entry(&entry_name, &format!("run_key:{}", key_path));
@@ -664,6 +720,7 @@ async fn audit_startup_folder(
     violation_action: &str,
     machine_id: &str,
     tx: &mpsc::Sender<AgentMessage>,
+    audit_dedup: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) {
     // walkdir scan of the Startup folder for .lnk and .url files
     let folder_path_owned = folder_path.to_string();
@@ -688,6 +745,19 @@ async fn audit_startup_folder(
         if is_autostart_whitelisted(&entry_name, allowed_keys) {
             continue;
         }
+
+        // MMA-P1: Dedup — skip if reported within the last hour
+        {
+            let dedup_key = format!("startup:{}:{}", folder_path, entry_name);
+            let now = Utc::now();
+            if let Some(last_reported) = audit_dedup.get(&dedup_key) {
+                if (now - *last_reported).num_seconds() < 3600 {
+                    continue;
+                }
+            }
+            audit_dedup.insert(dedup_key, now);
+        }
+
         log_guard_event(&format!("AUTOSTART_STARTUP_REPORTED folder={} entry={}", folder_path, entry_name));
 
         // Startup folder file removal requires staff approval — report only in all modes.
@@ -940,6 +1010,7 @@ pub(crate) async fn run_schtasks_audit(
     whitelist: &Arc<RwLock<MachineWhitelist>>,
     tx: &mpsc::Sender<AgentMessage>,
     machine_id: &str,
+    audit_dedup: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) {
     // Read whitelist fields under brief read lock, then drop
     let (allowed_keys, violation_action) = {
@@ -985,6 +1056,18 @@ pub(crate) async fn run_schtasks_audit(
             || is_autostart_whitelisted(leaf, &allowed_keys)
         {
             continue;
+        }
+
+        // MMA-P1: Dedup — skip if reported within the last hour (in report_only mode)
+        if violation_action != "kill_and_report" {
+            let dedup_key = format!("schtask:{}", task_path.to_lowercase());
+            let now = Utc::now();
+            if let Some(last_reported) = audit_dedup.get(&dedup_key) {
+                if (now - *last_reported).num_seconds() < 3600 {
+                    continue;
+                }
+            }
+            audit_dedup.insert(dedup_key, now);
         }
 
         // Use leaf of task_path as the readable name (task_name from CSV is "Next Run Time")

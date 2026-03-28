@@ -357,6 +357,7 @@ pub fn health_check_pod(
     binary_sha256: Option<&str>,
     expected_sha256: &str,
     violation_count_24h: u32,
+    scan_failure_count: u32,
 ) -> Result<(), String> {
     if !ws_connected {
         return Err("ws_disconnected".to_string());
@@ -373,6 +374,14 @@ pub fn health_check_pod(
         return Err(format!(
             "error_spike: {} violations (threshold {})",
             violation_count_24h, ERROR_SPIKE_THRESHOLD
+        ));
+    }
+    // MMA-P1: Fail-closed on scan failures — a broken scanner must NOT be
+    // treated as "0 violations". Block OTA if any scan failures occurred.
+    if scan_failure_count > 0 {
+        return Err(format!(
+            "scan_failed: {} scan failures — process guard scanner is broken, cannot verify pod safety",
+            scan_failure_count
         ));
     }
     Ok(())
@@ -801,37 +810,37 @@ binary_url_base = "http://localhost:9998"
 
     #[test]
     fn health_check_passes_for_healthy_pod() {
-        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 5);
+        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 5, 0);
         assert!(result.is_ok());
     }
 
     #[test]
     fn health_check_fails_ws_disconnected() {
-        let result = health_check_pod("pod_8", false, true, Some(EXPECTED_SHA), EXPECTED_SHA, 0);
+        let result = health_check_pod("pod_8", false, true, Some(EXPECTED_SHA), EXPECTED_SHA, 0, 0);
         assert_eq!(result.unwrap_err(), "ws_disconnected");
     }
 
     #[test]
     fn health_check_fails_http_unreachable() {
-        let result = health_check_pod("pod_8", true, false, Some(EXPECTED_SHA), EXPECTED_SHA, 0);
+        let result = health_check_pod("pod_8", true, false, Some(EXPECTED_SHA), EXPECTED_SHA, 0, 0);
         assert_eq!(result.unwrap_err(), "http_unreachable");
     }
 
     #[test]
     fn health_check_fails_sha256_mismatch() {
-        let result = health_check_pod("pod_8", true, true, Some("wrong_hash"), EXPECTED_SHA, 0);
+        let result = health_check_pod("pod_8", true, true, Some("wrong_hash"), EXPECTED_SHA, 0, 0);
         assert_eq!(result.unwrap_err(), "sha256_mismatch");
     }
 
     #[test]
     fn health_check_fails_sha256_missing() {
-        let result = health_check_pod("pod_8", true, true, None, EXPECTED_SHA, 0);
+        let result = health_check_pod("pod_8", true, true, None, EXPECTED_SHA, 0, 0);
         assert_eq!(result.unwrap_err(), "sha256_missing");
     }
 
     #[test]
     fn health_check_fails_error_spike() {
-        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 101);
+        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 101, 0);
         let err = result.unwrap_err();
         assert!(err.contains("error_spike"));
         assert!(err.contains("101"));
@@ -840,8 +849,16 @@ binary_url_base = "http://localhost:9998"
     #[test]
     fn health_check_passes_at_threshold() {
         // Exactly at threshold should pass (> not >=)
-        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 100);
+        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 100, 0);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn health_check_fails_scan_failure() {
+        // MMA-P1: Scan failure must block OTA (fail-closed)
+        let result = health_check_pod("pod_8", true, true, Some(EXPECTED_SHA), EXPECTED_SHA, 0, 1);
+        let err = result.unwrap_err();
+        assert!(err.contains("scan_failed"));
     }
 
     // ── Sentinel + Kill Switch Tests (Plan 03) ────────────────────────────
