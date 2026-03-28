@@ -10,9 +10,9 @@
 - [ ] **FATM-01**: Billing start wraps wallet debit + session creation + journal entry in a single DB transaction (rollback on any failure)
 - [ ] **FATM-02**: All money-moving POSTs (/topup, /billing/start, /billing/stop, /refund) require idempotency keys; duplicate requests return original result
 - [ ] **FATM-03**: Wallet debit uses SELECT FOR UPDATE row locking to prevent parallel overspend
-- [ ] **FATM-04**: Session finalization uses compare-and-swap (UPDATE WHERE status='active') to prevent double-end/double-refund
-- [ ] **FATM-05**: Tier price and rate calculation aligned — tier_30min price matches compute_session_cost(1800s) output
-- [ ] **FATM-06**: Refund formula uses a single authoritative calculation path (not duplicated in multiple code paths)
+- [x] **FATM-04**: Session finalization uses compare-and-swap (UPDATE WHERE status='active') to prevent double-end/double-refund
+- [x] **FATM-05**: Tier price and rate calculation aligned — tier_30min price matches compute_session_cost(1800s) output
+- [x] **FATM-06**: Refund formula uses a single authoritative calculation path (not duplicated in multiple code paths)
 - [ ] **FATM-07**: Extension purchase is atomic with session time addition (debit + add time in one transaction)
 - [ ] **FATM-08**: Coupon lifecycle is stateful: available → reserved → redeemed → released (with TTL on reserved)
 - [ ] **FATM-09**: Coupon restored on session cancellation/failure before billing commit
@@ -146,9 +146,9 @@ Updated during roadmap creation (2026-03-29).
 | FATM-01 | Phase 252 | Pending |
 | FATM-02 | Phase 252 | Pending |
 | FATM-03 | Phase 252 | Pending |
-| FATM-04 | Phase 252 | Pending |
-| FATM-05 | Phase 252 | Pending |
-| FATM-06 | Phase 252 | Pending |
+| FATM-04 | Phase 252 | Complete |
+| FATM-05 | Phase 252 | Complete |
+| FATM-06 | Phase 252 | Complete |
 | FATM-12 | Phase 252 | Pending |
 | FSM-01 | Phase 253 | Pending |
 | FSM-02 | Phase 253 | Pending |
