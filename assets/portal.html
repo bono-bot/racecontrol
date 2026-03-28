@@ -9,7 +9,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    background: linear-gradient(180deg, #0a0a0a 0%, #111 100%);
+    background: #0a0a0a;
     color: #f0f0f0;
     min-height: 100vh;
   }
@@ -21,7 +21,7 @@
     justify-content: space-between;
     padding: 16px 24px;
     border-bottom: 1px solid #1a1a1a;
-    background: #0d0d0d;
+    background: #0a0a0a;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -103,11 +103,7 @@
     min-height: 160px;
     padding: 24px;
     border-radius: 10px;
-    background:
-      radial-gradient(ellipse at top right, rgba(225,6,0,0.12), transparent 60%),
-      repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 6px),
-      repeating-linear-gradient(-45deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 6px),
-      #141414;
+    background: #161616;
     border: 1px solid rgba(225,6,0,0.3);
     border-left: 4px solid #E10600;
     text-decoration: none;
@@ -118,11 +114,7 @@
   .hero-card:hover {
     transform: translateY(-2px) scale(1.005);
     box-shadow: 0 8px 32px rgba(225, 6, 0, 0.2);
-    background:
-      radial-gradient(ellipse at top right, rgba(225,6,0,0.18), transparent 60%),
-      repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 6px),
-      repeating-linear-gradient(-45deg, rgba(255,255,255,0.015) 0, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 6px),
-      #181818;
+    background: #1a1a1a;
   }
   .hero-card:focus-visible {
     outline: 2px solid #fff;
@@ -159,10 +151,7 @@
     margin-bottom: 8px;
   }
   .card {
-    background:
-      repeating-linear-gradient(45deg, rgba(255,255,255,0.01) 0, rgba(255,255,255,0.01) 1px, transparent 1px, transparent 6px),
-      repeating-linear-gradient(-45deg, rgba(255,255,255,0.01) 0, rgba(255,255,255,0.01) 1px, transparent 1px, transparent 6px),
-      #131313;
+    background: #161616;
     border: 1px solid #222;
     border-radius: 10px;
     padding: 20px;
@@ -175,7 +164,7 @@
   }
   .card:hover {
     border-color: #444;
-    background-color: #181818;
+    background: #1a1a1a;
     transform: translateY(-1px);
     box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   }
@@ -201,7 +190,7 @@
   .sys-bar {
     display: flex;
     align-items: center;
-    background: #111;
+    background: #161616;
     border: 1px solid #1e1e1e;
     border-left: 3px solid #333;
     border-radius: 6px;
@@ -362,7 +351,7 @@
   <!-- Back Office -->
   <div class="section-label">Back Office</div>
   <div class="grid">
-    <a class="card" href="/admin/">
+    <a class="card" href="http://192.168.31.23:3201/admin/">
       <svg class="card-icon" aria-hidden="true"><use href="#i-admin"/></svg>
       <div class="title"><span class="dot" id="dot-admin" data-state="checking"></span> Admin Dashboard</div>
       <div class="desc">Fleet, billing, drivers, events, games, control room</div>
@@ -431,7 +420,7 @@ const checks = [
   { id: 'dot-rc',    url: '/api/v1/health' },
   { id: 'dot-kiosk', url: '/kiosk/' },
   { id: 'dot-pos',   url: '/billing' },
-  { id: 'dot-admin', url: '/admin/' },
+  { id: 'dot-admin', url: '/api/v1/health' },  // admin on :3201, check server instead
   { id: 'dot-web',   url: '/leaderboards' },
 ];
 
