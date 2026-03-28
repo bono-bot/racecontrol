@@ -975,3 +975,7 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 02:37 IST | James | 679dd8d9 | feat(253-01): billing_fsm.rs — BillingEvent, TRANSITION_TABLE (20 entries), validate_transition(), authoritative_end_session(), 26 tests |
 | 2026-03-29 02:37 IST | James | 4ea66610 | feat(253-01): wire validate_transition() into 9 billing.rs mutation sites — zero unguarded status mutations in production code |
 | 2026-03-29 02:37 IST | James | 0ddab791 | docs(253-01): 253-01-SUMMARY.md, STATE.md plan 2/3, FSM-01+FSM-06 complete in REQUIREMENTS.md |
+
+| 2026-03-29 10:30 IST | James | 173175d9 | SEC-08 OTP argon2id hashing (hash_otp/verify_otp_hash) + SEC-06 audit_log DELETE trigger |
+| 2026-03-29 10:35 IST | James | b73f7be0 | SEC-09 PII masking (mask_phone/mask_email) for cashier role in driver list/detail/full-profile endpoints |
+| 2026-03-29 10:40 IST | James | d1fdb927 | docs: 254-02 SUMMARY.md + STATE/ROADMAP/REQUIREMENTS updates (SEC-03/06/08/09 complete) |
