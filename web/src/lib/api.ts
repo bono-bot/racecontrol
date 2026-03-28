@@ -12,37 +12,60 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    ...options,
-    headers,
-  });
+  // P2-006: Add 30s timeout (matches kiosk behavior)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
-  // If server returns 401, clear stale JWT and redirect to login
-  if (res.status === 401 && typeof window !== "undefined") {
-    clearToken();
-    window.location.href = "/login";
-    throw new Error("Unauthorized");
+  try {
+    const res = await fetch(`${API_BASE}/api/v1${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+
+    // If server returns 401, clear stale JWT and redirect to login
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearToken();
+      window.location.href = "/login";
+      throw new Error("Unauthorized");
+    }
+
+    // MMA-702: Check res.ok before parsing JSON — prevents SyntaxError on HTML error pages
+    if (!res.ok) {
+      // P3: Timeout guard on error body read (prevents hang on large/slow error responses)
+      const text = await Promise.race([
+        res.text(),
+        new Promise<string>((resolve) => setTimeout(() => resolve("[body timeout]"), 3_000)),
+      ]).catch(() => "");
+      throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+    }
+
+    return res.json();
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  // MMA-702: Check res.ok before parsing JSON — prevents SyntaxError on HTML error pages
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
-  }
-
-  return res.json();
 }
 
 // Public endpoint fetcher — no auth header, no 401 redirect.
 // Used by customer-facing pages (/book) that have no JWT.
 export async function fetchPublic<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/v1${path}`);
-  // MMA-702: Check res.ok before parsing JSON
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  // P2-006: Add timeout to public fetcher too
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${API_BASE}/api/v1${path}`, { signal: controller.signal });
+    // MMA-702: Check res.ok before parsing JSON
+    if (!res.ok) {
+      const text = await Promise.race([
+        res.text(),
+        new Promise<string>((resolve) => setTimeout(() => resolve("[body timeout]"), 3_000)),
+      ]).catch(() => "");
+      throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return res.json();
 }
 
 // Cafe Menu types

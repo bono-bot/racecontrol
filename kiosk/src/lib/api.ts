@@ -28,6 +28,12 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
         signal: controller.signal,
         ...options,
       });
+      // P2-005: Handle 401 — clear stale token and redirect to staff login
+      if (res.status === 401 && typeof window !== "undefined") {
+        sessionStorage.removeItem("kiosk_staff_token");
+        window.location.href = "/";
+        throw new Error("Unauthorized — session expired");
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
@@ -35,9 +41,14 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       return res.json();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      // Only retry on network errors (TypeError from fetch / AbortError from timeout), not HTTP errors (4xx/5xx)
+      // Retry on network errors (TypeError/AbortError) for all methods.
+      // P3: Also retry on 5xx for safe (GET/HEAD) methods — transient server errors in unattended kiosk.
       const isNetworkError = err instanceof TypeError || (err instanceof DOMException && err.name === 'AbortError');
-      if (!isNetworkError || attempt >= MAX_RETRIES) break;
+      const method = (options?.method || "GET").toUpperCase();
+      const isSafeMethod = method === "GET" || method === "HEAD";
+      const is5xx = lastError.message.startsWith("API 5");
+      const isRetryable = isNetworkError || (is5xx && isSafeMethod);
+      if (!isRetryable || attempt >= MAX_RETRIES) break;
       // Exponential backoff: 500ms, 1000ms
       await new Promise((r) => setTimeout(r, RETRY_BASE_MS * Math.pow(2, attempt)));
     } finally {

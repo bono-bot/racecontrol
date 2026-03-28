@@ -6631,19 +6631,25 @@ async fn refund_wallet(
 
     // MMA-203: If reference_id is provided, validate it maps to a real billing session
     if let Some(ref ref_id) = req.reference_id {
-        let session = sqlx::query_as::<_, (String, String, Option<i64>)>(
-            "SELECT id, driver_id, custom_price_paise FROM billing_sessions WHERE id = ?"
+        let session = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>)>(
+            "SELECT id, driver_id, custom_price_paise, \
+             (SELECT COALESCE(SUM(CASE WHEN txn_type='billing' THEN amount_paise ELSE 0 END), 0) \
+              FROM wallet_transactions WHERE reference_id = bs.id) as session_cost \
+             FROM billing_sessions bs WHERE id = ?"
         )
         .bind(ref_id)
         .fetch_optional(&state.db)
         .await;
 
+        // P3: Extract session cost for cumulative cap enforcement
+        let session_cost_paise: i64;
         match session {
-            Ok(Some((_, session_driver_id, _))) => {
+            Ok(Some((_, session_driver_id, custom_price, cost))) => {
                 // Verify the refund is for the correct driver
                 if session_driver_id != driver_id {
                     return Json(json!({ "error": "Billing session does not belong to this driver" }));
                 }
+                session_cost_paise = custom_price.unwrap_or(0).max(cost.unwrap_or(0)).max(MAX_MANUAL_REFUND_PAISE);
             }
             Ok(None) => {
                 return Json(json!({ "error": "Referenced billing session not found" }));
@@ -6683,14 +6689,17 @@ async fn refund_wallet(
         .map(|r| r.0)
         .unwrap_or(0);
 
+        // P3: Cumulative refund cap — allow partial refunds but prevent over-refunding
         let total_refunded = already_refunded_wallet + already_refunded_billing;
-        if total_refunded > 0 {
+        let would_be_total = total_refunded + req.amount_paise;
+        if would_be_total > session_cost_paise {
             tracing::warn!(
-                "Duplicate refund attempt: driver={}, reference_id={}, already_refunded={}p (wallet={}p, billing={}p), requested={}p",
-                driver_id, ref_id, total_refunded, already_refunded_wallet, already_refunded_billing, req.amount_paise
+                "Refund exceeds session cost: driver={}, reference_id={}, already_refunded={}p, requested={}p, session_cost={}p",
+                driver_id, ref_id, total_refunded, req.amount_paise, session_cost_paise
             );
+            let remaining = (session_cost_paise - total_refunded).max(0);
             // tx rolls back on drop
-            return Json(json!({ "error": format!("Reference already refunded ({}p already credited)", total_refunded) }));
+            return Json(json!({ "error": format!("Refund would exceed session cost. Already refunded: {}p, max remaining: {}p", total_refunded, remaining) }));
         }
 
         // Perform the credit within the same transaction

@@ -330,10 +330,22 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 existing.ip_address = pod_info.ip_address.clone();
                                 let now = chrono::Utc::now();
                                 existing.last_seen = Some(now);
-                                // OR-007: Only accept agent-reported state if it's newer than what we have
-                                // (prevents stale heartbeats from overwriting valid server state)
+                                // OR-007: Only accept agent-reported game_state if valid transition
+                                // Prevents stale heartbeats from reverting Running→Idle etc.
                                 existing.driving_state = pod_info.driving_state;
-                                existing.game_state = pod_info.game_state;
+                                if let Some(new_gs) = pod_info.game_state {
+                                    let accept = match (existing.game_state, new_gs) {
+                                        // Never allow heartbeat to revert from Running to Idle/Launching
+                                        // (only GameStateUpdate messages should do that)
+                                        (Some(GameState::Running), GameState::Idle) => false,
+                                        (Some(GameState::Running), GameState::Launching) => false,
+                                        (Some(GameState::Running), GameState::Loading) => false,
+                                        _ => true,
+                                    };
+                                    if accept {
+                                        existing.game_state = pod_info.game_state;
+                                    }
+                                }
                                 existing.current_game = pod_info.current_game;
                                 existing.screen_blanked = pod_info.screen_blanked;
                                 existing.ffb_preset = pod_info.ffb_preset.clone();
