@@ -130,6 +130,10 @@ pub struct PodsConfig {
     pub healer_enabled: bool,
     #[serde(default = "default_healer_interval")]
     pub healer_interval_secs: u32,
+    /// Service key for authenticating with rc-sentry :8091/exec on pods.
+    /// Must match the RCSENTRY_SERVICE_KEY env var set on each pod.
+    #[serde(default)]
+    pub sentry_service_key: Option<String>,
 }
 
 impl Default for PodsConfig {
@@ -140,6 +144,7 @@ impl Default for PodsConfig {
             static_pods: Vec::new(),
             healer_enabled: true,
             healer_interval_secs: default_healer_interval(),
+            sentry_service_key: None,
         }
     }
 }

@@ -481,6 +481,7 @@ pub async fn set_kill_switch(
 pub async fn rollback_wave(
     http_client: &reqwest::Client,
     pod_ips: &[(String, String)], // (pod_id, ip)
+    sentry_service_key: Option<&str>,
 ) {
     for (pod_id, ip) in pod_ips {
         tracing::warn!("OTA: Rolling back {pod_id}");
@@ -504,8 +505,12 @@ pub async fn rollback_wave(
 
         // Step 2: Execute rollback via rc-SENTRY :8091/exec (NOT rc-agent :8090)
         let exec_url = format!("http://{ip}:8091/exec");
-        let _ = http_client
-            .post(&exec_url)
+        let mut req = http_client
+            .post(&exec_url);
+        if let Some(key) = sentry_service_key {
+            req = req.header("X-Service-Key", key);
+        }
+        let _ = req
             .json(&serde_json::json!({
                 "cmd": r#"start /min cmd /c C:\RacingPoint\do-rollback.bat"#,
                 "timeout_ms": 5000,

@@ -281,6 +281,25 @@ impl AppState {
         }
     }
 
+    /// Build an HTTP request to a rc-sentry protected endpoint, including the
+    /// X-Service-Key header when `pods.sentry_service_key` is configured.
+    pub fn sentry_post(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self.http_client.post(url);
+        if let Some(key) = &self.config.pods.sentry_service_key {
+            req = req.header("X-Service-Key", key);
+        }
+        req
+    }
+
+    /// Build a GET request to a rc-sentry protected endpoint with auth header.
+    pub fn sentry_get(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self.http_client.get(url);
+        if let Some(key) = &self.config.pods.sentry_service_key {
+            req = req.header("X-Service-Key", key);
+        }
+        req
+    }
+
     /// Broadcast settings to all agents, applying per-pod screen_blanking override.
     /// If `screen_blanking_pods` is set (comma-separated pod numbers), only those pods
     /// get `screen_blanking_enabled=true`; all others get `false`.

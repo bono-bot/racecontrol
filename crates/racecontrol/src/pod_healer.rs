@@ -619,8 +619,7 @@ async fn run_graduated_recovery(
         pod.ip_address
     );
     match state
-        .http_client
-        .get(&sentry_url)
+        .sentry_get(&sentry_url)
         .timeout(Duration::from_secs(3))
         .send()
         .await
@@ -851,8 +850,7 @@ async fn run_graduated_recovery(
                 pod.ip_address
             );
             let in_maintenance_file = match state
-                .http_client
-                .get(&maintenance_url)
+                .sentry_get(&maintenance_url)
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await
@@ -885,8 +883,7 @@ async fn run_graduated_recovery(
                 pod.ip_address
             );
             let ota_in_progress = match state
-                .http_client
-                .get(&ota_check_url)
+                .sentry_get(&ota_check_url)
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await
@@ -910,8 +907,7 @@ async fn run_graduated_recovery(
             let exec_url = format!("http://{}:8091/exec", pod.ip_address);
             let sentinel_body = serde_json::json!({ "cmd": sentinel_cmd, "timeout_ms": 5000 });
             match state
-                .http_client
-                .post(&exec_url)
+                .sentry_post(&exec_url)
                 .json(&sentinel_body)
                 .timeout(Duration::from_secs(5))
                 .send()
