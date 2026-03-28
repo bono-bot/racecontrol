@@ -1,13 +1,14 @@
-//! OpenRouter API client — 4-model diagnostic system for Meshed Intelligence.
+//! OpenRouter API client — 5-model diagnostic system for Meshed Intelligence.
 //!
 //! Tier 3: Single model diagnosis (Qwen3 ~$0.05)
-//! Tier 4: 4-model parallel diagnosis (R1+V3+MiMo+Gemini ~$3)
+//! Tier 4: 5-model parallel diagnosis (Qwen3+R1+V3+MiMo+Gemini ~$4)
 //!
-//! Each model has a role-specific system prompt:
-//!   - Qwen3 235B: Scanner — fast, cheap, volume screening
-//!   - DeepSeek R1: Reasoner — logic bugs, absence detection, state machines
-//!   - DeepSeek V3: Code Expert — code patterns, Session 0 detection
-//!   - Gemini 2.5 Pro: Security — config errors, auth, credentials
+//! Each model has a role-specific system prompt trained from MMA audit methodologies:
+//!   - Qwen3 235B: Scanner — exhaustive enumeration, volume coverage
+//!   - DeepSeek R1: Reasoner — absence detection, state machine stuck states, logic bugs
+//!   - DeepSeek V3: Code Expert — Rust/Windows code patterns, Session 0/1, process lifecycle
+//!   - MiMo v2 Pro: SRE — operational gaps, stuck states, idempotency, "3am failures"
+//!   - Gemini 2.5 Pro: Security — credential scanning, auth checklists, config errors
 //!
 //! API key is read from OPENROUTER_KEY env var — NEVER hardcoded.
 //! Standing rules: no .unwrap() in production, all errors propagated via anyhow.
@@ -27,41 +28,153 @@ pub struct ModelConfig {
     pub system_prompt: &'static str,
 }
 
-/// The 4 models used for diagnosis
-pub const MODELS: [ModelConfig; 4] = [
+/// Racing Point fleet context shared across all model prompts.
+/// Encodes domain knowledge so models can diagnose with fleet-specific understanding.
+const FLEET_CONTEXT: &str = "\
+FLEET CONTEXT: Racing Point eSports — 8 Windows 11 sim racing pods running rc-agent (Rust/Axum :8090). \
+Server at .23:8080 (racecontrol). WebSocket for state sync. SQLite billing. \
+Key processes: rc-agent (pod agent), rc-sentry (watchdog), ConspitLink.exe (steering wheel HID), Edge (lock screen/kiosk). \
+Known anomaly classes: health_check_fail, process_crash, game_launch_fail, display_mismatch, error_spike, \
+ws_disconnect, sentinel_unexpected, violation_spike, preflight_failed. \
+Critical sentinels: MAINTENANCE_MODE (blocks all restarts), OTA_DEPLOYING (blocks recovery during deploy), \
+RCAGENT_SELF_RESTART (graceful restart). \
+Session context: rc-agent MUST run in Session 1 (interactive desktop). Session 0 = all GUI ops fail silently. \
+Recovery systems: rc-sentry watchdog, RCWatchdog Windows service, server pod_monitor, WoL auto-wake. \
+These can fight each other — check for cascade conflicts. \
+Process guard: allowlist-based, fetched from server at boot + every 5min. Empty allowlist = block everything. \
+Known failure patterns: MAINTENANCE_MODE stuck (no TTL), ConspitLink multiplication, orphan PowerShell from self-restart, \
+Edge blanking screen showing blanked state but edge_process_count=0, budget tracker not persisted across restarts. \
+GAME LAUNCH (REVENUE-CRITICAL): AC launch sequence: kill existing → write race.ini → spawn acs.exe or Content Manager → wait 30s for process. \
+Known launch failures: orphan acs.exe blocking new instance, Content Manager hung on error dialog, stale game.pid, \
+missing FORCE_START=1 in gui.ini, car/track not installed, Steam not running, race.ini corrupted or missing sections, \
+serde field mismatch (kiosk sends ai_difficulty string but agent expects ai_level u32 — silently ignored), \
+CM shows 'Settings are not specified' when Quick Drive preset never configured on pod.";
+
+/// The 5 models used for diagnosis — trained from MMA audit methodologies
+pub const MODELS: [ModelConfig; 5] = [
+    // ── Scanner: Qwen3 235B — exhaustive enumeration, volume coverage ──
+    // MMA proven: 139 findings at $0.05. Best for: volume scanning, catching duplicates,
+    // broad surface-area coverage. Weaknesses: duplicate findings, may restate obvious.
     ModelConfig {
         id: "qwen/qwen3-235b-a22b-2507",
         role: "Scanner",
-        system_prompt: "You are a fast diagnostic scanner for a Windows sim racing pod (rc-agent). \
-            Given symptoms (error type, system state, trigger), identify the most likely root cause \
-            and suggest a fix action. Be concise. Output JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
+        system_prompt: "You are a high-volume diagnostic scanner for a Racing Point sim racing pod fleet. \
+            Your method: EXHAUSTIVE ENUMERATION. List every possible cause, then rank by likelihood. \
+            Check ALL of these in order: \
+            (1) Sentinel files (MAINTENANCE_MODE, OTA_DEPLOYING, FORCE_CLEAN, SAFE_MODE) — stuck or stale? \
+            (2) Process state — is the expected process running? Is it multiplied? Is it in the right Session (1, not 0)? \
+            (3) Network — WebSocket connected? Server reachable? DNS resolving? Port exhaustion (CLOSE_WAIT)? \
+            (4) Filesystem — disk space? Log rotation working? Config file corrupted? Stale temp files? \
+            (5) Resource pressure — RAM, CPU, handle count. Orphan PowerShell processes leaking ~90MB each? \
+            (6) Configuration — allowlist empty? TOML parse error? Feature flags stale from boot-time fetch? \
+            (7) Recovery conflicts — are multiple recovery systems (rc-sentry, RCWatchdog, pod_monitor, WoL) fighting? \
+            Be concise. Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
             \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
     },
+    // ── Reasoner: DeepSeek R1 — absence detection, state machine analysis ──
+    // MMA proven: 46 findings at $0.43. Best for: "what SHOULD be here but isn't",
+    // state machine stuck states, logic bugs, process lifecycle reasoning, timing/race conditions.
     ModelConfig {
         id: "deepseek/deepseek-r1-0528",
         role: "Reasoner",
-        system_prompt: "You are a reasoning-focused debugger for a Windows sim racing pod. \
-            Analyze the diagnostic event deeply. Look for absence-based bugs (what SHOULD be there but isn't), \
-            state machine stuck states, and logic errors. Use chain-of-thought. \
-            Output JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
+        system_prompt: "You are a reasoning-focused debugger for Racing Point sim racing pods. \
+            Your method: ABSENCE-BASED ANALYSIS + STATE MACHINE REASONING. \
+            Step 1 — ABSENCE CHECK: What SHOULD exist but doesn't? Common absences: \
+            - Missing TTL on MAINTENANCE_MODE (pod stuck forever with no timeout or auto-clear) \
+            - Missing heartbeat for diagnostic engine itself (could silently fail) \
+            - Missing session isolation between customers (information leakage) \
+            - Missing game process resource limits (one game eats all RAM) \
+            - Budget tracker not persisted (monthly spend lost on restart) \
+            - Missing stuck-state detection for wheel inputs (false input reporting) \
+            - Dual state variables (safe_mode.active AND safe_mode_active atomic) that can desync \
+            Step 2 — STATE MACHINE: Trace the state transitions. Where can it get stuck? \
+            - GameTracker: Idle→Launching→Running→Stopping. Can Launching get stuck if WS drops mid-launch? \
+            - Lock screen: screen_blanked state set but Edge never spawned (edge_process_count=0) \
+            - Billing guard: session started but auto-end notification dropped by try_send() on full channel \
+            - Self-restart: MAINTENANCE_MODE written after 3 restarts, but no one clears it \
+            Step 3 — TIMING: Race conditions between concurrent checks, PID reuse between verify and kill. \
+            Use chain-of-thought reasoning. Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
             \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
     },
+    // ── Code Expert: DeepSeek V3 — Rust/Windows code patterns, Session 0/1 ──
+    // MMA proven: 17 high-quality findings at $0.16. Best for: Rust code patterns,
+    // Session 0/1 detection, Windows-specific bugs, PID reuse, process spawning.
     ModelConfig {
         id: "deepseek/deepseek-chat-v3-0324",
         role: "Code Expert",
-        system_prompt: "You are a code-level debugger for rc-agent (Rust/Axum on Windows). \
-            Given diagnostic symptoms, trace the likely code path that caused the issue. \
-            Focus on Session 0/1 context, process spawning, sysinfo patterns, and Windows-specific bugs. \
-            Output JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
+        system_prompt: "You are a code-level debugger specializing in Rust/Axum on Windows for Racing Point pods. \
+            Your method: CODE PATH TRACING + WINDOWS-SPECIFIC PATTERN MATCHING. \
+            Trace the likely code path from trigger to failure. Key patterns to check: \
+            (1) SESSION 0/1: rc-agent MUST be in Session 1 (interactive). If launched by schtasks or \
+            Windows service, it runs in Session 0 — Edge, game launch, keyboard hooks ALL fail silently. \
+            Check: tasklist /V shows Console (Session 1) vs Services (Session 0). \
+            (2) PROCESS SPAWNING: .spawn().is_ok() does NOT mean the child started on Windows. \
+            CreateProcess accepted ≠ process alive. Must verify child process after spawn. \
+            (3) PID REUSE: Windows recycles PIDs aggressively. TOCTOU between is_whitelisted and kill. \
+            (4) CMD.EXE HOSTILITY: Any command via /exec goes through cmd /C. Spaces, $, \", \\ get mangled. \
+            Use PID-based targeting, write bat files, or use Win32 APIs instead. \
+            (5) SERDE SILENT DROPS: Missing deny_unknown_fields on boundary structs. Frontend sends \
+            ai_difficulty (string) but agent expects ai_level (u32) — silently ignored, game launches with wrong config. \
+            (6) LOCALE-DEPENDENT PARSING: netstat output, tasklist output assume English locale. \
+            (7) POWERSHELL LEAK: self_monitor relaunch_self uses PowerShell+DETACHED_PROCESS, leaks ~90MB per restart. \
+            Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
             \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
     },
+    // ── SRE: MiMo v2 Pro — operational gaps, stuck states, idempotency ──
+    // MMA proven: 48 findings at $0.77. Best for: "what breaks at 3am", operational completeness,
+    // timeout gaps, idempotency failures, thundering herd, resource exhaustion patterns.
+    // This model was MISSING from the original RC Doctor — adding it fills the SRE gap.
+    ModelConfig {
+        id: "xiaomi/mimo-v2-pro",
+        role: "SRE",
+        system_prompt: "You are an SRE-focused diagnostician for Racing Point's 8-pod sim racing fleet. \
+            Your method: OPERATIONAL FAILURE MODE ANALYSIS — think 'what breaks at 3am with no one watching'. \
+            Key SRE checks: \
+            (1) STUCK STATES: Is anything waiting forever? MAINTENANCE_MODE with no TTL. GameTracker in Launching \
+            with no timeout. Billing session that never auto-ended. WS reconnect backoff that hit ceiling and stopped. \
+            (2) RESOURCE EXHAUSTION: TCP port exhaustion (CLOSE_WAIT accumulation on :8090). Handle leak from \
+            spawned processes. Disk filling from log files without rotation. SQLite WAL growing unbounded. \
+            Orphan PowerShell processes at ~90MB each from self-restart leaks. \
+            (3) IDEMPOTENCY FAILURES: Is the fix safe to apply twice? Sentinel deletion is safe. SSH key \
+            append without dedup creates duplicates. Process kill without PID verification hits wrong process. \
+            (4) THUNDERING HERD: All 8 pods hitting server simultaneously after outage recovery. \
+            No jitter on retry delays. All pods fetching allowlist at the same 5-min interval. \
+            (5) RECOVERY CASCADE: rc-sentry restarts rc-agent. RCWatchdog also restarts it. Server pod_monitor \
+            sends WoL. If all three fire at once: multiple rc-agent instances, port conflicts, crash loop → \
+            MAINTENANCE_MODE → pod permanently down. \
+            (6) MONITORING GAPS: Is the monitor itself being monitored? Is the diagnostic engine alive? \
+            Is budget tracker tracking? Is the circuit breaker stuck open? \
+            (7) GRACEFUL DEGRADATION: What works when the server is down? Feature flags stale? \
+            Allowlist empty? Billing orphaned? Does the pod remain usable? \
+            Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
+            \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
+    },
+    // ── Security: Gemini 2.5 Pro — credential scanning, auth checklists ──
+    // MMA proven: 84 findings at $1.65. Best for: security checklists, credential scanning,
+    // auth gaps on endpoints, config errors. Weaknesses: stale training data (may flag valid Rust 2024 edition).
     ModelConfig {
         id: "google/gemini-2.5-pro-preview-03-25",
         role: "Security",
-        system_prompt: "You are a security-focused auditor for a sim racing pod fleet. \
-            Given diagnostic symptoms, check for config errors, auth issues, credential problems, \
-            firewall misconfigurations, and sentinel file corruption. \
-            Output JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
+        system_prompt: "You are a security auditor for Racing Point's sim racing pod fleet. \
+            Your method: SECURITY CHECKLIST + CONFIG VALIDATION. \
+            Systematic checks: \
+            (1) CREDENTIALS: Is ws_secret in plaintext in rc-agent.toml? OPENROUTER_KEY exposed? \
+            SSH keys with wrong permissions? Passwords in log output? \
+            (2) AUTH GAPS: Debug server on 0.0.0.0:18924 with no auth (screenshot endpoint = privacy breach). \
+            Process guard whitelist matching by name only (not full path — name spoofing bypasses it). \
+            (3) INJECTION: Command injection via game launch URL (cmd /C start with unsanitized args). \
+            Registry key name injection in parse_run_key_entries. Path traversal in sentinel deletion. \
+            (4) CONFIG ERRORS: TOML parse failure falling back to empty defaults silently. \
+            SSH banner lines prepended to config files from piped ssh output. \
+            process_guard enabled with empty allowlist = blocks everything. \
+            (5) SENTINEL CORRUPTION: MAINTENANCE_MODE left from previous crash storm. \
+            OTA_DEPLOYING never cleared after failed deploy. FORCE_CLEAN orphaned. \
+            (6) NETWORK: Firewall rules that don't persist after reboot. \
+            Steam directory path-based process guard exclusion (any exe in Steam dir runs freely). \
+            (7) FILE PERMISSIONS: authorized_keys without strict ACLs. temp screenshot file race condition. \
+            NOTE: Tailscale connections use ws:// not wss:// by design (tunnel is already encrypted). \
+            NOTE: ALLOWED_BINARIES includes fleet ops commands by design. \
+            Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
             \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
     },
 ];
@@ -257,7 +370,14 @@ pub async fn tier4_diagnose_parallel(
 }
 
 /// Find consensus among multiple model responses.
-/// Returns the diagnosis with highest confidence that at least 2 models agree on.
+/// Groups diagnoses by root-cause similarity and returns the best-supported diagnosis.
+///
+/// MMA-trained consensus logic (replaces naive highest-confidence):
+/// 1. Extract keyword tokens from each root_cause
+/// 2. Group diagnoses that share 2+ keywords (same underlying issue)
+/// 3. Pick the largest group (most models agree on the same root cause)
+/// 4. Within that group, return the diagnosis with highest confidence
+/// 5. If no group has 2+ members, fall back to highest-confidence single diagnosis (>= 0.7)
 pub fn find_consensus(responses: &[ModelResponse]) -> Option<DiagnosisResult> {
     let diagnoses: Vec<&DiagnosisResult> = responses
         .iter()
@@ -268,7 +388,7 @@ pub fn find_consensus(responses: &[ModelResponse]) -> Option<DiagnosisResult> {
         return None;
     }
 
-    // If only one model responded with a diagnosis, use it if confidence >= 0.7
+    // Single diagnosis — use if high confidence
     if diagnoses.len() == 1 {
         let d = diagnoses[0];
         if d.confidence >= 0.7 {
@@ -277,16 +397,74 @@ pub fn find_consensus(responses: &[ModelResponse]) -> Option<DiagnosisResult> {
         return None;
     }
 
-    // Multiple diagnoses — find the one with highest confidence
-    // In a real implementation, we'd check root_cause similarity for true consensus
-    // For now, use the highest-confidence response
+    // Extract keyword tokens from root_cause for similarity matching
+    let tokenize = |s: &str| -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|w| w.len() >= 3) // skip short words like "a", "is", "to"
+            .filter(|w| !matches!(*w, "the" | "and" | "for" | "with" | "from" | "that" | "this" | "not"))
+            .map(|w| w.to_string())
+            .collect()
+    };
+
+    let token_sets: Vec<Vec<String>> = diagnoses.iter().map(|d| tokenize(&d.root_cause)).collect();
+
+    // Count shared keywords between each pair — group if 2+ keywords overlap
+    // Build adjacency: diagnoses[i] and diagnoses[j] are "similar" if they share 2+ tokens
+    let n = diagnoses.len();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut assigned = vec![false; n];
+
+    for i in 0..n {
+        if assigned[i] { continue; }
+        let mut group = vec![i];
+        assigned[i] = true;
+        for j in (i + 1)..n {
+            if assigned[j] { continue; }
+            let shared = token_sets[i].iter()
+                .filter(|t| token_sets[j].contains(t))
+                .count();
+            if shared >= 2 {
+                group.push(j);
+                assigned[j] = true;
+            }
+        }
+        groups.push(group);
+    }
+
+    // Find the largest group (most models agreeing on similar root cause)
+    groups.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    if let Some(best_group) = groups.first() {
+        if best_group.len() >= 2 {
+            // True consensus — 2+ models agree. Pick highest confidence within group.
+            let best = best_group.iter()
+                .map(|&idx| diagnoses[idx])
+                .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some(d) = best {
+                tracing::info!(
+                    target: "openrouter",
+                    consensus_size = best_group.len(),
+                    root_cause = %d.root_cause,
+                    confidence = d.confidence,
+                    "Consensus found: {} models agree",
+                    best_group.len()
+                );
+                return Some(d.clone());
+            }
+        }
+    }
+
+    // No true consensus — fall back to highest confidence if >= 0.7
     diagnoses
         .iter()
+        .filter(|d| d.confidence >= 0.7)
         .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal))
         .map(|d| (*d).clone())
 }
 
 /// Format a DiagnosticEvent into a symptom string for model prompts.
+/// Includes fleet context so models can diagnose with domain-specific understanding.
 pub fn format_symptoms(
     trigger: &str,
     problem_key: &str,
@@ -294,13 +472,16 @@ pub fn format_symptoms(
     pod_state_summary: &str,
 ) -> String {
     format!(
-        "Diagnostic Event on sim racing pod (Windows 11, Rust rc-agent):\n\
+        "{}\n\n\
+         --- DIAGNOSTIC EVENT ---\n\
          Trigger: {}\n\
          Problem Key: {}\n\
          Environment: {}\n\
          Pod State: {}\n\n\
-         Analyze this event and provide a diagnosis. What is the root cause and how should it be fixed?",
-        trigger, problem_key, environment, pod_state_summary
+         Analyze this event using your specialized methodology. \
+         Consider: sentinel files, process state, session context, recovery cascade, resource exhaustion. \
+         What is the root cause and what is the safest fix action?",
+        FLEET_CONTEXT, trigger, problem_key, environment, pod_state_summary
     )
 }
 
@@ -444,12 +625,121 @@ mod tests {
     }
 
     #[test]
-    fn test_model_registry_has_4_models() {
-        assert_eq!(MODELS.len(), 4);
+    fn test_model_registry_has_5_models() {
+        assert_eq!(MODELS.len(), 5);
         assert_eq!(MODELS[0].role, "Scanner");
         assert_eq!(MODELS[1].role, "Reasoner");
         assert_eq!(MODELS[2].role, "Code Expert");
-        assert_eq!(MODELS[3].role, "Security");
+        assert_eq!(MODELS[3].role, "SRE");
+        assert_eq!(MODELS[4].role, "Security");
+    }
+
+    #[test]
+    fn test_find_consensus_keyword_matching() {
+        // Two models agree on "MAINTENANCE_MODE sentinel stuck" — should find consensus
+        let responses = vec![
+            ModelResponse {
+                model_id: "qwen".to_string(),
+                role: "Scanner".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "MAINTENANCE_MODE sentinel file stuck with no TTL".to_string(),
+                    confidence: 0.8,
+                    fix_action: "delete sentinel".to_string(),
+                    risk_level: "safe".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 0.05,
+                error: None,
+            },
+            ModelResponse {
+                model_id: "r1".to_string(),
+                role: "Reasoner".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "MAINTENANCE_MODE sentinel blocking restarts, no TTL auto-clear".to_string(),
+                    confidence: 0.9,
+                    fix_action: "clear MAINTENANCE_MODE".to_string(),
+                    risk_level: "safe".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 0.43,
+                error: None,
+            },
+            ModelResponse {
+                model_id: "v3".to_string(),
+                role: "Code Expert".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "TCP port exhaustion on 8090 from CLOSE_WAIT sockets".to_string(),
+                    confidence: 0.6,
+                    fix_action: "restart network stack".to_string(),
+                    risk_level: "caution".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 0.16,
+                error: None,
+            },
+        ];
+        let c = find_consensus(&responses);
+        assert!(c.is_some(), "Should find consensus on MAINTENANCE_MODE");
+        let c = c.expect("consensus");
+        assert!(c.root_cause.contains("MAINTENANCE_MODE"), "Consensus should be MAINTENANCE_MODE, got: {}", c.root_cause);
+        assert!((c.confidence - 0.9).abs() < f64::EPSILON, "Should pick highest confidence in consensus group");
+    }
+
+    #[test]
+    fn test_find_consensus_no_agreement() {
+        // Three models all disagree — no consensus, should pick highest confidence >= 0.7
+        let responses = vec![
+            ModelResponse {
+                model_id: "a".to_string(),
+                role: "Scanner".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "disk space full from log rotation failure".to_string(),
+                    confidence: 0.75,
+                    fix_action: "clean logs".to_string(),
+                    risk_level: "safe".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 0.05,
+                error: None,
+            },
+            ModelResponse {
+                model_id: "b".to_string(),
+                role: "Reasoner".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "WebSocket reconnect backoff ceiling reached".to_string(),
+                    confidence: 0.65,
+                    fix_action: "reset backoff".to_string(),
+                    risk_level: "safe".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 0.43,
+                error: None,
+            },
+            ModelResponse {
+                model_id: "c".to_string(),
+                role: "Security".to_string(),
+                diagnosis: Some(DiagnosisResult {
+                    root_cause: "TOML config parse error falling back to empty defaults".to_string(),
+                    confidence: 0.55,
+                    fix_action: "fix config".to_string(),
+                    risk_level: "safe".to_string(),
+                }),
+                raw_text: String::new(),
+                cost_estimate: 1.65,
+                error: None,
+            },
+        ];
+        let c = find_consensus(&responses);
+        assert!(c.is_some(), "Should fall back to highest confidence >= 0.7");
+        assert!((c.expect("fallback").confidence - 0.75).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_format_symptoms_includes_fleet_context() {
+        let s = format_symptoms("WsDisconnect", "ws_disconnect", "{build: abc}", "ws_connected: false");
+        assert!(s.contains("FLEET CONTEXT"), "Symptoms should include fleet context");
+        assert!(s.contains("MAINTENANCE_MODE"), "Fleet context should mention sentinel files");
+        assert!(s.contains("Session 1"), "Fleet context should mention session requirements");
     }
 
     #[test]

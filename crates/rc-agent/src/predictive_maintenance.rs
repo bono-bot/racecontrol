@@ -5,6 +5,7 @@
 //! Runs as part of the 5-minute diagnostic scan (called from diagnostic_engine).
 //!
 //! Phase 236 — Meshed Intelligence PRED-01 to PRED-06.
+//! MMA-trained additions (v26.1): PRED-07 to PRED-09.
 //!
 //! Thresholds (not ML — simple, reliable, zero cost):
 //!   PRED-01: ConspitLink reconnection rate trending → USB alert
@@ -13,6 +14,9 @@
 //!   PRED-04: rc-agent restart count >2/day → stability alert
 //!   PRED-05: Disk space <10GB → auto-cleanup
 //!   PRED-06: Error spike across 3+ pods → systemic alert (handled by server coordinator)
+//!   PRED-07: CLOSE_WAIT socket accumulation → port exhaustion (MiMo SRE method)
+//!   PRED-08: Orphan PowerShell count → memory leak from self-restart (MiMo SRE method)
+//!   PRED-09: MAINTENANCE_MODE age → stuck sentinel with no TTL (R1 Reasoner method)
 
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -37,6 +41,15 @@ const CONSPIT_RECONNECT_ALERT_PER_HOUR: u32 = 3;
 /// PRED-02: Edge process count — alert if drops to 0 when blanking expected
 const EDGE_MISSING_CONSECUTIVE_SCANS: u32 = 2;
 
+/// PRED-07: CLOSE_WAIT socket count alert threshold (MiMo SRE method)
+const CLOSE_WAIT_ALERT_COUNT: u64 = 20;
+
+/// PRED-08: Orphan PowerShell process count alert threshold (MiMo SRE method)
+const ORPHAN_POWERSHELL_ALERT_COUNT: u32 = 3;
+
+/// PRED-09: MAINTENANCE_MODE age alert threshold in seconds (30 minutes) (R1 Reasoner method)
+const MAINTENANCE_MODE_AGE_ALERT_SECS: u64 = 1800;
+
 /// Predictive alert — something is degrading but hasn't failed yet.
 #[derive(Debug, Clone, Serialize)]
 pub struct PredictiveAlert {
@@ -55,6 +68,12 @@ pub enum PredAlertType {
     StabilityDegrading,
     DiskSpaceLow,
     ErrorSpike,
+    /// PRED-07: MiMo SRE — CLOSE_WAIT socket accumulation on :8090
+    CloseWaitExhaustion,
+    /// PRED-08: MiMo SRE — orphan PowerShell from self-restart memory leak
+    OrphanPowerShell,
+    /// PRED-09: R1 Reasoner — MAINTENANCE_MODE stuck with no TTL
+    MaintenanceModeStuck,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,6 +137,21 @@ pub fn run_predictive_scan(state: &mut PredictiveState) -> Vec<PredictiveAlert> 
 
     // PRED-01: ConspitLink reconnection rate
     if let Some(alert) = check_conspit_reconnects(state) {
+        alerts.push(alert);
+    }
+
+    // PRED-07: MiMo SRE — CLOSE_WAIT socket accumulation (port exhaustion)
+    if let Some(alert) = check_close_wait_sockets() {
+        alerts.push(alert);
+    }
+
+    // PRED-08: MiMo SRE — orphan PowerShell processes (memory leak)
+    if let Some(alert) = check_orphan_powershell() {
+        alerts.push(alert);
+    }
+
+    // PRED-09: R1 Reasoner — MAINTENANCE_MODE stuck sentinel (no TTL)
+    if let Some(alert) = check_maintenance_mode_stuck() {
         alerts.push(alert);
     }
 
@@ -341,6 +375,87 @@ fn auto_cleanup_old_logs() {
             count = cleaned,
             "PRED-05: Auto-cleaned old log files (>7 days)"
         );
+    }
+}
+
+// ─── MMA-Trained Predictive Checks ─────────────────────────────────────────
+// These checks were learned from Multi-Model Audit diagnostic methodologies.
+
+/// PRED-07: MiMo SRE method — CLOSE_WAIT socket accumulation on :8090.
+/// Stale TCP connections in CLOSE_WAIT state accumulate over time, eventually
+/// exhausting the port — rc-agent stops accepting new connections while health
+/// endpoint (already connected) still returns OK.
+fn check_close_wait_sockets() -> Option<PredictiveAlert> {
+    let count = crate::diagnostic_engine::count_close_wait_sockets();
+    if count >= CLOSE_WAIT_ALERT_COUNT {
+        Some(PredictiveAlert {
+            alert_type: PredAlertType::CloseWaitExhaustion,
+            severity: if count >= CLOSE_WAIT_ALERT_COUNT * 2 {
+                AlertSeverity::Critical
+            } else {
+                AlertSeverity::Warning
+            },
+            message: format!(
+                "PRED-07: {} CLOSE_WAIT sockets on :8090 (threshold: {}) — port exhaustion risk",
+                count, CLOSE_WAIT_ALERT_COUNT
+            ),
+            metric_value: count as f64,
+            threshold: CLOSE_WAIT_ALERT_COUNT as f64,
+        })
+    } else {
+        None
+    }
+}
+
+/// PRED-08: MiMo SRE method — orphan PowerShell processes from self-restart.
+/// self_monitor::relaunch_self() uses PowerShell+DETACHED_PROCESS which leaks
+/// ~90MB per restart. Normal = 0-1 PowerShell. >3 = leak detected.
+fn check_orphan_powershell() -> Option<PredictiveAlert> {
+    let count = crate::diagnostic_engine::count_orphan_powershell();
+    if count >= ORPHAN_POWERSHELL_ALERT_COUNT {
+        let ram_mb = count as f64 * 90.0;
+        Some(PredictiveAlert {
+            alert_type: PredAlertType::OrphanPowerShell,
+            severity: if count >= 8 {
+                AlertSeverity::Critical
+            } else {
+                AlertSeverity::Warning
+            },
+            message: format!(
+                "PRED-08: {} orphan PowerShell processes (~{:.0}MB leaked) — self-restart leak",
+                count, ram_mb
+            ),
+            metric_value: count as f64,
+            threshold: ORPHAN_POWERSHELL_ALERT_COUNT as f64,
+        })
+    } else {
+        None
+    }
+}
+
+/// PRED-09: R1 Reasoner method — MAINTENANCE_MODE sentinel stuck with no TTL.
+/// Absence-based bug: once written, MAINTENANCE_MODE blocks ALL restarts permanently.
+/// If it's been present for >30 minutes, it's likely stuck (not a transient crash storm).
+fn check_maintenance_mode_stuck() -> Option<PredictiveAlert> {
+    let age_secs = crate::diagnostic_engine::check_maintenance_mode_age()?;
+    if age_secs >= MAINTENANCE_MODE_AGE_ALERT_SECS {
+        let hours = age_secs as f64 / 3600.0;
+        Some(PredictiveAlert {
+            alert_type: PredAlertType::MaintenanceModeStuck,
+            severity: if age_secs >= 7200 {
+                AlertSeverity::Critical // >2 hours = definitely stuck
+            } else {
+                AlertSeverity::Warning
+            },
+            message: format!(
+                "PRED-09: MAINTENANCE_MODE stuck for {:.1}h (threshold: {}min) — pod permanently blocked",
+                hours, MAINTENANCE_MODE_AGE_ALERT_SECS / 60
+            ),
+            metric_value: age_secs as f64,
+            threshold: MAINTENANCE_MODE_AGE_ALERT_SECS as f64,
+        })
+    } else {
+        None
     }
 }
 

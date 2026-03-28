@@ -45,8 +45,8 @@ const DEDUP_WINDOW_SECS: u64 = 300; // 5 minutes
 
 /// Tier 3 estimated cost for budget pre-check
 const TIER3_ESTIMATED_COST: f64 = 0.10;
-/// Tier 4 estimated cost for budget pre-check
-const TIER4_ESTIMATED_COST: f64 = 3.50;
+/// Tier 4 estimated cost for budget pre-check (5 models: Qwen3+R1+V3+MiMo+Gemini)
+const TIER4_ESTIMATED_COST: f64 = 4.30;
 
 /// Result of a single tier's attempt to resolve an anomaly.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -424,10 +424,29 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
                 }
             }
         }
+        DiagnosticTrigger::GameLaunchFail => {
+            // Game Doctor: specialized 12-point diagnostic for game launch failures.
+            // This is revenue-critical — every failed launch costs billing time.
+            tracing::info!(target: LOG_TARGET, "Tier 1: invoking Game Doctor for launch failure");
+            let diagnosis = crate::game_doctor::diagnose_and_fix();
+            if diagnosis.fixed {
+                actions_taken.push(format!("Game Doctor: {}", diagnosis.detail));
+            } else if let Some(fix) = &diagnosis.fix_applied {
+                // Partial fix — some issues resolved but others remain
+                actions_taken.push(format!("Game Doctor (partial): fixes={}, remaining={}", fix, diagnosis.detail));
+            } else {
+                // No fix possible at Tier 1 — log cause for model tiers
+                tracing::info!(
+                    target: LOG_TARGET,
+                    cause = ?diagnosis.cause,
+                    "Game Doctor: no deterministic fix — escalating. Detail: {}",
+                    diagnosis.detail
+                );
+            }
+        }
         DiagnosticTrigger::Periodic
         | DiagnosticTrigger::WsDisconnect { .. }
         | DiagnosticTrigger::HealthCheckFail
-        | DiagnosticTrigger::GameLaunchFail
         | DiagnosticTrigger::DisplayMismatch { .. }
         | DiagnosticTrigger::ErrorSpike { .. }
         | DiagnosticTrigger::ViolationSpike { .. } => {}
@@ -697,6 +716,7 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                     updated_at: event.timestamp.clone(),
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
+                    diagnosis_method: Some("scanner_enumeration".to_string()),
                 };
                 let _ = kb.store_solution(&solution);
             }
@@ -734,7 +754,7 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
         &format!("build_id={}", event.build_id),
     );
 
-    tracing::info!(target: LOG_TARGET, tier = 4u8, "Tier 4: 4-model parallel (~$3)");
+    tracing::info!(target: LOG_TARGET, tier = 4u8, "Tier 4: 5-model parallel (~$4)");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -772,12 +792,13 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
                     updated_at: event.timestamp.clone(),
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
+                    diagnosis_method: Some("consensus_5model".to_string()),
                 };
                 let _ = kb.store_solution(&solution);
             }
             return TierResult::Fixed {
                 tier: 4,
-                action: format!("4-model (${:.2}): {}", total_cost, consensus.root_cause),
+                action: format!("5-model (${:.2}): {}", total_cost, consensus.root_cause),
             };
         }
     }

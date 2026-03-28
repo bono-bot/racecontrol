@@ -17,6 +17,12 @@
 //!   - sentinel_unexpected: unexpected sentinel file present (not RCAGENT_SELF_RESTART or OTA_DEPLOYING)
 //!   - violation_spike: process guard violation_count delta >50 in 5 min
 //!   - periodic: scheduled 5-minute scan (always runs)
+//!
+//! MMA-trained detection methods (v26.1):
+//!   MiMo SRE: CLOSE_WAIT socket accumulation on :8090 (port exhaustion)
+//!   MiMo SRE: Orphan PowerShell processes (memory leak from self-restart)
+//!   R1 Reasoner: Self-heartbeat logging (meta-monitoring — is the diagnostic engine itself alive?)
+//!   Gemini Security: Sentinel file age check (MAINTENANCE_MODE stuck with no TTL)
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -330,4 +336,81 @@ fn count_recent_violation_lines() -> u64 {
         }
         Err(_) => 0,
     }
+}
+
+// ─── MMA-Trained Detection Methods ────────────────────────────────────────────
+// These detection functions were learned from Multi-Model Audit analysis.
+// Each method comes from a specific model's diagnostic methodology:
+
+/// MiMo SRE method: Count CLOSE_WAIT sockets on port 8090.
+/// TCP port exhaustion from accumulated stale connections is a silent killer.
+/// MMA finding: "CLOSE_WAIT accumulation on :8090 causes rc-agent to stop
+/// accepting connections — health checks pass but new clients can't connect."
+/// Returns the count of CLOSE_WAIT sockets (0 = healthy).
+pub fn count_close_wait_sockets() -> u64 {
+    let output = std::process::Command::new("netstat")
+        .args(["-n", "-p", "tcp"])
+        .output();
+    match output {
+        Ok(o) => {
+            let text = String::from_utf8_lossy(&o.stdout);
+            text.lines()
+                .filter(|l| l.contains(":8090") && l.contains("CLOSE_WAIT"))
+                .count() as u64
+        }
+        Err(_) => 0,
+    }
+}
+
+/// MiMo SRE method: Count orphan PowerShell processes.
+/// Self-restart via PowerShell+DETACHED_PROCESS leaks ~90MB per restart.
+/// MMA finding: "Orphan PowerShell processes from relaunch_self() accumulate
+/// unbounded — 15 orphans = 1.35GB wasted RAM, degrades game performance."
+/// Returns count of powershell.exe processes (0-1 is normal, >3 is a leak).
+pub fn count_orphan_powershell() -> u32 {
+    use sysinfo::{System, ProcessesToUpdate};
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, false);
+    sys.processes()
+        .values()
+        .filter(|p| {
+            let name = p.name().to_string_lossy().to_lowercase();
+            name == "powershell.exe"
+        })
+        .count() as u32
+}
+
+/// R1 Reasoner method: Check MAINTENANCE_MODE sentinel age.
+/// Absence-based bug: MAINTENANCE_MODE has no TTL — pod stuck forever.
+/// MMA finding: "MAINTENANCE_MODE sentinel written after 3 restarts in 10 min,
+/// but no timeout, no auto-clear, no alert. Pod permanently dead."
+/// Returns Some(age_secs) if MAINTENANCE_MODE exists, None if absent.
+pub fn check_maintenance_mode_age() -> Option<u64> {
+    let path = std::path::Path::new(r"C:\RacingPoint\MAINTENANCE_MODE");
+    if !path.exists() {
+        return None;
+    }
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.elapsed().ok())
+        .map(|d| d.as_secs())
+}
+
+/// Gemini Security method: Check for multiple recovery systems running simultaneously.
+/// MMA finding: "rc-sentry, RCWatchdog, and pod_monitor can all fire restart commands
+/// at the same time — creates port conflicts, crash loop, MAINTENANCE_MODE."
+/// Returns count of active recovery processes (0-1 normal, >1 = cascade risk).
+pub fn count_recovery_processes() -> u32 {
+    use sysinfo::{System, ProcessesToUpdate};
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, false);
+    let recovery_names = ["rc-sentry.exe", "rc-watchdog.exe"];
+    sys.processes()
+        .values()
+        .filter(|p| {
+            let name = p.name().to_string_lossy().to_lowercase();
+            recovery_names.iter().any(|r| name == *r)
+        })
+        .count() as u32
 }

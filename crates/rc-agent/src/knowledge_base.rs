@@ -7,6 +7,13 @@
 //! Phase 230, Plan 01: Schema + open + normalize_problem_key + fingerprint_env
 //! Phase 230, Plan 02: Confidence scoring + TTL + tier_engine wiring
 //!
+//! MMA-trained additions (v26.1):
+//!   - `diagnosis_method` column: tracks which MMA methodology found the solution
+//!     (e.g., "scanner_enumeration", "reasoner_absence", "sre_stuck_state",
+//!      "code_expert_session0", "security_checklist", "consensus_5model")
+//!   - This enables the KB to recommend diagnostic approaches for similar future problems
+//!   - Solutions with methodology data help the fleet learn not just WHAT to fix but HOW to diagnose
+//!
 //! Standing rules: no .unwrap() in production code, lifecycle logging for background tasks.
 
 use rusqlite::{params, Connection};
@@ -40,6 +47,12 @@ pub struct Solution {
     pub version: i64,
     pub ttl_days: i64,
     pub tags: Option<String>,
+    /// MMA diagnostic methodology that found this solution.
+    /// Values: "scanner_enumeration", "reasoner_absence", "sre_stuck_state",
+    /// "code_expert_session0", "security_checklist", "consensus_5model",
+    /// "deterministic", "fleet_gossip", or model-specific role names.
+    /// Enables the fleet to learn not just WHAT to fix but HOW to diagnose.
+    pub diagnosis_method: Option<String>,
 }
 
 /// A row from the experiments table.
@@ -121,8 +134,27 @@ impl KnowledgeBase {
             CREATE INDEX IF NOT EXISTS idx_solutions_hash ON solutions(problem_hash);
             CREATE INDEX IF NOT EXISTS idx_solutions_key ON solutions(problem_key);
             CREATE INDEX IF NOT EXISTS idx_experiments_key ON experiments(problem_key);
+
+            -- MMA v26.1: Track diagnostic methodology that found each solution
+            -- ALTER TABLE is a no-op if column already exists (SQLite returns error, we ignore)
         ",
         )?;
+
+        // Add diagnosis_method column if missing (idempotent migration)
+        let has_column: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('solutions') WHERE name='diagnosis_method'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0) > 0;
+
+        if !has_column {
+            self.conn.execute_batch(
+                "ALTER TABLE solutions ADD COLUMN diagnosis_method TEXT;"
+            ).ok(); // Ignore error if column already exists
+        }
+
         tracing::debug!(target: LOG_TARGET, "Migrations complete");
         Ok(())
     }
@@ -146,12 +178,12 @@ impl KnowledgeBase {
                 id, problem_key, problem_hash, symptoms, environment,
                 root_cause, fix_action, fix_type, success_count, fail_count,
                 confidence, cost_to_diagnose, models_used, source_node,
-                created_at, updated_at, version, ttl_days, tags
+                created_at, updated_at, version, ttl_days, tags, diagnosis_method
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5,
                 ?6, ?7, ?8, ?9, ?10,
                 ?11, ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19
+                ?15, ?16, ?17, ?18, ?19, ?20
             )",
             params![
                 solution.id,
@@ -173,6 +205,7 @@ impl KnowledgeBase {
                 solution.version,
                 solution.ttl_days,
                 solution.tags,
+                solution.diagnosis_method,
             ],
         )?;
         tracing::debug!(
@@ -193,7 +226,7 @@ impl KnowledgeBase {
             "SELECT id, problem_key, problem_hash, symptoms, environment,
                     root_cause, fix_action, fix_type, success_count, fail_count,
                     confidence, cost_to_diagnose, models_used, source_node,
-                    created_at, updated_at, version, ttl_days, tags
+                    created_at, updated_at, version, ttl_days, tags, diagnosis_method
              FROM solutions
              WHERE problem_hash = ?1
                AND confidence >= ?2
@@ -222,6 +255,7 @@ impl KnowledgeBase {
                 version: row.get(16)?,
                 ttl_days: row.get(17)?,
                 tags: row.get(18)?,
+                diagnosis_method: row.get(19)?,
             })
         });
 
@@ -440,6 +474,7 @@ mod tests {
             version: 1,
             ttl_days: 90,
             tags: None,
+            diagnosis_method: None,
         }
     }
 

@@ -16,6 +16,7 @@ mod driving_detector;
 mod failure_monitor;
 mod ffb_controller;
 mod firewall;
+mod game_doctor;
 mod game_process;
 mod knowledge_base;
 mod kiosk;

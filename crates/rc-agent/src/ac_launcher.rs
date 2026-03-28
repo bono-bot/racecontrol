@@ -1923,6 +1923,7 @@ mod tests {
 
     #[test]
     fn test_ai_driver_names_pool_size() {
+        use rc_common::ai_names::AI_DRIVER_NAMES;
         assert!(
             AI_DRIVER_NAMES.len() >= 50,
             "AI_DRIVER_NAMES must have at least 50 names, got {}",

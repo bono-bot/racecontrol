@@ -380,6 +380,36 @@ pub async fn handle_ws_message(
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
 
+                // Game Doctor: pre-launch validation — catch config problems BEFORE 90s timeout.
+                // Validates: AC installed, car exists, track exists, track config exists, Steam running.
+                // Fails fast with specific error instead of waiting 90s and killing everything.
+                let pre_validate_args = launch_args.clone();
+                if let Some(ref args_str) = pre_validate_args {
+                    // Quick parse to extract car/track for validation (before full params parse)
+                    if let Ok(quick_params) = serde_json::from_str::<serde_json::Value>(args_str) {
+                        let car = quick_params.get("car").and_then(|v| v.as_str()).unwrap_or("");
+                        let track = quick_params.get("track").and_then(|v| v.as_str()).unwrap_or("");
+                        let track_config = quick_params.get("track_config").and_then(|v| v.as_str()).unwrap_or("");
+                        if let Err(validation_error) = crate::game_doctor::pre_launch_validate(car, track, track_config) {
+                            tracing::error!(target: LOG_TARGET, "Game Doctor pre-launch FAIL: {}", validation_error);
+                            let error_info = GameLaunchInfo {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: launch_sim,
+                                game_state: GameState::Error,
+                                pid: None,
+                                launched_at: Some(Utc::now()),
+                                error_message: Some(format!("Pre-launch validation: {}", validation_error)),
+                                diagnostics: None,
+                                exit_code: None,
+                            };
+                            if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                            }
+                            return Ok(HandleResult::Continue);
+                        }
+                    }
+                }
+
                 let params: ac_launcher::AcLaunchParams = match &launch_args {
                     Some(args) => serde_json::from_str(args).unwrap_or_else(|e| {
                         tracing::warn!(target: LOG_TARGET, "Failed to parse AC launch_args, using defaults (car=ks_ferrari_sf15t, track=spa): {}", e);

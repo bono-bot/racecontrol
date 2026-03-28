@@ -121,6 +121,7 @@ fn handle_solution_broadcast(
         version: 1,
         ttl_days: 90,
         tags: Some(format!("[\"fleet\", \"{}\"]", promotion_status)),
+        diagnosis_method: Some("fleet_gossip".to_string()),
     };
 
     if let Err(e) = kb.store_solution(&solution) {
@@ -298,6 +299,7 @@ mod tests {
             version: 1,
             ttl_days: 90,
             tags: None,
+            diagnosis_method: Some("consensus_5model".to_string()),
         };
 
         let msg = build_solution_announce(&sol, "abc123");
