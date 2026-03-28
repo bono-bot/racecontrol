@@ -35,7 +35,7 @@
   4. Any billing session with no agent heartbeat for 5+ minutes is automatically flagged and staff is alerted within the next detection cycle
 **Plans:** 2 plans
 Plans:
-- [ ] 251-01-PLAN.md — WAL verification, schema migration (elapsed_seconds + last_timer_sync_at), staggered 60s timer persistence
+- [x] 251-01-PLAN.md — WAL verification, schema migration (elapsed_seconds + last_timer_sync_at), staggered 60s timer persistence
 - [ ] 251-02-PLAN.md — Orphaned session detection on startup and background 5-minute job with WhatsApp alerting
 
 ### Phase 252: Financial Atomicity Core

@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v27.0
-milestone_name: Workflow Integrity & Compliance Hardening
-status: roadmap_ready
-stopped_at: null
-last_updated: "2026-03-29T00:00:00.000Z"
-last_activity: 2026-03-29
+milestone: v26.1
+milestone_name: Meshed Intelligence
+status: executing
+last_updated: "2026-03-28T19:06:09.222Z"
+last_activity: 2026-03-28
 progress:
-  total_phases: 10
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 205
+  completed_phases: 147
+  total_plans: 355
+  completed_plans: 349
+  percent: 98
 ---
 
 ## Current Position
 
-Phase: 251 — Database Foundation (not started)
-Plan: —
-Status: Roadmap ready, awaiting plan-phase
-Last activity: 2026-03-29 — Roadmap created for v27.0 (10 phases, 83 requirements)
+Phase: 251 (database-foundation) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 251 (251-01 COMPLETE, 251-02 pending)
+Last activity: 2026-03-28 -- 251-01 completed (WAL verification + timer persistence)
 
-Progress: [░░░░░░░░░░] 0% (0/10 phases)
+Progress: [██████████] 98% (349/355 plans)
 
 ## Project Reference
 
@@ -47,7 +46,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 
 | # | Phase | Requirements | Status |
 |---|-------|-------------|--------|
-| 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Not started |
+| 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Plan 01 DONE, Plan 02 pending |
 | 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | Not started |
 | 253 | State Machine Hardening | FSM-01–08 | Not started |
 | 254 | Security Hardening | SEC-01–10 | Not started |
@@ -57,6 +56,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | 258 | Staff Controls & Deployment Safety | STAFF-01–05, DEPLOY-01–05 | Not started |
 | 259 | Coupon & Discount System | FATM-07–11 | Not started |
 | 260 | Notifications, Resilience & UX | UX-01–08, RESIL-04–08 | Not started |
+| Phase 251-database-foundation P01 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -84,16 +84,26 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - Mobile native app
 - Full i18n/l10n
 
+## Decisions (Phase 251)
+
+- WAL verification uses fail-fast bail! at init_pool — server refuses to start if WAL mode fails (RESIL-01)
+- Two coexisting billing sync loops: 5s for dashboard driving_seconds, 60s staggered for crash-recovery elapsed_seconds (RESIL-02, FSM-09)
+- Stagger formula (N*7)%60 spreads 8 pods across 56 distinct seconds with no collisions
+- COALESCE(elapsed_seconds, driving_seconds) recovery ensures old sessions recover correctly
+
 ## Session Continuity
 
-Next action: `/gsd:plan-phase 251` — Database Foundation
-- RESIL-01: SQLite WAL mode + busy_timeout
-- RESIL-02: Staggered timer writes by pod index
-- FSM-09: Billing timer persisted every 60s
-- FSM-10: Orphaned session detection on startup
-- RESIL-03: Orphaned session background job (5-min interval)
+Stopped at: Completed 251-01-PLAN.md
+Next action: Execute 251-02-PLAN.md (Orphaned session detection — FSM-10, RESIL-03)
+
+- RESIL-01: DONE (WAL mode verification — 08acee0c)
+- RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
+- FSM-09: DONE (Billing timer persisted every 60s — 6babdd40)
+- FSM-10: Orphaned session detection on startup — Plan 02
+- RESIL-03: Orphaned session background job (5-min interval) — Plan 02
 
 Ship gate reminder (Unified Protocol v3.1):
+
 1. Quality Gate: `cd comms-link && COMMS_PSK="..." bash test/run-all.sh`
 2. E2E: live exec + chain + health round-trip (REALTIME mode)
 3. Standing Rules: auto-push, Bono synced, watchdog, rules categorized
