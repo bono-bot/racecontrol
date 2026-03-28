@@ -159,6 +159,72 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
     }
 }
 
+/// FSM-08: Transition to the next split for a pod's active billing session.
+///
+/// Persists the split transition to DB BEFORE any new launch command is issued.
+/// This is the ordering guarantee that prevents orphaned launches (FSM-08).
+///
+/// Steps:
+/// 1. Complete current split + activate next in DB (via transition_split CAS)
+/// 2. Verify the new active split record exists in DB
+/// 3. Update in-memory billing timer's current_split_number
+///
+/// Returns Ok(next_split_number) if transition succeeded and next split is ready for launch.
+/// Returns Err("All splits completed") if there are no more splits (caller should end session).
+/// Returns Err(...) if DB CAS fails (concurrent transition guard).
+pub async fn transition_to_next_split(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    parent_session_id: &str,
+    current_split: i64,
+) -> Result<i64, String> {
+    // Step 1: Complete current split and activate next in DB
+    let next_split = crate::billing::transition_split(&state.db, parent_session_id, current_split).await?;
+
+    let next_number = match next_split {
+        Some(n) => n,
+        None => {
+            tracing::info!(
+                "FSM-08: All splits completed for session {} on pod {}",
+                parent_session_id, pod_id
+            );
+            return Err("All splits completed — session should end".to_string());
+        }
+    };
+
+    // Step 2: Verify the new active split record exists in DB (DB-before-launch invariant)
+    let verified = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM split_sessions \
+         WHERE parent_session_id = ? AND split_number = ? AND status = 'active'",
+    )
+    .bind(parent_session_id)
+    .bind(next_number)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| format!("FSM-08: DB verification query failed: {}", e))?;
+
+    if verified != 1 {
+        return Err(format!(
+            "FSM-08: Split {} for session {} not persisted as active after transition — aborting launch",
+            next_number, parent_session_id
+        ));
+    }
+
+    // Step 3: Update in-memory billing timer's current_split_number
+    {
+        let mut timers = state.billing.active_timers.write().await;
+        if let Some(timer) = timers.get_mut(pod_id) {
+            timer.current_split_number = next_number as u32;
+        }
+    }
+
+    tracing::info!(
+        "FSM-08: Split {} persisted and verified as active — ready for launch on pod {}",
+        next_number, pod_id
+    );
+    Ok(next_number)
+}
+
 async fn launch_game(
     state: &Arc<AppState>,
     pod_id: &str,
@@ -222,6 +288,49 @@ async fn launch_game(
                 tracing::warn!("Launch rejected for pod {}: billing session is paused ({:?})", pod_id, timer.status);
                 return Err(format!("Pod {} billing session is paused", pod_id));
             }
+        }
+    }
+
+    // FSM-08: DB-before-launch guard for split sessions.
+    // For split 2+ launches, the split record MUST be persisted as 'active' in
+    // split_sessions before any launch command is sent to the agent.
+    // This prevents orphaned launches with no billing record.
+    {
+        let (is_split, session_id, split_number) = {
+            let timers = state.billing.active_timers.read().await;
+            if let Some(timer) = timers.get(pod_id) {
+                let is_multi = timer.split_count > 1 && timer.current_split_number > 1;
+                (is_multi, timer.session_id.clone(), timer.current_split_number)
+            } else {
+                (false, String::new(), 0)
+            }
+        };
+
+        if is_split {
+            let split_exists = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM split_sessions \
+                 WHERE parent_session_id = ? AND split_number = ? AND status = 'active'",
+            )
+            .bind(&session_id)
+            .bind(split_number as i64)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+
+            if split_exists != 1 {
+                tracing::error!(
+                    "FSM-08: Rejecting launch for pod {} — split {} for session {} is not persisted as active in DB (split_exists={})",
+                    pod_id, split_number, session_id, split_exists
+                );
+                return Err(format!(
+                    "FSM-08: Cannot launch split {} on pod {} — not persisted in DB (orphaned launch prevention)",
+                    split_number, pod_id
+                ));
+            }
+            tracing::info!(
+                "FSM-08: Split {} for session {} verified as active in DB — proceeding with launch on pod {}",
+                split_number, session_id, pod_id
+            );
         }
     }
 
