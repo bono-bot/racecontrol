@@ -144,8 +144,15 @@ async fn require_service_key(
 ) -> Result<axum::response::Response, StatusCode> {
     let expected = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
 
-    // Permissive mode: no key configured = allow all
+    // MMA-P1: Log warning when running without service key (was silently permissive).
+    // Still allows requests through for safe rollout, but now LOUDLY warns on every request.
     if expected.is_empty() {
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            tracing::error!(target: LOG_TARGET,
+                "SECURITY: RCAGENT_SERVICE_KEY is not set! All protected endpoints are UNAUTHENTICATED. \
+                 Set RCAGENT_SERVICE_KEY env var to enforce auth.");
+        }
         return Ok(next.run(req).await);
     }
 
@@ -241,7 +248,8 @@ pub fn start(port: u16) {
                             "Port {} busy (attempt {}/10): {} — retrying in 3s",
                             port, attempt, e
                         );
-                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        // MMA-P2: Use async sleep to avoid blocking the tokio worker thread
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     }
                 }
             }
@@ -349,7 +357,8 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
                             "Port {} busy (attempt {}/10): {} — retrying in 3s",
                             port, attempt, e
                         );
-                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        // MMA-P2: Use async sleep to avoid blocking the tokio worker thread
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     }
                 }
             }
@@ -473,6 +482,70 @@ struct SystemInfo {
 
 // ─── File Operations ────────────────────────────────────────────────────────
 
+/// MMA-P1: Allowed base directories for file operations.
+/// All file read/write/list operations are restricted to these paths.
+const ALLOWED_FILE_ROOTS: &[&str] = &[
+    r"C:\RacingPoint",
+    r"C:\Users\User\AppData\Local\AC2",
+    r"C:\Users\User\Documents\Assetto Corsa",
+    r"C:\Users\User\Documents\My Games",
+    r"C:\Program Files (x86)\Steam\steamapps\common",
+];
+
+/// MMA-P1: Validate that a requested path is under an allowed root directory.
+/// Prevents path traversal attacks including \\?\ prefix bypass, ..\, and forward slashes.
+///
+/// MMA-Iter2: Sonnet Think found that \\?\ prefix bypasses string-based validation.
+/// Fix: canonicalize BOTH the input and root before comparing, which resolves all
+/// symlinks, ./.., \\?\, forward slashes, and case differences on Windows.
+fn validate_file_path(requested: &str) -> Result<std::path::PathBuf, (StatusCode, String)> {
+    // Reject obviously malicious patterns before any filesystem access
+    let normalized = requested.replace('/', "\\");
+    if normalized.contains("..") {
+        return Err((StatusCode::FORBIDDEN, "Path traversal not allowed".into()));
+    }
+
+    // Reject \\?\ and \\. extended-length path prefixes (kernel bypass)
+    if normalized.starts_with("\\\\?\\") || normalized.starts_with("\\\\.\\") {
+        return Err((StatusCode::FORBIDDEN, "Extended-length paths not allowed".into()));
+    }
+
+    let path = std::path::PathBuf::from(requested);
+
+    // For existing paths: canonicalize resolves all symlinks, .., \\?\, case
+    // For non-existing paths: canonicalize the parent and validate
+    let canonical = if path.exists() {
+        std::fs::canonicalize(&path)
+            .map_err(|e| (StatusCode::FORBIDDEN, format!("Cannot resolve path: {}", e)))?
+    } else if let Some(parent) = path.parent() {
+        if parent.exists() {
+            let canon_parent = std::fs::canonicalize(parent)
+                .map_err(|e| (StatusCode::FORBIDDEN, format!("Cannot resolve parent: {}", e)))?;
+            canon_parent.join(path.file_name().unwrap_or_default())
+        } else {
+            return Err((StatusCode::NOT_FOUND, "Parent directory does not exist".into()));
+        }
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
+    };
+
+    // Strip \\?\ prefix that canonicalize() adds on Windows
+    let canonical_str = canonical.to_string_lossy().replace("\\\\?\\", "");
+
+    // Check canonicalized path against allowed roots (case-insensitive)
+    let is_allowed = ALLOWED_FILE_ROOTS.iter().any(|root| {
+        canonical_str.to_lowercase().starts_with(&root.to_lowercase())
+    });
+
+    if !is_allowed {
+        return Err((StatusCode::FORBIDDEN, format!(
+            "Path not in allowed directories. Resolved: {}", canonical_str
+        )));
+    }
+
+    Ok(path)
+}
+
 #[derive(Deserialize)]
 struct PathQuery {
     path: String,
@@ -487,7 +560,8 @@ struct FileEntry {
 }
 
 async fn list_files(Query(q): Query<PathQuery>) -> Result<Json<Vec<FileEntry>>, (StatusCode, String)> {
-    let path = PathBuf::from(&q.path);
+    // MMA-P1: Validate path is under allowed roots to prevent path traversal
+    let path = validate_file_path(&q.path)?;
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, format!("Path not found: {}", q.path)));
     }
@@ -520,7 +594,8 @@ async fn list_files(Query(q): Query<PathQuery>) -> Result<Json<Vec<FileEntry>>, 
 }
 
 async fn read_file(Query(q): Query<PathQuery>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = PathBuf::from(&q.path);
+    // MMA-P1: Validate path is under allowed roots to prevent path traversal
+    let path = validate_file_path(&q.path)?;
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, format!("File not found: {}", q.path)));
     }
@@ -619,7 +694,8 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
     // If relaunch_self() returns (spawn failed), we return HTTP 500.
     if req.cmd.trim() == "RCAGENT_SELF_RESTART" {
         // Safety gate: reject restart during active billing to avoid disrupting customer sessions
-        if BILLING_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        // MMA-Iter2: Use Acquire ordering to ensure we see the latest store from WS handler
+        if BILLING_ACTIVE.load(std::sync::atomic::Ordering::Acquire) {
             tracing::warn!(target: LOG_TARGET, "RCAGENT_SELF_RESTART rejected — billing session active");
             return Err((StatusCode::CONFLICT, Json(ExecResponse {
                 success: false,
@@ -642,8 +718,11 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
     if req.detached {
         let mut cmd = Command::new("cmd");
         cmd.args(["/C", &req.cmd]).kill_on_drop(false);
+        // MMA-P2: Use only DETACHED_PROCESS (not combined with CREATE_NO_WINDOW).
+        // CREATE_NO_WINDOW is silently ignored when combined with DETACHED_PROCESS.
+        // DETACHED_PROCESS alone is sufficient for fire-and-forget spawning.
         #[cfg(windows)]
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+        cmd.creation_flags(DETACHED_PROCESS);
         return match cmd.spawn() {
             Ok(_) => Ok(Json(ExecResponse {
                 success: true,
@@ -658,6 +737,70 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
                 stderr: format!("Failed to spawn detached: {}", e),
             }))),
         };
+    }
+
+    // MMA-P1: Command injection prevention — validate command against allowlist.
+    // Only whitelisted command prefixes are allowed through cmd /C.
+    // This prevents arbitrary command chaining via &, |, ;, etc.
+    const ALLOWED_CMD_PREFIXES: &[&str] = &[
+        "curl", "curl.exe",
+        "tasklist", "tasklist.exe",
+        "taskkill", "taskkill.exe",
+        "ping", "ping.exe",
+        "ipconfig", "ipconfig.exe",
+        "netstat", "netstat.exe",
+        "wmic", "wmic.exe",
+        "schtasks", "schtasks.exe",
+        "dir", "type", "echo", "hostname",
+        "powercfg", "powercfg.exe",
+        "reg", "reg.exe",
+        "sc", "sc.exe",
+        "net", "net.exe",
+        "systeminfo", "systeminfo.exe",
+        "del", "ren", "copy", "move", "mkdir",
+        "shutdown", "shutdown.exe",
+    ];
+
+    // Extract the first token (command name) and check against allowlist
+    let cmd_trimmed = req.cmd.trim();
+    let first_token = cmd_trimmed.split_whitespace().next().unwrap_or("");
+    let first_token_lower = first_token.to_lowercase();
+    let is_allowed = ALLOWED_CMD_PREFIXES.iter().any(|prefix| {
+        first_token_lower == *prefix
+        || first_token_lower.ends_with(&format!("\\{}", prefix))
+    });
+
+    // MMA-Iter3: Reject ALL shell metacharacters that enable command chaining.
+    // Previous version allowed & with ">nul &" pattern — DeepSeek V3 showed this is exploitable
+    // via "ping -n 1 127.0.0.1 >nul & malicious_command" (first token passes "ping" check).
+    // Now: ZERO tolerance for any metacharacter.
+    let has_dangerous_chars = cmd_trimmed.contains('&')
+        || cmd_trimmed.contains('|')
+        || cmd_trimmed.contains('>')
+        || cmd_trimmed.contains('<')
+        || cmd_trimmed.contains('`')
+        || cmd_trimmed.contains("$(")
+        || cmd_trimmed.contains(';')
+        || cmd_trimmed.contains('^');  // cmd.exe escape character
+
+    if !is_allowed {
+        tracing::warn!(target: LOG_TARGET, "EXEC BLOCKED: command '{}' not in allowlist", first_token);
+        return Err((StatusCode::FORBIDDEN, Json(ExecResponse {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("Command '{}' not in allowlist. Allowed: {:?}", first_token, ALLOWED_CMD_PREFIXES),
+        })));
+    }
+
+    if has_dangerous_chars {
+        tracing::warn!(target: LOG_TARGET, "EXEC BLOCKED: shell metacharacters in '{}'", cmd_trimmed);
+        return Err((StatusCode::FORBIDDEN, Json(ExecResponse {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: "Command contains shell metacharacters (&, |, >, <, `, ;, ^). Use individual commands.".to_string(),
+        })));
     }
 
     let timeout_ms = req.timeout_ms.unwrap_or(DEFAULT_EXEC_TIMEOUT_MS);
@@ -710,7 +853,8 @@ struct MkdirRequest {
 }
 
 async fn make_dir(Json(req): Json<MkdirRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let path = PathBuf::from(&req.path);
+    // MMA-P1: Validate path is under allowed roots to prevent path traversal
+    let path = validate_file_path(&req.path)?;
     match fs::create_dir_all(&path) {
         Ok(_) => Ok(Json(serde_json::json!({"status": "created", "path": req.path}))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create directory: {}", e))),
@@ -724,7 +868,8 @@ struct WriteRequest {
 }
 
 async fn write_file(Json(req): Json<WriteRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let path = PathBuf::from(&req.path);
+    // MMA-P1: Validate path is under allowed roots to prevent path traversal
+    let path = validate_file_path(&req.path)?;
 
     if let Some(parent) = path.parent() {
         if !parent.exists() {
@@ -734,13 +879,27 @@ async fn write_file(Json(req): Json<WriteRequest>) -> Result<Json<serde_json::Va
         }
     }
 
-    match fs::write(&path, &req.content) {
-        Ok(_) => Ok(Json(serde_json::json!({
-            "status": "written",
-            "path": req.path,
-            "bytes": req.content.len()
-        }))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))),
+    // MMA-P2: Write to temp file then rename for atomicity and to avoid
+    // share-lock conflicts with games/overlays that may hold the target open.
+    let tmp_path = path.with_extension("tmp.mma");
+    match fs::write(&tmp_path, &req.content) {
+        Ok(_) => {
+            // Attempt atomic rename; fall back to direct write if rename fails
+            if fs::rename(&tmp_path, &path).is_err() {
+                // Rename may fail cross-volume; fall back to copy+delete
+                if let Err(e) = fs::copy(&tmp_path, &path) {
+                    let _ = fs::remove_file(&tmp_path);
+                    return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e)));
+                }
+                let _ = fs::remove_file(&tmp_path);
+            }
+            Ok(Json(serde_json::json!({
+                "status": "written",
+                "path": req.path,
+                "bytes": req.content.len()
+            })))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write temp file: {}", e))),
     }
 }
 

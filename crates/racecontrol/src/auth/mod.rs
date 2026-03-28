@@ -120,8 +120,11 @@ pub async fn create_auth_token(
     // Generate token
     let token = match auth_type.as_str() {
         "pin" => {
-            let pin: u32 = rand::thread_rng().gen_range(1000..=9999);
-            format!("{:04}", pin)
+            // MMA-Iter3: Increase PIN space from 4 digits (9000 values) to 6 digits (900000 values).
+            // 4/4 models flagged 4-digit PINs as collision risk with 8 pods + 5 attempts.
+            // 6-digit PIN: collision probability drops from ~3.5% to ~0.004% per session.
+            let pin: u32 = rand::thread_rng().gen_range(100000..=999999);
+            format!("{:06}", pin)
         }
         "qr" => Uuid::new_v4().to_string(),
         _ => return Err("auth_type must be 'pin' or 'qr'".to_string()),

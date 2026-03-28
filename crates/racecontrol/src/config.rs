@@ -262,6 +262,11 @@ pub struct AuthConfig {
     pub evolution_url: Option<String>,
     pub evolution_api_key: Option<String>,
     pub evolution_instance: Option<String>,
+    /// MMA-P3: Previous JWT secret for rotation grace period.
+    /// When rotating jwt_secret, set this to the OLD secret so existing tokens
+    /// remain valid until they expire naturally. Remove after 24h.
+    #[serde(default)]
+    pub jwt_secret_previous: Option<String>,
     /// Argon2id hash of the admin PIN. When set, enables the admin login endpoint.
     /// Set via config file or RACECONTROL_ADMIN_PIN_HASH env var.
     #[serde(default)]
@@ -272,6 +277,7 @@ impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             jwt_secret: default_jwt_secret(),
+            jwt_secret_previous: None,
             pin_expiry_secs: default_pin_expiry(),
             otp_expiry_secs: default_otp_expiry(),
             evolution_url: None,

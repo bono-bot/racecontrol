@@ -226,6 +226,31 @@ async fn main() -> Result<()> {
         handle // held until process exits → mutex released automatically
     };
 
+    // MMA-P2: Detect Session 0 (non-interactive) at startup.
+    // GUI operations (Edge, game launch, overlay, SetForegroundWindow) silently fail in Session 0.
+    // Warn loudly so operators know why "the agent isn't working."
+    #[cfg(windows)]
+    {
+        let mut session_id: u32 = 0;
+        let pid = unsafe { winapi::um::processthreadsapi::GetCurrentProcessId() };
+        let ok = unsafe { winapi::um::processthreadsapi::ProcessIdToSessionId(pid, &mut session_id) };
+        if ok != 0 && session_id == 0 {
+            eprintln!("WARNING: rc-agent is running in Session 0 (non-interactive/services). \
+                       GUI features (lock screen, game launch, overlay) WILL NOT WORK. \
+                       rc-agent must run in Session 1 via HKLM Run key or RCWatchdog service.");
+            // Log to file since tracing isn't initialized yet
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r"C:\RacingPoint\rc-bot-events.log")
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    writeln!(f, "[{}] [SESSION-0-WARNING] rc-agent started in Session 0 — GUI disabled!",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
+                });
+        }
+    }
+
     // Compute log directory (exe dir) — needed for cleanup and later tracing init
     let log_dir = std::env::current_exe()
         .ok()

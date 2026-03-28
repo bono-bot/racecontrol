@@ -43,11 +43,27 @@ fn extract_staff_claims<B>(state: &Arc<AppState>, req: &Request<B>) -> Result<St
     let token = auth_header.strip_prefix("Bearer ").ok_or(())?;
 
     let secret = &state.config.auth.jwt_secret;
+
+    // MMA-P3: Try current secret first, then previous secret for rotation grace period.
+    // This prevents instant staff lockout when jwt_secret changes in config.
     let data = jsonwebtoken::decode::<StaffClaims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
     )
+    .or_else(|_| {
+        // Fall back to previous secret if configured
+        if let Some(ref prev_secret) = state.config.auth.jwt_secret_previous {
+            if !prev_secret.is_empty() {
+                return jsonwebtoken::decode::<StaffClaims>(
+                    token,
+                    &DecodingKey::from_secret(prev_secret.as_bytes()),
+                    &Validation::default(),
+                );
+            }
+        }
+        Err(jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken))
+    })
     .map_err(|_| ())?;
 
     // Verify the role is "staff"

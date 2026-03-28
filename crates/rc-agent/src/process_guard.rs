@@ -163,6 +163,14 @@ pub fn spawn(
                     "EMPTY_ALLOWLIST: process_guard enabled with empty allowlist — auto-switching to report_only to prevent mass kills"
                 );
                 crate::startup_log::write_phase("EMPTY_ALLOWLIST", "process_guard enabled with empty allowlist, auto-switched to report_only");
+                // MMA-P2: Log to tracing at ERROR level so it appears in rc-bot-events.log
+                // and is visible to fleet auto-detect scripts
+                tracing::error!(
+                    target: "diagnostic",
+                    trigger = "EmptyAllowlist",
+                    action = "auto_switch_report_only",
+                    "PROCESS_GUARD_DEGRADED: Empty allowlist at boot — auto-switched to report_only. Guard is NOT enforcing."
+                );
                 // Write the override directly into the shared whitelist so all scan paths see it
                 wl.violation_action = "report_only".to_string();
             }
@@ -492,7 +500,15 @@ async fn kill_process_verified(pid: u32, expected_name: String, expected_start_t
 /// - Any process named "rc-agent.exe" is excluded (primary guard for the agent itself)
 /// - own_pid and parent_pid guards are applied inline in run_scan_cycle for clarity
 pub(crate) fn is_self_excluded(_own_pid: u32, _parent_pid: u32, name: &str) -> bool {
-    name == "rc-agent.exe"
+    // MMA-Iter3: Also exempt hash-based binary names (rc-agent-<hash>.exe) and
+    // rc-sentry variants. During deploy, the new binary runs as rc-agent-<hash>.exe
+    // before start-rcagent.bat renames it to rc-agent.exe.
+    let lower = name.to_lowercase();
+    lower == "rc-agent.exe"
+        || lower.starts_with("rc-agent-")
+        || lower == "rc-sentry.exe"
+        || lower.starts_with("rc-sentry-")
+        || lower == "rc-watchdog.exe"
 }
 
 /// Returns true if a process name is in the whitelist (case-insensitive).

@@ -1354,7 +1354,8 @@ pub async fn run(
                             tracing::error!(target: LOG_TARGET, "Relaunch attempt 2 timed out (60s) — auto-ending session (crash_limit)");
                             state.overlay.show_toast("Session ending".to_string());
                             conn.crash_recovery = CrashRecoveryState::AutoEndPending;
-                            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
+                            crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
                             if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                 let end_msg = AgentMessage::SessionAutoEnded {
                                     pod_id: state.pod_id.clone(),

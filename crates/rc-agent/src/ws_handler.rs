@@ -208,7 +208,10 @@ pub async fn handle_ws_message(
             }
 
             // --- All code below only runs on Pass (or preflight disabled) ---
-            state.heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
+            state.heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Release);
+            // MMA-Iter2: Also update the static BILLING_ACTIVE flag used by remote_ops
+            // exec_command's RCAGENT_SELF_RESTART guard. Without this, the guard was dead code.
+            crate::remote_ops::BILLING_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
             conn.blank_timer_armed = false;
             let billing_session_id_clone = billing_session_id.clone();
             let _ = state.failure_monitor_tx.send_modify(|s| {
@@ -241,7 +244,8 @@ pub async fn handle_ws_message(
 
         CoreToAgentMessage::BillingStopped { billing_session_id } => {
             tracing::info!(target: LOG_TARGET, "Billing stopped: {}", billing_session_id);
-            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
+            crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
             state.overlay.deactivate();
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
@@ -266,7 +270,8 @@ pub async fn handle_ws_message(
             billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
         } => {
             tracing::info!(target: LOG_TARGET, "Session ended: {} -- {} laps, best: {:?}, {}s", billing_session_id, total_laps, best_lap_ms, driving_seconds);
-            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
+            crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
             conn.crash_recovery = CrashRecoveryState::Idle;
             state.overlay.deactivate();
             state.last_ac_status = None;

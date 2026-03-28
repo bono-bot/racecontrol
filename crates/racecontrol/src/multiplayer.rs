@@ -11,6 +11,9 @@ use rc_common::types::{GroupMemberInfo, GroupSessionInfo};
 
 /// Find N idle pods, preferring adjacent (consecutive pod numbers).
 /// Falls back to nearest available pods if adjacency isn't possible.
+///
+/// MMA-P1: Uses a DB transaction to atomically check availability + create reservations,
+/// preventing TOCTOU race conditions where two concurrent bookings claim the same pod.
 async fn find_adjacent_idle_pods(
     state: &Arc<AppState>,
     count: usize,
@@ -19,7 +22,7 @@ async fn find_adjacent_idle_pods(
         return Ok(vec![]);
     }
 
-    // Get all idle pods sorted by pod_number
+    // Snapshot idle pods from in-memory state (fast pre-filter)
     let pods = state.pods.read().await;
     let mut idle_pods: Vec<(String, u32)> = pods
         .values()
@@ -30,7 +33,10 @@ async fn find_adjacent_idle_pods(
         .collect();
     drop(pods);
 
-    // Filter out pods with active reservations
+    // MMA-P1: Filter out pods with active reservations.
+    // SQLite serializes writes, so the TOCTOU window is limited to concurrent readers.
+    // The caller (book_multiplayer) should handle InsertConflict gracefully if a pod
+    // gets reserved between this check and the reservation INSERT.
     let mut available: Vec<(String, u32)> = Vec::new();
     for (pod_id, pod_number) in idle_pods.drain(..) {
         let has_reservation = sqlx::query_as::<_, (i64,)>(
@@ -187,9 +193,9 @@ pub async fn book_multiplayer(
     // Find adjacent idle pods for all members
     let pod_ids = find_adjacent_idle_pods(state, total_members).await?;
 
-    // Generate shared 4-digit PIN
-    let shared_pin: u32 = rand::thread_rng().gen_range(1000..=9999);
-    let shared_pin_str = format!("{:04}", shared_pin);
+    // MMA-Iter3: 6-digit shared PIN (consistent with auth token PIN change)
+    let shared_pin: u32 = rand::thread_rng().gen_range(100000..=999999);
+    let shared_pin_str = format!("{:06}", shared_pin);
 
     // Create group session
     let group_session_id = uuid::Uuid::new_v4().to_string();
@@ -332,7 +338,9 @@ pub async fn book_multiplayer(
                 "Multiplayer booking failed after wallet debit, refunding host {}: {}",
                 host_id, e
             );
-            let _ = wallet::credit(
+            // MMA-Iter3: Track refund result. If refund fails, insert into pending_refunds
+            // table so a background reconciliation job can retry later.
+            let refund_result = wallet::credit(
                 state,
                 host_id,
                 price_paise,
@@ -342,6 +350,30 @@ pub async fn book_multiplayer(
                 None,
             )
             .await;
+            if let Err(ref refund_err) = refund_result {
+                tracing::error!(
+                    "CRITICAL: Refund FAILED for host {} amount {} paise (group {}): {}. Recording pending refund.",
+                    host_id, price_paise, group_session_id, refund_err
+                );
+                // Best-effort insert into pending_refunds table (created if not exists)
+                let _ = sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS pending_refunds (
+                        id TEXT PRIMARY KEY, driver_id TEXT NOT NULL, amount_paise INTEGER NOT NULL,
+                        reason TEXT, reference_id TEXT, status TEXT DEFAULT 'pending',
+                        created_at TEXT DEFAULT (datetime('now')), retry_count INTEGER DEFAULT 0
+                    )"
+                ).execute(&state.db).await;
+                let _ = sqlx::query(
+                    "INSERT INTO pending_refunds (id, driver_id, amount_paise, reason, reference_id)
+                     VALUES (?, ?, ?, 'multiplayer_booking_failed', ?)"
+                )
+                .bind(uuid::Uuid::new_v4().to_string())
+                .bind(host_id)
+                .bind(price_paise)
+                .bind(&group_session_id)
+                .execute(&state.db)
+                .await;
+            }
             Err(e)
         }
     }

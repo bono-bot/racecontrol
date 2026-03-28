@@ -539,18 +539,28 @@ async fn main() -> anyhow::Result<()> {
     billing::refresh_rate_tiers(&state).await;
 
     // Spawn billing tick loop (1 second interval, refresh rates every 60s)
+    // MMA-Iter3: Wrap in restart loop so panics don't silently kill billing
     let tick_state = state.clone();
     tokio::spawn(async move {
         tracing::info!("billing-tick task started (1s interval)");
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        let mut refresh_counter: u32 = 0;
         loop {
-            interval.tick().await;
-            billing::tick_all_timers(&tick_state).await;
-            refresh_counter += 1;
-            if refresh_counter >= 60 {
-                refresh_counter = 0;
-                billing::refresh_rate_tiers(&tick_state).await;
+            let state = tick_state.clone();
+            let handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                let mut refresh_counter: u32 = 0;
+                loop {
+                    interval.tick().await;
+                    billing::tick_all_timers(&state).await;
+                    refresh_counter += 1;
+                    if refresh_counter >= 60 {
+                        refresh_counter = 0;
+                        billing::refresh_rate_tiers(&state).await;
+                    }
+                }
+            });
+            if let Err(e) = handle.await {
+                tracing::error!("CRITICAL: billing-tick task panicked: {:?} — restarting in 1s", e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
     });
