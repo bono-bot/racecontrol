@@ -990,3 +990,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-28 19:30 IST | James | e527e315 | feat(254-03): SEC-05 self-topup block (Option<Extension<StaffClaims>>, cashier/manager blocked) + SEC-10 game launch mutex (Arc<tokio::sync::Mutex> in AppState) |
 | 2026-03-28 19:35 IST | James | 9d378350 | feat(254-03): SEC-07 WSS TLS — connect_with_tls_config(), native-tls connector, tls_ca_cert_path/tls_skip_verify in CoreConfig, native-tls = 0.2 direct dep |
 | 2026-03-28 19:40 IST | James | b5694798 | docs(254-03): 254-03-SUMMARY.md, Phase 254 COMPLETE (3/3 plans), SEC-05/07/10 done in REQUIREMENTS.md |
+| 2026-03-29 04:57 IST | James | 6791a153 | feat(255-01): LEGAL-01/02 — post_session_debit_gst() 3-line GST journal entry, invoices table, invoice_sequence, generate_invoice() |
+| 2026-03-29 05:00 IST | James | 6e395bca | feat(255-01): LEGAL-02/07 — GET /billing/sessions/{id}/invoice, GET /customer/sessions/{id}/invoice, pricing_display adds refund_policy/pricing_policy/gst_note |
+| 2026-03-29 05:05 IST | James | d24508bc | docs(255-01): 255-01-SUMMARY.md, LEGAL-01/02/07 complete in REQUIREMENTS.md |
