@@ -1072,6 +1072,9 @@ async fn main() -> Result<()> {
         guard_violation_tx,
         guard_violation_rx,
         guard_confirmed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        // SEC-10: Mutex serializing LaunchGame and clean_state_reset.
+        // Lives in AppState to survive WS reconnections (mutex state must persist across reconnects).
+        game_launch_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────

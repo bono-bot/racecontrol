@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use crate::safe_mode;
 use crate::config::AgentConfig;
 use crate::feature_flags::FeatureFlags;
@@ -100,6 +100,11 @@ pub struct AppState {
     /// When false, process guard stays in report_only even if configured for kill_and_report.
     /// Set to true via GUARD_CONFIRMED fleet exec command.
     pub(crate) guard_confirmed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// SEC-10: Mutex serializing LaunchGame + clean_state_reset.
+    /// Ensures clean_state_reset (5+ second blocking operation) completes before
+    /// a second LaunchGame command can proceed. Prevents race: game launched while
+    /// old processes are still being killed, leaving two game instances competing.
+    pub(crate) game_launch_mutex: Arc<Mutex<()>>,
 }
 
 impl AppState {

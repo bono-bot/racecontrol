@@ -301,6 +301,14 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean } => {
+            // SEC-10: Acquire game launch mutex before any launch-related work.
+            // This serializes concurrent LaunchGame commands and ensures clean_state_reset
+            // (a spawn_blocking call that can take 5+ seconds) completes before a second
+            // LaunchGame proceeds. Without this, two concurrent launches can both pass the
+            // force_clean step, spawning two game instances that fight over resources.
+            let _game_launch_guard = state.game_launch_mutex.lock().await;
+            tracing::debug!(target: LOG_TARGET, "SEC-10: game_launch_mutex acquired");
+
             // RECOVER-01: Race Engineer requested clean state reset before relaunch
             if force_clean {
                 let killed = tokio::task::spawn_blocking(crate::game_process::clean_state_reset).await.unwrap_or(0);

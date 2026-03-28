@@ -18132,3 +18132,156 @@ async fn reconciliation_run(State(state): State<Arc<AppState>>) -> Json<serde_js
     billing::run_reconciliation_public(&state).await;
     Json(billing::get_reconciliation_status())
 }
+
+// ─── SEC-05: Self-topup guard tests ──────────────────────────────────────────
+
+#[cfg(test)]
+mod self_topup_tests {
+    use super::*;
+    use axum::extract::{Path, State};
+    use axum::Extension;
+    use std::sync::Arc;
+    use crate::auth::middleware::StaffClaims;
+
+    /// Create a minimal in-memory AppState for testing wallet handlers.
+    async fn make_test_state() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS drivers \
+             (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, phone TEXT, \
+              name_enc TEXT, email_enc TEXT, phone_enc TEXT, nickname TEXT, \
+              total_laps INTEGER DEFAULT 0, total_time_ms INTEGER DEFAULT 0, \
+              created_at TEXT DEFAULT (datetime('now')), updated_at TEXT)",
+        ).execute(&db).await.expect("create drivers");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallets \
+             (driver_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0)",
+        ).execute(&db).await.expect("create wallets");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallet_transactions \
+             (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL, type TEXT, \
+              amount_paise INTEGER, balance_after_paise INTEGER, \
+              notes TEXT, staff_id TEXT, idempotency_key TEXT, \
+              created_at TEXT DEFAULT (datetime('now')))",
+        ).execute(&db).await.expect("create wallet_transactions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS bonus_tiers \
+             (id TEXT PRIMARY KEY, min_amount_paise INTEGER, bonus_percent INTEGER, \
+              is_active INTEGER DEFAULT 1)",
+        ).execute(&db).await.expect("create bonus_tiers");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS audit_log \
+             (id TEXT PRIMARY KEY, action TEXT, actor TEXT, details TEXT, \
+              created_at TEXT DEFAULT (datetime('now')))",
+        ).execute(&db).await.expect("create audit_log");
+
+        // Insert a test driver with wallet
+        sqlx::query("INSERT INTO drivers (id, name) VALUES ('driver-001', 'Test Driver')")
+            .execute(&db).await.expect("insert driver");
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES ('driver-001', 10000)")
+            .execute(&db).await.expect("insert wallet");
+
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
+    }
+
+    fn make_claims(sub: &str, role: &str) -> Option<Extension<StaffClaims>> {
+        Some(Extension(StaffClaims {
+            sub: sub.to_string(),
+            role: role.to_string(),
+            exp: 9999999999,
+            iat: 0,
+        }))
+    }
+
+    fn make_topup_req(amount: i64) -> TopupRequest {
+        TopupRequest {
+            amount_paise: amount,
+            method: "cash".to_string(),
+            notes: None,
+            staff_id: None,
+            idempotency_key: None,
+        }
+    }
+
+    // SEC-05: cashier cannot top up their own wallet
+    #[tokio::test]
+    async fn self_topup_blocked_for_cashier() {
+        let state = make_test_state().await;
+        let result = topup_wallet(
+            State(state),
+            Path("driver-001".to_string()),
+            make_claims("driver-001", "cashier"),
+            Json(make_topup_req(1000)),
+        ).await;
+        let body = result.0;
+        assert_eq!(
+            body["error"].as_str(),
+            Some("Staff cannot top up their own wallet. Contact a superadmin."),
+            "cashier self-topup should be blocked"
+        );
+    }
+
+    // SEC-05: manager cannot top up their own wallet
+    #[tokio::test]
+    async fn self_topup_blocked_for_manager() {
+        let state = make_test_state().await;
+        let result = topup_wallet(
+            State(state),
+            Path("driver-001".to_string()),
+            make_claims("driver-001", "manager"),
+            Json(make_topup_req(1000)),
+        ).await;
+        let body = result.0;
+        assert_eq!(
+            body["error"].as_str(),
+            Some("Staff cannot top up their own wallet. Contact a superadmin."),
+            "manager self-topup should be blocked"
+        );
+    }
+
+    // SEC-05: superadmin is allowed to top up their own wallet
+    #[tokio::test]
+    async fn self_topup_allowed_for_superadmin() {
+        let state = make_test_state().await;
+        let result = topup_wallet(
+            State(state),
+            Path("driver-001".to_string()),
+            make_claims("driver-001", "superadmin"),
+            Json(make_topup_req(1000)),
+        ).await;
+        let body = result.0;
+        assert!(
+            body.get("error").is_none()
+                || body["error"].as_str() != Some("Staff cannot top up their own wallet. Contact a superadmin."),
+            "superadmin self-topup should be allowed, got: {:?}", body
+        );
+    }
+
+    // SEC-05: cashier can top up a DIFFERENT driver's wallet
+    #[tokio::test]
+    async fn cross_topup_allowed_for_cashier() {
+        let state = make_test_state().await;
+        // cashier "staff-abc" tops up "driver-001" — different IDs, should proceed
+        let result = topup_wallet(
+            State(state),
+            Path("driver-001".to_string()),
+            make_claims("staff-abc", "cashier"),
+            Json(make_topup_req(1000)),
+        ).await;
+        let body = result.0;
+        assert!(
+            body["error"].as_str() != Some("Staff cannot top up their own wallet. Contact a superadmin."),
+            "cashier topping up a different driver should be allowed"
+        );
+    }
+}
