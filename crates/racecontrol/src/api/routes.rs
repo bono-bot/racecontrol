@@ -83,13 +83,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
         .route("/debug/db-stats", get(debug_db_stats))
-        // Debug page GET endpoints — read-only operational data for kiosk debug UI.
-        // POST endpoints (create incident, diagnose, apply-fix) remain behind auth.
-        .route("/debug/activity", get(debug_activity))
-        .route("/debug/playbooks", get(debug_playbooks))
-        .route("/debug/incidents", get(list_debug_incidents))
-        // v27.0: Proxy pod diagnostic events for kiosk debug page
-        .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
+        // MMA-P1: Debug endpoints moved to staff_routes (below) to prevent information
+        // disclosure. Kiosk debug UI must use staff JWT to access these endpoints.
+        // Previously public: /debug/activity, /debug/playbooks, /debug/incidents, /debug/pod-events
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -254,6 +250,11 @@ fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// dashboard, kiosk, and bots send staff JWTs.
 fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
+        // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
+        .route("/debug/activity", get(debug_activity))
+        .route("/debug/playbooks", get(debug_playbooks))
+        .route("/debug/incidents", get(list_debug_incidents))
+        .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
         .route("/pod-status-summary", get(pod_status_summary))
@@ -858,8 +859,14 @@ async fn set_pod_screen(
 ) -> Json<Value> {
     let blank = body.get("blank").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let agent_senders = state.agent_senders.read().await;
-    match agent_senders.get(&id) {
+    // MMA-P1: Clone sender out of read lock, drop guard BEFORE .await
+    // Prevents deadlock/starvation when holding RwLock across async boundaries
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&id).cloned()
+    }; // read lock dropped here
+
+    match sender {
         Some(sender) => {
             let msg = if blank {
                 CoreToAgentMessage::BlankScreen
@@ -983,13 +990,14 @@ async fn lockdown_pod(
         return Json(json!({ "error": "pod has active billing session" }));
     }
 
-    let senders = state.agent_senders.read().await;
-    let Some(sender) = senders.get(&id) else {
-        return Json(json!({ "error": "pod not connected" }));
+    // MMA-P2: Clone sender, drop lock before .await
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        match senders.get(&id) {
+            Some(s) if !s.is_closed() => s.clone(),
+            _ => return Json(json!({ "error": "pod not connected" })),
+        }
     };
-    if sender.is_closed() {
-        return Json(json!({ "error": "pod not connected" }));
-    }
 
     let mut settings = std::collections::HashMap::new();
     settings.insert(
@@ -1013,20 +1021,32 @@ async fn lockdown_all_pods(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    let active_timers = state.billing.active_timers.read().await;
-    let senders = state.agent_senders.read().await;
-    let mut results = Vec::new();
+    // MMA-P2: Snapshot senders + billing state, drop locks before .await loop
+    let send_targets: Vec<(String, _)> = {
+        let active_timers = state.billing.active_timers.read().await;
+        let senders = state.agent_senders.read().await;
+        senders.iter()
+            .filter(|(_, s)| !s.is_closed())
+            .filter(|(pod_id, _)| !locked || !active_timers.contains_key(*pod_id))
+            .map(|(pod_id, sender)| (pod_id.clone(), sender.clone()))
+            .collect()
+    }; // locks dropped here
 
-    for (pod_id, sender) in senders.iter() {
-        if sender.is_closed() {
-            results.push(json!({ "pod_id": pod_id, "status": "not_connected" }));
-            continue;
+    let mut results = Vec::new();
+    // Collect skipped pods info
+    {
+        let active_timers = state.billing.active_timers.read().await;
+        let senders = state.agent_senders.read().await;
+        for (pod_id, sender) in senders.iter() {
+            if sender.is_closed() {
+                results.push(json!({ "pod_id": pod_id, "status": "not_connected" }));
+            } else if locked && active_timers.contains_key(pod_id) {
+                results.push(json!({ "pod_id": pod_id, "status": "skipped_billing_active" }));
+            }
         }
-        // Skip pods with active billing if locking
-        if locked && active_timers.contains_key(pod_id) {
-            results.push(json!({ "pod_id": pod_id, "status": "skipped_billing_active" }));
-            continue;
-        }
+    }
+
+    for (pod_id, sender) in &send_targets {
         let mut settings = std::collections::HashMap::new();
         settings.insert(
             "kiosk_lockdown_enabled".to_string(),
@@ -1536,7 +1556,15 @@ async fn list_drivers(
     Query(params): Query<ListDriversQuery>,
 ) -> Json<Value> {
     let rows = if let Some(ref search) = params.search {
-        let q = format!("%{}%", search);
+        // MMA-P2: Escape LIKE wildcards and limit length to prevent enumeration + DoS
+        let sanitized: String = search.chars()
+            .filter(|c| !matches!(c, '%' | '_'))
+            .take(50)
+            .collect();
+        if sanitized.is_empty() {
+            return Json(json!({ "error": "Search query too short or invalid" }));
+        }
+        let q = format!("%{}%", sanitized);
         sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>)>(
             "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
                     COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at
@@ -6580,8 +6608,135 @@ struct RefundRequest {
 async fn refund_wallet(
     State(state): State<Arc<AppState>>,
     Path(driver_id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
     Json(req): Json<RefundRequest>,
 ) -> Json<Value> {
+    // MMA-203: Extract staff_id from JWT for audit trail (POS-05)
+    let staff_id = claims.map(|c| c.0.sub.clone());
+
+    // MMA-203: Validate refund amount bounds
+    if req.amount_paise <= 0 {
+        return Json(json!({ "error": "Refund amount must be positive" }));
+    }
+    const MAX_MANUAL_REFUND_PAISE: i64 = 500_000; // ₹5,000 cap for manual wallet refunds
+    if req.amount_paise > MAX_MANUAL_REFUND_PAISE {
+        return Json(json!({ "error": format!("Refund exceeds maximum allowed (₹{})", MAX_MANUAL_REFUND_PAISE / 100) }));
+    }
+
+    // R2-3: Without reference_id, apply a stricter cap to prevent abuse
+    if req.reference_id.is_none() && req.amount_paise > 50_000 {
+        // ₹500 cap for unreferenced manual refunds (goodwill gestures)
+        return Json(json!({ "error": "Refunds above ₹500 require a billing session reference_id" }));
+    }
+
+    // MMA-203: If reference_id is provided, validate it maps to a real billing session
+    if let Some(ref ref_id) = req.reference_id {
+        let session = sqlx::query_as::<_, (String, String, Option<i64>)>(
+            "SELECT id, driver_id, custom_price_paise FROM billing_sessions WHERE id = ?"
+        )
+        .bind(ref_id)
+        .fetch_optional(&state.db)
+        .await;
+
+        match session {
+            Ok(Some((_, session_driver_id, _))) => {
+                // Verify the refund is for the correct driver
+                if session_driver_id != driver_id {
+                    return Json(json!({ "error": "Billing session does not belong to this driver" }));
+                }
+            }
+            Ok(None) => {
+                return Json(json!({ "error": "Referenced billing session not found" }));
+            }
+            Err(e) => {
+                return Json(json!({ "error": format!("DB error validating reference: {}", e) }));
+            }
+        }
+
+        // R3-4: Atomic refund check+credit in a single DB transaction to prevent TOCTOU race.
+        // Check BOTH wallet_transactions AND refunds tables, then credit atomically.
+        let mut conn = match state.db.acquire().await {
+            Ok(c) => c,
+            Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+        };
+        let mut tx = match sqlx::Acquire::begin(&mut *conn).await {
+            Ok(t) => t,
+            Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+        };
+
+        let already_refunded_wallet = sqlx::query_as::<_, (i64,)>(
+            "SELECT COALESCE(SUM(amount_paise), 0) FROM wallet_transactions \
+             WHERE reference_id = ? AND txn_type IN ('refund_manual', 'refund_session')"
+        )
+        .bind(ref_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
+
+        let already_refunded_billing = sqlx::query_as::<_, (i64,)>(
+            "SELECT COALESCE(SUM(amount_paise), 0) FROM refunds WHERE billing_session_id = ?"
+        )
+        .bind(ref_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
+
+        let total_refunded = already_refunded_wallet + already_refunded_billing;
+        if total_refunded > 0 {
+            tracing::warn!(
+                "Duplicate refund attempt: driver={}, reference_id={}, already_refunded={}p (wallet={}p, billing={}p), requested={}p",
+                driver_id, ref_id, total_refunded, already_refunded_wallet, already_refunded_billing, req.amount_paise
+            );
+            // tx rolls back on drop
+            return Json(json!({ "error": format!("Reference already refunded ({}p already credited)", total_refunded) }));
+        }
+
+        // Perform the credit within the same transaction
+        wallet::ensure_wallet(&state, &driver_id).await.ok();
+        let txn_id = uuid::Uuid::new_v4().to_string();
+
+        if let Err(e) = sqlx::query(
+            "UPDATE wallets SET balance_paise = balance_paise + ?, total_credited_paise = total_credited_paise + ?, updated_at = datetime('now') WHERE driver_id = ?"
+        )
+        .bind(req.amount_paise)
+        .bind(req.amount_paise)
+        .bind(&driver_id)
+        .execute(&mut *tx)
+        .await {
+            return Json(json!({ "error": format!("DB error: {}", e) }));
+        }
+
+        if let Err(e) = sqlx::query(
+            "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id) \
+             VALUES (?, ?, ?, (SELECT balance_paise FROM wallets WHERE driver_id = ?), 'refund_manual', ?, ?, ?)"
+        )
+        .bind(&txn_id)
+        .bind(&driver_id)
+        .bind(req.amount_paise)
+        .bind(&driver_id)
+        .bind(ref_id.as_str())
+        .bind(req.notes.as_deref())
+        .bind(staff_id.as_deref())
+        .execute(&mut *tx)
+        .await {
+            return Json(json!({ "error": format!("DB error: {}", e) }));
+        }
+
+        if let Err(e) = tx.commit().await {
+            return Json(json!({ "error": format!("DB commit error: {}", e) }));
+        }
+
+        // Get new balance after commit
+        let new_balance = wallet::get_balance(&state, &driver_id).await.unwrap_or(0);
+        return Json(json!({
+            "status": "ok",
+            "new_balance_paise": new_balance,
+        }));
+    }
+
+    // Non-referenced refund path (no reference_id)
     match wallet::credit(
         &state,
         &driver_id,
@@ -6589,7 +6744,7 @@ async fn refund_wallet(
         "refund_manual",
         req.reference_id.as_deref(),
         req.notes.as_deref(),
-        None,
+        staff_id.as_deref(),
     )
     .await
     {

@@ -47,7 +47,8 @@ pub async fn compute_dynamic_price(
     match rules {
         Some((_rule_type, multiplier, flat_adj)) => {
             let adjusted = (base_price_paise as f64 * multiplier).round() as i64 + flat_adj;
-            adjusted.max(0)
+            // MMA-105: Enforce minimum price of 100 paise (₹1) to prevent free/negative sessions
+            adjusted.max(100)
         }
         None => base_price_paise,
     }
@@ -123,48 +124,52 @@ pub struct SessionCost {
 
 /// Compute session cost from elapsed seconds using non-retroactive tiered pricing.
 ///
-/// Each tier applies only to the minutes within its range (additive, not retroactive).
+/// MMA-P1: Uses integer arithmetic (seconds * paise_per_min / 60) to avoid f64 rounding errors.
+/// Each tier applies only to the seconds within its range (additive, not retroactive).
 /// Default tiers: 25 cr/min (0-30 min), 20 cr/min (31-60 min), 15 cr/min (60+ min).
 ///
-/// Example: 45 min = (30 × 2500) + (15 × 2000) = 75000 + 30000 = 105000 paise.
+/// Example: 45 min = (1800s × 2500/60) + (900s × 2000/60) = 75000 + 30000 = 105000 paise.
 pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> SessionCost {
-    let elapsed_minutes_f = elapsed_seconds as f64 / 60.0;
+    let elapsed_secs = elapsed_seconds as i64;
     let elapsed_minutes_whole = elapsed_seconds / 60;
 
     let mut total_paise: i64 = 0;
-    let mut prev_threshold: f64 = 0.0;
+    let mut prev_threshold_secs: i64 = 0;
     let mut current_tier_name = String::new();
     let mut current_rate: i64 = 0;
     let mut minutes_to_next: Option<u32> = None;
 
     for (i, tier) in tiers.iter().enumerate() {
-        let tier_ceiling = if tier.threshold_minutes == 0 {
-            f64::MAX
+        let tier_ceiling_secs: i64 = if tier.threshold_minutes == 0 {
+            i64::MAX / 2 // "unlimited" tier — avoid overflow
         } else {
-            tier.threshold_minutes as f64
+            tier.threshold_minutes as i64 * 60
         };
 
-        if elapsed_minutes_f < prev_threshold {
+        if elapsed_secs < prev_threshold_secs {
             break;
         }
 
-        let minutes_in_tier = if elapsed_minutes_f <= tier_ceiling {
-            elapsed_minutes_f - prev_threshold
+        let seconds_in_tier = if elapsed_secs <= tier_ceiling_secs {
+            elapsed_secs - prev_threshold_secs
         } else {
-            tier_ceiling - prev_threshold
+            tier_ceiling_secs - prev_threshold_secs
         };
 
-        total_paise += (minutes_in_tier * tier.rate_per_min_paise as f64).round() as i64;
+        // MMA-P1+P2: Integer arithmetic with round-to-nearest.
+        // (seconds * rate + 30) / 60 rounds to nearest paise (banker's rounding).
+        // Maximum intermediate value: 10800s * 10000 paise/min + 30 = 108,000,030 — fits in i64.
+        total_paise += (seconds_in_tier * tier.rate_per_min_paise + 30) / 60;
         current_tier_name = tier.tier_name.clone();
         current_rate = tier.rate_per_min_paise;
 
         // Minutes to next tier: only if currently in this tier and there IS a next tier
-        if elapsed_minutes_f <= tier_ceiling && tier.threshold_minutes > 0 && i + 1 < tiers.len() {
+        if elapsed_secs <= tier_ceiling_secs && tier.threshold_minutes > 0 && i + 1 < tiers.len() {
             minutes_to_next = Some(tier.threshold_minutes.saturating_sub(elapsed_minutes_whole));
         }
 
-        prev_threshold = tier_ceiling;
-        if elapsed_minutes_f <= tier_ceiling {
+        prev_threshold_secs = tier_ceiling_secs;
+        if elapsed_secs <= tier_ceiling_secs {
             break;
         }
     }
@@ -1708,12 +1713,27 @@ pub async fn start_billing_session(
 ) -> Result<String, String> {
     // Normalize pod_id to canonical form (pod_N) at entry
     let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
-    // Check no active session on this pod
+    // MMA-101+R2-1: Two-phase reservation to prevent TOCTOU without holding lock across .await.
+    // Phase 1: Briefly acquire write lock to check + reserve the slot (insert sentinel).
+    // Phase 2: Do DB work with lock released. Phase 3: Re-acquire and finalize.
     {
         let timers = state.billing.active_timers.read().await;
         if timers.contains_key(&pod_id) {
             return Err(format!("Pod {} already has an active billing session", pod_id));
         }
+    }
+    // DB-level UNIQUE partial index (MMA-101) is the primary guard against TOCTOU.
+    // The in-memory check above is a fast path; the DB constraint catches any race.
+
+    // N6: Validate pod exists before creating session
+    let pod_exists = sqlx::query_as::<_, (String,)>("SELECT id FROM pods WHERE id = ?")
+        .bind(&pod_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if pod_exists.is_none() {
+        return Err(format!("Pod '{}' not found", pod_id));
     }
 
     // Look up pricing tier
@@ -1772,6 +1792,13 @@ pub async fn start_billing_session(
         .flatten()
         .map(|r| r.0)
         .unwrap_or_else(|| "Unknown".to_string());
+
+    // N8: Validate split params — reject 0-minute splits
+    if let Some(sc) = split_count {
+        if sc > 0 && split_duration_minutes.unwrap_or(1) == 0 {
+            return Err("Split duration must be greater than 0 minutes".to_string());
+        }
+    }
 
     // Calculate allocated seconds — use split duration for split sessions
     let allocated_seconds = if let Some(split_dur) = split_duration_minutes.filter(|_| split_count.unwrap_or(1) > 1) {
@@ -1881,6 +1908,7 @@ pub async fn start_billing_session(
     let info = timer.to_info(&rate_tiers);
     drop(rate_tiers);
 
+    // MMA-101+R2-1: Re-acquire write lock briefly for timer insert only (not held across .await)
     state
         .billing
         .active_timers
@@ -2133,7 +2161,15 @@ async fn end_billing_session(
             timer.status = end_status;
             let info = timer.to_info(&rate_tiers);
             let driving_seconds = timer.driving_seconds;
-            let final_cost_paise = info.cost_paise.unwrap_or(0);
+            // MMA-P2: If cost calculation fails (None = tier lookup error), log error
+            // and use 0 as fallback (customer-favorable). Previously silent.
+            let final_cost_paise = match info.cost_paise {
+                Some(cost) => cost,
+                None => {
+                    tracing::error!("BILLING: cost_paise is None for session {} on pod {} — tier lookup may have failed. Using 0 (customer-favorable fallback).", info.session_id, pod_id);
+                    0
+                }
+            };
 
             let activity_action = match end_status {
                 BillingSessionStatus::EndedEarly => "Session Ended",

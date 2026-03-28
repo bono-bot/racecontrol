@@ -1,0 +1,193 @@
+You are a senior software security and integration auditor. Audit the following cross-app workflow code for bugs at P1 (critical/data-loss/security), P2 (functional/correctness), and P3 (reliability/edge-case) severity levels.
+
+## System Architecture
+Racing Point eSports venue management: Rust/Axum server (port 8080) + 3 Next.js frontends (kiosk :3300, web :3200, admin) + 8 pod agents (Rust, :8090 each). Communication: REST API + WebSocket. Database: SQLite (single-writer).
+
+## CODE TO AUDIT (cross-app workflow integration points):
+
+### 1. Billing Session Start (Rust server — billing.rs)
+```rust
+pub async fn start_billing_session(state, pod_id, driver_id, pricing_tier_id,
+    custom_price_paise: Option<u32>, custom_duration_minutes: Option<u32>,
+    staff_id: Option<String>, split_count: Option<u32>, split_duration_minutes: Option<u32>
+) -> Result<String, String> {
+    let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
+    // Two-phase: read check (fast path) + DB UNIQUE constraint (race guard)
+    {
+        let timers = state.billing.active_timers.read().await;
+        if timers.contains_key(&pod_id) {
+            return Err(format!("Pod {} already has an active billing session", pod_id));
+        }
+    }
+    // DB-level UNIQUE partial index is the primary guard against TOCTOU.
+
+    // Look up pricing tier
+    let tier = sqlx::query_as::<_, (String, String, i64, i64, bool)>(
+        "SELECT id, name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1"
+    ).bind(&pricing_tier_id).fetch_optional(&state.db).await;
+    // ... validates tier, checks trial eligibility ...
+
+    // Calculate allocated seconds
+    let allocated_seconds = if let Some(split_dur) = split_duration_minutes.filter(|_| split_count.unwrap_or(1) > 1) {
+        split_dur * 60
+    } else {
+        custom_duration_minutes.map(|m| m * 60).unwrap_or(tier.2 as u32 * 60)
+    };
+
+    // Dynamic pricing (non-trial only)
+    let final_price_paise = if let Some(custom) = custom_price_paise {
+        Some(custom as i64)
+    } else if !is_trial {
+        let dynamic = compute_dynamic_price(state, tier.3).await;
+        // compute_dynamic_price: fetches pricing_rules, applies multiplier+flat_adj, returns adjusted.max(100)
+        if dynamic != tier.3 { Some(dynamic) } else { None }
+    } else { None };
+
+    // DB INSERT
+    sqlx::query("INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id, split_count, split_duration_minutes) VALUES (?,?,?,?,?,'active',?,?,?,?,?)")
+        .bind(&session_id).bind(&driver_id).bind(&pod_id)
+        .bind(&pricing_tier_id).bind(allocated_seconds as i64)
+        .bind(final_price_paise).bind(now.to_rfc3339())
+        .bind(&staff_id).bind(final_split_count as i64)
+        .bind(final_split_duration.map(|d| d as i64))
+        .execute(&state.db).await?;
+
+    // In-memory timer insert (re-acquire write lock briefly)
+    state.billing.active_timers.write().await.insert(pod_id.clone(), timer);
+
+    // Update pod info
+    if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
+        pod.billing_session_id = Some(session_id.clone());
+        pod.current_driver = Some(driver_name.clone());
+        pod.status = PodStatus::InSession;
+    }
+}
+```
+DB UNIQUE constraint: `CREATE UNIQUE INDEX idx_billing_sessions_pod_active ON billing_sessions(pod_id) WHERE status = 'active' OR status = 'pending' OR status = 'waiting_for_game' OR status = 'paused_manual' OR status = 'paused_disconnect' OR status = 'paused_game_pause'`
+
+### 2. Wallet Refund (Rust server — routes.rs)
+```rust
+async fn refund_wallet(state, driver_id, claims: Option<Extension<StaffClaims>>, req: RefundRequest) {
+    let staff_id = claims.map(|c| c.0.sub.clone());
+    if req.amount_paise <= 0 { return error; }
+    if req.amount_paise > 500_000 { return error; } // ₹5000 cap
+    if req.reference_id.is_none() && req.amount_paise > 50_000 { return error; } // ₹500 cap without reference
+
+    if let Some(ref ref_id) = req.reference_id {
+        // Validate reference_id exists in billing_sessions AND belongs to driver
+        // ... validates session exists and driver matches ...
+
+        // ATOMIC: Check+credit in single DB transaction
+        let mut tx = conn.begin().await?;
+        let already_refunded_wallet = sqlx::query_as("SELECT SUM(amount_paise) FROM wallet_transactions WHERE reference_id=? AND txn_type IN ('refund_manual','refund_session')")
+            .fetch_one(&mut *tx).await;
+        let already_refunded_billing = sqlx::query_as("SELECT SUM(amount_paise) FROM refunds WHERE billing_session_id=?")
+            .fetch_one(&mut *tx).await;
+        if total_refunded > 0 { return error("already refunded"); }
+
+        // Credit wallet within same transaction
+        sqlx::query("UPDATE wallets SET balance_paise = balance_paise + ? WHERE driver_id = ?")
+            .execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO wallet_transactions ...")
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+    } else {
+        // Non-referenced: use wallet::credit() directly (₹500 cap enforced above)
+        wallet::credit(&state, &driver_id, req.amount_paise, "refund_manual", None, notes, staff_id).await?;
+    }
+}
+```
+
+### 3. Wallet Debit (Rust server — wallet.rs)
+```rust
+pub async fn debit(state, driver_id, amount_paise, txn_type, reference_id, notes) -> Result<(i64, String)> {
+    let mut tx = conn.begin().await?;
+    // Atomic: UPDATE only if balance sufficient
+    let result = sqlx::query_as("UPDATE wallets SET balance_paise = balance_paise - ?, total_debited_paise = total_debited_paise + ? WHERE driver_id = ? AND balance_paise >= ? RETURNING balance_paise")
+        .bind(amount_paise).bind(amount_paise).bind(driver_id).bind(amount_paise)
+        .fetch_optional(&mut *tx).await?;
+    if result.is_none() { return Err("Insufficient balance"); }
+    // Insert wallet_transaction record
+    // ... commit tx ...
+}
+```
+
+### 4. WebSocket Agent Handler (Rust server — ws/mod.rs)
+```rust
+// Register handler — scoped locks
+AgentMessage::Register(pod_info) => {
+    let canonical_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
+    { state.agent_senders.write().await.insert(canonical_id.clone(), cmd_tx.clone()); }
+    { state.agent_conn_ids.write().await.insert(canonical_id.clone(), conn_id); }
+    { state.pods.write().await.insert(canonical_id.clone(), pod_info.clone()); }
+    // Reconcile game state, resync billing, send kiosk settings...
+}
+
+// Heartbeat handler — merges agent fields with core-managed fields
+AgentMessage::Heartbeat(pod_info) => {
+    let mut pods = state.pods.write().await;
+    if let Some(existing) = pods.get_mut(&pod_info.id) {
+        existing.ip_address = pod_info.ip_address.clone();
+        existing.driving_state = pod_info.driving_state;
+        existing.game_state = pod_info.game_state;
+        // NOTE: Does NOT update billing_session_id, current_driver, status (core-managed)
+    }
+}
+```
+
+### 5. Content ID Validation (Rust agent — ac_launcher.rs)
+```rust
+fn validate_content_id(value: &str, field: &str) -> Result<()> {
+    if value.is_empty() { return Ok(()); }
+    if value.len() > 128 { bail!("too long"); }
+    if !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        bail!("only alphanumeric, hyphen, underscore, dot allowed");
+    }
+    if value.contains("..") { bail!("path traversal rejected"); }
+    Ok(())
+}
+```
+
+### 6. Web Dashboard fetchApi (TypeScript — web/src/lib/api.ts)
+```typescript
+export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+    const token = getToken();
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/api/v1${path}`, { ...options, headers });
+    if (res.status === 401 && typeof window !== "undefined") { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
+    if (!res.ok) { const text = await res.text().catch(() => ""); throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`); }
+    return res.json();
+}
+```
+
+### 7. Kiosk fetchApi (TypeScript — kiosk/src/lib/api.ts)
+```typescript
+export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+    const token = sessionStorage.getItem("kiosk_staff_token");
+    for (let attempt = 0; attempt <= 2; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30_000);
+        try {
+            const res = await fetch(`${API_BASE}/api/v1${path}`, { headers, signal: controller.signal, ...options });
+            if (!res.ok) { throw new Error(`API ${res.status}: ${path}`); }
+            return res.json();
+        } catch (err) {
+            const isNetworkError = err instanceof TypeError || err.name === 'AbortError';
+            if (!isNetworkError || attempt >= 2) break;
+            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+        } finally { clearTimeout(timeoutId); }
+    }
+}
+```
+
+### 8. Shared Types (TypeScript — packages/shared-types)
+- BillingSessionStatus: 10 variants (pending, waiting_for_game, active, paused_manual, paused_disconnect, paused_game_pause, completed, ended_early, cancelled, cancelled_no_playable)
+- Pod: { id, number, status, current_driver?, billing_session_id?, game_state?, installed_games?, screen_blanked? }
+- BillingSession: { id, driver_id, pod_id, allocated_seconds, driving_seconds, remaining_seconds, status, cost_paise?, rate_per_min_paise? }
+- BillingTick (WS event): { pod_id, session_id, status, remaining_seconds, elapsed_seconds }
+
+## INSTRUCTIONS:
+Find ALL bugs — P1 (security, data loss, financial), P2 (correctness, logic), P3 (reliability, edge cases).
+For each: ID, Severity, Category, Location, Description, Impact, Fix.
+Focus on cross-app interactions, NOT single-function issues.

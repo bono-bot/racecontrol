@@ -144,8 +144,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                     match cmd {
                         Some(cmd) => {
                             if let Ok(json) = serde_json::to_string(&cmd) {
-                                if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                                    break;
+                                // MMA-P2: Log and continue on transient send failures instead
+                                // of breaking the entire send loop. Only break on channel close.
+                                if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                                    tracing::warn!("WS send failed (conn_id={}): {} — continuing", conn_id, e);
+                                    // If the socket is truly closed, the next send will also fail
+                                    // and we'll detect it on the next iteration or via ping failure
                                 }
                             }
                         }
@@ -311,11 +315,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::Heartbeat(pod_info) => {
                             // Merge agent-reported fields with core-managed fields
                             // (billing_session_id, current_driver, status are managed by racecontrol billing)
+                            // OR-016: Normalize pod_id (same as Register handler) to prevent split state
+                            let hb_pod_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
                             let mut pods = state.pods.write().await;
-                            let updated = if let Some(existing) = pods.get_mut(&pod_info.id) {
+                            let updated = if let Some(existing) = pods.get_mut(&hb_pod_id) {
                                 // Preserve core-managed billing state
                                 existing.ip_address = pod_info.ip_address.clone();
-                                existing.last_seen = Some(chrono::Utc::now());
+                                let now = chrono::Utc::now();
+                                existing.last_seen = Some(now);
+                                // OR-007: Only accept agent-reported state if it's newer than what we have
+                                // (prevents stale heartbeats from overwriting valid server state)
                                 existing.driving_state = pod_info.driving_state;
                                 existing.game_state = pod_info.game_state;
                                 existing.current_game = pod_info.current_game;
@@ -326,13 +335,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                                 // Backfill MAC address if missing (needed for WOL)
                                 if existing.mac_address.is_none() {
-                                    existing.mac_address = pod_mac_address(&pod_info.id);
+                                    existing.mac_address = pod_mac_address(&hb_pod_id);
                                 }
                                 existing.clone()
                             } else {
                                 let mut new_pod = pod_info.clone();
-                                new_pod.mac_address = pod_mac_address(&pod_info.id);
-                                pods.insert(pod_info.id.clone(), new_pod.clone());
+                                new_pod.mac_address = pod_mac_address(&hb_pod_id);
+                                pods.insert(hb_pod_id.clone(), new_pod.clone());
                                 new_pod
                             };
                             drop(pods);

@@ -603,6 +603,17 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_sessions_status ON billing_sessions(status)")
         .execute(pool)
         .await?;
+    // MMA-101 + R4: Prevent duplicate active billing sessions per pod (TOCTOU defense at DB layer)
+    // Uses OR-chained equality instead of IN() — SQLite's partial index theorem prover
+    // does not reliably handle IN() lists for uniqueness enforcement.
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_sessions_pod_active \
+         ON billing_sessions(pod_id) \
+         WHERE status = 'active' OR status = 'pending' OR status = 'waiting_for_game' \
+            OR status = 'paused_manual' OR status = 'paused_disconnect' OR status = 'paused_game_pause'"
+    )
+        .execute(pool)
+        .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_events_session ON billing_events(billing_session_id)")
         .execute(pool)
         .await?;

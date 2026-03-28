@@ -291,15 +291,21 @@ fn bootstrap_ac_config() -> Result<()> {
 }
 
 /// Validate that a content identifier (car, track, skin) is a safe directory name.
-/// Rejects path traversal (../, absolute paths) and shell metacharacters.
+/// MMA-R3-6: Strict ALLOWLIST — only ASCII alphanumeric, hyphen, underscore, dot allowed.
+/// Replaces denylist approach which missed INI metacharacters ([]=;#) and encoding bypasses.
 fn validate_content_id(value: &str, field: &str) -> Result<()> {
     if value.is_empty() {
         return Ok(()); // Empty is allowed (defaults apply)
     }
-    if value.contains("..") || value.contains('/') || value.contains('\\')
-        || value.starts_with(':') || value.contains('\0')
-    {
-        anyhow::bail!("Invalid {}: path traversal or illegal character rejected (got {:?})", field, value);
+    if value.len() > 128 {
+        anyhow::bail!("Invalid {}: content_id too long ({} chars, max 128)", field, value.len());
+    }
+    if !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        anyhow::bail!("Invalid {}: only alphanumeric, hyphen, underscore, dot allowed (got {:?})", field, value);
+    }
+    // Extra safety: reject path traversal even with allowed chars
+    if value.contains("..") {
+        anyhow::bail!("Invalid {}: path traversal rejected (got {:?})", field, value);
     }
     Ok(())
 }

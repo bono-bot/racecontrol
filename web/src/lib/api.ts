@@ -24,6 +24,12 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     throw new Error("Unauthorized");
   }
 
+  // MMA-702: Check res.ok before parsing JSON — prevents SyntaxError on HTML error pages
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  }
+
   return res.json();
 }
 
@@ -31,6 +37,11 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
 // Used by customer-facing pages (/book) that have no JWT.
 export async function fetchPublic<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`);
+  // MMA-702: Check res.ok before parsing JSON
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  }
   return res.json();
 }
 
