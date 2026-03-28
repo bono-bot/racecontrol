@@ -133,6 +133,26 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/mesh/solutions/{id}", get(mesh_get_solution))
         .route("/mesh/incidents", get(mesh_list_incidents))
         .route("/mesh/stats", get(mesh_stats))
+        // Cameras health proxy — checks go2rtc on James (.27:1984)
+        .route("/cameras/health", get(cameras_health_proxy))
+}
+
+/// Proxy health check for go2rtc cameras on James machine.
+/// Returns {"status":"ok"} if go2rtc responds, {"status":"down"} with 503 otherwise.
+async fn cameras_health_proxy() -> axum::response::Response {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap_or_default();
+    let up = match client.get("http://192.168.31.27:1984/api/config").send().await {
+        Ok(res) => res.status().is_success(),
+        Err(_) => false,
+    };
+    if up {
+        Json(json!({"status": "ok", "service": "go2rtc"})).into_response()
+    } else {
+        (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"status": "down", "service": "go2rtc"}))).into_response()
+    }
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────

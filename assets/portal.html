@@ -340,11 +340,11 @@
       <h2><span class="dot" id="dot-kiosk" data-state="checking" title="Kiosk status"></span> Kiosk</h2>
       <p>Session management, pod control, spectator view</p>
     </a>
-    <a class="hero-card" href="/billing" aria-label="Open POS — billing and payments">
+    <a class="hero-card" href="/billing" aria-label="Open Billing — active sessions and payments">
       <span class="hero-sector">SECTOR 02</span>
       <svg class="card-icon" aria-hidden="true"><use href="#i-pos"/></svg>
-      <h2><span class="dot" id="dot-pos" data-state="checking" title="POS status"></span> POS / Billing</h2>
-      <p>Active sessions, payments, receipts</p>
+      <h2><span class="dot" id="dot-pos" data-state="checking" title="Billing status"></span> Billing</h2>
+      <p>Active sessions, payments, receipts, staff discount</p>
     </a>
   </nav>
 
@@ -384,6 +384,7 @@
     <a class="sys-item" href="http://192.168.31.27:1984/" target="_blank" rel="noopener">
       <svg class="card-icon" aria-hidden="true"><use href="#i-camera"/></svg>
       <span>Cameras</span>
+      <span class="dot" id="dot-cameras" data-state="checking" title="Cameras status"></span>
     </a>
   </div>
 
@@ -420,6 +421,7 @@ const checks = [
   { id: 'dot-rc',    url: '/api/v1/health' },
   { id: 'dot-kiosk', url: '/kiosk/' },
   { id: 'dot-pos',   url: '/billing' },
+  { id: 'dot-cameras', url: '/api/v1/cameras/health' },
 ];
 
 let checking = false;
