@@ -48,7 +48,11 @@ Plans:
   3. Two simultaneous billing starts for the same wallet cannot both succeed if only one has sufficient balance
   4. Ending a session twice (double-click race condition) does not produce two refund entries
   5. The tier price shown to the customer exactly matches what compute_session_cost() would charge for that duration
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 252-01-PLAN.md — Atomic billing start (single tx for wallet debit + session creation), idempotency keys on all money-moving endpoints, wallet row locking
+- [ ] 252-02-PLAN.md — CAS session finalization, unified compute_refund() function, tier/rate alignment verification
+- [ ] 252-03-PLAN.md — Background reconciliation job (30-min interval) comparing wallet balances to transaction sums
 
 ### Phase 253: State Machine Hardening
 **Goal**: Billing and game states are always consistent — phantom billing and free gaming are structurally impossible
@@ -157,7 +161,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 251. Database Foundation | 0/2 | Planned | - |
-| 252. Financial Atomicity Core | 0/? | Not started | - |
+| 252. Financial Atomicity Core | 0/3 | Planned | - |
 | 253. State Machine Hardening | 0/? | Not started | - |
 | 254. Security Hardening | 0/? | Not started | - |
 | 255. Legal Compliance | 0/? | Not started | - |
