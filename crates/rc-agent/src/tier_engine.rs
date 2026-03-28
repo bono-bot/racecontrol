@@ -273,10 +273,11 @@ async fn run_tiers(
 
 async fn tier1_deterministic(event: &DiagnosticEvent) -> TierResult {
     let trigger = event.trigger.clone();
+    let billing_active = event.pod_state.billing_active;
 
     // T1: Move all sync ops to a blocking thread
     let result = tokio::task::spawn_blocking(move || {
-        tier1_deterministic_sync(&trigger)
+        tier1_deterministic_sync(&trigger, billing_active)
     }).await;
 
     match result {
@@ -288,7 +289,7 @@ async fn tier1_deterministic(event: &DiagnosticEvent) -> TierResult {
     }
 }
 
-fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
+fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -> TierResult {
     let mut actions_taken: Vec<String> = Vec::new();
 
     // Always check MAINTENANCE_MODE
@@ -449,10 +450,34 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger) -> TierResult {
         | DiagnosticTrigger::HealthCheckFail
         | DiagnosticTrigger::DisplayMismatch { .. }
         | DiagnosticTrigger::ErrorSpike { .. }
-        | DiagnosticTrigger::ViolationSpike { .. }
-        | DiagnosticTrigger::PosKioskDown { .. }
-        | DiagnosticTrigger::PosNetworkDown { .. }
-        | DiagnosticTrigger::PosBillingApiError { .. } => {}
+        | DiagnosticTrigger::ViolationSpike { .. } => {}
+
+        // ─── POS-Specific Tier 1 Recovery (MMA P1 fix) ─────────────────────────
+        // PosKioskDown: Edge browser crashed on POS terminal.
+        // Safe to restart ONLY if no billing session is active.
+        // Active session → escalate to Tier 2 (staff alert), never auto-restart.
+        DiagnosticTrigger::PosKioskDown { detail } => {
+            if billing_active {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    detail = %detail,
+                    "POS kiosk down BUT billing session active — NOT restarting Edge (escalate to staff)"
+                );
+                // Don't auto-restart — let Tier 5 escalation handle it
+            } else {
+                tracing::info!(target: LOG_TARGET, detail = %detail, "POS kiosk down, no active session — restarting Edge");
+                if tier1_restart_edge_kiosk() {
+                    actions_taken.push("POS: restarted Edge kiosk (no active billing session)".to_string());
+                } else {
+                    tracing::warn!(target: LOG_TARGET, "POS: Edge restart failed — escalating");
+                }
+            }
+        }
+        // PosNetworkDown / PosBillingApiError: log + escalate (no safe Tier 1 fix)
+        DiagnosticTrigger::PosNetworkDown { .. }
+        | DiagnosticTrigger::PosBillingApiError { .. } => {
+            tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing issue — no Tier 1 fix, escalating");
+        }
     }
 
     // Ensure SSH key is deployed (self-healing — re-applies on every periodic scan)
@@ -608,6 +633,47 @@ fn tier1_kill_orphans() -> Vec<String> {
         }
     }
     killed
+}
+
+/// POS Tier 1: Restart Edge kiosk browser.
+/// Only called when billing is NOT active. Kills all msedge.exe, then launches
+/// Edge in kiosk mode pointing at the billing dashboard.
+/// Returns true if restart was initiated successfully.
+fn tier1_restart_edge_kiosk() -> bool {
+    // Kill existing Edge processes
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, false);
+    let mut killed = 0u32;
+    for (_pid, proc_) in sys.processes() {
+        let name = proc_.name().to_string_lossy().to_lowercase();
+        if name.contains("msedge") {
+            if proc_.kill() {
+                killed += 1;
+            }
+        }
+    }
+    if killed > 0 {
+        tracing::info!(target: LOG_TARGET, killed = killed, "POS: killed {} Edge processes before restart", killed);
+    }
+
+    // Small delay to let processes fully exit
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    // Relaunch Edge in kiosk mode — pointing at billing dashboard on server
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "", "msedge.exe", "--kiosk", "http://192.168.31.23:3200/billing", "--edge-kiosk-type=fullscreen"])
+        .spawn();
+
+    match result {
+        Ok(_) => {
+            tracing::info!(target: LOG_TARGET, "POS: Edge kiosk restart initiated");
+            true
+        }
+        Err(e) => {
+            tracing::error!(target: LOG_TARGET, error = %e, "POS: failed to restart Edge kiosk");
+            false
+        }
+    }
 }
 
 // ─── Tier 2: Knowledge Base (DIAG-03) ────────────────────────────────────────

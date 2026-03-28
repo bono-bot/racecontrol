@@ -239,12 +239,12 @@ async fn main() -> Result<()> {
   Pod Telemetry Bridge
 "#);
 
-    // Detect binary name — if rc-pos-agent, log it
+    // Detect binary name — MMA P3 fix: exact prefix match, not broad contains("pos")
     let binary_name = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "rc-agent".to_string());
-    if binary_name.contains("pos") {
+    if binary_name.starts_with("rc-pos-agent") {
         println!("  [POS Agent Mode]");
     }
 

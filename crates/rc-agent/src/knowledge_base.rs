@@ -394,6 +394,20 @@ impl KnowledgeBase {
 /// The key is stripped of variable data (timestamps, PIDs, ephemeral counts)
 /// so that the same problem class always maps to the same key regardless of
 /// when or how severely it occurred.
+/// Sanitize a dynamic value for use in KB problem keys.
+/// Replaces colons (IPv6), slashes (URLs), and control characters with underscores.
+/// Truncates to 64 chars to prevent key bloat from long endpoints.
+fn sanitize_kb_key_component(value: &str) -> String {
+    value.chars()
+        .take(64)
+        .map(|c| match c {
+            ':' | '/' | '\\' | '?' | '#' | '&' | '=' | ' ' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect()
+}
+
 pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
     match trigger {
         DiagnosticTrigger::Periodic => "periodic".to_string(),
@@ -414,10 +428,12 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         }
         DiagnosticTrigger::PosKioskDown { .. } => "pos_kiosk_down".to_string(),
         DiagnosticTrigger::PosNetworkDown { server_ip, .. } => {
-            format!("pos_network_down:{}", server_ip)
+            // MMA P2 fix: sanitize server_ip — IPv6 colons break key delimiter parsing
+            format!("pos_network_down:{}", sanitize_kb_key_component(server_ip))
         }
         DiagnosticTrigger::PosBillingApiError { endpoint, .. } => {
-            format!("pos_billing_api_error:{}", endpoint)
+            // MMA P2 fix: sanitize endpoint — may contain colons, slashes, query params
+            format!("pos_billing_api_error:{}", sanitize_kb_key_component(endpoint))
         }
     }
 }
