@@ -3948,7 +3948,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 - [x] **Phase 253: State Machine Hardening** - Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling (completed 2026-03-28)
 **Plans**: TBD
 
-- [ ] **Phase 254: Security Hardening** - INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
+- [x] **Phase 254: Security Hardening** - INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex (completed 2026-03-28)
 **Plans**: TBD
 
 - [ ] **Phase 255: Legal Compliance** - GST separation, invoice generation, waiver gate, minor consent flow, data retention
@@ -3974,7 +3974,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 251. Database Foundation | 2/2 | Complete    | 2026-03-28 |
 | 252. Financial Atomicity Core | 3/3 | Complete    | 2026-03-28 |
 | 253. State Machine Hardening | 3/3 | Complete    | 2026-03-28 |
-| 254. Security Hardening | 0/TBD | Not started | - |
+| 254. Security Hardening | 2/3 | Complete    | 2026-03-28 |
 | 255. Legal Compliance | 0/TBD | Not started | - |
 | 256. Game-Specific Hardening | 0/TBD | Not started | - |
 | 257. Billing Edge Cases | 0/TBD | Not started | - |
