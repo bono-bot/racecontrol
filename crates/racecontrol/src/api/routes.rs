@@ -14164,7 +14164,9 @@ async fn create_debug_incident(
     // ─── v27.0: Send DiagnosticRequest to pod for Tier 1 + Tier 2 diagnosis ──
     // NOTE: Skip for "pod_offline" category — if the pod is truly offline, the WS send
     // will fail silently. The server's own AI diagnosis (Claude/Ollama) handles offline pods.
-    let correlation_id = uuid::Uuid::new_v4().to_string();
+    // Use incident ID as correlation_id so the returning DiagnosticResult can be
+    // directly linked to the incident in the DB (MMA R4-1 fix: broken correlation chain)
+    let correlation_id = id.clone();
     let mut tier_diagnosis_sent = false;
     if category != "pod_offline" {
     if let Some(ref pid) = body.pod_id {

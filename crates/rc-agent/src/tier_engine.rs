@@ -167,8 +167,10 @@ async fn run_supervised(
         tokio::select! {
             // ── Autonomous diagnostic events ──
             Some(event) = event_rx.recv() => {
-                // T7: Dedup — collapse same trigger type within window
-                let dedup_key = format!("{:?}", std::mem::discriminant(&event.trigger));
+                // T7: Dedup — collapse same trigger within window.
+                // Include payload context so PreFlightFailed("billing") != PreFlightFailed("hid")
+                // (MMA R4-1 fix: discriminant-only was too broad for payload variants)
+                let dedup_key = make_dedup_key(&event.trigger);
                 let now = Instant::now();
                 if let Some(last_seen) = dedup_map.get(&dedup_key) {
                     if now.duration_since(*last_seen).as_secs() < DEDUP_WINDOW_SECS {
@@ -217,8 +219,10 @@ async fn run_supervised(
                     "Staff diagnostic request received — running Tier 1 + Tier 2"
                 );
 
-                // Reset dedup window for this category so autonomous diagnosis doesn't skip it
-                let dedup_key_reset = format!("staff_{}", req.category);
+                // Reset dedup window so autonomous diagnosis doesn't skip this category.
+                // Must use SAME key format as autonomous branch (MMA R4-1 fix: key mismatch).
+                let trigger_for_dedup = category_to_trigger(&req.category, &req.description);
+                let dedup_key_reset = make_dedup_key(&trigger_for_dedup);
                 dedup_map.remove(&dedup_key_reset);
 
                 let result = run_staff_diagnosis(&req, &mut circuit_breaker, &budget, &failure_monitor_rx).await;
@@ -350,20 +354,61 @@ fn category_to_trigger(category: &str, _description: &str) -> DiagnosticTrigger 
             check_name: "hid".to_string(),
             detail: "Staff reported no steering input".to_string(),
         },
-        "kiosk_bypass" => DiagnosticTrigger::SentinelUnexpected {
-            file_name: "KIOSK_BYPASS_DETECTED".to_string(),
-        },
-        _ => DiagnosticTrigger::Periodic, // fallback — Tier 1 always-applied fixes
+        // kiosk_bypass is a HUMAN report, not a filesystem observation.
+        // Do NOT map to SentinelUnexpected (MMA R4-1 fix: would create phantom sentinel).
+        // Map to Periodic for general cleanup; the server's AI diagnosis handles the actual bypass.
+        "kiosk_bypass" => DiagnosticTrigger::Periodic,
+        _ => {
+            tracing::warn!(target: LOG_TARGET, category = %category, "Unknown staff category — mapping to Periodic");
+            DiagnosticTrigger::Periodic
+        }
     }
 }
 
-/// Simple hash for problem key
+/// Build a dedup key that includes both discriminant AND payload context.
+/// e.g., PreFlightFailed("billing") and PreFlightFailed("hid") get different keys.
+/// Build a dedup key with explicit stable names for EVERY variant.
+/// Never falls back to `discriminant` Debug formatting (MMA R4-2 fix: opaque + build-fragile).
+fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
+    match trigger {
+        DiagnosticTrigger::Periodic => "Periodic".to_string(),
+        DiagnosticTrigger::HealthCheckFail => "HealthCheckFail".to_string(),
+        DiagnosticTrigger::GameLaunchFail => "GameLaunchFail".to_string(),
+        DiagnosticTrigger::ProcessCrash { process_name } => {
+            format!("ProcessCrash_{}", process_name)
+        }
+        DiagnosticTrigger::DisplayMismatch { expected_edge_count, actual_edge_count } => {
+            format!("DisplayMismatch_{}_{}", expected_edge_count, actual_edge_count)
+        }
+        DiagnosticTrigger::ErrorSpike { errors_per_min } => {
+            format!("ErrorSpike_{}", errors_per_min)
+        }
+        DiagnosticTrigger::WsDisconnect { .. } => "WsDisconnect".to_string(),
+        DiagnosticTrigger::SentinelUnexpected { file_name } => {
+            format!("SentinelUnexpected_{}", file_name)
+        }
+        DiagnosticTrigger::ViolationSpike { .. } => "ViolationSpike".to_string(),
+        DiagnosticTrigger::PreFlightFailed { check_name, .. } => {
+            format!("PreFlightFailed_{}", check_name)
+        }
+        DiagnosticTrigger::PosKioskDown { .. } => "PosKioskDown".to_string(),
+        DiagnosticTrigger::PosNetworkDown { .. } => "PosNetworkDown".to_string(),
+        DiagnosticTrigger::PosBillingApiError { endpoint, .. } => {
+            format!("PosBillingApiError_{}", endpoint)
+        }
+    }
+}
+
+/// Stable hash for problem key — uses FNV-1a for deterministic output
+/// across restarts and versions (MMA R4-1 fix: DefaultHasher is randomized per-process).
 fn compute_problem_hash(category: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    category.hash(&mut h);
-    format!("{:016x}", h.finish())
+    // FNV-1a 64-bit — deterministic, no per-process randomization
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in category.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
 }
 
 /// Convert a TierResult + DiagnosticEvent into a log entry

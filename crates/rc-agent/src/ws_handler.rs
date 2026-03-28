@@ -1304,6 +1304,24 @@ pub async fn handle_ws_message(
                 }
                 Err(e) => {
                     tracing::warn!(target: LOG_TARGET, correlation_id = %correlation_id, "Staff diagnostic channel full or closed: {}", e);
+                    // MMA R4-1 fix: send error result back so staff UI doesn't hang
+                    let ws_result_tx = state.ws_exec_result_tx.clone();
+                    let cid = correlation_id.clone();
+                    tokio::spawn(async move {
+                        let msg = AgentMessage::DiagnosticResult {
+                            correlation_id: cid,
+                            tier: 0,
+                            outcome: "queue_full".to_string(),
+                            root_cause: String::new(),
+                            fix_action: String::new(),
+                            fix_type: "none".to_string(),
+                            confidence: 0.0,
+                            fix_applied: false,
+                            problem_hash: String::new(),
+                            summary: "Diagnostic engine is busy. Please try again in a few seconds.".to_string(),
+                        };
+                        let _ = ws_result_tx.send(msg).await;
+                    });
                 }
             }
         }

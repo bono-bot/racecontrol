@@ -1091,12 +1091,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 };
                                 let effectiveness = if outcome == "fixed" { 4 } else { 2 };
 
-                                // Find the incident category from the correlation_id
+                                // Find the incident category using correlation_id (MMA R4-1 fix)
+                                // correlation_id was passed as incident_id in DiagnosticRequest
                                 let category: String = sqlx::query_scalar(
-                                    "SELECT category FROM debug_incidents WHERE id IN \
-                                     (SELECT id FROM debug_incidents ORDER BY created_at DESC LIMIT 20) \
-                                     LIMIT 1"
+                                    "SELECT category FROM debug_incidents WHERE id = ?"
                                 )
+                                .bind(correlation_id.as_str())
                                 .fetch_optional(&state.db)
                                 .await
                                 .unwrap_or(None)
@@ -1154,11 +1154,15 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     promotion_status: "fleet_verified".to_string(),
                                 };
 
-                                // Send to ALL connected pods — clone senders first to avoid holding
-                                // agent_senders lock across async sends (P1 lock-ordering fix)
+                                // Send to OTHER connected pods (exclude origin) — clone senders first
+                                // (MMA R4-1 fix: origin pod was receiving its own fix as a broadcast)
+                                let origin_pod = registered_pod_id.clone().unwrap_or_default();
                                 let sender_snapshot: Vec<_> = {
                                     let senders = state.agent_senders.read().await;
-                                    senders.iter().map(|(id, s)| (id.clone(), s.clone())).collect()
+                                    senders.iter()
+                                        .filter(|(id, _)| **id != origin_pod)
+                                        .map(|(id, s)| (id.clone(), s.clone()))
+                                        .collect()
                                 }; // lock dropped here
                                 for (target_pod_id, sender) in &sender_snapshot {
                                     if let Err(e) = sender.send(broadcast_msg.clone()).await {
@@ -1172,14 +1176,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
 
-                            // If incident was resolved, update its status
+                            // If incident was resolved, update its status using correlation_id
+                            // (which equals incident_id — set in create_debug_incident, MMA R4-1 fix)
                             if outcome == "fixed" && *fix_applied {
-                                let _ = sqlx::query(
+                                match sqlx::query(
                                     "UPDATE debug_incidents SET status = 'resolved', resolved_at = datetime('now') \
-                                     WHERE id = (SELECT id FROM debug_incidents WHERE status = 'open' ORDER BY created_at DESC LIMIT 1)"
+                                     WHERE id = ? AND status = 'open'"
                                 )
+                                .bind(correlation_id.as_str())
                                 .execute(&state.db)
-                                .await;
+                                .await {
+                                    Ok(result) if result.rows_affected() == 0 => {
+                                        tracing::debug!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Incident already closed or not found — skipping resolution"
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        tracing::info!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Incident auto-resolved by tier engine diagnosis"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Failed to resolve incident: {}",
+                                            e
+                                        );
+                                    }
+                                }
                             }
                         }
 
