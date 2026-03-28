@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: executing
-last_updated: "2026-03-28T19:06:09.222Z"
+status: verifying
+stopped_at: Completed 251-02-PLAN.md
+last_updated: "2026-03-28T19:27:18.817Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
-  completed_phases: 147
+  completed_phases: 148
   total_plans: 355
-  completed_plans: 349
+  completed_plans: 350
   percent: 98
 ---
 
@@ -17,8 +18,8 @@ progress:
 
 Phase: 251 (database-foundation) — EXECUTING
 Plan: 2 of 2
-Status: Executing Phase 251 (251-01 COMPLETE, 251-02 pending)
-Last activity: 2026-03-28 -- 251-01 completed (WAL verification + timer persistence)
+Status: Phase complete — ready for verification
+Last activity: 2026-03-28
 
 Progress: [██████████] 98% (349/355 plans)
 
@@ -57,6 +58,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | 259 | Coupon & Discount System | FATM-07–11 | Not started |
 | 260 | Notifications, Resilience & UX | UX-01–08, RESIL-04–08 | Not started |
 | Phase 251-database-foundation P01 | 15min | 2 tasks | 3 files |
+| Phase 251 P02 | 20 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,17 +92,19 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - Two coexisting billing sync loops: 5s for dashboard driving_seconds, 60s staggered for crash-recovery elapsed_seconds (RESIL-02, FSM-09)
 - Stagger formula (N*7)%60 spreads 8 pods across 56 distinct seconds with no collisions
 - COALESCE(elapsed_seconds, driving_seconds) recovery ensures old sessions recover correctly
+- WhatsApp alerts use whatsapp_alerter::send_whatsapp gated on config.alerting.enabled (FSM-10, RESIL-03)
+- Background orphan task has 300s initial delay to avoid double-alerting sessions caught by startup scan
 
 ## Session Continuity
 
-Stopped at: Completed 251-01-PLAN.md
-Next action: Execute 251-02-PLAN.md (Orphaned session detection — FSM-10, RESIL-03)
+Stopped at: Completed 251-02-PLAN.md
+Next action: Phase 251 complete — proceed to Phase 252 (Financial Atomicity Core)
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
 - FSM-09: DONE (Billing timer persisted every 60s — 6babdd40)
-- FSM-10: Orphaned session detection on startup — Plan 02
-- RESIL-03: Orphaned session background job (5-min interval) — Plan 02
+- FSM-10: DONE (Orphaned session detection on startup — a86f4710)
+- RESIL-03: DONE (Background orphan detection job — 9ef6116e)
 
 Ship gate reminder (Unified Protocol v3.1):
 

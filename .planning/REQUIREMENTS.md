@@ -31,7 +31,7 @@
 - [ ] **FSM-07**: Split session modeled as parent order with child entitlements, each with immutable duration and state
 - [ ] **FSM-08**: Split transition persisted to DB before any new launch command issued
 - [x] **FSM-09**: Billing timer state persisted to DB every 60 seconds (survives server restart)
-- [ ] **FSM-10**: On server startup, orphaned "active" sessions with no heartbeat for 5+ minutes auto-flagged and alerted
+- [x] **FSM-10**: On server startup, orphaned "active" sessions with no heartbeat for 5+ minutes auto-flagged and alerted
 
 ### Security (SEC)
 
@@ -100,7 +100,7 @@
 
 - [x] **RESIL-01**: SQLite WAL mode enabled with busy_timeout=5000ms
 - [x] **RESIL-02**: Billing timer writes staggered by pod index (Pod 1 at :00, Pod 2 at :07, etc.)
-- [ ] **RESIL-03**: Orphaned session detection job: every 5 minutes, flag active sessions with no agent heartbeat for 5+ min
+- [x] **RESIL-03**: Orphaned session detection job: every 5 minutes, flag active sessions with no agent heartbeat for 5+ min
 - [ ] **RESIL-04**: Hardware health heartbeat: agent polls wheel/pedal USB device presence every 5s; pause + alert on disconnect
 - [ ] **RESIL-05**: Negative wallet balance alert: immediate staff notification + session block
 - [ ] **RESIL-06**: Agent crash rate anomaly detection: >3 crashes in 1 hour on same pod triggers maintenance flag
@@ -141,8 +141,8 @@ Updated during roadmap creation (2026-03-29).
 | RESIL-01 | Phase 251 | Complete |
 | RESIL-02 | Phase 251 | Complete |
 | FSM-09 | Phase 251 | Complete |
-| FSM-10 | Phase 251 | Pending |
-| RESIL-03 | Phase 251 | Pending |
+| FSM-10 | Phase 251 | Complete |
+| RESIL-03 | Phase 251 | Complete |
 | FATM-01 | Phase 252 | Pending |
 | FATM-02 | Phase 252 | Pending |
 | FATM-03 | Phase 252 | Pending |
