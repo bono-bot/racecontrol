@@ -3945,7 +3945,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 - [x] **Phase 252: Financial Atomicity Core** - Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation (completed 2026-03-28)
 **Plans**: TBD
 
-- [ ] **Phase 253: State Machine Hardening** - Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
+- [x] **Phase 253: State Machine Hardening** - Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling (completed 2026-03-28)
 **Plans**: TBD
 
 - [ ] **Phase 254: Security Hardening** - INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
@@ -3973,7 +3973,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 |-------|----------------|--------|-----------|
 | 251. Database Foundation | 2/2 | Complete    | 2026-03-28 |
 | 252. Financial Atomicity Core | 3/3 | Complete    | 2026-03-28 |
-| 253. State Machine Hardening | 2/3 | In Progress|  |
+| 253. State Machine Hardening | 3/3 | Complete    | 2026-03-28 |
 | 254. Security Hardening | 0/TBD | Not started | - |
 | 255. Legal Compliance | 0/TBD | Not started | - |
 | 256. Game-Specific Hardening | 0/TBD | Not started | - |
