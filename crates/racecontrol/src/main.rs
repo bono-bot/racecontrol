@@ -600,6 +600,30 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Spawn staggered timer persistence loop (RESIL-02 + FSM-09)
+    // Each pod persists elapsed_seconds at a different second offset within the minute:
+    // Pod 1 at :07, Pod 2 at :14, Pod 3 at :21, Pod 4 at :28,
+    // Pod 5 at :35, Pod 6 at :42, Pod 7 at :49, Pod 8 at :56
+    // Formula: Pod N writes at second (N * 7) % 60
+    let persist_state = state.clone();
+    tokio::spawn(async move {
+        tracing::info!("timer-persist task started (60s staggered by pod index)");
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut second_counter: u64 = 0;
+        loop {
+            interval.tick().await;
+            second_counter += 1;
+            let second_in_minute = second_counter % 60;
+
+            // Check if any pod should write this second
+            for pod_num in 1u32..=8 {
+                if (pod_num as u64 * 7) % 60 == second_in_minute {
+                    billing::persist_timer_state(&persist_state, Some(pod_num)).await;
+                }
+            }
+        }
+    });
+
     // Spawn game health check loop (5 second interval)
     let game_state = state.clone();
     tokio::spawn(async move {

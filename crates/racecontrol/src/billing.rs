@@ -1556,12 +1556,65 @@ pub async fn sync_timers_to_db(state: &Arc<AppState>) {
     }
 }
 
+/// Persist billing timer elapsed_seconds to DB for a specific pod index.
+/// Called by the staggered timer persistence loop — each pod writes at a different
+/// second offset within the minute: Pod N writes at second (N * 7) % 60.
+/// This prevents all 8 pods from hitting SQLite simultaneously. (RESIL-02)
+pub async fn persist_timer_state(state: &Arc<AppState>, target_pod_number: Option<u32>) {
+    let now_str = chrono::Utc::now().to_rfc3339();
+
+    // Snapshot timers under lock, then release before any async work (no RwLock across .await)
+    let snapshots: Vec<(String, u32, u32, u32, String)> = {
+        let timers = state.billing.active_timers.read().await;
+        timers.values()
+            .filter(|t| matches!(t.status,
+                BillingSessionStatus::Active
+                | BillingSessionStatus::PausedManual
+                | BillingSessionStatus::PausedDisconnect
+                | BillingSessionStatus::PausedGamePause
+            ))
+            .filter(|t| {
+                // If target_pod_number specified, only persist that pod's timer
+                match target_pod_number {
+                    Some(n) => {
+                        // Extract pod number from pod_id (e.g., "pod_3" -> 3)
+                        t.pod_id.trim_start_matches("pod_").parse::<u32>().unwrap_or(0) == n
+                    }
+                    None => true, // persist all (used for shutdown/emergency)
+                }
+            })
+            .map(|t| (t.session_id.clone(), t.elapsed_seconds, t.driving_seconds, t.total_paused_seconds, t.pod_id.clone()))
+            .collect()
+    }; // lock released here
+
+    for (session_id, elapsed, driving, paused, pod_id) in &snapshots {
+        let result = sqlx::query(
+            "UPDATE billing_sessions SET elapsed_seconds = ?, driving_seconds = ?, total_paused_seconds = ?, last_timer_sync_at = ? WHERE id = ?"
+        )
+        .bind(*elapsed as i64)
+        .bind(*driving as i64)
+        .bind(*paused as i64)
+        .bind(&now_str)
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+
+        match result {
+            Ok(_) => tracing::debug!("Timer persisted for session {} on {}: elapsed={}s", session_id, pod_id, elapsed),
+            Err(e) => tracing::warn!("Timer persist failed for session {} on {}: {} — will retry next cycle", session_id, pod_id, e),
+        }
+    }
+}
+
 // ─── Session Recovery ───────────────────────────────────────────────────────
 
 /// On server startup, recover any active billing sessions from the database
 pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, Option<String>, Option<i64>, Option<i64>)>(
-        "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.split_count, bs.split_duration_minutes
+    // FSM-09: Use COALESCE(bs.elapsed_seconds, bs.driving_seconds) so that after a restart,
+    // the count-up timer resumes from the persisted elapsed_seconds (which may differ from
+    // driving_seconds when pauses were involved).
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, Option<String>, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.split_count, bs.split_duration_minutes, COALESCE(bs.elapsed_seconds, bs.driving_seconds) as elapsed_seconds
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
@@ -1591,6 +1644,9 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
 
         let driving_secs = row.6 as u32;
         let allocated_secs = row.5 as u32;
+        // FSM-09: Recover elapsed_seconds from DB (row.11 = COALESCE result).
+        // Falls back to driving_seconds if elapsed_seconds column is NULL (old sessions).
+        let elapsed_secs = row.11.unwrap_or(row.6) as u32;
         let timer = BillingTimer {
             session_id: row.0.clone(),
             driver_id: row.1.clone(),
@@ -1602,8 +1658,8 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             status,
             driving_state: DrivingState::Idle, // Will be updated when agent reconnects
             started_at,
-            warning_5min_sent: allocated_secs.saturating_sub(driving_secs) <= 300,
-            warning_1min_sent: allocated_secs.saturating_sub(driving_secs) <= 60,
+            warning_5min_sent: allocated_secs.saturating_sub(elapsed_secs) <= 300,
+            warning_1min_sent: allocated_secs.saturating_sub(elapsed_secs) <= 60,
             offline_since: None,
             split_count: row.9.unwrap_or(1) as u32,
             split_duration_minutes: row.10.map(|m| m as u32),
@@ -1612,7 +1668,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
-            elapsed_seconds: driving_secs,
+            elapsed_seconds: elapsed_secs,
             pause_seconds: 0,
             max_session_seconds: allocated_secs,
             sim_type: None,
