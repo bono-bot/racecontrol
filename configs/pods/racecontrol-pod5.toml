@@ -18,15 +18,23 @@ steam_app_id = 244210
 use_steam = true
 
 [games.f1_25]
-steam_app_id = 2488620
+steam_app_id = 3059520
 use_steam = true
 
 [games.le_mans_ultimate]
-steam_app_id = 1564310
+steam_app_id = 2399420
 use_steam = true
 
-[games.forza]
-steam_app_id = 2440510
+[games.assetto_corsa_evo]
+steam_app_id = 3058630
+use_steam = true
+
+[games.assetto_corsa_rally]
+steam_app_id = 3917090
+use_steam = true
+
+[games.forza_horizon_5]
+steam_app_id = 1551360
 use_steam = true
 
 [games.iracing]

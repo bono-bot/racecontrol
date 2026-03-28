@@ -38,7 +38,7 @@ steam_app_id = 3917090
 use_steam = true
 
 [games.le_mans_ultimate]
-steam_app_id = 1564310
+steam_app_id = 2399420
 use_steam = true
 
 # ─── AI Debugger ─────────────────────────────────────────────────────────────
