@@ -1,109 +1,150 @@
-# Requirements: v26.0 Meshed Intelligence — Self-Healing AI Fleet
+# Requirements: v27.0 Workflow Integrity & Compliance Hardening
 
-**Defined:** 2026-03-27
-**Core Value:** Every node diagnoses itself, solutions propagate fleet-wide, no issue debugged twice
-**Owner split:** James (Phases 217-221, 224-226) | Bono (Phases 222-223, 227-228)
+**Defined:** 2026-03-29
+**Core Value:** Every customer interaction — from registration to refund — is atomic, auditable, safe, and legally compliant
 
-## Diagnostic Engine (James — Phase 217)
-- [x] **DIAG-01**: Each node detects anomalies automatically (health fail, crash, game fail, display mismatch, error spike, WS disconnect, sentinel, violation spike)
-- [ ] **DIAG-02**: Tier 1 deterministic fixes applied without AI (clear MAINTENANCE_MODE, kill orphans, restart service)
-- [ ] **DIAG-03**: Tier 2 KB lookup matches problem signatures against local + fleet KB before models
-- [ ] **DIAG-04**: Tier 3 single-model diagnosis (Qwen3, ~$0.05) when KB has no match
-- [ ] **DIAG-05**: Tier 4 full 4-model parallel diagnosis (R1+V3+MiMo+Gemini, ~$3) when Tier 3 fails
-- [ ] **DIAG-06**: Tier 5 human escalation via WhatsApp when all automated tiers fail
-- [x] **DIAG-07**: Engine runs on 5-min scheduled scan + anomaly trigger
+## v27.0 Requirements
 
-## Knowledge Base (James — Phase 218)
-- [ ] **KB-01**: Local SQLite KB: solutions with problem_key, symptoms, root_cause, fix_action, confidence, cost, source_node
-- [ ] **KB-02**: Experiments table prevents duplicate work across fleet
-- [ ] **KB-03**: Problem signature normalization (error_type + error_code + component + context_hash)
-- [ ] **KB-04**: Environment fingerprinting (OS, GPU driver, build_id, hardware_class)
-- [ ] **KB-05**: Confidence scoring: success / (success + fail), auto-demotion on failure
-- [ ] **KB-06**: TTL expiration: 90 days unused → auto-archive
+### Financial Atomicity (FATM)
 
-## OpenRouter Integration (James — Phase 219)
-- [ ] **API-01**: Rust HTTP client calls OpenRouter with model-specific prompts + structured parsing
-- [ ] **API-02**: 4 models: Qwen3 (scanner), DeepSeek R1 (reasoner), DeepSeek V3 (code), Gemini 2.5 Pro (security)
-- [ ] **API-03**: Model registry: version pinning, fallback chain, quarterly review flag
-- [ ] **API-04**: Role-specific system prompts (Reasoner, Code Expert, SRE, Security)
-- [ ] **API-05**: Response parsing: root_cause, confidence, fix_action, risk_level
+- [ ] **FATM-01**: Billing start wraps wallet debit + session creation + journal entry in a single DB transaction (rollback on any failure)
+- [ ] **FATM-02**: All money-moving POSTs (/topup, /billing/start, /billing/stop, /refund) require idempotency keys; duplicate requests return original result
+- [ ] **FATM-03**: Wallet debit uses SELECT FOR UPDATE row locking to prevent parallel overspend
+- [ ] **FATM-04**: Session finalization uses compare-and-swap (UPDATE WHERE status='active') to prevent double-end/double-refund
+- [ ] **FATM-05**: Tier price and rate calculation aligned — tier_30min price matches compute_session_cost(1800s) output
+- [ ] **FATM-06**: Refund formula uses a single authoritative calculation path (not duplicated in multiple code paths)
+- [ ] **FATM-07**: Extension purchase is atomic with session time addition (debit + add time in one transaction)
+- [ ] **FATM-08**: Coupon lifecycle is stateful: available → reserved → redeemed → released (with TTL on reserved)
+- [ ] **FATM-09**: Coupon restored on session cancellation/failure before billing commit
+- [ ] **FATM-10**: Discount stacking rules enforced server-side with hard floor on payable amount
+- [ ] **FATM-11**: Payment gateway webhook: wallet credited only after verified gateway confirmation with idempotent application
+- [ ] **FATM-12**: Scheduled reconciliation job detects wallet vs journal vs session balance drift
 
-## Budget Manager (James — Phase 220)
-- [ ] **BUDGET-01**: Per-node daily tracking ($10/pod, $20/server) with midnight IST reset
-- [ ] **BUDGET-02**: Per-incident cost tracking
-- [ ] **BUDGET-03**: Hard ceiling: block model calls when daily budget exhausted
-- [ ] **BUDGET-04**: Graceful degradation: ceiling → mechanical fallback, never blocks ops
-- [ ] **BUDGET-05**: Monthly tracking with configurable alerts + hard stop
-- [ ] **BUDGET-06**: Budget status on health endpoint for dashboard
+### State Machine Integrity (FSM)
 
-## Mesh Gossip Protocol (James — Phase 221)
-- [ ] **MESH-01**: Solution announcement via existing WS (compact digest)
-- [ ] **MESH-02**: Solution request: fetch full details from any peer
-- [ ] **MESH-03**: Experiment announcement: prevent duplicate fleet-wide diagnosis
-- [ ] **MESH-04**: Heartbeat with KB bloom filter for sync detection
-- [ ] **MESH-05**: First-responder rule: only first node spends model budget
-- [ ] **MESH-06**: Environment-aware propagation: same env → apply, different → candidate
+- [ ] **FSM-01**: Billing session state transitions validated via server-side allowed-transitions table (current_state + event → new_state or REJECT)
+- [ ] **FSM-02**: Cross-FSM invariant enforced: billing=active requires game≠Idle (phantom billing guard)
+- [ ] **FSM-03**: Cross-FSM invariant enforced: game=Running requires billing≠cancelled (free gaming guard)
+- [ ] **FSM-04**: Crash recovery atomically pauses billing before any relaunch attempt
+- [ ] **FSM-05**: StopGame handled in every recovery FSM state (not silently dropped)
+- [ ] **FSM-06**: Billing pause timeout and crash recovery auto-end share a single authoritative end-session trigger
+- [ ] **FSM-07**: Split session modeled as parent order with child entitlements, each with immutable duration and state
+- [ ] **FSM-08**: Split transition persisted to DB before any new launch command issued
+- [ ] **FSM-09**: Billing timer state persisted to DB every 60 seconds (survives server restart)
+- [ ] **FSM-10**: On server startup, orphaned "active" sessions with no heartbeat for 5+ minutes auto-flagged and alerted
 
-## Server Coordinator (Bono — Phase 222)
-- [ ] **COORD-01**: Fleet KB aggregation from all pods
-- [ ] **COORD-02**: Canary promotion: 3+ successes across 2+ pods → fleet-verified
-- [ ] **COORD-03**: Hardening: 10+ successes, 0 failures → Tier 1 deterministic
-- [ ] **COORD-04**: Pattern detection: 3+ pods same symptom in 5 min → systemic alert
-- [ ] **COORD-05**: Solution demotion: confidence <0.5 → back to candidate
-- [ ] **COORD-06**: Fleet-wide experiment dedup
+### Security (SEC)
 
-## Admin Dashboard (Bono — Phase 223)
-- [ ] **DASH-01**: Mesh Intelligence page at :3201/mesh-intelligence
-- [ ] **DASH-02**: Real-time solution feed
-- [ ] **DASH-03**: Budget tracker per node with charts
-- [ ] **DASH-04**: Model performance metrics
-- [ ] **DASH-05**: Knowledge Base browser with search/filter/promote/retire
+- [ ] **SEC-01**: Car/track/skin names in launch_args validated against whitelist (alphanumeric + hyphen + underscore only; reject newlines, =, [)
+- [ ] **SEC-02**: FFB GAIN capped at 100 server-side before sending to agent (physical safety)
+- [ ] **SEC-03**: PIN redemption uses atomic CAS (UPDATE WHERE redeemed_at IS NULL; check affected rows)
+- [ ] **SEC-04**: Role-based access control: cashier (topup, session view), manager (reports, pricing), superadmin (system config)
+- [ ] **SEC-05**: Staff self-top-up blocked at API layer (requesting_user_id != target_user_id for non-superadmin)
+- [ ] **SEC-06**: Audit log table is append-only (no DELETE permission for staff-level DB users)
+- [ ] **SEC-07**: WebSocket connections use WSS (TLS) between server and agents
+- [ ] **SEC-08**: OTP codes stored as bcrypt hashes, not plaintext
+- [ ] **SEC-09**: PII masked in staff dashboard by default (phone, email); reveal requires manager role
+- [ ] **SEC-10**: Agent mutex during clean_state_reset — LaunchGame queued until reset completes
 
-## Predictive Maintenance (James — Phase 224)
-- [ ] **PRED-01**: ConspitLink reconnection rate trending → USB alert
-- [ ] **PRED-02**: Edge process count trending → memory leak restart
-- [ ] **PRED-03**: GPU temp >80C → thermal alert
-- [ ] **PRED-04**: rc-agent restart >2/day → stability alert
-- [ ] **PRED-05**: Disk <10GB → auto-cleanup
-- [ ] **PRED-06**: Error spike 3+ pods → systemic alert
+### Legal Compliance (LEGAL)
 
-## Customer Experience Scoring (James — Phase 225)
-- [ ] **CX-01**: Per-pod score: launch success (30%), session completion (25%), display (20%), hardware (15%), billing (10%)
-- [ ] **CX-02**: Score <80% → flagged for maintenance
-- [ ] **CX-03**: Score <50% → auto-removed from rotation + alert
-- [ ] **CX-04**: Fleet average on dashboard
+- [ ] **LEGAL-01**: 18% GST separated in double-entry journal (Revenue vs GST Payable ledger lines)
+- [ ] **LEGAL-02**: GST-compliant invoice generated per session with GSTIN, HSN code, tax breakup
+- [ ] **LEGAL-03**: Waiver signing required before billing start (block if waiver_signed=0 on POS path)
+- [ ] **LEGAL-04**: Minors (under 18): mandatory guardian name + phone + verifiable consent (OTP to guardian phone)
+- [ ] **LEGAL-05**: Minor sessions: guardian physical presence acknowledgment recorded (staff confirms via UI toggle)
+- [ ] **LEGAL-06**: Enhanced liability coverage for minors documented — waiver limitation disclosure shown to guardian
+- [ ] **LEGAL-07**: Pricing and refund policy displayed on kiosk before wallet top-up (Consumer Protection Act 2019)
+- [ ] **LEGAL-08**: Data retention policy: financial records 8 years, PII purged/anonymized after 2 years of inactivity (DPDP Act)
+- [ ] **LEGAL-09**: Parental consent revocation mechanism in PWA (guardian can request data deletion)
 
-## Night Operations (James — Phase 226)
-- [ ] **NIGHT-01**: Midnight maintenance: health → diagnose → fix → audit → report
-- [ ] **NIGHT-02**: Windows Update check + install + reboot + verify off-hours
-- [ ] **NIGHT-03**: Apply pending fleet-verified fixes
-- [ ] **NIGHT-04**: Morning report to Uday: "Fleet ready"
+### Game-Specific Hardening (GAME)
 
-## Multi-Venue Cloud KB (Bono — Phase 227)
-- [ ] **CLOUD-01**: Fleet KB syncs to Bono VPS cloud DB
-- [ ] **CLOUD-02**: New venue pulls entire KB on day 1
-- [ ] **CLOUD-03**: Cross-venue solution propagation
+- [ ] **GAME-01**: Steam pre-launch check: verify Steam process running + no pending updates before any Steam-URL game launch
+- [ ] **GAME-02**: Process name corrections in monitoring: F1, iRacing, LMU, Forza matched to actual exe names on disk
+- [ ] **GAME-03**: Forza Horizon 5 session enforcer: agent force-terminates after duration_minutes with graceful save warning
+- [ ] **GAME-04**: AC EVO config adapter: translate launch_args to Unreal GameUserSettings.ini format (not AC race.ini)
+- [ ] **GAME-05**: iRacing subscription check: verify account active before billing start (prevent charge-but-can't-play)
+- [ ] **GAME-06**: DLC availability check: verify car/track content installed on pod before launch
+- [ ] **GAME-07**: Steam "Preparing to launch" dialog detection: agent waits for actual game window, not just Steam response
+- [ ] **GAME-08**: Game-specific telemetry crash detection for non-AC games (process exit monitoring as fallback)
 
-## Fleet Intelligence Reports (Bono — Phase 228)
-- [ ] **REPORT-01**: Weekly report: issues, auto-resolved, escalated, MTTR, budget, KB growth
-- [ ] **REPORT-02**: Per-model performance tracking
-- [ ] **REPORT-03**: Recommendations: model swaps, new Tier 1 checks, patterns
-- [ ] **REPORT-04**: Delivered via WhatsApp to Uday
+### Deployment Safety (DEPLOY)
+
+- [ ] **DEPLOY-01**: OTA session drain: pods with active billing sessions defer binary swap until session ends
+- [ ] **DEPLOY-02**: Graceful agent shutdown on SIGTERM: write shutdown_at to session row, trigger partial refund calculation
+- [ ] **DEPLOY-03**: Deployment window lock: require manual override for OTA during 6-11 PM on weekends
+- [ ] **DEPLOY-04**: Post-restart session resume: new agent checks DB for interrupted sessions and either resumes or refunds
+- [ ] **DEPLOY-05**: WebSocket message-level idempotency keys (command_id UUID) to prevent stale replay on reconnect
+
+### Staff Controls (STAFF)
+
+- [ ] **STAFF-01**: Staff discount requires reason code and manager approval above configurable threshold
+- [ ] **STAFF-02**: Self-service wallet operations blocked for staff's own account (API-level enforcement)
+- [ ] **STAFF-03**: Daily staff override report: all discounts, manual refunds, tier changes with actor ID
+- [ ] **STAFF-04**: Cash drawer reconciliation: end-of-day report comparing system cash total vs physical count input
+- [ ] **STAFF-05**: Shift handoff: outgoing staff must acknowledge active sessions before logout; incoming staff sees briefing
+
+### Billing Edge Cases (BILL)
+
+- [ ] **BILL-01**: Inactivity detection: flag sessions with no input/lap progress for N minutes; alert staff
+- [ ] **BILL-02**: Session countdown: persistent on-screen timer with yellow (5 min) and red (1 min) warnings
+- [ ] **BILL-03**: PWA game-request timeout: 10-minute server-side TTL; auto-expire with customer notification
+- [ ] **BILL-04**: Extension pricing rule documented and enforced: extensions use current tier effective rate
+- [ ] **BILL-05**: Billing start-time defined: timer starts when game reaches Running state, not on staff click
+- [ ] **BILL-06**: Recovery time excluded from billing: crash recovery pause window not charged to customer
+- [ ] **BILL-07**: Multiplayer session billing: canonical session object with participant roster and synchronized billing
+- [ ] **BILL-08**: Customer charge dispute portal: flag session in PWA; staff reviews logs and approves/denies refund
+
+### Resilience (RESIL)
+
+- [ ] **RESIL-01**: SQLite WAL mode enabled with busy_timeout=5000ms
+- [ ] **RESIL-02**: Billing timer writes staggered by pod index (Pod 1 at :00, Pod 2 at :07, etc.)
+- [ ] **RESIL-03**: Orphaned session detection job: every 5 minutes, flag active sessions with no agent heartbeat for 5+ min
+- [ ] **RESIL-04**: Hardware health heartbeat: agent polls wheel/pedal USB device presence every 5s; pause + alert on disconnect
+- [ ] **RESIL-05**: Negative wallet balance alert: immediate staff notification + session block
+- [ ] **RESIL-06**: Agent crash rate anomaly detection: >3 crashes in 1 hour on same pod triggers maintenance flag
+- [ ] **RESIL-07**: Controls.ini reset between sessions: each new session writes fresh FFB/control config (no leakage)
+- [ ] **RESIL-08**: Clock sync check: server vs pod timestamp drift >5s triggers warning in fleet health
+
+### Notifications & UX (UX)
+
+- [ ] **UX-01**: Notification outbox: durable table with states (pending, sent, delivered, failed); background retry with backoff
+- [ ] **UX-02**: OTP fallback: if WhatsApp delivery fails, offer on-screen display or SMS fallback
+- [ ] **UX-03**: Customer receipt: auto-generated after session end with before/after balance, duration, charges, refund
+- [ ] **UX-04**: Leaderboard integrity: entries only from automatic verified session records (no manual entry)
+- [ ] **UX-05**: Leaderboard segmented by game + track + car class + assist tier
+- [ ] **UX-06**: Lap evidence: per-session lap-event records persisted (session_id, lap_time, validity, assist config)
+- [ ] **UX-07**: Telemetry adapter crash marks affected laps as "unverifiable" (never silently lost)
+- [ ] **UX-08**: Queue management: virtual queue with position and ETA shown in PWA/kiosk for walk-ins
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| SQLite → PostgreSQL migration | Architectural change deferred to multi-venue milestone |
+| Multi-venue wallet sharing | Requires shared database infrastructure |
+| Real-time voice chat | Not core to billing/safety hardening |
+| Mobile native app | PWA sufficient for current operations |
+| Full i18n/l10n | English sufficient for current venue; defer to expansion |
+| Automated NPS/CSAT surveys | Nice-to-have, not a P0/P1 finding |
+| Tiered loyalty program | Business feature, not integrity/compliance |
+| First-time user tutorial | UX improvement deferred to post-hardening |
+| Social sharing features | Not related to integrity/compliance |
 
 ## Traceability
 
-| Phase | Owner | Requirements | Count |
-|---|---|---|---|
-| 229 | James | DIAG-01 to DIAG-07 | 7 |
-| 230 | James | KB-01 to KB-06 | 6 |
-| 231 | James | API-01 to API-05 | 5 |
-| 232 | James | BUDGET-01 to BUDGET-06 | 6 |
-| 233 | James | MESH-01 to MESH-06 | 6 |
-| 234 | Bono | COORD-01 to COORD-06 | 6 |
-| 235 | Bono | DASH-01 to DASH-05 | 5 |
-| 236 | James | PRED-01 to PRED-06 | 6 |
-| 237 | James | CX-01 to CX-04 | 4 |
-| 238 | James | NIGHT-01 to NIGHT-04 | 4 |
-| 239 | Bono | CLOUD-01 to CLOUD-03 | 3 |
-| 240 | Bono | REPORT-01 to REPORT-04 | 4 |
-| **Total** | | | **62** |
+Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| (populated by roadmapper) | | |
+
+**Coverage:**
+- v27.0 requirements: 72 total
+- Mapped to phases: 0 (pending roadmap)
+- Unmapped: 72
+
+---
+*Requirements defined: 2026-03-29*
+*Last updated: 2026-03-29 after MMA audit (3 iterations, 12 model runs)*
