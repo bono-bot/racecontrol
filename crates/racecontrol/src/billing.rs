@@ -1516,38 +1516,42 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
 /// Called every 5 seconds to persist driving_seconds to database
 pub async fn sync_timers_to_db(state: &Arc<AppState>) {
-    let timers = state.billing.active_timers.read().await;
-    for timer in timers.values() {
-        if timer.status == BillingSessionStatus::Active
-            || timer.status == BillingSessionStatus::PausedManual
+    // MMA-P2: Snapshot timer data under lock, then release lock before DB writes.
+    // This prevents the read lock from blocking tick_all_timers during DB contention.
+    let snapshots: Vec<(String, BillingSessionStatus, u32, u32)> = {
+        let timers = state.billing.active_timers.read().await;
+        timers.values()
+            .filter(|t| matches!(t.status,
+                BillingSessionStatus::Active
+                | BillingSessionStatus::PausedManual
+                | BillingSessionStatus::PausedDisconnect
+                | BillingSessionStatus::PausedGamePause
+            ))
+            .map(|t| (t.session_id.clone(), t.status, t.driving_seconds, t.total_paused_seconds))
+            .collect()
+    }; // lock released here
+
+    for (session_id, status, driving_seconds, total_paused_seconds) in &snapshots {
+        let result = if *status == BillingSessionStatus::Active
+            || *status == BillingSessionStatus::PausedManual
         {
-            let _ = sqlx::query(
-                "UPDATE billing_sessions SET driving_seconds = ? WHERE id = ?",
-            )
-            .bind(timer.driving_seconds as i64)
-            .bind(&timer.session_id)
-            .execute(&state.db)
-            .await;
-        } else if timer.status == BillingSessionStatus::PausedDisconnect {
-            // Persist pause state (driving_seconds frozen, but total_paused_seconds updates)
-            let _ = sqlx::query(
-                "UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?",
-            )
-            .bind(timer.driving_seconds as i64)
-            .bind(timer.total_paused_seconds as i64)
-            .bind(&timer.session_id)
-            .execute(&state.db)
-            .await;
-        } else if timer.status == BillingSessionStatus::PausedGamePause {
-            // BILL-07: Persist total_paused_seconds for game-pause state (driving_seconds frozen)
-            let _ = sqlx::query(
-                "UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?",
-            )
-            .bind(timer.driving_seconds as i64)
-            .bind(timer.total_paused_seconds as i64)
-            .bind(&timer.session_id)
-            .execute(&state.db)
-            .await;
+            sqlx::query("UPDATE billing_sessions SET driving_seconds = ? WHERE id = ?")
+                .bind(*driving_seconds as i64)
+                .bind(session_id)
+                .execute(&state.db)
+                .await
+        } else {
+            // PausedDisconnect or PausedGamePause: also persist pause seconds
+            sqlx::query("UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?")
+                .bind(*driving_seconds as i64)
+                .bind(*total_paused_seconds as i64)
+                .bind(session_id)
+                .execute(&state.db)
+                .await
+        };
+        // MMA-P2: Log SQLITE_BUSY errors instead of silently dropping them
+        if let Err(e) = result {
+            tracing::warn!("billing sync_to_db failed for session {}: {} — will retry next cycle", session_id, e);
         }
     }
 }
@@ -1798,6 +1802,14 @@ pub async fn start_billing_session(
         if sc > 0 && split_duration_minutes.unwrap_or(1) == 0 {
             return Err("Split duration must be greater than 0 minutes".to_string());
         }
+    }
+
+    // Kimi-002: Validate duration bounds before arithmetic (prevent u32 overflow)
+    if let Some(dur) = custom_duration_minutes {
+        if dur > 1440 { return Err("Custom duration cannot exceed 24 hours (1440 minutes)".to_string()); }
+    }
+    if let Some(dur) = split_duration_minutes {
+        if dur > 1440 { return Err("Split duration cannot exceed 24 hours (1440 minutes)".to_string()); }
     }
 
     // Calculate allocated seconds — use split duration for split sessions
@@ -2166,7 +2178,7 @@ async fn end_billing_session(
             let final_cost_paise = match info.cost_paise {
                 Some(cost) => cost,
                 None => {
-                    tracing::error!("BILLING: cost_paise is None for session {} on pod {} — tier lookup may have failed. Using 0 (customer-favorable fallback).", info.session_id, pod_id);
+                    tracing::error!("BILLING: cost_paise is None for session {} on pod {} — tier lookup may have failed. Using 0 (customer-favorable fallback).", info.id, pod_id);
                     0
                 }
             };

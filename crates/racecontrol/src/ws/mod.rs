@@ -317,6 +317,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             // (billing_session_id, current_driver, status are managed by racecontrol billing)
                             // OR-016: Normalize pod_id (same as Register handler) to prevent split state
                             let hb_pod_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
+                            // Kimi-004: Verify heartbeat sender matches this connection's registered pod
+                            if let Some(ref expected) = registered_pod_id {
+                                if &hb_pod_id != expected {
+                                    tracing::warn!("Heartbeat pod_id mismatch: conn registered as {} but sent heartbeat for {}", expected, hb_pod_id);
+                                    continue; // Reject spoofed heartbeat
+                                }
+                            }
                             let mut pods = state.pods.write().await;
                             let updated = if let Some(existing) = pods.get_mut(&hb_pod_id) {
                                 // Preserve core-managed billing state
