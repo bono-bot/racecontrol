@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: executing
-stopped_at: Completed 252-01-PLAN.md
-last_updated: "2026-03-28T20:15:51.264Z"
+status: verifying
+stopped_at: Completed 252-03-PLAN.md
+last_updated: "2026-03-28T20:26:12.361Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
-  completed_phases: 148
+  completed_phases: 149
   total_plans: 358
-  completed_plans: 352
+  completed_plans: 353
   percent: 98
 ---
 
@@ -18,7 +18,7 @@ progress:
 
 Phase: 252 (financial-atomicity-core) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
 Progress: [██████████] 98% (349/355 plans)
@@ -48,7 +48,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | # | Phase | Requirements | Status |
 |---|-------|-------------|--------|
 | 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Plan 01 DONE, Plan 02 pending |
-| 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | Not started |
+| 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | COMPLETE (3/3 plans) |
 | 253 | State Machine Hardening | FSM-01–08 | Not started |
 | 254 | Security Hardening | SEC-01–10 | Not started |
 | 255 | Legal Compliance | LEGAL-01–09 | Not started |
@@ -61,6 +61,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 251 P02 | 20 | 2 tasks | 2 files |
 | Phase 252 P02 | 20 | 1 tasks | 1 files |
 | Phase 252 P01 | 45 | 2 tasks | 4 files |
+| Phase 252-financial-atomicity-core P03 | 15 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -97,16 +98,30 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - WhatsApp alerts use whatsapp_alerter::send_whatsapp gated on config.alerting.enabled (FSM-10, RESIL-03)
 - Background orphan task has 300s initial delay to avoid double-alerting sessions caught by startup scan
 
+## Decisions (Phase 252)
+
+- std::sync::OnceLock used for reconciliation status instead of once_cell — avoids new dependency (FATM-12)
+- Reconciliation status stored in module-level atomics (not AppState) — diagnostic-only, no state management needed (FATM-12)
+- HAVING ABS(balance - computed) > 0 LIMIT 100 caps query cost while catching all meaningful drift (FATM-12)
+- 60s initial delay for reconciliation job (orphan detection uses 300s; reconciliation is less urgent) (FATM-12)
+
 ## Session Continuity
 
-Stopped at: Completed 252-01-PLAN.md
-Next action: Phase 251 complete — proceed to Phase 252 (Financial Atomicity Core)
+Stopped at: Completed 252-03-PLAN.md
+Next action: Phase 252 complete (FATM-01–06, FATM-12) — proceed to Phase 253 (State Machine Hardening, FSM-01–08)
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
 - FSM-09: DONE (Billing timer persisted every 60s — 6babdd40)
 - FSM-10: DONE (Orphaned session detection on startup — a86f4710)
 - RESIL-03: DONE (Background orphan detection job — 9ef6116e)
+- FATM-01: DONE (Atomic billing start with single DB transaction — 252-01)
+- FATM-02: DONE (Idempotency keys on money-moving endpoints — 252-01)
+- FATM-03: DONE (debit_in_tx/credit_in_tx with wallet locking — 252-01)
+- FATM-04: DONE (CAS session finalization — 252-02)
+- FATM-05: DONE (Tier alignment in compute_session_cost — 252-02)
+- FATM-06: DONE (Unified compute_refund() — 252-02)
+- FATM-12: DONE (Background reconciliation job — 61c73467)
 
 Ship gate reminder (Unified Protocol v3.1):
 

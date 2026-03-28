@@ -18,7 +18,7 @@
 - [ ] **FATM-09**: Coupon restored on session cancellation/failure before billing commit
 - [ ] **FATM-10**: Discount stacking rules enforced server-side with hard floor on payable amount
 - [ ] **FATM-11**: Payment gateway webhook: wallet credited only after verified gateway confirmation with idempotent application
-- [ ] **FATM-12**: Scheduled reconciliation job detects wallet vs journal vs session balance drift
+- [x] **FATM-12**: Scheduled reconciliation job detects wallet vs journal vs session balance drift
 
 ### State Machine Integrity (FSM)
 
@@ -149,7 +149,7 @@ Updated during roadmap creation (2026-03-29).
 | FATM-04 | Phase 252 | Complete |
 | FATM-05 | Phase 252 | Complete |
 | FATM-06 | Phase 252 | Complete |
-| FATM-12 | Phase 252 | Pending |
+| FATM-12 | Phase 252 | Complete |
 | FSM-01 | Phase 253 | Pending |
 | FSM-02 | Phase 253 | Pending |
 | FSM-03 | Phase 253 | Pending |
