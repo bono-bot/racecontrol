@@ -2145,6 +2145,52 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── LEGAL-02: GST-Compliant Invoices ────────────────────────────────────
+    // One invoice per billing session. invoice_number is monotonically increasing
+    // via the invoice_sequence table. CGST/SGST split for intra-state supply.
+    // venue_gstin: TODO replace placeholder with actual GSTIN from racecontrol.toml
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS invoices (
+            id TEXT PRIMARY KEY,
+            invoice_number INTEGER NOT NULL UNIQUE,
+            billing_session_id TEXT NOT NULL REFERENCES billing_sessions(id),
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            driver_name TEXT NOT NULL,
+            venue_gstin TEXT NOT NULL DEFAULT '29AABCU9603R1ZX',
+            sac_code TEXT NOT NULL DEFAULT '999692',
+            taxable_value_paise INTEGER NOT NULL,
+            gst_rate_percent REAL NOT NULL DEFAULT 18.0,
+            cgst_paise INTEGER NOT NULL,
+            sgst_paise INTEGER NOT NULL,
+            total_paise INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_invoices_session ON invoices(billing_session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_invoices_driver ON invoices(driver_id)")
+        .execute(pool)
+        .await?;
+
+    // Monotonic invoice number sequence — exactly one row (id=1) with a CHECK constraint.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS invoice_sequence (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            next_number INTEGER NOT NULL DEFAULT 1
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed the sequence row if it doesn't exist yet.
+    sqlx::query("INSERT OR IGNORE INTO invoice_sequence (id, next_number) VALUES (1, 1)")
+        .execute(pool)
+        .await?;
+
     // ─── Billing pause-on-disconnect columns ────────────────────────────────
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN pause_count INTEGER DEFAULT 0")
         .execute(pool)

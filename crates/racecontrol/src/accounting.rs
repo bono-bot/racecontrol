@@ -326,16 +326,29 @@ pub async fn post_bonus(
     }
 }
 
-/// Post journal entry for a session debit.
-/// Debit: Customer Wallet (liability decreases) | Credit: Racing Revenue
-pub async fn post_session_debit(
+/// Post GST-separated journal entry for a session debit.
+/// Returns (entry_id, net_revenue_paise, gst_paise) on success.
+///
+/// 18% GST inclusive calculation:
+///   net_paise = amount_paise * 100 / 118   (revenue net of GST)
+///   gst_paise = amount_paise - net_paise   (18% GST liability)
+///
+/// 3-line journal entry (balanced):
+///   Line 1: Debit  acc_wallet        full amount_paise  (customer pays)
+///   Line 2: Credit acc_racing_rev    net_paise          (revenue net of tax)
+///   Line 3: Credit acc_gst_payable   gst_paise          (GST liability to remit)
+pub async fn post_session_debit_gst(
     state: &Arc<AppState>,
     driver_id: &str,
     amount_paise: i64,
     session_id: &str,
-) {
-    let desc = format!("Racing session {} for driver {}", session_id, driver_id);
-    if let Err(e) = post_journal_entry(
+) -> Result<(String, i64, i64), String> {
+    // 18% inclusive GST split (integer arithmetic, no floating point)
+    let net_paise = amount_paise * 100 / 118;
+    let gst_paise = amount_paise - net_paise;
+
+    let desc = format!("Racing session {} for driver {} (incl. 18% GST)", session_id, driver_id);
+    let entry_id = post_journal_entry(
         state,
         &desc,
         Some("billing_session"),
@@ -350,13 +363,107 @@ pub async fn post_session_debit(
             JournalLine {
                 account_id: "acc_racing_rev".to_string(),
                 debit_paise: 0,
-                credit_paise: amount_paise,
+                credit_paise: net_paise,
+            },
+            JournalLine {
+                account_id: "acc_gst_payable".to_string(),
+                debit_paise: 0,
+                credit_paise: gst_paise,
             },
         ],
     )
-    .await {
+    .await?;
+
+    Ok((entry_id, net_paise, gst_paise))
+}
+
+/// Post journal entry for a session debit (backward-compatible wrapper).
+/// Internally calls post_session_debit_gst for GST-separated accounting.
+/// Debit: Customer Wallet (liability decreases) | Credit: Racing Revenue (net) + GST Payable
+pub async fn post_session_debit(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    amount_paise: i64,
+    session_id: &str,
+) {
+    if let Err(e) = post_session_debit_gst(state, driver_id, amount_paise, session_id).await {
         tracing::error!("journal entry failed: {}", e);
     }
+}
+
+// ─── Invoice Generation (LEGAL-02) ──────────────────────────────────────────
+
+/// Venue GSTIN placeholder — update with actual GSTIN from racecontrol.toml once available.
+/// TODO: read from config.venue_gstin field.
+const VENUE_GSTIN: &str = "29AABCU9603R1ZX";
+
+/// SAC code 999692: Amusement and recreation services (sim racing is recreational amusement).
+const SAC_CODE: &str = "999692";
+
+/// Generate a GST-compliant invoice for a billing session.
+/// Returns the invoice_id on success.
+///
+/// CGST and SGST are each 9% (intra-state: total 18%).
+/// Invoice numbering is monotonically increasing via the invoice_sequence table.
+pub async fn generate_invoice(
+    state: &Arc<AppState>,
+    billing_session_id: &str,
+    driver_id: &str,
+    driver_name: &str,
+    total_paise: i64,
+    net_paise: i64,
+    gst_paise: i64,
+) -> Result<String, String> {
+    // Split GST into CGST (9%) and SGST (9%) for intra-state supply
+    let cgst_paise = gst_paise / 2;
+    let sgst_paise = gst_paise - cgst_paise;
+
+    // Atomically claim the next invoice number
+    let row: Option<(i64,)> = sqlx::query_as(
+        "UPDATE invoice_sequence SET next_number = next_number + 1 WHERE id = 1
+         RETURNING next_number - 1 as current_number",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error fetching invoice number: {}", e))?;
+
+    let invoice_number = row
+        .map(|(n,)| n)
+        .ok_or_else(|| "invoice_sequence row missing — DB not initialized".to_string())?;
+
+    let invoice_id = Uuid::new_v4().to_string();
+
+    sqlx::query(
+        "INSERT INTO invoices (
+            id, invoice_number, billing_session_id, driver_id, driver_name,
+            venue_gstin, sac_code, taxable_value_paise, gst_rate_percent,
+            cgst_paise, sgst_paise, total_paise
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 18.0, ?, ?, ?)",
+    )
+    .bind(&invoice_id)
+    .bind(invoice_number)
+    .bind(billing_session_id)
+    .bind(driver_id)
+    .bind(driver_name)
+    .bind(VENUE_GSTIN)
+    .bind(SAC_CODE)
+    .bind(net_paise)
+    .bind(cgst_paise)
+    .bind(sgst_paise)
+    .bind(total_paise)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error creating invoice: {}", e))?;
+
+    tracing::info!(
+        invoice_id = %invoice_id,
+        invoice_number = invoice_number,
+        session_id = billing_session_id,
+        total_paise = total_paise,
+        "GST invoice generated"
+    );
+
+    Ok(invoice_id)
 }
 
 /// Post journal entry for a wallet debit (cafe, merchandise, penalty).
