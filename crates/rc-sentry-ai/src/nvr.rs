@@ -32,10 +32,10 @@ pub struct NvrFileInfo {
 }
 
 /// Parsed components from a WWW-Authenticate: Digest header
-struct DigestChallenge {
-    realm: String,
-    nonce: String,
-    qop: String,
+pub(crate) struct DigestChallenge {
+    pub(crate) realm: String,
+    pub(crate) nonce: String,
+    pub(crate) qop: String,
 }
 
 impl NvrClient {
@@ -361,7 +361,7 @@ impl NvrFileInfoBuilder {
 }
 
 /// Parse a WWW-Authenticate: Digest header into its components.
-fn parse_digest_challenge(header: &str) -> anyhow::Result<DigestChallenge> {
+pub(crate) fn parse_digest_challenge(header: &str) -> anyhow::Result<DigestChallenge> {
     let header = header.strip_prefix("Digest ").unwrap_or(header);
 
     let realm = extract_quoted_value(header, "realm")
@@ -397,7 +397,7 @@ fn extract_quoted_value(s: &str, key: &str) -> Option<String> {
 }
 
 /// Compute the full Authorization: Digest header value.
-fn compute_digest_header(
+pub(crate) fn compute_digest_header(
     username: &str,
     password: &str,
     realm: &str,
@@ -427,7 +427,7 @@ fn md5_hex(input: &str) -> String {
 }
 
 /// Generate a simple pseudo-random cnonce value.
-fn rand_cnonce() -> u32 {
+pub(crate) fn rand_cnonce() -> u32 {
     // Use a simple time-based approach; no need for crypto-random here
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

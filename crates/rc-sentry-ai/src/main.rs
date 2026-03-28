@@ -5,6 +5,7 @@ mod detection;
 mod enrollment;
 mod frame;
 mod health;
+mod live_stream;
 mod mjpeg;
 mod nvr;
 mod playback;
@@ -357,6 +358,16 @@ async fn main() -> anyhow::Result<()> {
         app.merge(playback::playback_router(ps))
     } else {
         tracing::info!("NVR playback proxy disabled (nvr.enabled = false)");
+        app
+    };
+
+    // Add on-demand live streaming routes (MJPEG proxy + WebSocket H.265)
+    let app = if config.nvr.enabled {
+        let live_state = Arc::new(live_stream::LiveStreamState::from_nvr_config(&config.nvr));
+        tracing::info!("NVR live stream endpoints enabled (MJPEG + WS H.265)");
+        app.merge(live_stream::live_stream_router(live_state))
+    } else {
+        tracing::info!("NVR live stream endpoints disabled (nvr.enabled = false)");
         app
     };
     let addr = format!("{}:{}", config.service.host, config.service.port);

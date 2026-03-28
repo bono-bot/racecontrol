@@ -5,7 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SENTRY_BASE = "http://192.168.31.27:8096";
-const GO2RTC_WS = "ws://192.168.31.27:1984/api/ws";
+const SENTRY_WS = "ws://192.168.31.27:8096";
 const ZONE_ORDER = ["entrance", "reception", "pods", "other"] as const;
 
 // ── TypeScript interfaces ──────────────────────────────────────────────────────
@@ -28,19 +28,15 @@ interface LayoutState {
 
 type GridMode = "1x1" | "2x2" | "3x3" | "4x4";
 
-type WebRtcStatus = "connecting" | "connected" | "failed" | "disconnected" | "closed";
+type StreamStatus = "connecting" | "connected" | "failed" | "disconnected" | "closed";
 
-interface WebRtcConnection {
-  pc: RTCPeerConnection;
-  ws: WebSocket;
+// Check if browser supports H.265 via WebCodecs (Chrome 94+, Edge 94+, Safari 16.4+)
+function supportsWebCodecs(): boolean {
+  return typeof globalThis.VideoDecoder !== "undefined";
 }
 
-// ── Pre-warm animation keyframes injected once ─────────────────────────────────
-const PREWARM_STYLE = `
-@keyframes prewarm-pulse {
-  0%, 100% { outline-color: rgba(76, 175, 80, 0.3); }
-  50%       { outline-color: rgba(76, 175, 80, 0.8); }
-}
+// ── Animation keyframes injected once ──────────────────────────────────────────
+const STREAM_STYLE = `
 @keyframes fs-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -70,70 +66,107 @@ function isOffline(status: string): boolean {
   return status === "offline" || status === "disconnected";
 }
 
-// ── WebRTC helper — core go2rtc signaling ─────────────────────────────────────
-function connectWebRTC(
-  streamName: string,
-  onTrack: ((stream: MediaStream) => void) | null,
-  onStatus: ((state: string) => void) | null,
-): WebRtcConnection {
-  const ws = new WebSocket(`${GO2RTC_WS}?src=${streamName}`);
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
+// ── Live stream connection — on-demand NVR streaming via rc-sentry-ai ──────────
+// Primary: WebSocket + WebCodecs VideoDecoder (H.265 native, Chrome/Edge/Safari)
+// Fallback: MJPEG proxy from NVR (Firefox, older browsers)
 
-  pc.addTransceiver("video", { direction: "recvonly" });
-  pc.addTransceiver("audio", { direction: "recvonly" });
+interface LiveStreamConnection {
+  ws: WebSocket | null;
+  decoder: VideoDecoder | null;
+  cleanup: () => void;
+}
 
-  pc.ontrack = (e) => {
-    if (onTrack) onTrack(e.streams[0]);
-  };
+function connectLiveStream(
+  channel: number,
+  canvas: HTMLCanvasElement,
+  onStatus: (state: string) => void,
+): LiveStreamConnection {
+  const ws = new WebSocket(`${SENTRY_WS}/api/v1/stream/ws/${channel}?subtype=0`);
+  ws.binaryType = "arraybuffer";
 
-  pc.onicecandidate = (e) => {
-    if (e.candidate && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "webrtc/candidate", value: e.candidate.toJSON() }));
-    }
-  };
+  const ctx = canvas.getContext("2d");
+  let decoder: VideoDecoder | null = null;
+  let configured = false;
 
-  pc.onconnectionstatechange = () => {
-    if (onStatus) onStatus(pc.connectionState);
-  };
+  if (supportsWebCodecs()) {
+    decoder = new VideoDecoder({
+      output: (frame: VideoFrame) => {
+        if (ctx) {
+          if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+            canvas.width = frame.displayWidth;
+            canvas.height = frame.displayHeight;
+          }
+          ctx.drawImage(frame, 0, 0);
+        }
+        frame.close();
+        if (!configured) {
+          configured = true;
+          onStatus("connected");
+        }
+      },
+      error: (e: DOMException) => {
+        console.error("VideoDecoder error:", e);
+        onStatus("failed");
+      },
+    });
+  }
 
-  ws.onopen = () => {
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => {
-        ws.send(
-          JSON.stringify({ type: "webrtc/offer", value: pc.localDescription?.sdp }),
-        );
-      })
-      .catch((err) => {
-        console.error("WebRTC offer failed:", err);
-        if (onStatus) onStatus("failed");
-      });
-  };
-
-  ws.onmessage = (ev) => {
-    try {
-      const msg = JSON.parse(ev.data as string) as { type: string; value: string | RTCIceCandidateInit };
-      if (msg.type === "webrtc/answer") {
-        pc.setRemoteDescription(
-          new RTCSessionDescription({ type: "answer", sdp: msg.value as string }),
-        ).catch((err) => console.error("setRemoteDescription failed:", err));
-      } else if (msg.type === "webrtc/candidate") {
-        pc.addIceCandidate(new RTCIceCandidate(msg.value as RTCIceCandidateInit)).catch((err) =>
-          console.debug("addIceCandidate failed:", err),
-        );
+  ws.onmessage = (ev: MessageEvent) => {
+    if (typeof ev.data === "string") {
+      // Init message from server: {"type":"init","codec":"hev1.1.6.L123.B0","width":2560,"height":1440}
+      try {
+        const config = JSON.parse(ev.data) as { type: string; codec: string; width: number; height: number; msg?: string };
+        if (config.type === "init" && decoder) {
+          decoder.configure({
+            codec: config.codec,
+            codedWidth: config.width,
+            codedHeight: config.height,
+            optimizeForLatency: true,
+          });
+          onStatus("connecting");
+        } else if (config.type === "error") {
+          console.error("Stream error:", config.msg);
+          onStatus("failed");
+        }
+      } catch {
+        // ignore parse errors
       }
-    } catch {
-      // ignore parse errors
+    } else if (decoder && ev.data instanceof ArrayBuffer) {
+      // Binary frame: [8-byte LE timestamp µs][1-byte flags][H.265 Annex B data]
+      const buf = ev.data;
+      if (buf.byteLength < 10) return;
+      const view = new DataView(buf);
+      const timestamp = Number(view.getBigUint64(0, true));
+      const flags = view.getUint8(8);
+      const data = new Uint8Array(buf, 9);
+
+      try {
+        decoder.decode(
+          new EncodedVideoChunk({
+            type: flags & 0x01 ? "key" : "delta",
+            timestamp: timestamp,
+            data: data,
+          }),
+        );
+      } catch (e) {
+        console.warn("decode error:", e);
+      }
     }
   };
 
-  ws.onerror = () => {
-    if (onStatus) onStatus("failed");
+  ws.onerror = () => onStatus("failed");
+  ws.onclose = () => onStatus("closed");
+
+  const cleanup = () => {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+    if (decoder && decoder.state !== "closed") {
+      try { decoder.close(); } catch { /* already closed */ }
+    }
   };
 
-  return { pc, ws };
+  return { ws, decoder, cleanup };
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -146,23 +179,19 @@ export default function CamerasPage() {
   const [error, setError] = useState<string | null>(null);
   const [collapsedZones, setCollapsedZones] = useState<Record<string, boolean>>({});
   const [fullscreenCamera, setFullscreenCamera] = useState<CameraInfo | null>(null);
-  const [webrtcStatus, setWebrtcStatus] = useState<WebRtcStatus>("connecting");
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
   const [dragOverChannel, setDragOverChannel] = useState<number | null>(null);
   const [statusText, setStatusText] = useState<string>("Loading...");
   const [draggingChannel, setDraggingChannel] = useState<number | null>(null);
   const [showFallback, setShowFallback] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [preWarmingChannel, setPreWarmingChannel] = useState<number | null>(null);
+  const [useMjpegFallback, setUseMjpegFallback] = useState(!supportsWebCodecs());
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const preWarmPcRef = useRef<RTCPeerConnection | null>(null);
-  const preWarmWsRef = useRef<WebSocket | null>(null);
-  const preWarmChannelRef = useRef<number | null>(null);
-  const preWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveStreamRef = useRef<LiveStreamConnection | null>(null);
   const controlsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mjpegImgRef = useRef<HTMLImageElement | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const imgRefs = useRef<Record<number, HTMLImageElement>>({});
   const dragSrcChannelRef = useRef<number | null>(null);
@@ -173,13 +202,13 @@ export default function CamerasPage() {
     camerasRef.current = cameras;
   }, [cameras]);
 
-  // ── Inject pre-warm animation styles ─────────────────────────────────────────
+  // ── Inject animation styles ──────────────────────────────────────────────────
   useEffect(() => {
     const existing = document.getElementById("cameras-page-styles");
     if (!existing) {
       const style = document.createElement("style");
       style.id = "cameras-page-styles";
-      style.textContent = PREWARM_STYLE;
+      style.textContent = STREAM_STYLE;
       document.head.appendChild(style);
     }
     return () => {
@@ -188,33 +217,12 @@ export default function CamerasPage() {
     };
   }, []);
 
-  // ── teardownRtc ───────────────────────────────────────────────────────────────
-  const teardownRtc = useCallback(() => {
-    if (pcRef.current) {
-      pcRef.current.ontrack = null;
-      pcRef.current.onicecandidate = null;
-      pcRef.current.onconnectionstatechange = null;
-      pcRef.current.close();
-      pcRef.current = null;
+  // ── teardownStream ────────────────────────────────────────────────────────────
+  const teardownStream = useCallback(() => {
+    if (liveStreamRef.current) {
+      liveStreamRef.current.cleanup();
+      liveStreamRef.current = null;
     }
-    if (wsRef.current) {
-      wsRef.current.onmessage = null;
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, []);
-
-  // ── teardownPreWarm ───────────────────────────────────────────────────────────
-  const teardownPreWarm = useCallback(() => {
-    if (preWarmTimerRef.current) {
-      clearTimeout(preWarmTimerRef.current);
-      preWarmTimerRef.current = null;
-    }
-    if (preWarmPcRef.current) { preWarmPcRef.current.close(); preWarmPcRef.current = null; }
-    if (preWarmWsRef.current) { preWarmWsRef.current.close(); preWarmWsRef.current = null; }
-    preWarmChannelRef.current = null;
-    setPreWarmingChannel(null);
   }, []);
 
   // ── Layout persistence ────────────────────────────────────────────────────────
@@ -287,99 +295,62 @@ export default function CamerasPage() {
   // ── Open fullscreen ───────────────────────────────────────────────────────────
   const openFullscreen = useCallback(
     (camera: CameraInfo) => {
-      const streamName = `ch${camera.nvr_channel}`;
-      teardownRtc();
-
+      teardownStream();
       setFullscreenCamera(camera);
-      setWebrtcStatus("connecting");
+      setStreamStatus("connecting");
       setShowFallback(false);
 
-      // Set poster snapshot as fallback
-      if (videoRef.current && camera.nvr_channel) {
-        videoRef.current.poster = `${SENTRY_BASE}/api/v1/cameras/nvr/${camera.nvr_channel}/snapshot?t=${Date.now()}`;
-        videoRef.current.srcObject = null;
-      }
+      // Determine streaming mode
+      const useWebCodecs = supportsWebCodecs() && !useMjpegFallback;
 
-      const onStatus = (state: string) => {
-        setWebrtcStatus(state as WebRtcStatus);
-        if (state === "failed" || state === "disconnected" || state === "closed") {
-          setShowFallback(true);
-          setTimeout(() => setShowFallback(false), 5000);
-        }
-      };
-
-      // Check if pre-warm connection matches this camera
-      if (
-        preWarmChannelRef.current === camera.nvr_channel &&
-        preWarmPcRef.current &&
-        preWarmWsRef.current
-      ) {
-        pcRef.current = preWarmPcRef.current;
-        wsRef.current = preWarmWsRef.current;
-        preWarmPcRef.current = null;
-        preWarmWsRef.current = null;
-        preWarmChannelRef.current = null;
-        setPreWarmingChannel(null);
-
-        // Wire up existing pre-warm connection for fullscreen use
-        pcRef.current.ontrack = (e) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = e.streams[0];
-            setWebrtcStatus("connected");
+      if (useWebCodecs) {
+        // Use WebSocket + VideoDecoder for H.265 native quality (4MP)
+        // Canvas ref will be available after render — connect in a microtask
+        setTimeout(() => {
+          if (canvasRef.current && camera.nvr_channel) {
+            const conn = connectLiveStream(
+              camera.nvr_channel,
+              canvasRef.current,
+              (state) => {
+                setStreamStatus(state as StreamStatus);
+                if (state === "failed") {
+                  // Fall back to MJPEG on WebCodecs failure
+                  setUseMjpegFallback(true);
+                  setShowFallback(true);
+                }
+              },
+            );
+            liveStreamRef.current = conn;
           }
-        };
-        pcRef.current.onconnectionstatechange = () => {
-          if (pcRef.current) onStatus(pcRef.current.connectionState);
-        };
-
-        // Check if tracks already arrived during pre-warm
-        const receivers = pcRef.current.getReceivers();
-        for (const receiver of receivers) {
-          if (receiver.track && receiver.track.kind === "video") {
-            const stream = new MediaStream([receiver.track]);
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              setWebrtcStatus("connected");
-            }
-            break;
-          }
-        }
+        }, 0);
       } else {
-        teardownPreWarm();
-
-        const conn = connectWebRTC(
-          streamName,
-          (stream) => {
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              setWebrtcStatus("connected");
-            }
-          },
-          onStatus,
-        );
-        pcRef.current = conn.pc;
-        wsRef.current = conn.ws;
+        // MJPEG fallback — set img src to NVR MJPEG proxy
+        setTimeout(() => {
+          if (mjpegImgRef.current && camera.nvr_channel) {
+            mjpegImgRef.current.src = `${SENTRY_BASE}/api/v1/stream/mjpeg/${camera.nvr_channel}?subtype=1`;
+            setStreamStatus("connected");
+          }
+        }, 0);
       }
 
       resetControlsTimer();
     },
-    [teardownRtc, teardownPreWarm, resetControlsTimer],
+    [teardownStream, resetControlsTimer, useMjpegFallback],
   );
 
   // ── Close fullscreen ──────────────────────────────────────────────────────────
   const closeFullscreen = useCallback(() => {
-    teardownRtc();
-    teardownPreWarm();
+    teardownStream();
     setFullscreenCamera(null);
-    setWebrtcStatus("connecting");
+    setStreamStatus("connecting");
     setShowFallback(false);
     setControlsVisible(true);
     if (controlsHideTimerRef.current) clearTimeout(controlsHideTimerRef.current);
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-      videoRef.current.poster = "";
+    // Clear MJPEG img src to stop the stream
+    if (mjpegImgRef.current) {
+      mjpegImgRef.current.src = "";
     }
-  }, [teardownRtc, teardownPreWarm]);
+  }, [teardownStream]);
 
   // ── Initial data fetch ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -468,9 +439,9 @@ export default function CamerasPage() {
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeFullscreen();
     };
-    const onBeforeUnload = () => teardownRtc();
+    const onBeforeUnload = () => teardownStream();
     const onVisibilityChange = () => {
-      if (document.hidden) teardownRtc();
+      if (document.hidden) teardownStream();
     };
 
     document.addEventListener("keydown", onKeydown);
@@ -483,12 +454,10 @@ export default function CamerasPage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       // Cleanup all timers and connections
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-      if (preWarmTimerRef.current) clearTimeout(preWarmTimerRef.current);
       if (controlsHideTimerRef.current) clearTimeout(controlsHideTimerRef.current);
-      teardownRtc();
-      teardownPreWarm();
+      teardownStream();
     };
-  }, [closeFullscreen, teardownRtc, teardownPreWarm]);
+  }, [closeFullscreen, teardownStream]);
 
   // ── Layout mode switching ─────────────────────────────────────────────────────
   const handleModeChange = useCallback(
@@ -555,31 +524,7 @@ export default function CamerasPage() {
     [saveLayout, gridMode],
   );
 
-  // ── Pre-warm handlers ─────────────────────────────────────────────────────────
-  const handleTileMouseEnter = useCallback(
-    (channel: number) => {
-      if (!channel) return;
-      preWarmTimerRef.current = setTimeout(() => {
-        if (preWarmChannelRef.current === channel) return;
-        teardownPreWarm();
-        preWarmChannelRef.current = channel;
-        setPreWarmingChannel(channel);
-        const conn = connectWebRTC(`ch${channel}`, null, null);
-        preWarmPcRef.current = conn.pc;
-        preWarmWsRef.current = conn.ws;
-      }, 500);
-    },
-    [teardownPreWarm],
-  );
-
-  const handleTileMouseLeave = useCallback(() => {
-    if (preWarmTimerRef.current) {
-      clearTimeout(preWarmTimerRef.current);
-      preWarmTimerRef.current = null;
-    }
-    setPreWarmingChannel(null);
-    // Keep pre-warm connection alive — don't tear it down on leave
-  }, []);
+  // Pre-warm removed — on-demand WS connects fast enough without pre-warming
 
   // ── Group cameras by zone ─────────────────────────────────────────────────────
   const groupedCameras = (() => {
@@ -593,9 +538,9 @@ export default function CamerasPage() {
     return groups;
   })();
 
-  // ── WebRTC status dot styling ─────────────────────────────────────────────────
+  // ── Stream status dot styling ────────────────────────────────────────────────
   const rtcDotStyle = (): React.CSSProperties => {
-    if (webrtcStatus === "connecting") {
+    if (streamStatus === "connecting") {
       return {
         width: 8, height: 8, borderRadius: "50%",
         background: "#ffc107",
@@ -604,7 +549,7 @@ export default function CamerasPage() {
         flexShrink: 0,
       };
     }
-    if (webrtcStatus === "connected") {
+    if (streamStatus === "connected") {
       return { width: 8, height: 8, borderRadius: "50%", background: "#4caf50", display: "inline-block", flexShrink: 0 };
     }
     return { width: 8, height: 8, borderRadius: "50%", background: "#E10600", display: "inline-block", flexShrink: 0 };
@@ -713,7 +658,6 @@ export default function CamerasPage() {
                     const offline = isOffline(camera.status);
                     const isDragging = draggingChannel === ch;
                     const isDragOver = dragOverChannel === ch;
-                    const isPreWarming = preWarmingChannel === ch;
 
                     return (
                       <div
@@ -724,20 +668,13 @@ export default function CamerasPage() {
                         onDragLeave={handleDragLeave}
                         onDragEnd={handleDragEnd}
                         onDrop={(e) => handleDrop(e, ch)}
-                        onMouseEnter={() => handleTileMouseEnter(ch)}
-                        onMouseLeave={handleTileMouseLeave}
                         className={`relative aspect-video bg-rp-card rounded overflow-hidden cursor-grab ${
                           offline ? "opacity-40" : ""
                         } ${isDragging ? "opacity-60" : ""}`}
                         style={{
                           display: isCollapsed ? "none" : undefined,
-                          outline: isDragOver
-                            ? "2px dashed #E10600"
-                            : isPreWarming
-                            ? "2px solid rgba(76, 175, 80, 0.6)"
-                            : undefined,
+                          outline: isDragOver ? "2px dashed #E10600" : undefined,
                           outlineOffset: "-2px",
-                          animation: isPreWarming ? "prewarm-pulse 1.5s ease-in-out infinite" : undefined,
                         }}
                       >
                         {/* Label bar */}
@@ -815,7 +752,7 @@ export default function CamerasPage() {
           </div>
 
           {/* Loading spinner */}
-          {webrtcStatus === "connecting" && (
+          {streamStatus === "connecting" && (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
               <div
                 className="w-10 h-10 rounded-full animate-spin"
@@ -824,22 +761,32 @@ export default function CamerasPage() {
             </div>
           )}
 
-          {/* Video element */}
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-contain bg-black"
-          />
+          {/* H.265 WebCodecs canvas (primary — Chrome/Edge/Safari) */}
+          {!useMjpegFallback && (
+            <canvas
+              ref={canvasRef}
+              className="w-full h-full bg-black"
+              style={{ objectFit: "contain" }}
+            />
+          )}
 
-          {/* Fallback message */}
+          {/* MJPEG fallback image (Firefox or WebCodecs failure) */}
+          {useMjpegFallback && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              ref={mjpegImgRef}
+              alt="Live MJPEG"
+              className="w-full h-full object-contain bg-black"
+            />
+          )}
+
+          {/* Fallback mode indicator */}
           {showFallback && (
             <div
               className="absolute bottom-1/4 left-1/2 -translate-x-1/2 text-[0.75rem] text-[#999] px-3.5 py-1.5 rounded z-10"
               style={{ background: "rgba(0,0,0,0.7)" }}
             >
-              Live unavailable — showing snapshot
+              WebCodecs unavailable — using MJPEG (D1 quality)
             </div>
           )}
         </div>

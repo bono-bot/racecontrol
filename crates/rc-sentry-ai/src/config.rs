@@ -385,6 +385,18 @@ impl CameraConfig {
         format!("{rtsp_base}/{}", self.stream_name)
     }
 
+    /// Direct NVR RTSP URL (bypass go2rtc relay).
+    /// Subtype 0 = main stream (4MP H.265), 1 = sub stream (D1 MJPEG/H.265).
+    #[allow(dead_code)]
+    pub fn nvr_rtsp_url(&self, nvr_config: &NvrConfig, subtype: u32) -> Option<String> {
+        let channel = self.nvr_channel?;
+        let encoded_pass = nvr_config.password.replace('@', "%40");
+        Some(format!(
+            "rtsp://{}:{}@{}:554/cam/realmonitor?channel={}&subtype={}",
+            nvr_config.username, encoded_pass, nvr_config.host, channel, subtype
+        ))
+    }
+
     pub fn effective_display_name(&self) -> &str {
         self.display_name.as_deref().unwrap_or(&self.name)
     }
