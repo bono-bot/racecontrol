@@ -9,9 +9,9 @@
 
 ## Phases
 
-- [ ] **Phase 251: Database Foundation** — SQLite WAL mode, staggered timer writes, orphaned session detection
-- [ ] **Phase 252: Financial Atomicity Core** — Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
-- [ ] **Phase 253: State Machine Hardening** — Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
+- [x] **Phase 251: Database Foundation** — SQLite WAL mode, staggered timer writes, orphaned session detection
+- [x] **Phase 252: Financial Atomicity Core** — Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
+- [x] **Phase 253: State Machine Hardening** — Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
 - [ ] **Phase 254: Security Hardening** — INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
 - [ ] **Phase 255: Legal Compliance** — GST separation, invoice generation, waiver gate, minor consent flow, data retention
 - [ ] **Phase 256: Game-Specific Hardening** — Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
@@ -36,7 +36,7 @@
 **Plans:** 2 plans
 Plans:
 - [x] 251-01-PLAN.md — WAL verification, schema migration (elapsed_seconds + last_timer_sync_at), staggered 60s timer persistence
-- [ ] 251-02-PLAN.md — Orphaned session detection on startup and background 5-minute job with WhatsApp alerting
+- [x] 251-02-PLAN.md — Orphaned session detection on startup and background 5-minute job with WhatsApp alerting
 
 ### Phase 252: Financial Atomicity Core
 **Goal**: Every money-moving operation is atomic, idempotent, and race-condition-free — no double charges, no overspend, no balance drift
@@ -50,9 +50,9 @@ Plans:
   5. The tier price shown to the customer exactly matches what compute_session_cost() would charge for that duration
 **Plans:** 3 plans
 Plans:
-- [ ] 252-01-PLAN.md — Atomic billing start (single tx for wallet debit + session creation), idempotency keys on all money-moving endpoints, wallet row locking
-- [ ] 252-02-PLAN.md — CAS session finalization, unified compute_refund() function, tier/rate alignment verification
-- [ ] 252-03-PLAN.md — Background reconciliation job (30-min interval) comparing wallet balances to transaction sums
+- [x] 252-01-PLAN.md — Atomic billing start (single tx for wallet debit + session creation), idempotency keys on all money-moving endpoints, wallet row locking
+- [x] 252-02-PLAN.md — CAS session finalization, unified compute_refund() function, tier/rate alignment verification
+- [x] 252-03-PLAN.md — Background reconciliation job (30-min interval) comparing wallet balances to transaction sums
 
 ### Phase 253: State Machine Hardening
 **Goal**: Billing and game states are always consistent — phantom billing and free gaming are structurally impossible
@@ -66,9 +66,9 @@ Plans:
   5. A split session is recorded to DB before any new launch command is issued — no launch without committed state
 **Plans:** 3 plans
 Plans:
-- [ ] 253-01-PLAN.md — Billing FSM transition table, validate_transition(), authoritative_end_session()
-- [ ] 253-02-PLAN.md — Phantom billing guard, free gaming guard, crash recovery atomicity, StopGame in all recovery states
-- [ ] 253-03-PLAN.md — Split session modeling (parent + child entitlements), DB-before-launch guard
+- [x] 253-01-PLAN.md — Billing FSM transition table, validate_transition(), authoritative_end_session()
+- [x] 253-02-PLAN.md — Phantom billing guard, free gaming guard, crash recovery atomicity, StopGame in all recovery states
+- [x] 253-03-PLAN.md — Split session modeling (parent + child entitlements), DB-before-launch guard
 
 ### Phase 254: Security Hardening
 **Goal**: The system rejects injection attacks, enforces role boundaries, and stores credentials safely
@@ -164,9 +164,9 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 251. Database Foundation | 0/2 | Planned | - |
-| 252. Financial Atomicity Core | 0/3 | Planned | - |
-| 253. State Machine Hardening | 0/3 | Planned | - |
+| 251. Database Foundation | 2/2 | Complete | 2026-03-28 |
+| 252. Financial Atomicity Core | 3/3 | Complete | 2026-03-28 |
+| 253. State Machine Hardening | 3/3 | Complete | 2026-03-28 |
 | 254. Security Hardening | 0/? | Not started | - |
 | 255. Legal Compliance | 0/? | Not started | - |
 | 256. Game-Specific Hardening | 0/? | Not started | - |

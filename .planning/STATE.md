@@ -16,9 +16,9 @@ progress:
 
 ## Current Position
 
-Phase: 253 (state-machine-hardening) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 253 (state-machine-hardening) — COMPLETE
+Plan: 3 of 3 (all complete)
+Status: Phase 253 complete — ready for Phase 254 (Security Hardening)
 Last activity: 2026-03-28
 
 Progress: [██████████] 98% (349/355 plans)
@@ -49,7 +49,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 |---|-------|-------------|--------|
 | 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Plan 01 DONE, Plan 02 pending |
 | 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | COMPLETE (3/3 plans) |
-| 253 | State Machine Hardening | FSM-01–08 | Not started |
+| 253 | State Machine Hardening | FSM-01–08 | COMPLETE (3/3 plans) |
 | 254 | Security Hardening | SEC-01–10 | Not started |
 | 255 | Legal Compliance | LEGAL-01–09 | Not started |
 | 256 | Game-Specific Hardening | GAME-01–08 | Not started |
@@ -111,7 +111,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 ## Session Continuity
 
 Stopped at: Completed 253-03-PLAN.md
-Next action: Phase 252 complete (FATM-01–06, FATM-12) — proceed to Phase 253 (State Machine Hardening, FSM-01–08)
+Next action: Phase 253 complete (FSM-01–08) — proceed to Phase 254 (Security Hardening, SEC-01–10)
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
