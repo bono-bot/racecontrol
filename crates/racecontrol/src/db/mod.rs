@@ -2001,6 +2001,17 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // SEC-06: audit_log is append-only — prevent row deletion via SQLite trigger
+    sqlx::query(
+        "CREATE TRIGGER IF NOT EXISTS prevent_audit_log_delete
+         BEFORE DELETE ON audit_log
+         BEGIN
+             SELECT RAISE(ABORT, 'audit_log is append-only: DELETE operations are forbidden');
+         END",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── audit_log: add action_type column (Phase 80 migration) ─────────────
     {
         let has_col: bool = sqlx::query_scalar::<_, i64>(

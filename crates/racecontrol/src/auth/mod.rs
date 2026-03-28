@@ -978,6 +978,35 @@ pub fn verify_jwt(token: &str, secret: &str) -> Result<String, String> {
 
 // ─── OTP ───────────────────────────────────────────────────────────────────
 
+/// Hash a one-time password using Argon2id with a random salt.
+/// Returns the PHC-format hash string (starts with "$argon2id$").
+/// SEC-08: OTPs must be stored as hashes, never plaintext.
+fn hash_otp(otp: &str) -> Result<String, String> {
+    use argon2::{
+        password_hash::{rand_core::OsRng, SaltString},
+        Argon2, PasswordHasher,
+    };
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(otp.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| format!("Argon2 OTP hash error: {}", e))
+}
+
+/// Verify a plaintext OTP against an argon2 hash string.
+/// Returns `true` if the OTP matches the hash, `false` otherwise (including on parse errors).
+/// SEC-08: Must be called via spawn_blocking — argon2 verify is CPU-intensive.
+fn verify_otp_hash(otp: &str, hash_str: &str) -> bool {
+    use argon2::{Argon2, PasswordHash, PasswordVerifier};
+    let Ok(parsed) = PasswordHash::new(hash_str) else {
+        return false;
+    };
+    Argon2::default()
+        .verify_password(otp.as_bytes(), &parsed)
+        .is_ok()
+}
+
 /// Result of an OTP send attempt. `driver_id` is always set on success;
 /// `delivered` indicates whether the WhatsApp message actually reached the API.
 pub struct OtpSendResult {
@@ -1037,16 +1066,19 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendResul
     let otp_str = format!("{:06}", otp);
     let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
 
-    // Store OTP in driver record
+    // SEC-08: Hash the OTP before storing — plaintext OTPs must not be recoverable from DB
+    let otp_hash = hash_otp(&otp_str).map_err(|e| format!("OTP hash error: {}", e))?;
+
+    // Store hashed OTP in driver record
     sqlx::query("UPDATE drivers SET otp_code = ?, otp_expires_at = ? WHERE id = ?")
-        .bind(&otp_str)
+        .bind(&otp_hash)
         .bind(expires_at.to_rfc3339())
         .bind(&driver_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error storing OTP: {}", e))?;
 
-    // Send OTP via WhatsApp (Evolution API)
+    // Send OTP via WhatsApp (Evolution API) — uses plaintext otp_str, not the hash
     let delivered = send_otp_whatsapp(state, phone, &otp_str).await;
 
     Ok(OtpSendResult { driver_id, delivered })
@@ -1146,14 +1178,19 @@ pub async fn resend_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendRes
     Ok(OtpSendResult { driver_id, delivered })
 }
 
-/// Generate a new 6-digit OTP and store it in the driver record.
+/// Generate a new 6-digit OTP and store it as an argon2 hash in the driver record.
+/// Returns the plaintext OTP (needed for WhatsApp delivery), not the hash.
+/// SEC-08: plaintext is only kept in memory for the duration of this function.
 async fn generate_and_store_otp(state: &Arc<AppState>, driver_id: &str) -> Result<String, String> {
     let otp: u32 = rand::thread_rng().gen_range(100000..=999999);
     let otp_str = format!("{:06}", otp);
     let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
 
+    // SEC-08: Hash OTP before storing
+    let otp_hash = hash_otp(&otp_str).map_err(|e| format!("OTP hash error: {}", e))?;
+
     sqlx::query("UPDATE drivers SET otp_code = ?, otp_expires_at = ? WHERE id = ?")
-        .bind(&otp_str)
+        .bind(&otp_hash)
         .bind(expires_at.to_rfc3339())
         .bind(driver_id)
         .execute(&state.db)
@@ -1185,15 +1222,14 @@ pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result
         return Err("OTP has expired".to_string());
     }
 
-    // Verify OTP (constant-time via hash comparison to prevent timing attacks)
-    use std::hash::{Hash, Hasher};
-    let mut h1 = std::hash::DefaultHasher::new();
-    stored_otp.hash(&mut h1);
-    let hash1 = h1.finish();
-    let mut h2 = std::hash::DefaultHasher::new();
-    otp.hash(&mut h2);
-    let hash2 = h2.finish();
-    if hash1 != hash2 || stored_otp.len() != otp.len() {
+    // SEC-08: Verify OTP using argon2 (constant-time, cryptographically secure)
+    // spawn_blocking because argon2 verify is CPU-intensive and must not block tokio runtime
+    let otp_owned = otp.to_string();
+    let stored_otp_owned = stored_otp.clone();
+    let valid = tokio::task::spawn_blocking(move || verify_otp_hash(&otp_owned, &stored_otp_owned))
+        .await
+        .unwrap_or(false);
+    if !valid {
         return Err("Invalid OTP".to_string());
     }
 
@@ -2186,5 +2222,57 @@ mod tests {
         );
 
         pool.close().await;
+    }
+
+    // ─── SEC-08: OTP hashing tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_hash_otp_produces_argon2id_prefix() {
+        let hash = hash_otp("123456").expect("hash_otp should succeed");
+        assert!(
+            hash.starts_with("$argon2id$"),
+            "hash_otp must produce argon2id PHC string, got: {}",
+            hash
+        );
+    }
+
+    #[test]
+    fn test_verify_otp_hash_correct_otp_returns_true() {
+        let hash = hash_otp("123456").expect("hash_otp should succeed");
+        assert!(
+            verify_otp_hash("123456", &hash),
+            "verify_otp_hash must return true for correct OTP"
+        );
+    }
+
+    #[test]
+    fn test_verify_otp_hash_wrong_otp_returns_false() {
+        let hash = hash_otp("123456").expect("hash_otp should succeed");
+        assert!(
+            !verify_otp_hash("654321", &hash),
+            "verify_otp_hash must return false for wrong OTP"
+        );
+    }
+
+    #[test]
+    fn test_verify_otp_hash_plaintext_input_returns_false() {
+        // Graceful: if stored value is plaintext (not a valid argon2 hash), return false
+        assert!(
+            !verify_otp_hash("123456", "plaintext_not_hash"),
+            "verify_otp_hash must return false when hash is not a valid argon2 hash"
+        );
+    }
+
+    #[test]
+    fn test_hash_otp_random_salt_produces_different_hashes() {
+        let hash1 = hash_otp("123456").expect("hash_otp should succeed");
+        let hash2 = hash_otp("123456").expect("hash_otp should succeed");
+        assert_ne!(
+            hash1, hash2,
+            "Two hashes of the same OTP must differ (random salt)"
+        );
+        // But both must verify correctly
+        assert!(verify_otp_hash("123456", &hash1));
+        assert!(verify_otp_hash("123456", &hash2));
     }
 }
