@@ -214,7 +214,18 @@ async fn kiosk_proxy(
         }
     }
 
-    if !is_kiosk && !is_dashboard {
+    // PERMANENT FIX (Unified Protocol): For paths not explicitly in WEB_DASHBOARD_PATHS
+    // and not /kiosk*, try the web dashboard (port 3200) first. If it returns 404,
+    // then return 404. This prevents new pages added to the web app from being blocked
+    // by a stale static path list. The WEB_DASHBOARD_PATHS list is kept for the
+    // /kiosk/* redirect logic but is no longer the gatekeeper for proxy routing.
+    let is_unknown = !is_kiosk && !is_dashboard;
+    let try_web_for_unknown = is_unknown
+        && path_and_query.starts_with('/')
+        && !path_and_query.starts_with("//")
+        && !path_and_query.contains("..");
+
+    if is_unknown && !try_web_for_unknown {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
     }
 
