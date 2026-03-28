@@ -3939,7 +3939,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 
 ## v27.0 Workflow Integrity & Compliance Hardening (Phases 251-260)
 
-- [ ] **Phase 251: Database Foundation** - SQLite WAL mode, staggered timer writes, orphaned session detection
+- [x] **Phase 251: Database Foundation** - SQLite WAL mode, staggered timer writes, orphaned session detection (completed 2026-03-28)
 **Plans**: TBD
 
 - [ ] **Phase 252: Financial Atomicity Core** - Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
@@ -3971,7 +3971,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 251. Database Foundation | 0/TBD | Not started | - |
+| 251. Database Foundation | 2/2 | Complete    | 2026-03-28 |
 | 252. Financial Atomicity Core | 0/TBD | Not started | - |
 | 253. State Machine Hardening | 0/TBD | Not started | - |
 | 254. Security Hardening | 0/TBD | Not started | - |
