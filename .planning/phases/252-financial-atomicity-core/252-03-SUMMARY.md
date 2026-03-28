@@ -118,6 +118,19 @@ None — reconciliation uses existing `config.alerting.enabled` gate and `wallet
 - Phase 253 (State Machine Hardening, FSM-01–08) can proceed
 - Reconciliation status endpoint available for admin dashboard integration
 
+## Self-Check: PASSED
+
+- `crates/racecontrol/src/billing.rs` — FOUND
+- `crates/racecontrol/src/api/routes.rs` — FOUND
+- `crates/racecontrol/src/main.rs` — FOUND
+- `.planning/phases/252-financial-atomicity-core/252-03-SUMMARY.md` — FOUND
+- Commit `61c73467` (feat: reconciliation job) — FOUND in git log
+- Commit `12b9d344` (docs: complete plan) — FOUND in git log
+- `spawn_reconciliation_job` in billing.rs — 1 occurrence (PASS)
+- `RECONCILIATION` log messages in billing.rs — 8 occurrences (PASS)
+- `reconciliation` routes in routes.rs — 10 occurrences (PASS)
+- `spawn_reconciliation_job` called in main.rs — 1 occurrence (PASS)
+
 ---
 *Phase: 252-financial-atomicity-core*
 *Completed: 2026-03-28*
