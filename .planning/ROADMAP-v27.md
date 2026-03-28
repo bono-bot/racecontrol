@@ -82,9 +82,9 @@ Plans:
   5. OTP codes stored in the database are bcrypt hashes — a database dump reveals no plaintext OTPs
 **Plans:** 3 plans
 Plans:
-- [ ] 254-01-PLAN.md — Server-side launch_args validation, FFB cap, RBAC role middleware and endpoint gating
-- [ ] 254-02-PLAN.md — OTP argon2 hashing, audit log immutability trigger, PIN CAS verification, PII masking
-- [ ] 254-03-PLAN.md — Self-topup block, WSS TLS configuration, agent game launch mutex
+- [x] 254-01-PLAN.md — Server-side launch_args validation, FFB cap, RBAC role middleware and endpoint gating
+- [x] 254-02-PLAN.md — OTP argon2 hashing, audit log immutability trigger, PIN CAS verification, PII masking
+- [x] 254-03-PLAN.md — Self-topup block, WSS TLS configuration, agent game launch mutex
 
 ### Phase 255: Legal Compliance
 **Goal**: Every session is legally auditable: GST is correctly separated, waivers are enforced, and minor protections are active

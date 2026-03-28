@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
 status: completed
-stopped_at: Completed 254-01-PLAN.md
-last_updated: "2026-03-28T22:46:40.108Z"
+stopped_at: Completed 254-03-PLAN.md
+last_updated: "2026-03-28T14:00:00.000Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
@@ -50,7 +50,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | 251 | Database Foundation | RESIL-01, RESIL-02, RESIL-03, FSM-09, FSM-10 | Plan 01 DONE, Plan 02 pending |
 | 252 | Financial Atomicity Core | FATM-01–06, FATM-12 | COMPLETE (3/3 plans) |
 | 253 | State Machine Hardening | FSM-01–08 | COMPLETE (3/3 plans) |
-| 254 | Security Hardening | SEC-01–10 | In Progress (Plan 01 DONE: SEC-01/02/04, Plan 02 DONE: SEC-03/06/08/09) |
+| 254 | Security Hardening | SEC-01–10 | COMPLETE (3/3 plans: P01 SEC-01/02/04, P02 SEC-03/06/08/09, P03 SEC-05/07/10) |
 | 255 | Legal Compliance | LEGAL-01–09 | Not started |
 | 256 | Game-Specific Hardening | GAME-01–08 | Not started |
 | 257 | Billing Edge Cases | BILL-01–08 | Not started |
@@ -67,6 +67,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 253-state-machine-hardening P03 | 17 | 2 tasks | 4 files |
 | Phase 254 P02 | 35 | 2 tasks | 3 files |
 | Phase 254-security-hardening P01 | 45 | 2 tasks | 5 files |
+| Phase 254-security-hardening P03 | 90 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,10 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - validate_launch_args uses same allowlist as agent-side validate_content_id: ^[a-zA-Z0-9._-]{0,128}$ — defense-in-depth, server blocks before WS send to agent (SEC-01)
 - admin_login PIN auth issues 'superadmin' role (not 'admin') for consistency with 3-tier RBAC tier names (SEC-04)
 - FFB presets (light/medium/strong) pass through unchanged; only numeric values are capped at 100 or defaulted to 'medium' (SEC-02)
+- Option<Extension<StaffClaims>> in topup_wallet: doesn't break unauthenticated callers; guard only fires when claims are present (SEC-05)
+- game_launch_mutex lives in AppState not ConnectionState: survives WS reconnections without resetting mutex (SEC-10)
+- native-tls over rustls: Windows certificate store integration for LAN deployments; tls_skip_verify fallback for self-signed certs (SEC-07)
+- native-tls must be a DIRECT dep — transitive via tokio-tungstenite features flag does not expose crate name (SEC-07)
 
 ## Decisions (Phase 252)
 
