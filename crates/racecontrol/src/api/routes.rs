@@ -2626,44 +2626,74 @@ async fn start_billing(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
-    let pod_id = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
+    let pod_id_raw = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
     let driver_id = body.get("driver_id").and_then(|v| v.as_str()).unwrap_or("");
     let pricing_tier_id = body.get("pricing_tier_id").and_then(|v| v.as_str()).unwrap_or("");
     let custom_price_paise = body.get("custom_price_paise").and_then(|v| v.as_u64()).map(|v| v as u32);
     let custom_duration_minutes = body.get("custom_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
     let staff_id = body.get("staff_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let split_count = body.get("split_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let split_duration_minutes = body.get("split_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
+    // FATM-02: Idempotency key — if present, duplicate requests return the original result
+    let idempotency_key = body.get("idempotency_key").and_then(|v| v.as_str()).map(|s| s.to_string());
     // Discount params: coupon_code OR staff_discount_paise + discount_reason
     let coupon_code = body.get("coupon_code").and_then(|v| v.as_str()).map(|s| s.to_string());
     let staff_discount_paise = body.get("staff_discount_paise").and_then(|v| v.as_i64());
     let discount_reason = body.get("discount_reason").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+    // Normalize pod_id to canonical form
+    let pod_id = rc_common::pod_id::normalize_pod_id(pod_id_raw).unwrap_or_else(|_| pod_id_raw.to_string());
+
     if pod_id.is_empty() || driver_id.is_empty() || pricing_tier_id.is_empty() {
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
     }
 
-    // Pre-validate to return useful errors instead of silent failures
+    // FATM-02: Idempotency check — return original result if key was already processed
+    if let Some(ref key) = idempotency_key {
+        let existing = sqlx::query_as::<_, (String, Option<i64>)>(
+            "SELECT id, wallet_debit_paise FROM billing_sessions WHERE idempotency_key = ?",
+        )
+        .bind(key)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if let Some((existing_id, existing_debit)) = existing {
+            return Json(json!({
+                "ok": true,
+                "billing_session_id": existing_id,
+                "wallet_debit_paise": existing_debit,
+                "idempotent_replay": true,
+            }));
+        }
+    }
+
+    // Pre-validate: check in-memory timer (fast path; DB constraint is primary guard)
     {
         let timers = state.billing.active_timers.read().await;
-        if timers.contains_key(pod_id) {
+        if timers.contains_key(pod_id.as_str()) {
             return Json(json!({ "error": format!("Pod {} already has an active billing session", pod_id) }));
         }
     }
 
-    let tier_exists = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    // Look up tier (name + duration + price + trial flag)
+    let tier_info = sqlx::query_as::<_, (String, i64, i64, bool)>(
+        "SELECT name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
     )
-    .bind(pricing_tier_id)
+    .bind(&pricing_tier_id)
     .fetch_optional(&state.db)
     .await
     .ok()
     .flatten();
 
-    if tier_exists.is_none() {
-        return Json(json!({ "error": format!("Pricing tier '{}' not found or inactive", pricing_tier_id) }));
-    }
+    let (tier_name, tier_duration_minutes, tier_price_paise, is_trial) = match tier_info {
+        Some(t) => t,
+        None => return Json(json!({ "error": format!("Pricing tier '{}' not found or inactive", pricing_tier_id) })),
+    };
 
-    let driver_exists = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM drivers WHERE id = ?",
+    // Look up driver (name + trial status)
+    let driver_info = sqlx::query_as::<_, (String, bool, bool)>(
+        "SELECT name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
     )
     .bind(driver_id)
     .fetch_optional(&state.db)
@@ -2671,59 +2701,88 @@ async fn start_billing(
     .ok()
     .flatten();
 
-    if driver_exists.is_none() {
-        return Json(json!({ "error": format!("Driver '{}' not found", driver_id) }));
-    }
-
-    // Look up tier price to determine wallet debit amount
-    let tier_info = sqlx::query_as::<_, (i64, bool)>(
-        "SELECT price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
-    )
-    .bind(pricing_tier_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-
-    let (tier_price_paise, is_trial) = match tier_info {
-        Some(t) => (t.0, t.1),
-        None => return Json(json!({ "error": "Pricing tier lookup failed" })),
+    let (driver_name, has_used_trial, unlimited_trials) = match driver_info {
+        Some(d) => d,
+        None => return Json(json!({ "error": format!("Driver '{}' not found", driver_id) })),
     };
 
-    // Determine the base price (custom override or tier price)
-    let mut base_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
+    // Trial eligibility check
+    if is_trial && has_used_trial && !unlimited_trials {
+        return Json(json!({ "error": "Driver has already used their free trial" }));
+    }
 
-    // Apply group discount (Option A): if 3+ sessions already active, this is the 4th+ → apply group multiplier
+    // Validate pod exists
+    let pod_exists = sqlx::query_as::<_, (String,)>("SELECT id FROM pods WHERE id = ?")
+        .bind(&pod_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if pod_exists.is_none() {
+        return Json(json!({ "error": format!("Pod '{}' not found", pod_id) }));
+    }
+
+    // Validate split params
+    if let Some(sc) = split_count {
+        if sc > 0 && split_duration_minutes.unwrap_or(1) == 0 {
+            return Json(json!({ "error": "Split duration must be greater than 0 minutes" }));
+        }
+    }
+    if let Some(dur) = custom_duration_minutes {
+        if dur > 1440 { return Json(json!({ "error": "Custom duration cannot exceed 24 hours (1440 minutes)" })); }
+    }
+    if let Some(dur) = split_duration_minutes {
+        if dur > 1440 { return Json(json!({ "error": "Split duration cannot exceed 24 hours (1440 minutes)" })); }
+    }
+
+    // Calculate allocated seconds
+    let final_split_count = split_count.unwrap_or(1);
+    let allocated_seconds: u32 = if let Some(split_dur) = split_duration_minutes.filter(|_| final_split_count > 1) {
+        split_dur * 60
+    } else {
+        custom_duration_minutes
+            .map(|m| m * 60)
+            .unwrap_or(tier_duration_minutes as u32 * 60)
+    };
+
+    // Determine base price (custom override or tier price with optional dynamic pricing)
+    let mut base_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or_else(|| {
+        // Dynamic pricing computed here synchronously is fine — no lock held
+        tier_price_paise
+    });
+
+    // Apply group discount: if 3+ sessions already active, 4th+ gets group multiplier
     let mut group_discount_paise: i64 = 0;
-    if !is_trial {
-        let active_count = state.billing.active_timers.read().await.len();
-        if active_count >= 3 {
-            // Fetch group pricing rule
-            let group_rule = sqlx::query_as::<_, (f64,)>(
-                "SELECT multiplier FROM pricing_rules WHERE rule_type = 'group' AND is_active = 1 LIMIT 1",
-            )
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
+    let active_count = {
+        // Snapshot count before dropping lock
+        let timers = state.billing.active_timers.read().await;
+        timers.len()
+    };
+    if !is_trial && active_count >= 3 {
+        let group_rule = sqlx::query_as::<_, (f64,)>(
+            "SELECT multiplier FROM pricing_rules WHERE rule_type = 'group' AND is_active = 1 LIMIT 1",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
 
-            if let Some((multiplier,)) = group_rule {
-                let discounted = (base_price_paise as f64 * multiplier).round() as i64;
-                group_discount_paise = base_price_paise - discounted;
-                base_price_paise = discounted;
-                tracing::info!(
-                    "Group discount applied: {} active sessions, multiplier={}, saved {}p",
-                    active_count + 1, multiplier, group_discount_paise
-                );
-            }
+        if let Some((multiplier,)) = group_rule {
+            let discounted = (base_price_paise as f64 * multiplier).round() as i64;
+            group_discount_paise = base_price_paise - discounted;
+            base_price_paise = discounted;
+            tracing::info!(
+                "Group discount applied: {} active sessions, multiplier={}, saved {}p",
+                active_count + 1, multiplier, group_discount_paise
+            );
         }
     }
 
-    // Apply discount (coupon or staff manual) — stacks on top of group discount
+    // Apply coupon or staff discount
     let mut applied_discount_paise: i64 = group_discount_paise;
     let mut applied_coupon_id: Option<String> = None;
     let mut applied_discount_reason: Option<String> = if group_discount_paise > 0 {
-        Some(format!("Group {} sessions (11% off)", state.billing.active_timers.read().await.len() + 1))
+        Some(format!("Group {} sessions (11% off)", active_count + 1))
     } else {
         None
     };
@@ -2752,13 +2811,11 @@ async fn start_billing(
         }
     }
 
-    // original_price is before ALL discounts (group + coupon/staff)
     let original_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
     let final_price_paise = original_price_paise - applied_discount_paise;
 
-    // Wallet balance check and debit (skip for trial or zero-price)
-    let wallet_debit: Option<i64> = if !is_trial && final_price_paise > 0 {
-        // Check balance first
+    // Pre-check balance (optimistic, before acquiring tx) to return a clear error
+    if !is_trial && final_price_paise > 0 {
         let balance = match wallet::get_balance(&state, driver_id).await {
             Ok(b) => b,
             Err(e) => return Json(json!({ "error": format!("Wallet error: {}", e) })),
@@ -2770,116 +2827,169 @@ async fn start_billing(
                 "required_paise": final_price_paise,
             }));
         }
+    }
 
-        // Debit wallet
-        let pod_num = sqlx::query_as::<_, (i64,)>("SELECT number FROM pods WHERE id = ?")
-            .bind(pod_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .map(|r| r.0)
-            .unwrap_or(0);
+    // Fetch pod number for debit notes (before tx)
+    let pod_num = sqlx::query_as::<_, (i64,)>("SELECT number FROM pods WHERE id = ?")
+        .bind(&pod_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.0)
+        .unwrap_or(0);
 
+    // ─── FATM-01: Single atomic transaction — wallet debit + session INSERT ───
+    // If ANY step fails, the entire transaction rolls back automatically on drop.
+    // No compensating refund needed — rollback is the rollback.
+    // FATM-03: SQLite WAL mode with busy_timeout=5000ms handles concurrent write serialization.
+    // The atomic UPDATE WHERE balance >= ? inside debit_in_tx is the overspend guard.
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            state.record_api_error("billing/start");
+            return Json(json!({ "error": format!("DB error starting transaction: {}", e) }));
+        }
+    };
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now();
+
+    // Step 1: Debit wallet within the transaction (FATM-01, FATM-03)
+    let wallet_debit_paise: Option<i64> = if !is_trial && final_price_paise > 0 {
         let debit_notes = if applied_discount_paise > 0 {
-            format!("Session on Pod {} (staff) — {} credits discount", pod_num, applied_discount_paise / 100)
+            format!("Session on Pod {} — {} credits discount", pod_num, applied_discount_paise / 100)
         } else {
-            format!("Session on Pod {} (staff)", pod_num)
+            format!("Session on Pod {}", pod_num)
         };
-
-        match wallet::debit(
-            &state,
+        match wallet::debit_in_tx(
+            &mut tx,
             driver_id,
             final_price_paise,
             "debit_session",
-            None,
+            Some(&session_id),
             Some(&debit_notes),
-        )
-        .await
-        {
-            Ok((_, _txn_id)) => Some(final_price_paise),
-            Err(e) => return Json(json!({ "error": e })),
+            idempotency_key.as_deref(),
+        ).await {
+            Ok(_) => Some(final_price_paise),
+            Err(e) => {
+                drop(tx);
+                state.record_api_error("billing/start");
+                return Json(json!({ "error": e }));
+            }
         }
     } else {
         None
     };
 
-    // Now start billing (should succeed since we pre-validated)
-    let split_count = body.get("split_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-    let split_duration_minutes = body.get("split_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
+    // Step 2: INSERT billing session within the same transaction (FATM-01)
+    let dynamic_price = if custom_price_paise.is_none() && !is_trial {
+        // Compute dynamic pricing inside the tx (read-only query is fine)
+        let dp = billing::compute_dynamic_price_in_tx(&mut tx, tier_price_paise).await;
+        if dp != tier_price_paise { Some(dp) } else { None }
+    } else {
+        custom_price_paise.map(|p| p as i64)
+    };
 
-    let session_id = billing::start_billing_session(
-        &state,
-        pod_id.to_string(),
-        driver_id.to_string(),
-        pricing_tier_id.to_string(),
-        custom_price_paise,
-        custom_duration_minutes,
-        staff_id,
-        split_count,
-        split_duration_minutes,
+    if let Err(e) = sqlx::query(
+        "INSERT INTO billing_sessions \
+         (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
+          started_at, staff_id, split_count, split_duration_minutes, \
+          wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key) \
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .await;
+    .bind(&session_id)
+    .bind(driver_id)
+    .bind(&pod_id)
+    .bind(&pricing_tier_id)
+    .bind(allocated_seconds as i64)
+    .bind(dynamic_price)
+    .bind(now.to_rfc3339())
+    .bind(&staff_id)
+    .bind(final_split_count as i64)
+    .bind(split_duration_minutes.map(|d| d as i64))
+    .bind(wallet_debit_paise)
+    .bind(applied_discount_paise)
+    .bind(&applied_coupon_id)
+    .bind(original_price_paise)
+    .bind(&applied_discount_reason)
+    .bind(idempotency_key.as_deref())
+    .execute(&mut *tx)
+    .await {
+        drop(tx); // rolls back wallet debit atomically
+        state.record_api_error("billing/start");
+        return Json(json!({ "error": format!("Failed to create billing session: {}", e) }));
+    }
 
-    match session_id {
-        Ok(id) => {
-            // Record wallet debit + discount info on the billing session
-            if wallet_debit.is_some() || applied_discount_paise > 0 {
-                let _ = sqlx::query(
-                    "UPDATE billing_sessions SET wallet_debit_paise = ?, discount_paise = ?, coupon_id = ?, original_price_paise = ?, discount_reason = ? WHERE id = ?",
-                )
-                .bind(wallet_debit)
-                .bind(applied_discount_paise)
-                .bind(&applied_coupon_id)
-                .bind(original_price_paise)
-                .bind(&applied_discount_reason)
-                .bind(&id)
-                .execute(&state.db)
-                .await;
-            }
+    // Step 3: Log billing events within the same transaction
+    for event_type in ["created", "started"] {
+        let _ = sqlx::query(
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event) VALUES (?, ?, ?, 0)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&session_id)
+        .bind(event_type)
+        .execute(&mut *tx)
+        .await;
+    }
 
-            // Record coupon redemption
-            if let Some(ref cid) = applied_coupon_id {
-                record_coupon_redemption(&state, cid, driver_id, &id, applied_discount_paise).await;
-            }
+    // Step 4: Mark trial as used within the same transaction
+    if is_trial && !unlimited_trials {
+        let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1, updated_at = datetime('now') WHERE id = ?")
+            .bind(driver_id)
+            .execute(&mut *tx)
+            .await;
+    }
 
-            // Audit trail for discount with staff_id (POS-05)
-            if applied_discount_paise > 0 {
-                accounting::log_audit(
-                    &state,
-                    "billing_sessions",
-                    &id,
-                    "discount",
-                    None,
-                    Some(&serde_json::json!({
-                        "discount_paise": applied_discount_paise,
-                        "original_price_paise": original_price_paise,
-                        "reason": applied_discount_reason,
-                        "coupon_id": applied_coupon_id,
-                    }).to_string()),
-                    body.get("staff_id").and_then(|v| v.as_str()),
-                )
-                .await;
-            }
+    // ─── Commit: all-or-nothing (FATM-01) ────────────────────────────────────
+    if let Err(e) = tx.commit().await {
+        state.record_api_error("billing/start");
+        return Json(json!({ "error": format!("Transaction commit failed: {}", e) }));
+    }
 
-            Json(json!({
-                "ok": true,
-                "billing_session_id": id,
-                "wallet_debit_paise": wallet_debit,
+    // ─── Post-commit: record coupon redemption + audit trail (non-critical) ───
+    if let Some(ref cid) = applied_coupon_id {
+        record_coupon_redemption(&state, cid, driver_id, &session_id, applied_discount_paise).await;
+    }
+    if applied_discount_paise > 0 {
+        accounting::log_audit(
+            &state,
+            "billing_sessions",
+            &session_id,
+            "discount",
+            None,
+            Some(&serde_json::json!({
                 "discount_paise": applied_discount_paise,
                 "original_price_paise": original_price_paise,
-                "discount_reason": applied_discount_reason,
-            }))
-        }
-        Err(reason) => {
-            // Refund wallet if billing failed
-            if let Some(debit) = wallet_debit {
-                let _ = wallet::refund(&state, driver_id, debit, None, Some("Billing start failed — auto-refund")).await;
-            }
-            state.record_api_error("billing/start");
-            Json(json!({ "error": reason }))
-        }
+                "reason": applied_discount_reason,
+                "coupon_id": applied_coupon_id,
+            }).to_string()),
+            staff_id.as_deref(),
+        )
+        .await;
     }
+
+    // ─── Post-commit: activate in-memory timer, notify agent, broadcast ───────
+    billing::finalize_billing_start(&state, billing::BillingStartData {
+        session_id: session_id.clone(),
+        driver_id: driver_id.to_string(),
+        driver_name,
+        pod_id,
+        pricing_tier_name: tier_name,
+        allocated_seconds,
+        split_count: final_split_count,
+        split_duration_minutes,
+        started_at: now,
+    }).await;
+
+    Json(json!({
+        "ok": true,
+        "billing_session_id": session_id,
+        "wallet_debit_paise": wallet_debit_paise,
+        "discount_paise": applied_discount_paise,
+        "original_price_paise": original_price_paise,
+        "discount_reason": applied_discount_reason,
+    }))
 }
 
 /// Returns valid session split options for a given total duration.
@@ -3061,7 +3171,32 @@ async fn continue_split(
 async fn stop_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    body: Option<Json<Value>>,
 ) -> Json<Value> {
+    // FATM-02: Idempotency — if session already ended, return ok (not error)
+    // Check for an existing ended_early or cancelled billing event for this session.
+    let already_ended = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM billing_events \
+         WHERE billing_session_id = ? AND event_type IN ('ended_early', 'cancelled', 'completed') \
+         LIMIT 1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if already_ended.is_some() {
+        return Json(json!({ "ok": true, "idempotent_replay": true }));
+    }
+
+    // Optional body may carry idempotency_key for future use — currently informational
+    let _idempotency_key = body
+        .as_ref()
+        .and_then(|b| b.get("idempotency_key"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
     if found {
         Json(json!({ "ok": true }))
@@ -3389,6 +3524,8 @@ struct BillingRefundRequest {
     method: String,       // "wallet", "cash", "upi"
     reason: String,
     notes: Option<String>,
+    // FATM-02: Optional idempotency key — duplicate requests return the original result
+    idempotency_key: Option<String>,
 }
 
 async fn refund_billing_session(
@@ -3399,6 +3536,26 @@ async fn refund_billing_session(
 ) -> Json<Value> {
     // Extract staff_id from JWT (POS-05: audit trail with staff_id)
     let staff_id = claims.map(|c| c.0.sub.clone());
+
+    // FATM-02: Idempotency check for refund
+    if let Some(ref key) = req.idempotency_key {
+        let existing = sqlx::query_as::<_, (String, i64)>(
+            "SELECT id, amount_paise FROM refunds WHERE idempotency_key = ?",
+        )
+        .bind(key)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if let Some((existing_id, existing_amount)) = existing {
+            return Json(json!({
+                "status": "ok",
+                "refund_id": existing_id,
+                "amount_paise": existing_amount,
+                "idempotent_replay": true,
+            }));
+        }
+    }
 
     // Validate method
     if !["wallet", "cash", "upi"].contains(&req.method.as_str()) {
@@ -3479,10 +3636,10 @@ async fn refund_billing_session(
         tracing::info!("Refund via {}: {} {}p (session {})", req.method, driver_id, req.amount_paise, session_id);
     }
 
-    // Record in refunds table
+    // Record in refunds table (include idempotency_key for FATM-02)
     let result = sqlx::query(
-        "INSERT INTO refunds (id, billing_session_id, driver_id, amount_paise, method, reason, notes, staff_id, wallet_txn_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO refunds (id, billing_session_id, driver_id, amount_paise, method, reason, notes, staff_id, wallet_txn_id, idempotency_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&refund_id)
     .bind(&session_id)
@@ -3493,6 +3650,7 @@ async fn refund_billing_session(
     .bind(req.notes.as_deref())
     .bind(staff_id.as_deref()) // staff_id from JWT (POS-05)
     .bind(wallet_txn_id.as_deref())
+    .bind(req.idempotency_key.as_deref())
     .execute(&state.db)
     .await;
 
@@ -6410,12 +6568,13 @@ async fn get_wallet(
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct TopupRequest {
     amount_paise: i64,
     method: String, // cash, card, upi
     notes: Option<String>,
     staff_id: Option<String>,
+    // FATM-02: Optional idempotency key — duplicate requests return the original result
+    idempotency_key: Option<String>,
 }
 
 async fn topup_wallet(
@@ -6425,6 +6584,26 @@ async fn topup_wallet(
 ) -> Json<Value> {
     if req.amount_paise <= 0 {
         return Json(json!({ "error": "amount_paise must be greater than 0" }));
+    }
+
+    // FATM-02: Idempotency check for topup
+    if let Some(ref key) = req.idempotency_key {
+        let existing = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT amount_paise, balance_after_paise FROM wallet_transactions WHERE idempotency_key = ?",
+        )
+        .bind(key)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if let Some((_amount, balance)) = existing {
+            return Json(json!({
+                "status": "ok",
+                "new_balance_paise": balance,
+                "bonus_paise": 0,
+                "idempotent_replay": true,
+            }));
+        }
     }
 
     let txn_type = match req.method.as_str() {
