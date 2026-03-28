@@ -559,6 +559,9 @@ async fn main() -> anyhow::Result<()> {
     // Recover any active billing sessions from DB
     billing::recover_active_sessions(&state).await?;
 
+    // FSM-10: Detect orphaned sessions on startup (sessions with stale heartbeat)
+    billing::detect_orphaned_sessions_on_startup(&state).await;
+
     // Load billing rate tiers from DB into cache
     billing::refresh_rate_tiers(&state).await;
 
@@ -621,6 +624,20 @@ async fn main() -> anyhow::Result<()> {
                     billing::persist_timer_state(&persist_state, Some(pod_num)).await;
                 }
             }
+        }
+    });
+
+    // Spawn orphan detection background task (RESIL-03: every 5 minutes)
+    let orphan_state = state.clone();
+    tokio::spawn(async move {
+        tracing::info!("orphan-detector task started (300s interval)");
+        // Initial delay: wait 5 minutes before first background check
+        // (startup check already ran — avoid duplicate alerts for same orphans)
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            billing::detect_orphaned_sessions_background(&orphan_state).await;
         }
     });
 
