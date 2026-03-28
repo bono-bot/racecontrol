@@ -134,17 +134,100 @@
 
 ## Traceability
 
-Updated during roadmap creation.
+Updated during roadmap creation (2026-03-29).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmapper) | | |
+| RESIL-01 | Phase 251 | Pending |
+| RESIL-02 | Phase 251 | Pending |
+| FSM-09 | Phase 251 | Pending |
+| FSM-10 | Phase 251 | Pending |
+| RESIL-03 | Phase 251 | Pending |
+| FATM-01 | Phase 252 | Pending |
+| FATM-02 | Phase 252 | Pending |
+| FATM-03 | Phase 252 | Pending |
+| FATM-04 | Phase 252 | Pending |
+| FATM-05 | Phase 252 | Pending |
+| FATM-06 | Phase 252 | Pending |
+| FATM-12 | Phase 252 | Pending |
+| FSM-01 | Phase 253 | Pending |
+| FSM-02 | Phase 253 | Pending |
+| FSM-03 | Phase 253 | Pending |
+| FSM-04 | Phase 253 | Pending |
+| FSM-05 | Phase 253 | Pending |
+| FSM-06 | Phase 253 | Pending |
+| FSM-07 | Phase 253 | Pending |
+| FSM-08 | Phase 253 | Pending |
+| SEC-01 | Phase 254 | Pending |
+| SEC-02 | Phase 254 | Pending |
+| SEC-03 | Phase 254 | Pending |
+| SEC-04 | Phase 254 | Pending |
+| SEC-05 | Phase 254 | Pending |
+| SEC-06 | Phase 254 | Pending |
+| SEC-07 | Phase 254 | Pending |
+| SEC-08 | Phase 254 | Pending |
+| SEC-09 | Phase 254 | Pending |
+| SEC-10 | Phase 254 | Pending |
+| LEGAL-01 | Phase 255 | Pending |
+| LEGAL-02 | Phase 255 | Pending |
+| LEGAL-03 | Phase 255 | Pending |
+| LEGAL-04 | Phase 255 | Pending |
+| LEGAL-05 | Phase 255 | Pending |
+| LEGAL-06 | Phase 255 | Pending |
+| LEGAL-07 | Phase 255 | Pending |
+| LEGAL-08 | Phase 255 | Pending |
+| LEGAL-09 | Phase 255 | Pending |
+| GAME-01 | Phase 256 | Pending |
+| GAME-02 | Phase 256 | Pending |
+| GAME-03 | Phase 256 | Pending |
+| GAME-04 | Phase 256 | Pending |
+| GAME-05 | Phase 256 | Pending |
+| GAME-06 | Phase 256 | Pending |
+| GAME-07 | Phase 256 | Pending |
+| GAME-08 | Phase 256 | Pending |
+| BILL-01 | Phase 257 | Pending |
+| BILL-02 | Phase 257 | Pending |
+| BILL-03 | Phase 257 | Pending |
+| BILL-04 | Phase 257 | Pending |
+| BILL-05 | Phase 257 | Pending |
+| BILL-06 | Phase 257 | Pending |
+| BILL-07 | Phase 257 | Pending |
+| BILL-08 | Phase 257 | Pending |
+| STAFF-01 | Phase 258 | Pending |
+| STAFF-02 | Phase 258 | Pending |
+| STAFF-03 | Phase 258 | Pending |
+| STAFF-04 | Phase 258 | Pending |
+| STAFF-05 | Phase 258 | Pending |
+| DEPLOY-01 | Phase 258 | Pending |
+| DEPLOY-02 | Phase 258 | Pending |
+| DEPLOY-03 | Phase 258 | Pending |
+| DEPLOY-04 | Phase 258 | Pending |
+| DEPLOY-05 | Phase 258 | Pending |
+| FATM-07 | Phase 259 | Pending |
+| FATM-08 | Phase 259 | Pending |
+| FATM-09 | Phase 259 | Pending |
+| FATM-10 | Phase 259 | Pending |
+| FATM-11 | Phase 259 | Pending |
+| UX-01 | Phase 260 | Pending |
+| UX-02 | Phase 260 | Pending |
+| UX-03 | Phase 260 | Pending |
+| UX-04 | Phase 260 | Pending |
+| UX-05 | Phase 260 | Pending |
+| UX-06 | Phase 260 | Pending |
+| UX-07 | Phase 260 | Pending |
+| UX-08 | Phase 260 | Pending |
+| RESIL-04 | Phase 260 | Pending |
+| RESIL-05 | Phase 260 | Pending |
+| RESIL-06 | Phase 260 | Pending |
+| RESIL-07 | Phase 260 | Pending |
+| RESIL-08 | Phase 260 | Pending |
 
 **Coverage:**
-- v27.0 requirements: 72 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 72
+- v27.0 requirements: 83 total (note: pre-MMA count was 72; final count after 3 audit iterations = 83)
+- Mapped to phases: 83/83
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-29*
 *Last updated: 2026-03-29 after MMA audit (3 iterations, 12 model runs)*
+*Traceability populated: 2026-03-29 by roadmapper*
