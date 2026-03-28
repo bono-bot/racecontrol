@@ -3939,45 +3939,35 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 
 ## v27.0 Workflow Integrity & Compliance Hardening (Phases 251-260)
 
-- [ ] **Phase 251: Database Foundation** — SQLite WAL mode, staggered timer writes, orphaned session detection
-  - Requirements: RESIL-01, RESIL-02, FSM-09, FSM-10, RESIL-03
-  - **Plans**: TBD
+- [ ] **Phase 251: Database Foundation** - SQLite WAL mode, staggered timer writes, orphaned session detection
+**Plans**: TBD
 
-- [ ] **Phase 252: Financial Atomicity Core** — Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
-  - Requirements: FATM-01, FATM-02, FATM-03, FATM-04, FATM-05, FATM-06, FATM-12
-  - **Plans**: TBD
+- [ ] **Phase 252: Financial Atomicity Core** - Atomic billing start, wallet row locking, idempotency keys, CAS finalization, reconciliation
+**Plans**: TBD
 
-- [ ] **Phase 253: State Machine Hardening** — Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
-  - Requirements: FSM-01, FSM-02, FSM-03, FSM-04, FSM-05, FSM-06, FSM-07, FSM-08
-  - **Plans**: TBD
+- [ ] **Phase 253: State Machine Hardening** - Server-side FSM transition table, cross-FSM invariants, crash recovery atomicity, split session modeling
+**Plans**: TBD
 
-- [ ] **Phase 254: Security Hardening** — INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
-  - Requirements: SEC-01, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, SEC-08, SEC-09, SEC-10
-  - **Plans**: TBD
+- [ ] **Phase 254: Security Hardening** - INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
+**Plans**: TBD
 
-- [ ] **Phase 255: Legal Compliance** — GST separation, invoice generation, waiver gate, minor consent flow, data retention
-  - Requirements: LEGAL-01, LEGAL-02, LEGAL-03, LEGAL-04, LEGAL-05, LEGAL-06, LEGAL-07, LEGAL-08, LEGAL-09
-  - **Plans**: TBD
+- [ ] **Phase 255: Legal Compliance** - GST separation, invoice generation, waiver gate, minor consent flow, data retention
+**Plans**: TBD
 
-- [ ] **Phase 256: Game-Specific Hardening** — Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
-  - Requirements: GAME-01, GAME-02, GAME-03, GAME-04, GAME-05, GAME-06, GAME-07, GAME-08
-  - **Plans**: TBD
+- [ ] **Phase 256: Game-Specific Hardening** - Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
+**Plans**: TBD
 
-- [ ] **Phase 257: Billing Edge Cases** — Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
-  - Requirements: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05, BILL-06, BILL-07, BILL-08
-  - **Plans**: TBD
+- [ ] **Phase 257: Billing Edge Cases** - Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
+**Plans**: TBD
 
-- [ ] **Phase 258: Staff Controls & Deployment Safety** — Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
-  - Requirements: STAFF-01, STAFF-02, STAFF-03, STAFF-04, STAFF-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05
-  - **Plans**: TBD
+- [ ] **Phase 258: Staff Controls & Deployment Safety** - Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
+**Plans**: TBD
 
-- [ ] **Phase 259: Coupon & Discount System** — Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
-  - Requirements: FATM-07, FATM-08, FATM-09, FATM-10, FATM-11
-  - **Plans**: TBD
+- [ ] **Phase 259: Coupon & Discount System** - Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
+**Plans**: TBD
 
-- [ ] **Phase 260: Notifications, Resilience & UX** — Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
-  - Requirements: UX-01, UX-02, UX-03, UX-04, UX-05, UX-06, UX-07, UX-08, RESIL-04, RESIL-05, RESIL-06, RESIL-07, RESIL-08
-  - **Plans**: TBD
+- [ ] **Phase 260: Notifications, Resilience & UX** - Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
+**Plans**: TBD
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -3991,3 +3981,123 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 258. Staff Controls & Deployment Safety | 0/TBD | Not started | - |
 | 259. Coupon & Discount System | 0/TBD | Not started | - |
 | 260. Notifications, Resilience & UX | 0/TBD | Not started | - |
+
+### Phase 251: Database Foundation
+**Goal**: The SQLite database layer is stable under concurrent writes, timer state survives server restarts, and orphaned sessions are automatically detected
+**Depends on**: Nothing (foundational infrastructure)
+**Requirements**: RESIL-01, RESIL-02, FSM-09, FSM-10, RESIL-03
+**Success Criteria** (what must be TRUE):
+  1. Server survives simultaneous writes from 8 pods without "database is locked" errors (WAL mode active, busy_timeout 5000ms)
+  2. After a server restart mid-session, billing timer state is recovered from the DB (no silent time loss)
+  3. Pod timer writes are staggered by pod index so writes never cluster at the same second
+  4. Any billing session with no agent heartbeat for 5+ minutes is automatically flagged and staff is alerted within the next detection cycle
+**Plans**: TBD
+
+### Phase 252: Financial Atomicity Core
+**Goal**: Every money-moving operation is atomic, idempotent, and race-condition-free — no double charges, no overspend, no balance drift
+**Depends on**: Phase 251 (DB stability required for reliable transactions)
+**Requirements**: FATM-01, FATM-02, FATM-03, FATM-04, FATM-05, FATM-06, FATM-12
+**Success Criteria** (what must be TRUE):
+  1. A billing start that fails mid-way leaves the wallet unchanged — no orphaned debits
+  2. Submitting the same /topup or /billing/start request twice returns the original result, not a double charge
+  3. Two simultaneous billing starts for the same wallet cannot both succeed if only one has sufficient balance
+  4. Ending a session twice does not produce two refund entries
+  5. The tier price shown matches what compute_session_cost() would charge for that duration
+**Plans**: TBD
+
+### Phase 253: State Machine Hardening
+**Goal**: Billing and game states are always consistent — phantom billing and free gaming are structurally impossible
+**Depends on**: Phase 252 (atomicity layer must exist before state guards are added)
+**Requirements**: FSM-01, FSM-02, FSM-03, FSM-04, FSM-05, FSM-06, FSM-07, FSM-08
+**Success Criteria** (what must be TRUE):
+  1. An invalid state transition is rejected by the server with a logged error
+  2. A billing session cannot remain active while the game is in Idle state
+  3. A game in Running state cannot exist without an active billing session
+  4. When a game crashes, billing is paused atomically before any relaunch is attempted
+  5. A split session is recorded to DB before any new launch command is issued
+**Plans**: TBD
+
+### Phase 254: Security Hardening
+**Goal**: The system rejects injection attacks, enforces role boundaries, and stores credentials safely
+**Depends on**: Phase 252 (RBAC interacts with money-moving endpoints)
+**Requirements**: SEC-01, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, SEC-08, SEC-09, SEC-10
+**Success Criteria** (what must be TRUE):
+  1. launch_args containing newline, equals, or bracket characters are rejected before reaching the agent
+  2. FFB GAIN above 100 is capped to 100 at the server before forwarding
+  3. Cashier cannot access pricing reports; manager cannot access system config — role gates enforced
+  4. Staff self-top-up rejected for non-superadmin roles
+  5. OTP codes in database are bcrypt hashes — no plaintext in DB dump
+**Plans**: TBD
+
+### Phase 255: Legal Compliance
+**Goal**: Every session is legally auditable: GST is correctly separated, waivers are enforced, and minor protections are active
+**Depends on**: Phase 252, Phase 254
+**Requirements**: LEGAL-01, LEGAL-02, LEGAL-03, LEGAL-04, LEGAL-05, LEGAL-06, LEGAL-07, LEGAL-08, LEGAL-09
+**Success Criteria** (what must be TRUE):
+  1. Every session journal entry has a separate GST Payable line
+  2. GST-compliant invoice generated per session with GSTIN, HSN code, tax breakup
+  3. Billing cannot start if waiver_signed=0 on POS path
+  4. Minor cannot be billed without guardian OTP verified and staff presence toggle confirmed
+  5. Pricing and refund policy displayed before wallet top-up
+**Plans**: TBD
+
+### Phase 256: Game-Specific Hardening
+**Goal**: Each supported game launches reliably with correct process monitoring and content verification
+**Depends on**: Phase 253
+**Requirements**: GAME-01, GAME-02, GAME-03, GAME-04, GAME-05, GAME-06, GAME-07, GAME-08
+**Success Criteria** (what must be TRUE):
+  1. Steam game launch when Steam not running produces clear error — session not billed
+  2. Fleet health correctly identifies running instances by actual executable names
+  3. Forza Horizon 5 session force-terminated when paid duration expires
+  4. iRacing launch blocked if subscription check fails
+  5. Launch request for missing car/track rejected before billing starts
+**Plans**: TBD
+
+### Phase 257: Billing Edge Cases
+**Goal**: Edge cases in session lifecycle are handled correctly
+**Depends on**: Phase 252, Phase 253
+**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05, BILL-06, BILL-07, BILL-08
+**Success Criteria** (what must be TRUE):
+  1. Session with no input for N minutes generates staff alert
+  2. Yellow warning at 5 min, red at 1 min — persistent on-screen countdown
+  3. PWA game request expires after 10 minutes with customer notification
+  4. Billing starts when game reaches Running state, not on staff click
+  5. Customer can flag disputed charge from PWA; staff can review and approve/deny refund
+**Plans**: TBD
+
+### Phase 258: Staff Controls & Deployment Safety
+**Goal**: Staff cannot abuse discounts; deployments cannot disrupt active billing sessions
+**Depends on**: Phase 252, Phase 254
+**Requirements**: STAFF-01, STAFF-02, STAFF-03, STAFF-04, STAFF-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05
+**Success Criteria** (what must be TRUE):
+  1. Staff discount above threshold requires manager approval code
+  2. Staff cannot perform wallet operations on their own account
+  3. End-of-day report shows every discount, refund, tier change with actor ID
+  4. Pod with active billing defers binary swap until session ends
+  5. Deploy during 6-11 PM weekend requires manual override
+**Plans**: TBD
+
+### Phase 259: Coupon & Discount System
+**Goal**: Coupons have a stateful lifecycle with rollback; discount stacking has a hard floor; gateway credits are idempotent
+**Depends on**: Phase 252, Phase 253
+**Requirements**: FATM-07, FATM-08, FATM-09, FATM-10, FATM-11
+**Success Criteria** (what must be TRUE):
+  1. Extension purchase atomic: debit + add time in single transaction
+  2. Coupon moves through available/reserved/redeemed states; expired TTL reverts to available
+  3. Coupon restored on session cancel/failure before billing commit
+  4. Stacking cannot reduce payable below configured floor
+  5. Payment gateway webhook fires twice — wallet credited only once
+**Plans**: TBD
+
+### Phase 260: Notifications, Resilience & UX
+**Goal**: Notifications are durable, hardware disconnects detected, anomalies caught, customers have reliable queue and receipt experience
+**Depends on**: Phase 252, Phase 254, Phase 255
+**Requirements**: UX-01, UX-02, UX-03, UX-04, UX-05, UX-06, UX-07, UX-08, RESIL-04, RESIL-05, RESIL-06, RESIL-07, RESIL-08
+**Success Criteria** (what must be TRUE):
+  1. Failed WhatsApp notification retried automatically with backoff
+  2. OTP fallback: on-screen display or SMS when WhatsApp fails
+  3. Customer receives receipt after session end with balance, duration, charges, refunds
+  4. Leaderboard entries only from verified automatic session records
+  5. Wheel/pedal USB disconnect triggers billing pause and staff alert within 5s
+  6. Pod with 3+ crashes in 1 hour auto-flagged for maintenance
+**Plans**: TBD
