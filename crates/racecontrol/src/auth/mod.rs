@@ -1266,6 +1266,119 @@ pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result
     Ok(jwt)
 }
 
+// ─── Guardian OTP (LEGAL-04/05) ────────────────────────────────────────────
+
+/// Send a 6-digit OTP to a minor's guardian phone for consent verification.
+/// Stores an argon2-hashed OTP in drivers.guardian_otp_code (SEC-08 compliant).
+/// Returns true if WhatsApp delivery succeeded; false if Evolution API is not configured
+/// or the send failed (OTP is still stored — staff can relay it verbally).
+pub async fn send_guardian_otp(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    guardian_phone: &str,
+) -> Result<OtpSendResult, String> {
+    // Verify the driver exists
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM drivers WHERE id = ?")
+        .bind(driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+    if exists.is_none() {
+        return Err(format!("Driver '{}' not found", driver_id));
+    }
+
+    // Generate 6-digit OTP
+    let otp: u32 = rand::thread_rng().gen_range(100000..=999999);
+    let otp_str = format!("{:06}", otp);
+    let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
+
+    // SEC-08: Hash the OTP before storing — plaintext must not be recoverable from DB
+    let otp_hash = hash_otp(&otp_str).map_err(|e| format!("OTP hash error: {}", e))?;
+
+    // Store hashed OTP + reset verified flag (new send invalidates any previous verification)
+    sqlx::query(
+        "UPDATE drivers SET guardian_otp_code = ?, guardian_otp_expires_at = ?, guardian_otp_verified = 0, guardian_phone = ? WHERE id = ?",
+    )
+    .bind(&otp_hash)
+    .bind(expires_at.to_rfc3339())
+    .bind(guardian_phone)
+    .bind(driver_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error storing guardian OTP: {}", e))?;
+
+    // Send via WhatsApp — reuse existing Evolution API send logic
+    let delivered = send_otp_whatsapp(state, guardian_phone, &otp_str).await;
+
+    tracing::info!(
+        driver_id = %driver_id,
+        guardian = %redact_phone(guardian_phone),
+        delivered = %delivered,
+        "Guardian OTP sent for minor consent (LEGAL-04)"
+    );
+
+    Ok(OtpSendResult {
+        driver_id: driver_id.to_string(),
+        delivered,
+    })
+}
+
+/// Verify a guardian's OTP for a minor customer.
+/// On success: sets guardian_otp_verified=1 and guardian_otp_verified_at on the driver record.
+/// Returns Ok(true) on valid OTP, Ok(false) on invalid hash.
+/// Returns Err on DB failure, missing OTP, or expired OTP.
+pub async fn verify_guardian_otp(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    otp: &str,
+) -> Result<bool, String> {
+    // Fetch stored guardian OTP hash and expiry
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT guardian_otp_code, guardian_otp_expires_at FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    let (stored_otp_hash, expires_at_str) = row
+        .ok_or_else(|| format!("Driver '{}' not found", driver_id))?;
+
+    let stored_hash = stored_otp_hash.ok_or_else(|| "No guardian OTP pending".to_string())?;
+    let expires_str = expires_at_str.ok_or_else(|| "No guardian OTP pending".to_string())?;
+
+    // Check expiry (same 5-min window as regular OTP)
+    let expires = chrono::DateTime::parse_from_rfc3339(&expires_str)
+        .map_err(|_| "Invalid OTP expiry timestamp".to_string())?;
+    if Utc::now() > expires {
+        return Err("Guardian OTP has expired".to_string());
+    }
+
+    // SEC-08: Verify via argon2 — spawn_blocking because argon2 verify is CPU-intensive
+    let otp_owned = otp.to_string();
+    let hash_owned = stored_hash.clone();
+    let valid = tokio::task::spawn_blocking(move || verify_otp_hash(&otp_owned, &hash_owned))
+        .await
+        .unwrap_or(false);
+
+    if !valid {
+        return Ok(false);
+    }
+
+    // Mark guardian OTP as verified — billing gate will pass on next start_billing call
+    sqlx::query(
+        "UPDATE drivers SET guardian_otp_verified = 1, guardian_otp_verified_at = datetime('now') WHERE id = ?",
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error marking guardian OTP verified: {}", e))?;
+
+    tracing::info!(driver_id = %driver_id, "Guardian OTP verified — minor billing gate will pass (LEGAL-04)");
+
+    Ok(true)
+}
+
 // ─── Handle Dashboard Commands ─────────────────────────────────────────────
 
 pub async fn handle_dashboard_command(

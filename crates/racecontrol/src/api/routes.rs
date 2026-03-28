@@ -374,6 +374,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/waivers", get(list_waivers))
         .route("/waivers/check", get(check_waiver))
         .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
+        // Guardian OTP (LEGAL-04/05) — staff sends + verifies guardian OTP for minor customers
+        .route("/guardian/send-otp", post(send_guardian_otp_handler))
+        .route("/guardian/verify-otp", post(verify_guardian_otp_handler))
         // Kiosk (admin-only: create/update/delete -- pod-accessible routes are in kiosk_routes())
         .route("/kiosk/experiences", post(create_kiosk_experience))
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
@@ -2305,6 +2308,48 @@ async fn minor_waiver_disclosure() -> Json<Value> {
         "requires_guardian_otp": true,
         "requires_guardian_presence": true,
     }))
+}
+
+/// LEGAL-04: Send an OTP to a minor's guardian phone for consent verification.
+/// Staff trigger this at the counter when processing a minor customer.
+/// Body: { "driver_id": "...", "guardian_phone": "+91XXXXXXXXXX" }
+async fn send_guardian_otp_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match body.get("driver_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => return Json(json!({ "error": "driver_id is required" })),
+    };
+    let guardian_phone = match body.get("guardian_phone").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return Json(json!({ "error": "guardian_phone is required" })),
+    };
+    match auth::send_guardian_otp(&state, driver_id, guardian_phone).await {
+        Ok(result) => Json(json!({ "ok": true, "driver_id": result.driver_id, "delivered": result.delivered })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// LEGAL-04: Verify the OTP entered by the guardian at the counter.
+/// On success, sets guardian_otp_verified=1 on the driver record.
+/// Body: { "driver_id": "...", "otp": "123456" }
+async fn verify_guardian_otp_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match body.get("driver_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => return Json(json!({ "error": "driver_id is required" })),
+    };
+    let otp = match body.get("otp").and_then(|v| v.as_str()) {
+        Some(o) => o,
+        None => return Json(json!({ "error": "otp is required" })),
+    };
+    match auth::verify_guardian_otp(&state, driver_id, otp).await {
+        Ok(verified) => Json(json!({ "ok": true, "verified": verified })),
+        Err(e) => Json(json!({ "error": e })),
+    }
 }
 
 async fn create_pricing_tier(
