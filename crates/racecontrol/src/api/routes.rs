@@ -197,6 +197,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/compare-laps", get(customer_compare_laps))
         // Session share report (PWA)
         .route("/customer/sessions/{id}/share", get(customer_session_share))
+        // GST invoice (LEGAL-02 — customer copy of their invoice)
+        .route("/customer/sessions/{id}/invoice", get(customer_session_invoice))
         // Referrals (PWA)
         .route("/customer/referral-code", get(customer_referral_code))
         .route("/customer/referral-code/generate", post(customer_generate_referral_code))
@@ -315,6 +317,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/sessions/{id}", get(get_billing_session))
         .route("/billing/sessions/{id}/events", get(billing_session_events))
         .route("/billing/sessions/{id}/summary", get(billing_session_summary))
+        .route("/billing/sessions/{id}/invoice", get(get_session_invoice))
         .route("/billing/{id}/stop", post(stop_billing))
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))
@@ -2227,6 +2230,16 @@ async fn pricing_display_handler(State(state): State<Arc<AppState>>) -> Json<Val
     .await
     .unwrap_or_default();
 
+    // LEGAL-07: Refund and pricing policy text for consumer transparency (Consumer Protection Act 2019)
+    const REFUND_POLICY: &str = "Unused session time is refunded to your wallet at the pro-rated session rate. \
+        Refunds to original payment method are available within 7 days of top-up for unused wallet balance. \
+        No refunds for completed sessions.";
+    const PRICING_POLICY: &str = "All prices are inclusive of 18% GST. \
+        Session billing starts when your game reaches Running state. \
+        Early termination refunds unused time to your wallet. \
+        Free trial: one 5-minute session per customer.";
+    const GST_NOTE: &str = "Prices inclusive of 18% GST (CGST 9% + SGST 9%)";
+
     let mut tiers = Vec::new();
     for (id, name, duration_minutes, price_paise, is_trial, _is_active, sort_order) in &rows {
         let dynamic_price = crate::billing::compute_dynamic_price(&state, *price_paise).await;
@@ -2242,7 +2255,12 @@ async fn pricing_display_handler(State(state): State<Arc<AppState>>) -> Json<Val
             "sort_order": sort_order,
         }));
     }
-    Json(json!({ "tiers": tiers }))
+    Json(json!({
+        "tiers": tiers,
+        "refund_policy": REFUND_POLICY,
+        "pricing_policy": PRICING_POLICY,
+        "gst_note": GST_NOTE,
+    }))
 }
 
 /// Public: returns real social proof counts from billing_sessions.
@@ -3061,6 +3079,40 @@ async fn start_billing(
         .await;
     }
 
+    // ─── Post-commit: generate GST invoice (LEGAL-02) ────────────────────────
+    // Invoice generation is non-critical — a failure here does NOT roll back the session.
+    // The journal entry is also created here using the GST-separated accounting.
+    if let Some(debit_paise) = wallet_debit_paise {
+        match accounting::post_session_debit_gst(&state, driver_id, debit_paise, &session_id).await {
+            Ok((_entry_id, net_paise, gst_paise)) => {
+                if let Err(e) = accounting::generate_invoice(
+                    &state,
+                    &session_id,
+                    driver_id,
+                    &driver_name,
+                    debit_paise,
+                    net_paise,
+                    gst_paise,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "Invoice generation failed (non-critical): {}",
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "GST journal entry failed (non-critical): {}",
+                    e
+                );
+            }
+        }
+    }
+
     // ─── Post-commit: activate in-memory timer, notify agent, broadcast ───────
     billing::finalize_billing_start(&state, billing::BillingStartData {
         session_id: session_id.clone(),
@@ -3605,6 +3657,97 @@ async fn billing_session_summary(
             "discount_reason": discount_info.as_ref().and_then(|d| d.3.clone()),
         }
     }))
+}
+
+// ─── Invoice (LEGAL-02) ──────────────────────────────────────────────────────
+
+/// Staff endpoint: GET /billing/sessions/{id}/invoice
+/// Returns the GST-compliant invoice for a billing session (manager+ access via RBAC).
+async fn get_session_invoice(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Json<Value> {
+    let row = sqlx::query_as::<_, (String, i64, String, String, i64, f64, i64, i64, i64, String)>(
+        "SELECT id, invoice_number, driver_name, venue_gstin, \
+         taxable_value_paise, gst_rate_percent, cgst_paise, sgst_paise, total_paise, created_at \
+         FROM invoices WHERE billing_session_id = ?",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some((id, invoice_number, driver_name, venue_gstin,
+                 taxable_value_paise, gst_rate_percent, cgst_paise, sgst_paise,
+                 total_paise, created_at))) => {
+            Json(json!({
+                "id": id,
+                "invoice_number": invoice_number,
+                "billing_session_id": session_id,
+                "driver_name": driver_name,
+                "venue_gstin": venue_gstin,
+                "sac_code": "999692",
+                "taxable_value_paise": taxable_value_paise,
+                "gst_rate_percent": gst_rate_percent,
+                "cgst_paise": cgst_paise,
+                "sgst_paise": sgst_paise,
+                "total_paise": total_paise,
+                "created_at": created_at,
+            }))
+        }
+        Ok(None) => Json(json!({ "error": "Invoice not found" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// Customer endpoint: GET /customer/sessions/{id}/invoice
+/// Returns the GST invoice for the authenticated customer's own session.
+async fn customer_session_invoice(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    // Extract driver_id from JWT — only the session owner can fetch their invoice
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let row = sqlx::query_as::<_, (String, i64, String, String, i64, f64, i64, i64, i64, String)>(
+        "SELECT inv.id, inv.invoice_number, inv.driver_name, inv.venue_gstin, \
+         inv.taxable_value_paise, inv.gst_rate_percent, inv.cgst_paise, inv.sgst_paise, \
+         inv.total_paise, inv.created_at \
+         FROM invoices inv \
+         JOIN billing_sessions bs ON inv.billing_session_id = bs.id \
+         WHERE inv.billing_session_id = ? AND bs.driver_id = ?",
+    )
+    .bind(&session_id)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some((id, invoice_number, driver_name, venue_gstin,
+                 taxable_value_paise, gst_rate_percent, cgst_paise, sgst_paise,
+                 total_paise, created_at))) => {
+            Json(json!({
+                "id": id,
+                "invoice_number": invoice_number,
+                "billing_session_id": session_id,
+                "driver_name": driver_name,
+                "venue_gstin": venue_gstin,
+                "sac_code": "999692",
+                "taxable_value_paise": taxable_value_paise,
+                "gst_rate_percent": gst_rate_percent,
+                "cgst_paise": cgst_paise,
+                "sgst_paise": sgst_paise,
+                "total_paise": total_paise,
+                "created_at": created_at,
+            }))
+        }
+        Ok(None) => Json(json!({ "error": "Invoice not found" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
 }
 
 // ─── Billing Refund ───────────────────────────────────────────────────────
