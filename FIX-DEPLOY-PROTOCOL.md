@@ -387,9 +387,12 @@ Step 4: FLEET (Pods 1-7 + POS)
   └─ Same as canary, all pods
   └─ Parallel deploy with 4-pod concurrency cap
 
-Step 5: SERVER
-  └─ 7-step deploy (see CLAUDE.md)
-  └─ Verify: build_id, watchdog singleton, health serving correct endpoints
+Step 5: SERVER (v3.0 — MMA-hardened, 12-model audit)
+  └─ `bash deploy-staging/deploy-server.sh [hash]` (preferred — automates all 8 steps)
+  └─ OR manual: LAN SSH → download → confirmed kill (poll 15s + port check) → atomic swap (del prev + ren) → schtasks start → verify build_id (3 attempts) → smoke test (4 endpoints) → cleanup
+  └─ Auto-rollback on: start failure, build_id mismatch, smoke test failure
+  └─ Verify: build_id, watchdog singleton, health serving correct endpoints, debug/activity returns 200
+  └─ NEVER: run new binary while old alive (port conflict), trust schtasks exit code alone
 
 Step 6: FRONTEND (admin, kiosk, web)
   └─ deploy-nextjs.sh for each app

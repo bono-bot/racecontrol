@@ -562,9 +562,10 @@ async fn check_evolution_health(state: &Arc<AppState>) -> &'static str {
     };
 
     // Probe the base URL — Evolution API returns 200 on GET /
+    // 5s timeout: external hostname DNS resolution can exceed 2s from venue server
     match state.http_client
         .get(&evo_url)
-        .timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
     {
