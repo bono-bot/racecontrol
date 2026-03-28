@@ -715,23 +715,33 @@ pub async fn handle_game_status_update(
                 // No waiting entry -- check if timer exists and is PausedGamePause (resume)
                 let mut timers = state.billing.active_timers.write().await;
                 if let Some(timer) = timers.get_mut(pod_id) {
-                    if timer.status == BillingSessionStatus::PausedGamePause {
-                        timer.status = BillingSessionStatus::Active;
-                        timer.pause_seconds = 0;
-                        tracing::info!("Billing resumed on LIVE for pod {} (was PausedGamePause)", pod_id);
+                    match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::Resume) {
+                        Ok(new_status) => {
+                            timer.status = new_status;
+                            timer.pause_seconds = 0;
+                            tracing::info!("Billing resumed on LIVE for pod {} (was PausedGamePause)", pod_id);
+                        }
+                        Err(e) => {
+                            // No-op if already Active (idempotent) or other invalid state
+                            tracing::debug!("BILLING: resume on LIVE no-op for pod {}: {}", pod_id, e);
+                        }
                     }
-                    // If already Active, this is a no-op (idempotent)
                 }
             }
         }
         AcStatus::Pause => {
             let mut timers = state.billing.active_timers.write().await;
             if let Some(timer) = timers.get_mut(pod_id) {
-                if timer.status == BillingSessionStatus::Active {
-                    timer.status = BillingSessionStatus::PausedGamePause;
-                    timer.pause_seconds = 0;
-                    timer.pause_count += 1;
-                    tracing::info!("Billing paused (game pause) for pod {}", pod_id);
+                match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::Pause) {
+                    Ok(new_status) => {
+                        timer.status = new_status;
+                        timer.pause_seconds = 0;
+                        timer.pause_count += 1;
+                        tracing::info!("Billing paused (game pause) for pod {}", pod_id);
+                    }
+                    Err(e) => {
+                        tracing::warn!("BILLING: {}", e);
+                    }
                 }
             }
             // If no active timer, Pause is a no-op
@@ -792,11 +802,16 @@ pub async fn handle_game_status_update(
             // Replay mode -- treat same as Pause for billing purposes
             let mut timers = state.billing.active_timers.write().await;
             if let Some(timer) = timers.get_mut(pod_id) {
-                if timer.status == BillingSessionStatus::Active {
-                    timer.status = BillingSessionStatus::PausedGamePause;
-                    timer.pause_seconds = 0;
-                    timer.pause_count += 1;
-                    tracing::info!("Billing paused (replay) for pod {}", pod_id);
+                match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::CrashPause) {
+                    Ok(new_status) => {
+                        timer.status = new_status;
+                        timer.pause_seconds = 0;
+                        timer.pause_count += 1;
+                        tracing::info!("Billing paused (replay) for pod {}", pod_id);
+                    }
+                    Err(e) => {
+                        tracing::warn!("BILLING: {}", e);
+                    }
                 }
             }
         }
@@ -988,7 +1003,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
             // Immediately pause on disconnect (if pauses remaining)
             if timer.pause_count < 3 {
-                timer.status = BillingSessionStatus::PausedDisconnect;
+                match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::Disconnect) {
+                    Ok(new_status) => {
+                        timer.status = new_status;
+                    }
+                    Err(e) => {
+                        tracing::warn!("BILLING: disconnect pause rejected: {}", e);
+                    }
+                }
                 timer.pause_count += 1;
                 timer.last_paused_at = Some(Utc::now());
                 // Note: total_paused_seconds will be incremented each tick while paused
@@ -1051,7 +1073,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         ));
 
         if expired {
-            timer.status = BillingSessionStatus::Completed;
+            // FSM-01: gate expiry through transition table (Active/Paused* -> Completed)
+            match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::End) {
+                Ok(new_status) => { timer.status = new_status; }
+                Err(e) => { tracing::warn!("BILLING: expiry transition rejected for {}: {}", timer.session_id, e); }
+            }
             expired_sessions.push((
                 pod_id.clone(),
                 timer.session_id.clone(),
@@ -2545,7 +2571,19 @@ async fn set_billing_status(
 
     if let Some(pod_id) = pod_id {
         if let Some(timer) = timers.get_mut(&pod_id) {
-            timer.status = new_status;
+            // FSM-01: gate every status mutation through validate_transition
+            let event = match new_status {
+                BillingSessionStatus::PausedManual => crate::billing_fsm::BillingEvent::PauseManual,
+                BillingSessionStatus::Active => crate::billing_fsm::BillingEvent::Resume,
+                other => {
+                    tracing::warn!("BILLING: set_billing_status called with unexpected status {:?} for session {}", other, session_id);
+                    return;
+                }
+            };
+            match crate::billing_fsm::validate_transition(timer.status, event) {
+                Ok(new_status) => { timer.status = new_status; }
+                Err(e) => { tracing::warn!("BILLING: {}", e); return; }
+            }
             let info = timer.to_info(&rate_tiers);
 
             let event_type = match new_status {
@@ -2617,14 +2655,14 @@ pub async fn resume_billing_from_disconnect(
 
     let timer = timers.get_mut(&pod_id).ok_or("Timer not found")?;
 
-    if timer.status != BillingSessionStatus::PausedDisconnect {
-        return Err(format!(
-            "Session is not paused due to disconnect (current status: {:?})",
-            timer.status
-        ));
+    match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::Resume) {
+        Ok(new_status) => {
+            timer.status = new_status;
+        }
+        Err(e) => {
+            return Err(format!("Cannot resume session: {}", e));
+        }
     }
-
-    timer.status = BillingSessionStatus::Active;
     timer.last_paused_at = None;
     timer.offline_since = None;
     // Note: total_paused_seconds keeps accumulating across pauses (not reset)
@@ -2711,7 +2749,26 @@ async fn end_billing_session(
 
     if let Some(pod_id) = pod_id {
         if let Some(timer) = timers.get_mut(&pod_id) {
-            timer.status = end_status;
+            // FSM-01: gate every status mutation through validate_transition
+            let event = match end_status {
+                BillingSessionStatus::Completed => crate::billing_fsm::BillingEvent::End,
+                BillingSessionStatus::EndedEarly => crate::billing_fsm::BillingEvent::EndEarly,
+                BillingSessionStatus::Cancelled => crate::billing_fsm::BillingEvent::Cancel,
+                BillingSessionStatus::CancelledNoPlayable => crate::billing_fsm::BillingEvent::CancelNoPlayable,
+                other => {
+                    tracing::error!("BILLING: end_billing_session called with non-terminal status {:?} for session {}", other, session_id);
+                    return false;
+                }
+            };
+            match crate::billing_fsm::validate_transition(timer.status, event) {
+                Ok(new_status) => {
+                    timer.status = new_status;
+                }
+                Err(e) => {
+                    tracing::warn!("BILLING: {}", e);
+                    return false;
+                }
+            }
             let info = timer.to_info(&rate_tiers);
             let driving_seconds = timer.driving_seconds;
             // MMA-P2: If cost calculation fails (None = tier lookup error), log error
