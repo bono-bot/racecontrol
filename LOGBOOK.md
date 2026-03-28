@@ -965,3 +965,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-28 02:10 IST | James | c1fbb811 | fix: remove dup services probing (use app_health_monitor), bat SHA256 drift detection, fleet deploy. Server deployed, rc-agent staged 8/8 (pending restart). |
 | 2026-03-29 00:34 IST | James | 08acee0c | feat(251-01): WAL mode fail-fast verification + elapsed_seconds/last_timer_sync_at columns + idx_billing_sessions_status_sync index (RESIL-01, FSM-09) |
 | 2026-03-29 00:34 IST | James | 6babdd40 | feat(251-01): persist_timer_state() staggered 60s writes + COALESCE recovery in recover_active_sessions() + timer-persist tokio task in main.rs (RESIL-02, FSM-09) |
+| 2026-03-28 00:56 IST | James | a86f4710 | feat(251-02): detect_orphaned_sessions_on_startup + detect_orphaned_sessions_background in billing.rs |
+| 2026-03-28 00:56 IST | James | 9ef6116e | feat(251-02): wire orphan detection into startup + background task in main.rs |
+| 2026-03-28 00:56 IST | James | 4a28f6eb | docs(251-02): 251-02-SUMMARY.md, STATE.md, ROADMAP updated, FSM-10 + RESIL-03 marked complete |
