@@ -3,21 +3,21 @@ gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
 status: executing
-stopped_at: Completed 255-01-PLAN.md
-last_updated: "2026-03-28T23:27:39.404Z"
+stopped_at: Completed 255-03-PLAN.md
+last_updated: "2026-03-28T23:49:30.895Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 205
   completed_phases: 151
   total_plans: 367
-  completed_plans: 360
+  completed_plans: 361
   percent: 98
 ---
 
 ## Current Position
 
 Phase: 255 (legal-compliance) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -69,6 +69,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 254-security-hardening P01 | 45 | 2 tasks | 5 files |
 | Phase 254-security-hardening P03 | 90 | 2 tasks | 6 files |
 | Phase 255-legal-compliance P01 | 25 | 2 tasks | 3 files |
+| Phase 255-legal-compliance P03 | 25 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -131,10 +132,14 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - VENUE_GSTIN hardcoded as placeholder constant `29AABCU9603R1ZX` with TODO — avoids config struct dependency (LEGAL-02)
 - post_session_debit kept as backward-compatible wrapper calling post_session_debit_gst internally (LEGAL-01)
 - Consumer Protection Act pricing disclosure: refund_policy + pricing_policy + gst_note added as static constants to pricing_display_handler (LEGAL-07)
+- Driver row retained on anonymization (not deleted) — billing_sessions.driver_id FK must remain valid for 8-year financial retention (LEGAL-08)
+- last_activity_at update is non-critical post-commit — failure does not affect billing start or topup result (LEGAL-08)
+- Background job LIMIT 500 per cycle bounds write pressure; consent_revoked drivers excluded from job (already anonymized at revocation time) (LEGAL-08)
+- Shared anonymize_driver_pii helper called by both customer POST /customer/revoke-consent and staff POST /drivers/{id}/revoke-consent (LEGAL-09)
 
 ## Session Continuity
 
-Stopped at: Completed 255-01-PLAN.md
+Stopped at: Completed 255-03-PLAN.md
 Next action: Phase 255 in progress — Plan 01 (LEGAL-01/02/07) complete. Proceed to Plan 02.
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
@@ -159,6 +164,12 @@ Next action: Phase 255 in progress — Plan 01 (LEGAL-01/02/07) complete. Procee
 - LEGAL-01: DONE (GST-separated 3-line journal entries via post_session_debit_gst — 6791a153)
 - LEGAL-02: DONE (invoices table + generate_invoice + GET endpoints — 6791a153, 6e395bca)
 - LEGAL-07: DONE (refund_policy + pricing_policy + gst_note in pricing display — 6e395bca)
+- LEGAL-03: DONE (waiver gate on start_billing — 12c1b62f)
+- LEGAL-04: DONE (guardian OTP for minors — 12c1b62f)
+- LEGAL-05: DONE (guardian_present required in billing for minors — 12c1b62f)
+- LEGAL-06: DONE (GET /legal/minor-waiver-disclosure — 12c1b62f)
+- LEGAL-08: DONE (data_retention_config + driver columns + daily anonymization job — 12c1b62f, 1db260dc)
+- LEGAL-09: DONE (POST /customer/revoke-consent + POST /drivers/{id}/revoke-consent — 12c1b62f)
 
 Ship gate reminder (Unified Protocol v3.1):
 

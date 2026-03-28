@@ -55,8 +55,8 @@
 - [ ] **LEGAL-05**: Minor sessions: guardian physical presence acknowledgment recorded (staff confirms via UI toggle)
 - [ ] **LEGAL-06**: Enhanced liability coverage for minors documented — waiver limitation disclosure shown to guardian
 - [x] **LEGAL-07**: Pricing and refund policy displayed on kiosk before wallet top-up (Consumer Protection Act 2019)
-- [ ] **LEGAL-08**: Data retention policy: financial records 8 years, PII purged/anonymized after 2 years of inactivity (DPDP Act)
-- [ ] **LEGAL-09**: Parental consent revocation mechanism in PWA (guardian can request data deletion)
+- [x] **LEGAL-08**: Data retention policy: financial records 8 years, PII purged/anonymized after 2 years of inactivity (DPDP Act)
+- [x] **LEGAL-09**: Parental consent revocation mechanism in PWA (guardian can request data deletion)
 
 ### Game-Specific Hardening (GAME)
 
@@ -175,8 +175,8 @@ Updated during roadmap creation (2026-03-29).
 | LEGAL-05 | Phase 255 | Pending |
 | LEGAL-06 | Phase 255 | Pending |
 | LEGAL-07 | Phase 255 | Complete |
-| LEGAL-08 | Phase 255 | Pending |
-| LEGAL-09 | Phase 255 | Pending |
+| LEGAL-08 | Phase 255 | Complete |
+| LEGAL-09 | Phase 255 | Complete |
 | GAME-01 | Phase 256 | Pending |
 | GAME-02 | Phase 256 | Pending |
 | GAME-03 | Phase 256 | Pending |
