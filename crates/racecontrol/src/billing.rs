@@ -55,6 +55,46 @@ pub async fn compute_dynamic_price(
     }
 }
 
+/// Dynamic pricing lookup that works within an existing transaction (FATM-01).
+/// Used by the atomic start_billing handler to avoid a separate DB connection.
+pub async fn compute_dynamic_price_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    base_price_paise: i64,
+) -> i64 {
+    let now = chrono::Local::now();
+    let dow = now.weekday().num_days_from_monday() as i64;
+    let hour = now.hour() as i64;
+
+    let rules = sqlx::query_as::<_, (String, f64, i64)>(
+        "SELECT rule_type, multiplier, flat_adjustment_paise
+         FROM pricing_rules
+         WHERE is_active = 1
+           AND (day_of_week IS NULL OR day_of_week = ?)
+           AND (hour_start IS NULL OR ? >= hour_start)
+           AND (hour_end IS NULL OR ? < hour_end)
+           AND rule_type IN ('peak', 'off_peak', 'custom')
+         ORDER BY
+           CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END,
+           CASE WHEN hour_start IS NOT NULL THEN 0 ELSE 1 END
+         LIMIT 1",
+    )
+    .bind(dow)
+    .bind(hour)
+    .bind(hour)
+    .fetch_optional(&mut **tx)
+    .await
+    .ok()
+    .flatten();
+
+    match rules {
+        Some((_rule_type, multiplier, flat_adj)) => {
+            let adjusted = (base_price_paise as f64 * multiplier).round() as i64 + flat_adj;
+            adjusted.max(100)
+        }
+        None => base_price_paise,
+    }
+}
+
 // ─── Billing Rate Tiers ────────────────────────────────────────────────────
 
 /// A per-minute billing rate tier, loaded from the `billing_rates` DB table.
@@ -71,6 +111,8 @@ pub struct BillingRateTier {
 }
 
 /// Default billing rate tiers (used before first DB load).
+/// FATM-05: The Standard tier (2500 paise/min * 30 min = 75000 paise = Rs.750)
+/// MUST match the 30-min pricing_tier.price_paise in the DB. If rates change, update both.
 pub fn default_billing_rate_tiers() -> Vec<BillingRateTier> {
     vec![
         BillingRateTier { tier_order: 1, tier_name: "Standard".into(), threshold_minutes: 30, rate_per_min_paise: 2500, sim_type: None },
@@ -181,6 +223,26 @@ pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> 
         tier_name: current_tier_name,
         minutes_to_next_tier: minutes_to_next,
     }
+}
+
+/// Compute proportional refund for an early-ended or timed-out session (FATM-06).
+///
+/// Uses integer arithmetic only (no f64) to prevent rounding drift.
+/// Formula: refund = (remaining_seconds * wallet_debit_paise) / allocated_seconds
+/// Safe: returns 0 for zero allocated, negative remaining, or zero debit.
+///
+/// Called from all refund paths (end_billing_session early-end + disconnect timeout)
+/// to ensure consistent, auditable refund calculations from a single source of truth.
+pub fn compute_refund(
+    allocated_seconds: i64,
+    driving_seconds: i64,
+    wallet_debit_paise: i64,
+) -> i64 {
+    if allocated_seconds <= 0 || wallet_debit_paise <= 0 || driving_seconds >= allocated_seconds {
+        return 0;
+    }
+    let remaining = allocated_seconds - driving_seconds;
+    (remaining * wallet_debit_paise) / allocated_seconds
 }
 
 /// Get tiers for a specific game. Falls back to universal tiers if no game-specific tiers exist.
@@ -1309,32 +1371,42 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
         let mut refund_paise: i64 = 0;
         if let Some((allocated, Some(debit))) = session_info {
-            if debit > 0 && (driving_seconds as i64) < allocated {
-                let remaining = allocated - driving_seconds as i64;
-                refund_paise = (remaining as f64 / allocated as f64 * debit as f64) as i64;
-                if refund_paise > 0 {
-                    let _ = crate::wallet::refund(
-                        state,
-                        &driver_id,
-                        refund_paise,
-                        Some(&session_id),
-                        Some("Auto-refund: disconnect pause timeout"),
-                    )
-                    .await;
-                }
+            // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
+            refund_paise = compute_refund(allocated, driving_seconds as i64, debit);
+            if refund_paise > 0 {
+                let _ = crate::wallet::refund(
+                    state,
+                    &driver_id,
+                    refund_paise,
+                    Some(&session_id),
+                    Some("Auto-refund: disconnect pause timeout"),
+                )
+                .await;
             }
         }
 
-        let _ = sqlx::query(
+        // FATM-04: CAS guard — only update if session is still active/paused_disconnect
+        // Prevents double-refund if end_billing_session also races to close this session
+        let cas_result = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'),
              refund_paise = ?, notes = 'Auto-ended: disconnect pause timeout (10min)'
-             WHERE id = ?",
+             WHERE id = ? AND status IN ('active', 'paused_disconnect')",
         )
         .bind(driving_seconds as i64)
         .bind(refund_paise)
         .bind(&session_id)
         .execute(&state.db)
         .await;
+
+        match cas_result {
+            Ok(result) if result.rows_affected() == 0 => {
+                tracing::warn!("BILLING: CAS rejected disconnect-timeout end for session {} — already finalized (double-end prevented)", session_id);
+            }
+            Err(e) => {
+                tracing::error!("Failed to update billing session {} on disconnect timeout: {}", session_id, e);
+            }
+            _ => {}
+        }
 
         let _ = sqlx::query(
             "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
@@ -2198,6 +2270,129 @@ pub async fn start_billing_session(
     Ok(session_id)
 }
 
+/// Parameters for post-commit in-memory billing session activation (FATM-01).
+/// All data comes from the values used inside the atomic DB transaction.
+/// Call this AFTER tx.commit() — it creates the in-memory timer, updates pod state,
+/// notifies the agent, and broadcasts to dashboards.
+pub struct BillingStartData {
+    pub session_id: String,
+    pub driver_id: String,
+    pub driver_name: String,
+    pub pod_id: String,
+    pub pricing_tier_name: String,
+    pub allocated_seconds: u32,
+    pub split_count: u32,
+    pub split_duration_minutes: Option<u32>,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Activate billing session in memory after the DB transaction has committed (FATM-01).
+/// Creates the in-memory timer, updates pod state, notifies the agent, broadcasts to dashboards.
+/// Safe to call only after tx.commit() — any error before commit rolls back automatically.
+pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartData) {
+    let timer = BillingTimer {
+        session_id: data.session_id.clone(),
+        driver_id: data.driver_id.clone(),
+        driver_name: data.driver_name.clone(),
+        pod_id: data.pod_id.clone(),
+        pricing_tier_name: data.pricing_tier_name.clone(),
+        allocated_seconds: data.allocated_seconds,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Idle,
+        started_at: Some(data.started_at),
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: data.split_count,
+        split_duration_minutes: data.split_duration_minutes,
+        current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+        elapsed_seconds: 0,
+        pause_seconds: 0,
+        max_session_seconds: data.allocated_seconds,
+        sim_type: None,
+    };
+
+    let rate_tiers = state.billing.rate_tiers.read().await;
+    let info = timer.to_info(&rate_tiers);
+    drop(rate_tiers);
+
+    // Insert into active timers (brief write lock — not held across .await)
+    state
+        .billing
+        .active_timers
+        .write()
+        .await
+        .insert(data.pod_id.clone(), timer);
+
+    // Update pod state
+    if let Some(pod) = state.pods.write().await.get_mut(&data.pod_id) {
+        pod.billing_session_id = Some(data.session_id.clone());
+        pod.current_driver = Some(data.driver_name.clone());
+        pod.status = rc_common::types::PodStatus::InSession;
+    }
+
+    // Create pod reservation for split sessions
+    if data.split_count > 1 {
+        if let Ok(reservation_id) = crate::pod_reservation::create_reservation(state, &data.driver_id, &data.pod_id).await {
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET reservation_id = ? WHERE id = ?",
+            )
+            .bind(&reservation_id)
+            .bind(&data.session_id)
+            .execute(&state.db)
+            .await;
+            tracing::info!(
+                "Split session: created reservation {} for {}-split session on pod {}",
+                reservation_id, data.split_count, data.pod_id
+            );
+        }
+    }
+
+    // Notify agent (snapshot sender before dropping read lock)
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&data.pod_id).cloned()
+    };
+    if let Some(sender) = sender {
+        let _ = sender
+            .send(CoreToAgentMessage::BillingStarted {
+                billing_session_id: data.session_id.clone(),
+                driver_name: data.driver_name.clone(),
+                allocated_seconds: data.allocated_seconds,
+                session_token: Some(uuid::Uuid::new_v4().to_string()),
+            })
+            .await;
+    }
+
+    // Broadcast to dashboards
+    let _ = state
+        .dashboard_tx
+        .send(DashboardEvent::BillingSessionChanged(info));
+
+    tracing::info!(
+        "Billing session activated in memory: {} for {} on pod {} ({}s, tier: {})",
+        data.session_id,
+        data.driver_name,
+        data.pod_id,
+        data.allocated_seconds,
+        data.pricing_tier_name,
+    );
+
+    log_pod_activity(
+        state,
+        &data.pod_id,
+        "billing",
+        "Session Started",
+        &format!("{} — {} ({}min)", data.driver_name, data.pricing_tier_name, data.allocated_seconds / 60),
+        "core",
+    );
+}
+
 async fn set_billing_status(
     state: &Arc<AppState>,
     session_id: &str,
@@ -2418,18 +2613,32 @@ async fn end_billing_session(
                 _ => "completed",
             };
 
-            // Update DB with final cost
-            if let Err(e) = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, wallet_debit_paise = ?, ended_at = datetime('now') WHERE id = ?",
+            // FATM-04: CAS guard — only update if session is still 'active'.
+            // If rows_affected() == 0, the session was already finalized by another
+            // concurrent request (e.g. disconnect timeout racing with staff end).
+            // In that case, skip ALL downstream work (refund, agent notify, broadcast).
+            let cas_result = sqlx::query(
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, wallet_debit_paise = ?, ended_at = datetime('now') WHERE id = ? AND status = 'active'",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
             .bind(final_cost_paise)
             .bind(session_id)
             .execute(&state.db)
-            .await
-            {
-                tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
+            .await;
+
+            match cas_result {
+                Err(e) => {
+                    tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
+                }
+                Ok(result) if result.rows_affected() == 0 => {
+                    tracing::warn!(
+                        "BILLING: CAS rejected end for session {} — already finalized (double-end prevented)",
+                        session_id
+                    );
+                    return false;
+                }
+                _ => {}
             }
 
             if let Err(e) = sqlx::query(
@@ -2472,19 +2681,17 @@ async fn end_billing_session(
                 .flatten();
 
                 if let Some((driver_id, allocated, Some(debit))) = wallet_info {
-                    if debit > 0 && (driving_seconds as i64) < allocated {
-                        let remaining = allocated - driving_seconds as i64;
-                        let refund_amount = (remaining * debit) / allocated;
-                        if refund_amount > 0 {
-                            let _ = crate::wallet::refund(
-                                state,
-                                &driver_id,
-                                refund_amount,
-                                Some(session_id),
-                                Some("Early end — proportional refund"),
-                            )
-                            .await;
-                        }
+                    // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
+                    let refund_amount = compute_refund(allocated, driving_seconds as i64, debit);
+                    if refund_amount > 0 {
+                        let _ = crate::wallet::refund(
+                            state,
+                            &driver_id,
+                            refund_amount,
+                            Some(session_id),
+                            Some("Early end — proportional refund"),
+                        )
+                        .await;
                     }
                 }
             }
@@ -4910,4 +5117,44 @@ mod tests {
         // two cases (90 vs 120) are sufficient to prove the parameter is respected.
     }
 
+    // ── compute_refund tests (FATM-06) ──────────────────────────────────────
+
+    #[test]
+    fn test_compute_refund_half_time_used() {
+        // 1800s allocated, 900s driven, 75000 paise debited → 50% refund
+        assert_eq!(compute_refund(1800, 900, 75000), 37500);
+    }
+
+    #[test]
+    fn test_compute_refund_full_time_used() {
+        // Fully driven → no refund
+        assert_eq!(compute_refund(1800, 1800, 75000), 0);
+    }
+
+    #[test]
+    fn test_compute_refund_no_time_used() {
+        // No time driven → full refund
+        assert_eq!(compute_refund(1800, 0, 75000), 75000);
+    }
+
+    #[test]
+    fn test_compute_refund_overdriven() {
+        // driving_seconds > allocated → no refund (clamped to 0)
+        assert_eq!(compute_refund(1800, 2000, 75000), 0);
+    }
+
+    #[test]
+    fn test_compute_refund_zero_allocated() {
+        // Zero allocated → safe division, returns 0
+        assert_eq!(compute_refund(0, 0, 75000), 0);
+    }
+
+    // ── Tier alignment (FATM-05) ─────────────────────────────────────────────
+
+    #[test]
+    fn test_tier_alignment_fatm05() {
+        let tiers = default_billing_rate_tiers();
+        let cost = compute_session_cost(1800, &tiers);
+        assert_eq!(cost.total_paise, 75000, "FATM-05: 30min cost must match tier_30min price (2500 p/min * 30 min = 75000 p = Rs.750)");
+    }
 }
