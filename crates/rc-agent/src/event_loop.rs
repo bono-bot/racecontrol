@@ -1000,6 +1000,12 @@ pub async fn run(
                         ac_launcher::minimize_background_windows();
                         crate::lock_screen::enforce_kiosk_foreground();
                         ac_launcher::ensure_conspit_link_running();
+                        // DIAG-TASKBAR: Periodically enforce taskbar hidden state.
+                        // ShowWindow(SW_HIDE) is lost when explorer.exe restarts.
+                        // Registry auto-hide (StuckRects3) is insufficient — it
+                        // pops up on hover/notifications. This re-hides cheaply
+                        // (only acts + logs when taskbar is actually visible).
+                        crate::kiosk::ensure_taskbar_hidden();
                     });
                 }
             }

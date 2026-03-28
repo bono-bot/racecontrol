@@ -1133,16 +1133,45 @@ mod windows_impl {
             }
         }
     }
+
+    /// Check if the taskbar is visible and hide it if so.
+    /// Designed for periodic enforcement — only logs when it actually hides.
+    /// Returns true if the taskbar was found visible and hidden.
+    pub fn ensure_taskbar_hidden() -> bool {
+        unsafe {
+            let taskbar_class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
+            let hwnd: HWND = winuser::FindWindowW(taskbar_class.as_ptr(), ptr::null());
+            if !hwnd.is_null() && winuser::IsWindowVisible(hwnd) != 0 {
+                winuser::ShowWindow(hwnd, winuser::SW_HIDE);
+                // Also hide the Start button
+                let start_class: Vec<u16> = "Button\0".encode_utf16().collect();
+                let start_title: Vec<u16> = "Start\0".encode_utf16().collect();
+                let start_hwnd: HWND = winuser::FindWindowW(start_class.as_ptr(), start_title.as_ptr());
+                if !start_hwnd.is_null() {
+                    winuser::ShowWindow(start_hwnd, winuser::SW_HIDE);
+                }
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Kiosk: taskbar was visible — re-hidden (explorer likely restarted)"
+                );
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[cfg(windows)]
-pub use windows_impl::{hide_taskbar, apply_gpo_lockdown, remove_gpo_lockdown};
+pub use windows_impl::{hide_taskbar, ensure_taskbar_hidden, apply_gpo_lockdown, remove_gpo_lockdown};
 
 
 // ─── Non-Windows stubs ─────────────────────────────────────────────────────
 
 #[cfg(not(windows))]
 pub fn hide_taskbar(_hide: bool) {}
+
+#[cfg(not(windows))]
+pub fn ensure_taskbar_hidden() -> bool { false }
 
 #[cfg(not(windows))]
 pub fn apply_gpo_lockdown() -> Result<(), String> { Ok(()) }

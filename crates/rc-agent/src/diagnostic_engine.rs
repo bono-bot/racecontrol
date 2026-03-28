@@ -79,6 +79,11 @@ pub enum DiagnosticTrigger {
     PosNetworkDown { server_ip: String, detail: String },
     /// POS: Billing API unresponsive or returning errors
     PosBillingApiError { endpoint: String, status_code: u16 },
+
+    // ─── UI State Triggers (DIAG-01n: taskbar enforcement) ──────────────────
+    /// Taskbar was found visible when it should be hidden (kiosk mode active).
+    /// This indicates explorer.exe restarted and ShowWindow(SW_HIDE) was lost.
+    TaskbarVisible,
 }
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.
@@ -228,6 +233,16 @@ pub fn spawn(
                     DiagnosticTrigger::ErrorSpike { errors_per_min },
                     &pod_state,
                 ));
+            }
+
+            // Taskbar visibility check (DIAG-01n: taskbar_visible) — pods only
+            // The enforcement loop in event_loop.rs auto-fixes this, but the
+            // diagnostic engine tracks it so the tier engine can log, count,
+            // and escalate if it happens repeatedly (e.g. explorer crash loop).
+            if !is_pos {
+                if check_taskbar_visible() {
+                    events.push(make_event(DiagnosticTrigger::TaskbarVisible, &pod_state));
+                }
             }
 
             if !first_scan_done {
@@ -465,6 +480,31 @@ pub fn count_recovery_processes() -> u32 {
             recovery_names.iter().any(|r| name == *r)
         })
         .count() as u32
+}
+
+// ─── Taskbar Visibility Check ───────────────────────────────────────────────────
+// DIAG-01n: Detects when Windows taskbar is visible (should be hidden in kiosk mode).
+// The enforcement loop auto-fixes this, but the diagnostic engine tracks occurrences
+// so the tier engine can detect patterns (e.g. explorer crash loop causing repeated
+// taskbar re-appearance).
+
+/// Check if the Windows taskbar is currently visible.
+/// Uses the same Win32 API as kiosk.rs but is read-only (does not hide it).
+#[cfg(windows)]
+fn check_taskbar_visible() -> bool {
+    unsafe {
+        let taskbar_class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
+        let hwnd = winapi::um::winuser::FindWindowW(taskbar_class.as_ptr(), std::ptr::null());
+        if hwnd.is_null() {
+            return false;
+        }
+        winapi::um::winuser::IsWindowVisible(hwnd) != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn check_taskbar_visible() -> bool {
+    false
 }
 
 // ─── POS-Specific Diagnostic Checks ────────────────────────────────────────────

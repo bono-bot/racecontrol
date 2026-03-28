@@ -435,6 +435,7 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
             // MMA P2 fix: sanitize endpoint — may contain colons, slashes, query params
             format!("pos_billing_api_error:{}", sanitize_kb_key_component(endpoint))
         }
+        DiagnosticTrigger::TaskbarVisible => "taskbar_visible".to_string(),
     }
 }
 

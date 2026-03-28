@@ -425,6 +425,7 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PosBillingApiError { endpoint, .. } => {
             format!("PosBillingApiError_{}", endpoint)
         }
+        DiagnosticTrigger::TaskbarVisible => "TaskbarVisible".to_string(),
     }
 }
 
@@ -732,6 +733,18 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                     "Game Doctor: no deterministic fix — escalating. Detail: {}",
                     diagnosis.detail
                 );
+            }
+        }
+        DiagnosticTrigger::TaskbarVisible => {
+            // Tier 1 deterministic fix: re-hide the taskbar via Win32 API.
+            // The enforcement loop already does this, but if we reach here it means
+            // the diagnostic engine detected it before the enforcement loop caught it.
+            #[cfg(windows)]
+            {
+                let was_visible = crate::kiosk::ensure_taskbar_hidden();
+                if was_visible {
+                    actions_taken.push("re-hidden taskbar after explorer restart".to_string());
+                }
             }
         }
         DiagnosticTrigger::Periodic
