@@ -353,12 +353,12 @@
   <div class="grid">
     <a class="card" href="http://192.168.31.23:3201/admin/">
       <svg class="card-icon" aria-hidden="true"><use href="#i-admin"/></svg>
-      <div class="title"><span class="dot" id="dot-admin" data-state="checking"></span> Admin Dashboard</div>
+      <div class="title">Admin Dashboard</div>
       <div class="desc">Fleet, billing, drivers, events, games, control room</div>
     </a>
     <a class="card" href="http://192.168.31.23:3200/">
       <svg class="card-icon" aria-hidden="true"><use href="#i-web"/></svg>
-      <div class="title"><span class="dot" id="dot-web" data-state="checking"></span> Web Dashboard</div>
+      <div class="title">Web Dashboard</div>
       <div class="desc">Leaderboards, bookings, events, driver profiles</div>
     </a>
     <a class="card" href="/register">
@@ -377,7 +377,7 @@
       <span>Health</span>
       <span class="dot" id="dot-rc" data-state="checking"></span>
     </a>
-    <a class="sys-item" href="/api/v1/fleet/health">
+    <a class="sys-item" href="/fleet">
       <svg class="card-icon" aria-hidden="true"><use href="#i-fleet"/></svg>
       <span>Fleet</span>
     </a>
@@ -420,8 +420,6 @@ const checks = [
   { id: 'dot-rc',    url: '/api/v1/health' },
   { id: 'dot-kiosk', url: '/kiosk/' },
   { id: 'dot-pos',   url: '/billing' },
-  { id: 'dot-admin', url: '/api/v1/health' },  // admin on :3201, check server instead
-  { id: 'dot-web',   url: '/leaderboards' },
 ];
 
 let checking = false;
