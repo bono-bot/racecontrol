@@ -7,192 +7,457 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    background: #0a0a0a;
-    color: #fff;
+    font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, #0a0a0a 0%, #111 100%);
+    color: #f0f0f0;
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
   }
+
+  /* ── Header: Pit Wall style ── */
   .header {
-    text-align: center;
-    padding: 40px 20px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0d0d0d;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
-  .header h1 {
-    font-size: 28px;
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header-brand h1 {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .header-brand h1 span { color: #E10600; }
+  .header-tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #E10600;
+    border: 1px solid #E10600;
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+    color: #666;
+  }
+  .header-clock {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 13px;
+    color: #aaa;
+    letter-spacing: 0.5px;
+  }
+  .venue-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .main { max-width: 1000px; margin: 0 auto; padding: 24px 20px; }
+
+  /* ── Section labels: timing tower style ── */
+  .section-label {
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 2px;
     text-transform: uppercase;
+    color: #E10600;
+    padding: 4px 10px;
+    border-left: 3px solid #E10600;
+    background: rgba(225, 6, 0, 0.06);
+    display: inline-block;
+    margin: 24px 0 12px;
   }
-  .header h1 span { color: #E10600; }
-  .header p {
-    color: #888;
-    font-size: 14px;
-    margin-top: 8px;
+  .section-label:first-child { margin-top: 0; }
+
+  /* ── Hero cards: Kiosk + POS ── */
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 8px;
   }
+  .hero-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 160px;
+    padding: 24px;
+    border-radius: 10px;
+    background:
+      radial-gradient(ellipse at top right, rgba(225,6,0,0.12), transparent 60%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 6px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 6px),
+      #141414;
+    border: 1px solid rgba(225,6,0,0.3);
+    border-left: 4px solid #E10600;
+    text-decoration: none;
+    color: #fff;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    overflow: hidden;
+  }
+  .hero-card:hover {
+    transform: translateY(-2px) scale(1.005);
+    box-shadow: 0 8px 32px rgba(225, 6, 0, 0.2);
+    background:
+      radial-gradient(ellipse at top right, rgba(225,6,0,0.18), transparent 60%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 6px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,0.015) 0, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 6px),
+      #181818;
+  }
+  .hero-card:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  .hero-sector {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #E10600;
+    margin-bottom: auto;
+  }
+  .hero-card .card-icon { width: 32px; height: 32px; color: #E10600; margin-bottom: 8px; }
+  .hero-card h2 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hero-card p {
+    font-size: 13px;
+    color: #999;
+    margin-top: 4px;
+  }
+
+  /* ── Standard cards ── */
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
-    max-width: 960px;
-    width: 100%;
-    padding: 20px;
+    gap: 12px;
+    margin-bottom: 8px;
   }
   .card {
-    background: #161616;
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
-    padding: 24px;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.01) 0, rgba(255,255,255,0.01) 1px, transparent 1px, transparent 6px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,0.01) 0, rgba(255,255,255,0.01) 1px, transparent 1px, transparent 6px),
+      #131313;
+    border: 1px solid #222;
+    border-radius: 10px;
+    padding: 20px;
     text-decoration: none;
     color: #fff;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
   .card:hover {
-    border-color: #E10600;
-    background: #1a1a1a;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(225, 6, 0, 0.15);
+    border-color: #444;
+    background-color: #181818;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   }
-  .card .icon {
-    font-size: 32px;
-    margin-bottom: 4px;
+  .card:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
   }
+  .card .card-icon { width: 24px; height: 24px; color: #E10600; }
   .card .title {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .card .desc {
-    font-size: 13px;
-    color: #888;
+    font-size: 12px;
+    color: #777;
     line-height: 1.4;
   }
-  .card .url {
-    font-size: 11px;
-    color: #555;
-    font-family: monospace;
-    margin-top: auto;
-    padding-top: 8px;
-    border-top: 1px solid #222;
+
+  /* ── System bar: compact row ── */
+  .sys-bar {
+    display: flex;
+    align-items: center;
+    background: #111;
+    border: 1px solid #1e1e1e;
+    border-left: 3px solid #333;
+    border-radius: 6px;
+    padding: 0 12px;
+    height: 48px;
+    overflow-x: auto;
+    gap: 0;
+    margin-top: 4px;
   }
-  .section-label {
-    max-width: 960px;
-    width: 100%;
-    padding: 20px 20px 0;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 1.5px;
+  .sys-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #444;
+    margin-right: 16px;
+    white-space: nowrap;
     text-transform: uppercase;
-    color: #555;
   }
-  .status {
+  .sys-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    height: 100%;
+    border-left: 1px solid #1e1e1e;
+    color: #888;
+    text-decoration: none;
+    font-size: 12px;
+    white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
+  }
+  .sys-item:hover { color: #fff; background: rgba(255,255,255,0.03); }
+  .sys-item:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+  .sys-item .card-icon { width: 14px; height: 14px; color: #666; }
+  .sys-item:hover .card-icon { color: #E10600; }
+
+  /* ── Status dots ── */
+  .dot {
     display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    margin-right: 6px;
     vertical-align: middle;
+    background: #444;
+    flex-shrink: 0;
   }
-  .status.green { background: #22c55e; }
-  .status.amber { background: #f59e0b; }
+  .dot[data-state="up"] {
+    background: #22c55e;
+    box-shadow: 0 0 8px rgba(34,197,94,0.5);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .dot[data-state="down"] {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239,68,68,0.4);
+  }
+  .dot[data-state="checking"] {
+    background: #f59e0b;
+    box-shadow: 0 0 6px rgba(245,158,11,0.4);
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot[data-state="up"] { animation: none; }
+    .hero-card:hover, .card:hover { transform: none; }
+  }
+
+  /* ── Footer ── */
   .footer {
     text-align: center;
-    padding: 30px;
-    color: #333;
-    font-size: 12px;
+    padding: 24px;
+    color: #2a2a2a;
+    font-size: 11px;
+    border-top: 1px solid #151515;
+    margin-top: 24px;
+  }
+  .footer span { color: #444; }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .header { flex-direction: column; gap: 8px; text-align: center; }
+    .sys-bar { height: auto; flex-wrap: wrap; padding: 8px; }
+    .sys-item { padding: 8px 12px; height: auto; }
+  }
+  @media (pointer: coarse) {
+    .card { min-height: 80px; padding: 24px; }
+    .sys-item { padding: 0 20px; min-height: 52px; }
+    .hero-card { min-height: 140px; }
   }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Racing <span>Point</span></h1>
-  <p>Control Portal</p>
+<!-- SVG Icon Sprite -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-kiosk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="3" width="16" height="12" rx="2"/><path d="M9 21h6M12 15v6"/>
+  </symbol>
+  <symbol id="i-pos" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h3"/>
+  </symbol>
+  <symbol id="i-admin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4"/>
+  </symbol>
+  <symbol id="i-web" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="9"/><path d="M2 12h20M12 3c2.5 3 4 6 4 9s-1.5 6-4 9c-2.5-3-4-6-4-9s1.5-6 4-9"/>
+  </symbol>
+  <symbol id="i-register" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>
+  </symbol>
+  <symbol id="i-health" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+  </symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 15a7 7 0 1 1 14 0"/><path d="M12 15l4-4"/><circle cx="12" cy="15" r="1.2" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+  </symbol>
+</svg>
+
+<!-- Header: Pit Wall -->
+<header class="header">
+  <div class="header-brand">
+    <h1>Racing <span>Point</span></h1>
+    <span class="header-tag">Control</span>
+  </div>
+  <div class="header-meta">
+    <div class="venue-status">
+      <span class="dot" id="venue-dot" data-state="checking"></span>
+      <span id="venue-label">Connecting</span>
+    </div>
+    <div class="header-clock" id="clock">--:--:-- IST</div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- Primary Ops: Hero Cards -->
+  <div class="section-label">Operations</div>
+  <nav class="hero-grid" aria-label="Primary operations">
+    <a class="hero-card" href="/kiosk/">
+      <span class="hero-sector">SECTOR 01</span>
+      <svg class="card-icon" aria-hidden="true"><use href="#i-kiosk"/></svg>
+      <h2><span class="dot" id="dot-kiosk" data-state="checking"></span> Kiosk</h2>
+      <p>Session management, pod control, spectator view</p>
+    </a>
+    <a class="hero-card" href="/billing">
+      <span class="hero-sector">SECTOR 02</span>
+      <svg class="card-icon" aria-hidden="true"><use href="#i-pos"/></svg>
+      <h2><span class="dot" id="dot-pos" data-state="checking"></span> POS / Billing</h2>
+      <p>Active sessions, payments, receipts</p>
+    </a>
+  </nav>
+
+  <!-- Back Office -->
+  <div class="section-label">Back Office</div>
+  <div class="grid">
+    <a class="card" href="/admin/">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-admin"/></svg>
+      <div class="title"><span class="dot" id="dot-admin" data-state="checking"></span> Admin Dashboard</div>
+      <div class="desc">Fleet, billing, drivers, events, games, control room</div>
+    </a>
+    <a class="card" href="http://192.168.31.23:3200/">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-web"/></svg>
+      <div class="title"><span class="dot" id="dot-web" data-state="checking"></span> Web Dashboard</div>
+      <div class="desc">Leaderboards, bookings, events, driver profiles</div>
+    </a>
+    <a class="card" href="/register">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-register"/></svg>
+      <div class="title">Walk-in Registration</div>
+      <div class="desc">QR code scan for new customer sign-up</div>
+    </a>
+  </div>
+
+  <!-- System: Compact Bar -->
+  <div class="section-label">Systems</div>
+  <div class="sys-bar">
+    <span class="sys-label">Monitor</span>
+    <a class="sys-item" href="/api/v1/health">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-health"/></svg>
+      <span>Health</span>
+      <span class="dot" id="dot-rc" data-state="checking"></span>
+    </a>
+    <a class="sys-item" href="/api/v1/fleet/health">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-fleet"/></svg>
+      <span>Fleet</span>
+    </a>
+    <a class="sys-item" href="http://192.168.31.27:1984/" target="_blank" rel="noopener">
+      <svg class="card-icon" aria-hidden="true"><use href="#i-camera"/></svg>
+      <span>Cameras</span>
+    </a>
+  </div>
+
 </div>
 
-<div class="section-label">Staff & Operations</div>
-<div class="grid">
-  <a class="card" href="/admin/" id="admin-link">
-    <div class="icon">&#9881;</div>
-    <div class="title"><span class="status amber" id="admin-status"></span>Admin Dashboard</div>
-    <div class="desc">Fleet management, billing, drivers, events, games, and control room.</div>
-    <div class="url">:3201/admin/</div>
-  </a>
-  <a class="card" href="/kiosk/" id="kiosk-link">
-    <div class="icon">&#127918;</div>
-    <div class="title"><span class="status amber" id="kiosk-status"></span>Kiosk</div>
-    <div class="desc">Staff terminal for session management, pod control, and spectator view.</div>
-    <div class="url">:3300/kiosk/</div>
-  </a>
-  <a class="card" href="http://192.168.31.23:3200/billing" id="pos-link">
-    <div class="icon">&#128179;</div>
-    <div class="title"><span class="status amber" id="pos-status"></span>POS / Billing</div>
-    <div class="desc">Point-of-sale billing dashboard, active sessions, and payment processing.</div>
-    <div class="url">:3200/billing</div>
-  </a>
-</div>
-
-<div class="section-label">Customer Facing</div>
-<div class="grid">
-  <a class="card" href="http://192.168.31.23:3200/" id="web-link">
-    <div class="icon">&#127760;</div>
-    <div class="title"><span class="status amber" id="web-status"></span>Web Dashboard</div>
-    <div class="desc">Customer-facing leaderboards, bookings, events, and driver profiles.</div>
-    <div class="url">:3200/</div>
-  </a>
-  <a class="card" href="/register">
-    <div class="icon">&#128100;</div>
-    <div class="title">Walk-in Registration</div>
-    <div class="desc">QR code scan landing page for new customer registration.</div>
-    <div class="url">:8080/register</div>
-  </a>
-</div>
-
-<div class="section-label">System</div>
-<div class="grid">
-  <a class="card" href="/api/v1/health">
-    <div class="icon">&#128154;</div>
-    <div class="title"><span class="status green" id="rc-status"></span>RaceControl Health</div>
-    <div class="desc">Server health, build ID, and service status.</div>
-    <div class="url">:8080/api/v1/health</div>
-  </a>
-  <a class="card" href="/api/v1/fleet/health">
-    <div class="icon">&#128640;</div>
-    <div class="title">Fleet Health</div>
-    <div class="desc">All 8 pods — connectivity, build ID, uptime, and violations.</div>
-    <div class="url">:8080/api/v1/fleet/health</div>
-  </a>
-  <a class="card" href="http://192.168.31.27:1984/" target="_blank">
-    <div class="icon">&#128247;</div>
-    <div class="title">Cameras (go2rtc)</div>
-    <div class="desc">Live RTSP camera streams from 13 Dahua NVR cameras.</div>
-    <div class="url">James :1984/</div>
-  </a>
-</div>
-
-<div class="footer">Racing Point eSports &amp; Cafe &mdash; 192.168.31.23:8080/portal</div>
+<footer class="footer">
+  Racing Point eSports &amp; Cafe <span>&mdash;</span> <span id="build-id">loading...</span>
+</footer>
 
 <script>
-// Quick health checks for status dots
+// ── Live IST Clock (Intl.DateTimeFormat — DST-safe) ──
+const clockFmt = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+});
+function updateClock() {
+  document.getElementById('clock').textContent = clockFmt.format(new Date()) + ' IST';
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Health Checks (same-origin via racecontrol proxy — no CORS issues) ──
+function makeSignal(ms) {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 const checks = [
-  { id: 'rc-status', url: '/api/v1/health' },
-  { id: 'admin-status', url: 'http://192.168.31.23:3201/admin/', link: 'admin-link', href: 'http://192.168.31.23:3201/admin/' },
-  { id: 'kiosk-status', url: 'http://192.168.31.23:3300/kiosk/', link: 'kiosk-link', href: 'http://192.168.31.23:3300/kiosk/' },
-  { id: 'pos-status', url: 'http://192.168.31.23:3200/billing' },
-  { id: 'web-status', url: 'http://192.168.31.23:3200/' },
+  { id: 'dot-rc',    url: '/api/v1/health' },
+  { id: 'dot-kiosk', url: '/kiosk/' },
+  { id: 'dot-pos',   url: '/billing' },
+  { id: 'dot-admin', url: '/admin/' },
+  { id: 'dot-web',   url: '/api/v1/health' },
 ];
 
-checks.forEach(c => {
-  fetch(c.url, { mode: 'no-cors', cache: 'no-store' })
-    .then(() => {
-      const el = document.getElementById(c.id);
-      if (el) { el.classList.remove('amber'); el.classList.add('green'); }
-      if (c.link && c.href) { document.getElementById(c.link).href = c.href; }
-    })
-    .catch(() => {});
+async function runChecks() {
+  for (const c of checks) {
+    const dot = document.getElementById(c.id);
+    if (!dot) continue;
+    try {
+      const res = await fetch(c.url, { cache: 'no-store', signal: makeSignal(4000) });
+      dot.dataset.state = res.ok || (res.status >= 300 && res.status < 400) ? 'up' : 'down';
+    } catch {
+      dot.dataset.state = 'down';
+    }
+  }
+  const rc = document.getElementById('dot-rc');
+  const vd = document.getElementById('venue-dot');
+  const vl = document.getElementById('venue-label');
+  if (rc && vd && vl) {
+    vd.dataset.state = rc.dataset.state;
+    vl.textContent = rc.dataset.state === 'up' ? 'Online' : 'Offline';
+  }
+}
+runChecks();
+setInterval(runChecks, 15000);
+
+// ── Build ID in footer ──
+fetch('/api/v1/health').then(r => r.json()).then(d => {
+  document.getElementById('build-id').textContent = 'build ' + (d.build_id || '?');
+}).catch(() => {
+  document.getElementById('build-id').textContent = '';
 });
 </script>
 

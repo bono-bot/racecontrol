@@ -83,6 +83,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
         .route("/debug/db-stats", get(debug_db_stats))
+        // Debug page GET endpoints — read-only operational data for kiosk debug UI.
+        // POST endpoints (create incident, diagnose, apply-fix) remain behind auth.
+        .route("/debug/activity", get(debug_activity))
+        .route("/debug/playbooks", get(debug_playbooks))
+        .route("/debug/incidents", get(list_debug_incidents))
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -403,9 +408,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/ota/deploy", post(ota_deploy_handler))
         .route("/ota/status", get(ota_status_handler))
         // Debug
-        .route("/debug/activity", get(debug_activity))
-        .route("/debug/playbooks", get(debug_playbooks))
-        .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
+        // Debug GET routes moved to public_routes — POST/PUT remain authed
+        .route("/debug/incidents", post(create_debug_incident))
         .route("/debug/incidents/{id}", put(update_debug_incident))
         .route("/debug/incidents/{id}/apply-fix", post(debug_apply_fix))
         .route("/debug/diagnose", post(debug_diagnose))
@@ -13845,6 +13849,9 @@ struct DebugActivityQuery {
     hours: Option<f64>,
 }
 
+/// Track consecutive try_read() failures for starvation detection (MMA Round 3 P3).
+static DEBUG_CONTENTION_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 async fn debug_activity(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DebugActivityQuery>,
@@ -13855,9 +13862,10 @@ async fn debug_activity(
 
     // Pod health from in-memory state — use try_read() (non-blocking) to avoid deadlock.
     // 20+ write lock sites in billing/WS handlers can block readers indefinitely.
-    // try_read() never queues — returns immediately with None if lock is held.
+    // try_read() never queues — returns immediately with Err if lock is held.
     let (pod_health, pods_contended) = match state.pods.try_read() {
         Ok(pods) => {
+            DEBUG_CONTENTION_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
             let now = chrono::Utc::now();
             let health: Vec<Value> = pods.values().map(|p| {
                 let secs = p.last_seen
@@ -13880,7 +13888,12 @@ async fn debug_activity(
             (health, false)
         }
         Err(_) => {
-            tracing::warn!(target: "debug", "debug_activity: pods RwLock contended — returning empty pod health");
+            let count = DEBUG_CONTENTION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if count >= 5 {
+                tracing::error!(target: "debug", consecutive = count, "debug_activity: pods RwLock STARVED — {} consecutive failures, possible write-lock monopoly", count);
+            } else {
+                tracing::warn!(target: "debug", consecutive = count, "debug_activity: pods RwLock contended");
+            }
             (vec![], true)
         }
     };

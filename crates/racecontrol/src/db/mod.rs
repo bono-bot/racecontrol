@@ -15,6 +15,15 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
         .connect(&url)
         .await?;
 
+    // Enable WAL mode — allows concurrent readers + single writer (vs default rollback journal
+    // which blocks ALL reads during writes). This prevents debug_activity SELECT queries from
+    // hanging when billing/WS handlers hold a write transaction.
+    // busy_timeout gives SQLite 5s to retry instead of returning SQLITE_BUSY immediately.
+    sqlx::query("PRAGMA journal_mode=WAL").execute(&pool).await?;
+    sqlx::query("PRAGMA busy_timeout=5000").execute(&pool).await?;
+    sqlx::query("PRAGMA synchronous=NORMAL").execute(&pool).await?;
+    tracing::info!("SQLite pragmas set: WAL mode, busy_timeout=5000ms, synchronous=NORMAL");
+
     // Run migrations
     migrate(&pool).await?;
 
