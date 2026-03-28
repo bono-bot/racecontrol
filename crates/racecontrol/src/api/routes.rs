@@ -487,13 +487,46 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/gamification/challenges/{id}/progress", post(staff_challenge_update_progress))
         // ─── Autonomous Pipeline (v26.0) ─────────────────────────────────────
         .route("/pipeline/status", get(pipeline_status))
-        .route("/pipeline/config", get(pipeline_config_get).post(pipeline_config_set))
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
-        // FATM-12: Reconciliation (admin only)
-        .route("/reconciliation/status", get(reconciliation_status))
-        .route("/reconciliation/run", post(reconciliation_run))
+        // Merge role-gated sub-routers (SEC-04: manager+, superadmin-only groups)
+        .merge(
+            // ── Manager+ routes ─────────────────────────────────────────────
+            // Billing reports, financial accounting, audit log, rate management.
+            // Cashiers cannot access financial reports or modify billing rates.
+            Router::new()
+                .route("/billing/report/daily", get(daily_billing_report))
+                .route("/billing/rates", get(list_billing_rates).post(create_billing_rate))
+                .route("/billing/rates/{id}", put(update_billing_rate).delete(delete_billing_rate))
+                .route("/accounting/accounts", get(list_accounts))
+                .route("/accounting/trial-balance", get(trial_balance))
+                .route("/accounting/profit-loss", get(profit_loss))
+                .route("/accounting/balance-sheet", get(balance_sheet))
+                .route("/accounting/journal", get(list_journal_entries))
+                .route("/audit-log", get(query_audit_log))
+                .route("/reconciliation/status", get(reconciliation_status))
+                .route("/reconciliation/run", post(reconciliation_run))
+                .layer(axum::middleware::from_fn(require_role_manager))
+        )
+        .merge(
+            // ── Superadmin-only routes ──────────────────────────────────────
+            // System config, feature flags, deploy pipeline, OTA, pipeline config.
+            // Managers cannot change system configuration.
+            Router::new()
+                .route("/flags", get(flags::list_flags).post(flags::create_flag))
+                .route("/flags/{name}", put(flags::update_flag))
+                .route("/config/push", post(config_push::push_config))
+                .route("/config/push/queue", get(config_push::get_queue))
+                .route("/config/audit", get(config_push::get_audit_log))
+                .route("/deploy/status", get(deploy_status))
+                .route("/deploy/rolling", post(deploy_rolling_handler))
+                .route("/deploy/{pod_id}", post(deploy_single_pod))
+                .route("/ota/deploy", post(ota_deploy_handler))
+                .route("/ota/status", get(ota_status_handler))
+                .route("/pipeline/config", get(pipeline_config_get).post(pipeline_config_set))
+                .layer(axum::middleware::from_fn(require_role_superadmin))
+        )
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))

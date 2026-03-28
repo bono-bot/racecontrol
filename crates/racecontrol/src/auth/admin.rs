@@ -159,9 +159,9 @@ pub async fn admin_login(
     }
     clear_lockout_on_success();
 
-    // Generate 12-hour staff JWT
+    // Generate 12-hour staff JWT with superadmin role (admin PIN = full access)
     let secret = &state.config.auth.jwt_secret;
-    match super::middleware::create_staff_jwt(secret, "admin", 12) {
+    match super::middleware::create_staff_jwt_with_role(secret, "admin", "superadmin", 12) {
         Ok(token) => {
             // Audit trail + WhatsApp alert for admin login
             crate::accounting::log_admin_action(
@@ -300,7 +300,7 @@ mod tests {
         )
         .expect("Token should be valid staff JWT");
         assert_eq!(data.claims.sub, "admin");
-        assert_eq!(data.claims.role, "staff");
+        assert_eq!(data.claims.role, "superadmin");
     }
 
     #[tokio::test]
