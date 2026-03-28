@@ -64,7 +64,11 @@ Plans:
   3. A game in Running state cannot exist without an active billing session — free gaming attempts are blocked at the server
   4. When a game crashes, billing is paused atomically before any relaunch is attempted — the customer is never charged for crash recovery time
   5. A split session is recorded to DB before any new launch command is issued — no launch without committed state
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 253-01-PLAN.md — Billing FSM transition table, validate_transition(), authoritative_end_session()
+- [ ] 253-02-PLAN.md — Phantom billing guard, free gaming guard, crash recovery atomicity, StopGame in all recovery states
+- [ ] 253-03-PLAN.md — Split session modeling (parent + child entitlements), DB-before-launch guard
 
 ### Phase 254: Security Hardening
 **Goal**: The system rejects injection attacks, enforces role boundaries, and stores credentials safely
@@ -162,7 +166,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 251. Database Foundation | 0/2 | Planned | - |
 | 252. Financial Atomicity Core | 0/3 | Planned | - |
-| 253. State Machine Hardening | 0/? | Not started | - |
+| 253. State Machine Hardening | 0/3 | Planned | - |
 | 254. Security Hardening | 0/? | Not started | - |
 | 255. Legal Compliance | 0/? | Not started | - |
 | 256. Game-Specific Hardening | 0/? | Not started | - |
