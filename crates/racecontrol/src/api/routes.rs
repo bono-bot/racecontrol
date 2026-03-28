@@ -22,7 +22,7 @@ use crate::cafe_promos;
 use crate::auth;
 use crate::whatsapp_alerter;
 use crate::psychology;
-use crate::auth::middleware::require_staff_jwt;
+use crate::auth::middleware::{require_staff_jwt, require_role_manager, require_role_superadmin};
 use crate::network_source::require_non_pod_source;
 use crate::billing;
 use crate::catalog;
@@ -9808,15 +9808,16 @@ async fn staff_validate_pin(
     State(state): State<Arc<AppState>>,
     Json(req): Json<StaffValidatePinRequest>,
 ) -> Json<Value> {
-    let result = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, name FROM staff_members WHERE pin = ? AND is_active = 1",
+    // Read role from DB — DEFAULT 'staff' (legacy, maps to cashier in middleware)
+    let result = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT id, name, role FROM staff_members WHERE pin = ? AND is_active = 1",
     )
     .bind(&req.pin)
     .fetch_optional(&state.db)
     .await;
 
     match result {
-        Ok(Some((id, name))) => {
+        Ok(Some((id, name, role_opt))) => {
             let _ = sqlx::query(
                 "UPDATE staff_members SET last_login_at = datetime('now') WHERE id = ?",
             )
@@ -9824,9 +9825,12 @@ async fn staff_validate_pin(
             .execute(&state.db)
             .await;
 
-            let token = auth::middleware::create_staff_jwt(
+            // Use role from DB, default to "cashier" if NULL
+            let role = role_opt.as_deref().unwrap_or("cashier");
+            let token = auth::middleware::create_staff_jwt_with_role(
                 &state.config.auth.jwt_secret,
                 &id,
+                role,
                 24,
             );
 
@@ -9835,6 +9839,7 @@ async fn staff_validate_pin(
                     "status": "ok",
                     "staff_id": id,
                     "staff_name": name,
+                    "role": role,
                     "token": jwt,
                 })),
                 Err(e) => Json(json!({
