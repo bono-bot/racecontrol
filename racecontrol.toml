@@ -50,6 +50,8 @@ healer_enabled = true
 
 healer_interval_secs = 120
 
+sentry_service_key = "478a3688339737fb5945f9b89d8bb533f2569fe0b1fea46b504656eee455b9ab"
+
 [branding]
 
 primary_color = "#E10600"
@@ -89,7 +91,7 @@ data_dir = "./data/ac_servers"
 jwt_secret = "UKLvoxSUMRPsKckeN17vJ-ORNgkTpfVO2MvS_JA5TMo"
 admin_pin_hash = "$argon2id$v=19$m=19456,t=2,p=1$7HM4TtJrDU5lnhCTMIiusQ$3xT9d98mexHIx+4yWJwzDEfdls72XY+wEJVmR9aHFkU"
 
-evolution_url = "http://localhost:53622"
+evolution_url = "http://srv1422716.hstgr.cloud:53622"
 
 evolution_api_key = "zNAKEHsXudyqL3dFngyBJAZWw9W4hWN0"
 
@@ -693,6 +695,11 @@ category = "racecontrol"
 machines = ["all"]
 
 [[process_guard.allowed]]
+name = "rc-watchdog.exe"
+category = "racecontrol"
+machines = ["all"]
+
+[[process_guard.allowed]]
 name = "registry"
 category = "pod-app"
 machines = ["all"]
@@ -1042,6 +1049,71 @@ name = "updater.exe"
 category = "system"
 machines = ["all"]
 
+[[process_guard.allowed]]
+name = "appvshnotify.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "cncmd.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "elevation_service.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "hxtsr.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "mpcmdrun.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "radeonsoftware.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "reader_sl.exe"
+category = "pod-app"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "sdxhelper.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "searchprotocolhost.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "storedesktopextension.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "tiworker.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "trustedinstaller.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "vssvc.exe"
+category = "system"
+machines = ["all"]
+
 [process_guard.overrides.pod]
 allow_extra_autostart = [
   "StartRCAgent",
@@ -1073,4 +1145,13 @@ allow_extra_autostart = [
   "Steam",
   "conspitlink2.0.exe-quickstart",
   "ollama",
+  # --- Added 2026-03-28 MMA: vendor schtasks + autostart entries ---
+  "VSD Craft",
+  "podagent.lnk",
+  "AIMemoryBoost",
+  "GCC",
+  "ModifyLinkUpdate",
+  "GoogleUpdaterTaskSystem",
+  "Firefox Background Update",
+  "Firefox Default Browser Agent",
 ]
