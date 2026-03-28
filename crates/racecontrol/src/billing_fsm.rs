@@ -7,6 +7,35 @@
 use rc_common::types::BillingSessionStatus;
 use std::sync::Arc;
 
+// ─── FSM-07: Split Session Status ─────────────────────────────────────────────
+
+/// Status of a single split entitlement within a parent billing session.
+///
+/// FSM-07: Each child split has its own immutable allocated_seconds and status.
+/// Transitions: Pending → Active → Completed | Cancelled
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitStatus {
+    /// Split has been created but not yet started.
+    Pending,
+    /// Split is currently running (timer ticking).
+    Active,
+    /// Split has ended normally (time elapsed or session ended).
+    Completed,
+    /// Split was cancelled (parent session cancelled before this split started).
+    Cancelled,
+}
+
+impl SplitStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SplitStatus::Pending => "pending",
+            SplitStatus::Active => "active",
+            SplitStatus::Completed => "completed",
+            SplitStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
 /// All events that can drive a billing session state change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BillingEvent {

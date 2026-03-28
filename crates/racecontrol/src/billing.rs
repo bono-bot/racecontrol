@@ -2394,6 +2394,25 @@ pub async fn start_billing_session(
                 reservation_id, final_split_count, pod_id
             );
         }
+
+        // FSM-07: Create child split entitlement records in DB.
+        // total_allocated_seconds is split_duration * split_count (full session time).
+        let total_seconds = final_split_duration
+            .map(|d| d * 60 * final_split_count)
+            .unwrap_or(allocated_seconds * final_split_count);
+        if let Err(e) = create_split_records(
+            &state.db,
+            &session_id,
+            final_split_count,
+            total_seconds,
+        ).await {
+            // Non-fatal: split records failing doesn't prevent session start,
+            // but we log it at ERROR so it can be investigated.
+            tracing::error!(
+                "FSM-07: Failed to create split records for session {}: {}",
+                session_id, e
+            );
+        }
     }
 
     // Notify agent
@@ -3635,6 +3654,154 @@ pub async fn check_and_stop_multiplayer_server(state: &Arc<AppState>, pod_id: &s
         .bind(&group_session_id)
         .execute(&state.db)
         .await;
+}
+
+// ─── FSM-07: Split Session Lifecycle ─────────────────────────────────────────
+
+/// FSM-07: Create child split entitlements for a parent session.
+///
+/// Called when a session starts with split_count > 1.
+/// Each split gets an equal share of total allocated_seconds; the last split
+/// gets any remainder seconds to ensure the sum equals total_allocated_seconds.
+///
+/// Split 1 is immediately activated. Splits 2..N remain Pending.
+pub async fn create_split_records(
+    db: &sqlx::SqlitePool,
+    parent_session_id: &str,
+    split_count: u32,
+    total_allocated_seconds: u32,
+) -> Result<(), String> {
+    if split_count == 0 {
+        return Err("split_count must be >= 1".to_string());
+    }
+    let per_split = total_allocated_seconds / split_count;
+    let remainder = total_allocated_seconds % split_count;
+
+    for i in 1..=split_count {
+        // Last split gets remainder seconds (ensures total adds up correctly)
+        let alloc = if i == split_count { per_split + remainder } else { per_split };
+        sqlx::query(
+            "INSERT INTO split_sessions (parent_session_id, split_number, allocated_seconds, status) \
+             VALUES (?, ?, ?, 'pending')",
+        )
+        .bind(parent_session_id)
+        .bind(i as i64)
+        .bind(alloc as i64)
+        .execute(db)
+        .await
+        .map_err(|e| format!("FSM-07: Failed to create split record {}: {}", i, e))?;
+    }
+
+    // Activate split 1 immediately (first split starts when session starts)
+    sqlx::query(
+        "UPDATE split_sessions SET status = 'active', started_at = datetime('now') \
+         WHERE parent_session_id = ? AND split_number = 1 AND status = 'pending'",
+    )
+    .bind(parent_session_id)
+    .execute(db)
+    .await
+    .map_err(|e| format!("FSM-07: Failed to activate split 1: {}", e))?;
+
+    tracing::info!(
+        "FSM-07: Created {} split records for session {} ({}s total, {}s per split)",
+        split_count, parent_session_id, total_allocated_seconds, per_split
+    );
+    Ok(())
+}
+
+/// FSM-07: Get the next pending split for a session (for split transitions).
+///
+/// Returns (split_number, allocated_seconds) for the lowest-numbered pending split,
+/// or None if all splits have been activated/completed.
+pub async fn get_next_pending_split(
+    db: &sqlx::SqlitePool,
+    parent_session_id: &str,
+) -> Result<Option<(i64, i64)>, String> {
+    sqlx::query_as::<_, (i64, i64)>(
+        "SELECT split_number, allocated_seconds FROM split_sessions \
+         WHERE parent_session_id = ? AND status = 'pending' \
+         ORDER BY split_number ASC LIMIT 1",
+    )
+    .bind(parent_session_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| format!("FSM-07: Failed to query next pending split: {}", e))
+}
+
+/// FSM-07: Complete the current active split and activate the next pending split.
+///
+/// Uses CAS (Compare-And-Swap): only completes a split if it is currently Active.
+/// Returns the next split_number if one was activated, or None if all splits are done.
+///
+/// Returns Err if the CAS fails (split is not in Active state — concurrent transition guard).
+pub async fn transition_split(
+    db: &sqlx::SqlitePool,
+    parent_session_id: &str,
+    current_split_number: i64,
+) -> Result<Option<i64>, String> {
+    // CAS: only complete if the split is currently active
+    let completed = sqlx::query(
+        "UPDATE split_sessions \
+         SET status = 'completed', ended_at = datetime('now') \
+         WHERE parent_session_id = ? AND split_number = ? AND status = 'active'",
+    )
+    .bind(parent_session_id)
+    .bind(current_split_number)
+    .execute(db)
+    .await
+    .map_err(|e| format!("FSM-07: Failed to complete split {}: {}", current_split_number, e))?;
+
+    if completed.rows_affected() == 0 {
+        return Err(format!(
+            "FSM-07: CAS failed — split {} for session {} is not in active state (concurrent transition guard)",
+            current_split_number, parent_session_id
+        ));
+    }
+
+    // Activate the next pending split
+    let next = get_next_pending_split(db, parent_session_id).await?;
+    if let Some((next_number, _)) = next {
+        sqlx::query(
+            "UPDATE split_sessions \
+             SET status = 'active', started_at = datetime('now') \
+             WHERE parent_session_id = ? AND split_number = ? AND status = 'pending'",
+        )
+        .bind(parent_session_id)
+        .bind(next_number)
+        .execute(db)
+        .await
+        .map_err(|e| format!("FSM-07: Failed to activate split {}: {}", next_number, e))?;
+
+        tracing::info!(
+            "FSM-07: Split {} completed, activated split {} for session {}",
+            current_split_number, next_number, parent_session_id
+        );
+        Ok(Some(next_number))
+    } else {
+        tracing::info!(
+            "FSM-07: Split {} completed — no more pending splits for session {}",
+            current_split_number, parent_session_id
+        );
+        Ok(None) // No more splits — session is ready to end
+    }
+}
+
+/// FSM-07: Cancel all pending splits for a session (called when parent session is cancelled).
+///
+/// Leaves Active and Completed splits unchanged — only Pending splits are cancelled.
+pub async fn cancel_pending_splits(
+    db: &sqlx::SqlitePool,
+    parent_session_id: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE split_sessions SET status = 'cancelled' \
+         WHERE parent_session_id = ? AND status = 'pending'",
+    )
+    .bind(parent_session_id)
+    .execute(db)
+    .await
+    .map_err(|e| format!("FSM-07: Failed to cancel pending splits: {}", e))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -5356,5 +5523,174 @@ mod tests {
         let tiers = default_billing_rate_tiers();
         let cost = compute_session_cost(1800, &tiers);
         assert_eq!(cost.total_paise, 75000, "FATM-05: 30min cost must match tier_30min price (2500 p/min * 30 min = 75000 p = Rs.750)");
+    }
+
+    // ── FSM-07: Split session lifecycle ──────────────────────────────────────
+
+    async fn create_test_db() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+        // Minimal schema: billing_sessions parent table + split_sessions
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS billing_sessions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL,
+                pod_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                allocated_seconds INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create billing_sessions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS split_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_session_id TEXT NOT NULL REFERENCES billing_sessions(id),
+                split_number INTEGER NOT NULL,
+                allocated_seconds INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                started_at TEXT,
+                ended_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(parent_session_id, split_number)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create split_sessions");
+
+        // Insert a dummy billing session for FK references
+        sqlx::query(
+            "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds) VALUES ('test-session', 'd1', 'pod_1', 'tier_30min', 1800)"
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert test billing session");
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_split_create_equal_allocation() {
+        let pool = create_test_db().await;
+        // 3 splits of 1800s total → 600s each
+        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+
+        let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+            "SELECT split_number, allocated_seconds, status FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("query failed");
+
+        assert_eq!(rows.len(), 3, "Should have 3 split records");
+        // Each split gets 600s
+        assert_eq!(rows[0].1, 600, "Split 1 should get 600s");
+        assert_eq!(rows[1].1, 600, "Split 2 should get 600s");
+        assert_eq!(rows[2].1, 600, "Split 3 should get 600s");
+        // Split 1 starts active, rest pending
+        assert_eq!(rows[0].2, "active", "Split 1 should be active");
+        assert_eq!(rows[1].2, "pending", "Split 2 should be pending");
+        assert_eq!(rows[2].2, "pending", "Split 3 should be pending");
+    }
+
+    #[tokio::test]
+    async fn test_split_remainder_goes_to_last() {
+        let pool = create_test_db().await;
+        // 1801s / 3 = 600 remainder 1 → last split gets 601s
+        create_split_records(&pool, "test-session", 3, 1801).await.expect("create_split_records failed");
+
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT split_number, allocated_seconds FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("query failed");
+
+        assert_eq!(rows[0].1, 600, "Split 1 should get 600s");
+        assert_eq!(rows[1].1, 600, "Split 2 should get 600s");
+        assert_eq!(rows[2].1, 601, "Split 3 should get 601s (remainder)");
+    }
+
+    #[tokio::test]
+    async fn test_split_transition_advances_to_next() {
+        let pool = create_test_db().await;
+        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+
+        // Transition from split 1 → should activate split 2
+        let next = transition_split(&pool, "test-session", 1).await.expect("transition_split failed");
+        assert_eq!(next, Some(2), "Should advance to split 2");
+
+        // Verify DB state
+        let statuses: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT split_number, status FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("query failed");
+
+        assert_eq!(statuses[0].1, "completed", "Split 1 should be completed");
+        assert_eq!(statuses[1].1, "active", "Split 2 should be active");
+        assert_eq!(statuses[2].1, "pending", "Split 3 should still be pending");
+    }
+
+    #[tokio::test]
+    async fn test_split_transition_last_returns_none() {
+        let pool = create_test_db().await;
+        create_split_records(&pool, "test-session", 2, 1200).await.expect("create_split_records failed");
+
+        // Complete split 1 → activates split 2
+        let _ = transition_split(&pool, "test-session", 1).await.expect("first transition failed");
+        // Complete split 2 → no more splits
+        let next = transition_split(&pool, "test-session", 2).await.expect("second transition failed");
+        assert_eq!(next, None, "No more splits after last one");
+    }
+
+    #[tokio::test]
+    async fn test_split_cas_rejects_non_active() {
+        let pool = create_test_db().await;
+        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+
+        // Try to complete split 2 (which is still Pending) — should fail CAS
+        let result = transition_split(&pool, "test-session", 2).await;
+        assert!(result.is_err(), "CAS should reject completing a pending split");
+        assert!(result.unwrap_err().contains("CAS failed"), "Error should mention CAS failure");
+    }
+
+    #[tokio::test]
+    async fn test_cancel_pending_splits() {
+        let pool = create_test_db().await;
+        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+
+        cancel_pending_splits(&pool, "test-session").await.expect("cancel_pending_splits failed");
+
+        let statuses: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT split_number, status FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("query failed");
+
+        // Split 1 was active (not pending) — should stay active
+        assert_eq!(statuses[0].1, "active", "Active split should not be cancelled");
+        // Splits 2 and 3 were pending — should be cancelled
+        assert_eq!(statuses[1].1, "cancelled", "Pending split 2 should be cancelled");
+        assert_eq!(statuses[2].1, "cancelled", "Pending split 3 should be cancelled");
+    }
+
+    #[tokio::test]
+    async fn test_get_next_pending_split_returns_lowest() {
+        let pool = create_test_db().await;
+        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+
+        // Initially split 1 is active, so next PENDING is split 2
+        let next = get_next_pending_split(&pool, "test-session").await.expect("get_next_pending_split failed");
+        assert_eq!(next, Some((2, 600)), "Next pending should be split 2 with 600s");
     }
 }

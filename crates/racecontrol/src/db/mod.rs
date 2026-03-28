@@ -311,6 +311,38 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── FSM-07: Split session entitlement table ──────────────────────────────
+    // Each child split is an immutable record with allocated_seconds and status.
+    // parent_session_id references billing_sessions(id). UNIQUE on (parent, split_number)
+    // prevents duplicate splits from being created even under concurrent inserts.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS split_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_session_id TEXT NOT NULL REFERENCES billing_sessions(id),
+            split_number INTEGER NOT NULL,
+            allocated_seconds INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(parent_session_id, split_number)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_split_sessions_parent ON split_sessions(parent_session_id)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_split_sessions_status ON split_sessions(parent_session_id, status)"
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Game launcher tables ─────────────────────────────────────────────────
 
     sqlx::query(
