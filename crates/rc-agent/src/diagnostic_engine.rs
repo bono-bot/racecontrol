@@ -31,6 +31,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 
+use crate::config::NodeType;
 use crate::failure_monitor::FailureMonitorState;
 use crate::udp_heartbeat::HeartbeatStatus;
 
@@ -70,6 +71,14 @@ pub enum DiagnosticTrigger {
         check_name: String,
         detail: String,
     },
+
+    // ─── POS-Specific Triggers (v26.0 Meshed Intelligence — POS node) ──────────
+    /// POS: Kiosk Edge browser not running or unresponsive
+    PosKioskDown { detail: String },
+    /// POS: Network connectivity to racecontrol server lost (HTTP probe failed)
+    PosNetworkDown { server_ip: String, detail: String },
+    /// POS: Billing API unresponsive or returning errors
+    PosBillingApiError { endpoint: String, status_code: u16 },
 }
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.
@@ -120,7 +129,9 @@ pub fn spawn(
     heartbeat_status: Arc<HeartbeatStatus>,
     failure_monitor_rx: watch::Receiver<FailureMonitorState>,
     event_tx: mpsc::Sender<DiagnosticEvent>,
+    node_type: NodeType,
 ) {
+    let is_pos = node_type == NodeType::Pos;
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "diagnostic_engine", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Diagnostic engine started (scan interval: {}s)", SCAN_INTERVAL_SECS);
@@ -158,10 +169,24 @@ pub fn spawn(
                 }
             }
 
-            // Game launch fail check (DIAG-01: game_launch_fail)
-            if let Some(launch_at) = pod_state.launch_started_at {
-                if pod_state.game_pid.is_none() && launch_at.elapsed().as_secs() > 90 {
-                    events.push(make_event(DiagnosticTrigger::GameLaunchFail, &pod_state));
+            // Game launch fail check (DIAG-01: game_launch_fail) — pods only
+            if !is_pos {
+                if let Some(launch_at) = pod_state.launch_started_at {
+                    if pod_state.game_pid.is_none() && launch_at.elapsed().as_secs() > 90 {
+                        events.push(make_event(DiagnosticTrigger::GameLaunchFail, &pod_state));
+                    }
+                }
+            }
+
+            // POS-specific checks — kiosk, billing API, network
+            if is_pos {
+                // Check kiosk Edge browser health
+                if let Some(trigger) = check_pos_kiosk_health() {
+                    events.push(make_event(trigger, &pod_state));
+                }
+                // Check network to racecontrol
+                if let Some(trigger) = check_pos_network_health() {
+                    events.push(make_event(trigger, &pod_state));
                 }
             }
 
@@ -348,17 +373,34 @@ fn count_recent_violation_lines() -> u64 {
 /// accepting connections — health checks pass but new clients can't connect."
 /// Returns the count of CLOSE_WAIT sockets (0 = healthy).
 pub fn count_close_wait_sockets() -> u64 {
-    let output = std::process::Command::new("netstat")
+    // Use absolute path to prevent PATH hijacking, with 10s timeout
+    use std::time::Duration;
+    let child = std::process::Command::new(r"C:\Windows\System32\NETSTAT.EXE")
         .args(["-n", "-p", "tcp"])
-        .output();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let output = match child {
+        Ok(c) => c.wait_with_output(),
+        Err(_) => return 0,
+    };
     match output {
-        Ok(o) => {
+        Ok(o) if o.status.success() => {
             let text = String::from_utf8_lossy(&o.stdout);
+            // Match only LOCAL address :8090 in CLOSE_WAIT state.
+            // Windows netstat -n format: "  TCP    <local_addr>:<port>    <remote_addr>:<port>    CLOSE_WAIT"
+            // We split by whitespace and check that the LOCAL address column (index 1) ends with :8090.
             text.lines()
-                .filter(|l| l.contains(":8090") && l.contains("CLOSE_WAIT"))
+                .filter(|line| {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    parts.len() >= 4
+                        && parts[0] == "TCP"
+                        && parts[1].ends_with(":8090")
+                        && parts[3] == "CLOSE_WAIT"
+                })
                 .count() as u64
         }
-        Err(_) => 0,
+        _ => 0,
     }
 }
 
@@ -368,14 +410,24 @@ pub fn count_close_wait_sockets() -> u64 {
 /// unbounded — 15 orphans = 1.35GB wasted RAM, degrades game performance."
 /// Returns count of powershell.exe processes (0-1 is normal, >3 is a leak).
 pub fn count_orphan_powershell() -> u32 {
-    use sysinfo::{System, ProcessesToUpdate};
+    use sysinfo::{System, ProcessesToUpdate, Pid};
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, false);
+    // Count PowerShell processes whose parent is no longer running (orphans).
+    // Normal PowerShell (admin session, user terminal) has a live parent (explorer.exe, cmd.exe).
+    // Orphans from self-restart leaks have dead parents (the rc-agent that spawned them is gone).
     sys.processes()
         .values()
         .filter(|p| {
             let name = p.name().to_string_lossy().to_lowercase();
-            name == "powershell.exe"
+            if name != "powershell.exe" {
+                return false;
+            }
+            // Check if parent process is dead — orphan indicator
+            match p.parent() {
+                Some(parent_pid) => sys.process(parent_pid).is_none(), // parent dead = orphan
+                None => true, // no parent = orphan
+            }
         })
         .count() as u32
 }
@@ -413,4 +465,55 @@ pub fn count_recovery_processes() -> u32 {
             recovery_names.iter().any(|r| name == *r)
         })
         .count() as u32
+}
+
+// ─── POS-Specific Diagnostic Checks ────────────────────────────────────────────
+// These checks only run on POS nodes (node_type = "pos").
+// They monitor billing kiosk health, network to server, and Edge browser status.
+
+/// POS check: Is Microsoft Edge running? The POS kiosk uses Edge for billing UI.
+/// Returns a diagnostic trigger if Edge is missing.
+fn check_pos_kiosk_health() -> Option<DiagnosticTrigger> {
+    use sysinfo::{System, ProcessesToUpdate};
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, false);
+
+    let edge_count = sys.processes()
+        .values()
+        .filter(|p| {
+            let name = p.name().to_string_lossy().to_lowercase();
+            name.contains("msedge")
+        })
+        .count();
+
+    if edge_count == 0 {
+        tracing::warn!(target: LOG_TARGET, "POS kiosk: Edge browser not running — billing UI may be down");
+        Some(DiagnosticTrigger::PosKioskDown {
+            detail: "Microsoft Edge not running — billing kiosk UI unavailable".to_string(),
+        })
+    } else {
+        None
+    }
+}
+
+/// POS check: Can we reach the racecontrol server?
+/// Performs a simple TCP connect probe to port 8080.
+fn check_pos_network_health() -> Option<DiagnosticTrigger> {
+    use std::net::TcpStream;
+
+    // Try to connect to racecontrol on the known server IP
+    let server_addr = "192.168.31.23:8080";
+    match TcpStream::connect_timeout(
+        &server_addr.parse().expect("valid socket addr"),
+        Duration::from_secs(5),
+    ) {
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "POS network: cannot reach racecontrol at {} — {}", server_addr, e);
+            Some(DiagnosticTrigger::PosNetworkDown {
+                server_ip: "192.168.31.23".to_string(),
+                detail: format!("TCP connect to {} failed: {}", server_addr, e),
+            })
+        }
+    }
 }

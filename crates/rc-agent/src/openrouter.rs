@@ -397,8 +397,9 @@ pub fn find_consensus(responses: &[ModelResponse]) -> Option<DiagnosisResult> {
         return None;
     }
 
-    // Extract keyword tokens from root_cause for similarity matching
-    let tokenize = |s: &str| -> Vec<String> {
+    // Extract keyword tokens from root_cause for similarity matching (using HashSet for O(1) lookups)
+    use std::collections::HashSet;
+    let tokenize = |s: &str| -> HashSet<String> {
         s.to_lowercase()
             .split(|c: char| !c.is_alphanumeric() && c != '_')
             .filter(|w| w.len() >= 3) // skip short words like "a", "is", "to"
@@ -407,30 +408,42 @@ pub fn find_consensus(responses: &[ModelResponse]) -> Option<DiagnosisResult> {
             .collect()
     };
 
-    let token_sets: Vec<Vec<String>> = diagnoses.iter().map(|d| tokenize(&d.root_cause)).collect();
+    let token_sets: Vec<HashSet<String>> = diagnoses.iter().map(|d| tokenize(&d.root_cause)).collect();
 
-    // Count shared keywords between each pair — group if 2+ keywords overlap
-    // Build adjacency: diagnoses[i] and diagnoses[j] are "similar" if they share 2+ tokens
+    // Union-Find for transitive grouping: if A~B and B~C, then A,B,C are in one group.
+    // This fixes the greedy non-transitive bug where order-dependent assignment could
+    // split a true majority across two groups.
     let n = diagnoses.len();
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut assigned = vec![false; n];
+    let mut parent: Vec<usize> = (0..n).collect();
+    let find = |parent: &mut Vec<usize>, mut x: usize| -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]]; // path compression
+            x = parent[x];
+        }
+        x
+    };
 
+    // Build edges: pair (i,j) if they share 2+ keyword tokens
     for i in 0..n {
-        if assigned[i] { continue; }
-        let mut group = vec![i];
-        assigned[i] = true;
         for j in (i + 1)..n {
-            if assigned[j] { continue; }
-            let shared = token_sets[i].iter()
-                .filter(|t| token_sets[j].contains(t))
-                .count();
+            let shared = token_sets[i].intersection(&token_sets[j]).count();
             if shared >= 2 {
-                group.push(j);
-                assigned[j] = true;
+                let ri = find(&mut parent, i);
+                let rj = find(&mut parent, j);
+                if ri != rj {
+                    parent[ri] = rj; // union
+                }
             }
         }
-        groups.push(group);
     }
+
+    // Collect groups by root
+    let mut group_map: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        group_map.entry(root).or_default().push(i);
+    }
+    let mut groups: Vec<Vec<usize>> = group_map.into_values().collect();
 
     // Find the largest group (most models agreeing on similar root cause)
     groups.sort_by(|a, b| b.len().cmp(&a.len()));

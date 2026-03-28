@@ -14,6 +14,9 @@ const LOG_TARGET: &str = "budget-tracker";
 /// Default daily budget for pods ($10/day)
 pub const DEFAULT_POD_DAILY_LIMIT: f64 = 10.0;
 
+/// Default daily budget for POS terminal ($5/day — lower than pods, no game diagnostics)
+pub const DEFAULT_POS_DAILY_LIMIT: f64 = 5.0;
+
 /// Default daily budget for server ($20/day)
 #[allow(dead_code)]
 pub const DEFAULT_SERVER_DAILY_LIMIT: f64 = 20.0;

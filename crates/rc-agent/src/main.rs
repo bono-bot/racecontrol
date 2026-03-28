@@ -53,7 +53,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use app_state::AppState;
 use feature_flags::FeatureFlags;
-use config::{load_config, detect_installed_games};
+use config::{load_config, detect_installed_games, NodeType};
 use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
@@ -366,28 +366,45 @@ async fn main() -> Result<()> {
     tracing::info!(target: LOG_TARGET, "Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
     tracing::info!(target: LOG_TARGET, "Core server: {}", config.core.url);
 
-    // Clean up orphaned game processes from previous rc-agent instance
-    let orphans_cleaned = game_process::cleanup_orphaned_games();
-    if orphans_cleaned > 0 {
-        tracing::warn!(target: LOG_TARGET, "Cleaned up {} orphaned game processes on startup", orphans_cleaned);
+    let is_pos = config.pod.node_type == NodeType::Pos;
+    if is_pos {
+        tracing::info!(target: LOG_TARGET, "Node type: POS — game/FFB/HID/overlay subsystems DISABLED");
+    }
+
+    // Clean up orphaned game processes from previous rc-agent instance (skip on POS)
+    if !is_pos {
+        let orphans_cleaned = game_process::cleanup_orphaned_games();
+        if orphans_cleaned > 0 {
+            tracing::warn!(target: LOG_TARGET, "Cleaned up {} orphaned game processes on startup", orphans_cleaned);
+        }
     }
 
     let pod_id = format!("pod_{}", config.pod.number);
-    let sim_type = match config.pod.sim.as_str() {
-        "assetto_corsa" | "ac" => SimType::AssettoCorsa,
-        "iracing" => SimType::IRacing,
-        "lmu" | "le_mans_ultimate" => SimType::LeMansUltimate,
-        "f1_25" | "f1" => SimType::F125,
-        "forza" => SimType::Forza,
-        other => {
-            tracing::error!(target: LOG_TARGET, "Unknown sim type: {}", other);
-            return Ok(());
+    let sim_type = if is_pos {
+        // POS nodes don't run sims — use AssettoCorsa as placeholder for type system
+        SimType::AssettoCorsa
+    } else {
+        match config.pod.sim.as_str() {
+            "assetto_corsa" | "ac" => SimType::AssettoCorsa,
+            "iracing" => SimType::IRacing,
+            "lmu" | "le_mans_ultimate" => SimType::LeMansUltimate,
+            "f1_25" | "f1" => SimType::F125,
+            "forza" => SimType::Forza,
+            other => {
+                tracing::error!(target: LOG_TARGET, "Unknown sim type: {}", other);
+                return Ok(());
+            }
         }
     };
 
-    // Determine installed games from config
-    let installed_games = detect_installed_games(&config.games);
-    tracing::info!(target: LOG_TARGET, "Installed games: {:?}", installed_games);
+    // Determine installed games from config (POS has none)
+    let installed_games = if is_pos {
+        vec![]
+    } else {
+        let games = detect_installed_games(&config.games);
+        tracing::info!(target: LOG_TARGET, "Installed games: {:?}", games);
+        games
+    };
 
     // Build pod info
     let pod_info = PodInfo {
@@ -428,12 +445,16 @@ async fn main() -> Result<()> {
     let remote_ops_rx = remote_ops::start_checked(8090);
     startup_log::write_phase("http_server", "port=8090");
 
-    // Set up driving detector (USB HID + UDP)
-    let detector_config = DetectorConfig {
-        wheelbase_vid: config.wheelbase.vendor_id,
-        wheelbase_pid: config.wheelbase.product_id,
-        telemetry_ports: config.telemetry_ports.ports.clone(),
-        ..DetectorConfig::default()
+    // Set up driving detector (USB HID + UDP) — POS skips hardware monitoring
+    let detector_config = if is_pos {
+        DetectorConfig::default()
+    } else {
+        DetectorConfig {
+            wheelbase_vid: config.wheelbase.vendor_id,
+            wheelbase_pid: config.wheelbase.product_id,
+            telemetry_ports: config.telemetry_ports.ports.clone(),
+            ..DetectorConfig::default()
+        }
     };
     let detector = DrivingDetector::new(&detector_config);
 
@@ -445,7 +466,9 @@ async fn main() -> Result<()> {
 
     // FFB-03: Zero force on startup with retry — recover from any prior unclean exit
     // hid_detected = true if device found and command succeeded (used in BootVerification)
-    let hid_detected = {
+    let hid_detected = if is_pos {
+        false // POS has no wheelbase
+    } else {
         let ffb_startup = ffb.clone();
         tokio::task::spawn_blocking(move || {
             ffb_startup.zero_force_with_retry(3, 100)
@@ -453,7 +476,7 @@ async fn main() -> Result<()> {
     };
 
     // SAFE-04: Cap venue power at 80% (9.6Nm on 12Nm, 6.4Nm on 8Nm)
-    {
+    if !is_pos {
         let ffb_cap = ffb.clone();
         tokio::task::spawn_blocking(move || {
             match ffb_cap.set_gain(80) {
@@ -467,68 +490,74 @@ async fn main() -> Result<()> {
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, signal_rx) = mpsc::channel::<DetectorSignal>(256);
 
-    // Create sim adapter (None for unsupported sims — they still run heartbeats)
-    let mut adapter: Option<Box<dyn SimAdapter>> = match sim_type {
-        SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
-            pod_id.clone(),
-            config.pod.sim_ip.clone(),
-            config.pod.sim_port,
-        ))),
-        SimType::F125 => Some(Box::new(F125Adapter::new(
-            pod_id.clone(),
-            Some(signal_tx.clone()),
-        ))),
-        SimType::IRacing => Some(Box::new(IracingAdapter::new(
-            pod_id.clone(),
-        ))),
-        SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
-            pod_id.clone(),
-        ))),
-        SimType::AssettoCorsaEvo => {
-            if config.ac_evo_telemetry_enabled {
-                Some(Box::new(
-                    sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
-                ))
-            } else {
-                tracing::info!(
-                    target: LOG_TARGET,
-                    "AC EVO telemetry disabled by feature flag (ac_evo_telemetry_enabled=false)"
-                );
+    // Create sim adapter — POS has no sim
+    let mut adapter: Option<Box<dyn SimAdapter>> = if is_pos {
+        None
+    } else {
+        match sim_type {
+            SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
+                pod_id.clone(),
+                config.pod.sim_ip.clone(),
+                config.pod.sim_port,
+            ))),
+            SimType::F125 => Some(Box::new(F125Adapter::new(
+                pod_id.clone(),
+                Some(signal_tx.clone()),
+            ))),
+            SimType::IRacing => Some(Box::new(IracingAdapter::new(
+                pod_id.clone(),
+            ))),
+            SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
+                pod_id.clone(),
+            ))),
+            SimType::AssettoCorsaEvo => {
+                if config.ac_evo_telemetry_enabled {
+                    Some(Box::new(
+                        sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
+                    ))
+                } else {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "AC EVO telemetry disabled by feature flag (ac_evo_telemetry_enabled=false)"
+                    );
+                    None
+                }
+            }
+            SimType::AssettoCorsaRally => Some(Box::new(
+                sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
+            )),
+            _ => {
+                tracing::warn!(target: LOG_TARGET, "Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
                 None
             }
         }
-        SimType::AssettoCorsaRally => Some(Box::new(
-            sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
-        )),
-        _ => {
-            tracing::warn!(target: LOG_TARGET, "Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
-            None
-        }
     };
 
-    // Spawn USB HID wheelbase monitor (blocking I/O in spawn_blocking)
-    let hid_signal_tx = signal_tx.clone();
-    let hid_vid = config.wheelbase.vendor_id;
-    let hid_pid = config.wheelbase.product_id;
-    let hid_pedal_threshold = detector_config.pedal_threshold;
-    let hid_steering_deadzone = detector_config.steering_deadzone;
-    tokio::spawn(async move {
-        run_hid_monitor(hid_vid, hid_pid, hid_pedal_threshold, hid_steering_deadzone, hid_signal_tx).await;
-    });
+    // Spawn USB HID wheelbase monitor — POS has no wheelbase hardware
+    if !is_pos {
+        let hid_signal_tx = signal_tx.clone();
+        let hid_vid = config.wheelbase.vendor_id;
+        let hid_pid = config.wheelbase.product_id;
+        let hid_pedal_threshold = detector_config.pedal_threshold;
+        let hid_steering_deadzone = detector_config.steering_deadzone;
+        tokio::spawn(async move {
+            run_hid_monitor(hid_vid, hid_pid, hid_pedal_threshold, hid_steering_deadzone, hid_signal_tx).await;
+        });
 
-    // Spawn UDP telemetry port listeners
-    let udp_signal_tx = signal_tx.clone();
-    let udp_ports = config.telemetry_ports.ports.clone();
-    tokio::spawn(async move {
-        run_udp_monitor(udp_ports, udp_signal_tx).await;
-    });
+        // Spawn UDP telemetry port listeners
+        let udp_signal_tx = signal_tx.clone();
+        let udp_ports = config.telemetry_ports.ports.clone();
+        tokio::spawn(async move {
+            run_udp_monitor(udp_ports, udp_signal_tx).await;
+        });
 
-    // Try to connect to sim (for telemetry/laps — separate from billing detection)
-    if let Some(ref mut adp) = adapter {
-        match adp.connect() {
-            Ok(()) => tracing::info!(target: LOG_TARGET, "Connected to {} telemetry", sim_type),
-            Err(e) => {
-                tracing::warn!(target: LOG_TARGET, "Could not connect to sim: {}. Will retry...", e);
+        // Try to connect to sim (for telemetry/laps — separate from billing detection)
+        if let Some(ref mut adp) = adapter {
+            match adp.connect() {
+                Ok(()) => tracing::info!(target: LOG_TARGET, "Connected to {} telemetry", sim_type),
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "Could not connect to sim: {}. Will retry...", e);
+                }
             }
         }
     }
@@ -597,10 +626,12 @@ async fn main() -> Result<()> {
     // branding while rc-agent connects to racecontrol, not a blank screen or idle message.
     lock_screen.show_startup_connecting();
 
-    // Racing HUD overlay for in-session display
+    // Racing HUD overlay for in-session display — POS doesn't need game overlay
     let overlay = OverlayManager::new();
-    overlay.start_server();
-    tracing::info!(target: LOG_TARGET, "Overlay server started on port 18925");
+    if !is_pos {
+        overlay.start_server();
+        tracing::info!(target: LOG_TARGET, "Overlay server started on port 18925");
+    }
 
     // Shared state for last game launch error (visible in debug console)
     let last_launch_error: debug_server::LastLaunchError =
@@ -614,32 +645,28 @@ async fn main() -> Result<()> {
         last_launch_error.clone(),
     );
 
-    // ─── Auto-Switch Config (ConspitLink game detection) ─────────────────────
-    // Ensures Global.json at C:\RacingPoint\ with AresAutoChangeConfig=open
-    // and verifies GameToBaseConfig.json mappings. Runs BEFORE enforce_safe_state
-    // so ConspitLink starts with correct config. Non-fatal: errors logged, not propagated.
-    tokio::task::spawn_blocking(|| {
-        let result = ffb_controller::ensure_auto_switch_config();
-        if !result.errors.is_empty() {
-            tracing::warn!(
+    // ─── Auto-Switch Config (ConspitLink game detection) — skip on POS ────────
+    if !is_pos {
+        tokio::task::spawn_blocking(|| {
+            let result = ffb_controller::ensure_auto_switch_config();
+            if !result.errors.is_empty() {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Auto-switch config errors: {:?}",
+                    result.errors
+                );
+            }
+            tracing::info!(
                 target: LOG_TARGET,
-                "Auto-switch config errors: {:?}",
-                result.errors
+                placed = result.global_json_placed,
+                changed = result.global_json_changed,
+                game_to_base_fixed = result.game_to_base_fixed,
+                restarted = result.conspit_restarted,
+                "Auto-switch config complete"
             );
-        }
-        tracing::info!(
-            target: LOG_TARGET,
-            placed = result.global_json_placed,
-            changed = result.global_json_changed,
-            game_to_base_fixed = result.game_to_base_fixed,
-            restarted = result.conspit_restarted,
-            "Auto-switch config complete"
-        );
-    });
+        });
 
-    // Delayed startup cleanup — enforce safe state to kill any orphaned games
-    // from previous session/crash. Delay gives startup apps time to open.
-    {
+        // Delayed startup cleanup — enforce safe state to kill any orphaned games
         let ffb_startup_cleanup = ffb.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
@@ -706,9 +733,13 @@ async fn main() -> Result<()> {
     );
     tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
 
-    // ─── Budget Tracker (Meshed Intelligence — per-pod $10/day hard cap) ────────
+    // ─── Budget Tracker (Meshed Intelligence — per-pod $10/day, POS $5/day) ────
     let mesh_budget = std::sync::Arc::new(tokio::sync::RwLock::new(
-        budget_tracker::BudgetTracker::new_pod()
+        if is_pos {
+            budget_tracker::BudgetTracker::new(budget_tracker::DEFAULT_POS_DAILY_LIMIT)
+        } else {
+            budget_tracker::BudgetTracker::new_pod()
+        }
     ));
 
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
@@ -983,16 +1014,20 @@ async fn main() -> Result<()> {
         guard_confirmed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
-    // ─── Safe Mode: startup detection ─────────────────────────────────────────
-    if let Some(sim) = safe_mode::detect_running_protected_game() {
-        state.safe_mode.enter(sim);
-        state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
-        tracing::warn!(target: LOG_TARGET, "Protected game already running at startup — safe mode ACTIVE");
+    // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
+    if !is_pos {
+        if let Some(sim) = safe_mode::detect_running_protected_game() {
+            state.safe_mode.enter(sim);
+            state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+            tracing::warn!(target: LOG_TARGET, "Protected game already running at startup — safe mode ACTIVE");
+        }
     }
 
-    // ─── Safe Mode: WMI process watcher ───────────────────────────────────────
-    state.wmi_rx = Some(safe_mode::spawn_wmi_watcher());
-    tracing::info!(target: LOG_TARGET, "WMI safe mode watcher spawned");
+    // ─── Safe Mode: WMI process watcher — POS skips game process watching ─────
+    if !is_pos {
+        state.wmi_rx = Some(safe_mode::spawn_wmi_watcher());
+        tracing::info!(target: LOG_TARGET, "WMI safe mode watcher spawned");
+    }
 
     // ─── Safe Mode: wire flag into KioskManager and LockScreenManager (SAFE-06) ─
     state.kiosk.wire_safe_mode(std::sync::Arc::clone(&state.safe_mode_active));

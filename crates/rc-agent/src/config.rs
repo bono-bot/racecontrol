@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 const LOG_TARGET: &str = "config";
@@ -187,15 +187,46 @@ fn is_steam_app_installed(app_id: u32) -> bool {
     std::path::Path::new(&manifest).exists()
 }
 
+/// Node type within the Racing Point fleet.
+/// Determines which subsystems are initialized at startup.
+/// - Pod: Full gaming pod (FFB, HID, overlay, lock screen, game launching)
+/// - POS: Point-of-sale terminal (billing, kiosk, mesh intelligence — no game hardware)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeType {
+    Pod,
+    Pos,
+}
+
+impl Default for NodeType {
+    fn default() -> Self {
+        NodeType::Pod
+    }
+}
+
+impl std::fmt::Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeType::Pod => write!(f, "pod"),
+            NodeType::Pos => write!(f, "pos"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PodConfig {
     pub number: u32,
     pub name: String,
+    /// Sim type — required for gaming pods, ignored for POS nodes.
+    #[serde(default = "default_sim")]
     pub sim: String,
     #[serde(default = "default_sim_ip")]
     pub sim_ip: String,
     #[serde(default = "default_sim_port")]
     pub sim_port: u16,
+    /// Node type: "pod" (default) or "pos". Determines which subsystems start.
+    #[serde(default)]
+    pub node_type: NodeType,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,6 +272,7 @@ impl Default for TelemetryPortsConfig {
     }
 }
 
+pub(crate) fn default_sim() -> String { "none".to_string() }
 pub(crate) fn default_sim_ip() -> String { "127.0.0.1".to_string() }
 pub(crate) fn default_sim_port() -> u16 { 9996 }
 pub(crate) fn default_core_url() -> String { "ws://127.0.0.1:8080/ws/agent".to_string() }
@@ -296,14 +328,28 @@ pub(crate) fn validate_config(config: &AgentConfig) -> Result<()> {
 pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     let mut paths: Vec<std::path::PathBuf> = Vec::new();
 
+    // Determine config filename from binary name — rc-pos-agent.exe uses rc-pos-agent.toml
+    let config_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .map(|stem| format!("{}.toml", stem))
+        .unwrap_or_else(|| "rc-agent.toml".to_string());
+
     // Primary: exe directory (correct on Windows regardless of CWD)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            paths.push(exe_dir.join("rc-agent.toml"));
+            paths.push(exe_dir.join(&config_name));
+            // Also check rc-agent.toml as fallback (POS binary can use either)
+            if config_name != "rc-agent.toml" {
+                paths.push(exe_dir.join("rc-agent.toml"));
+            }
         }
     }
     // Fallback: CWD (useful for `cargo run` in dev)
-    paths.push(std::path::PathBuf::from("rc-agent.toml"));
+    paths.push(std::path::PathBuf::from(&config_name));
+    if config_name != "rc-agent.toml" {
+        paths.push(std::path::PathBuf::from("rc-agent.toml"));
+    }
     // Legacy Linux path
     paths.push(std::path::PathBuf::from("/etc/racecontrol/rc-agent.toml"));
 

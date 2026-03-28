@@ -386,7 +386,26 @@ pub async fn handle_ws_message(
                 let pre_validate_args = launch_args.clone();
                 if let Some(ref args_str) = pre_validate_args {
                     // Quick parse to extract car/track for validation (before full params parse)
-                    if let Ok(quick_params) = serde_json::from_str::<serde_json::Value>(args_str) {
+                    // Fail-closed: malformed JSON = reject launch (don't silently skip validation)
+                    match serde_json::from_str::<serde_json::Value>(args_str) {
+                    Err(parse_err) => {
+                        tracing::error!(target: LOG_TARGET, "Game Doctor pre-launch: malformed launch_args JSON: {}", parse_err);
+                        let error_info = GameLaunchInfo {
+                            pod_id: state.pod_id.clone(),
+                            sim_type: launch_sim,
+                            game_state: GameState::Error,
+                            pid: None,
+                            launched_at: Some(Utc::now()),
+                            error_message: Some(format!("Pre-launch validation: malformed launch args: {}", parse_err)),
+                            diagnostics: None,
+                            exit_code: None,
+                        };
+                        if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                            let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                        }
+                        return Ok(HandleResult::Continue);
+                    }
+                    Ok(quick_params) => {
                         let car = quick_params.get("car").and_then(|v| v.as_str()).unwrap_or("");
                         let track = quick_params.get("track").and_then(|v| v.as_str()).unwrap_or("");
                         let track_config = quick_params.get("track_config").and_then(|v| v.as_str()).unwrap_or("");
@@ -408,6 +427,8 @@ pub async fn handle_ws_message(
                             return Ok(HandleResult::Continue);
                         }
                     }
+                    } // Ok(quick_params)
+                    } // match
                 }
 
                 let params: ac_launcher::AcLaunchParams = match &launch_args {

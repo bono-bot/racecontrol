@@ -13853,81 +13853,120 @@ async fn debug_activity(
     let minutes = (hours * 60.0) as i64;
     let db = &state.db;
 
-    // Pod health from in-memory state
-    let pods = state.pods.read().await;
-    let now = chrono::Utc::now();
-    let pod_health: Vec<Value> = pods.values().map(|p| {
-        let secs = p.last_seen
-            .map(|ls| (now - ls).num_seconds())
-            .unwrap_or(9999);
-        let color = if secs > 9998 { "grey" }
-            else if secs > 15 { "red" }
-            else if secs > 10 { "orange" }
-            else if secs > 5 { "yellow" }
-            else { "green" };
-        json!({
-            "pod_id": p.id,
-            "pod_number": p.number,
-            "seconds_since_heartbeat": secs,
-            "health": color,
-            "status": format!("{:?}", p.status),
-        })
-    }).collect();
-    drop(pods);
+    // Pod health from in-memory state — use try_read() (non-blocking) to avoid deadlock.
+    // 20+ write lock sites in billing/WS handlers can block readers indefinitely.
+    // try_read() never queues — returns immediately with None if lock is held.
+    let (pod_health, pods_contended) = match state.pods.try_read() {
+        Ok(pods) => {
+            let now = chrono::Utc::now();
+            let health: Vec<Value> = pods.values().map(|p| {
+                let secs = p.last_seen
+                    .map(|ls| (now - ls).num_seconds())
+                    .unwrap_or(9999);
+                let color = if secs > 9998 { "grey" }
+                    else if secs > 15 { "red" }
+                    else if secs > 10 { "orange" }
+                    else if secs > 5 { "yellow" }
+                    else { "green" };
+                json!({
+                    "pod_id": p.id,
+                    "pod_number": p.number,
+                    "seconds_since_heartbeat": secs,
+                    "health": color,
+                    "status": format!("{:?}", p.status),
+                })
+            }).collect();
+            drop(pods);
+            (health, false)
+        }
+        Err(_) => {
+            tracing::warn!(target: "debug", "debug_activity: pods RwLock contended — returning empty pod health");
+            (vec![], true)
+        }
+    };
 
-    // Billing events
-    let billing_events = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
-        "SELECT id, session_id, event_type, created_at, COALESCE(json_extract(details, '$.pod_id'), '') \
-         FROM billing_events \
-         WHERE created_at > datetime('now', ? || ' minutes') \
-         ORDER BY created_at DESC LIMIT 200",
-    )
-    .bind(format!("-{}", minutes))
-    .fetch_all(db)
-    .await
-    .unwrap_or_default();
-
-    let billing_json: Vec<Value> = billing_events.iter().map(|(id, sid, etype, ts, pod)| {
-        json!({ "id": id, "session_id": sid, "event_type": etype, "created_at": ts, "pod_id": pod })
-    }).collect();
+    // Billing events — timeout DB queries to prevent indefinite hangs on SQLite lock contention
+    let billing_json: Vec<Value> = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+            "SELECT id, session_id, event_type, created_at, COALESCE(json_extract(details, '$.pod_id'), '') \
+             FROM billing_events \
+             WHERE created_at > datetime('now', ? || ' minutes') \
+             ORDER BY created_at DESC LIMIT 200",
+        )
+        .bind(format!("-{}", minutes))
+        .fetch_all(db),
+    ).await {
+        Ok(Ok(events)) => events.iter().map(|(id, sid, etype, ts, pod)| {
+            json!({ "id": id, "session_id": sid, "event_type": etype, "created_at": ts, "pod_id": pod })
+        }).collect(),
+        Ok(Err(e)) => {
+            tracing::warn!(target: "debug", "debug_activity: billing query error: {}", e);
+            vec![]
+        }
+        Err(_) => {
+            tracing::warn!(target: "debug", "debug_activity: billing query timeout (5s)");
+            vec![]
+        }
+    };
 
     // Game launch events
-    let game_events = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
-        "SELECT id, pod_id, event_type, created_at, COALESCE(error_message, '') \
-         FROM game_launch_events \
-         WHERE created_at > datetime('now', ? || ' minutes') \
-         ORDER BY created_at DESC LIMIT 200",
-    )
-    .bind(format!("-{}", minutes))
-    .fetch_all(db)
-    .await
-    .unwrap_or_default();
+    let game_json: Vec<Value> = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+            "SELECT id, pod_id, event_type, created_at, COALESCE(error_message, '') \
+             FROM game_launch_events \
+             WHERE created_at > datetime('now', ? || ' minutes') \
+             ORDER BY created_at DESC LIMIT 200",
+        )
+        .bind(format!("-{}", minutes))
+        .fetch_all(db),
+    ).await {
+        Ok(Ok(events)) => events.iter().map(|(id, pod, etype, ts, err)| {
+            json!({ "id": id, "pod_id": pod, "event_type": etype, "created_at": ts, "error_message": err })
+        }).collect(),
+        Ok(Err(e)) => {
+            tracing::warn!(target: "debug", "debug_activity: game events query error: {}", e);
+            vec![]
+        }
+        Err(_) => {
+            tracing::warn!(target: "debug", "debug_activity: game events query timeout (5s)");
+            vec![]
+        }
+    };
 
-    let game_json: Vec<Value> = game_events.iter().map(|(id, pod, etype, ts, err)| {
-        json!({ "id": id, "pod_id": pod, "event_type": etype, "created_at": ts, "error_message": err })
-    }).collect();
-
+    // Include contention flag so kiosk UI can show "data temporarily unavailable" instead of "all pods down"
     Json(json!({
         "pod_health": pod_health,
         "billing_events": billing_json,
         "game_events": game_json,
+        "pods_contended": pods_contended,
     }))
 }
 
 async fn debug_playbooks(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, String, String)>(
-        "SELECT id, category, title, steps FROM debug_playbooks ORDER BY category",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
-    let playbooks: Vec<Value> = rows.iter().map(|(id, cat, title, steps)| {
-        let parsed: Value = serde_json::from_str(steps).unwrap_or(json!([]));
-        json!({ "id": id, "category": cat, "title": title, "steps": parsed })
-    }).collect();
+    let playbooks: Vec<Value> = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, category, title, steps FROM debug_playbooks ORDER BY category",
+        )
+        .fetch_all(&state.db),
+    ).await {
+        Ok(Ok(rows)) => rows.iter().map(|(id, cat, title, steps)| {
+            let parsed: Value = serde_json::from_str(steps).unwrap_or(json!([]));
+            json!({ "id": id, "category": cat, "title": title, "steps": parsed })
+        }).collect(),
+        Ok(Err(e)) => {
+            tracing::warn!(target: "debug", "debug_playbooks query error: {}", e);
+            vec![]
+        }
+        Err(_) => {
+            tracing::warn!(target: "debug", "debug_playbooks: DB query timeout (5s)");
+            vec![]
+        }
+    };
 
     Json(json!({ "playbooks": playbooks }))
 }
