@@ -830,13 +830,29 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "rc-agent",
                             );
                         }
-                        // SESSION-03: Billing paused during crash recovery.
-                        // Informational — the server is not involved in pausing; agent manages it.
+                        // SESSION-03 + FSM-04: Billing paused during crash recovery.
+                        // Agent sends this BEFORE attempting relaunch. Server must pause the
+                        // billing timer to ensure customer is never charged for recovery time.
                         AgentMessage::BillingPaused { pod_id, billing_session_id } => {
                             tracing::info!(
                                 "[billing] Pod {} session {} billing paused (crash recovery)",
                                 pod_id, billing_session_id
                             );
+                            // FSM-04: Actually pause the billing timer via FSM transition
+                            let timers = &state.billing.active_timers;
+                            let mut guard = timers.write().await;
+                            if let Some(timer) = guard.values_mut().find(|t| t.session_id == *billing_session_id) {
+                                if let Err(e) = crate::billing_fsm::validate_transition(
+                                    timer.status,
+                                    crate::billing_fsm::BillingEvent::CrashPause,
+                                ) {
+                                    tracing::warn!("[billing] FSM rejected CrashPause for session {}: {}", billing_session_id, e);
+                                } else {
+                                    timer.status = rc_common::types::BillingSessionStatus::PausedGamePause;
+                                    tracing::info!("[billing] Timer paused for session {} (FSM-04 crash recovery)", billing_session_id);
+                                }
+                            }
+                            drop(guard);
                         }
                         // SESSION-03: Billing resumed after successful game relaunch.
                         AgentMessage::BillingResumed { pod_id, billing_session_id } => {
