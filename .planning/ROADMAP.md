@@ -3973,7 +3973,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 |-------|----------------|--------|-----------|
 | 251. Database Foundation | 2/2 | Complete    | 2026-03-28 |
 | 252. Financial Atomicity Core | 3/3 | Complete    | 2026-03-28 |
-| 253. State Machine Hardening | 0/TBD | Not started | - |
+| 253. State Machine Hardening | 2/3 | In Progress|  |
 | 254. Security Hardening | 0/TBD | Not started | - |
 | 255. Legal Compliance | 0/TBD | Not started | - |
 | 256. Game-Specific Hardening | 0/TBD | Not started | - |
