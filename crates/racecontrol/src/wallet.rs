@@ -56,6 +56,73 @@ pub async fn get_wallet_info(
     }))
 }
 
+/// Credit (add) funds to a driver's wallet within an EXISTING transaction (FATM-01).
+/// Caller owns the transaction and commits/rolls back.
+/// Does NOT post accounting journal — caller must do that after commit.
+/// Returns (new_balance, txn_id).
+pub async fn credit_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    driver_id: &str,
+    amount_paise: i64,
+    txn_type: &str,
+    reference_id: Option<&str>,
+    notes: Option<&str>,
+    staff_id: Option<&str>,
+    idempotency_key: Option<&str>,
+) -> Result<(i64, String), String> {
+    if amount_paise <= 0 {
+        return Err("Credit amount must be positive".to_string());
+    }
+
+    let txn_id = Uuid::new_v4().to_string();
+
+    // Update wallet balance
+    sqlx::query(
+        "UPDATE wallets SET
+            balance_paise = balance_paise + ?,
+            total_credited_paise = total_credited_paise + ?,
+            updated_at = datetime('now')
+         WHERE driver_id = ?",
+    )
+    .bind(amount_paise)
+    .bind(amount_paise)
+    .bind(driver_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("DB error updating wallet: {}", e))?;
+
+    // Get new balance within transaction
+    let row = sqlx::query_as::<_, (i64,)>(
+        "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("DB error reading balance: {}", e))?;
+    let new_balance = row.map(|r| r.0).unwrap_or(0);
+
+    // Record transaction
+    sqlx::query(
+        "INSERT INTO wallet_transactions \
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, idempotency_key) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&txn_id)
+    .bind(driver_id)
+    .bind(amount_paise)
+    .bind(new_balance)
+    .bind(txn_type)
+    .bind(reference_id)
+    .bind(notes)
+    .bind(staff_id)
+    .bind(idempotency_key)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    Ok((new_balance, txn_id))
+}
+
 /// Credit (add) funds to a driver's wallet. Returns new balance.
 /// Uses a SQLite transaction for atomicity.
 /// Automatically posts a double-entry journal entry.
@@ -75,55 +142,22 @@ pub async fn credit(
     // Ensure wallet exists
     ensure_wallet(state, driver_id).await?;
 
-    let txn_id = Uuid::new_v4().to_string();
-
     // Use a transaction to ensure wallet update + transaction record are atomic
-    let mut tx = state.db.acquire().await
+    let mut conn = state.db.acquire().await
         .map_err(|e| format!("DB error acquiring connection: {}", e))?;
-    let mut tx = tx.begin().await
+    let mut tx = conn.begin().await
         .map_err(|e| format!("DB error starting transaction: {}", e))?;
 
-    // Update wallet balance
-    sqlx::query(
-        "UPDATE wallets SET
-            balance_paise = balance_paise + ?,
-            total_credited_paise = total_credited_paise + ?,
-            updated_at = datetime('now')
-         WHERE driver_id = ?",
-    )
-    .bind(amount_paise)
-    .bind(amount_paise)
-    .bind(driver_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("DB error updating wallet: {}", e))?;
-
-    // Get new balance within transaction
-    let row = sqlx::query_as::<_, (i64,)>(
-        "SELECT balance_paise FROM wallets WHERE driver_id = ?",
-    )
-    .bind(driver_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| format!("DB error reading balance: {}", e))?;
-    let new_balance = row.map(|r| r.0).unwrap_or(0);
-
-    // Record transaction
-    sqlx::query(
-        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&txn_id)
-    .bind(driver_id)
-    .bind(amount_paise)
-    .bind(new_balance)
-    .bind(txn_type)
-    .bind(reference_id)
-    .bind(notes)
-    .bind(staff_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("DB error recording transaction: {}", e))?;
+    let (new_balance, txn_id) = credit_in_tx(
+        &mut tx,
+        driver_id,
+        amount_paise,
+        txn_type,
+        reference_id,
+        notes,
+        staff_id,
+        None, // no idempotency key for standalone credit
+    ).await?;
 
     tx.commit().await
         .map_err(|e| format!("DB error committing credit transaction: {}", e))?;
@@ -164,6 +198,76 @@ pub async fn credit(
     Ok(new_balance)
 }
 
+/// Debit wallet within an EXISTING transaction (FATM-01).
+/// Caller owns the transaction and commits/rolls back.
+/// Does NOT post accounting journal — caller must do that after commit.
+/// Returns (new_balance, txn_id).
+pub async fn debit_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    driver_id: &str,
+    amount_paise: i64,
+    txn_type: &str,
+    reference_id: Option<&str>,
+    notes: Option<&str>,
+    idempotency_key: Option<&str>,
+) -> Result<(i64, String), String> {
+    if amount_paise <= 0 {
+        return Err("Debit amount must be positive".to_string());
+    }
+
+    // Atomic debit: UPDATE only if balance is sufficient (prevents TOCTOU race — FATM-03)
+    // The WHERE balance_paise >= amount means only one concurrent debit can succeed
+    // when the balance is exactly equal to the amount.
+    let result = sqlx::query_as::<_, (i64,)>(
+        "UPDATE wallets SET
+            balance_paise = balance_paise - ?,
+            total_debited_paise = total_debited_paise + ?,
+            updated_at = datetime('now')
+         WHERE driver_id = ? AND balance_paise >= ?
+         RETURNING balance_paise",
+    )
+    .bind(amount_paise)
+    .bind(amount_paise)
+    .bind(driver_id)
+    .bind(amount_paise)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("DB error updating wallet: {}", e))?;
+
+    let new_balance = match result {
+        Some((balance,)) => balance,
+        None => {
+            // Caller will drop tx to roll back
+            return Err(format!(
+                "Insufficient balance: need {}p",
+                amount_paise
+            ));
+        }
+    };
+
+    let txn_id = Uuid::new_v4().to_string();
+
+    // Record transaction after successful debit
+    sqlx::query(
+        "INSERT INTO wallet_transactions \
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, idempotency_key) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&txn_id)
+    .bind(driver_id)
+    .bind(-amount_paise)
+    .bind(new_balance)
+    .bind(txn_type)
+    .bind(reference_id)
+    .bind(notes)
+    .bind(idempotency_key)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    Ok((new_balance, txn_id))
+}
+
 /// Debit (subtract) funds from a driver's wallet. Returns (new_balance, txn_id).
 /// Fails if insufficient balance.
 /// Automatically posts a double-entry journal entry.
@@ -185,53 +289,29 @@ pub async fn debit(
     let mut tx = conn.begin().await
         .map_err(|e| format!("DB error starting transaction: {}", e))?;
 
-    // Atomic debit: UPDATE only if balance is sufficient (prevents TOCTOU race)
-    let result = sqlx::query_as::<_, (i64,)>(
-        "UPDATE wallets SET
-            balance_paise = balance_paise - ?,
-            total_debited_paise = total_debited_paise + ?,
-            updated_at = datetime('now')
-         WHERE driver_id = ? AND balance_paise >= ?
-         RETURNING balance_paise",
-    )
-    .bind(amount_paise)
-    .bind(amount_paise)
-    .bind(driver_id)
-    .bind(amount_paise)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| format!("DB error updating wallet: {}", e))?;
-
-    let new_balance = match result {
-        Some((balance,)) => balance,
-        None => {
-            // Rollback happens automatically on drop, but read balance outside tx
+    let (new_balance, txn_id) = match debit_in_tx(
+        &mut tx,
+        driver_id,
+        amount_paise,
+        txn_type,
+        reference_id,
+        notes,
+        None, // no idempotency key for standalone debit
+    ).await {
+        Ok(result) => result,
+        Err(e) => {
             drop(tx);
-            let current = get_balance(state, driver_id).await.unwrap_or(0);
-            return Err(format!(
-                "Insufficient balance: have {}p, need {}p",
-                current, amount_paise
-            ));
+            // Try to report current balance for insufficient-balance errors
+            if e.contains("Insufficient balance") {
+                let current = get_balance(state, driver_id).await.unwrap_or(0);
+                return Err(format!(
+                    "Insufficient balance: have {}p, need {}p",
+                    current, amount_paise
+                ));
+            }
+            return Err(e);
         }
     };
-
-    let txn_id = Uuid::new_v4().to_string();
-
-    // Record transaction after successful debit
-    sqlx::query(
-        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&txn_id)
-    .bind(driver_id)
-    .bind(-amount_paise)
-    .bind(new_balance)
-    .bind(txn_type)
-    .bind(reference_id)
-    .bind(notes)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("DB error recording transaction: {}", e))?;
 
     tx.commit().await
         .map_err(|e| format!("DB error committing debit transaction: {}", e))?;

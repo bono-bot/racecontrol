@@ -2978,6 +2978,39 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 252: FATM-02 Idempotency keys for financial operations ─────────
+    // Prevents double-charges when the same request is submitted twice (network retry,
+    // POS double-tap, etc.). The column is nullable — only set when the client provides
+    // a key. The partial unique index enforces uniqueness only on non-NULL values.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN idempotency_key TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_sessions_idempotency \
+         ON billing_sessions(idempotency_key) WHERE idempotency_key IS NOT NULL",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("ALTER TABLE wallet_transactions ADD COLUMN idempotency_key TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_txn_idempotency \
+         ON wallet_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL",
+    )
+    .execute(pool)
+    .await;
+    // Also add idempotency_key to the refunds table (used by refund_billing_session)
+    let _ = sqlx::query("ALTER TABLE refunds ADD COLUMN idempotency_key TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_refunds_idempotency \
+         ON refunds(idempotency_key) WHERE idempotency_key IS NOT NULL",
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
