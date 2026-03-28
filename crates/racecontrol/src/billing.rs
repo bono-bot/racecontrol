@@ -11,6 +11,7 @@ use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 use crate::activity_log::log_pod_activity;
 use crate::crypto::redaction::redact_phone;
 use crate::state::AppState;
+use crate::whatsapp_alerter;
 
 /// Look up dynamic pricing rules and compute an adjusted price.
 /// Returns the final price in paise, or None if no adjustment (use base price).
@@ -1698,6 +1699,159 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
 
     tracing::info!("Recovered {} active billing sessions", rows.len());
     Ok(())
+}
+
+// ─── Orphan Session Detection ────────────────────────────────────────────────
+
+/// On server startup, detect billing sessions that were "active" in DB but have
+/// a stale last_timer_sync_at (>5 minutes ago). These are sessions that were
+/// running when the server crashed/restarted. Flag them and alert staff.
+///
+/// Called AFTER recover_active_sessions() — sessions already recovered into memory
+/// are NOT orphans (they were properly persisted). This catches sessions where
+/// last_timer_sync_at is NULL (never synced — server crashed before first 60s sync)
+/// or older than 5 minutes.
+///
+/// FSM-10: Orphaned session detection on startup.
+pub async fn detect_orphaned_sessions_on_startup(state: &Arc<AppState>) {
+    let threshold_minutes = 5;
+
+    // Find active sessions with stale or NULL last_timer_sync_at
+    let orphans = sqlx::query_as::<_, (String, String, String, Option<String>, i64)>(
+        "SELECT id, pod_id, driver_id, last_timer_sync_at, driving_seconds
+         FROM billing_sessions
+         WHERE status IN ('active', 'paused_manual', 'paused_disconnect')
+         AND (last_timer_sync_at IS NULL
+              OR last_timer_sync_at < datetime('now', ?))",
+    )
+    .bind(format!("-{} minutes", threshold_minutes))
+    .fetch_all(&state.db)
+    .await;
+
+    match orphans {
+        Ok(rows) if rows.is_empty() => {
+            tracing::info!("Startup orphan check: no orphaned sessions found");
+        }
+        Ok(rows) => {
+            let count = rows.len();
+            tracing::error!(
+                "STARTUP ORPHAN DETECTION: Found {} billing session(s) with no heartbeat for {}+ minutes",
+                count, threshold_minutes
+            );
+
+            let mut details = Vec::new();
+            for (session_id, pod_id, driver_id, last_sync, driving_secs) in &rows {
+                let sync_info = last_sync.as_deref().unwrap_or("NEVER");
+                tracing::error!(
+                    "  Orphaned session: {} on {} (driver={}, last_sync={}, driving={}s)",
+                    session_id, pod_id, driver_id, sync_info, driving_secs
+                );
+                details.push(format!("{} on {} ({}s)", session_id, pod_id, driving_secs));
+
+                // Mark session with end_reason for audit trail
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET end_reason = 'orphan_flagged_startup' WHERE id = ? AND end_reason IS NULL",
+                )
+                .bind(session_id)
+                .execute(&state.db)
+                .await;
+            }
+
+            // Send WhatsApp alert to staff
+            let alert_msg = format!(
+                "ORPHAN ALERT (startup): {} stale billing session(s) detected with no heartbeat for {}+ min. Sessions: {}. Check admin dashboard.",
+                count, threshold_minutes, details.join(", ")
+            );
+            if state.config.alerting.enabled {
+                whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+            }
+
+            // Log to activity feed for dashboard visibility
+            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "startup");
+        }
+        Err(e) => {
+            tracing::error!("Failed to check for orphaned sessions on startup: {}", e);
+        }
+    }
+}
+
+/// Background task: every 5 minutes, check for active billing sessions whose
+/// last_timer_sync_at is older than 5 minutes. This catches sessions that became
+/// orphaned while the server is running (e.g., agent disconnected, timer loop crashed).
+///
+/// RESIL-03: Background orphan detection job.
+pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
+    let threshold_minutes = 5;
+
+    // Snapshot active session IDs from in-memory timers (sessions with active timer are NOT orphans).
+    // Drop the lock before any DB query (standing rule: no lock across .await).
+    let active_session_ids: HashSet<String> = {
+        let timers = state.billing.active_timers.read().await;
+        timers.values().map(|t| t.session_id.clone()).collect()
+    };
+
+    let db_active = sqlx::query_as::<_, (String, String, String, Option<String>, i64)>(
+        "SELECT id, pod_id, driver_id, last_timer_sync_at, driving_seconds
+         FROM billing_sessions
+         WHERE status IN ('active', 'paused_manual', 'paused_disconnect')
+         AND (last_timer_sync_at IS NULL
+              OR last_timer_sync_at < datetime('now', ?))",
+    )
+    .bind(format!("-{} minutes", threshold_minutes))
+    .fetch_all(&state.db)
+    .await;
+
+    match db_active {
+        Ok(rows) => {
+            // Filter to only sessions NOT in active_timers (true orphans)
+            let orphans: Vec<_> = rows
+                .into_iter()
+                .filter(|(id, _, _, _, _)| !active_session_ids.contains(id))
+                .collect();
+
+            if orphans.is_empty() {
+                tracing::debug!("Background orphan check: no orphaned sessions");
+                return;
+            }
+
+            let count = orphans.len();
+            tracing::error!(
+                "BACKGROUND ORPHAN DETECTION: Found {} billing session(s) with stale heartbeat ({}+ min)",
+                count, threshold_minutes
+            );
+
+            let mut details = Vec::new();
+            for (session_id, pod_id, driver_id, last_sync, driving_secs) in &orphans {
+                let sync_info = last_sync.as_deref().unwrap_or("NEVER");
+                tracing::error!(
+                    "  Orphaned session: {} on {} (driver={}, last_sync={}, driving={}s)",
+                    session_id, pod_id, driver_id, sync_info, driving_secs
+                );
+                details.push(format!("{} on {} ({}s)", session_id, pod_id, driving_secs));
+
+                // Flag in DB for audit trail
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET end_reason = 'orphan_flagged_background' WHERE id = ? AND end_reason IS NULL",
+                )
+                .bind(session_id)
+                .execute(&state.db)
+                .await;
+            }
+
+            // Alert staff via WhatsApp
+            let alert_msg = format!(
+                "ORPHAN ALERT (background): {} stale billing session(s) — no heartbeat for {}+ min. Sessions: {}. Investigate immediately.",
+                count, threshold_minutes, details.join(", ")
+            );
+            if state.config.alerting.enabled {
+                whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+            }
+            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "background-job");
+        }
+        Err(e) => {
+            tracing::error!("Background orphan detection query failed: {}", e);
+        }
+    }
 }
 
 // ─── Dashboard Command Handler ──────────────────────────────────────────────
