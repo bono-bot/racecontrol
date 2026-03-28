@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
 <title>Racing Point - Control Portal</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -335,7 +336,7 @@
       <span class="dot" id="venue-dot" data-state="checking"></span>
       <span id="venue-label">Connecting</span>
     </div>
-    <div class="header-clock" id="clock">--:--:-- IST</div>
+    <div class="header-clock" id="clock" aria-hidden="true">--:--:-- IST</div>
   </div>
 </header>
 
@@ -344,16 +345,16 @@
   <!-- Primary Ops: Hero Cards -->
   <div class="section-label">Operations</div>
   <nav class="hero-grid" aria-label="Primary operations">
-    <a class="hero-card" href="/kiosk/">
+    <a class="hero-card" href="/kiosk/" aria-label="Open Kiosk — session management, pod control">
       <span class="hero-sector">SECTOR 01</span>
       <svg class="card-icon" aria-hidden="true"><use href="#i-kiosk"/></svg>
-      <h2><span class="dot" id="dot-kiosk" data-state="checking"></span> Kiosk</h2>
+      <h2><span class="dot" id="dot-kiosk" data-state="checking" title="Kiosk status"></span> Kiosk</h2>
       <p>Session management, pod control, spectator view</p>
     </a>
-    <a class="hero-card" href="/billing">
+    <a class="hero-card" href="/billing" aria-label="Open POS — billing and payments">
       <span class="hero-sector">SECTOR 02</span>
       <svg class="card-icon" aria-hidden="true"><use href="#i-pos"/></svg>
-      <h2><span class="dot" id="dot-pos" data-state="checking"></span> POS / Billing</h2>
+      <h2><span class="dot" id="dot-pos" data-state="checking" title="POS status"></span> POS / Billing</h2>
       <p>Active sessions, payments, receipts</p>
     </a>
   </nav>
@@ -417,9 +418,12 @@ setInterval(updateClock, 1000);
 
 // ── Health Checks (same-origin via racecontrol proxy — no CORS issues) ──
 function makeSignal(ms) {
-  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
   const c = new AbortController();
-  setTimeout(() => c.abort(), ms);
+  const t = setTimeout(() => c.abort(), ms);
+  c.signal.addEventListener('abort', () => clearTimeout(t), { once: true });
   return c.signal;
 }
 
@@ -428,37 +432,63 @@ const checks = [
   { id: 'dot-kiosk', url: '/kiosk/' },
   { id: 'dot-pos',   url: '/billing' },
   { id: 'dot-admin', url: '/admin/' },
-  { id: 'dot-web',   url: '/api/v1/health' },
+  { id: 'dot-web',   url: '/leaderboards' },
 ];
 
+let checking = false;
 async function runChecks() {
-  for (const c of checks) {
-    const dot = document.getElementById(c.id);
-    if (!dot) continue;
-    try {
-      const res = await fetch(c.url, { cache: 'no-store', signal: makeSignal(4000) });
-      dot.dataset.state = res.ok || (res.status >= 300 && res.status < 400) ? 'up' : 'down';
-    } catch {
-      dot.dataset.state = 'down';
+  if (checking) return;
+  checking = true;
+  try {
+    await Promise.allSettled(checks.map(async (c) => {
+      const dot = document.getElementById(c.id);
+      if (!dot) return;
+      try {
+        const res = await fetch(c.url, { cache: 'no-store', signal: makeSignal(4000) });
+        dot.dataset.state = res.ok || (res.status >= 300 && res.status < 400) ? 'up' : 'down';
+        dot.title = c.id.replace('dot-', '') + ': ' + (dot.dataset.state === 'up' ? 'online' : 'offline');
+      } catch {
+        dot.dataset.state = 'down';
+        dot.title = c.id.replace('dot-', '') + ': offline';
+      }
+    }));
+    // Venue dot mirrors racecontrol status
+    const rc = document.getElementById('dot-rc');
+    const vd = document.getElementById('venue-dot');
+    const vl = document.getElementById('venue-label');
+    if (rc && vd && vl) {
+      vd.dataset.state = rc.dataset.state;
+      vl.textContent = rc.dataset.state === 'up' ? 'Online' : 'Offline';
     }
-  }
-  const rc = document.getElementById('dot-rc');
-  const vd = document.getElementById('venue-dot');
-  const vl = document.getElementById('venue-label');
-  if (rc && vd && vl) {
-    vd.dataset.state = rc.dataset.state;
-    vl.textContent = rc.dataset.state === 'up' ? 'Online' : 'Offline';
+  } finally {
+    checking = false;
   }
 }
+
+// Run checks, pause when tab hidden
 runChecks();
-setInterval(runChecks, 15000);
+let healthTimer = setInterval(runChecks, 15000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    runChecks();
+    if (!healthTimer) healthTimer = setInterval(runChecks, 15000);
+  } else {
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+});
 
 // ── Build ID in footer ──
-fetch('/api/v1/health').then(r => r.json()).then(d => {
-  document.getElementById('build-id').textContent = 'build ' + (d.build_id || '?');
-}).catch(() => {
-  document.getElementById('build-id').textContent = '';
-});
+fetch('/api/v1/health', { signal: makeSignal(5000) })
+  .then(r => r.json())
+  .then(d => {
+    const bid = String(d.build_id || '').slice(0, 8);
+    document.getElementById('build-id').textContent = bid ? 'build ' + bid : '';
+    document.title = 'Racing Point — Control' + (bid ? ' [' + bid + ']' : '');
+  })
+  .catch(() => {
+    document.getElementById('build-id').textContent = '';
+  });
 </script>
 
 </body>
