@@ -31,6 +31,14 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 
 ---
 
+## 2026-03-28
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| Mar 28 23:00 IST | James | `76e6e94c` | feat(254-01): SEC-01/02 server-side launch_args INI injection prevention (^[a-zA-Z0-9._-]{0,128}$ allowlist) + FFB GAIN safety cap at 100 in api/security.rs. Wired into launch_game before WS send. 18 tests. |
+| Mar 28 23:30 IST | James | `778c6b46` | feat(254-01): SEC-04 three-tier RBAC cashier/manager/superadmin — require_role_manager + require_role_superadmin middleware, Router::merge() sub-routers, normalized_role() backward compat, admin_login → superadmin JWT. 20 new tests. 634 total pass. |
+| Mar 28 23:35 IST | James | `486eabb6` | docs(254-01): complete SEC-01/02/04 plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+
 ## 2026-03-27
 
 | Timestamp | Author | Commit | Summary |
