@@ -1249,6 +1249,16 @@ Trace actual currency values through the complete lifecycle:
 **Anti-pattern this catches:** Any function that UPDATEs and then SELECTs the same DB
 column in the same scope. The SELECT gets the value you just wrote, not the original.
 
+Additional edge cases (MMA Iteration 4 — 4/4 model consensus):
+```
+8. Concurrent booking: two sessions on same wallet simultaneously
+   → verify atomic debit, no double-charge, no negative balance
+9. Insufficient funds: book session with wallet_balance < price
+   → verify rejection, wallet unchanged
+10. Overtime: session runs past allocated time
+    → verify no negative refund (guard: driving >= allocated → 0)
+```
+
 _Why: F-05 (P1, 2026-03-28) — `end_billing_session()` overwrote `wallet_debit_paise`
 before reading it for refund calc. 32+ model audits across 6 MMA rounds missed it.
 Only manual ₹-value tracing caught it. MMA prompts now include "Category 10: Financial
