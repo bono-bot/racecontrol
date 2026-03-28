@@ -28,8 +28,8 @@
 - [x] **FSM-04**: Crash recovery atomically pauses billing before any relaunch attempt
 - [x] **FSM-05**: StopGame handled in every recovery FSM state (not silently dropped)
 - [x] **FSM-06**: Billing pause timeout and crash recovery auto-end share a single authoritative end-session trigger
-- [ ] **FSM-07**: Split session modeled as parent order with child entitlements, each with immutable duration and state
-- [ ] **FSM-08**: Split transition persisted to DB before any new launch command issued
+- [x] **FSM-07**: Split session modeled as parent order with child entitlements, each with immutable duration and state
+- [x] **FSM-08**: Split transition persisted to DB before any new launch command issued
 - [x] **FSM-09**: Billing timer state persisted to DB every 60 seconds (survives server restart)
 - [x] **FSM-10**: On server startup, orphaned "active" sessions with no heartbeat for 5+ minutes auto-flagged and alerted
 
@@ -156,8 +156,8 @@ Updated during roadmap creation (2026-03-29).
 | FSM-04 | Phase 253 | Complete |
 | FSM-05 | Phase 253 | Complete |
 | FSM-06 | Phase 253 | Complete |
-| FSM-07 | Phase 253 | Pending |
-| FSM-08 | Phase 253 | Pending |
+| FSM-07 | Phase 253 | Complete |
+| FSM-08 | Phase 253 | Complete |
 | SEC-01 | Phase 254 | Pending |
 | SEC-02 | Phase 254 | Pending |
 | SEC-03 | Phase 254 | Pending |
