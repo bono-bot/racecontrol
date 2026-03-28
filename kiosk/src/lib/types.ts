@@ -455,6 +455,22 @@ export interface DebugDiagnosis {
   }[];
 }
 
+// v27.0: Pod diagnostic event from tier engine
+export interface PodDiagnosticEvent {
+  timestamp: string;
+  trigger: string;
+  tier: number;
+  outcome: string;
+  action: string;
+  root_cause: string;
+  fix_type: string;
+  confidence: number;
+  fix_applied: boolean;
+  problem_hash: string;
+  correlation_id?: string;
+  source: string;
+}
+
 export interface DebugActivityData {
   pod_health: PodHealth[];
   billing_events: {

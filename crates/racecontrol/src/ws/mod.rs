@@ -1059,6 +1059,130 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
                         }
+                        // ─── Staff Diagnostic Bridge (v27.0) ──────────────────────
+                        AgentMessage::DiagnosticResult {
+                            correlation_id,
+                            tier,
+                            outcome,
+                            root_cause,
+                            fix_action,
+                            fix_type,
+                            confidence,
+                            fix_applied,
+                            problem_hash,
+                            summary,
+                        } => {
+                            tracing::info!(
+                                target: "debug-bridge",
+                                correlation_id = %correlation_id,
+                                tier = tier,
+                                outcome = %outcome,
+                                fix_applied = fix_applied,
+                                "DiagnosticResult received from pod"
+                            );
+
+                            // Store in debug_resolutions for kiosk RAG
+                            if outcome == "fixed" || !root_cause.is_empty() {
+                                let res_id = uuid::Uuid::new_v4().to_string();
+                                let resolution_text = if !summary.is_empty() {
+                                    format!("[Tier {}] {}", tier, summary)
+                                } else {
+                                    format!("[Tier {}] {}: {}", tier, outcome, fix_action)
+                                };
+                                let effectiveness = if outcome == "fixed" { 4 } else { 2 };
+
+                                // Find the incident category from the correlation_id
+                                let category: String = sqlx::query_scalar(
+                                    "SELECT category FROM debug_incidents WHERE id IN \
+                                     (SELECT id FROM debug_incidents ORDER BY created_at DESC LIMIT 20) \
+                                     LIMIT 1"
+                                )
+                                .fetch_optional(&state.db)
+                                .await
+                                .unwrap_or(None)
+                                .unwrap_or_else(|| "unknown".to_string());
+
+                                let _ = sqlx::query(
+                                    "INSERT INTO debug_resolutions (id, incident_id, category, resolution_text, effectiveness) \
+                                     VALUES (?, ?, ?, ?, ?)"
+                                )
+                                .bind(&res_id)
+                                .bind(&correlation_id)
+                                .bind(&category)
+                                .bind(&resolution_text)
+                                .bind(effectiveness)
+                                .execute(&state.db)
+                                .await;
+
+                                // Log to activity feed
+                                let log_detail = format!(
+                                    "Tier {} diagnosis: {} (confidence: {:.0}%, applied: {})",
+                                    tier, summary, confidence * 100.0, fix_applied
+                                );
+                                let log_pod = registered_pod_id.as_deref().unwrap_or("unknown");
+                                crate::activity_log::log_pod_activity(
+                                    &state,
+                                    log_pod,
+                                    "race_engineer",
+                                    "Pod Diagnosis Complete",
+                                    &log_detail,
+                                    "race_engineer",
+                                );
+                            }
+
+                            // ─── Fleet Distribution (v27.0) ──────────────────────────
+                            // Only broadcast to fleet for high-confidence KB solutions (Tier 2+).
+                            // Tier 1 deterministic fixes are pod-local and should NOT be fleet-broadcast
+                            // (MMA Round 1 P2: single-pod fixes must not propagate to other pods).
+                            let is_fleet_worthy = *tier >= 2 && *confidence >= 0.8;
+                            if outcome == "fixed" && is_fleet_worthy && !problem_hash.is_empty() {
+                                tracing::info!(
+                                    target: "debug-bridge",
+                                    problem_hash = %problem_hash,
+                                    confidence = confidence,
+                                    "Broadcasting solution to fleet via MeshSolutionBroadcast"
+                                );
+
+                                let broadcast_msg = CoreToAgentMessage::MeshSolutionBroadcast {
+                                    problem_hash: problem_hash.clone(),
+                                    problem_key: format!("staff_{}", correlation_id),
+                                    root_cause: root_cause.clone(),
+                                    fix_action: fix_action.clone(),
+                                    fix_type: fix_type.clone(),
+                                    confidence: *confidence,
+                                    source_node: registered_pod_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                                    promotion_status: "fleet_verified".to_string(),
+                                };
+
+                                // Send to ALL connected pods — clone senders first to avoid holding
+                                // agent_senders lock across async sends (P1 lock-ordering fix)
+                                let sender_snapshot: Vec<_> = {
+                                    let senders = state.agent_senders.read().await;
+                                    senders.iter().map(|(id, s)| (id.clone(), s.clone())).collect()
+                                }; // lock dropped here
+                                for (target_pod_id, sender) in &sender_snapshot {
+                                    if let Err(e) = sender.send(broadcast_msg.clone()).await {
+                                        tracing::debug!(
+                                            target: "debug-bridge",
+                                            pod = %target_pod_id,
+                                            "Failed to broadcast solution: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+
+                            // If incident was resolved, update its status
+                            if outcome == "fixed" && *fix_applied {
+                                let _ = sqlx::query(
+                                    "UPDATE debug_incidents SET status = 'resolved', resolved_at = datetime('now') \
+                                     WHERE id = (SELECT id FROM debug_incidents WHERE status = 'open' ORDER BY created_at DESC LIMIT 1)"
+                                )
+                                .execute(&state.db)
+                                .await;
+                            }
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }

@@ -571,6 +571,9 @@ MODEL="qwen/qwen3-235b-a22b-2507" BATCH="01" node scripts/multi-model-audit.js
 - **SR-DEBUGGING-005:** Long-lived `tokio::spawn` tasks log lifecycle (start, first item, exit)
 - Errors in new pipelines use `warn`/`error`, not `debug`
 - `#[cfg(test)]` guards on all destructive functions (taskkill, netsh, sfc)
+- **SR-QUALITY-010:** Never hold a lock across `.await` — clone/snapshot in `{ }` block, drop guard, then async
+- **SR-QUALITY-011:** Every `::default()` on entity-specific structs must be reviewed — look up real state
+- **SR-QUALITY-012:** New pod HTTP endpoints default to `require_service_key` (protected). Only `/ping` and `/health` are public.
 
 #### TypeScript / Next.js
 - **SR-QUALITY-002:** No `any` type — type everything explicitly
@@ -614,9 +617,11 @@ After ANY code change, run the recursive cascade:
 ### 2.4 — Security Pre-Check
 Before committing:
 - [ ] No credentials in code (pre-commit hook blocks: private keys, AWS keys, .env.local, racecontrol.toml)
-- [ ] GET endpoints public, POST/DELETE require staff JWT
+- [ ] GET endpoints public, POST/DELETE require staff JWT (server routes.rs)
+- [ ] Pod HTTP endpoints: new endpoints go behind `require_service_key` (SR-QUALITY-012)
 - [ ] Process guard safe mode: allowlist override, never disable entirely
 - [ ] Config push via ConfigPush WS channel, NEVER fleet exec
+- [ ] Staff-triggered actions do NOT reuse autonomous broadcast paths without scope gating
 
 **Rules activated:**
 - **SR-SEC-003:** Security gate passes (31 assertions)
@@ -661,10 +666,19 @@ cargo clippy --all-targets 2>&1 | grep "^error" | head -10
 
 # 9. Check dependencies for known vulnerabilities
 cargo audit 2>&1 | grep -E "^(ID|Crate|Version|Warning)" | head -20
+
+# 10. Lock-across-await check (SR-QUALITY-010)
+grep -rn '\.read()\.await\|\.write()\.await' crates/*/src/ --include='*.rs' | grep -v test | grep -v '_lock\|snapshot\|guard'
+
+# 11. Default() on entity structs (SR-QUALITY-011)
+git diff HEAD~1 -- '*.rs' | grep '+.*::default()' | grep -v test | grep -v 'Config\|Builder\|Options'
+
+# 12. Pod endpoints auth check (SR-QUALITY-012)
+grep -A2 'public_routes' crates/rc-agent/src/remote_ops.rs | grep -v 'ping\|health'
 ```
 
-**Zero tolerance on:** format! SQL, secrets in code, unwrap in production.
-**Review required on:** untracked spawn, integer casts, hardcoded IPs.
+**Zero tolerance on:** format! SQL, secrets in code, unwrap in production, lock across await.
+**Review required on:** untracked spawn, integer casts, hardcoded IPs, `::default()` on entity structs.
 
 ### Phase 2 Gate
 - [ ] `cargo test` passes (all 3 crates)
@@ -677,6 +691,10 @@ cargo audit 2>&1 | grep -E "^(ID|Crate|Version|Warning)" | head -20
 - [ ] Security gate passes: `node comms-link/test/security-check.js`
 - [ ] `touch build.rs` after new commits (SR-DEPLOY-006)
 - [ ] Mechanical self-audit passed (no format! SQL, no secrets, no unwrap)
+- [ ] No lock held across `.await` — grep `read().await` and `write().await` in changed files (SR-QUALITY-010)
+- [ ] No `::default()` on entity structs without real state lookup (SR-QUALITY-011)
+- [ ] New pod endpoints behind `require_service_key` (SR-QUALITY-012)
+- [ ] **Cross-system bridge?** If feature spans 2+ system boundaries → MMA audit required before Phase 4
 
 **If any test fails → Phase D (Debug) with Phase 2 context**
 
@@ -727,6 +745,7 @@ The verification domain MUST match the change domain:
 | Frontend | Verify from non-server browser (POS, James) |
 | Game launch | Trigger launch + verify INI config on pod |
 | Process guard | Check first scan result (not "everything" or "nothing") |
+| Cross-system bridge (2+ boundaries) | MMA audit (3 rounds, 5+ models) + E2E flow test |
 
 **Rules activated:**
 - **SR-ULTIMATE-002:** Visual verification for display-affecting deploys

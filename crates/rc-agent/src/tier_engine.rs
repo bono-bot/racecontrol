@@ -21,8 +21,33 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::budget_tracker::BudgetTracker;
 use crate::diagnostic_engine::{DiagnosticEvent, DiagnosticTrigger};
+use crate::diagnostic_log::{DiagnosticLog, DiagnosticLogEntry};
 
 const LOG_TARGET: &str = "tier-engine";
+
+/// Staff-triggered diagnostic request — injected via WS handler
+pub struct StaffDiagnosticRequest {
+    pub correlation_id: String,
+    pub incident_id: String,
+    pub description: String,
+    pub category: String,
+    /// Channel to send the result back to the WS handler
+    pub response_tx: tokio::sync::oneshot::Sender<StaffDiagnosticResult>,
+}
+
+/// Result of a staff-triggered diagnostic (Tier 1 + Tier 2 only)
+pub struct StaffDiagnosticResult {
+    pub correlation_id: String,
+    pub tier: u8,
+    pub outcome: String,
+    pub root_cause: String,
+    pub fix_action: String,
+    pub fix_type: String,
+    pub confidence: f64,
+    pub fix_applied: bool,
+    pub problem_hash: String,
+    pub summary: String,
+}
 
 /// Path to MAINTENANCE_MODE sentinel file
 const MAINTENANCE_MODE_PATH: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
@@ -108,75 +133,265 @@ impl CircuitBreaker {
 ///
 /// Takes ownership of event_rx and budget_tracker.
 /// The supervisor loop catches panics and restarts the inner processing loop.
-pub fn spawn(event_rx: mpsc::Receiver<DiagnosticEvent>, budget: Arc<RwLock<BudgetTracker>>) {
+pub fn spawn(
+    event_rx: mpsc::Receiver<DiagnosticEvent>,
+    budget: Arc<RwLock<BudgetTracker>>,
+    diag_log: DiagnosticLog,
+    staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
+    failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
+) {
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: started");
-        tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events");
+        tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events + staff requests");
 
         // C2: Supervisor wraps the inner loop — restarts on panic
-        run_supervised(event_rx, budget).await;
+        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx).await;
 
         tracing::warn!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
     });
 }
 
 /// C2: Inner supervised loop — separated so panics can be caught and restarted.
-async fn run_supervised(mut event_rx: mpsc::Receiver<DiagnosticEvent>, budget: Arc<RwLock<BudgetTracker>>) {
+async fn run_supervised(
+    mut event_rx: mpsc::Receiver<DiagnosticEvent>,
+    budget: Arc<RwLock<BudgetTracker>>,
+    diag_log: DiagnosticLog,
+    mut staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
+    failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
+) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
     let mut first_event_processed = false;
 
-    while let Some(event) = event_rx.recv().await {
-        // T7: Dedup — collapse same trigger type within window
-        let dedup_key = format!("{:?}", std::mem::discriminant(&event.trigger));
-        let now = Instant::now();
-        if let Some(last_seen) = dedup_map.get(&dedup_key) {
-            if now.duration_since(*last_seen).as_secs() < DEDUP_WINDOW_SECS {
-                tracing::debug!(target: LOG_TARGET, key = %dedup_key, "Dedup: skipping duplicate trigger within {}s window", DEDUP_WINDOW_SECS);
-                continue;
+    loop {
+        tokio::select! {
+            // ── Autonomous diagnostic events ──
+            Some(event) = event_rx.recv() => {
+                // T7: Dedup — collapse same trigger type within window
+                let dedup_key = format!("{:?}", std::mem::discriminant(&event.trigger));
+                let now = Instant::now();
+                if let Some(last_seen) = dedup_map.get(&dedup_key) {
+                    if now.duration_since(*last_seen).as_secs() < DEDUP_WINDOW_SECS {
+                        tracing::debug!(target: LOG_TARGET, key = %dedup_key, "Dedup: skipping duplicate trigger within {}s window", DEDUP_WINDOW_SECS);
+                        continue;
+                    }
+                }
+                dedup_map.insert(dedup_key, now);
+                dedup_map.retain(|_, v| now.duration_since(*v).as_secs() < DEDUP_WINDOW_SECS * 2);
+
+                tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, ts = %event.timestamp, "Received diagnostic event");
+
+                let result = run_tiers(&event, &mut circuit_breaker, &budget).await;
+
+                // Log to shared DiagnosticLog for /events/recent endpoint
+                let entry = tier_result_to_log_entry(&event, &result, None, "autonomous");
+                diag_log.push(entry).await;
+
+                match &result {
+                    TierResult::Fixed { tier, action } => {
+                        tracing::info!(target: LOG_TARGET, trigger = ?event.trigger, tier = tier, action = %action, "Anomaly resolved by tier engine");
+                    }
+                    TierResult::Stub { tier, note } => {
+                        tracing::debug!(target: LOG_TARGET, tier = tier, note = note, "Tier stub — not yet implemented");
+                    }
+                    TierResult::FailedToFix { tier, reason } => {
+                        tracing::warn!(target: LOG_TARGET, trigger = ?event.trigger, tier = tier, reason = %reason, "All tiers failed to resolve anomaly");
+                    }
+                    TierResult::NotApplicable { .. } => {
+                        tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "No applicable tier for trigger");
+                    }
+                }
+
+                if !first_event_processed {
+                    tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: first_event_processed");
+                    first_event_processed = true;
+                }
             }
-        }
-        dedup_map.insert(dedup_key, now);
 
-        // Prune old dedup entries
-        dedup_map.retain(|_, v| now.duration_since(*v).as_secs() < DEDUP_WINDOW_SECS * 2);
-
-        tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, ts = %event.timestamp, "Received diagnostic event");
-
-        // Run tiers in sequence
-        let result = run_tiers(&event, &mut circuit_breaker, &budget).await;
-
-        match &result {
-            TierResult::Fixed { tier, action } => {
+            // ── Staff-triggered diagnostic requests (v27.0 Phase 2) ──
+            Some(req) = staff_rx.recv() => {
                 tracing::info!(
                     target: LOG_TARGET,
-                    trigger = ?event.trigger,
-                    tier = tier,
-                    action = %action,
-                    "Anomaly resolved by tier engine"
+                    correlation_id = %req.correlation_id,
+                    category = %req.category,
+                    "Staff diagnostic request received — running Tier 1 + Tier 2"
                 );
-            }
-            TierResult::Stub { tier, note } => {
-                tracing::debug!(target: LOG_TARGET, tier = tier, note = note, "Tier stub — not yet implemented");
-            }
-            TierResult::FailedToFix { tier, reason } => {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    trigger = ?event.trigger,
-                    tier = tier,
-                    reason = %reason,
-                    "All tiers failed to resolve anomaly"
-                );
-            }
-            TierResult::NotApplicable { .. } => {
-                tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "No applicable tier for trigger");
-            }
-        }
 
-        if !first_event_processed {
-            tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: first_event_processed");
-            first_event_processed = true;
+                // Reset dedup window for this category so autonomous diagnosis doesn't skip it
+                let dedup_key_reset = format!("staff_{}", req.category);
+                dedup_map.remove(&dedup_key_reset);
+
+                let result = run_staff_diagnosis(&req, &mut circuit_breaker, &budget, &failure_monitor_rx).await;
+
+                // Log to shared DiagnosticLog
+                let entry = DiagnosticLogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    trigger: format!("StaffRequest({})", req.category),
+                    tier: result.tier,
+                    outcome: result.outcome.clone(),
+                    action: result.fix_action.clone(),
+                    root_cause: result.root_cause.clone(),
+                    fix_type: result.fix_type.clone(),
+                    confidence: result.confidence,
+                    fix_applied: result.fix_applied,
+                    problem_hash: result.problem_hash.clone(),
+                    correlation_id: Some(req.correlation_id.clone()),
+                    source: "staff".to_string(),
+                };
+                diag_log.push(entry).await;
+
+                // Send result back to WS handler
+                let _ = req.response_tx.send(result);
+            }
+
+            // Both channels closed — exit
+            else => {
+                tracing::warn!(target: LOG_TARGET, "Both event channels closed — tier engine exiting");
+                break;
+            }
         }
+    }
+}
+
+/// Run Tier 1 + Tier 2 for staff-triggered requests.
+/// Does NOT run Tier 3/4 (model calls) to keep staff response fast.
+/// If Tier 1+2 don't resolve, returns recommendation for manual action.
+async fn run_staff_diagnosis(
+    req: &StaffDiagnosticRequest,
+    _circuit_breaker: &mut CircuitBreaker,
+    _budget: &Arc<RwLock<BudgetTracker>>,
+    failure_monitor_rx: &tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
+) -> StaffDiagnosticResult {
+    // Map staff category to a DiagnosticTrigger for Tier 1
+    let trigger = category_to_trigger(&req.category, &req.description);
+    // Use REAL pod state from the failure monitor watch channel (MMA Round 2 P1 fix)
+    let pod_state = failure_monitor_rx.borrow().clone();
+
+    let event = DiagnosticEvent {
+        trigger,
+        pod_state,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        build_id: crate::BUILD_ID,
+    };
+
+    // ── Tier 1: Deterministic ──
+    let t1 = tier1_deterministic(&event).await;
+    if let TierResult::Fixed { tier, ref action } = t1 {
+        tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request resolved by Tier 1: {}", action);
+        return StaffDiagnosticResult {
+            correlation_id: req.correlation_id.clone(),
+            tier,
+            outcome: "fixed".to_string(),
+            root_cause: format!("Deterministic fix for {}", req.category),
+            fix_action: action.clone(),
+            fix_type: "deterministic".to_string(),
+            confidence: 1.0,
+            fix_applied: true,
+            problem_hash: compute_problem_hash(&req.category),
+            summary: format!("Tier 1 applied: {}", action),
+        };
+    }
+
+    // ── Tier 2: Knowledge Base ──
+    let t2 = tier2_kb_lookup(&event);
+    if let TierResult::Fixed { tier, ref action } = t2 {
+        tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request resolved by Tier 2 KB: {}", action);
+        return StaffDiagnosticResult {
+            correlation_id: req.correlation_id.clone(),
+            tier,
+            outcome: "fixed".to_string(),
+            root_cause: action.clone(),
+            fix_action: action.clone(),
+            fix_type: "kb_lookup".to_string(),
+            confidence: 0.8,
+            fix_applied: true,
+            problem_hash: compute_problem_hash(&req.category),
+            summary: format!("Tier 2 KB match: {}", action),
+        };
+    }
+
+    // Tier 1+2 didn't resolve — return recommendation
+    tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request: Tier 1+2 did not resolve — recommending manual action");
+    StaffDiagnosticResult {
+        correlation_id: req.correlation_id.clone(),
+        tier: 0,
+        outcome: "unresolved".to_string(),
+        root_cause: String::new(),
+        fix_action: String::new(),
+        fix_type: "none".to_string(),
+        confidence: 0.0,
+        fix_applied: false,
+        problem_hash: compute_problem_hash(&req.category),
+        summary: format!(
+            "Tier 1 (deterministic) and Tier 2 (KB) found no solution for '{}'. Recommend manual investigation or AI diagnosis via server.",
+            req.category
+        ),
+    }
+}
+
+/// Map staff incident category to the closest DiagnosticTrigger for Tier 1.
+/// NOTE: "pod_offline" is NOT mapped to HealthCheckFail because if we're receiving
+/// a DiagnosticRequest via WS, the pod is clearly online. Instead treat as a general
+/// anomaly check (Periodic with always-applied fixes).
+fn category_to_trigger(category: &str, _description: &str) -> DiagnosticTrigger {
+    match category {
+        // pod_offline from kiosk = pod misbehaving but WS alive, run general cleanup
+        "pod_offline" => DiagnosticTrigger::Periodic,
+        "game_crash" => DiagnosticTrigger::GameLaunchFail,
+        "screen_stuck" => DiagnosticTrigger::DisplayMismatch {
+            expected_edge_count: 1,
+            actual_edge_count: 0,
+        },
+        "billing_stuck" => DiagnosticTrigger::PreFlightFailed {
+            check_name: "billing".to_string(),
+            detail: "Staff reported billing stuck".to_string(),
+        },
+        "no_steering_input" => DiagnosticTrigger::PreFlightFailed {
+            check_name: "hid".to_string(),
+            detail: "Staff reported no steering input".to_string(),
+        },
+        "kiosk_bypass" => DiagnosticTrigger::SentinelUnexpected {
+            file_name: "KIOSK_BYPASS_DETECTED".to_string(),
+        },
+        _ => DiagnosticTrigger::Periodic, // fallback — Tier 1 always-applied fixes
+    }
+}
+
+/// Simple hash for problem key
+fn compute_problem_hash(category: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    category.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Convert a TierResult + DiagnosticEvent into a log entry
+fn tier_result_to_log_entry(
+    event: &DiagnosticEvent,
+    result: &TierResult,
+    correlation_id: Option<String>,
+    source: &str,
+) -> DiagnosticLogEntry {
+    let (tier, outcome, action, root_cause, fix_type, confidence, fix_applied) = match result {
+        TierResult::Fixed { tier, action } => (*tier, "fixed", action.clone(), String::new(), "deterministic", 1.0, true),
+        TierResult::FailedToFix { tier, reason } => (*tier, "failed_to_fix", String::new(), reason.clone(), "none", 0.0, false),
+        TierResult::NotApplicable { tier } => (*tier, "not_applicable", String::new(), String::new(), "none", 0.0, false),
+        TierResult::Stub { tier, note } => (*tier, "stub", note.to_string(), String::new(), "none", 0.0, false),
+    };
+    DiagnosticLogEntry {
+        timestamp: event.timestamp.clone(),
+        trigger: format!("{:?}", std::mem::discriminant(&event.trigger)),
+        tier,
+        outcome: outcome.to_string(),
+        action,
+        root_cause,
+        fix_type: fix_type.to_string(),
+        confidence,
+        fix_applied,
+        problem_hash: String::new(),
+        correlation_id,
+        source: source.to_string(),
     }
 }
 

@@ -1225,6 +1225,119 @@ pub async fn handle_ws_message(
             }
         }
 
+        // ─── Staff Diagnostic Bridge (v27.0) ─────────────────────────────────
+
+        CoreToAgentMessage::DiagnosticRequest {
+            correlation_id,
+            incident_id,
+            description,
+            category,
+            requested_by,
+        } => {
+            tracing::info!(
+                target: LOG_TARGET,
+                correlation_id = %correlation_id,
+                incident_id = %incident_id,
+                category = %category,
+                requested_by = %requested_by,
+                "DiagnosticRequest received — dispatching to tier engine"
+            );
+
+            let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+            let req = crate::tier_engine::StaffDiagnosticRequest {
+                correlation_id: correlation_id.clone(),
+                incident_id,
+                description,
+                category,
+                response_tx,
+            };
+
+            // Send to tier engine via the staff channel
+            match state.staff_diagnostic_tx.try_send(req) {
+                Ok(()) => {
+                    // Spawn a task to await the result and send it back via WS
+                    let ws_result_tx = state.ws_exec_result_tx.clone();
+                    let _pod_id = state.pod_id.clone();
+                    let cid = correlation_id.clone();
+                    tokio::spawn(async move {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(10),
+                            response_rx,
+                        ).await {
+                            Ok(Ok(result)) => {
+                                let msg = AgentMessage::DiagnosticResult {
+                                    correlation_id: result.correlation_id,
+                                    tier: result.tier,
+                                    outcome: result.outcome,
+                                    root_cause: result.root_cause,
+                                    fix_action: result.fix_action,
+                                    fix_type: result.fix_type,
+                                    confidence: result.confidence,
+                                    fix_applied: result.fix_applied,
+                                    problem_hash: result.problem_hash,
+                                    summary: result.summary,
+                                };
+                                let _ = ws_result_tx.send(msg).await;
+                            }
+                            Ok(Err(_)) => {
+                                tracing::warn!(target: "ws-handler", cid = %cid, "Staff diagnostic: tier engine dropped response channel");
+                            }
+                            Err(_) => {
+                                tracing::warn!(target: "ws-handler", cid = %cid, "Staff diagnostic: tier engine timed out (30s)");
+                                // Send timeout result
+                                let msg = AgentMessage::DiagnosticResult {
+                                    correlation_id: cid,
+                                    tier: 0,
+                                    outcome: "timeout".to_string(),
+                                    root_cause: String::new(),
+                                    fix_action: String::new(),
+                                    fix_type: "none".to_string(),
+                                    confidence: 0.0,
+                                    fix_applied: false,
+                                    problem_hash: String::new(),
+                                    summary: "Tier engine did not respond within 10 seconds".to_string(),
+                                };
+                                let _ = ws_result_tx.send(msg).await;
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, correlation_id = %correlation_id, "Staff diagnostic channel full or closed: {}", e);
+                }
+            }
+        }
+
+        CoreToAgentMessage::StaffActionNotify {
+            action,
+            reason,
+            correlation_id,
+        } => {
+            tracing::info!(
+                target: LOG_TARGET,
+                action = %action,
+                correlation_id = %correlation_id,
+                "StaffActionNotify: staff performed '{}' — resetting tier engine dedup window",
+                action
+            );
+            // Log to diagnostic log so /events/recent shows staff actions
+            let entry = crate::diagnostic_log::DiagnosticLogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                trigger: format!("StaffAction({})", action),
+                tier: 0,
+                outcome: "manual".to_string(),
+                action: action.clone(),
+                root_cause: reason,
+                fix_type: "staff_manual".to_string(),
+                confidence: 1.0,
+                fix_applied: true,
+                problem_hash: String::new(),
+                correlation_id: Some(correlation_id),
+                source: "staff".to_string(),
+            };
+            state.diagnostic_log.push(entry).await;
+        }
+
         other => {
             tracing::warn!(target: LOG_TARGET, "Unhandled CoreToAgentMessage: {:?}", other);
         }

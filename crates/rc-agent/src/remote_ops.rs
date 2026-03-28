@@ -54,6 +54,8 @@ static EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(MAX_CONCURRENT_EXECS);
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 /// SHA256 of the running rc-agent binary, computed once at startup (OTA-10).
 static BINARY_SHA256: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// v27.0: Shared diagnostic event log for /events/recent endpoint
+static DIAG_LOG: std::sync::OnceLock<crate::diagnostic_log::DiagnosticLog> = std::sync::OnceLock::new();
 /// SHA256 of start-rcagent.bat, computed once at startup (bat drift detection).
 static BAT_SHA256: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -160,6 +162,12 @@ async fn require_service_key(
     }
 }
 
+/// Initialize the shared diagnostic log for /events/recent endpoint.
+/// Must be called before start().
+pub fn init_diagnostic_log(log: crate::diagnostic_log::DiagnosticLog) {
+    let _ = DIAG_LOG.set(log);
+}
+
 /// Start the remote ops HTTP server on the given port.
 /// Spawns an async task — returns immediately.
 #[allow(dead_code)]
@@ -173,6 +181,7 @@ pub fn start(port: u16) {
 
         let protected_routes = Router::new()
             .route("/info", get(info))
+            .route("/events/recent", get(events_recent))
             .route("/files", get(list_files))
             .route("/file", get(read_file))
             .route("/exec", post(exec_command))
@@ -401,6 +410,24 @@ async fn health() -> Json<serde_json::Value> {
         "exec_slots_available": available_exec_slots,
         "exec_slots_total": MAX_CONCURRENT_EXECS,
     }))
+}
+
+/// GET /events/recent — return recent tier engine diagnostic events (v27.0).
+/// Query param: ?limit=N (default 10, max 50)
+async fn events_recent(Query(params): Query<EventsRecentParams>) -> Json<serde_json::Value> {
+    let limit = params.limit.unwrap_or(10).min(50) as usize;
+    match DIAG_LOG.get() {
+        Some(log) => {
+            let events = log.recent(limit).await;
+            Json(serde_json::json!({ "events": events }))
+        }
+        None => Json(serde_json::json!({ "events": [], "warning": "diagnostic log not initialized" })),
+    }
+}
+
+#[derive(Deserialize)]
+struct EventsRecentParams {
+    limit: Option<u32>,
 }
 
 async fn info() -> Json<SystemInfo> {

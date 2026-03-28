@@ -14,6 +14,8 @@ use crate::failure_monitor;
 use crate::game_process;
 use crate::self_heal::SelfHealResult;
 use crate::diagnostic_engine;
+use crate::diagnostic_log;
+use crate::tier_engine;
 use crate::udp_heartbeat;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{AcStatus, AiDebugSuggestion, PodInfo, SimType};
@@ -90,6 +92,10 @@ pub struct AppState {
     /// Diagnostic event channel sender — pre-flight failures are emitted here
     /// so the tier engine can attempt autonomous healing via Meshed Intelligence.
     pub(crate) diagnostic_event_tx: mpsc::Sender<diagnostic_engine::DiagnosticEvent>,
+    /// v27.0: Shared diagnostic event log — ring buffer of recent tier engine results
+    pub(crate) diagnostic_log: diagnostic_log::DiagnosticLog,
+    /// v27.0: Staff diagnostic request channel — WS handler injects requests for tier engine
+    pub(crate) staff_diagnostic_tx: mpsc::Sender<tier_engine::StaffDiagnosticRequest>,
     /// BOOT-04: Operator confirmation that process guard allowlist is correct.
     /// When false, process guard stays in report_only even if configured for kill_and_report.
     /// Set to true via GUARD_CONFIRMED fleet exec command.

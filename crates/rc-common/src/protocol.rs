@@ -333,6 +333,33 @@ pub enum AgentMessage {
         last_diagnosis: Option<String>,
     },
 
+    // ─── Staff Diagnostic Bridge (v27.0) ─────────────────────────────────────
+
+    /// Pod returns the result of a staff-triggered diagnostic request.
+    /// Server stores in debug_resolutions and updates kiosk UI.
+    DiagnosticResult {
+        /// Correlation ID from the original DiagnosticRequest
+        correlation_id: String,
+        /// Which tier produced the result (1-5)
+        tier: u8,
+        /// What the tier engine decided
+        outcome: String,
+        /// Root cause analysis (empty if not applicable)
+        root_cause: String,
+        /// Fix action taken or recommended
+        fix_action: String,
+        /// "deterministic", "kb_lookup", "single_model", "multi_model", "human_escalation"
+        fix_type: String,
+        /// Confidence score (0.0 - 1.0)
+        confidence: f64,
+        /// Whether the fix was actually applied (vs. just recommended)
+        fix_applied: bool,
+        /// Pod's problem_hash for KB cross-reference
+        problem_hash: String,
+        /// Human-readable summary for kiosk UI
+        summary: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -600,6 +627,34 @@ pub enum CoreToAgentMessage {
         problem_key: String,
         affected_pods: Vec<String>,
         timestamp: String,
+    },
+
+    // ─── Staff Diagnostic Bridge (v27.0) ─────────────────────────────────────
+
+    /// Server requests pod to run its tier engine for a staff-reported incident.
+    /// Pod responds with AgentMessage::DiagnosticResult.
+    DiagnosticRequest {
+        /// Unique correlation ID to match request → response
+        correlation_id: String,
+        /// Server-side incident ID
+        incident_id: String,
+        /// Staff's description of the issue
+        description: String,
+        /// Auto-detected category (pod_offline, game_crash, billing_stuck, etc.)
+        category: String,
+        /// "staff" — origin marker to prevent loops
+        requested_by: String,
+    },
+
+    /// Server notifies pod that staff performed a manual action (quick-fix).
+    /// Pod logs this in tier engine to reset dedup window and avoid phantom re-diagnosis.
+    StaffActionNotify {
+        /// What action staff took: restart_pod, wake_pod, kill_game, relaunch_edge, shutdown_pod
+        action: String,
+        /// Why (from incident description)
+        reason: String,
+        /// Correlation ID for audit trail
+        correlation_id: String,
     },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.

@@ -315,6 +315,12 @@ export const api = {
       }
     ),
 
+  // v27.0: Pod diagnostic events from tier engine
+  podDiagnosticEvents: (podId: string, limit?: number) =>
+    fetchApi<{ events: PodDiagnosticEvent[] }>(
+      `/debug/pod-events/${podId}${limit ? `?limit=${limit}` : ""}`
+    ),
+
   // Customer Self-Service (phone auth + booking)
   customerLogin: (phone: string) =>
     fetchApi<{ status?: string; error?: string }>("/customer/login", {

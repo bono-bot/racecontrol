@@ -12,6 +12,7 @@ import type {
   DebugDiagnosis,
   DebugActivityData,
   PodActivityEntry,
+  PodDiagnosticEvent,
 } from "@/lib/types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -70,6 +71,10 @@ export default function DebugPage() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // v27.0: Pod diagnostic events from tier engine
+  const [podEvents, setPodEvents] = useState<PodDiagnosticEvent[]>([]);
+  const [podEventsLoading, setPodEventsLoading] = useState(false);
+
   // Quick fix
   const [applyingFix, setApplyingFix] = useState<string | null>(null);
   const [fixResult, setFixResult] = useState<{ ok: boolean; action?: string; error?: string } | null>(null);
@@ -116,6 +121,29 @@ export default function DebugPage() {
     const interval = setInterval(loadData, 30000); // refresh incidents less often
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // v27.0: Load pod diagnostic events when a pod is selected
+  useEffect(() => {
+    if (!selectedPodId) {
+      setPodEvents([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadPodEvents() {
+      setPodEventsLoading(true);
+      try {
+        const res = await api.podDiagnosticEvents(selectedPodId!, 10);
+        if (!cancelled) setPodEvents(res.events || []);
+      } catch {
+        if (!cancelled) setPodEvents([]);
+      } finally {
+        if (!cancelled) setPodEventsLoading(false);
+      }
+    }
+    loadPodEvents();
+    const interval = setInterval(loadPodEvents, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [selectedPodId]);
 
   // Filtered activity
   const filteredActivity = useMemo(() => {
@@ -451,6 +479,77 @@ export default function DebugPage() {
 
           {/* ─── Server Logs (collapsible) ─────────────────────── */}
           <ServerLogViewer />
+
+          {/* ─── Pod Tier Engine Events (v27.0) ────────────────────── */}
+          {selectedPodId && (
+            <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl p-3 max-h-[30%] overflow-y-auto">
+              <h2 className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                Meshed Intelligence — Pod Diagnostics
+              </h2>
+              {podEventsLoading && podEvents.length === 0 ? (
+                <p className="text-xs text-zinc-500">Loading pod events...</p>
+              ) : podEvents.length === 0 ? (
+                <p className="text-xs text-zinc-500">No recent diagnostic events</p>
+              ) : (
+                <div className="space-y-1">
+                  {podEvents.map((evt, i) => (
+                    <div
+                      key={`${evt.timestamp}-${i}`}
+                      className={`flex items-start gap-2 px-2 py-1.5 rounded text-xs font-mono ${
+                        evt.outcome === "fixed"
+                          ? "bg-green-900/20 border border-green-800/30"
+                          : evt.outcome === "failed_to_fix"
+                          ? "bg-red-900/20 border border-red-800/30"
+                          : evt.source === "staff"
+                          ? "bg-amber-900/20 border border-amber-800/30"
+                          : "bg-zinc-800/50 border border-zinc-700/30"
+                      }`}
+                    >
+                      <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1 ${
+                        evt.outcome === "fixed" ? "bg-green-400" :
+                        evt.outcome === "failed_to_fix" ? "bg-red-400" :
+                        evt.source === "staff" ? "bg-amber-400" : "bg-zinc-500"
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-400">
+                            {formatTime(evt.timestamp)}
+                          </span>
+                          {evt.tier > 0 && (
+                            <span className="px-1 py-0.5 bg-zinc-700 rounded text-[10px] text-zinc-300">
+                              Tier {evt.tier}
+                            </span>
+                          )}
+                          <span className={`px-1 py-0.5 rounded text-[10px] ${
+                            evt.outcome === "fixed" ? "bg-green-800 text-green-200" :
+                            evt.outcome === "manual" ? "bg-amber-800 text-amber-200" :
+                            "bg-zinc-700 text-zinc-300"
+                          }`}>
+                            {evt.outcome}
+                          </span>
+                          {evt.source === "staff" && (
+                            <span className="px-1 py-0.5 bg-blue-800 rounded text-[10px] text-blue-200">
+                              staff
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-zinc-300 truncate mt-0.5">
+                          {evt.trigger.replace(/^Variant\d+/, "").replace(/[()]/g, "")}
+                          {evt.action ? ` → ${evt.action}` : ""}
+                        </p>
+                        {evt.confidence > 0 && evt.confidence < 1 && (
+                          <p className="text-zinc-500 text-[10px]">
+                            Confidence: {(evt.confidence * 100).toFixed(0)}%
+                            {evt.fix_type !== "none" ? ` | ${evt.fix_type}` : ""}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ─── Diagnostics Section (collapsible) ───────────────── */}
           <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl max-h-[40%] overflow-y-auto">

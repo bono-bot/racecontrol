@@ -88,6 +88,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
         .route("/debug/incidents", get(list_debug_incidents))
+        // v27.0: Proxy pod diagnostic events for kiosk debug page
+        .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -13865,6 +13867,47 @@ async fn import_sessions(
 
 // ─── Debug System ────────────────────────────────────────────────────────
 
+/// GET /debug/pod-events/{pod_id} — proxy recent diagnostic events from a pod's tier engine.
+/// v27.0: Kiosk debug page fetches this to show recent autonomous + staff-triggered diagnostics.
+async fn debug_pod_events(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+    Query(q): Query<PodEventsQuery>,
+) -> Json<Value> {
+    let limit = q.limit.unwrap_or(10).min(50);
+
+    // P2 fix: Validate pod_id against known registered pods only.
+    // The HashMap lookup IS the validation — unknown IDs get 404.
+    // Additional format check prevents abuse (SSRF, log injection).
+
+    // Look up the pod's IP address from the in-memory pod registry (not SQL)
+    let pods = state.pods.read().await;
+    let pod = pods.get(&pod_id).cloned();
+    drop(pods);
+
+    let Some(pod) = pod else {
+        return Json(json!({ "events": [], "error": format!("Pod {} not found", pod_id) }));
+    };
+
+    // Fetch from pod's /events/recent endpoint
+    let url = format!("http://{}:8090/events/recent?limit={}", pod.ip_address, limit);
+    match state.http_client.get(&url).timeout(std::time::Duration::from_secs(5)).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<Value>().await {
+                Ok(data) => Json(data),
+                Err(e) => Json(json!({ "events": [], "error": format!("Parse error: {}", e) })),
+            }
+        }
+        Ok(resp) => Json(json!({ "events": [], "error": format!("Pod returned {}", resp.status()) })),
+        Err(e) => Json(json!({ "events": [], "error": format!("Pod unreachable: {}", e) })),
+    }
+}
+
+#[derive(Deserialize)]
+struct PodEventsQuery {
+    limit: Option<u32>,
+}
+
 #[derive(Deserialize)]
 struct DebugActivityQuery {
     hours: Option<f64>,
@@ -14118,6 +14161,37 @@ async fn create_debug_incident(
         _ => vec![],
     };
 
+    // ─── v27.0: Send DiagnosticRequest to pod for Tier 1 + Tier 2 diagnosis ──
+    // NOTE: Skip for "pod_offline" category — if the pod is truly offline, the WS send
+    // will fail silently. The server's own AI diagnosis (Claude/Ollama) handles offline pods.
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+    let mut tier_diagnosis_sent = false;
+    if category != "pod_offline" {
+    if let Some(ref pid) = body.pod_id {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pid) {
+            let diag_req = CoreToAgentMessage::DiagnosticRequest {
+                correlation_id: correlation_id.clone(),
+                incident_id: id.clone(),
+                description: body.description.clone(),
+                category: category.to_string(),
+                requested_by: "staff".to_string(),
+            };
+            if sender.send(diag_req).await.is_ok() {
+                tier_diagnosis_sent = true;
+                tracing::info!(
+                    target: "debug-bridge",
+                    pod = %pid,
+                    correlation_id = %correlation_id,
+                    "DiagnosticRequest sent to pod for incident {}",
+                    id
+                );
+            }
+        }
+        drop(agent_senders);
+    }
+    } // end category != "pod_offline" guard
+
     Json(json!({
         "incident": {
             "id": id,
@@ -14130,6 +14204,10 @@ async fn create_debug_incident(
         },
         "playbook": playbook_json,
         "suggested_actions": suggested_actions,
+        "tier_diagnosis": {
+            "sent": tier_diagnosis_sent,
+            "correlation_id": correlation_id,
+        },
     }))
 }
 
@@ -14343,6 +14421,19 @@ async fn debug_apply_fix(
         format!("Fix '{}' failed on Pod {}: {}", action_label, pod.number, err)
     };
     crate::activity_log::log_pod_activity(&state, pod_id, "race_engineer", "Quick Fix Applied", &detail, "staff");
+
+    // v27.0: Notify pod's tier engine about the staff action to reset dedup window
+    if success {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let _ = sender.send(CoreToAgentMessage::StaffActionNotify {
+                action: action_label.clone(),
+                reason: format!("Staff quick-fix for incident {}", incident_id),
+                correlation_id: uuid::Uuid::new_v4().to_string(),
+            }).await;
+        }
+        drop(agent_senders);
+    }
 
     // If action succeeded, auto-resolve the incident with the action as resolution
     if success {

@@ -12,6 +12,7 @@ mod config;
 mod content_scanner;
 mod debug_server;
 mod diagnostic_engine;
+mod diagnostic_log;
 mod driving_detector;
 mod failure_monitor;
 mod ffb_controller;
@@ -71,7 +72,7 @@ use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
 
 const LOG_TARGET: &str = "rc-agent";
-const BUILD_ID: &str = env!("GIT_HASH");
+pub(crate) const BUILD_ID: &str = env!("GIT_HASH");
 
 // LaunchState and CrashRecoveryState moved to event_loop.rs (74-04)
 // WS_MAX_CONCURRENT_EXECS, WS_EXEC_SEMAPHORE, and handle_ws_exec moved to ws_handler.rs (74-03)
@@ -370,6 +371,7 @@ async fn main() -> Result<()> {
     // Compute binary + bat SHA256 once at startup — before server start
     remote_ops::init_binary_sha256();
     remote_ops::init_bat_sha256();
+    // v27.0: DiagnosticLog is initialized later (after tier engine setup) — init_diagnostic_log called below
 
     let agent_start_time = std::time::Instant::now();
     tracing::info!(target: LOG_TARGET, "Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
@@ -752,10 +754,17 @@ async fn main() -> Result<()> {
         }
     ));
 
+    // ─── Diagnostic Log (shared ring buffer — read by /events/recent + WS handler) ──
+    let diag_log = diagnostic_log::DiagnosticLog::new();
+    remote_ops::init_diagnostic_log(diag_log.clone());
+
+    // ─── Staff Diagnostic Channel (v27.0 — WS handler → tier engine) ─────────
+    let (staff_diag_tx, staff_diag_rx) = tokio::sync::mpsc::channel::<tier_engine::StaffDiagnosticRequest>(8);
+
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
     // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
-    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone());
-    tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate active");
+    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe());
+    tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge active");
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
     tokio::spawn(async {
@@ -1017,6 +1026,8 @@ async fn main() -> Result<()> {
         safe_mode_cooldown_armed: false,
         last_preflight_alert: None,
         diagnostic_event_tx: diagnostic_event_tx.clone(),
+        diagnostic_log: diag_log.clone(),
+        staff_diagnostic_tx: staff_diag_tx,
         flags: flags_arc,  // v22.0 Phase 178: shared with billing_guard (loaded from cache above)
         guard_whitelist,
         guard_violation_tx,
