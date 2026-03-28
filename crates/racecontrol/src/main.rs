@@ -658,6 +658,16 @@ async fn main() -> anyhow::Result<()> {
     // Spawn wallet reconciliation background task (FATM-12: every 30 minutes)
     billing::spawn_reconciliation_job(state.clone());
 
+    // Spawn data retention background task (LEGAL-08: daily, 1-hour initial delay)
+    // Anonymizes drivers inactive for > pii_inactive_months (default 24 months).
+    // Financial records are never touched (Income Tax Act: 8-year retention).
+    {
+        let retention_state = state.clone();
+        tokio::spawn(async move {
+            api::routes::spawn_data_retention_job(retention_state).await;
+        });
+    }
+
     // Spawn game health check loop (5 second interval)
     let game_state = state.clone();
     tokio::spawn(async move {
