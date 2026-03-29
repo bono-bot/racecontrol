@@ -2,24 +2,24 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: verifying
-stopped_at: Completed 255-02-PLAN.md
-last_updated: "2026-03-28T23:55:04.234Z"
-last_activity: 2026-03-28
+status: executing
+stopped_at: Completed 256-01-PLAN.md
+last_updated: "2026-03-29T00:15:25.342Z"
+last_activity: 2026-03-29
 progress:
   total_phases: 205
   completed_phases: 152
-  total_plans: 367
-  completed_plans: 362
+  total_plans: 370
+  completed_plans: 363
   percent: 98
 ---
 
 ## Current Position
 
-Phase: 256
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-28
+Phase: 256 (game-specific-hardening) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-03-29
 
 Progress: [██████████] 98% (349/355 plans)
 
@@ -71,6 +71,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 255-legal-compliance P01 | 25 | 2 tasks | 3 files |
 | Phase 255-legal-compliance P03 | 25 | 1 tasks | 3 files |
 | Phase 255-legal-compliance P02 | 35 | 2 tasks | 3 files |
+| Phase 256 P01 | 35 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -141,9 +142,16 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - Guardian OTP reuses existing hash_otp/verify_otp_hash from auth — SEC-08 compliance by reuse, no new crypto primitives (LEGAL-04)
 - Minor disclosure endpoint in public_routes (no auth) — kiosk must show Indian Contract Act text during registration (LEGAL-06)
 
+## Decisions (Phase 256)
+
+- AC skips check_steam_ready — Game Doctor Check 12 handles AC Steam validation, avoiding redundant 10s wait (GAME-01)
+- wait_for_game_window uses ws_exec_result_tx not ws_tx clone — SplitSink is not Clone; result channel routes AgentMessage through event loop to WS send (GAME-07)
+- check_dlc_installed returns Ok for custom Steam library paths — standard path check avoids false-blocking without full libraryfolders.vdf parsing (GAME-06)
+- SteamOverlayUpdate.exe + package_installer.exe-with-Steam-in-path = update detection signals — avoids parsing Steam internal state files (GAME-01)
+
 ## Session Continuity
 
-Stopped at: Completed 255-02-PLAN.md
+Stopped at: Completed 256-01-PLAN.md
 Next action: Phase 255 complete — all 3 plans done. Proceed to Phase 256.
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
