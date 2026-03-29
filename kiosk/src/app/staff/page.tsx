@@ -40,6 +40,8 @@ export default function StaffTerminal() {
         sessionStorage.removeItem("kiosk_staff_name");
         sessionStorage.removeItem("kiosk_staff_id");
         sessionStorage.removeItem("kiosk_staff_token");
+        // SEC-P2-9: Clear server-side auth cookie on logout/timeout
+        document.cookie = "kiosk_staff_jwt=; path=/; max-age=0; SameSite=Strict";
         setStaffName(null);
         setStaffId(null);
       }, 30 * 60 * 1000);

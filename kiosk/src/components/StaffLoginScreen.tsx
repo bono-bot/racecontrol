@@ -43,6 +43,9 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
       }
       if (res.token) {
         sessionStorage.setItem("kiosk_staff_token", res.token);
+        // SEC-P2-9: Set cookie for server-side middleware auth check
+        // This prevents "flash of staff UI" on protected routes
+        document.cookie = `kiosk_staff_jwt=${res.token}; path=/; max-age=1800; SameSite=Strict`;
       }
       onAuthenticated(res.staff_id || "", res.staff_name || "Staff", res.token);
     } catch {

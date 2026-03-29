@@ -1,0 +1,104 @@
+name: Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Layer 10: CI pipeline — structural enforcement of Gate 1
+# Runs the same checks as pre-push hooks but in a non-bypassable environment.
+# Pre-push hooks can be skipped with --no-verify; CI cannot.
+
+jobs:
+  rust-tests:
+    name: Rust Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run rc-common tests
+        run: cargo test -p rc-common
+
+      - name: Run racecontrol tests
+        run: cargo test -p racecontrol-crate --test integration
+
+      - name: Clippy check
+        run: cargo clippy --all-targets -- -D warnings
+        continue-on-error: true  # Advisory for now
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for .unwrap() in production Rust
+        run: |
+          COUNT=$(grep -rn '\.unwrap()' crates/*/src/ --include='*.rs' | grep -v test | grep -v '#\[cfg(test)\]' | wc -l)
+          echo "Production .unwrap() count: $COUNT"
+          if [ "$COUNT" -gt 50 ]; then
+            echo "WARNING: $COUNT .unwrap() calls in production code"
+          fi
+
+      - name: Check for format! SQL injection
+        run: |
+          FOUND=$(grep -rn 'format!.*SELECT\|format!.*INSERT\|format!.*UPDATE\|format!.*DELETE' crates/*/src/ --include='*.rs' | grep -v test | wc -l)
+          echo "format! SQL patterns: $FOUND"
+
+      - name: Check for hardcoded credentials
+        run: |
+          if grep -rn 'password.*=.*"[^"]\{8,\}"' crates/*/src/ --include='*.rs' | grep -v test | grep -v hash; then
+            echo "FAIL: Possible hardcoded credentials found"
+            exit 1
+          fi
+          echo "PASS: No hardcoded credentials"
+
+      - name: Check for secrets in NEXT_PUBLIC_ vars
+        run: |
+          for app in kiosk web pwa apps/racingpoint-admin; do
+            if [ -d "$app" ]; then
+              grep -rn 'NEXT_PUBLIC_.*SECRET\|NEXT_PUBLIC_.*PASSWORD\|NEXT_PUBLIC_.*KEY' "$app/src/" 2>/dev/null && {
+                echo "WARN: Possible secret in NEXT_PUBLIC_ var in $app"
+              } || true
+            fi
+          done
+
+  comms-link-gate:
+    name: Comms-Link Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ../comms-link
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: racecontrol
+
+      - uses: actions/checkout@v4
+        with:
+          repository: james-racingpoint/comms-link
+          path: comms-link
+          token: ${{ secrets.COMMS_LINK_TOKEN }}
+        continue-on-error: true  # Skip if comms-link repo not accessible
+
+      - name: Run contract + syntax + security
+        if: hashFiles('comms-link/package.json') != ''
+        working-directory: comms-link
+        run: |
+          npm ci
+          node --test test/contract.test.js
+          node scripts/syntax-check.js
+          node test/security-check.js
