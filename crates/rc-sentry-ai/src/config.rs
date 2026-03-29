@@ -355,11 +355,21 @@ fn default_nvr_port() -> u16 {
 }
 
 fn default_nvr_username() -> String {
-    "admin".to_string()
+    // M11-SEC: Read from environment, no hardcoded credentials.
+    // Set NVR_USERNAME in environment or [nvr].username in TOML config.
+    std::env::var("NVR_USERNAME").unwrap_or_else(|_| {
+        tracing::warn!("NVR_USERNAME not set — using empty default. Set in env or rc-sentry-ai.toml");
+        String::new()
+    })
 }
 
 fn default_nvr_password() -> String {
-    "Admin@123".to_string()
+    // M11-SEC: Read from environment, no hardcoded credentials.
+    // Set NVR_PASSWORD in environment or [nvr].password in TOML config.
+    std::env::var("NVR_PASSWORD").unwrap_or_else(|_| {
+        tracing::warn!("NVR_PASSWORD not set — using empty default. Set in env or rc-sentry-ai.toml");
+        String::new()
+    })
 }
 
 impl Default for NvrConfig {

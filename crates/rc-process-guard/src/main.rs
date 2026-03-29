@@ -205,6 +205,26 @@ async fn run_scan_cycle(
     let allowed: Vec<String> = wl.processes.iter().map(|s| s.to_lowercase()).collect();
     drop(wl);
 
+    // M5-SEC: Safety valve — if >50% of processes are violations, whitelist is likely
+    // empty/corrupt. Switch to report_only to prevent mass kill.
+    let non_excluded_count = procs.iter()
+        .filter(|(pid, name, _, _)| *pid != own_pid && !is_james_self_excluded(name))
+        .count();
+    let violation_count = procs.iter()
+        .filter(|(pid, name, _, _)| {
+            *pid != own_pid && !is_james_self_excluded(name) && !is_process_whitelisted(name, &allowed)
+        })
+        .count();
+    let effective_action = if non_excluded_count > 0 && violation_count * 2 > non_excluded_count {
+        tracing::error!(
+            "M5-SEC: {}% of processes are violations ({}/{}) — whitelist likely empty/corrupt. Forcing report_only.",
+            violation_count * 100 / non_excluded_count, violation_count, non_excluded_count
+        );
+        "report_only"
+    } else {
+        violation_action.as_str()
+    };
+
     let mut seen_violations: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (pid, name, exe_path, start_time) in &procs {
@@ -236,7 +256,7 @@ async fn run_scan_cycle(
             true
         };
 
-        let action_taken = if should_act && violation_action == "kill_and_report" {
+        let action_taken = if should_act && effective_action == "kill_and_report" {
             let kill_pid = *pid;
             let kill_name = name.clone();
             let kill_start_time = *start_time;
