@@ -216,6 +216,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/ai/chat", post(customer_ai_chat))
         // Game launch request (PWA -- customer requests staff-confirmed game launch)
         .route("/customer/game-request", post(pwa_game_request))
+        // BILL-03: Game request status polling (TTL = 10 min, expires_at checked server-side)
+        .route("/customer/game-request/{id}", get(get_game_request_status))
         // DPDP Act data rights (Plan 79-03)
         .route("/customer/data-export", get(customer_data_export))
         .route("/customer/data-delete", axum::routing::delete(customer_data_delete))
@@ -1227,20 +1229,29 @@ async fn ws_exec_pod(
     // Collapse multiple spaces to single
     let cmd_collapsed: String = cmd_normalized.split_whitespace().collect::<Vec<_>>().join(" ");
 
+    // MMA iter3: added powershell (no .exe), net.exe, broadened certutil
     const BLOCKED_PATTERNS: &[&str] = &[
-        "net user", "net localgroup", "reg add", "reg delete",
-        "powershell -e", "powershell -enc", "powershell.exe -e", "powershell.exe -enc",
-        "pwsh -e", "pwsh -enc", "pwsh -c", "pwsh.exe",
-        "iex(", "invoke-expression",
+        // User/group management
+        "net user", "net localgroup", "net.exe user", "net.exe localgroup",
+        "net1 user", "net1.exe",
+        // Registry manipulation
+        "reg add", "reg delete",
+        // PowerShell (all variants — legacy + core)
+        "powershell -", "powershell.exe -", "pwsh -", "pwsh.exe",
+        "iex(", "invoke-expression", "invoke-webrequest",
         "downloadstring", "downloadfile", "new-object net.webclient",
-        "certutil -urlcache", "certutil -decode", "bitsadmin",
+        // LOLBins (download/execute)
+        "certutil", "bitsadmin",
+        "mshta", "wscript", "cscript", "regsvr32", "rundll32",
+        // Destructive operations
         "format c:", "rd /s /q c:", "del /s /q c:",
+        // Persistence mechanisms
         "schtasks /create", "schtasks /change",
         "sc create", "sc config",
+        // Network/firewall manipulation
         "netsh advfirewall", "netsh firewall",
+        // Process creation via WMI
         "wmic process call create",
-        "mshta", "wscript", "cscript", "regsvr32",
-        "rundll32", "net.exe user", "net1 user", "net1.exe",
     ];
     for pattern in BLOCKED_PATTERNS {
         if cmd_collapsed.contains(pattern) {
@@ -3548,6 +3559,20 @@ async fn extend_billing(
         .get("additional_seconds")
         .and_then(|v| v.as_u64())
         .unwrap_or(600) as u32;
+
+    // BILL-04: Validate additional_seconds is a multiple of 60 and within bounds (60..=3600)
+    if additional_seconds < 60 || additional_seconds > 3600 {
+        return Json(json!({
+            "ok": false,
+            "error": format!("additional_seconds must be between 60 and 3600, got {}", additional_seconds)
+        }));
+    }
+    if additional_seconds % 60 != 0 {
+        return Json(json!({
+            "ok": false,
+            "error": format!("additional_seconds must be a multiple of 60, got {}", additional_seconds)
+        }));
+    }
 
     let cmd = rc_common::protocol::DashboardCommand::ExtendBilling {
         billing_session_id: id,
@@ -17170,6 +17195,23 @@ async fn pwa_game_request(
     // Generate unique request ID
     let request_id = uuid::Uuid::new_v4().to_string();
 
+    // BILL-03: Insert into game_launch_requests with 10-minute server-side TTL
+    let sim_type_str = format!("{:?}", body.sim_type);
+    if let Err(e) = sqlx::query(
+        "INSERT INTO game_launch_requests (id, driver_id, pod_id, sim_type, status, expires_at)
+         VALUES (?, ?, ?, ?, 'pending', datetime('now', '+10 minutes'))",
+    )
+    .bind(&request_id)
+    .bind(&driver_id)
+    .bind(&body.pod_id)
+    .bind(&sim_type_str)
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!("pwa_game_request: Failed to insert game_launch_request {}: {}", request_id, e);
+        // Non-fatal: still broadcast to staff
+    }
+
     // Broadcast to staff dashboard -- staff confirms via existing launch endpoint
     let _ = state.dashboard_tx.send(DashboardEvent::GameLaunchRequested {
         pod_id: body.pod_id.clone(),
@@ -17179,7 +17221,7 @@ async fn pwa_game_request(
     });
 
     tracing::info!(
-        "pwa_game_request: driver '{}' ({}) requested {:?} on pod '{}' (request_id={})",
+        "pwa_game_request: driver '{}' ({}) requested {:?} on pod '{}' (request_id={}, pwa_request_timeout=10min)",
         driver_name, driver_id, body.sim_type, body.pod_id, request_id
     );
 
@@ -17187,6 +17229,70 @@ async fn pwa_game_request(
         axum::http::StatusCode::OK,
         Json(json!({ "ok": true, "request_id": request_id })),
     )
+}
+
+/// GET /customer/game-request/{id} — Check status of a PWA game request.
+/// BILL-03: Returns status including "expired" if the 10-minute TTL has passed.
+async fn get_game_request_status(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(request_id): Path<String>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            )
+        }
+    };
+
+    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT status, expires_at, resolved_at FROM game_launch_requests WHERE id = ? AND driver_id = ?",
+    )
+    .bind(&request_id)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Request not found" })),
+        ),
+        Some((status, expires_at, resolved_at)) => {
+            // BILL-03: If pending but TTL passed, return expired status in real-time
+            let effective_status = if status == "pending" {
+                let is_expired: Option<(i64,)> = sqlx::query_as(
+                    "SELECT CASE WHEN ? < datetime('now') THEN 1 ELSE 0 END",
+                )
+                .bind(&expires_at)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+                if is_expired.map(|(v,)| v).unwrap_or(0) == 1 {
+                    "expired".to_string()
+                } else {
+                    status
+                }
+            } else {
+                status
+            };
+            (
+                axum::http::StatusCode::OK,
+                Json(json!({
+                    "request_id": request_id,
+                    "status": effective_status,
+                    "expires_at": expires_at,
+                    "resolved_at": resolved_at,
+                })),
+            )
+        }
+    }
 }
 
 // ─── Psychology handlers ──────────────────────────────────────────────────────
