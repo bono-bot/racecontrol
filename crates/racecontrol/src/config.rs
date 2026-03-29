@@ -879,12 +879,23 @@ fn default_email_venue_cooldown() -> i64 { 300 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     // SAFETY: These tests mutate environment variables which is inherently unsafe
-    // in multi-threaded contexts. We run with --test-threads=1 to serialize execution.
+    // in multi-threaded contexts. ENV_MUTEX serializes all env-var tests within
+    // this process so parallel cargo test invocations don't race on set_var/remove_var.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    macro_rules! with_env_lock {
+        ($body:block) => {{
+            let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+            $body
+        }};
+    }
 
     #[test]
     fn jwt_secret_from_env_var() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("RACECONTROL_JWT_SECRET", "env-secret-123"); }
         let result = resolve_jwt_secret("config-value");
         assert_eq!(result, "env-secret-123");
@@ -893,6 +904,7 @@ mod tests {
 
     #[test]
     fn jwt_secret_from_config_when_no_env() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
         let result = resolve_jwt_secret("my-custom-secret");
         assert_eq!(result, "my-custom-secret");
@@ -900,6 +912,7 @@ mod tests {
 
     #[test]
     fn jwt_secret_rejects_dangerous_default() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
         let result = resolve_jwt_secret("racingpoint-jwt-change-me-in-production");
         assert_ne!(result, "racingpoint-jwt-change-me-in-production");
@@ -908,6 +921,7 @@ mod tests {
 
     #[test]
     fn jwt_secret_auto_generates_on_empty() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
         let result = resolve_jwt_secret("");
         assert_eq!(result.len(), 64);
@@ -917,6 +931,7 @@ mod tests {
 
     #[test]
     fn jwt_secret_auto_generate_is_random() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
         let key1 = resolve_jwt_secret("");
         let key2 = resolve_jwt_secret("");
@@ -925,6 +940,7 @@ mod tests {
 
     #[test]
     fn env_var_overrides_terminal_secret() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("RACECONTROL_TERMINAL_SECRET", "term-secret-abc"); }
         let toml_str = r#"
 [venue]
@@ -940,6 +956,7 @@ name = "Test Venue"
 
     #[test]
     fn env_var_overrides_relay_secret() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("RACECONTROL_RELAY_SECRET", "relay-secret-xyz"); }
         let toml_str = r#"
 [venue]
@@ -955,6 +972,7 @@ name = "Test Venue"
 
     #[test]
     fn env_var_overrides_evolution_api_key() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("RACECONTROL_EVOLUTION_API_KEY", "evo-key-123"); }
         let toml_str = r#"
 [venue]
@@ -970,6 +988,7 @@ name = "Test Venue"
 
     #[test]
     fn env_var_overrides_gmail_secrets() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::set_var("RACECONTROL_GMAIL_CLIENT_SECRET", "gmail-cs");
             std::env::set_var("RACECONTROL_GMAIL_REFRESH_TOKEN", "gmail-rt");
@@ -992,6 +1011,7 @@ name = "Test Venue"
 
     #[test]
     fn config_fallback_preserved_when_no_env_vars() {
+        let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         // Clear all secret env vars
         unsafe {
             std::env::remove_var("RACECONTROL_JWT_SECRET");
