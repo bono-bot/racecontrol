@@ -2120,6 +2120,41 @@ pub async fn run_reconciliation_public(state: &Arc<AppState>) {
     run_reconciliation(state).await;
 }
 
+/// FATM-08: Spawn background task that expires stale coupon reservations.
+/// Every 60 seconds, reverts 'reserved' coupons older than 10 minutes back to 'available'.
+/// Initial delay: 120s to let the server stabilize.
+pub fn spawn_coupon_ttl_expiry_job(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        // Initial delay: 120s to let server stabilize
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        tracing::info!("FATM-08: Coupon TTL expiry task started (60s interval, 120s initial delay)");
+        loop {
+            interval.tick().await;
+            let result = sqlx::query(
+                "UPDATE coupons SET coupon_status = 'available', reserved_at = NULL, \
+                 reserved_for_session = NULL \
+                 WHERE coupon_status = 'reserved' \
+                 AND reserved_at < datetime('now', '-10 minutes')",
+            )
+            .execute(&state.db)
+            .await;
+            match result {
+                Ok(r) if r.rows_affected() > 0 => {
+                    tracing::info!(
+                        "FATM-08: Expired {} stale coupon reservation(s) (TTL 10 minutes)",
+                        r.rows_affected()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("FATM-08: Coupon TTL expiry job error: {}", e);
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
 /// BILL-03: Spawn background task that marks expired PWA game requests.
 /// Runs every 60 seconds; marks pending requests whose expires_at < now() as 'expired'.
 /// Broadcasts GameRequestExpired dashboard event for each expired request so staff
@@ -3174,6 +3209,18 @@ async fn end_billing_session(
                             Err(e) => tracing::error!("CRITICAL: cancel refund FAILED for session {} ({}p): {}", session_id, debit, e),
                         }
                     }
+                }
+
+                // FATM-09: Restore any coupon reserved for this session back to 'available'
+                match crate::api::routes::restore_coupon_on_cancel(&state.db, session_id).await {
+                    Ok(_) => tracing::info!(
+                        "FATM-09: Coupon restored for cancelled session {}",
+                        session_id
+                    ),
+                    Err(e) => tracing::warn!(
+                        "FATM-09: Coupon restore failed for session {} (non-critical): {}",
+                        session_id, e
+                    ),
                 }
             }
 

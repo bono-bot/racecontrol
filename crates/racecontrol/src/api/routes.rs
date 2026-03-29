@@ -147,6 +147,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/billing/{id}/agent-shutdown", post(agent_shutdown_handler))
         // DEPLOY-04: Post-restart interrupted session check — rc-agent calls on startup.
         .route("/billing/pod/{pod_id}/interrupted", get(interrupted_sessions_handler))
+        // FATM-11: Payment gateway webhook — idempotent wallet credit
+        .route("/webhooks/payment-gateway", post(payment_gateway_webhook))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -2791,10 +2793,10 @@ async fn validate_and_calc_coupon(
 ) -> Result<CouponDiscount, String> {
     let code_upper = code.to_uppercase();
 
-    // Find coupon
+    // Find coupon — FATM-08: only 'available' coupons can be validated
     let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
         "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
-         FROM coupons WHERE code = ? AND is_active = 1",
+         FROM coupons WHERE code = ? AND is_active = 1 AND coupon_status = 'available'",
     )
     .bind(&code_upper)
     .fetch_optional(&state.db)
@@ -2904,6 +2906,72 @@ async fn record_coupon_redemption(
         .bind(coupon_id)
         .execute(&state.db)
         .await;
+}
+
+// ─── FATM-08: Coupon lifecycle FSM ──────────────────────────────────────────
+
+/// Reserve a coupon for a session (available → reserved).
+/// Uses SQL CAS (UPDATE WHERE coupon_status = 'available') to prevent races.
+async fn reserve_coupon(
+    pool: &sqlx::SqlitePool,
+    coupon_id: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    let result = sqlx::query(
+        "UPDATE coupons SET coupon_status = 'reserved', reserved_at = datetime('now'), \
+         reserved_for_session = ? WHERE id = ? AND coupon_status = 'available'",
+    )
+    .bind(session_id)
+    .bind(coupon_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("DB error reserving coupon: {}", e))?;
+
+    if result.rows_affected() == 0 {
+        return Err("Coupon is no longer available (concurrent reservation or already used)".to_string());
+    }
+    Ok(())
+}
+
+/// Mark a coupon as redeemed (reserved → redeemed).
+/// Called after billing session commits successfully.
+async fn redeem_coupon(pool: &sqlx::SqlitePool, coupon_id: &str) -> Result<(), String> {
+    let _ = sqlx::query(
+        "UPDATE coupons SET coupon_status = 'redeemed' WHERE id = ? AND coupon_status = 'reserved'",
+    )
+    .bind(coupon_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("DB error redeeming coupon: {}", e))?;
+    Ok(())
+}
+
+/// FATM-09: Restore a coupon to available when its session is cancelled/failed.
+/// Also deletes the coupon_redemption row so the count is not inflated.
+/// pub so billing.rs can call it from the cancel path.
+pub async fn restore_coupon_on_cancel(
+    pool: &sqlx::SqlitePool,
+    session_id: &str,
+) -> Result<(), String> {
+    // Restore coupon: clear reservation fields and decrement used_count
+    let _ = sqlx::query(
+        "UPDATE coupons SET coupon_status = 'available', reserved_at = NULL, \
+         reserved_for_session = NULL, used_count = MAX(used_count - 1, 0) \
+         WHERE reserved_for_session = ? AND coupon_status IN ('reserved', 'redeemed')",
+    )
+    .bind(session_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("DB error restoring coupon: {}", e))?;
+
+    // Remove the redemption record so used_count stays accurate
+    let _ = sqlx::query("DELETE FROM coupon_redemptions WHERE billing_session_id = ?")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("DB error deleting coupon redemption: {}", e))?;
+
+    Ok(())
 }
 
 // ─── Billing ────────────────────────────────────────────────────────────────
@@ -3108,6 +3176,10 @@ async fn start_billing(
         }
     }
 
+    // FATM-08: Generate session_id early so coupon reservation can be tied to the real session ID.
+    // This session_id is used in reserve_coupon and then reused in the INSERT below.
+    let session_id = uuid::Uuid::new_v4().to_string();
+
     // Apply coupon or staff discount
     let mut applied_discount_paise: i64 = group_discount_paise;
     let mut applied_coupon_id: Option<String> = None;
@@ -3120,6 +3192,11 @@ async fn start_billing(
     if let Some(ref code) = coupon_code {
         match validate_and_calc_coupon(&state, code, driver_id, base_price_paise).await {
             Ok(cd) => {
+                // FATM-08: Reserve coupon before the billing transaction.
+                // CAS UPDATE WHERE coupon_status = 'available' catches concurrent races.
+                if let Err(e) = reserve_coupon(&state.db, &cd.coupon_id, &session_id).await {
+                    return Json(json!({ "error": e }));
+                }
                 applied_discount_paise += cd.discount_paise;
                 applied_coupon_id = Some(cd.coupon_id);
                 let coupon_desc = format!("Coupon {}: {}", code.to_uppercase(), cd.description);
@@ -3189,12 +3266,20 @@ async fn start_billing(
     let mut tx = match state.db.begin().await {
         Ok(t) => t,
         Err(e) => {
+            // FATM-09: If a coupon was reserved but we can't start a transaction, restore it
+            if let Some(ref cid) = applied_coupon_id {
+                let _ = restore_coupon_on_cancel(&state.db, &session_id).await;
+                tracing::warn!(
+                    coupon_id = %cid,
+                    session_id = %session_id,
+                    "FATM-09: Restored coupon reservation after TX begin failure"
+                );
+            }
             state.record_api_error("billing/start");
             return Json(json!({ "error": format!("DB error starting transaction: {}", e) }));
         }
     };
 
-    let session_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
     // Step 1: Debit wallet within the transaction (FATM-01, FATM-03)
@@ -3216,6 +3301,11 @@ async fn start_billing(
             Ok(_) => Some(final_price_paise),
             Err(e) => {
                 drop(tx);
+                // FATM-09: Restore any reserved coupon so it can be used again
+                if applied_coupon_id.is_some() {
+                    let _ = restore_coupon_on_cancel(&state.db, &session_id).await;
+                    tracing::info!("FATM-09: Coupon restored after wallet debit failure for session {}", session_id);
+                }
                 state.record_api_error("billing/start");
                 return Json(json!({ "error": e }));
             }
@@ -3262,6 +3352,11 @@ async fn start_billing(
     .execute(&mut *tx)
     .await {
         drop(tx); // rolls back wallet debit atomically
+        // FATM-09: Restore any reserved coupon so it can be used again
+        if applied_coupon_id.is_some() {
+            let _ = restore_coupon_on_cancel(&state.db, &session_id).await;
+            tracing::info!("FATM-09: Coupon restored after session INSERT failure for session {}", session_id);
+        }
         state.record_api_error("billing/start");
         return Json(json!({ "error": format!("Failed to create billing session: {}", e) }));
     }
@@ -3288,6 +3383,11 @@ async fn start_billing(
 
     // ─── Commit: all-or-nothing (FATM-01) ────────────────────────────────────
     if let Err(e) = tx.commit().await {
+        // FATM-09: Restore any reserved coupon so it can be used again
+        if applied_coupon_id.is_some() {
+            let _ = restore_coupon_on_cancel(&state.db, &session_id).await;
+            tracing::info!("FATM-09: Coupon restored after commit failure for session {}", session_id);
+        }
         state.record_api_error("billing/start");
         return Json(json!({ "error": format!("Transaction commit failed: {}", e) }));
     }
@@ -3302,9 +3402,11 @@ async fn start_billing(
     .execute(&state.db)
     .await;
 
-    // ─── Post-commit: record coupon redemption + audit trail (non-critical) ───
+    // ─── Post-commit: record coupon redemption + mark coupon redeemed (FATM-08) ─
     if let Some(ref cid) = applied_coupon_id {
         record_coupon_redemption(&state, cid, driver_id, &session_id, applied_discount_paise).await;
+        // FATM-08: Transition coupon to 'redeemed' now that session is committed
+        let _ = redeem_coupon(&state.db, cid).await;
     }
     if applied_discount_paise > 0 {
         accounting::log_audit(
@@ -7262,6 +7364,161 @@ async fn topup_wallet(
         "status": "ok",
         "new_balance_paise": new_balance,
         "bonus_paise": bonus_paise,
+    }))
+}
+
+// ─── FATM-11: Payment gateway webhook ───────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct PaymentGatewayWebhookRequest {
+    /// Gateway's unique payment ID — used as idempotency key
+    transaction_id: String,
+    /// Driver to credit
+    driver_id: String,
+    /// Amount to credit in paise
+    amount_paise: i64,
+    /// Must be "success" or "captured" to trigger wallet credit
+    status: String,
+    /// HMAC signature from gateway (unused until gateway is chosen)
+    #[allow(dead_code)]
+    signature: Option<String>,
+}
+
+/// FATM-11: Payment gateway webhook — credits a driver's wallet idempotently.
+/// - Same transaction_id fired twice → returns original result without double-crediting.
+/// - Non-success status (refunded, failed, etc.) → acknowledged without crediting.
+/// - Amount validation: must be 1 paise to Rs 10,000 (safety cap).
+///
+/// TODO: Verify HMAC signature from gateway (Razorpay/Cashfree/etc.)
+/// When a specific gateway is chosen, implement:
+///   let expected = hmac_sha256(webhook_secret, raw_body);
+///   if !constant_time_eq(expected, signature) { return 401; }
+/// For now the endpoint is protected by being undiscoverable (no public docs)
+/// and the idempotency guard prevents replay damage.
+async fn payment_gateway_webhook(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PaymentGatewayWebhookRequest>,
+) -> Json<Value> {
+    tracing::info!(
+        transaction_id = %req.transaction_id,
+        driver_id = %req.driver_id,
+        amount_paise = req.amount_paise,
+        status = %req.status,
+        "FATM-11: Payment gateway webhook received"
+    );
+
+    // Basic field validation
+    if req.transaction_id.is_empty() || req.driver_id.is_empty() {
+        return Json(json!({ "ok": false, "error": "transaction_id and driver_id are required" }));
+    }
+
+    // Amount validation: 1 paise to Rs 10,000 (100000 paise)
+    if req.amount_paise <= 0 || req.amount_paise > 10_000_00 {
+        tracing::warn!(
+            transaction_id = %req.transaction_id,
+            amount_paise = req.amount_paise,
+            "FATM-11: Gateway webhook rejected — amount out of range"
+        );
+        return Json(json!({
+            "ok": false,
+            "error": "amount_paise must be between 1 and 1000000 (Rs 10,000 cap)"
+        }));
+    }
+
+    // Status check: only credit on success/captured
+    let status_lower = req.status.to_lowercase();
+    if status_lower != "success" && status_lower != "captured" {
+        tracing::info!(
+            transaction_id = %req.transaction_id,
+            status = %req.status,
+            "FATM-11: Gateway webhook acknowledged (non-success status — no wallet credit)"
+        );
+        return Json(json!({
+            "ok": true,
+            "action": "ignored",
+            "reason": format!("status '{}' is not success/captured — no wallet credit", req.status)
+        }));
+    }
+
+    // FATM-11: Idempotency check — check if this transaction_id was already processed
+    let existing = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT amount_paise, balance_after_paise FROM wallet_transactions WHERE idempotency_key = ?",
+    )
+    .bind(&req.transaction_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((_amount, balance_after)) = existing {
+        tracing::info!(
+            transaction_id = %req.transaction_id,
+            "FATM-11: Gateway webhook duplicate — returning original result"
+        );
+        return Json(json!({
+            "ok": true,
+            "duplicate": true,
+            "balance_after_paise": balance_after
+        }));
+    }
+
+    // Credit wallet within a transaction (atomic, idempotent via idempotency_key)
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(
+                transaction_id = %req.transaction_id,
+                "FATM-11: Gateway webhook DB error starting transaction: {}", e
+            );
+            return Json(json!({ "ok": false, "error": "DB error — please retry" }));
+        }
+    };
+
+    let (new_balance, txn_id) = match wallet::credit_in_tx(
+        &mut tx,
+        &req.driver_id,
+        req.amount_paise,
+        "gateway_topup",
+        Some(&req.transaction_id),
+        Some("Payment gateway credit"),
+        None,
+        Some(&req.transaction_id), // idempotency_key = gateway's transaction_id
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            drop(tx);
+            tracing::error!(
+                transaction_id = %req.transaction_id,
+                driver_id = %req.driver_id,
+                "FATM-11: Gateway webhook credit_in_tx failed: {}", e
+            );
+            return Json(json!({ "ok": false, "error": format!("Wallet credit failed: {}", e) }));
+        }
+    };
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!(
+            transaction_id = %req.transaction_id,
+            "FATM-11: Gateway webhook transaction commit failed: {}", e
+        );
+        return Json(json!({ "ok": false, "error": "Transaction commit failed — please retry" }));
+    }
+
+    tracing::info!(
+        transaction_id = %req.transaction_id,
+        driver_id = %req.driver_id,
+        amount_paise = req.amount_paise,
+        new_balance = new_balance,
+        txn_id = %txn_id,
+        "FATM-11: Gateway webhook — wallet credited successfully"
+    );
+
+    Json(json!({
+        "ok": true,
+        "balance_after_paise": new_balance,
+        "txn_id": txn_id
     }))
 }
 

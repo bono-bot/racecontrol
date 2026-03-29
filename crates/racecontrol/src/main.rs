@@ -567,6 +567,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Phase 253: Spawn driver rating worker and set up backfill
+    {
+        let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+        let rating_tx = racecontrol_crate::driver_rating::spawn_rating_worker(inner.db.clone());
+        inner.rating_tx = Some(rating_tx);
+        let backfill_db = inner.db.clone();
+        tokio::spawn(async move {
+            racecontrol_crate::driver_rating::backfill_ratings(backfill_db).await;
+        });
+    }
+
     // Auto-seed all 8 pods on startup so kiosk is never left with empty pod list
     // after server restart with fresh DB (BUG-01)
     seed_pods_on_startup(&state).await;
@@ -697,6 +708,9 @@ async fn main() -> anyhow::Result<()> {
 
     // BILL-03: Spawn PWA game request TTL cleanup task (every 60 seconds)
     billing::spawn_cleanup_expired_game_requests(state.clone());
+
+    // FATM-08: Spawn coupon TTL expiry task (every 60s, 120s initial delay)
+    billing::spawn_coupon_ttl_expiry_job(state.clone());
 
     // Spawn data retention background task (LEGAL-08: daily, 1-hour initial delay)
     // Anonymizes drivers inactive for > pii_inactive_months (default 24 months).

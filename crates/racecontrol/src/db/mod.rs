@@ -1588,6 +1588,50 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── FATM-08: Coupon lifecycle FSM columns (ALTER migration) ────────────
+    // Add coupon_status, reserved_at, reserved_for_session if not present.
+    // Wrapped in existence checks so re-running init is idempotent.
+    let has_coupon_status: bool = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM pragma_table_info('coupons') WHERE name = 'coupon_status'",
+    )
+    .fetch_one(pool)
+    .await
+    .map(|r| r.0 > 0)
+    .unwrap_or(false);
+    if !has_coupon_status {
+        let _ = sqlx::query(
+            "ALTER TABLE coupons ADD COLUMN coupon_status TEXT NOT NULL DEFAULT 'available'",
+        )
+        .execute(pool)
+        .await;
+    }
+
+    let has_reserved_at: bool = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM pragma_table_info('coupons') WHERE name = 'reserved_at'",
+    )
+    .fetch_one(pool)
+    .await
+    .map(|r| r.0 > 0)
+    .unwrap_or(false);
+    if !has_reserved_at {
+        let _ = sqlx::query("ALTER TABLE coupons ADD COLUMN reserved_at TEXT")
+            .execute(pool)
+            .await;
+    }
+
+    let has_reserved_for_session: bool = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM pragma_table_info('coupons') WHERE name = 'reserved_for_session'",
+    )
+    .fetch_one(pool)
+    .await
+    .map(|r| r.0 > 0)
+    .unwrap_or(false);
+    if !has_reserved_for_session {
+        let _ = sqlx::query("ALTER TABLE coupons ADD COLUMN reserved_for_session TEXT")
+            .execute(pool)
+            .await;
+    }
+
     // ─── Dynamic Pricing Rules ───────────────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS pricing_rules (
@@ -2480,20 +2524,30 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    // 6. driver_ratings
+    // 6. driver_ratings (Phase 253: skill rating system)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS driver_ratings (
-            driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
-            rating_class TEXT NOT NULL DEFAULT 'Rookie',
-            class_points INTEGER NOT NULL DEFAULT 0,
-            total_events INTEGER DEFAULT 0,
-            total_podiums INTEGER DEFAULT 0,
-            total_wins INTEGER DEFAULT 0,
-            updated_at TEXT DEFAULT (datetime('now'))
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            sim_type TEXT NOT NULL DEFAULT 'assettocorsa',
+            composite_rating REAL NOT NULL DEFAULT 0.0,
+            rating_class TEXT NOT NULL DEFAULT 'Unrated',
+            pace_score REAL NOT NULL DEFAULT 0.0,
+            consistency_score REAL NOT NULL DEFAULT 0.0,
+            experience_score REAL NOT NULL DEFAULT 0.0,
+            total_laps INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (driver_id, sim_type)
         )",
     )
     .execute(pool)
     .await?;
+    // Idempotent ALTER for existing DBs that have old schema (single PK on driver_id)
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN sim_type TEXT NOT NULL DEFAULT 'assettocorsa'").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN composite_rating REAL NOT NULL DEFAULT 0.0").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN pace_score REAL NOT NULL DEFAULT 0.0").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN consistency_score REAL NOT NULL DEFAULT 0.0").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN experience_score REAL NOT NULL DEFAULT 0.0").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE driver_ratings ADD COLUMN total_laps INTEGER NOT NULL DEFAULT 0").execute(pool).await;
 
     // Indexes for new competitive tables
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_hotlap_events_status ON hotlap_events(status, track)")
@@ -2517,7 +2571,10 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_champ_standings_champ ON championship_standings(championship_id, position)")
         .execute(pool)
         .await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_driver_ratings_class ON driver_ratings(rating_class, class_points)")
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_driver_ratings_class ON driver_ratings(rating_class, composite_rating)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_driver_ratings_driver ON driver_ratings(driver_id)")
         .execute(pool)
         .await?;
 
