@@ -1033,3 +1033,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 14:52 IST | James | c9fa9b2a | feat(258-03): DEPLOY-05 — CoreMessage wrapper with command_id on all WS sends, seen_command_ids 5-min TTL dedup in agent |
 | 2026-03-29 14:58 IST | James | 2597e3f6 | docs(258-03): 258-03-SUMMARY.md, STATE.md DEPLOY-02/04/05 complete, REQUIREMENTS.md marked |
 | 2026-03-29 15:04 IST | James | efbdc9e1 | fix(258-03): replace racecontrol_crate:: with crate:: in input_validation calls (258-01 parallel executor bug) |
+| 2026-03-29 15:30 IST | James | 1b038a5f | feat(258-02): STAFF-05 shift handoff — POST /staff/shift-handoff + GET /staff/shift-briefing |
+| 2026-03-29 15:40 IST | James | a46f7c49 | feat(258-02): DEPLOY-01 verified session drain, DEPLOY-03 weekend deploy window lock (is_deploy_window_locked) |

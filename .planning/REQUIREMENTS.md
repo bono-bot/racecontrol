@@ -71,9 +71,9 @@
 
 ### Deployment Safety (DEPLOY)
 
-- [ ] **DEPLOY-01**: OTA session drain: pods with active billing sessions defer binary swap until session ends
+- [x] **DEPLOY-01**: OTA session drain: pods with active billing sessions defer binary swap until session ends
 - [x] **DEPLOY-02**: Graceful agent shutdown on SIGTERM: write shutdown_at to session row, trigger partial refund calculation
-- [ ] **DEPLOY-03**: Deployment window lock: require manual override for OTA during 6-11 PM on weekends
+- [x] **DEPLOY-03**: Deployment window lock: require manual override for OTA during 6-11 PM on weekends
 - [x] **DEPLOY-04**: Post-restart session resume: new agent checks DB for interrupted sessions and either resumes or refunds
 - [x] **DEPLOY-05**: WebSocket message-level idempotency keys (command_id UUID) to prevent stale replay on reconnect
 
@@ -83,7 +83,7 @@
 - [x] **STAFF-02**: Self-service wallet operations blocked for staff's own account (API-level enforcement)
 - [x] **STAFF-03**: Daily staff override report: all discounts, manual refunds, tier changes with actor ID
 - [x] **STAFF-04**: Cash drawer reconciliation: end-of-day report comparing system cash total vs physical count input
-- [ ] **STAFF-05**: Shift handoff: outgoing staff must acknowledge active sessions before logout; incoming staff sees briefing
+- [x] **STAFF-05**: Shift handoff: outgoing staff must acknowledge active sessions before logout; incoming staff sees briefing
 
 ### Billing Edge Cases (BILL)
 
@@ -197,10 +197,10 @@ Updated during roadmap creation (2026-03-29).
 | STAFF-02 | Phase 258 | Complete |
 | STAFF-03 | Phase 258 | Complete |
 | STAFF-04 | Phase 258 | Complete |
-| STAFF-05 | Phase 258 | Pending |
-| DEPLOY-01 | Phase 258 | Pending |
+| STAFF-05 | Phase 258 | Complete |
+| DEPLOY-01 | Phase 258 | Complete |
 | DEPLOY-02 | Phase 258 | Complete |
-| DEPLOY-03 | Phase 258 | Pending |
+| DEPLOY-03 | Phase 258 | Complete |
 | DEPLOY-04 | Phase 258 | Complete |
 | DEPLOY-05 | Phase 258 | Complete |
 | FATM-07 | Phase 259 | Pending |

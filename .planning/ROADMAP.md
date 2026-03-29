@@ -3960,7 +3960,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 - [x] **Phase 257: Billing Edge Cases** - Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal (completed 2026-03-29)
 **Plans**: TBD
 
-- [ ] **Phase 258: Staff Controls & Deployment Safety** - Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
+- [x] **Phase 258: Staff Controls & Deployment Safety** - Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock (completed 2026-03-29)
 **Plans**: TBD
 
 - [ ] **Phase 259: Coupon & Discount System** - Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
@@ -3978,7 +3978,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 255. Legal Compliance | 3/3 | Complete    | 2026-03-28 |
 | 256. Game-Specific Hardening | 3/3 | Complete    | 2026-03-29 |
 | 257. Billing Edge Cases | 3/3 | Complete    | 2026-03-29 |
-| 258. Staff Controls & Deployment Safety | 0/TBD | Not started | - |
+| 258. Staff Controls & Deployment Safety | 3/3 | Complete   | 2026-03-29 |
 | 259. Coupon & Discount System | 0/TBD | Not started | - |
 | 260. Notifications, Resilience & UX | 0/TBD | Not started | - |
 

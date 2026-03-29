@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: executing
-stopped_at: Completed 258-staff-controls-deployment-safety/258-03-PLAN.md
-last_updated: "2026-03-29T09:00:36.227Z"
+status: verifying
+stopped_at: Completed 258-staff-controls-deployment-safety/258-02-PLAN.md
+last_updated: "2026-03-29T09:45:02.564Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 205
-  completed_phases: 154
+  completed_phases: 155
   total_plans: 376
-  completed_plans: 370
+  completed_plans: 371
   percent: 98
 ---
 
@@ -18,7 +18,7 @@ progress:
 
 Phase: 258 (staff-controls-deployment-safety) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [██████████] 98% (349/355 plans)
@@ -79,6 +79,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 257-billing-edge-cases P03 | 37 | 2 tasks | 5 files |
 | Phase 258-staff-controls-deployment-safety P01 | 22 | 1 tasks | 2 files |
 | Phase 258-staff-controls-deployment-safety P03 | 38 | 2 tasks | 8 files |
+| Phase 258-staff-controls-deployment-safety P02 | 525634 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -171,7 +172,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 
 ## Session Continuity
 
-Stopped at: Completed 258-staff-controls-deployment-safety/258-03-PLAN.md
+Stopped at: Completed 258-staff-controls-deployment-safety/258-02-PLAN.md
 Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
@@ -211,6 +212,17 @@ Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 - DEPLOY-02: DONE (Agent graceful shutdown with billing session HTTP notify + sentinel fallback — 74b11b47)
 - DEPLOY-04: DONE (Post-restart sentinel recovery — recover_interrupted_sessions() — 74b11b47)
 - DEPLOY-05: DONE (CoreMessage wrapper + seen_command_ids dedup in ws_handler — c9fa9b2a)
+
+## Decisions (Phase 258 Plan 02)
+
+- is_deploy_window_locked standalone fn with force+actor params — callers get exact error message for 423 response; no AppState needed
+- OTA deploy window check via ?force=true query param (not JSON body) — OTA handler takes raw TOML, no JSON body available
+- Shift handoff: active sessions require incoming_staff_id (400 validation error, not 403 auth) — it is a data constraint, not a permission problem
+- DEPLOY-01 verified: all 3 call sites (billing.rs tick, billing.rs stop path, billing_fsm.rs FSM cancel) call check_and_trigger_pending_deploy after active_timers removal
+- Dashboard WS deploy path: force=false, actor='dashboard' — no force override from dashboard UI
+- STAFF-05: DONE (POST /staff/shift-handoff + GET /staff/shift-briefing — 1b038a5f)
+- DEPLOY-01: DONE (Session drain verified across 3 hook points — a46f7c49)
+- DEPLOY-03: DONE (is_deploy_window_locked weekend peak-hour lock with 423 + force override — a46f7c49)
 
 ## Decisions (Phase 258 Plan 03)
 
