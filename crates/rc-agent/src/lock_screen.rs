@@ -711,7 +711,7 @@ impl LockScreenManager {
                 "--disable-dev-tools",
                 "--disable-dev-tools-extension",
                 "--disable-translate",
-                "--disable-features=FileSystemAPI",
+                "--disable-features=FileSystemAPI,msEdgeSidebarV2,msEdgeCopilot,msEdgeJSONViewer,msEdgeShoppingUI,msEdgeTravelAssistant,msEdgeEnableRecommendationsOnFirstRun,msEdgeShowRecommendationsOnFirstRun,msUndersideButton,msEdgeMathHelper,msEdgeDropFeature,EdgeCollectionsEnabled,msEdgeDiscoverSidebarFeature,msEdgeFeedbackSupport,msEdgeMiniMenu,msEdgeReadAloud,msEdgeSplit",
                 "--disable-file-system",
                 "--inprivate",
                 "--disable-pinch",

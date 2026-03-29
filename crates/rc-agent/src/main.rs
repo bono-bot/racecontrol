@@ -426,6 +426,29 @@ async fn main() -> Result<()> {
         }
     }
 
+    // SAFETY: Prevent rc-agent from running on James's PC (AI-SERVER).
+    // Pod binaries assume hardware/ports that don't exist on James — crash is instant,
+    // plus Edge blanking screen popup disrupts the workstation.
+    #[cfg(windows)]
+    {
+        if let Ok(hostname) = std::env::var("COMPUTERNAME") {
+            if hostname.eq_ignore_ascii_case("AI-SERVER") {
+                eprintln!("ERROR: rc-agent must NOT run on James's PC (AI-SERVER). \
+                           This binary is for gaming pods only. Exiting.");
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(r"C:\RacingPoint\rc-bot-events.log")
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "[{}] [BLOCKED] rc-agent started on AI-SERVER — blocked by hostname guard",
+                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
+                    });
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Compute log directory (exe dir) — needed for cleanup and later tracing init
     let log_dir = std::env::current_exe()
         .ok()
