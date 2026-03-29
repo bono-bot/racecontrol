@@ -3389,6 +3389,25 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── RESIL-06: Pod crash event tracking ────────────────────────────────
+    // Records each game crash per pod with timestamp, enabling >3/hour detection.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_crash_events (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            crash_type TEXT NOT NULL DEFAULT 'game_crash',
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_crash_events_pod_time ON pod_crash_events(pod_id, created_at)"
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

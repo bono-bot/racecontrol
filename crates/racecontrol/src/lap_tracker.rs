@@ -12,11 +12,100 @@ use std::sync::Arc;
 
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::LapData;
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::catalog;
 use crate::psychology;
 use crate::state::AppState;
+
+/// Compute assist evidence fields from an assist config JSON string.
+/// Returns (assist_config_hash, assist_tier).
+///
+/// assist_tier derivation rules (UX-06):
+///   - 'pro'      = traction_control=0, stability_control=0, abs=0, ideal_line=false
+///   - 'amateur'  = ideal_line=true (visual assistance — strongest assist)
+///   - 'semi-pro' = any other assist on (TC, SC, or ABS), but not ideal_line
+///   - 'unknown'  = assist config not available
+///
+/// The config JSON is sorted-key serialized before hashing for reproducibility.
+fn compute_assist_evidence(assist_config_json: Option<&str>) -> (Option<String>, String) {
+    let Some(json_str) = assist_config_json else {
+        return (None, "unknown".to_string());
+    };
+    // Parse the JSON as a BTreeMap for stable key ordering
+    let config: std::collections::BTreeMap<String, serde_json::Value> =
+        match serde_json::from_str(json_str) {
+            Ok(m) => m,
+            Err(_) => return (None, "unknown".to_string()),
+        };
+
+    // Compute SHA-256 of the canonically sorted JSON
+    let canonical = serde_json::to_string(&config).unwrap_or_default();
+    let hash = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+
+    // Derive tier from assist values
+    // Keys expected: traction_control, stability_control, abs, autoclutch, ideal_line
+    let get_bool = |key: &str| -> bool {
+        config
+            .get(key)
+            .map(|v| match v {
+                serde_json::Value::Bool(b) => *b,
+                serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0) > 0.0,
+                _ => false,
+            })
+            .unwrap_or(false)
+    };
+    let get_int = |key: &str| -> i64 {
+        config
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    };
+
+    let ideal_line = get_bool("ideal_line");
+    let tc = get_int("traction_control");
+    let sc = get_int("stability_control");
+    let abs_val = get_int("abs");
+
+    let tier = if ideal_line {
+        "amateur"
+    } else if tc == 0 && sc == 0 && abs_val == 0 {
+        "pro"
+    } else {
+        "semi-pro"
+    };
+
+    (Some(hash), tier.to_string())
+}
+
+/// UX-07: Mark laps as 'unverifiable' when the telemetry adapter crashes mid-session.
+/// Called by the event_loop or ws_handler when it detects adapter disconnection.
+/// Only laps that were previously 'valid' are updated — avoids overwriting 'invalid'/'suspect'.
+pub async fn mark_laps_unverifiable(db: &SqlitePool, session_id: &str, from_lap: i32) {
+    let result = sqlx::query(
+        "UPDATE laps SET validity = 'unverifiable' WHERE session_id = ? AND lap_number >= ? AND validity = 'valid'",
+    )
+    .bind(session_id)
+    .bind(from_lap)
+    .execute(db)
+    .await;
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::warn!(
+                "UX-07: Marked {} laps >= {} as unverifiable for session {} — telemetry adapter crashed",
+                r.rows_affected(), from_lap, session_id
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                "UX-07: Failed to mark laps unverifiable for session {}: {}",
+                session_id, e
+            );
+        }
+    }
+}
 
 /// Resolve which driver is currently on a pod (from active billing session).
 pub async fn resolve_driver_for_pod(state: &Arc<AppState>, pod_id: &str) -> Option<(String, String)> {
@@ -53,6 +142,26 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .execute(&state.db)
     .await;
 
+    // UX-04: Resolve billing_session_id from active timers.
+    // Laps can only originate from billed sessions — no manual entry path.
+    // The billing timer keyed by pod_id holds the authoritative session_id.
+    let billing_session_id: Option<String> = {
+        let timers = state.billing.active_timers.read().await;
+        timers.get(&lap.pod_id).map(|t| t.session_id.clone())
+    };
+
+    // UX-04 integrity gate: reject laps with no billing session.
+    // This makes manual leaderboard entry structurally impossible — every lap
+    // must be backed by a real billed session.
+    if billing_session_id.is_none() {
+        tracing::warn!(
+            pod = %lap.pod_id, driver = %lap.driver_id, lap_id = %lap.id,
+            "UX-04: Lap rejected — no active billing session on pod. \
+             Laps may only be created from billed sessions."
+        );
+        return false;
+    }
+
     // Look up car_class from active billing session's kiosk_experience
     let car_class: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT ke.car_class
@@ -67,6 +176,26 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .ok()
     .flatten()
     .and_then(|(c,)| c);
+
+    // UX-06: Compute assist evidence from billing session's kiosk experience.
+    // Assist config JSON is stored on the experience; 'unknown' if unavailable.
+    // Future: rc-agent telemetry will send per-lap assist state directly.
+    let assist_config_json: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT ke.assist_config
+         FROM billing_sessions bs
+         JOIN kiosk_experiences ke ON ke.id = bs.experience_id
+         WHERE bs.driver_id = ? AND bs.status = 'active'
+         LIMIT 1",
+    )
+    .bind(&lap.driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|(c,)| c);
+
+    let (assist_config_hash, assist_tier) =
+        compute_assist_evidence(assist_config_json.as_deref());
 
     // Compute suspect flag before INSERT
     // MMA-SEC: Lap time integrity validation — prevents fake leaderboard entries.
@@ -107,8 +236,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     };
 
     let result = sqlx::query(
-        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, assist_config_hash, assist_tier, billing_session_id, validity, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', datetime('now'))",
     )
     .bind(&lap.id)
     .bind(&lap.session_id)
@@ -126,6 +255,9 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&car_class)
     .bind(suspect_flag)
     .bind(format!("{:?}", lap.session_type).to_lowercase())
+    .bind(&assist_config_hash)
+    .bind(&assist_tier)
+    .bind(&billing_session_id)
     .execute(&mut *tx)
     .await;
 
@@ -201,6 +333,33 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             lap_id: lap.id.clone(),
         });
 
+        // Phase 254: Broadcast PB broken for real-time leaderboard updates
+        {
+            let pb_driver_name: String = sqlx::query_as::<_, (String,)>(
+                "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL
+                            THEN nickname ELSE name END
+                 FROM drivers WHERE id = ?",
+            )
+            .bind(&lap.driver_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .map(|(n,)| n)
+            .unwrap_or_else(|| "Unknown".to_string());
+
+            let _ = state.dashboard_tx.send(DashboardEvent::RecordBroken {
+                record_type: "personal_best".to_string(),
+                track: normalized_track.clone(),
+                car: lap.car.clone(),
+                sim_type: sim_type_str.clone(),
+                driver_name: pb_driver_name,
+                lap_time_ms: lap.lap_time_ms as i64,
+                previous_time_ms: existing_pb.map(|(t,)| t),
+                driver_id: lap.driver_id.clone(),
+            });
+        }
+
         // Retention hooks: notify beaten PB holders + chance of surprise reward
         let state_clone = state.clone();
         let driver_id_clone = lap.driver_id.clone();
@@ -266,6 +425,18 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             "NEW TRACK RECORD on {}/{} ({}): {}ms by driver {}",
             normalized_track, lap.car, sim_type_str, lap.lap_time_ms, lap.driver_id
         );
+
+        // Phase 254: Broadcast track record broken for real-time leaderboard updates
+        let _ = state.dashboard_tx.send(DashboardEvent::RecordBroken {
+            record_type: "track_record".to_string(),
+            track: normalized_track.clone(),
+            car: lap.car.clone(),
+            sim_type: sim_type_str.clone(),
+            driver_name: new_holder_name.clone(),
+            lap_time_ms: lap.lap_time_ms as i64,
+            previous_time_ms: prev_record.as_ref().map(|(t, _, _)| *t),
+            driver_id: lap.driver_id.clone(),
+        });
 
         // STEP 4: Fire notification email to the previous record holder (if any).
         if let Some((old_time_ms, prev_name, Some(prev_email))) = prev_record {
@@ -333,6 +504,14 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     if let Err(e) = tx.commit().await {
         tracing::error!("Failed to commit lap transaction: {}", e);
         return false;
+    }
+
+    // Phase 253: Send rating recomputation request (non-blocking)
+    if let Some(ref rating_tx) = state.rating_tx {
+        let _ = rating_tx.try_send(crate::driver_rating::RatingRequest {
+            driver_id: lap.driver_id.clone(),
+            sim_type: sim_type_str.clone(),
+        });
     }
 
     // Update driving passport with this track+car combo
