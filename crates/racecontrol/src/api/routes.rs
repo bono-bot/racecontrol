@@ -469,12 +469,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/scheduler/status", get(scheduler::get_status))
         .route("/scheduler/settings", put(scheduler::update_settings))
         .route("/scheduler/analytics", get(scheduler::get_analytics))
-        // Accounting & Audit
-        .route("/accounting/accounts", get(list_accounts))
-        .route("/accounting/trial-balance", get(trial_balance))
-        .route("/accounting/profit-loss", get(profit_loss))
-        .route("/accounting/balance-sheet", get(balance_sheet))
-        .route("/accounting/journal", get(list_journal_entries))
+        // Accounting & Audit — routes are in the role-gated financial section below
         .route("/audit-log", get(query_audit_log))
         // v22.0 Phase 177: Feature Flag Registry
         .route("/flags", get(flags::list_flags).post(flags::create_flag))
