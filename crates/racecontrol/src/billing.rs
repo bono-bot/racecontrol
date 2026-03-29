@@ -1998,14 +1998,18 @@ async fn run_reconciliation(state: &Arc<AppState>) {
 
     // For each wallet, compare balance_paise to SUM(wallet_transactions.amount_paise).
     // wallet_transactions.amount_paise is signed: positive for credits, negative for debits.
+    // CRITICAL-4 fix: SQLite does not allow column aliases in HAVING clauses.
+    // Previous query silently returned 0 rows always — drift was never detected.
+    // Fixed by wrapping in a subquery so the WHERE clause can reference computed_balance.
     let result = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT w.driver_id,
-                w.balance_paise,
-                COALESCE((SELECT SUM(wt.amount_paise)
-                          FROM wallet_transactions wt
-                          WHERE wt.driver_id = w.driver_id), 0) AS computed_balance
-         FROM wallets w
-         HAVING ABS(w.balance_paise - computed_balance) > 0
+        "SELECT driver_id, balance_paise, computed_balance FROM (
+            SELECT w.driver_id,
+                   w.balance_paise,
+                   COALESCE((SELECT SUM(wt.amount_paise)
+                             FROM wallet_transactions wt
+                             WHERE wt.driver_id = w.driver_id), 0) AS computed_balance
+            FROM wallets w
+         ) WHERE ABS(balance_paise - computed_balance) > 0
          LIMIT 100",
     )
     .fetch_all(&state.db)
@@ -2833,8 +2837,11 @@ async fn end_billing_session(
             // NOTE: Do NOT overwrite wallet_debit_paise here — it must retain the original
             // pre-session charge for correct refund calculation downstream (F-05 fix).
             // final_cost_paise is stored in end_reason for audit purposes.
+            // CRITICAL-1 fix: CAS must match ALL valid pre-terminal states, not just 'active'.
+            // FSM allows End/EndEarly/Cancel from paused_manual, paused_game_pause, paused_disconnect.
+            // Previously only matched 'active' — paused sessions were silently dropped with no refund.
             let cas_result = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status = 'active'",
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
@@ -2999,8 +3006,9 @@ async fn end_billing_session(
     // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
     // This happens when racecontrol restarts while a session was active.
     drop(timers);
+    // Match all pre-terminal states (consistent with CRITICAL-1 CAS fix)
     let orphan = match sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status = 'active'",
+        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
@@ -3031,6 +3039,32 @@ async fn end_billing_session(
         .await
         {
             tracing::error!("Failed to end orphaned billing session {}: {}", session_id, e);
+        }
+
+        // CRITICAL-3 fix: issue refund for orphaned sessions (previously skipped entirely)
+        let refund_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>)>(
+            "SELECT driver_id, allocated_seconds, wallet_debit_paise, driving_seconds FROM billing_sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some((driver_id, allocated, Some(debit), driving_secs)) = refund_info {
+            let driven = driving_secs.unwrap_or(0);
+            let refund_amount = if end_status == BillingSessionStatus::Cancelled {
+                debit // full refund for cancellation
+            } else {
+                compute_refund(allocated, driven, debit)
+            };
+            if refund_amount > 0 {
+                match crate::wallet::refund(state, &driver_id, refund_amount, Some(session_id),
+                    Some("Orphaned session refund after restart")).await {
+                    Ok(_) => tracing::info!("BILLING: orphaned session {} refund {}p to {}", session_id, refund_amount, driver_id),
+                    Err(e) => tracing::error!("CRITICAL: orphaned session {} refund FAILED for {}: {}", session_id, driver_id, e),
+                }
+            }
         }
 
         log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer");
