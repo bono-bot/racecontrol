@@ -63,8 +63,8 @@
 - [x] **GAME-01**: Steam pre-launch check: verify Steam process running + no pending updates before any Steam-URL game launch
 - [x] **GAME-02**: Process name corrections in monitoring: F1, iRacing, LMU, Forza matched to actual exe names on disk
 - [x] **GAME-03**: Forza Horizon 5 session enforcer: agent force-terminates after duration_minutes with graceful save warning
-- [ ] **GAME-04**: AC EVO config adapter: translate launch_args to Unreal GameUserSettings.ini format (not AC race.ini)
-- [ ] **GAME-05**: iRacing subscription check: verify account active before billing start (prevent charge-but-can't-play)
+- [x] **GAME-04**: AC EVO config adapter: translate launch_args to Unreal GameUserSettings.ini format (not AC race.ini)
+- [x] **GAME-05**: iRacing subscription check: verify account active before billing start (prevent charge-but-can't-play)
 - [x] **GAME-06**: DLC availability check: verify car/track content installed on pod before launch
 - [x] **GAME-07**: Steam "Preparing to launch" dialog detection: agent waits for actual game window, not just Steam response
 - [x] **GAME-08**: Game-specific telemetry crash detection for non-AC games (process exit monitoring as fallback)
@@ -180,8 +180,8 @@ Updated during roadmap creation (2026-03-29).
 | GAME-01 | Phase 256 | Complete |
 | GAME-02 | Phase 256 | Complete |
 | GAME-03 | Phase 256 | Complete |
-| GAME-04 | Phase 256 | Pending |
-| GAME-05 | Phase 256 | Pending |
+| GAME-04 | Phase 256 | Complete |
+| GAME-05 | Phase 256 | Complete |
 | GAME-06 | Phase 256 | Complete |
 | GAME-07 | Phase 256 | Complete |
 | GAME-08 | Phase 256 | Complete |
