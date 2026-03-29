@@ -426,26 +426,34 @@ async fn main() -> Result<()> {
         }
     }
 
-    // SAFETY: Prevent rc-agent from running on James's PC (AI-SERVER).
-    // Pod binaries assume hardware/ports that don't exist on James — crash is instant,
-    // plus Edge blanking screen popup disrupts the workstation.
+    // MMA-F03: Allowlist guard — rc-agent may only run on known pod/POS hostnames.
+    // Denylist (blocking AI-SERVER) fails open on rename/missing env var.
+    // Allowlist fails closed: unknown machines are blocked by default.
     #[cfg(windows)]
     {
-        if let Ok(hostname) = std::env::var("COMPUTERNAME") {
-            if hostname.eq_ignore_ascii_case("AI-SERVER") {
-                eprintln!("ERROR: rc-agent must NOT run on James's PC (AI-SERVER). \
-                           This binary is for gaming pods only. Exiting.");
-                let _ = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(r"C:\RacingPoint\rc-bot-events.log")
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        writeln!(f, "[{}] [BLOCKED] rc-agent started on AI-SERVER — blocked by hostname guard",
-                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
-                    });
-                std::process::exit(1);
-            }
+        const ALLOWED_HOSTS: &[&str] = &[
+            "SIM1", "SIM2", "SIM3", "SIM4", "SIM5", "SIM6", "SIM7", "SIM8",
+            "POS1",
+        ];
+        let hostname = std::env::var("COMPUTERNAME").unwrap_or_default();
+        let is_allowed = ALLOWED_HOSTS.iter().any(|h| hostname.eq_ignore_ascii_case(h));
+        if !is_allowed {
+            let msg = format!(
+                "ERROR: rc-agent is only allowed on gaming pods (SIM1-SIM8) and POS. \
+                 Current hostname: '{}'. Exiting.", hostname
+            );
+            eprintln!("{}", msg);
+            // MMA-F06: flush before exit — process::exit(1) skips destructors
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r"C:\RacingPoint\rc-bot-events.log")
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    writeln!(f, "[{}] [BLOCKED] rc-agent on '{}' — not in pod allowlist",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), hostname)
+                });
+            std::process::exit(1);
         }
     }
 
