@@ -112,10 +112,10 @@
 - [x] **UX-01**: Notification outbox: durable table with states (pending, sent, delivered, failed); background retry with backoff
 - [x] **UX-02**: OTP fallback: if WhatsApp delivery fails, offer on-screen display or SMS fallback
 - [ ] **UX-03**: Customer receipt: auto-generated after session end with before/after balance, duration, charges, refund
-- [ ] **UX-04**: Leaderboard integrity: entries only from automatic verified session records (no manual entry)
-- [ ] **UX-05**: Leaderboard segmented by game + track + car class + assist tier
-- [ ] **UX-06**: Lap evidence: per-session lap-event records persisted (session_id, lap_time, validity, assist config)
-- [ ] **UX-07**: Telemetry adapter crash marks affected laps as "unverifiable" (never silently lost)
+- [x] **UX-04**: Leaderboard integrity: entries only from automatic verified session records (no manual entry)
+- [x] **UX-05**: Leaderboard segmented by game + track + car class + assist tier
+- [x] **UX-06**: Lap evidence: per-session lap-event records persisted (session_id, lap_time, validity, assist config)
+- [x] **UX-07**: Telemetry adapter crash marks affected laps as "unverifiable" (never silently lost)
 - [ ] **UX-08**: Queue management: virtual queue with position and ETA shown in PWA/kiosk for walk-ins
 
 ## Out of Scope
@@ -211,10 +211,10 @@ Updated during roadmap creation (2026-03-29).
 | UX-01 | Phase 260 | Complete |
 | UX-02 | Phase 260 | Complete |
 | UX-03 | Phase 260 | Pending |
-| UX-04 | Phase 260 | Pending |
-| UX-05 | Phase 260 | Pending |
-| UX-06 | Phase 260 | Pending |
-| UX-07 | Phase 260 | Pending |
+| UX-04 | Phase 260 | Complete |
+| UX-05 | Phase 260 | Complete |
+| UX-06 | Phase 260 | Complete |
+| UX-07 | Phase 260 | Complete |
 | UX-08 | Phase 260 | Pending |
 | RESIL-04 | Phase 260 | Pending |
 | RESIL-05 | Phase 260 | Complete |

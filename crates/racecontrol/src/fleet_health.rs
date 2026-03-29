@@ -75,6 +75,15 @@ pub struct FleetHealthStore {
     /// Populated from agent /health response by probe loop.
     pub bat_sha256: Option<String>,
 
+    // ─── RESIL-04/06/08 fields ─────────────────────────────────────────────
+    /// RESIL-06: True if this pod has been auto-flagged for maintenance due to >3 crashes in 1 hour.
+    pub maintenance_flag: bool,
+    /// RESIL-06: Crash count in the last hour (updated by WS handler after each GameCrashed event).
+    pub crashes_last_hour: i32,
+    /// RESIL-08: Clock drift in seconds detected on last heartbeat (server_time - agent_time).
+    /// None = no heartbeat with agent_timestamp received yet.
+    pub clock_drift_secs: Option<i64>,
+
     // ─── Crash loop detection (Phase 9b) ─────────────────────────────────
     /// Timestamps of recent StartupReports (sliding window, max 10 entries).
     /// Used to detect crash loops: >3 reports in 5 minutes with uptime < 30s.
@@ -294,6 +303,16 @@ pub struct PodFleetStatus {
     /// Phase 9b: True if the pod is crash-looping (>3 short-uptime restarts in 5 min).
     #[serde(default)]
     pub crash_loop: bool,
+    /// RESIL-06: True if pod auto-flagged for maintenance (>3 crashes in 1 hour).
+    #[serde(default)]
+    pub maintenance_flag: bool,
+    /// RESIL-06: Number of crashes recorded for this pod in the last hour.
+    #[serde(default)]
+    pub crashes_last_hour: i32,
+    /// RESIL-08: Clock drift in seconds (server_time - agent_time) from last heartbeat.
+    /// null = no heartbeat with agent_timestamp received yet.
+    #[serde(default)]
+    pub clock_drift_secs: Option<i64>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -570,6 +589,9 @@ pub async fn fleet_health_handler(
                     idle_health_failures: vec![],
                     bat_sha256: None,
                     crash_loop: false,
+                    maintenance_flag: false,
+                    crashes_last_hour: 0,
+                    clock_drift_secs: None,
                 });
             }
             Some(info) => {
@@ -617,6 +639,9 @@ pub async fn fleet_health_handler(
                 let active_sentinels = store.map(|s| s.active_sentinels.clone()).unwrap_or_default();
                 let bat_sha256 = store.and_then(|s| s.bat_sha256.clone());
                 let crash_loop = store.map(|s| s.crash_loop).unwrap_or(false);
+                let maintenance_flag = store.map(|s| s.maintenance_flag).unwrap_or(false);
+                let crashes_last_hour = store.map(|s| s.crashes_last_hour).unwrap_or(0);
+                let clock_drift_secs = store.and_then(|s| s.clock_drift_secs);
 
                 result.push(PodFleetStatus {
                     pod_number,
@@ -639,6 +664,9 @@ pub async fn fleet_health_handler(
                     active_sentinels,
                     bat_sha256,
                     crash_loop,
+                    maintenance_flag,
+                    crashes_last_hour,
+                    clock_drift_secs,
                 });
             }
         }
@@ -666,9 +694,26 @@ pub async fn fleet_health_handler(
         Value::Object(m)
     };
 
+    // Phase 255: Display machine heartbeat status
+    let display_status: Vec<Value> = {
+        let heartbeats = state.display_heartbeats.read().await;
+        let now = std::time::Instant::now();
+        heartbeats.iter().map(|(id, (last_ping, uptime_s))| {
+            let elapsed_secs = now.duration_since(*last_ping).as_secs();
+            let online = elapsed_secs < 120; // 2 minute threshold
+            json!({
+                "display_id": id,
+                "online": online,
+                "uptime_s": uptime_s,
+                "last_ping_secs_ago": elapsed_secs,
+            })
+        }).collect()
+    };
+
     Json(json!({
         "pods": result,
         "services": services,
+        "displays": display_status,
         "timestamp": Utc::now().to_rfc3339(),
     }))
 }

@@ -413,6 +413,26 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                 }
                             }
+
+                            // RESIL-08: Clock drift detection — compare agent_timestamp with server time.
+                            // Drop any lock before async work. Snapshot only what is needed.
+                            if let Some(ref agent_ts_str) = pod_info.agent_timestamp {
+                                if let Ok(agent_time) = chrono::DateTime::parse_from_rfc3339(agent_ts_str) {
+                                    let server_time = chrono::Utc::now();
+                                    let drift_secs = (server_time - agent_time.with_timezone(&chrono::Utc)).num_seconds();
+                                    let abs_drift = drift_secs.unsigned_abs();
+                                    if abs_drift > 5 {
+                                        tracing::warn!(
+                                            "RESIL-08: Clock drift {}s on pod {} (server - agent)",
+                                            drift_secs, hb_pod_id
+                                        );
+                                    }
+                                    // Update fleet health store with drift value
+                                    let mut fleet = state.pod_fleet_health.write().await;
+                                    let store = fleet.entry(hb_pod_id.clone()).or_default();
+                                    store.clock_drift_secs = Some(drift_secs);
+                                }
+                            }
                         }
                         AgentMessage::Telemetry(frame) => {
                             // Feed telemetry to camera controller
@@ -570,6 +590,56 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                 }
                             }
+
+                            // RESIL-06: Record crash event and check if pod should be flagged for maintenance.
+                            // Drop lock before any async work (standing rule: no lock across .await).
+                            let crash_id = uuid::Uuid::new_v4().to_string();
+                            let crash_result = sqlx::query(
+                                "INSERT INTO pod_crash_events (id, pod_id, crash_type) VALUES (?, ?, 'game_crash')"
+                            )
+                            .bind(&crash_id)
+                            .bind(pod_id)
+                            .execute(&state.db)
+                            .await;
+
+                            if let Err(e) = crash_result {
+                                tracing::warn!("RESIL-06: Failed to insert crash event for pod {}: {}", pod_id, e);
+                            } else {
+                                // Count crashes in last hour
+                                let count_result: Result<(i64,), _> = sqlx::query_as(
+                                    "SELECT COUNT(*) FROM pod_crash_events WHERE pod_id = ? AND created_at > datetime('now', '-1 hour')"
+                                )
+                                .bind(pod_id)
+                                .fetch_one(&state.db)
+                                .await;
+
+                                if let Ok((count,)) = count_result {
+                                    // Snapshot pod_id for async use, update fleet health store
+                                    let pod_id_owned = pod_id.clone();
+                                    let count_i32 = count as i32;
+                                    {
+                                        let mut fleet = state.pod_fleet_health.write().await;
+                                        let store = fleet.entry(pod_id_owned.clone()).or_default();
+                                        store.crashes_last_hour = count_i32;
+                                        if count > 3 && !store.maintenance_flag {
+                                            store.maintenance_flag = true;
+                                            tracing::error!(
+                                                "RESIL-06: Pod {} flagged for maintenance — {} crashes in 1 hour",
+                                                pod_id_owned, count
+                                            );
+                                            // Send WhatsApp alert (after lock is dropped)
+                                            let alert_msg = format!(
+                                                "[MAINTENANCE] Pod {} auto-flagged: {} crashes in last hour. Check hardware. {}",
+                                                pod_id_owned, count,
+                                                crate::whatsapp_alerter::ist_now_string()
+                                            );
+                                            // drop fleet write guard before async send
+                                            drop(fleet);
+                                            crate::whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         AgentMessage::AssistChanged { pod_id, assist_type, enabled, confirmed } => {
                             tracing::info!(
@@ -706,6 +776,45 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         }
                         AgentMessage::HardwareFailure { pod_id, reason, detail } => {
                             crate::bot_coordinator::handle_hardware_failure(&state, &pod_id, &reason, &detail).await;
+                        }
+                        AgentMessage::HardwareDisconnect { pod_id, device, timestamp } => {
+                            tracing::error!(
+                                "RESIL-04: Hardware disconnect on pod {}: {} at {}",
+                                pod_id, device, timestamp
+                            );
+                            log_pod_activity(&state, pod_id, "hardware", "USB Disconnect",
+                                &format!("{} disconnected", device), "agent");
+
+                            // Pause active billing session if present
+                            // Snapshot pod_id and billing state before async work
+                            let has_active_billing = {
+                                let timers = state.billing.active_timers.read().await;
+                                timers.get(pod_id.as_str()).map_or(false, |t| {
+                                    matches!(t.status, BillingSessionStatus::Active)
+                                })
+                            };
+                            if has_active_billing {
+                                let mut timers = state.billing.active_timers.write().await;
+                                if let Some(timer) = timers.get_mut(pod_id.as_str()) {
+                                    if timer.status == BillingSessionStatus::Active {
+                                        timer.status = BillingSessionStatus::PausedGamePause;
+                                        timer.pause_count += 1;
+                                        tracing::info!(
+                                            "RESIL-04: Billing auto-paused for pod {} — {} disconnected",
+                                            pod_id, device
+                                        );
+                                    }
+                                }
+                                drop(timers);
+                            }
+
+                            // WhatsApp alert to staff
+                            let alert_msg = format!(
+                                "[HW ALERT] {} disconnected on Pod {}. Billing paused. {}",
+                                device, pod_id,
+                                crate::whatsapp_alerter::ist_now_string()
+                            );
+                            crate::whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
                         }
                         AgentMessage::TelemetryGap { pod_id, sim_type: _, gap_seconds } => {
                             crate::bot_coordinator::handle_telemetry_gap(&state, &pod_id, *gap_seconds as u64).await;
