@@ -1003,3 +1003,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 05:55 IST | James | 78edfd06 | docs(256-01): 256-01-SUMMARY.md, GAME-01/02/06/07 requirements marked complete, STATE.md + ROADMAP updated |
 | 2026-03-29 06:18 IST | James | 7c2c2658 | feat(256-02): SessionEnforcer + ProcessMonitor — TDD, 13 tests, GAME-03/08 |
 | 2026-03-29 06:41 IST | James | 86bb4d91 | feat(256-02): Integrate SessionEnforcer + ProcessMonitor into LaunchGame and event loop — GAME-03/08 |
+| 2026-03-29 11:19 IST | James | 215c1868 | feat(256-03): AC EVO Unreal GameUserSettings.ini adapter + iRacing check_iracing_ready — GAME-04/05, 12 tests |
+| 2026-03-29 11:19 IST | James | acd756d4 | feat(256-03): Wire write_evo_config + check_iracing_ready into LaunchGame handler — GAME-04 non-fatal, GAME-05 fatal |
+| 2026-03-29 11:19 IST | James | 4f0a944b | docs(256-03): SUMMARY.md, STATE.md, ROADMAP-v27.md, REQUIREMENTS.md — phase 256 complete, 99% overall |
