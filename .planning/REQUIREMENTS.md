@@ -14,10 +14,10 @@
 - [x] **FATM-05**: Tier price and rate calculation aligned — tier_30min price matches compute_session_cost(1800s) output
 - [x] **FATM-06**: Refund formula uses a single authoritative calculation path (not duplicated in multiple code paths)
 - [x] **FATM-07**: Extension purchase is atomic with session time addition (debit + add time in one transaction)
-- [ ] **FATM-08**: Coupon lifecycle is stateful: available → reserved → redeemed → released (with TTL on reserved)
-- [ ] **FATM-09**: Coupon restored on session cancellation/failure before billing commit
+- [x] **FATM-08**: Coupon lifecycle is stateful: available → reserved → redeemed → released (with TTL on reserved)
+- [x] **FATM-09**: Coupon restored on session cancellation/failure before billing commit
 - [x] **FATM-10**: Discount stacking rules enforced server-side with hard floor on payable amount
-- [ ] **FATM-11**: Payment gateway webhook: wallet credited only after verified gateway confirmation with idempotent application
+- [x] **FATM-11**: Payment gateway webhook: wallet credited only after verified gateway confirmation with idempotent application
 - [x] **FATM-12**: Scheduled reconciliation job detects wallet vs journal vs session balance drift
 
 ### State Machine Integrity (FSM)
@@ -204,10 +204,10 @@ Updated during roadmap creation (2026-03-29).
 | DEPLOY-04 | Phase 258 | Complete |
 | DEPLOY-05 | Phase 258 | Complete |
 | FATM-07 | Phase 259 | Complete |
-| FATM-08 | Phase 259 | Pending |
-| FATM-09 | Phase 259 | Pending |
+| FATM-08 | Phase 259 | Complete |
+| FATM-09 | Phase 259 | Complete |
 | FATM-10 | Phase 259 | Complete |
-| FATM-11 | Phase 259 | Pending |
+| FATM-11 | Phase 259 | Complete |
 | UX-01 | Phase 260 | Pending |
 | UX-02 | Phase 260 | Pending |
 | UX-03 | Phase 260 | Pending |

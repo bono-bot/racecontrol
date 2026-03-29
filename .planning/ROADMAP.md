@@ -3963,7 +3963,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 - [x] **Phase 258: Staff Controls & Deployment Safety** - Discount approval, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock (completed 2026-03-29)
 **Plans**: TBD
 
-- [ ] **Phase 259: Coupon & Discount System** - Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
+- [x] **Phase 259: Coupon & Discount System** - Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency (completed 2026-03-29)
 **Plans**: TBD
 
 - [ ] **Phase 260: Notifications, Resilience & UX** - Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
@@ -3979,7 +3979,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 256. Game-Specific Hardening | 3/3 | Complete    | 2026-03-29 |
 | 257. Billing Edge Cases | 3/3 | Complete    | 2026-03-29 |
 | 258. Staff Controls & Deployment Safety | 3/3 | Complete    | 2026-03-29 |
-| 259. Coupon & Discount System | 0/TBD | Not started | - |
+| 259. Coupon & Discount System | 2/2 | Complete   | 2026-03-29 |
 | 260. Notifications, Resilience & UX | 0/TBD | Not started | - |
 
 ### Phase 251: Database Foundation

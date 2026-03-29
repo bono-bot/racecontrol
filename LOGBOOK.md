@@ -1036,3 +1036,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 15:30 IST | James | 1b038a5f | feat(258-02): STAFF-05 shift handoff — POST /staff/shift-handoff + GET /staff/shift-briefing |
 | 2026-03-29 15:40 IST | James | a46f7c49 | feat(258-02): DEPLOY-01 verified session drain, DEPLOY-03 weekend deploy window lock (is_deploy_window_locked) |
 | 2026-03-29 16:00 IST | James | 6838fe5c | feat(259-01): FATM-07 atomic extension (wallet debit + time addition in single tx), FATM-10 discount stacking floor in start_billing + apply_billing_discount |
+| 2026-03-29 15:50 IST | James | 8a89e404 | feat(259-02): FATM-08/09 coupon lifecycle FSM (available→reserved→redeemed), TTL expiry job, restoration on cancel, FATM-11 payment gateway webhook with idempotency |
