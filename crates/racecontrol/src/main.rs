@@ -73,6 +73,7 @@ async fn seed_pods_on_startup(state: &Arc<AppState>) {
                 screen_blanked: None,
                 ffb_preset: None,
                 freedom_mode: None,
+                agent_timestamp: None, // Intentional default: server-side pod seeding has no agent clock
             };
             pods.insert(id.to_string(), pod.clone());
             seeded.push(pod);
@@ -605,6 +606,12 @@ async fn main() -> anyhow::Result<()> {
             wa_state,
             wa_alert_rx,
         ));
+    }
+
+    // Spawn notification outbox worker (UX-01: durable retry with exponential backoff)
+    {
+        let notif_state = state.clone();
+        tokio::spawn(racecontrol_crate::notification_outbox::notification_worker_task(notif_state));
     }
 
     // First-boot email test: verify Gmail OAuth works on initial setup

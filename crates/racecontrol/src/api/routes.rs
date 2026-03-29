@@ -149,6 +149,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/billing/pod/{pod_id}/interrupted", get(interrupted_sessions_handler))
         // FATM-11: Payment gateway webhook — idempotent wallet credit
         .route("/webhooks/payment-gateway", post(payment_gateway_webhook))
+        // UX-02: OTP fallback display — customer polls this if WhatsApp delivery failed.
+        // One-time token; consumed on first successful read.
+        .route("/customer/otp-fallback/{token}", get(otp_fallback_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -815,6 +818,7 @@ async fn register_pod(
         screen_blanked: None,
         ffb_preset: None,
         freedom_mode: None,
+        agent_timestamp: None, // Intentional default: server-side pod creation has no agent clock
     };
 
     state.pods.write().await.insert(id.clone(), pod.clone());
@@ -857,6 +861,7 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
             screen_blanked: None,
             ffb_preset: None,
             freedom_mode: None,
+            agent_timestamp: None, // Intentional default: server-side pod seeding has no agent clock
         };
         state.pods.write().await.insert(id.to_string(), pod.clone());
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -7528,6 +7533,43 @@ async fn payment_gateway_webhook(
     }))
 }
 
+/// UX-02: OTP fallback display endpoint.
+/// Customer polls this URL if WhatsApp delivery failed.
+/// Returns the OTP payload from the notification outbox via a one-time token.
+/// Token is consumed (marked 'delivered') on first successful read.
+async fn otp_fallback_handler(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+) -> axum::response::Response {
+    if token.is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "token is required" })),
+        )
+            .into_response();
+    }
+
+    match crate::notification_outbox::get_otp_by_fallback_token(&state.db, &token).await {
+        Ok(Some(otp)) => {
+            tracing::info!(target: "notification_outbox", "OTP fallback token consumed");
+            Json(json!({ "otp": otp })).into_response()
+        }
+        Ok(None) => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(json!({ "error": "OTP not available. WhatsApp delivery may still be in progress, or token already used." })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!(target: "notification_outbox", "OTP fallback lookup error: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "lookup error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DebitRequest {
@@ -9849,6 +9891,7 @@ async fn sync_push(
                 screen_blanked: None,
                 ffb_preset: None,
                 freedom_mode: None,
+                agent_timestamp: None, // Intentional default: cloud sync path has no agent clock
             };
             state.pods.write().await.insert(id.to_string(), pod_info.clone());
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));

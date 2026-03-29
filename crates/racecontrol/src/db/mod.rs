@@ -3316,6 +3316,79 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Phase 260: Leaderboard integrity — kiosk assist config (UX-06) ─────────
+    // assist_config: JSON object with per-experience assist settings.
+    // Used as fallback assist evidence for laps until telemetry sends per-lap config.
+    // Format: {"traction_control":0,"stability_control":0,"abs":0,"ideal_line":false,"autoclutch":false}
+    let _ = sqlx::query("ALTER TABLE kiosk_experiences ADD COLUMN assist_config TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Phase 260: Leaderboard integrity — lap assist evidence (UX-06, UX-07) ──
+    // assist_config_hash: SHA-256 fingerprint of assist settings at time of lap.
+    //   Provides immutable proof of what assists were active — leaderboard trust.
+    // assist_tier: derived category — 'pro', 'semi-pro', 'amateur', 'unknown'.
+    //   'pro' = TC+SC+ABS all off; 'amateur' = ideal_line on; 'semi-pro' = any other assist on.
+    // billing_session_id: links lap to the billing session that paid for the track time.
+    //   UX-04 integrity gate: laps without a billing_session_id are rejected at INSERT.
+    //   Only laps from billed sessions appear on leaderboard — no manual entry path exists.
+    // validity: lifecycle status — 'valid', 'invalid', 'unverifiable', 'suspect'.
+    //   'unverifiable' is set when the telemetry adapter crashes mid-session (UX-07).
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN assist_config_hash TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE laps ADD COLUMN assist_tier TEXT NOT NULL DEFAULT 'unknown'",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN billing_session_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE laps ADD COLUMN validity TEXT NOT NULL DEFAULT 'valid'",
+    )
+    .execute(pool)
+    .await;
+    // Index for fast leaderboard queries filtering by assist_tier + validity
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_laps_assist_tier ON laps(track, assist_tier, validity)",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Phase 260: Notification Outbox (UX-01, UX-02) ─────────────────────
+    // Durable outbox for WhatsApp/SMS/screen notifications with retry, exponential
+    // backoff, and OTP fallback chain. Worker polls every 10s.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS notification_outbox (
+            id TEXT PRIMARY KEY,
+            recipient TEXT NOT NULL,
+            channel TEXT NOT NULL CHECK(channel IN ('whatsapp','sms','screen')),
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending','sent','delivered','failed','exhausted')),
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            next_retry_at TEXT DEFAULT (datetime('now')),
+            fallback_channel TEXT,
+            fallback_token TEXT,
+            context_type TEXT,
+            context_id TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_notif_outbox_pending
+         ON notification_outbox(status, next_retry_at)"
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
