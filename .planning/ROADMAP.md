@@ -3954,7 +3954,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 - [x] **Phase 255: Legal Compliance** - GST separation, invoice generation, waiver gate, minor consent flow, data retention (completed 2026-03-28)
 **Plans**: TBD
 
-- [ ] **Phase 256: Game-Specific Hardening** - Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
+- [x] **Phase 256: Game-Specific Hardening** - Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check (completed 2026-03-29)
 **Plans**: TBD
 
 - [ ] **Phase 257: Billing Edge Cases** - Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
@@ -3976,7 +3976,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 253. State Machine Hardening | 3/3 | Complete    | 2026-03-28 |
 | 254. Security Hardening | 2/3 | Complete    | 2026-03-28 |
 | 255. Legal Compliance | 3/3 | Complete    | 2026-03-28 |
-| 256. Game-Specific Hardening | 2/3 | In Progress|  |
+| 256. Game-Specific Hardening | 3/3 | Complete    | 2026-03-29 |
 | 257. Billing Edge Cases | 0/TBD | Not started | - |
 | 258. Staff Controls & Deployment Safety | 0/TBD | Not started | - |
 | 259. Coupon & Discount System | 0/TBD | Not started | - |
