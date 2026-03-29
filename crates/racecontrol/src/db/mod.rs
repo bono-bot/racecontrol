@@ -3244,6 +3244,21 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── M7-SEC: Persistent admin lockout state ────────────────────────────
+    // Previously: in-memory only, reset on server restart.
+    // Now: stored in DB so lockout survives restarts.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS admin_lockout (
+            ip TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT,
+            last_attempt TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

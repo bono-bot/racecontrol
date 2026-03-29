@@ -79,10 +79,10 @@
 
 ### Staff Controls (STAFF)
 
-- [ ] **STAFF-01**: Staff discount requires reason code and manager approval above configurable threshold
-- [ ] **STAFF-02**: Self-service wallet operations blocked for staff's own account (API-level enforcement)
-- [ ] **STAFF-03**: Daily staff override report: all discounts, manual refunds, tier changes with actor ID
-- [ ] **STAFF-04**: Cash drawer reconciliation: end-of-day report comparing system cash total vs physical count input
+- [x] **STAFF-01**: Staff discount requires reason code and manager approval above configurable threshold
+- [x] **STAFF-02**: Self-service wallet operations blocked for staff's own account (API-level enforcement)
+- [x] **STAFF-03**: Daily staff override report: all discounts, manual refunds, tier changes with actor ID
+- [x] **STAFF-04**: Cash drawer reconciliation: end-of-day report comparing system cash total vs physical count input
 - [ ] **STAFF-05**: Shift handoff: outgoing staff must acknowledge active sessions before logout; incoming staff sees briefing
 
 ### Billing Edge Cases (BILL)
@@ -193,10 +193,10 @@ Updated during roadmap creation (2026-03-29).
 | BILL-06 | Phase 257 | Complete |
 | BILL-07 | Phase 257 | Complete |
 | BILL-08 | Phase 257 | Complete |
-| STAFF-01 | Phase 258 | Pending |
-| STAFF-02 | Phase 258 | Pending |
-| STAFF-03 | Phase 258 | Pending |
-| STAFF-04 | Phase 258 | Pending |
+| STAFF-01 | Phase 258 | Complete |
+| STAFF-02 | Phase 258 | Complete |
+| STAFF-03 | Phase 258 | Complete |
+| STAFF-04 | Phase 258 | Complete |
 | STAFF-05 | Phase 258 | Pending |
 | DEPLOY-01 | Phase 258 | Pending |
 | DEPLOY-02 | Phase 258 | Pending |
