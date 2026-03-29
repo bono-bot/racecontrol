@@ -69,10 +69,16 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .and_then(|(c,)| c);
 
     // Compute suspect flag before INSERT
+    // MMA-SEC: Lap time integrity validation — prevents fake leaderboard entries.
     // A lap is suspect if:
     //   - lap_time_ms < 20_000 (impossibly fast, under 20 seconds)
-    //   - sector times are all present and > 0 but their sum differs from lap_time_ms by > 500ms
-    let sanity_ok = lap.lap_time_ms >= 20_000;
+    //   - lap_time_ms > 600_000 (10 minutes — unreasonably slow, likely paused/glitched)
+    //   - sector times present but their sum differs from lap_time_ms by > 500ms
+    //   - driver_id is empty (no billing session matched)
+    //   - pod_id doesn't match a known pod (1-8)
+    let sanity_ok = lap.lap_time_ms >= 20_000 && lap.lap_time_ms <= 600_000;
+    let driver_ok = !lap.driver_id.is_empty();
+    let pod_ok = (1..=8).any(|n| lap.pod_id == format!("pod_{}", n) || lap.pod_id == format!("pod-{}", n));
     let sector_sum_ok = match (lap.sector1_ms, lap.sector2_ms, lap.sector3_ms) {
         (Some(s1), Some(s2), Some(s3)) if s1 > 0 && s2 > 0 && s3 > 0 => {
             let sector_sum = s1 + s2 + s3;
@@ -81,7 +87,14 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         }
         _ => true, // sectors absent or zero -- treat as ok
     };
-    let suspect_flag: i32 = if !sanity_ok || !sector_sum_ok { 1 } else { 0 };
+    let suspect_flag: i32 = if !sanity_ok || !sector_sum_ok || !driver_ok || !pod_ok { 1 } else { 0 };
+    if suspect_flag == 1 {
+        tracing::warn!(
+            pod = %lap.pod_id, driver = %lap.driver_id, time_ms = lap.lap_time_ms,
+            sanity_ok, sector_sum_ok, driver_ok, pod_ok,
+            "Suspect lap flagged — will not appear on public leaderboard"
+        );
+    }
 
     // 1. Insert lap into DB (with car_class from billing session lookup)
     // Use a transaction to ensure lap INSERT + PB update + record update are atomic.
