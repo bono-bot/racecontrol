@@ -138,6 +138,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         // POS lockdown read — public so POS agent/kiosk can poll without JWT (MMA Round 1 fix: 2/3 consensus)
         // POST (write) stays in staff_routes
         .route("/pos/lockdown", get(get_pos_lockdown))
+        // DEPLOY-02: Agent graceful shutdown notification — no JWT (agent uses service key header).
+        // Called by rc-agent during shutdown when a billing session is active.
+        .route("/billing/{id}/agent-shutdown", post(agent_shutdown_handler))
+        // DEPLOY-04: Post-restart interrupted session check — rc-agent calls on startup.
+        .route("/billing/pod/{pod_id}/interrupted", get(interrupted_sessions_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -3530,6 +3535,54 @@ async fn stop_billing(
     } else {
         Json(json!({ "ok": false, "error": "Session not found or already ended" }))
     }
+}
+
+/// DEPLOY-02: POST /billing/{id}/agent-shutdown
+/// Called by rc-agent during graceful shutdown when a billing session is active.
+/// No JWT required — agent authenticates via RCAGENT_SERVICE_KEY header (same key as remote_ops).
+/// Ends the session with EndedEarly so the partial refund logic fires.
+/// Idempotent — safe to call multiple times (e.g. from sentinel recovery on next restart).
+#[derive(serde::Deserialize)]
+struct AgentShutdownBody {
+    pod_id: String,
+    shutdown_reason: String,
+}
+
+async fn agent_shutdown_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<AgentShutdownBody>,
+) -> impl axum::response::IntoResponse {
+    // Validate service key against configured sentry_service_key.
+    // Agent sends key as: Authorization: Bearer <service_key>
+    let expected_key = state.config.pods.sentry_service_key.clone().unwrap_or_default();
+    if !expected_key.is_empty() {
+        let provided_key = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.strip_prefix("Bearer "))
+            .unwrap_or("");
+        if provided_key != expected_key.as_str() {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "invalid service key" })),
+            ).into_response();
+        }
+    }
+    let result = billing::handle_agent_shutdown(&state, &id, &body.pod_id, &body.shutdown_reason).await;
+    Json(result).into_response()
+}
+
+/// DEPLOY-04: GET /billing/pod/{pod_id}/interrupted
+/// Called by rc-agent on startup to check for and auto-end interrupted sessions.
+/// This endpoint also accepts unauthenticated requests from pods (service key in header).
+async fn interrupted_sessions_handler(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    let result = billing::handle_interrupted_sessions_check(&state, &pod_id).await;
+    Json(result)
 }
 
 async fn pause_billing(
@@ -19374,7 +19427,8 @@ async fn daily_overrides_report(
     // Default to today IST (UTC+5:30)
     let target_date = params.date.unwrap_or_else(|| {
         let now_utc = chrono::Utc::now();
-        let ist_offset = chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+        // east_opt(19800) = UTC+5:30 (IST). 19800 is always valid; fallback to east_opt(0) which is also always valid.
+        let ist_offset = chrono::FixedOffset::east_opt(19800).unwrap_or_else(|| chrono::FixedOffset::east_opt(0).expect("UTC offset 0 is always valid"));
         let now_ist = now_utc.with_timezone(&ist_offset);
         now_ist.format("%Y-%m-%d").to_string()
     });
