@@ -3,21 +3,21 @@ gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
 status: executing
-stopped_at: Completed 258-staff-controls-deployment-safety/258-01-PLAN.md
-last_updated: "2026-03-29T08:52:19.004Z"
+stopped_at: Completed 258-staff-controls-deployment-safety/258-03-PLAN.md
+last_updated: "2026-03-29T09:00:36.227Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 205
   completed_phases: 154
   total_plans: 376
-  completed_plans: 369
+  completed_plans: 370
   percent: 98
 ---
 
 ## Current Position
 
 Phase: 258 (staff-controls-deployment-safety) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-29
 
@@ -78,6 +78,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 257-billing-edge-cases P02 | 45 | 2 tasks | 7 files |
 | Phase 257-billing-edge-cases P03 | 37 | 2 tasks | 5 files |
 | Phase 258-staff-controls-deployment-safety P01 | 22 | 1 tasks | 2 files |
+| Phase 258-staff-controls-deployment-safety P03 | 38 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -170,7 +171,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 
 ## Session Continuity
 
-Stopped at: Completed 258-staff-controls-deployment-safety/258-01-PLAN.md
+Stopped at: Completed 258-staff-controls-deployment-safety/258-03-PLAN.md
 Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
@@ -207,6 +208,16 @@ Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 - BILL-06: DONE (PauseReason enum + recovery_pause_seconds excluded from billable time — 4efc070f)
 - BILL-07: DONE (pause_multiplayer_group + resume_multiplayer_group + crash detection integration — b44071f7)
 - BILL-08: DONE (dispute_requests table + POST /customer/dispute + GET/POST /admin/disputes + approve/deny workflow — f6a3cb76)
+- DEPLOY-02: DONE (Agent graceful shutdown with billing session HTTP notify + sentinel fallback — 74b11b47)
+- DEPLOY-04: DONE (Post-restart sentinel recovery — recover_interrupted_sessions() — 74b11b47)
+- DEPLOY-05: DONE (CoreMessage wrapper + seen_command_ids dedup in ws_handler — c9fa9b2a)
+
+## Decisions (Phase 258 Plan 03)
+
+- CoreMessage wrapper uses serde flatten for backward-compatible command_id addition — old agents parse via bare CoreToAgentMessage fallback
+- INTERRUPTED_SESSION sentinel file protocol: written on shutdown failure, consumed on startup — offline resilience for billing recovery
+- agent-shutdown in public_routes (no JWT) gated by sentry_service_key Bearer header — agents lack staff JWT
+- recover_interrupted_sessions() only runs once per process lifetime after first WS connect — prevents duplicate calls
 
 Ship gate reminder (Unified Protocol v3.1):
 

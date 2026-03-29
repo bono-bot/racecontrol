@@ -72,10 +72,10 @@
 ### Deployment Safety (DEPLOY)
 
 - [ ] **DEPLOY-01**: OTA session drain: pods with active billing sessions defer binary swap until session ends
-- [ ] **DEPLOY-02**: Graceful agent shutdown on SIGTERM: write shutdown_at to session row, trigger partial refund calculation
+- [x] **DEPLOY-02**: Graceful agent shutdown on SIGTERM: write shutdown_at to session row, trigger partial refund calculation
 - [ ] **DEPLOY-03**: Deployment window lock: require manual override for OTA during 6-11 PM on weekends
-- [ ] **DEPLOY-04**: Post-restart session resume: new agent checks DB for interrupted sessions and either resumes or refunds
-- [ ] **DEPLOY-05**: WebSocket message-level idempotency keys (command_id UUID) to prevent stale replay on reconnect
+- [x] **DEPLOY-04**: Post-restart session resume: new agent checks DB for interrupted sessions and either resumes or refunds
+- [x] **DEPLOY-05**: WebSocket message-level idempotency keys (command_id UUID) to prevent stale replay on reconnect
 
 ### Staff Controls (STAFF)
 
@@ -199,10 +199,10 @@ Updated during roadmap creation (2026-03-29).
 | STAFF-04 | Phase 258 | Complete |
 | STAFF-05 | Phase 258 | Pending |
 | DEPLOY-01 | Phase 258 | Pending |
-| DEPLOY-02 | Phase 258 | Pending |
+| DEPLOY-02 | Phase 258 | Complete |
 | DEPLOY-03 | Phase 258 | Pending |
-| DEPLOY-04 | Phase 258 | Pending |
-| DEPLOY-05 | Phase 258 | Pending |
+| DEPLOY-04 | Phase 258 | Complete |
+| DEPLOY-05 | Phase 258 | Complete |
 | FATM-07 | Phase 259 | Pending |
 | FATM-08 | Phase 259 | Pending |
 | FATM-09 | Phase 259 | Pending |
