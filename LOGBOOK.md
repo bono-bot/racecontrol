@@ -31,6 +31,14 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 
 ---
 
+## 2026-03-29
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| Mar 29 12:38 IST | James | `531ba6e3` | feat(257-02): BILL-01 agent-side inactivity detection — InactivityMonitor struct (7 tests), event_loop tick + telemetry record_input, ws_handler BillingStarted init + BillingStopped/SessionEnded reset. One-shot alert after 600s idle, sends AgentMessage::InactivityAlert. |
+| Mar 29 12:42 IST | James | `a0d8cdd6` | feat(257-02 BILL-02): Countdown overlay in lock_screen.rs — /countdown-warning HTTP endpoint, yellow at 5min/red at 1min, position:fixed overlay, JS countdown, Arc<Mutex> state. 5 new lock_screen tests. |
+| Mar 29 12:45 IST | James | `e640c23e` | docs(257-02): 257-02-SUMMARY.md, STATE advanced to plan 03, REQUIREMENTS BILL-01+BILL-02 marked complete |
+
 ## 2026-03-28
 
 | Timestamp | Author | Commit | Summary |
