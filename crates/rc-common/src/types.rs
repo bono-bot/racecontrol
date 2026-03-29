@@ -111,6 +111,10 @@ pub struct PodInfo {
     /// Whether freedom mode is active (all restrictions lifted, monitoring only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freedom_mode: Option<bool>,
+    /// RESIL-08: ISO-8601 UTC timestamp from agent clock, sent on every heartbeat.
+    /// Server compares against Utc::now() to detect clock drift > 5s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_timestamp: Option<String>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────
@@ -182,6 +186,11 @@ pub struct TelemetryFrame {
     pub rpm: u32,
     pub position: Option<Position3D>,
     pub session_time_ms: u32,
+
+    /// Phase 251: Current lap ID for telemetry sample persistence.
+    /// Stamped by rc-agent before sending; None means pre-lap data (discarded by server).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lap_id: Option<String>,
 
     // F1-specific telemetry (optional — only populated by F1 adapter)
     #[serde(default, skip_serializing_if = "Option::is_none")]

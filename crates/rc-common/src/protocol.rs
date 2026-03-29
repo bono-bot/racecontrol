@@ -378,6 +378,17 @@ pub enum AgentMessage {
         idle_seconds: u64,
     },
 
+    /// RESIL-04: Agent detected a USB hardware device disconnect (wheelbase, pedals, etc).
+    /// Sent once when the device transitions from connected → disconnected.
+    /// Server should pause billing and send a WhatsApp alert.
+    HardwareDisconnect {
+        pod_id: String,
+        /// Device type: "wheelbase", "pedals", etc.
+        device: String,
+        /// ISO-8601 UTC timestamp of the disconnect detection.
+        timestamp: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -973,6 +984,20 @@ pub enum DashboardEvent {
         driver_name: String,
         session_id: String,
         reason: String,
+    },
+
+    /// Phase 254: A track record or personal best was broken.
+    /// Broadcast for real-time leaderboard updates on connected dashboard/PWA clients.
+    RecordBroken {
+        /// "track_record" or "personal_best"
+        record_type: String,
+        track: String,
+        car: String,
+        sim_type: String,
+        driver_name: String,
+        lap_time_ms: i64,
+        previous_time_ms: Option<i64>,
+        driver_id: String,
     },
 
     /// Phase 206: A sentinel file was created or deleted on a pod.

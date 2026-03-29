@@ -361,6 +361,21 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     write_assists_ini(params)?;
     write_apps_preset()?;
 
+    // RESIL-07: Fresh controls.ini every session — no FFB leakage from previous sessions.
+    // Write a clean baseline; set_ffb() then overwrites GAIN with the requested preset.
+    {
+        let controls_path = dirs_next::document_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+            .join("Assetto Corsa")
+            .join("cfg")
+            .join("controls.ini");
+        if let Err(e) = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n") {
+            tracing::warn!(target: LOG_TARGET, "RESIL-07: Failed to write fresh controls.ini: {}", e);
+        } else {
+            tracing::info!(target: LOG_TARGET, "RESIL-07: Fresh controls.ini written (pre-FFB reset)");
+        }
+    }
+
     // Step 2b: Set FFB strength
     set_ffb(&params.ffb)?;
 

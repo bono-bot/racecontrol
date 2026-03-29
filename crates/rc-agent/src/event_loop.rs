@@ -126,6 +126,8 @@ pub(crate) struct ConnectionState {
     pub(crate) seen_command_ids: std::collections::HashMap<String, std::time::Instant>,
     /// DEPLOY-05: Tick counter for periodic cleanup of seen_command_ids (every 60s).
     pub(crate) dedup_cleanup_ticks: u32,
+    /// RESIL-04: Track previous wheelbase connection state to detect disconnects.
+    pub(crate) prev_wheelbase_connected: bool,
 }
 
 impl ConnectionState {
@@ -171,6 +173,7 @@ impl ConnectionState {
             current_lap_id: None,
             seen_command_ids: std::collections::HashMap::new(),
             dedup_cleanup_ticks: 0,
+            prev_wheelbase_connected: true, // Intentional default: assume connected at start to avoid false disconnect on first heartbeat
         }
     }
 }
@@ -213,6 +216,25 @@ pub async fn run(
                     state.lock_screen.clear();
                 }
 
+                // RESIL-04: Detect wheelbase USB disconnect
+                let now_connected = state.detector.is_hid_connected();
+                if conn.prev_wheelbase_connected && !now_connected {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "RESIL-04: Wheelbase USB disconnected on pod {}",
+                        state.pod_info.id
+                    );
+                    let disconnect_msg = AgentMessage::HardwareDisconnect {
+                        pod_id: state.pod_info.id.clone(),
+                        device: "wheelbase".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                    };
+                    if let Ok(json) = serde_json::to_string(&disconnect_msg) {
+                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                    }
+                }
+                conn.prev_wheelbase_connected = now_connected;
+
                 let hb = AgentMessage::Heartbeat(PodInfo {
                     status: PodStatus::Idle,
                     last_seen: Some(Utc::now()),
@@ -222,6 +244,8 @@ pub async fn run(
                     screen_blanked: Some(state.lock_screen.is_blanked()),
                     ffb_preset: Some(conn.last_ffb_preset.clone()),
                     freedom_mode: Some(state.kiosk.is_freedom_mode()),
+                    // RESIL-08: Include agent clock timestamp for server-side drift detection
+                    agent_timestamp: Some(Utc::now().to_rfc3339()),
                     ..state.pod_info.clone()
                 });
                 let json = serde_json::to_string(&hb)?;

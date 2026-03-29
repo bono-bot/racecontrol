@@ -674,6 +674,7 @@ async fn main() -> Result<()> {
         screen_blanked: None,
         ffb_preset: None,
         freedom_mode: None,
+        agent_timestamp: None, // Populated per-heartbeat in event_loop.rs
     };
 
     // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)
