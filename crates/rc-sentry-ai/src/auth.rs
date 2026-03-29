@@ -32,7 +32,11 @@ pub async fn require_service_key(
 
     match expected_key {
         Some(config) if config.key.is_some() => {
-            let expected = config.key.as_ref().unwrap();
+            // Safety: is_some() check above guarantees unwrap won't panic
+            let expected = match config.key.as_ref() {
+                Some(k) => k,
+                None => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            };
             let provided = req.headers().get("x-service-key").and_then(|v| v.to_str().ok());
 
             match provided {
