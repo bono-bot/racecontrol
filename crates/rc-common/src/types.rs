@@ -1006,6 +1006,7 @@ mod tests {
             sim_type: SimType::AssettoCorsaRally,
             launch_args: Some("{\"track\":\"rally_stage_1\"}".to_string()),
             force_clean: false,
+            duration_minutes: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("assetto_corsa_rally"));
@@ -1022,6 +1023,7 @@ mod tests {
             sim_type: SimType::ForzaHorizon5,
             launch_args: None,
             force_clean: false,
+            duration_minutes: None,
         };
         let json2 = serde_json::to_string(&msg2).unwrap();
         assert!(json2.contains("forza_horizon_5"));
