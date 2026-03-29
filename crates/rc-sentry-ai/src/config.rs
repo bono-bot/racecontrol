@@ -26,6 +26,10 @@ pub struct Config {
 pub struct ServiceConfig {
     pub port: u16,
     pub host: String,
+    /// M1-SEC: Service key for authenticating API requests.
+    /// All endpoints except /health and /api/v1/privacy/consent require this.
+    #[serde(default)]
+    pub service_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

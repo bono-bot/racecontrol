@@ -1,5 +1,6 @@
 mod alerts;
 mod attendance;
+mod auth;
 mod config;
 mod detection;
 mod enrollment;
@@ -341,6 +342,16 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // M1-SEC: Add service key auth middleware to all routes
+    let service_key_config = crate::auth::ServiceKeyConfig {
+        key: config.service.service_key.clone(),
+    };
+    if service_key_config.key.is_some() {
+        tracing::info!("Service key authentication ENABLED");
+    } else {
+        tracing::warn!("Service key authentication DISABLED — set [service].service_key in config");
+    }
+
     let app = health::health_router(state)
         .merge(health::privacy_router(Arc::new(privacy::deletion::PrivacyState {
             audit: audit_writer.clone(),
@@ -350,7 +361,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(enrollment::routes::enrollment_router(enrollment_state))
         .merge(attendance::routes::attendance_router(attendance_state))
         .merge(alerts::ws::alerts_router(alert_ws_state))
-        .merge(mjpeg::mjpeg_router(mjpeg_state));
+        .merge(mjpeg::mjpeg_router(mjpeg_state))
+        .layer(axum::Extension(service_key_config))
+        .layer(axum::middleware::from_fn(crate::auth::require_service_key));
 
     // Conditionally add playback routes
     let app = if let Some(ps) = playback_state {
