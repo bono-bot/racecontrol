@@ -87,8 +87,8 @@
 
 ### Billing Edge Cases (BILL)
 
-- [ ] **BILL-01**: Inactivity detection: flag sessions with no input/lap progress for N minutes; alert staff
-- [ ] **BILL-02**: Session countdown: persistent on-screen timer with yellow (5 min) and red (1 min) warnings
+- [x] **BILL-01**: Inactivity detection: flag sessions with no input/lap progress for N minutes; alert staff
+- [x] **BILL-02**: Session countdown: persistent on-screen timer with yellow (5 min) and red (1 min) warnings
 - [x] **BILL-03**: PWA game-request timeout: 10-minute server-side TTL; auto-expire with customer notification
 - [x] **BILL-04**: Extension pricing rule documented and enforced: extensions use current tier effective rate
 - [x] **BILL-05**: Billing start-time defined: timer starts when game reaches Running state, not on staff click
@@ -185,8 +185,8 @@ Updated during roadmap creation (2026-03-29).
 | GAME-06 | Phase 256 | Complete |
 | GAME-07 | Phase 256 | Complete |
 | GAME-08 | Phase 256 | Complete |
-| BILL-01 | Phase 257 | Pending |
-| BILL-02 | Phase 257 | Pending |
+| BILL-01 | Phase 257 | Complete |
+| BILL-02 | Phase 257 | Complete |
 | BILL-03 | Phase 257 | Complete |
 | BILL-04 | Phase 257 | Complete |
 | BILL-05 | Phase 257 | Complete |
