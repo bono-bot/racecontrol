@@ -15,10 +15,10 @@
 - [x] **Phase 254: Security Hardening** — INI injection whitelist, FFB cap, PIN CAS, RBAC, audit log, OTP hashing, WSS, agent mutex
 - [x] **Phase 255: Legal Compliance** — GST separation, invoice generation, waiver gate, minor consent flow, data retention
 - [x] **Phase 256: Game-Specific Hardening** — Steam checks, process name corrections, Forza enforcer, AC EVO adapter, iRacing check, DLC check
-- [ ] **Phase 257: Billing Edge Cases** — Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
-- [ ] **Phase 258: Staff Controls & Deployment Safety** — Discount approval flow, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
-- [ ] **Phase 259: Coupon & Discount System** — Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
-- [ ] **Phase 260: Notifications, Resilience & UX** — Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
+- [x] **Phase 257: Billing Edge Cases** — Inactivity detection, countdown warnings, PWA timeout, extension pricing, billing start-time, recovery exclusion, multiplayer billing, dispute portal
+- [x] **Phase 258: Staff Controls & Deployment Safety** — Discount approval flow, self-service block, daily reports, shift handoff, OTA session drain, graceful shutdown, deploy window lock
+- [x] **Phase 259: Coupon & Discount System** — Extension atomicity, coupon lifecycle FSM, restoration on cancel, stacking floor, payment gateway idempotency
+- [x] **Phase 260: Notifications, Resilience & UX** — Notification outbox, OTP fallback, customer receipt, leaderboard integrity, lap evidence, hardware heartbeat, anomaly detection, clock sync, queue management
 
 ---
 
