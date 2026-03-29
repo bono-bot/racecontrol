@@ -343,9 +343,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // M1-SEC: Add service key auth middleware to all routes
-    let service_key_config = crate::auth::ServiceKeyConfig {
+    // MMA fix: use from_fn_with_state (not Extension) to avoid layer ordering bypass
+    let service_key_config = Arc::new(crate::auth::ServiceKeyConfig {
         key: config.service.service_key.clone(),
-    };
+    });
     if service_key_config.key.is_some() {
         tracing::info!("Service key authentication ENABLED");
     } else {
@@ -362,8 +363,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(attendance::routes::attendance_router(attendance_state))
         .merge(alerts::ws::alerts_router(alert_ws_state))
         .merge(mjpeg::mjpeg_router(mjpeg_state))
-        .layer(axum::Extension(service_key_config))
-        .layer(axum::middleware::from_fn(crate::auth::require_service_key));
+        .layer(axum::middleware::from_fn_with_state(
+            service_key_config, crate::auth::require_service_key,
+        ));
 
     // Conditionally add playback routes
     let app = if let Some(ps) = playback_state {

@@ -4,8 +4,9 @@
 //! Service key must be set in rc-sentry-ai.toml under [service].service_key.
 //! Clients pass it as X-Service-Key header.
 
+use std::sync::Arc;
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::StatusCode,
     middleware::Next,
     response::Response,
@@ -14,9 +15,17 @@ use axum::{
 /// Public paths that don't require authentication.
 const PUBLIC_PATHS: &[&str] = &["/health", "/api/v1/privacy/consent"];
 
+/// Service key config — passed via State, not Extension (avoids layer ordering bugs).
+#[derive(Clone)]
+pub struct ServiceKeyConfig {
+    pub key: Option<String>,
+}
+
 /// Middleware that checks X-Service-Key header against configured service key.
-/// If no service_key is configured, all requests are allowed (backwards compat warning).
+/// Uses from_fn_with_state to capture config via State extractor (not Extension).
+/// MMA fix: Extension-based config had silent bypass if layers ordered wrong.
 pub async fn require_service_key(
+    State(config): State<Arc<ServiceKeyConfig>>,
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -27,16 +36,8 @@ pub async fn require_service_key(
         return Ok(next.run(req).await);
     }
 
-    // Extract configured service key from request extensions
-    let expected_key = req.extensions().get::<ServiceKeyConfig>();
-
-    match expected_key {
-        Some(config) if config.key.is_some() => {
-            // Safety: is_some() check above guarantees unwrap won't panic
-            let expected = match config.key.as_ref() {
-                Some(k) => k,
-                None => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-            };
+    match &config.key {
+        Some(expected) => {
             let provided = req.headers().get("x-service-key").and_then(|v| v.to_str().ok());
 
             match provided {
@@ -51,8 +52,7 @@ pub async fn require_service_key(
                 }
             }
         }
-        _ => {
-            // No service key configured — warn but allow (first-run compatibility)
+        None => {
             tracing::warn!(
                 path = %path,
                 "rc-sentry-ai: no service_key configured — allowing unauthenticated request"
@@ -60,10 +60,4 @@ pub async fn require_service_key(
             Ok(next.run(req).await)
         }
     }
-}
-
-/// Extension type to pass service key config into middleware.
-#[derive(Clone)]
-pub struct ServiceKeyConfig {
-    pub key: Option<String>,
 }
