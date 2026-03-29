@@ -1218,20 +1218,32 @@ async fn ws_exec_pod(
     let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
 
     // SEC-P0-10: Block dangerous command patterns (shell injection prevention)
-    let cmd_lower = cmd.to_lowercase();
+    // MMA iter2: normalize cmd before checking — strip carets (^), collapse whitespace,
+    // resolve .exe suffixes, and check for pwsh/wscript/mshta/rundll32
+    let cmd_normalized: String = cmd
+        .replace('^', "")           // strip Windows cmd.exe escape chars
+        .replace('\t', " ")         // tabs to spaces
+        .to_lowercase();
+    // Collapse multiple spaces to single
+    let cmd_collapsed: String = cmd_normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+
     const BLOCKED_PATTERNS: &[&str] = &[
         "net user", "net localgroup", "reg add", "reg delete",
-        "powershell -e", "powershell -enc", "iex(", "invoke-expression",
+        "powershell -e", "powershell -enc", "powershell.exe -e", "powershell.exe -enc",
+        "pwsh -e", "pwsh -enc", "pwsh -c", "pwsh.exe",
+        "iex(", "invoke-expression",
         "downloadstring", "downloadfile", "new-object net.webclient",
-        "certutil -urlcache", "bitsadmin /transfer",
+        "certutil -urlcache", "certutil -decode", "bitsadmin",
         "format c:", "rd /s /q c:", "del /s /q c:",
         "schtasks /create", "schtasks /change",
         "sc create", "sc config",
         "netsh advfirewall", "netsh firewall",
         "wmic process call create",
+        "mshta", "wscript", "cscript", "regsvr32",
+        "rundll32", "net.exe user", "net1 user", "net1.exe",
     ];
     for pattern in BLOCKED_PATTERNS {
-        if cmd_lower.contains(pattern) {
+        if cmd_collapsed.contains(pattern) {
             tracing::warn!(
                 pod_id = %id, cmd = %cmd,
                 "SEC-P0-10: Blocked dangerous command pattern: {}", pattern
