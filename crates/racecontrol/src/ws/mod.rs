@@ -1528,7 +1528,22 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
     // Forward broadcast events to this dashboard client (filter non-physical pods)
     let send_task = tokio::spawn(async move {
+        // Phase 254: Debounce RecordBroken broadcasts — max 1 per second per (track, sim_type)
+        let mut record_debounce: HashMap<(String, String), Instant> = HashMap::new();
+
         while let Ok(event) = rx.recv().await {
+            // Phase 254: Debounce RecordBroken events per (track, sim_type) — max 1/sec
+            if let DashboardEvent::RecordBroken { ref track, ref sim_type, .. } = event {
+                let key = (track.clone(), sim_type.clone());
+                let now = Instant::now();
+                if let Some(last) = record_debounce.get(&key) {
+                    if now.duration_since(*last).as_secs() < 1 {
+                        continue;
+                    }
+                }
+                record_debounce.insert(key, now);
+            }
+
             // Skip PodUpdate for non-physical pods (e.g. POS PC registering as pod 9)
             let filtered = match &event {
                 DashboardEvent::PodUpdate(pod) if pod.number < 1 || pod.number > 8 => continue,
@@ -1629,7 +1644,8 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                             let deploy_state = Arc::clone(&cmd_state);
                             let deploy_url = binary_url.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = crate::deploy::deploy_rolling(deploy_state, deploy_url).await {
+                                // Dashboard-initiated deploy: no force override (DEPLOY-03), actor="dashboard"
+                                if let Err(e) = crate::deploy::deploy_rolling(deploy_state, deploy_url, false, "dashboard").await {
                                     tracing::error!("Rolling deploy via dashboard failed: {}", e);
                                 }
                             });

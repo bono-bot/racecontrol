@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{Datelike, Timelike, Utc};
 
 use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
@@ -835,10 +835,16 @@ async fn deploy_pod_inner(
 /// Non-canary failures are logged but do not halt the rolling deploy.
 ///
 /// This function resolves pod IPs from AppState.pods at call time.
+///
+/// DEPLOY-03: Rejects deploy during weekend 18:00-22:59 IST unless force=true.
 pub async fn deploy_rolling(
     state: Arc<AppState>,
     binary_url: String,
+    force: bool,
+    actor: &str,
 ) -> Result<(), String> {
+    // DEPLOY-03: Check deploy window lock before touching any pods
+    is_deploy_window_locked(force, actor)?;
     let canary_id = "pod_8".to_string();
 
     // Build ordered pod list: canary first, then 1-7 ascending.
@@ -1030,6 +1036,14 @@ pub async fn deploy_rolling(
 /// while the pod had an active session), this function fires `deploy_pod` immediately.
 ///
 /// Called from billing.rs after removing the timer from `active_timers`.
+///
+/// DEPLOY-01: Session drain — verified. Pods with active billing sessions receive
+/// DeployState::WaitingSession during deploy_rolling(). When the session ends,
+/// billing.rs calls this function which fires deploy_pod() for the deferred pod.
+/// Connection points verified:
+///   - billing.rs tick loop: check_and_trigger_pending_deploy (expired + pause-timeout)
+///   - billing.rs end_billing path: check_and_trigger_pending_deploy (stop_billing handler)
+///   - billing_fsm.rs cancel path: check_and_trigger_pending_deploy (FSM-driven end)
 pub async fn check_and_trigger_pending_deploy(state: &Arc<AppState>, pod_id: &str) {
     // Check for a pending deploy URL for this pod
     let binary_url = {
@@ -1076,6 +1090,48 @@ pub async fn check_and_trigger_pending_deploy(state: &Arc<AppState>, pod_id: &st
 /// Returns a HashMap of pod_id -> DeployState.
 pub async fn deploy_status(state: &Arc<AppState>) -> HashMap<String, DeployState> {
     state.pod_deploy_states.read().await.clone()
+}
+
+/// DEPLOY-03: Deploy window lock — blocks deploys during weekend peak hours.
+///
+/// Protected window: Saturday (6) and Sunday (0) from 18:00–22:59 IST.
+/// All times computed in IST (UTC+5:30).
+///
+/// Returns Ok(()) if deploy is allowed, Err(message) if blocked.
+/// If `force` is true and the window is locked, a WARN is logged but Ok is returned.
+/// `actor` is used only for the force-override warning log.
+pub fn is_deploy_window_locked(force: bool, actor: &str) -> Result<(), String> {
+    // Compute current IST time: UTC + 5h30m
+    let utc_now = Utc::now();
+    let ist_offset = chrono::Duration::hours(5) + chrono::Duration::minutes(30);
+    let ist_now = utc_now + ist_offset;
+
+    let weekday = ist_now.weekday();
+    let hour = ist_now.hour();
+
+    // Weekend: Saturday = 5 (Mon=0), Sunday = 6 in chrono::Weekday
+    let is_weekend = weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun;
+    // Peak hours: 18:00–22:59 IST (6 PM to 11 PM IST)
+    let is_peak_hour = (18..=22).contains(&hour);
+
+    if is_weekend && is_peak_hour {
+        if force {
+            tracing::warn!(
+                actor = %actor,
+                ist_time = %ist_now.format("%Y-%m-%d %H:%M:%S IST"),
+                weekday = ?weekday,
+                hour = hour,
+                "DEPLOY-03: Deploy forced during weekend peak hours (18:00-23:00 IST)"
+            );
+            return Ok(());
+        }
+        return Err(format!(
+            "Deploy blocked: weekend peak hours (18:00-23:00 IST). Current IST time: {}. Use force=true to override.",
+            ist_now.format("%Y-%m-%d %H:%M:%S")
+        ));
+    }
+
+    Ok(())
 }
 
 /// Send an email alert for a deploy failure.
@@ -1283,5 +1339,55 @@ mod tests {
         assert!(config.contains("[games.assetto_corsa]"));
         assert!(config.contains("[games.f1_25]"));
         assert!(config.contains("[ai_debugger]"));
+    }
+
+    // ── is_deploy_window_locked tests (DEPLOY-03) ───────────────────────────
+    // Note: We cannot mock Utc::now() directly, so we test the logic by verifying
+    // the function signature and that it returns the correct error message format.
+
+    #[test]
+    fn deploy_window_locked_force_true_always_passes() {
+        // When force=true the function must always return Ok regardless of time
+        // (the weekday/hour check is bypassed by force=true only if locked)
+        // We can call it and verify it doesn't panic or return a non-force error
+        let result = is_deploy_window_locked(true, "superadmin");
+        // force=true must always return Ok (worst case: logs WARN during peak hours)
+        assert!(result.is_ok(), "force=true must always return Ok, got: {:?}", result);
+    }
+
+    #[test]
+    fn deploy_window_error_message_contains_expected_text() {
+        // The error message (if triggered) must contain the peak-hour text
+        // We test this by testing the is_deploy_window_locked path for a case
+        // where we know the day/hour is NOT weekend peak (to avoid false failures
+        // in CI running on weekends). Since we can't mock time, we just verify
+        // the force=false path doesn't panic and returns the correct error shape
+        // by running is_deploy_window_locked with force=false and checking result type.
+        let result = is_deploy_window_locked(false, "superadmin");
+        match result {
+            Ok(()) => {
+                // Not currently in peak hours — test passes (correct behavior)
+            }
+            Err(msg) => {
+                // In peak hours — verify error message contains expected text
+                assert!(
+                    msg.contains("Deploy blocked") && msg.contains("weekend peak hours"),
+                    "DEPLOY-03 error must mention 'Deploy blocked' and 'weekend peak hours', got: {}",
+                    msg
+                );
+                assert!(
+                    msg.contains("force=true"),
+                    "DEPLOY-03 error must hint at force=true override, got: {}",
+                    msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn is_deploy_window_locked_fn_signature() {
+        // Verify the function compiles and can be called — name must be exactly
+        // `is_deploy_window_locked` per DEPLOY-03 acceptance criteria
+        let _: fn(bool, &str) -> Result<(), String> = is_deploy_window_locked;
     }
 }

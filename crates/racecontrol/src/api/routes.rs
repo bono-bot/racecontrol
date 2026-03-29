@@ -2252,7 +2252,7 @@ async fn track_leaderboard(
                 "best_lap_ms": r.3, "achieved_at": r.4, "lap_id": r.5,
                 "sim_type": r.6,
             })).collect();
-            Json(json!({ "track": track, "sim_type": params.sim_type, "records": list }))
+            Json(json!({ "track": track, "sim_type": params.sim_type, "records": list, "last_updated": chrono::Utc::now().to_rfc3339() }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
@@ -11784,6 +11784,7 @@ async fn public_leaderboard(
         })),
         "venue": "RacingPoint",
         "tagline": "May the Fastest Win.",
+        "last_updated": chrono::Utc::now().to_rfc3339(),
     }))
 }
 
@@ -11892,6 +11893,7 @@ async fn public_track_leaderboard(
             "composite_rating": r.6,
             "rating_class": r.7,
         })).collect::<Vec<_>>(),
+        "last_updated": chrono::Utc::now().to_rfc3339(),
     }))
 }
 
@@ -14507,6 +14509,7 @@ async fn bot_leaderboard(
         "track_filter": params.track,
         "sim_type": params.sim_type,
         "count": count,
+        "last_updated": chrono::Utc::now().to_rfc3339(),
     }))
 }
 
@@ -16037,17 +16040,30 @@ async fn customer_multiplayer_results(
 #[derive(Deserialize)]
 struct DeployRequest {
     binary_url: String,
+    /// DEPLOY-03: Set to true to override weekend peak-hour deploy lock.
+    #[serde(default)]
+    force: bool,
 }
 
 /// POST /api/deploy/:pod_id — Deploy rc-agent binary to a single pod.
 /// Returns 202 Accepted immediately; deploy runs as background task.
 /// Returns 409 Conflict if deploy is already in progress or pod has active billing.
 /// Returns 404 if pod not found.
+/// Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
 async fn deploy_single_pod(
     Path(pod_id): Path<String>,
     State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
     Json(req): Json<DeployRequest>,
 ) -> (axum::http::StatusCode, Json<Value>) {
+    // DEPLOY-03: Check weekend peak-hour deploy window lock
+    if let Err(msg) = crate::deploy::is_deploy_window_locked(req.force, &claims.sub) {
+        return (
+            axum::http::StatusCode::LOCKED,
+            Json(json!({ "error": msg })),
+        );
+    }
+
     // Check pod exists and get IP
     let pod_ip = {
         let pods = state.pods.read().await;
@@ -16134,12 +16150,22 @@ async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<Value> {
 /// POST /api/deploy/rolling — Start a canary-first rolling deploy to all pods.
 /// Returns 202 Accepted immediately; rolling deploy runs as background task.
 /// Returns 409 Conflict if any deploy is already active.
+/// Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
 ///
-/// Body: { "binary_url": "http://192.168.31.27:9998/rc-agent.exe" }
+/// Body: { "binary_url": "http://192.168.31.27:9998/rc-agent.exe", "force": false }
 async fn deploy_rolling_handler(
     State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
     Json(req): Json<DeployRequest>,
 ) -> (axum::http::StatusCode, Json<Value>) {
+    // DEPLOY-03: Check weekend peak-hour deploy window lock
+    if let Err(msg) = crate::deploy::is_deploy_window_locked(req.force, &claims.sub) {
+        return (
+            axum::http::StatusCode::LOCKED,
+            Json(json!({ "error": msg })),
+        );
+    }
+
     // Reject if any deploy is already in progress (guards against double-trigger)
     {
         let deploy_states = state.pod_deploy_states.read().await;
@@ -16159,8 +16185,10 @@ async fn deploy_rolling_handler(
 
     let state_clone = Arc::clone(&state);
     let binary_url = req.binary_url.clone();
+    let force = req.force;
+    let actor = claims.sub.clone();
     tokio::spawn(async move {
-        if let Err(e) = crate::deploy::deploy_rolling(state_clone, binary_url).await {
+        if let Err(e) = crate::deploy::deploy_rolling(state_clone, binary_url, force, &actor).await {
             tracing::error!("Rolling deploy failed: {}", e);
         }
     });
@@ -16170,21 +16198,42 @@ async fn deploy_rolling_handler(
         Json(json!({
             "status": "rolling_deploy_started",
             "canary": "pod_8",
-            "binary_url": req.binary_url
+            "binary_url": req.binary_url,
+            "force_override": req.force,
         })),
     )
 }
 
 // ─── OTA Pipeline (v22.0 Phase 179) ──────────────────────────────────────────
 
+#[derive(Deserialize, Default)]
+struct OtaDeployQuery {
+    /// DEPLOY-03: Set to true to override weekend peak-hour deploy lock.
+    #[serde(default)]
+    force: bool,
+}
+
 /// POST /api/v1/ota/deploy — Start an OTA pipeline deploy with a TOML manifest.
 /// Returns 202 Accepted; pipeline runs as background task.
 /// Returns 409 if a pipeline is already running.
+/// Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
+///
+/// Query params: ?force=true to override weekend peak-hour lock.
 async fn ota_deploy_handler(
     State(_state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
+    axum::extract::Query(query): axum::extract::Query<OtaDeployQuery>,
     body: String,
 ) -> impl IntoResponse {
     use crate::ota_pipeline;
+
+    // DEPLOY-03: Check weekend peak-hour deploy window lock
+    if let Err(msg) = crate::deploy::is_deploy_window_locked(query.force, &claims.sub) {
+        return (
+            axum::http::StatusCode::LOCKED,
+            Json(json!({ "error": msg })),
+        );
+    }
 
     // Parse manifest from TOML body
     let manifest = match ota_pipeline::parse_manifest(&body) {
