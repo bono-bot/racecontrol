@@ -597,11 +597,26 @@ pub async fn gather_business_context(
             .await
             .unwrap_or(0);
 
+    // MMA-#3: Redact exact revenue for external AI providers (Anthropic).
+    // Ollama is venue-local, so full context is safe there.
+    // Use ranges instead of exact figures to preserve diagnostic value.
+    let revenue_today_range = match today_revenue / 100 {
+        0 => "0".to_string(),
+        1..=1000 => "low (<1K)".to_string(),
+        1001..=5000 => "moderate (1K-5K)".to_string(),
+        _ => "high (>5K)".to_string(),
+    };
+    let revenue_week_range = match week_revenue / 100 {
+        0 => "0".to_string(),
+        1..=10000 => "low (<10K)".to_string(),
+        10001..=50000 => "moderate (10K-50K)".to_string(),
+        _ => "high (>50K)".to_string(),
+    };
     ctx.push_str(&format!(
         "Today's sessions: {}\nToday's revenue: {} INR\nThis week's revenue: {} INR\nTotal registered drivers: {}\n\n",
         today_sessions,
-        today_revenue / 100,
-        week_revenue / 100,
+        revenue_today_range,
+        revenue_week_range,
         total_drivers,
     ));
 

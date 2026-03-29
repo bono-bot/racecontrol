@@ -2181,11 +2181,17 @@ pub fn spawn_coupon_ttl_expiry_job(state: Arc<AppState>) {
         tracing::info!("FATM-08: Coupon TTL expiry task started (60s interval, 120s initial delay)");
         loop {
             interval.tick().await;
+            // MMA-#1: Only expire reservations that are NOT linked to an active billing session.
+            // This prevents the TTL job from revoking a coupon mid-checkout while the customer
+            // is actively in a billing session that references this coupon.
             let result = sqlx::query(
                 "UPDATE coupons SET coupon_status = 'available', reserved_at = NULL, \
                  reserved_for_session = NULL \
                  WHERE coupon_status = 'reserved' \
-                 AND reserved_at < datetime('now', '-10 minutes')",
+                 AND reserved_at < datetime('now', '-10 minutes') \
+                 AND (reserved_for_session IS NULL \
+                      OR reserved_for_session NOT IN \
+                          (SELECT id FROM billing_sessions WHERE status IN ('active', 'paused_manual', 'paused_disconnect', 'paused_game_pause', 'waiting_for_game')))",
             )
             .execute(&state.db)
             .await;

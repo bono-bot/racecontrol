@@ -286,4 +286,19 @@ async fn run_nightly_cleanup(pool: &SqlitePool, retention_days: u32) {
             tracing::warn!("TelemetryWriter incremental_vacuum failed: {}", e);
         }
     }
+
+    // MMA-#7: Alert if table is growing unbounded (>10M rows = ~2GB at 200 bytes/row)
+    match sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM telemetry_samples")
+        .fetch_one(pool)
+        .await
+    {
+        Ok((count,)) if count > 10_000_000 => {
+            tracing::error!(
+                "TELEMETRY ALERT: telemetry_samples has {} rows (>10M). \
+                 Nightly cleanup may be failing. Check disk space and retention_days config.",
+                count
+            );
+        }
+        _ => {}
+    }
 }
