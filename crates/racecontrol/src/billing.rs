@@ -2069,21 +2069,35 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                 match cas {
                     Ok(r) if r.rows_affected() > 0 => {
                         tracing::error!("ORPHAN AUTO-END: session {} on {} auto-ended (was zombie for {}+ min)", session_id, pod_id, threshold_minutes);
-                        // Process refund for the zombie session
-                        let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
-                            "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                        // MMA-ITER2: Idempotent orphan refund — use session_id as idempotency key
+                        // to prevent double-refund if two concurrent orphan detectors both trigger
+                        let already_refunded = sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM wallet_transactions WHERE idempotency_key = ?",
                         )
-                        .bind(session_id)
-                        .fetch_optional(&state.db)
+                        .bind(format!("orphan_refund_{}", session_id))
+                        .fetch_one(&state.db)
                         .await
-                        .ok()
-                        .flatten();
-                        if let Some((driver_id, allocated, Some(debit))) = wallet_info {
-                            let refund = crate::billing::compute_refund(allocated, *driving_secs, debit);
-                            if refund > 0 {
-                                match crate::wallet::refund(state, &driver_id, refund, Some(session_id), Some("Orphan auto-end refund")).await {
-                                    Ok(_) => tracing::info!("ORPHAN REFUND: {}p for session {}", refund, session_id),
-                                    Err(e) => tracing::error!("ORPHAN REFUND FAILED: session {} ({}p): {}", session_id, refund, e),
+                        .map(|r| r.0 > 0)
+                        .unwrap_or(false);
+
+                        if already_refunded {
+                            tracing::warn!("ORPHAN REFUND SKIPPED: session {} already refunded (idempotency guard)", session_id);
+                        } else {
+                            let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
+                                "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                            )
+                            .bind(session_id)
+                            .fetch_optional(&state.db)
+                            .await
+                            .ok()
+                            .flatten();
+                            if let Some((driver_id, allocated, Some(debit))) = wallet_info {
+                                let refund = crate::billing::compute_refund(allocated, *driving_secs, debit);
+                                if refund > 0 {
+                                    match crate::wallet::credit(state, &driver_id, refund, "refund_session", Some(session_id), Some("Orphan auto-end refund"), Some(&format!("orphan_refund_{}", session_id))).await {
+                                        Ok(_) => tracing::info!("ORPHAN REFUND: {}p for session {}", refund, session_id),
+                                        Err(e) => tracing::error!("ORPHAN REFUND FAILED: session {} ({}p): {}", session_id, refund, e),
+                                    }
                                 }
                             }
                         }

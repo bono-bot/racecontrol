@@ -1306,8 +1306,8 @@ async fn ws_exec_pod(
         tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked FOR loop command");
         return Json(json!({ "error": "Command blocked: FOR loops not allowed" }));
     }
-    // ITER1-#2: Block PowerShell encoded commands
-    if cmd_lower.contains("-enc ") || cmd_lower.contains("-encodedcommand") || cmd_lower.contains("-e ") && cmd_lower.contains("powershell") {
+    // ITER1-#2 + ITER2: Block PowerShell encoded commands (including partial params -e, -ec, -en)
+    if cmd_lower.contains("-encodedcommand") || cmd_lower.contains("-enc ") || cmd_lower.contains("-en ") || cmd_lower.contains("-ec ") || cmd_lower.contains("-e ") && cmd_lower.contains("powershell") {
         tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked encoded command");
         return Json(json!({ "error": "Command blocked: encoded commands not allowed" }));
     }
