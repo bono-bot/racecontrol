@@ -77,3 +77,18 @@ Write-Host "Blocked: All other 192.168.31.0/24 addresses"
 Write-Host ""
 Write-Host "To verify: Get-NetFirewallRule -DisplayName 'RP-VLAN-*' | Format-Table"
 Write-Host "To remove: Get-NetFirewallRule -DisplayName 'RP-VLAN-*' | Remove-NetFirewallRule"
+
+# MMA-ITER1-#8 (5/8): Persist firewall rules across reboots via scheduled task
+$taskName = "RP-Firewall-Rules"
+$scriptPath = "C:\RacingPoint\pod-firewall-rules.ps1"
+$taskExists = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if (-not $taskExists) {
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Racing Point firewall rules (VLAN compensator)" | Out-Null
+    Write-Host "Scheduled task '$taskName' created — firewall rules will persist across reboots"
+} else {
+    Write-Host "Scheduled task '$taskName' already exists — firewall persistence OK"
+}

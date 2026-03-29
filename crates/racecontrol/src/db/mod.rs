@@ -1142,7 +1142,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS wallets (
             driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
-            balance_paise INTEGER NOT NULL DEFAULT 0,
+            balance_paise INTEGER NOT NULL DEFAULT 0 CHECK(balance_paise >= 0),
             total_credited_paise INTEGER NOT NULL DEFAULT 0,
             total_debited_paise INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT DEFAULT (datetime('now'))
@@ -1150,6 +1150,10 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+    // MMA-ITER1-#12 (8/8): Add CHECK constraint for existing tables (ALTER TABLE can't add CHECK in SQLite,
+    // but the CREATE TABLE IF NOT EXISTS with CHECK will apply to new databases. For existing DBs,
+    // the app-level guard in debit_in_tx() WHERE balance_paise >= amount is the enforcement layer.)
+
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS wallet_transactions (

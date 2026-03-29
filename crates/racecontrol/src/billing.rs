@@ -2058,13 +2058,49 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                 );
                 details.push(format!("{} on {} ({}s)", session_id, pod_id, driving_secs));
 
-                // Flag in DB for audit trail
-                let _ = sqlx::query(
-                    "UPDATE billing_sessions SET end_reason = 'orphan_flagged_background' WHERE id = ? AND end_reason IS NULL",
+                // MMA-ITER1-NEW1: Auto-end zombie sessions (not just flag)
+                // CAS guard prevents double-end if another path already finalized
+                let cas = sqlx::query(
+                    "UPDATE billing_sessions SET status = 'ended_early', end_reason = 'orphan_auto_ended_background', ended_at = datetime('now') WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
                 )
                 .bind(session_id)
                 .execute(&state.db)
                 .await;
+                match cas {
+                    Ok(r) if r.rows_affected() > 0 => {
+                        tracing::error!("ORPHAN AUTO-END: session {} on {} auto-ended (was zombie for {}+ min)", session_id, pod_id, threshold_minutes);
+                        // Process refund for the zombie session
+                        let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
+                            "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                        )
+                        .bind(session_id)
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten();
+                        if let Some((driver_id, allocated, Some(debit))) = wallet_info {
+                            let refund = crate::billing::compute_refund(allocated, *driving_secs, debit);
+                            if refund > 0 {
+                                match crate::wallet::refund(state, &driver_id, refund, Some(session_id), Some("Orphan auto-end refund")).await {
+                                    Ok(_) => tracing::info!("ORPHAN REFUND: {}p for session {}", refund, session_id),
+                                    Err(e) => tracing::error!("ORPHAN REFUND FAILED: session {} ({}p): {}", session_id, refund, e),
+                                }
+                            }
+                        }
+                        // Remove from in-memory timers if still present
+                        let mut timers = state.billing.active_timers.write().await;
+                        timers.retain(|_, t| t.session_id != *session_id);
+                    }
+                    _ => {
+                        // Already finalized by another path — just flag
+                        let _ = sqlx::query(
+                            "UPDATE billing_sessions SET end_reason = 'orphan_flagged_background' WHERE id = ? AND end_reason IS NULL",
+                        )
+                        .bind(session_id)
+                        .execute(&state.db)
+                        .await;
+                    }
+                }
             }
 
             // Alert staff via WhatsApp

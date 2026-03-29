@@ -1285,18 +1285,39 @@ async fn ws_exec_pod(
     //   1. Strip ^ (cmd.exe escape), collapse whitespace, lowercase
     //   2. Strip .exe/.com suffixes from binary names so sc.exe = sc
     //   3. Block dangerous BINARIES (not just command+args patterns)
-    // MMA-R2-2: Block env var expansion bypass (%COMSPEC%, %SYSTEMROOT%\system32\cmd, $env:)
+    // MMA-R2-2 + ITER1-#1/#2/#3: Block env var expansion, FOR loops, -enc, ADS, substring
     let cmd_lower = cmd.to_lowercase();
+    // Block env var patterns
     if cmd_lower.contains('%') || cmd_lower.contains("$env:") {
-        // Check for env var patterns that could expand to blocked binaries
         let has_env_bypass = cmd_lower.contains("%comspec%")
             || cmd_lower.contains("%systemroot%")
             || cmd_lower.contains("%windir%")
             || cmd_lower.contains("%temp%")
-            || cmd_lower.contains("$env:");
+            || cmd_lower.contains("$env:")
+            // ITER1-#1: Block substring expansion %var:~0,3%
+            || cmd_lower.contains(":~");
         if has_env_bypass {
-            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked env var expansion bypass");
+            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked env var/substring expansion bypass");
             return Json(json!({ "error": "Command blocked: environment variable expansion not allowed" }));
+        }
+    }
+    // ITER1-#1: Block FOR /F loops (cmd shell command injection)
+    if cmd_lower.contains("for /f") || cmd_lower.contains("for /l") || cmd_lower.contains("for /d") || cmd_lower.contains("for /r") {
+        tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked FOR loop command");
+        return Json(json!({ "error": "Command blocked: FOR loops not allowed" }));
+    }
+    // ITER1-#2: Block PowerShell encoded commands
+    if cmd_lower.contains("-enc ") || cmd_lower.contains("-encodedcommand") || cmd_lower.contains("-e ") && cmd_lower.contains("powershell") {
+        tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked encoded command");
+        return Json(json!({ "error": "Command blocked: encoded commands not allowed" }));
+    }
+    // ITER1-#3: Block Alternate Data Streams (file.exe:stream)
+    // Allow legitimate colon uses (C:\, http:) but block exe:stream pattern
+    {
+        let stripped = cmd_lower.replace("c:\\", "").replace("d:\\", "").replace("http:", "").replace("https:", "");
+        if stripped.contains(".exe:") || stripped.contains(".dll:") || stripped.contains(".bat:") {
+            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked Alternate Data Stream");
+            return Json(json!({ "error": "Command blocked: alternate data streams not allowed" }));
         }
     }
     // MMA-R2-2: Block UNC paths that could execute remote binaries

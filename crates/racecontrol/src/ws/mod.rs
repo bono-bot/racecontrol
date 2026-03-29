@@ -435,6 +435,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         AgentMessage::Telemetry(frame) => {
+                            // MMA-ITER1-#4 (8/8): Override pod_id with authenticated WS identity
+                            let mut frame = frame.clone();
+                            if let Some(ref expected) = registered_pod_id {
+                                if frame.pod_id != *expected {
+                                    tracing::warn!("Telemetry pod_id spoof: conn={} frame={} — overriding", expected, frame.pod_id);
+                                    frame.pod_id = expected.clone();
+                                }
+                            }
                             // Feed telemetry to camera controller
                             crate::ac_camera::on_telemetry(&state, &frame).await;
                             let _ = state
