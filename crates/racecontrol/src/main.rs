@@ -79,6 +79,22 @@ async fn seed_pods_on_startup(state: &Arc<AppState>) {
         }
     }
 
+    // BUG-01 FIX: Also seed pods into the SQLite database.
+    // Previously only in-memory map was populated — kiosk queries DB directly,
+    // so it saw empty pods table after server restart with fresh DB.
+    for pod in &seeded {
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO pods (id, number, name, ip_address, sim_type, status, last_seen)
+             VALUES (?, ?, ?, ?, 'assetto_corsa', 'idle', datetime('now'))"
+        )
+        .bind(&pod.id)
+        .bind(pod.number as i64)
+        .bind(&pod.name)
+        .bind(&pod.ip_address)
+        .execute(&state.db)
+        .await;
+    }
+
     // Broadcast individual pod updates
     for pod in &seeded {
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -88,7 +104,7 @@ async fn seed_pods_on_startup(state: &Arc<AppState>) {
     let all_pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
     let _ = state.dashboard_tx.send(DashboardEvent::PodList(all_pods));
 
-    tracing::info!("Auto-seeded {} pods on startup", seeded.len());
+    tracing::info!("Auto-seeded {} pods on startup (in-memory + DB)", seeded.len());
 }
 
 /// Sends a test email on first boot to verify Gmail OAuth works.
@@ -528,7 +544,28 @@ async fn main() -> anyhow::Result<()> {
 
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
-    let state = Arc::new(AppState::new(config, pool, field_cipher));
+    let mut state = Arc::new(AppState::new(config, pool, field_cipher));
+
+    // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
+    {
+        let telem_path = racecontrol_crate::telemetry_store::telemetry_db_path(
+            &Arc::get_mut(&mut state).expect("no other Arc refs yet").config.database.path,
+        );
+        match racecontrol_crate::telemetry_store::init_telemetry_db(&telem_path).await {
+            Ok(telem_pool) => {
+                let writer_tx = racecontrol_crate::telemetry_store::spawn_writer(
+                    telem_pool.clone(), None,
+                );
+                let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+                inner.telemetry_writer_tx = Some(writer_tx);
+                inner.telemetry_db = Some(telem_pool);
+                tracing::info!("Telemetry persistence enabled: {}", telem_path);
+            }
+            Err(e) => {
+                tracing::error!("Failed to initialize telemetry.db: {} — persistence disabled", e);
+            }
+        }
+    }
 
     // Auto-seed all 8 pods on startup so kiosk is never left with empty pod list
     // after server restart with fresh DB (BUG-01)
