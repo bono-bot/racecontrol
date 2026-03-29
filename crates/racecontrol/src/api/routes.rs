@@ -1336,10 +1336,15 @@ async fn ws_exec_pod(
         .replace(".com", "");
 
     // Blocked dangerous binaries (checked against .exe-stripped command)
+    // MMA-ITER4: Extended LOLBin blocklist (3 models flagged gaps)
     const BLOCKED_BINARIES: &[&str] = &[
         "powershell", "pwsh", "mshta", "wscript", "cscript",
         "regsvr32", "rundll32", "msiexec", "odbcconf", "pcalua",
         "certutil", "bitsadmin", "bash", "wsl",
+        // LOLBins added ITER4:
+        "forfiles", "msdt", "hh", "infdefaultinstall", "diskshadow",
+        "esentutl", "expand", "extrac32", "replace", "ieexec",
+        "installutil", "msbuild", "msconfig", "msdeploy", "msxsl",
     ];
     for bin in BLOCKED_BINARIES {
         if cmd_no_exe.contains(bin) {
