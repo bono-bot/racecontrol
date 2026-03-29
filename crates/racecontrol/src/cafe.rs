@@ -367,7 +367,20 @@ pub async fn list_cafe_items(
     })?;
 
     let total = items.len();
-    Ok(Json(serde_json::json!({ "items": items, "total": total, "page": 1 })))
+    // F1-SEC: Strip cost_price, stock internals from public response.
+    // cost_price_paise is business intelligence — never expose to customers.
+    let safe_items: Vec<serde_json::Value> = items.iter().map(|item| {
+        serde_json::json!({
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "category_id": item.category_id,
+            "selling_price_paise": item.selling_price_paise,
+            "is_available": item.is_available,
+            "image_path": item.image_path,
+        })
+    }).collect();
+    Ok(Json(serde_json::json!({ "items": safe_items, "total": total, "page": 1 })))
 }
 
 pub async fn create_cafe_item(
