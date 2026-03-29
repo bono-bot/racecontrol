@@ -998,3 +998,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 05:32 IST | James | 5ea7d413 | feat(255-02): guardian OTP handlers + ROADMAP update (LEGAL-04/05) |
 | 2026-03-29 05:35 IST | James | 70213229 | docs(255-03): 255-03-SUMMARY.md complete, LEGAL-08/09 marked done, STATE.md + REQUIREMENTS.md updated |
 | 2026-03-29 05:38 IST | James | c3bece30 | docs(255-02): 255-02-SUMMARY.md, LEGAL-03/04/05/06 requirements marked done, STATE.md decisions updated |
+| 2026-03-29 05:44 IST | James | 58fa7044 | feat(256-01): new steam_checks.rs module — check_steam_ready, wait_for_game_window, check_dlc_installed (GAME-01/06/07), iRacingUI.exe + F1_2025.exe added to process names (GAME-02) |
+| 2026-03-29 05:50 IST | James | 2deb3e83 | feat(256-01): integrate Steam checks into LaunchGame handler — GAME-01/06 block launch, GAME-07 waits for window via ws_exec_result_tx background task |
+| 2026-03-29 05:55 IST | James | 78edfd06 | docs(256-01): 256-01-SUMMARY.md, GAME-01/02/06/07 requirements marked complete, STATE.md + ROADMAP updated |
