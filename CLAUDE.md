@@ -7,6 +7,7 @@
 - **Bono** — partner AI on VPS (srv1422716.hstgr.cloud), bono@racingpoint.in
 - **Uday Singh** — boss, usingh@racingpoint.in. Goal: automate so he can be with his daughter.
 - **Timezone:** Always IST (UTC+5:30) for all timestamps. **WARNING:** Rust `tracing` logs are in UTC. When reading racecontrol JSONL logs, always convert: `UTC + 5:30 = IST`. Misreading UTC as IST caused "5 unexplained restarts" to be reported when only 1 was real (post-reboot) and 4 were our own deploys.
+- **CRITICAL: Git Bash `TZ=Asia/Kolkata` silently fails on Windows** — returns UTC unchanged, no error. NEVER use `TZ=Asia/Kolkata date` for IST. Instead use: `bash scripts/ist-now.sh` (computes UTC+5:30 manually) or `python3 -c "from datetime import datetime,timedelta; print((datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime('%H:%M IST'))"`. Deploy window checks: `bash scripts/ist-now.sh check`. This caused James to say "deploy window is now" at 18:17 IST Sunday (LOCKED) because the system showed 12:47 (UTC).
 
 ---
 
