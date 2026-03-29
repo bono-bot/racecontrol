@@ -1039,3 +1039,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 15:50 IST | James | 8a89e404 | feat(259-02): FATM-08/09 coupon lifecycle FSM (available→reserved→redeemed), TTL expiry job, restoration on cancel, FATM-11 payment gateway webhook with idempotency |
 | 2026-03-29 10:21 IST | James | 47e59ac1 | fix(MMA-10-MODEL): 12 security fixes — mesh gossip validation, fleet alert auth, AI prompt sanitization, game_doctor path traversal, exec env var bypass, rc-doctor safety, nickname validation. 10-model audit (GPT-5.4, DeepSeek V3.2/R1, Gemini Pro/Flash, Qwen3-Coder/235B, Sonnet 4.6, MiMo, Llama 4). 855 tests passed. |
 | 2026-03-29 15:52 IST | James | 1a65537 | fix(comms-link/sec-gate): SEC-03e exempt DEPLOY-02/DEPLOY-04 public billing routes (protected by sentry_service_key, not JWT) |
+| 2026-03-29 16:05 IST | James | 716fee1f | fix(rc-agent): Edge popup suppression (16 --disable-features flags) + hostname guard blocks rc-agent on AI-SERVER. Deployed 7/8 pods (build 8a89e404). Pod 7 missing HKLM Run key — added. |
+| 2026-03-29 16:26 IST | James | 6ed406eb | feat(260-01): notification outbox with OTP fallback chain (UX-01, UX-02) |
+| 2026-03-29 16:26 IST | James | 124c2a05 | feat(260-01): negative wallet balance alert and session block (RESIL-05) |
