@@ -101,11 +101,11 @@
 - [x] **RESIL-01**: SQLite WAL mode enabled with busy_timeout=5000ms
 - [x] **RESIL-02**: Billing timer writes staggered by pod index (Pod 1 at :00, Pod 2 at :07, etc.)
 - [x] **RESIL-03**: Orphaned session detection job: every 5 minutes, flag active sessions with no agent heartbeat for 5+ min
-- [ ] **RESIL-04**: Hardware health heartbeat: agent polls wheel/pedal USB device presence every 5s; pause + alert on disconnect
+- [x] **RESIL-04**: Hardware health heartbeat: agent polls wheel/pedal USB device presence every 5s; pause + alert on disconnect
 - [x] **RESIL-05**: Negative wallet balance alert: immediate staff notification + session block
-- [ ] **RESIL-06**: Agent crash rate anomaly detection: >3 crashes in 1 hour on same pod triggers maintenance flag
-- [ ] **RESIL-07**: Controls.ini reset between sessions: each new session writes fresh FFB/control config (no leakage)
-- [ ] **RESIL-08**: Clock sync check: server vs pod timestamp drift >5s triggers warning in fleet health
+- [x] **RESIL-06**: Agent crash rate anomaly detection: >3 crashes in 1 hour on same pod triggers maintenance flag
+- [x] **RESIL-07**: Controls.ini reset between sessions: each new session writes fresh FFB/control config (no leakage)
+- [x] **RESIL-08**: Clock sync check: server vs pod timestamp drift >5s triggers warning in fleet health
 
 ### Notifications & UX (UX)
 
@@ -216,11 +216,11 @@ Updated during roadmap creation (2026-03-29).
 | UX-06 | Phase 260 | Complete |
 | UX-07 | Phase 260 | Complete |
 | UX-08 | Phase 260 | Pending |
-| RESIL-04 | Phase 260 | Pending |
+| RESIL-04 | Phase 260 | Complete |
 | RESIL-05 | Phase 260 | Complete |
-| RESIL-06 | Phase 260 | Pending |
-| RESIL-07 | Phase 260 | Pending |
-| RESIL-08 | Phase 260 | Pending |
+| RESIL-06 | Phase 260 | Complete |
+| RESIL-07 | Phase 260 | Complete |
+| RESIL-08 | Phase 260 | Complete |
 
 **Coverage:**
 - v27.0 requirements: 83 total (note: pre-MMA count was 72; final count after 3 audit iterations = 83)
