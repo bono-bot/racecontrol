@@ -17,6 +17,7 @@ use crate::diagnostic_engine;
 use crate::pre_flight;
 use crate::self_monitor;
 use crate::self_test;
+use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
 use crate::event_loop::{ConnectionState, CrashRecoveryState, LaunchState};
 use rc_common::protocol::{AgentMessage, CoreToAgentMessage};
 use rc_common::types::*;
@@ -300,7 +301,7 @@ pub async fn handle_ws_message(
             conn.blank_timer_armed = true;
         }
 
-        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean } => {
+        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes } => {
             // SEC-10: Acquire game launch mutex before any launch-related work.
             // This serializes concurrent LaunchGame commands and ensures clean_state_reset
             // (a spawn_blocking call that can take 5+ seconds) completes before a second
@@ -723,12 +724,33 @@ pub async fn handle_ws_message(
                         let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = gp_pid; });
 
                         if let Some(pid) = gp_pid {
-                            // Direct exe launch — we have the pid immediately
+                            // Direct exe launch — we have the pid immediately.
+                            // GAME-08: Create ProcessMonitor for crash detection on all non-AC sims.
+                            conn.process_monitor = Some(ProcessMonitor::new(pid, launch_sim));
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                "GAME-08: ProcessMonitor created for {:?} (pid {})",
+                                launch_sim, pid
+                            );
+
+                            // GAME-03: Create SessionEnforcer for ForzaHorizon5/Forza if duration provided.
+                            if matches!(launch_sim, SimType::ForzaHorizon5 | SimType::Forza) {
+                                if let Some(duration_mins) = duration_minutes {
+                                    let duration_secs = (duration_mins as u64) * 60;
+                                    conn.session_enforcer = Some(SessionEnforcer::new(launch_sim, pid, duration_secs));
+                                    tracing::info!(
+                                        target: LOG_TARGET,
+                                        "GAME-03: SessionEnforcer created for {:?} (pid {}, {}min)",
+                                        launch_sim, pid, duration_mins
+                                    );
+                                }
+                            }
+
                             let info = GameLaunchInfo {
                                 pod_id: state.pod_id.clone(), sim_type: launch_sim,
                                 game_state: GameState::Running, pid: Some(pid),
                                 launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
- exit_code: None,
+                                exit_code: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
@@ -858,6 +880,10 @@ pub async fn handle_ws_message(
                 }
                 state.game_process = None;
             }
+            // GAME-08/GAME-03: Clear process monitor and session enforcer on controlled stop.
+            // This prevents the crash detection path from firing after a clean StopGame.
+            conn.process_monitor = None;
+            conn.session_enforcer = None;
         }
 
         CoreToAgentMessage::ShowPinLockScreen {

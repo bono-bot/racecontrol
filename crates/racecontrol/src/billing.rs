@@ -1555,6 +1555,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     sim_type: rc_common::types::SimType::AssettoCorsa,
                     launch_args: None,
                     force_clean: false,
+                    duration_minutes: None,
                 }).await;
             }
         } else {

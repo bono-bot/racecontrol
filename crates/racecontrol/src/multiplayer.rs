@@ -1216,6 +1216,7 @@ async fn start_ac_lan_for_group(
                         sim_type: sim_type.clone(),
                         launch_args: Some(launch_args),
                         force_clean: false,
+                        duration_minutes: None,
                     })
                     .await;
             }

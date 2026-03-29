@@ -8,6 +8,7 @@ use crate::ac_launcher;
 #[cfg(feature = "ai-debugger")]
 use crate::ai_debugger::PodStateSnapshot;
 use crate::app_state::AppState;
+use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
 use crate::ffb_controller;
 use crate::game_process;
 use crate::kiosk;
@@ -103,6 +104,16 @@ pub(crate) struct ConnectionState {
     pub(crate) ac_live_since: Option<std::time::Instant>,
     /// AC False-Live guard: true once speed > 0 OR |steer| > 0.02 observed during the 5s window.
     pub(crate) ac_live_has_input: bool,
+    /// GAME-08: Generic crash detection for non-AC games via process exit monitoring.
+    /// Created on successful game launch for all non-AC sims. Polled every 5s in event loop.
+    pub(crate) process_monitor: Option<ProcessMonitor>,
+    /// GAME-03: Session duration enforcer for open-world games (ForzaHorizon5, Forza Motorsport).
+    /// Created when server sends LaunchGame with duration_minutes set. Polled every 1s.
+    pub(crate) session_enforcer: Option<SessionEnforcer>,
+    /// Interval for ProcessMonitor 5-second polling (GAME-08).
+    pub(crate) process_monitor_interval: tokio::time::Interval,
+    /// Interval for SessionEnforcer 1-second polling (GAME-03).
+    pub(crate) session_enforcer_interval: tokio::time::Interval,
 }
 
 impl ConnectionState {
@@ -140,6 +151,10 @@ impl ConnectionState {
             pending_acks: Vec::new(),
             ac_live_since: None,
             ac_live_has_input: false,
+            process_monitor: None,
+            session_enforcer: None,
+            process_monitor_interval: tokio::time::interval(Duration::from_secs(5)),
+            session_enforcer_interval: tokio::time::interval(Duration::from_secs(1)),
         }
     }
 }
@@ -499,6 +514,17 @@ pub async fn run(
                             conn.game_running_since = Some(std::time::Instant::now());
                             conn.shm_defer_logged = false;
 
+                            // GAME-08: Create ProcessMonitor when Steam-launched game PID is detected.
+                            // (Direct exe launches create the monitor in ws_handler; this covers Steam URL path.)
+                            if conn.process_monitor.is_none() {
+                                conn.process_monitor = Some(ProcessMonitor::new(pid, game.sim_type));
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    "GAME-08: ProcessMonitor created (Steam-launch) for {:?} (pid {})",
+                                    game.sim_type, pid
+                                );
+                            }
+
                             // Emit GameState::Loading once — process detected, PlayableSignal not yet fired
                             if !conn.loading_emitted && matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
                                 let loading_info = GameLaunchInfo {
@@ -781,6 +807,180 @@ pub async fn run(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // ─── GAME-08: ProcessMonitor — poll every 5s for non-AC game crash detection ───
+            _ = conn.process_monitor_interval.tick() => {
+                if let Some(ref monitor) = conn.process_monitor {
+                    use crate::session_enforcer::ProcessStatus;
+                    if let ProcessStatus::Exited { exit_code } = monitor.check() {
+                        let sim = monitor.sim_type;
+                        let exit_info = exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            "Non-AC game {:?} exited (code: {}) — treating as crash (GAME-08)",
+                            sim, exit_info
+                        );
+
+                        // Only treat as crash if billing is active or game is in a running state.
+                        // A controlled StopGame already clears process_monitor before it fires here.
+                        let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+
+                        // Send GameState::Crashed to server
+                        let crash_info = GameLaunchInfo {
+                            pod_id: state.pod_id.clone(),
+                            sim_type: sim,
+                            game_state: GameState::Error,
+                            pid: state.game_process.as_ref().and_then(|g| g.pid),
+                            launched_at: None,
+                            error_message: Some(format!("Process exited unexpectedly (exit code: {})", exit_info)),
+                            diagnostics: None,
+                            exit_code,
+                        };
+                        let crash_msg = AgentMessage::GameStateUpdate(crash_info);
+                        if let Ok(json) = serde_json::to_string(&crash_msg) {
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                        }
+
+                        // Trigger AI debugger analysis
+                        #[cfg(feature = "ai-debugger")]
+                        if state.config.ai_debugger.enabled && !state.safe_mode.active {
+                            let err_ctx = format!("{:?} crashed on pod {} (exit code: {})", sim, state.pod_id, exit_info);
+                            let snapshot = PodStateSnapshot {
+                                pod_id: state.pod_id.clone(),
+                                pod_number: state.config.pod.number,
+                                lock_screen_active: state.lock_screen.is_active(),
+                                billing_active: billing_on,
+                                game_pid: state.game_process.as_ref().and_then(|g| g.pid),
+                                driving_state: Some(state.detector.current_state()),
+                                wheelbase_connected: state.detector.is_hid_connected(),
+                                ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                uptime_seconds: state.agent_start_time.elapsed().as_secs(),
+                                ..Default::default()
+                            };
+                            tokio::spawn(crate::ai_debugger::analyze_crash(
+                                state.config.ai_debugger.clone(),
+                                state.pod_id.clone(),
+                                sim,
+                                err_ctx,
+                                snapshot,
+                                state.ai_result_tx.clone(),
+                            ));
+                        }
+
+                        // Clear all game state
+                        state.game_process = None;
+                        conn.process_monitor = None;
+                        conn.session_enforcer = None;
+                        game_process::clear_persisted_pid();
+                        conn.launch_state = LaunchState::Idle;
+                        conn.game_running_since = None;
+                        conn.shm_defer_logged = false;
+                        let _ = state.failure_monitor_tx.send_modify(|s| {
+                            s.launch_started_at = None;
+                            s.game_pid = None;
+                        });
+
+                        if billing_on {
+                            // Arm crash recovery
+                            let crash_agent_msg = AgentMessage::GameCrashed { pod_id: state.pod_id.clone(), billing_active: true };
+                            let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_agent_msg).unwrap_or_default().into())).await;
+                            let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
+                            let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                            let _ = state.failure_monitor_tx.send_modify(|s| { s.billing_paused = true; });
+                            ffb_controller::safe_session_end(&state.ffb).await;
+                            if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
+                                let pause_msg = AgentMessage::BillingPaused {
+                                    pod_id: state.pod_id.clone(),
+                                    billing_session_id: sid.clone(),
+                                };
+                                let _ = ws_tx.send(Message::Text(serde_json::to_string(&pause_msg).unwrap_or_default().into())).await;
+                            }
+                            let last_sim = conn.current_sim_type.unwrap_or(sim);
+                            conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
+                                attempt: 1,
+                                timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+                                last_sim_type: last_sim,
+                                last_launch_args: conn.last_launch_args_stored.clone(),
+                            };
+                        } else {
+                            ffb_controller::safe_session_end(&state.ffb).await;
+                            let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
+                            let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
+                            state.lock_screen.show_idle_pin_entry();
+                        }
+                    }
+                }
+            }
+
+            // ─── GAME-03: SessionEnforcer — poll every 1s for FH5 duration enforcement ───
+            _ = conn.session_enforcer_interval.tick() => {
+                if let Some(ref mut enforcer) = conn.session_enforcer {
+                    use crate::session_enforcer::SessionAction;
+                    let pid = enforcer.pid;
+                    let sim = enforcer.sim_type;
+                    match enforcer.tick() {
+                        SessionAction::Continue => {}
+                        SessionAction::Warn { remaining_secs } => {
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                "Session expiry warning: {}s remaining for {:?} (GAME-03)",
+                                remaining_secs, sim
+                            );
+                            let warn_msg = AgentMessage::SessionExpiryWarning {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: sim,
+                                remaining_secs,
+                            };
+                            if let Ok(json) = serde_json::to_string(&warn_msg) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+                        }
+                        SessionAction::Terminate => {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                "Forza session enforcer: force-terminated after duration expiry (GAME-03)"
+                            );
+                            // Force-kill the process
+                            if let Err(e) = SessionEnforcer::terminate(pid) {
+                                tracing::warn!(target: LOG_TARGET, "SessionEnforcer terminate failed: {}", e);
+                            }
+                            // Report crash to server (session expired = treat as end)
+                            let expire_info = GameLaunchInfo {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: sim,
+                                game_state: GameState::Error,
+                                pid: Some(pid),
+                                launched_at: None,
+                                error_message: Some("Session duration expired — force terminated (GAME-03)".to_string()),
+                                diagnostics: None,
+                                exit_code: None,
+                            };
+                            let expire_msg = AgentMessage::GameStateUpdate(expire_info);
+                            if let Ok(json) = serde_json::to_string(&expire_msg) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+                            // Clear game state
+                            state.game_process = None;
+                            conn.process_monitor = None;
+                            conn.session_enforcer = None;
+                            game_process::clear_persisted_pid();
+                            conn.launch_state = LaunchState::Idle;
+                            conn.game_running_since = None;
+                            conn.shm_defer_logged = false;
+                            let _ = state.failure_monitor_tx.send_modify(|s| {
+                                s.launch_started_at = None;
+                                s.game_pid = None;
+                            });
+                            ffb_controller::safe_session_end(&state.ffb).await;
+                            let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
+                            let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
+                            state.lock_screen.show_idle_pin_entry();
                         }
                     }
                 }
@@ -1700,6 +1900,7 @@ mod tests {
             sim_type: rc_common::types::SimType::AssettoCorsa,
             launch_args: None,
             force_clean: true,
+            duration_minutes: None,
         };
         let json_with = serde_json::to_string(&msg_with).expect("serialize LaunchGame with force_clean");
         let parsed_with: CoreToAgentMessage = serde_json::from_str(&json_with)

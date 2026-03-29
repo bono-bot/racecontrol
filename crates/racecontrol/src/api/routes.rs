@@ -7965,6 +7965,7 @@ async fn customer_continue_session(
                         sim_type,
                         launch_args: Some(launch_args),
                         force_clean: false,
+                        duration_minutes: None,
                     }).await;
                 }
             }

@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use rc_common::types::SimType;
 
@@ -232,6 +232,7 @@ fn get_exit_code(_pid: u32) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     // ── SessionEnforcer tick() timing tests ──────────────────────────────────
 

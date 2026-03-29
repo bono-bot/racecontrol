@@ -92,7 +92,7 @@ impl GameLauncherImpl for AcLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
     }
 }
 
@@ -104,7 +104,7 @@ impl GameLauncherImpl for F1Launcher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
     }
 }
 
@@ -116,7 +116,7 @@ impl GameLauncherImpl for IRacingLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
     }
 }
 
@@ -128,7 +128,7 @@ impl GameLauncherImpl for DefaultLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
     }
 }
 
@@ -543,6 +543,7 @@ pub async fn relaunch_game(
         sim_type,
         launch_args,
         force_clean: true,
+        duration_minutes: None,
     })
     .await
     .map_err(|e| format!("Failed to send launch command: {}", e))?;
@@ -934,6 +935,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                     sim_type,
                                     launch_args,
                                     force_clean: true,
+                                    duration_minutes: None,
                                 })
                                 .await;
                         }

@@ -71,6 +71,15 @@ pub enum AgentMessage {
     /// Agent reports game crash detected (process disappeared unexpectedly)
     GameCrashed { pod_id: String, billing_active: bool },
 
+    /// Agent warns that an open-world game session is about to expire (GAME-03).
+    /// Sent once at T-60s for ForzaHorizon5/Forza sessions with duration enforcement.
+    /// Server should display a kiosk overlay countdown.
+    SessionExpiryWarning {
+        pod_id: String,
+        sim_type: SimType,
+        remaining_secs: u64,
+    },
+
     /// Pod reports installed AC content at startup/reconnect
     ContentManifest(ContentManifest),
 
@@ -413,6 +422,12 @@ pub enum CoreToAgentMessage {
         /// Backward-compatible: old agents deserialize without this field (defaults to false).
         #[serde(default)]
         force_clean: bool,
+        /// Optional session duration for open-world game enforcement (GAME-03).
+        /// When Some(N), the agent creates a SessionEnforcer for ForzaHorizon5/Forza
+        /// that force-terminates the game after N minutes with a 1-min warning.
+        /// None = no duration enforcement (server controls session via StopGame).
+        #[serde(default)]
+        duration_minutes: Option<u32>,
     },
 
     /// Command to stop the currently running game
