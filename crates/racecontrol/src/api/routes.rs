@@ -1664,6 +1664,7 @@ mod pod_status_summary_tests {
                     screen_blanked: None,
                     ffb_preset: None,
                     freedom_mode: None,
+                    agent_timestamp: None,
                 });
             }
         }
@@ -2261,6 +2262,10 @@ async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>
 #[derive(Deserialize)]
 struct StaffTrackLeaderboardQuery {
     sim_type: Option<String>,
+    /// Filter by car class — UX-05 segmentation (staff view)
+    car_class: Option<String>,
+    /// Filter by assist tier — UX-05 segmentation (staff view)
+    assist_tier: Option<String>,
 }
 
 async fn track_leaderboard(
@@ -2268,26 +2273,34 @@ async fn track_leaderboard(
     Path(track): Path<String>,
     Query(params): Query<StaffTrackLeaderboardQuery>,
 ) -> Json<Value> {
-    let rows = if let Some(ref st) = params.sim_type {
-        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
-            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
-             FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
-             WHERE tr.track = ? AND tr.sim_type = ? ORDER BY tr.best_lap_ms ASC"
-        )
-        .bind(&track)
-        .bind(st)
-        .fetch_all(&state.db)
-        .await
-    } else {
-        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
-            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
-             FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
-             WHERE tr.track = ? ORDER BY tr.best_lap_ms ASC"
-        )
-        .bind(&track)
-        .fetch_all(&state.db)
-        .await
-    };
+    // UX-04: JOIN laps to apply billing_session_id IS NOT NULL filter
+    // UX-05: car_class + assist_tier segmentation for staff consistency with public view
+    // UX-07: validity = 'valid' enforced — staff never see unverifiable laps
+    let sim_clause = if params.sim_type.is_some() { " AND tr.sim_type = ?" } else { "" };
+    let car_class_clause = if params.car_class.is_some() { " AND l.car_class = ?" } else { "" };
+    let assist_tier_clause = if params.assist_tier.is_some() { " AND l.assist_tier = ?" } else { "" };
+
+    let query_str = format!(
+        "SELECT tr.track, tr.car,
+                CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+         FROM track_records tr
+         JOIN drivers d ON tr.driver_id = d.id
+         LEFT JOIN laps l ON l.id = tr.lap_id
+         WHERE tr.track = ?
+           AND (l.billing_session_id IS NOT NULL OR tr.lap_id IS NULL)
+           AND (l.validity IS NULL OR l.validity = 'valid')
+           {}{}{}
+         ORDER BY tr.best_lap_ms ASC",
+        sim_clause, car_class_clause, assist_tier_clause
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(&query_str);
+    q = q.bind(&track);
+    if let Some(ref st) = params.sim_type { q = q.bind(st); }
+    if let Some(ref cc) = params.car_class { q = q.bind(cc); }
+    if let Some(ref at) = params.assist_tier { q = q.bind(at); }
+    let rows = q.fetch_all(&state.db).await;
 
     match rows {
         Ok(records) => {
@@ -2297,7 +2310,14 @@ async fn track_leaderboard(
                 "best_lap_ms": r.3, "achieved_at": r.4, "lap_id": r.5,
                 "sim_type": r.6,
             })).collect();
-            Json(json!({ "track": track, "sim_type": params.sim_type, "records": list, "last_updated": chrono::Utc::now().to_rfc3339() }))
+            Json(json!({
+                "track": track,
+                "sim_type": params.sim_type,
+                "car_class": params.car_class,
+                "assist_tier": params.assist_tier,
+                "records": list,
+                "last_updated": chrono::Utc::now().to_rfc3339()
+            }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
@@ -11999,99 +12019,112 @@ async fn customer_subscribe_membership(
 
 #[derive(Deserialize)]
 struct PublicLeaderboardQuery {
+    /// Filter by game/simulator (sim_type field)
     sim_type: Option<String>,
+    /// Filter by car class (e.g. 'A', 'B', 'C') — UX-05 segmentation
+    car_class: Option<String>,
+    /// Filter by assist tier: 'pro', 'semi-pro', 'amateur', 'unknown' — UX-05 segmentation
+    assist_tier: Option<String>,
 }
 
 async fn public_leaderboard(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PublicLeaderboardQuery>,
 ) -> Json<Value> {
-    // All-time track records across all tracks (optionally filtered by sim_type)
-    let records = if let Some(ref st) = params.sim_type {
-        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
-            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
-             FROM track_records tr
-             JOIN drivers d ON tr.driver_id = d.id
-             WHERE tr.sim_type = ?
-             ORDER BY tr.achieved_at DESC",
-        )
-        .bind(st)
-        .fetch_all(&state.db)
-        .await
-    } else {
-        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
-            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
-             FROM track_records tr
-             JOIN drivers d ON tr.driver_id = d.id
-             ORDER BY tr.achieved_at DESC",
-        )
-        .fetch_all(&state.db)
-        .await
-    };
+    // UX-04: Only show laps from billing sessions (verified)
+    // UX-05: Segment by game + car_class + assist_tier
+    // UX-07: Never show laps marked unverifiable (telemetry adapter crash)
+    let sim_clause = if params.sim_type.is_some() { " AND tr.sim_type = ?" } else { "" };
+    let car_class_clause = if params.car_class.is_some() { " AND l.car_class = ?" } else { "" };
+    let assist_tier_clause = if params.assist_tier.is_some() { " AND l.assist_tier = ?" } else { "" };
 
-    // Available tracks (optionally filtered by sim_type)
-    let tracks = if let Some(ref st) = params.sim_type {
-        sqlx::query_as::<_, (String, i64)>(
-            "SELECT DISTINCT track, COUNT(*) as laps
-             FROM laps WHERE valid = 1 AND sim_type = ?
-             GROUP BY track
-             ORDER BY laps DESC",
-        )
-        .bind(st)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    } else {
-        sqlx::query_as::<_, (String, i64)>(
-            "SELECT DISTINCT track, COUNT(*) as laps
-             FROM laps WHERE valid = 1
-             GROUP BY track
-             ORDER BY laps DESC",
-        )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    };
+    // All-time track records, filtered by game + car_class + assist_tier
+    // JOIN laps to apply UX-04/UX-05/UX-07 integrity filters
+    let records_query = format!(
+        "SELECT tr.track, tr.car,
+                CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+         FROM track_records tr
+         JOIN drivers d ON tr.driver_id = d.id
+         LEFT JOIN laps l ON l.id = tr.lap_id
+         WHERE (l.billing_session_id IS NOT NULL OR tr.lap_id IS NULL)
+           AND (l.validity IS NULL OR l.validity = 'valid')
+           AND (l.suspect IS NULL OR l.suspect = 0)
+           {}{}{}
+         ORDER BY tr.achieved_at DESC",
+        sim_clause, car_class_clause, assist_tier_clause
+    );
 
-    // Top drivers by total valid laps (optionally filtered by sim_type), with rating data
-    let top_drivers = if let Some(ref st) = params.sim_type {
-        sqlx::query_as::<_, (String, i64, Option<i64>, Option<f64>, Option<String>)>(
-            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
-                    COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest,
-                    dr.composite_rating, dr.rating_class
-             FROM laps l
-             JOIN drivers d ON l.driver_id = d.id
-             LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id AND dr.sim_type = l.sim_type
-             WHERE l.valid = 1 AND l.sim_type = ?
-             GROUP BY l.driver_id
-             ORDER BY lap_count DESC
-             LIMIT 20",
-        )
-        .bind(st)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    } else {
-        sqlx::query_as::<_, (String, i64, Option<i64>, Option<f64>, Option<String>)>(
-            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
-                    COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest,
-                    MAX(dr.composite_rating), (SELECT dr2.rating_class FROM driver_ratings dr2 WHERE dr2.driver_id = l.driver_id ORDER BY dr2.composite_rating DESC LIMIT 1)
-             FROM laps l
-             JOIN drivers d ON l.driver_id = d.id
-             LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id
-             WHERE l.valid = 1
-             GROUP BY l.driver_id
-             ORDER BY lap_count DESC
-             LIMIT 20",
-        )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    };
+    let mut rec_q = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(&records_query);
+    if let Some(ref st) = params.sim_type { rec_q = rec_q.bind(st); }
+    if let Some(ref cc) = params.car_class { rec_q = rec_q.bind(cc); }
+    if let Some(ref at) = params.assist_tier { rec_q = rec_q.bind(at); }
+    let records = rec_q.fetch_all(&state.db).await;
 
-    // Available sim_types for frontend game picker
+    // Available tracks — only tracks with billing-verified valid laps
+    let laps_sim_clause = if params.sim_type.is_some() { " AND sim_type = ?" } else { "" };
+    let laps_cc_clause = if params.car_class.is_some() { " AND car_class = ?" } else { "" };
+    let laps_at_clause = if params.assist_tier.is_some() { " AND assist_tier = ?" } else { "" };
+    let tracks_query = format!(
+        "SELECT DISTINCT track, COUNT(*) as laps FROM laps
+         WHERE valid = 1
+           AND billing_session_id IS NOT NULL
+           AND (validity IS NULL OR validity = 'valid')
+           AND (suspect IS NULL OR suspect = 0)
+           {}{}{}
+         GROUP BY track ORDER BY laps DESC",
+        laps_sim_clause, laps_cc_clause, laps_at_clause
+    );
+    let mut track_q = sqlx::query_as::<_, (String, i64)>(&tracks_query);
+    if let Some(ref st) = params.sim_type { track_q = track_q.bind(st); }
+    if let Some(ref cc) = params.car_class { track_q = track_q.bind(cc); }
+    if let Some(ref at) = params.assist_tier { track_q = track_q.bind(at); }
+    let tracks = track_q.fetch_all(&state.db).await.unwrap_or_default();
+
+    // Top drivers by total valid billing-session laps, optionally filtered
+    let top_drivers_query = format!(
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest,
+                MAX(dr.composite_rating),
+                (SELECT dr2.rating_class FROM driver_ratings dr2 WHERE dr2.driver_id = l.driver_id ORDER BY dr2.composite_rating DESC LIMIT 1)
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id AND dr.sim_type = l.sim_type
+         WHERE l.valid = 1
+           AND l.billing_session_id IS NOT NULL
+           AND (l.validity IS NULL OR l.validity = 'valid')
+           AND (l.suspect IS NULL OR l.suspect = 0)
+           {}{}{}
+         GROUP BY l.driver_id ORDER BY lap_count DESC LIMIT 20",
+        laps_sim_clause, laps_cc_clause, laps_at_clause
+    );
+    let mut td_q = sqlx::query_as::<_, (String, i64, Option<i64>, Option<f64>, Option<String>)>(&top_drivers_query);
+    if let Some(ref st) = params.sim_type { td_q = td_q.bind(st); }
+    if let Some(ref cc) = params.car_class { td_q = td_q.bind(cc); }
+    if let Some(ref at) = params.assist_tier { td_q = td_q.bind(at); }
+    let top_drivers = td_q.fetch_all(&state.db).await.unwrap_or_default();
+
+    // Available sim_types for frontend game picker (billing-verified only)
     let available_sim_types: Vec<String> = sqlx::query_as::<_, (String,)>(
-        "SELECT DISTINCT sim_type FROM laps WHERE valid = 1 ORDER BY sim_type",
+        "SELECT DISTINCT sim_type FROM laps
+         WHERE valid = 1 AND billing_session_id IS NOT NULL
+           AND (validity IS NULL OR validity = 'valid')
+         ORDER BY sim_type",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| r.0)
+    .collect();
+
+    // Available assist tiers for frontend assist picker
+    let available_assist_tiers: Vec<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT DISTINCT assist_tier FROM laps
+         WHERE valid = 1 AND billing_session_id IS NOT NULL
+           AND (validity IS NULL OR validity = 'valid')
+           AND assist_tier IS NOT NULL
+         ORDER BY assist_tier",
     )
     .fetch_all(&state.db)
     .await
@@ -12133,7 +12166,10 @@ async fn public_leaderboard(
             "rating_class": d.4,
         })).collect::<Vec<_>>(),
         "available_sim_types": available_sim_types,
+        "available_assist_tiers": available_assist_tiers,
         "sim_type": params.sim_type,
+        "car_class": params.car_class,
+        "assist_tier": params.assist_tier,
         "time_trial": time_trial.map(|tt| json!({
             "id": tt.0, "track": tt.1, "car": tt.2,
             "week_start": tt.3, "week_end": tt.4,
@@ -12148,6 +12184,10 @@ async fn public_leaderboard(
 struct LeaderboardQuery {
     sim_type: Option<String>,
     car: Option<String>,
+    /// Filter by car class — UX-05 segmentation
+    car_class: Option<String>,
+    /// Filter by assist tier: 'pro', 'semi-pro', 'amateur' — UX-05 segmentation
+    assist_tier: Option<String>,
     show_invalid: Option<bool>,
 }
 
@@ -12162,18 +12202,26 @@ async fn public_track_leaderboard(
 
     // Build validity filter: suspect laps are ALWAYS hidden.
     // show_invalid=true drops the valid=1 requirement but keeps suspect filter.
+    // UX-04: billing_session_id IS NOT NULL — only billed-session laps on leaderboard
+    // UX-07: validity = 'valid' — never show unverifiable laps
     let validity_clause = if show_invalid {
-        "AND (l.suspect IS NULL OR l.suspect = 0)"
+        "AND (l.suspect IS NULL OR l.suspect = 0) AND l.billing_session_id IS NOT NULL AND (l.validity IS NULL OR l.validity = 'valid')"
     } else {
-        "AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)"
+        "AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0) AND l.billing_session_id IS NOT NULL AND (l.validity IS NULL OR l.validity = 'valid')"
     };
 
     let sim_type_clause = if sim_type.is_some() { "AND l.sim_type = ?" } else { "" };
     let sim_type_subq_clause = if sim_type.is_some() { "AND l2.sim_type = ?" } else { "" };
     let car_clause = if params.car.is_some() { "AND l.car = ?" } else { "" };
+    let car_class_clause = if params.car_class.is_some() { "AND l.car_class = ?" } else { "" };
+    let assist_tier_clause = if params.assist_tier.is_some() { "AND l.assist_tier = ?" } else { "" };
 
-    // Top 50 fastest laps on this track (best per driver per car), optionally filtered by sim_type
+    // Top 50 fastest laps on this track (best per driver per car)
+    // UX-04: billing_session_id enforced via validity_clause
+    // UX-05: car_class + assist_tier segmentation
+    // UX-07: validity = 'valid' enforced via validity_clause
     // Phase 253: LEFT JOIN driver_ratings to include composite_rating and rating_class
+    // Response includes assist_tier for frontend display
     let main_query = format!(
         "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
                 l.car, MIN(l.lap_time_ms), MAX(l.created_at),
@@ -12181,11 +12229,12 @@ async fn public_track_leaderboard(
                     {} {} ORDER BY l2.lap_time_ms ASC LIMIT 1),
                 l.sim_type,
                 dr.composite_rating,
-                dr.rating_class
+                dr.rating_class,
+                l.assist_tier
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
          LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id AND dr.sim_type = l.sim_type
-         WHERE l.track = ? {} {} {}
+         WHERE l.track = ? {} {} {} {} {}
          GROUP BY l.driver_id, l.car
          ORDER BY MIN(l.lap_time_ms) ASC
          LIMIT 50",
@@ -12194,9 +12243,11 @@ async fn public_track_leaderboard(
         sim_type_clause,
         validity_clause,
         car_clause,
+        car_class_clause,
+        assist_tier_clause,
     );
 
-    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String, Option<f64>, Option<String>)>(&main_query);
+    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String, Option<f64>, Option<String>, Option<String>)>(&main_query);
 
     // Bind subquery sim_type first (if present)
     if let Some(ref st) = sim_type {
@@ -12210,15 +12261,23 @@ async fn public_track_leaderboard(
     if let Some(ref car) = params.car {
         query = query.bind(car);
     }
+    if let Some(ref cc) = params.car_class {
+        query = query.bind(cc);
+    }
+    if let Some(ref at) = params.assist_tier {
+        query = query.bind(at);
+    }
 
     let records = query.fetch_all(&state.db).await;
 
-    // Track stats (optionally filtered by sim_type + same validity rules)
+    // Track stats (filtered by same criteria including UX-04/UX-07)
     let stats_query = format!(
         "SELECT COUNT(*) as total_laps, COUNT(DISTINCT driver_id) as drivers, COUNT(DISTINCT car) as cars
-         FROM laps WHERE track = ? {} {}",
+         FROM laps WHERE track = ? {} {} {} {}",
         sim_type_clause,
         validity_clause,
+        car_class_clause,
+        assist_tier_clause,
     );
 
     let stats: Option<(i64, i64, i64)> = {
@@ -12226,12 +12285,20 @@ async fn public_track_leaderboard(
         if let Some(ref st) = sim_type {
             sq = sq.bind(st);
         }
+        if let Some(ref cc) = params.car_class {
+            sq = sq.bind(cc);
+        }
+        if let Some(ref at) = params.assist_tier {
+            sq = sq.bind(at);
+        }
         sq.fetch_optional(&state.db).await.ok().flatten()
     };
 
     Json(json!({
         "track": track,
         "sim_type": sim_type,
+        "car_class": params.car_class,
+        "assist_tier": params.assist_tier,
         "stats": stats.map(|s| json!({
             "total_laps": s.0,
             "unique_drivers": s.1,
@@ -12248,6 +12315,7 @@ async fn public_track_leaderboard(
             "sim_type": r.5,
             "composite_rating": r.6,
             "rating_class": r.7,
+            "assist_tier": r.8,
         })).collect::<Vec<_>>(),
         "last_updated": chrono::Utc::now().to_rfc3339(),
     }))
