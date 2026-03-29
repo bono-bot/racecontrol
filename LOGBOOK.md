@@ -1006,3 +1006,10 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 11:19 IST | James | 215c1868 | feat(256-03): AC EVO Unreal GameUserSettings.ini adapter + iRacing check_iracing_ready — GAME-04/05, 12 tests |
 | 2026-03-29 11:19 IST | James | acd756d4 | feat(256-03): Wire write_evo_config + check_iracing_ready into LaunchGame handler — GAME-04 non-fatal, GAME-05 fatal |
 | 2026-03-29 11:19 IST | James | 4f0a944b | docs(256-03): SUMMARY.md, STATE.md, ROADMAP-v27.md, REQUIREMENTS.md — phase 256 complete, 99% overall |
+| 2026-03-29 12:00 IST | James | df897fac | fix(cafe): 6 MMA-audited fixes — stock atomicity, promo midnight, INSERT refund, double-rollback, silent refund, journal spam |
+| 2026-03-29 12:10 IST | James | 95c8f6a3 | fix(security+game): 6 fixes — staff PIN 6-digit, invite refund, HMAC fail-closed, sync _push, stopping timeout, pricing guard |
+| 2026-03-29 12:15 IST | James | 05e032ce | fix(game): MMA iter2 — silent refund match, stopping >300s catch |
+| 2026-03-29 12:20 IST | James | 1fddb297 | fix(billing): 3 CRITICAL — CAS 5-state expansion, orphaned session refund, reconciliation subquery |
+| 2026-03-29 12:30 IST | James | 6c5e424d | fix(billing): 3 let _ = wallet refunds → match with CRITICAL logging |
+| 2026-03-29 12:35 IST | James | 7ce89fca | fix(types): add missing recovery_pause_seconds field to test |
+| 2026-03-29 12:40 IST | James | — | 3-layer re-audit CONVERGED: L1 infra PASS (admin static_assets fixed), L2 app 23 fixes VERIFIED + 3 new fixed, L3 ops ALL PASS. MMA convergence: DeepSeek R1 + Qwen3. 11 MMA iterations total across cafe/game/auth/billing domains |
