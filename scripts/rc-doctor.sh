@@ -396,8 +396,10 @@ cmd_memory_pressure() {
     audit "memory-pressure" "$top_proc" "restarted_${top_mem}MB"
   fi
 
-  sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
-  audit "memory-pressure" "system" "dropped_caches"
+  # MMA-C10: Removed system-wide cache drop — affects ALL processes on VPS
+  # sync && echo 3 > /proc/sys/vm/drop_caches — too aggressive for production
+  # Instead, only restart the offending service (already done above)
+  audit "memory-pressure" "system" "service_restart_only"
 }
 
 cmd_crash_loop() {
@@ -501,8 +503,21 @@ cmd_stale_binary() {
     log "Backed up current binary to ${bin_path}.bak"
   fi
 
-  log "Rebuilding: binary=$build_id, git=$git_head"
-  if ! (cd /root/racecontrol && cargo build --release 2>&1 | tail -10) >> "$LOG"; then
+  # MMA-C11: Guard against building during peak hours or active billing
+  if check_billing_active; then
+    log "SKIP: Active billing sessions — deferring stale-binary rebuild"
+    alert_whatsapp "Stale binary detected (running=$build_id, git=$git_head) but billing active. Deferring rebuild."
+    audit "stale-binary" "racecontrol" "DEFERRED_BILLING_ACTIVE"
+    return 0
+  fi
+  if check_peak_load; then
+    log "SKIP: Peak load — deferring stale-binary rebuild"
+    audit "stale-binary" "racecontrol" "DEFERRED_PEAK_LOAD"
+    return 0
+  fi
+
+  log "Rebuilding: binary=$build_id, git=$git_head (nice -n 19 to limit CPU impact)"
+  if ! (cd /root/racecontrol && nice -n 19 cargo build --release 2>&1 | tail -10) >> "$LOG"; then
     log "BUILD FAILED - restoring backup binary"
     [ -f "${bin_path}.bak" ] && mv "${bin_path}.bak" "$bin_path"
     alert_whatsapp "Cargo build failed for racecontrol. Restored backup. Manual fix needed."

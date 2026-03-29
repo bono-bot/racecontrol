@@ -331,7 +331,9 @@ async fn find_similar_pairs(
 
     let mut query = sqlx::query_as::<_, (String, String, String, i32)>(&sql);
     for w in &sorted_words {
-        query = query.bind(format!("%{}%", w));
+        // MMA-C20: Escape SQL LIKE wildcards to prevent wildcard injection
+        let escaped = w.replace('%', "\\%").replace('_', "\\_");
+        query = query.bind(format!("%{}%", escaped));
     }
     query = query.bind(limit as i32);
 
@@ -350,6 +352,7 @@ async fn find_similar_pairs(
 }
 
 /// Log a query-response pair for future Ollama learning.
+/// MMA-C9: Validates source and content before storing to prevent training poisoning.
 async fn log_training_pair(
     db: &SqlitePool,
     query: &str,
@@ -357,6 +360,17 @@ async fn log_training_pair(
     source: &str,
     model: &str,
 ) {
+    // MMA-C9: Only accept training pairs from trusted sources
+    const TRUSTED_SOURCES: &[&str] = &["healer", "healer_graduated", "chatbot", "diagnostic", "unknown"];
+    if !TRUSTED_SOURCES.iter().any(|s| source.starts_with(s)) {
+        tracing::warn!(target: "ai", "Training pair rejected: untrusted source '{}'", source);
+        return;
+    }
+    // MMA-C9: Reject oversized pairs that could be context stuffing
+    if query.len() > 4096 || response.len() > 8192 {
+        tracing::warn!(target: "ai", "Training pair rejected: oversized (query={}B, response={}B)", query.len(), response.len());
+        return;
+    }
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -468,6 +482,43 @@ SYSTEM KNOWLEDGE:
 When diagnosing issues, consider: network (DHCP drift, firewall), USB (wheelbase disconnect), \
 process zombies (CLOSE_WAIT), disk space, and Windows updates blocking."
         .to_string()
+}
+
+/// MMA-C5: Sanitize text that will be embedded in AI prompts.
+/// Strips common prompt injection patterns (role overrides, system instructions).
+pub fn sanitize_for_prompt(text: &str) -> String {
+    let mut sanitized = text.to_string();
+    // Strip role override attempts
+    let injection_patterns = [
+        "ignore previous instructions",
+        "ignore all instructions",
+        "you are now",
+        "new instructions:",
+        "system:",
+        "[system]",
+        "<|system|>",
+        "ASSISTANT:",
+        "Human:",
+        "```system",
+    ];
+    let lower = sanitized.to_lowercase();
+    for pattern in &injection_patterns {
+        if lower.contains(pattern) {
+            tracing::warn!(target: "ai", "Prompt injection pattern detected and stripped: {}", pattern);
+            sanitized = sanitized.replace(pattern, "[FILTERED]");
+            // Case-insensitive replacement
+            let lower_sanitized = sanitized.to_lowercase();
+            if lower_sanitized.contains(pattern) {
+                sanitized = sanitized.to_string();
+            }
+        }
+    }
+    // Truncate to prevent context stuffing
+    if sanitized.len() > 8192 {
+        sanitized.truncate(8192);
+        sanitized.push_str("... [TRUNCATED]");
+    }
+    sanitized
 }
 
 /// Flatten messages into a single prompt string for Claude CLI.

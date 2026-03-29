@@ -360,13 +360,31 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
     }
 }
 
+/// MMA-C8: Validate path component — reject traversal attempts.
+fn is_safe_path_component(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains("..")
+        && !s.contains('/')
+        && !s.contains('\\')
+        && !s.contains('\0')
+        && s.len() <= 128
+}
+
 /// Validate that a specific car is installed on this pod.
 pub fn is_car_installed(car_id: &str) -> bool {
+    if !is_safe_path_component(car_id) {
+        tracing::warn!(target: LOG_TARGET, "Path traversal attempt in car_id: {:?}", car_id);
+        return false;
+    }
     Path::new(AC_CONTENT_PATH).join("cars").join(car_id).exists()
 }
 
 /// Validate that a specific track is installed on this pod.
 pub fn is_track_installed(track_id: &str) -> bool {
+    if !is_safe_path_component(track_id) {
+        tracing::warn!(target: LOG_TARGET, "Path traversal attempt in track_id: {:?}", track_id);
+        return false;
+    }
     Path::new(AC_CONTENT_PATH).join("tracks").join(track_id).exists()
 }
 
@@ -374,6 +392,10 @@ pub fn is_track_installed(track_id: &str) -> bool {
 pub fn is_track_config_valid(track_id: &str, config: &str) -> bool {
     if config.is_empty() {
         return true; // No config = default layout
+    }
+    if !is_safe_path_component(track_id) || !is_safe_path_component(config) {
+        tracing::warn!(target: LOG_TARGET, "Path traversal attempt in track config: {:?}/{:?}", track_id, config);
+        return false;
     }
     Path::new(AC_CONTENT_PATH)
         .join("tracks")

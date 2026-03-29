@@ -32,7 +32,24 @@ pub struct CloudSolution {
 }
 
 /// CLOUD-03: Import cloud solutions — cross-venue confidence is capped.
+/// MMA-C6: Caller MUST validate auth token before calling this function.
+/// This function validates payload integrity (field lengths, confidence bounds).
 pub fn import_cloud_solutions(payload: &CloudSyncPayload) -> Vec<CloudSolution> {
+    // MMA-C6: Validate venue_id format
+    if payload.venue_id.is_empty() || payload.venue_id.len() > 128 {
+        tracing::warn!(target: LOG_TARGET, "Cloud sync rejected: invalid venue_id");
+        return vec![];
+    }
+    // MMA-C6: Reject oversized payloads (max 500 solutions per sync)
+    if payload.solutions.len() > 500 {
+        tracing::warn!(
+            target: LOG_TARGET,
+            venue = %payload.venue_id,
+            count = payload.solutions.len(),
+            "Cloud sync rejected: too many solutions (max 500)"
+        );
+        return vec![];
+    }
     tracing::info!(
         target: LOG_TARGET,
         venue = %payload.venue_id,

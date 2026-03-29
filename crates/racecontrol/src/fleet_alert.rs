@@ -5,7 +5,7 @@
 //! Public route (no auth) -- rc-sentry calls this from pods without JWT.
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -33,13 +33,33 @@ pub struct FleetAlertRequest {
 
 /// POST /api/v1/fleet/alert -- send a WhatsApp alert to staff.
 ///
+/// MMA-C4: Now requires X-Service-Key header matching pods.sentry_service_key.
 /// Returns 202 Accepted (fire-and-forget -- WhatsApp delivery is best-effort).
+/// Returns 401 Unauthorized if service key is missing/invalid.
 /// Returns 429 Too Many Requests if called within 60s of the previous alert.
 /// Used by rc-sentry Tier 4 escalation after 3+ failed recovery attempts.
 pub async fn post_fleet_alert(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<FleetAlertRequest>,
 ) -> StatusCode {
+    // MMA-C4: Validate service key — prevent unauthenticated LAN alert spam
+    if let Some(expected_key) = &state.config.pods.sentry_service_key {
+        if !expected_key.is_empty() {
+            let provided = headers
+                .get("x-service-key")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if provided != expected_key.as_str() {
+                tracing::warn!(
+                    target: "fleet_alert",
+                    pod_id = %req.pod_id,
+                    "fleet alert rejected — invalid or missing X-Service-Key"
+                );
+                return StatusCode::UNAUTHORIZED;
+            }
+        }
+    }
     // Rate limit: reject if within cooldown window of last alert
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -1493,6 +1493,11 @@ async fn escalate_to_ai(
             .join("\n")
     };
 
+    // MMA-C5: Sanitize issue strings before embedding in AI prompt
+    let sanitized_issues: Vec<String> = issues
+        .iter()
+        .map(|i| crate::ai::sanitize_for_prompt(i))
+        .collect();
     let context = format!(
         "POD HEALTH ALERT -- Pod {} (#{}, IP: {})\n\n\
          Issues detected:\n{}\n\n\
@@ -1501,7 +1506,7 @@ async fn escalate_to_ai(
         pod.id,
         pod.number,
         pod.ip_address,
-        issues
+        sanitized_issues
             .iter()
             .map(|i| format!("  - {}", i))
             .collect::<Vec<_>>()

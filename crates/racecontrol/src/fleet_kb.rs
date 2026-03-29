@@ -101,9 +101,11 @@ pub async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 // ─── Solution CRUD ──────────────────────────────────────────────────────────
 
 /// Insert a new solution into the fleet KB (from gossip announcement).
+/// MMA-C3/C18: Uses INSERT OR IGNORE to prevent overwriting verified/hardened solutions.
+/// Existing solutions are updated via update_confidence() instead.
 pub async fn insert_solution(pool: &SqlitePool, sol: &MeshSolution) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT OR REPLACE INTO fleet_solutions
+        "INSERT OR IGNORE INTO fleet_solutions
          (id, problem_key, problem_hash, symptoms, environment, root_cause, fix_action,
           fix_type, status, success_count, fail_count, confidence, cost_to_diagnose,
           models_used, diagnosis_tier, source_node, venue_id, created_at, updated_at,

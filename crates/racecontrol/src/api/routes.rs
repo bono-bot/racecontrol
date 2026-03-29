@@ -5851,6 +5851,12 @@ async fn customer_update_profile(
 
     if let Some(nickname) = body.get("nickname") {
         let nick = nickname.as_str().map(|s| s.trim()).unwrap_or("");
+        // MMA-R2-3: Validate nickname (XSS prevention)
+        if !nick.is_empty() {
+            if let Err(e) = crate::input_validation::validate_name(nick) {
+                return Json(json!({ "error": format!("Invalid nickname: {}", e) }));
+            }
+        }
         let nick_val: Option<&str> = if nick.is_empty() { None } else { Some(nick) };
         let _ = sqlx::query("UPDATE drivers SET nickname = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(nick_val)

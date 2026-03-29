@@ -93,6 +93,32 @@ async fn handle_solution_announce(
     cost_to_diagnose: f64,
     summary: &str,
 ) {
+    // MMA-C3: Validate source_node against known connected pods
+    let is_known_node = {
+        let pods = state.pods.read().await;
+        pods.values().any(|p| p.id == source_node || p.name == source_node)
+    };
+    if !is_known_node {
+        tracing::warn!(
+            target: "mesh_handler",
+            source = %source_node,
+            "Mesh: solution announce from UNKNOWN source_node — rejected"
+        );
+        return;
+    }
+
+    // MMA-C3: Cap confidence to [0.0, 1.0] range
+    let confidence = confidence.clamp(0.0, 1.0);
+
+    // MMA-C3: Validate field lengths to prevent oversized payloads
+    if problem_hash.len() > 256 || problem_key.len() > 512 || summary.len() > 4096 {
+        tracing::warn!(
+            target: "mesh_handler",
+            "Mesh: solution announce with oversized fields — rejected"
+        );
+        return;
+    }
+
     let now = Utc::now();
     let id = format!("sol_{}", &problem_hash[..problem_hash.len().min(16)]);
 
