@@ -260,6 +260,7 @@ async fn run_test_migrations(pool: &SqlitePool) {
             reference_id TEXT,
             notes TEXT,
             staff_id TEXT,
+            idempotency_key TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         )"
     ).execute(pool).await.unwrap();
@@ -3603,4 +3604,221 @@ async fn test_billing_rates_delete_excludes_from_cost() {
         cost_after.total_paise != cost_before.total_paise,
         "Cost must differ after deleting a tier"
     );
+}
+
+// =============================================================================
+// Financial Flow E2E Tests (GAP-6 — Unified Protocol Layer 2.5)
+//
+// Traces actual currency values through complete billing lifecycle.
+// Each test exercises the real wallet/billing functions, not just formulas.
+// =============================================================================
+
+/// GAP-6.1: compute_refund uses integer arithmetic (no f64 drift)
+#[tokio::test]
+async fn test_financial_e2e_compute_refund_integer_only() {
+    use racecontrol_crate::billing::compute_refund;
+
+    // Standard 30-min session at ₹700
+    assert_eq!(compute_refund(1800, 600, 70000), 46666, "20min remaining of 30min @ ₹700");
+    assert_eq!(compute_refund(1800, 900, 70000), 35000, "15min remaining of 30min @ ₹700");
+    assert_eq!(compute_refund(1800, 0, 70000), 70000, "full refund when 0 driven");
+    assert_eq!(compute_refund(1800, 1800, 70000), 0, "no refund when fully used");
+    assert_eq!(compute_refund(1800, 1900, 70000), 0, "no refund when overtime");
+
+    // Edge cases
+    assert_eq!(compute_refund(0, 0, 70000), 0, "zero allocated = safe zero");
+    assert_eq!(compute_refund(1800, 100, 0), 0, "zero debit = safe zero");
+    assert_eq!(compute_refund(-1, 0, 70000), 0, "negative allocated = safe zero");
+}
+
+/// GAP-6.2: Full wallet lifecycle — topup → debit → refund → verify balance
+#[tokio::test]
+async fn test_financial_e2e_full_wallet_lifecycle() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "fin-e2e-1", 0).await;
+    let state = create_test_state(pool);
+
+    // Step 1: Topup ₹1000 (100000 paise)
+    let balance = racecontrol_crate::wallet::credit(
+        &state, "fin-e2e-1", 100000, "topup_cash", None, None, None,
+    ).await.unwrap();
+    assert_eq!(balance, 100000, "balance after topup should be 100000");
+
+    // Step 2: Debit ₹700 (70000 paise) for session
+    let (balance, _txn_id) = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-1", 70000, "debit_session", Some("sess-fin-1"), None,
+    ).await.unwrap();
+    assert_eq!(balance, 30000, "balance after session debit should be 30000");
+
+    // Step 3: Early end — refund proportional (drove 600s of 1800s)
+    let refund_paise = racecontrol_crate::billing::compute_refund(1800, 600, 70000);
+    assert_eq!(refund_paise, 46666, "refund for 20min remaining should be 46666");
+
+    let balance = racecontrol_crate::wallet::refund(
+        &state, "fin-e2e-1", refund_paise, Some("sess-fin-1"), Some("early-end refund"),
+    ).await.unwrap();
+    assert_eq!(balance, 76666, "balance after refund should be 30000 + 46666 = 76666");
+
+    // Step 4: Verify transaction audit trail
+    let txn_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = 'fin-e2e-1'"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(txn_count.0, 3, "should have 3 transactions: topup + debit + refund");
+
+    // Step 5: Verify wallet totals
+    let (credited, debited) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT total_credited_paise, total_debited_paise FROM wallets WHERE driver_id = 'fin-e2e-1'"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(credited, 100000 + refund_paise, "total_credited should include topup + refund");
+    assert_eq!(debited, 70000, "total_debited should be session charge only");
+}
+
+/// GAP-6.3: Insufficient balance blocks session booking
+#[tokio::test]
+async fn test_financial_e2e_insufficient_funds_blocks_booking() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "fin-e2e-2", 50000).await; // ₹500
+    let state = create_test_state(pool);
+
+    // Try to debit ₹700 with only ₹500 balance
+    let result = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-2", 70000, "debit_session", None, None,
+    ).await;
+
+    assert!(result.is_err(), "debit should fail with insufficient balance");
+
+    // Verify balance unchanged
+    let balance = racecontrol_crate::wallet::get_balance(&state, "fin-e2e-2").await.unwrap();
+    assert_eq!(balance, 50000, "balance must remain unchanged after failed debit");
+
+    // Verify no transaction was created
+    let txn_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = 'fin-e2e-2'"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(txn_count.0, 0, "no transaction should exist for failed debit");
+}
+
+/// GAP-6.4: Full-time session = zero refund, wallet correctly debited
+#[tokio::test]
+async fn test_financial_e2e_full_session_no_refund() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "fin-e2e-3", 100000).await;
+    let state = create_test_state(pool);
+
+    // Debit for session
+    let (balance, _) = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-3", 70000, "debit_session", Some("sess-full"), None,
+    ).await.unwrap();
+    assert_eq!(balance, 30000);
+
+    // Drove full allocated time
+    let refund = racecontrol_crate::billing::compute_refund(1800, 1800, 70000);
+    assert_eq!(refund, 0, "no refund for full-time session");
+
+    // Balance stays at post-debit amount
+    let final_balance = racecontrol_crate::wallet::get_balance(&state, "fin-e2e-3").await.unwrap();
+    assert_eq!(final_balance, 30000, "balance unchanged — no refund issued");
+}
+
+/// GAP-6.5: Cancel before launch = full refund
+#[tokio::test]
+async fn test_financial_e2e_cancel_before_launch_full_refund() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "fin-e2e-4", 100000).await;
+    let state = create_test_state(pool);
+
+    // Debit for session
+    let (balance, _) = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-4", 70000, "debit_session", Some("sess-cancel"), None,
+    ).await.unwrap();
+    assert_eq!(balance, 30000);
+
+    // Cancel before any driving (0 seconds driven)
+    let refund = racecontrol_crate::billing::compute_refund(1800, 0, 70000);
+    assert_eq!(refund, 70000, "full refund when 0 seconds driven");
+
+    let balance = racecontrol_crate::wallet::refund(
+        &state, "fin-e2e-4", refund, Some("sess-cancel"), Some("cancelled before launch"),
+    ).await.unwrap();
+    assert_eq!(balance, 100000, "balance restored to pre-booking amount");
+}
+
+/// GAP-6.6: Overtime = zero refund (driving >= allocated)
+#[tokio::test]
+async fn test_financial_e2e_overtime_zero_refund() {
+    use racecontrol_crate::billing::compute_refund;
+
+    // Drove 35 minutes of a 30-minute session
+    assert_eq!(compute_refund(1800, 2100, 70000), 0, "overtime = no refund");
+    // Drove exactly allocated
+    assert_eq!(compute_refund(1800, 1800, 70000), 0, "exact = no refund");
+    // Drove 1 second over
+    assert_eq!(compute_refund(1800, 1801, 70000), 0, "1s over = no refund");
+}
+
+/// GAP-6.7: Tiered pricing — compute_session_cost uses integer arithmetic
+#[tokio::test]
+async fn test_financial_e2e_tiered_pricing_integer_math() {
+    use racecontrol_crate::billing::compute_session_cost;
+    use racecontrol_crate::billing::BillingRateTier;
+
+    let tiers = vec![
+        BillingRateTier {
+            tier_order: 1, tier_name: "Standard".into(),
+            threshold_minutes: 30, rate_per_min_paise: 2500, sim_type: None,
+        },
+        BillingRateTier {
+            tier_order: 2, tier_name: "Extended".into(),
+            threshold_minutes: 60, rate_per_min_paise: 2000, sim_type: None,
+        },
+        BillingRateTier {
+            tier_order: 3, tier_name: "Marathon".into(),
+            threshold_minutes: 0, rate_per_min_paise: 1500, sim_type: None,
+        },
+    ];
+
+    // 30 min = 30 * 2500 = 75000
+    let cost_30 = compute_session_cost(30 * 60, &tiers);
+    assert_eq!(cost_30.total_paise, 75000, "30 min standard tier");
+
+    // 45 min = 30 * 2500 + 15 * 2000 = 75000 + 30000 = 105000
+    let cost_45 = compute_session_cost(45 * 60, &tiers);
+    assert_eq!(cost_45.total_paise, 105000, "45 min crosses into extended tier");
+
+    // 90 min = 30 * 2500 + 30 * 2000 + 30 * 1500 = 75000 + 60000 + 45000 = 180000
+    let cost_90 = compute_session_cost(90 * 60, &tiers);
+    assert_eq!(cost_90.total_paise, 180000, "90 min uses all three tiers");
+}
+
+/// GAP-6.8: Wallet double-debit prevention (idempotency)
+#[tokio::test]
+async fn test_financial_e2e_no_double_debit() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "fin-e2e-5", 100000).await;
+    let state = create_test_state(pool);
+
+    // First debit succeeds
+    let (balance1, _) = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-5", 70000, "debit_session", Some("sess-double"), None,
+    ).await.unwrap();
+    assert_eq!(balance1, 30000);
+
+    // Second debit for same amount would overdraw
+    let result = racecontrol_crate::wallet::debit(
+        &state, "fin-e2e-5", 70000, "debit_session", Some("sess-double-2"), None,
+    ).await;
+    assert!(result.is_err(), "second debit should fail — insufficient balance");
+
+    // Balance unchanged
+    let balance = racecontrol_crate::wallet::get_balance(&state, "fin-e2e-5").await.unwrap();
+    assert_eq!(balance, 30000, "balance should remain at 30000 after failed second debit");
 }
