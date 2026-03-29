@@ -441,8 +441,12 @@ pub async fn accept_group_invite(
         Ok(id) => id,
         Err(e) => {
             tracing::error!("accept_group_invite: reservation failed, refunding wallet: {}", e);
-            let _ = wallet::refund(state, driver_id, price_paise, Some(group_session_id),
-                Some("Refund: multiplayer reservation failed")).await;
+            // MMA iter2: handle refund failure explicitly (not let _ =)
+            match wallet::refund(state, driver_id, price_paise, Some(group_session_id),
+                Some("Refund: multiplayer reservation failed")).await {
+                Ok(_) => tracing::info!("accept_group_invite: refund issued for failed reservation"),
+                Err(re) => tracing::error!("CRITICAL: accept_group_invite: refund FAILED for driver {} ({}p): {}", driver_id, price_paise, re),
+            }
             return Err(e);
         }
     };
