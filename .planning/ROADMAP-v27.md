@@ -178,7 +178,12 @@ Plans:
   4. A leaderboard entry can only be created from a verified automatic session record — manual entry is structurally impossible
   5. A wheel or pedal USB disconnect during a session triggers billing pause and a staff alert within 5 seconds
   6. A pod with more than 3 crashes in 1 hour is automatically flagged for maintenance — the staff dashboard shows the maintenance flag
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 260-01-PLAN.md — Notification outbox with retry + OTP fallback chain + negative wallet balance alert
+- [ ] 260-02-PLAN.md — Leaderboard integrity (billing session gate), segmentation (game/track/car_class/assist_tier), lap evidence, unverifiable marking
+- [ ] 260-03-PLAN.md — Hardware disconnect detection + billing pause, crash rate anomaly detection, controls.ini reset, clock sync
+- [ ] 260-04-PLAN.md — Customer receipt generation + auto-send, virtual queue management (join/status/call/seat)
 **UI hint**: yes
 
 ---
@@ -196,7 +201,7 @@ Plans:
 | 257. Billing Edge Cases | 0/3 | Planned | - |
 | 258. Staff Controls & Deployment Safety | 0/3 | Planned | - |
 | 259. Coupon & Discount System | 0/2 | Planned | - |
-| 260. Notifications, Resilience & UX | 0/? | Not started | - |
+| 260. Notifications, Resilience & UX | 0/4 | Planned | - |
 
 ---
 
