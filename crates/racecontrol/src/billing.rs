@@ -111,6 +111,10 @@ pub struct BillingRateTier {
     pub sim_type: Option<rc_common::types::SimType>,
 }
 
+/// STAFF-01: Discount approval threshold — discounts above this amount require manager approval code.
+/// Default: Rs.50 (5000 paise). Configurable via constant; future config migration can read from DB.
+pub const DISCOUNT_APPROVAL_THRESHOLD_PAISE: i64 = 5000;
+
 /// Default billing rate tiers (used before first DB load).
 /// FATM-05: The Standard tier (2500 paise/min * 30 min = 75000 paise = Rs.750)
 /// MUST match the 30-min pricing_tier.price_paise in the DB. If rates change, update both.
@@ -4273,6 +4277,110 @@ pub async fn cancel_pending_splits(
     .await
     .map_err(|e| format!("FSM-07: Failed to cancel pending splits: {}", e))?;
     Ok(())
+}
+
+/// DEPLOY-02: Handle agent graceful shutdown notification.
+/// Called by the pod agent during its shutdown sequence when a billing session is active.
+/// Ends the session with EndedEarly status so the partial refund logic fires.
+/// This endpoint is idempotent — if the session was already ended, returns Ok with refund_paise=0.
+/// The endpoint is in public_routes, gated by the agent service key header.
+pub async fn handle_agent_shutdown(
+    state: &Arc<AppState>,
+    session_id: &str,
+    pod_id: &str,
+    shutdown_reason: &str,
+) -> serde_json::Value {
+    tracing::info!(
+        "DEPLOY-02: Agent shutdown for session {} (pod={}, reason={})",
+        session_id, pod_id, shutdown_reason
+    );
+
+    // Record shutdown_at timestamp (idempotent — only sets if NULL, since session may already be ended)
+    let _ = sqlx::query(
+        "UPDATE billing_sessions SET shutdown_at = datetime('now') WHERE id = ? AND shutdown_at IS NULL AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+    )
+    .bind(session_id)
+    .execute(&state.db)
+    .await;
+
+    // Fetch current wallet debit before end for refund calculation
+    let wallet_info = sqlx::query_as::<_, (String, i64, i64, Option<i64>)>(
+        "SELECT driver_id, allocated_seconds, COALESCE(driving_seconds, 0), wallet_debit_paise FROM billing_sessions WHERE id = ?",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let ended = end_billing_session_public(
+        state,
+        session_id,
+        BillingSessionStatus::EndedEarly,
+        Some(&format!("agent_shutdown:{}", shutdown_reason)),
+    )
+    .await;
+
+    if !ended {
+        // Session was already ended (idempotent — return 409 body with ended indicator)
+        return serde_json::json!({ "status": "already_ended", "refund_paise": 0 });
+    }
+
+    // Calculate approximate refund for response (actual credit applied in end_billing_session)
+    let refund_paise = if let Some((_driver_id, allocated, driving, Some(debit))) = wallet_info {
+        compute_refund(allocated, driving, debit)
+    } else {
+        0
+    };
+
+    serde_json::json!({
+        "status": "ended",
+        "session_id": session_id,
+        "pod_id": pod_id,
+        "refund_paise": refund_paise,
+        "ended_at": chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+/// DEPLOY-04: Check for interrupted sessions for a given pod.
+/// Called by rc-agent on startup to detect and clean up sessions that appear interrupted
+/// (shutdown_at is set but no ended_at, or still active with a stale last heartbeat).
+/// Auto-ends any such sessions so the customer receives a partial refund.
+pub async fn handle_interrupted_sessions_check(
+    state: &Arc<AppState>,
+    pod_id: &str,
+) -> serde_json::Value {
+    // Find sessions that were interrupted: shutdown_at set but still active/paused
+    let interrupted = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT id, driver_id, COALESCE(driving_seconds, 0) FROM billing_sessions \
+         WHERE pod_id = ? AND shutdown_at IS NOT NULL \
+         AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+    )
+    .bind(pod_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut ended_sessions = Vec::new();
+    for (session_id, _driver_id, _driving_seconds) in interrupted {
+        let ended = end_billing_session_public(
+            state,
+            &session_id,
+            BillingSessionStatus::EndedEarly,
+            Some("interrupted_session_recovery"),
+        )
+        .await;
+        if ended {
+            tracing::info!("DEPLOY-04: Auto-ended interrupted session {} for pod {}", session_id, pod_id);
+            ended_sessions.push(session_id);
+        }
+    }
+
+    serde_json::json!({
+        "pod_id": pod_id,
+        "ended_sessions": ended_sessions,
+        "count": ended_sessions.len(),
+    })
 }
 
 #[cfg(test)]

@@ -332,6 +332,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))
         .route("/billing/{id}/extend", post(extend_billing))
+        // STAFF-01: Discount approval — cashier+ access, manager approval code required above threshold
+        .route("/billing/{id}/discount", post(apply_billing_discount))
         .route("/billing/{id}/refund", post(refund_billing_session))
         .route("/billing/{id}/refunds", get(get_billing_refunds))
         .route("/billing/report/daily", get(daily_billing_report))
@@ -527,6 +529,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/admin/disputes", get(list_disputes_handler))
                 .route("/admin/disputes/{id}/details", get(dispute_details_handler))
                 .route("/admin/disputes/{id}/resolve", post(resolve_dispute_handler))
+                // STAFF-03: Daily override audit report (all discounts, refunds, tier changes with actor_id)
+                .route("/admin/reports/daily-overrides", get(daily_overrides_report))
+                // STAFF-04: Cash drawer reconciliation
+                .route("/admin/reports/cash-drawer", get(cash_drawer_status))
+                .route("/admin/reports/cash-drawer/close", post(cash_drawer_close))
                 .layer(axum::middleware::from_fn(require_role_manager))
         )
         .merge(
@@ -12105,7 +12112,8 @@ async fn public_lap_telemetry(
         Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
     };
 
-    // Fetch all telemetry samples for this lap
+    // Phase 251: Fetch telemetry samples from telemetry.db if available, else fall back to main DB
+    let telem_pool = state.telemetry_db.as_ref().unwrap_or(&state.db);
     let samples = sqlx::query_as::<_, (i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<i64>, Option<i64>)>(
         "SELECT offset_ms, speed, throttle, brake, steering, gear, rpm
          FROM telemetry_samples
@@ -12113,7 +12121,7 @@ async fn public_lap_telemetry(
          ORDER BY offset_ms ASC",
     )
     .bind(&lap_id)
-    .fetch_all(&state.db)
+    .fetch_all(telem_pool)
     .await;
 
     match samples {
@@ -19210,6 +19218,366 @@ async fn reconciliation_status() -> Json<serde_json::Value> {
 async fn reconciliation_run(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     billing::run_reconciliation_public(&state).await;
     Json(billing::get_reconciliation_status())
+}
+
+// ─── STAFF-01: Discount approval gate ────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ApplyDiscountRequest {
+    discount_paise: i64,
+    reason_code: String,
+    manager_approval_code: Option<String>,
+}
+
+/// POST /api/v1/billing/{id}/discount
+/// STAFF-01: Apply a discount to an active billing session.
+/// Discounts above DISCOUNT_APPROVAL_THRESHOLD_PAISE require manager approval code.
+async fn apply_billing_discount(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
+    Path(session_id): Path<String>,
+    Json(req): Json<ApplyDiscountRequest>,
+) -> Json<Value> {
+    if req.discount_paise <= 0 {
+        return Json(json!({ "error": "discount_paise must be greater than 0" }));
+    }
+    if req.reason_code.trim().is_empty() {
+        return Json(json!({ "error": "reason_code is required" }));
+    }
+
+    let threshold = billing::DISCOUNT_APPROVAL_THRESHOLD_PAISE;
+    let mut manager_approved = false;
+
+    // STAFF-01: Discounts above threshold require manager approval code
+    if req.discount_paise > threshold {
+        match req.manager_approval_code.as_deref() {
+            None | Some("") => {
+                tracing::warn!(
+                    actor_id = %claims.sub,
+                    session_id = %session_id,
+                    discount_paise = req.discount_paise,
+                    threshold = threshold,
+                    "STAFF-01: Discount above threshold rejected — no manager approval code"
+                );
+                return Json(json!({
+                    "error": "Discount above threshold requires manager approval code",
+                    "threshold_paise": threshold,
+                }));
+            }
+            Some(code) => {
+                // Validate manager approval code: look up staff with matching PIN where role is manager or superadmin
+                let result = sqlx::query_as::<_, (String, String)>(
+                    "SELECT id, role FROM staff_members WHERE pin = ? AND is_active = 1 AND role IN ('manager', 'superadmin')",
+                )
+                .bind(code)
+                .fetch_optional(&state.db)
+                .await;
+
+                match result {
+                    Ok(Some(_)) => {
+                        manager_approved = true;
+                    }
+                    Ok(None) => {
+                        tracing::warn!(
+                            actor_id = %claims.sub,
+                            session_id = %session_id,
+                            "STAFF-01: Manager approval code invalid or not a manager"
+                        );
+                        return Json(json!({
+                            "error": "Invalid manager approval code — must be a manager or superadmin PIN",
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::error!("STAFF-01: DB error validating manager approval code: {}", e);
+                        return Json(json!({ "error": "Database error validating approval code" }));
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply discount: UPDATE billing_sessions for active/paused sessions only
+    let update_result = sqlx::query(
+        "UPDATE billing_sessions
+         SET discount_paise = COALESCE(discount_paise, 0) + ?,
+             discount_reason = ?
+         WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+    )
+    .bind(req.discount_paise)
+    .bind(&req.reason_code)
+    .bind(&session_id)
+    .execute(&state.db)
+    .await;
+
+    match update_result {
+        Ok(r) if r.rows_affected() == 0 => {
+            return Json(json!({
+                "error": "Session not found or not in an active/paused state",
+                "session_id": session_id,
+            }));
+        }
+        Err(e) => {
+            tracing::error!("STAFF-01: Failed to apply discount for session {}: {}", session_id, e);
+            return Json(json!({ "error": "Database error applying discount" }));
+        }
+        Ok(_) => {}
+    }
+
+    // Insert audit_log entry
+    let audit_details = json!({
+        "session_id": session_id,
+        "discount_paise": req.discount_paise,
+        "reason_code": req.reason_code,
+        "manager_approved": manager_approved,
+        "actor_id": claims.sub,
+    });
+    accounting::log_admin_action(
+        &state,
+        "discount_applied",
+        &audit_details.to_string(),
+        Some(&claims.sub),
+        None,
+    )
+    .await;
+
+    tracing::info!(
+        actor_id = %claims.sub,
+        session_id = %session_id,
+        discount_paise = req.discount_paise,
+        manager_approved = manager_approved,
+        reason_code = %req.reason_code,
+        "STAFF-01: Discount applied"
+    );
+
+    Json(json!({
+        "status": "ok",
+        "session_id": session_id,
+        "discount_paise": req.discount_paise,
+        "manager_approved": manager_approved,
+    }))
+}
+
+// ─── STAFF-03: Daily override report ─────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct DailyOverridesQuery {
+    /// Optional date in YYYY-MM-DD format (IST). Defaults to today IST.
+    date: Option<String>,
+}
+
+/// GET /api/v1/admin/reports/daily-overrides?date=YYYY-MM-DD
+/// STAFF-03: Returns all discounts, manual refunds, and tier changes with actor_id for a given day.
+async fn daily_overrides_report(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DailyOverridesQuery>,
+) -> Json<Value> {
+    // Default to today IST (UTC+5:30)
+    let target_date = params.date.unwrap_or_else(|| {
+        let now_utc = chrono::Utc::now();
+        let ist_offset = chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+        let now_ist = now_utc.with_timezone(&ist_offset);
+        now_ist.format("%Y-%m-%d").to_string()
+    });
+
+    // Discount entries from billing_sessions
+    let discounts = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT bs.id, bs.discount_paise, bs.discount_reason, bs.driver_id,
+                al.staff_id
+         FROM billing_sessions bs
+         LEFT JOIN audit_log al ON al.action_type = 'discount_applied'
+                               AND json_extract(al.new_values, '$.session_id') = bs.id
+         WHERE bs.discount_paise > 0
+           AND date(bs.started_at) = ?
+         ORDER BY bs.started_at DESC",
+    )
+    .bind(&target_date)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Manual refunds from wallet_transactions
+    let refunds = sqlx::query_as::<_, (String, i64, Option<String>, Option<String>, String)>(
+        "SELECT id, amount_paise, driver_id, staff_id, created_at
+         FROM wallet_transactions
+         WHERE type = 'manual_refund'
+           AND date(created_at) = ?
+         ORDER BY created_at DESC",
+    )
+    .bind(&target_date)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // All override audit_log entries for the day
+    let audit_entries = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String)>(
+        "SELECT id, action_type, staff_id, new_values, created_at
+         FROM audit_log
+         WHERE action_type IN ('discount_applied', 'tier_change', 'manual_refund')
+           AND date(created_at) = ?
+         ORDER BY created_at DESC",
+    )
+    .bind(&target_date)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let discount_entries: Vec<Value> = discounts
+        .into_iter()
+        .map(|(session_id, discount_paise, reason, driver_id, actor_id)| {
+            json!({
+                "action_type": "discount_applied",
+                "session_id": session_id,
+                "actor_id": actor_id,
+                "target_driver": driver_id,
+                "amount_paise": discount_paise.unwrap_or(0),
+                "reason": reason,
+            })
+        })
+        .collect();
+
+    let refund_entries: Vec<Value> = refunds
+        .into_iter()
+        .map(|(id, amount_paise, driver_id, staff_id, created_at)| {
+            json!({
+                "action_type": "manual_refund",
+                "transaction_id": id,
+                "actor_id": staff_id,
+                "target_driver": driver_id,
+                "amount_paise": amount_paise,
+                "timestamp": created_at,
+            })
+        })
+        .collect();
+
+    let audit_override_entries: Vec<Value> = audit_entries
+        .into_iter()
+        .map(|(id, action_type, staff_id, details, created_at)| {
+            json!({
+                "action_type": action_type,
+                "audit_id": id,
+                "actor_id": staff_id,
+                "details": details,
+                "timestamp": created_at,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "status": "ok",
+        "date": target_date,
+        "discounts": discount_entries,
+        "manual_refunds": refund_entries,
+        "audit_overrides": audit_override_entries,
+    }))
+}
+
+// ─── STAFF-04: Cash drawer reconciliation ─────────────────────────────────────
+
+/// GET /api/v1/admin/reports/cash-drawer
+/// STAFF-04: Returns system cash total for today (sum of wallet_transactions with method='cash').
+async fn cash_drawer_status(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    // IST today
+    let now_utc = chrono::Utc::now();
+    let ist_offset = chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+    let today_ist = now_utc.with_timezone(&ist_offset).format("%Y-%m-%d").to_string();
+
+    let total: Option<(Option<i64>,)> = sqlx::query_as(
+        "SELECT SUM(amount_paise) FROM wallet_transactions
+         WHERE (type = 'topup_cash' OR notes LIKE '%cash%')
+           AND date(created_at) = ?",
+    )
+    .bind(&today_ist)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let system_cash_total_paise = total.and_then(|(v,)| v).unwrap_or(0);
+
+    Json(json!({
+        "status": "ok",
+        "date": today_ist,
+        "system_cash_total_paise": system_cash_total_paise,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct CashDrawerCloseRequest {
+    physical_count_paise: i64,
+}
+
+/// POST /api/v1/admin/reports/cash-drawer/close
+/// STAFF-04: Log end-of-day cash drawer close with physical count vs system total discrepancy.
+async fn cash_drawer_close(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
+    Json(req): Json<CashDrawerCloseRequest>,
+) -> Json<Value> {
+    if req.physical_count_paise < 0 {
+        return Json(json!({ "error": "physical_count_paise cannot be negative" }));
+    }
+
+    // Compute system total for today IST
+    let now_utc = chrono::Utc::now();
+    let ist_offset = chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+    let today_ist = now_utc.with_timezone(&ist_offset).format("%Y-%m-%d").to_string();
+
+    let total: Option<(Option<i64>,)> = sqlx::query_as(
+        "SELECT SUM(amount_paise) FROM wallet_transactions
+         WHERE (type = 'topup_cash' OR notes LIKE '%cash%')
+           AND date(created_at) = ?",
+    )
+    .bind(&today_ist)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let system_total_paise = total.and_then(|(v,)| v).unwrap_or(0);
+    let discrepancy_paise = req.physical_count_paise - system_total_paise;
+
+    let status = match discrepancy_paise.cmp(&0) {
+        std::cmp::Ordering::Greater => "over",
+        std::cmp::Ordering::Less => "under",
+        std::cmp::Ordering::Equal => "balanced",
+    };
+
+    // Insert audit_log entry
+    let audit_details = json!({
+        "date": today_ist,
+        "system_total_paise": system_total_paise,
+        "physical_count_paise": req.physical_count_paise,
+        "discrepancy_paise": discrepancy_paise,
+        "status": status,
+        "actor_id": claims.sub,
+    });
+    accounting::log_admin_action(
+        &state,
+        "cash_drawer_close",
+        &audit_details.to_string(),
+        Some(&claims.sub),
+        None,
+    )
+    .await;
+
+    tracing::info!(
+        actor_id = %claims.sub,
+        date = %today_ist,
+        system_total_paise = system_total_paise,
+        physical_count_paise = req.physical_count_paise,
+        discrepancy_paise = discrepancy_paise,
+        status = %status,
+        "STAFF-04: Cash drawer closed"
+    );
+
+    Json(json!({
+        "status": "ok",
+        "date": today_ist,
+        "system_total_paise": system_total_paise,
+        "physical_count_paise": req.physical_count_paise,
+        "discrepancy_paise": discrepancy_paise,
+        "drawer_status": status,
+    }))
 }
 
 // ─── SEC-05: Self-topup guard tests ──────────────────────────────────────────
