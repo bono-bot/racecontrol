@@ -1035,3 +1035,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 15:04 IST | James | efbdc9e1 | fix(258-03): replace racecontrol_crate:: with crate:: in input_validation calls (258-01 parallel executor bug) |
 | 2026-03-29 15:30 IST | James | 1b038a5f | feat(258-02): STAFF-05 shift handoff — POST /staff/shift-handoff + GET /staff/shift-briefing |
 | 2026-03-29 15:40 IST | James | a46f7c49 | feat(258-02): DEPLOY-01 verified session drain, DEPLOY-03 weekend deploy window lock (is_deploy_window_locked) |
+| 2026-03-29 16:00 IST | James | 6838fe5c | feat(259-01): FATM-07 atomic extension (wallet debit + time addition in single tx), FATM-10 discount stacking floor in start_billing + apply_billing_discount |
