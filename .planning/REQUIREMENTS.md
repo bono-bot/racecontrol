@@ -102,15 +102,15 @@
 - [x] **RESIL-02**: Billing timer writes staggered by pod index (Pod 1 at :00, Pod 2 at :07, etc.)
 - [x] **RESIL-03**: Orphaned session detection job: every 5 minutes, flag active sessions with no agent heartbeat for 5+ min
 - [ ] **RESIL-04**: Hardware health heartbeat: agent polls wheel/pedal USB device presence every 5s; pause + alert on disconnect
-- [ ] **RESIL-05**: Negative wallet balance alert: immediate staff notification + session block
+- [x] **RESIL-05**: Negative wallet balance alert: immediate staff notification + session block
 - [ ] **RESIL-06**: Agent crash rate anomaly detection: >3 crashes in 1 hour on same pod triggers maintenance flag
 - [ ] **RESIL-07**: Controls.ini reset between sessions: each new session writes fresh FFB/control config (no leakage)
 - [ ] **RESIL-08**: Clock sync check: server vs pod timestamp drift >5s triggers warning in fleet health
 
 ### Notifications & UX (UX)
 
-- [ ] **UX-01**: Notification outbox: durable table with states (pending, sent, delivered, failed); background retry with backoff
-- [ ] **UX-02**: OTP fallback: if WhatsApp delivery fails, offer on-screen display or SMS fallback
+- [x] **UX-01**: Notification outbox: durable table with states (pending, sent, delivered, failed); background retry with backoff
+- [x] **UX-02**: OTP fallback: if WhatsApp delivery fails, offer on-screen display or SMS fallback
 - [ ] **UX-03**: Customer receipt: auto-generated after session end with before/after balance, duration, charges, refund
 - [ ] **UX-04**: Leaderboard integrity: entries only from automatic verified session records (no manual entry)
 - [ ] **UX-05**: Leaderboard segmented by game + track + car class + assist tier
@@ -208,8 +208,8 @@ Updated during roadmap creation (2026-03-29).
 | FATM-09 | Phase 259 | Complete |
 | FATM-10 | Phase 259 | Complete |
 | FATM-11 | Phase 259 | Complete |
-| UX-01 | Phase 260 | Pending |
-| UX-02 | Phase 260 | Pending |
+| UX-01 | Phase 260 | Complete |
+| UX-02 | Phase 260 | Complete |
 | UX-03 | Phase 260 | Pending |
 | UX-04 | Phase 260 | Pending |
 | UX-05 | Phase 260 | Pending |
@@ -217,7 +217,7 @@ Updated during roadmap creation (2026-03-29).
 | UX-07 | Phase 260 | Pending |
 | UX-08 | Phase 260 | Pending |
 | RESIL-04 | Phase 260 | Pending |
-| RESIL-05 | Phase 260 | Pending |
+| RESIL-05 | Phase 260 | Complete |
 | RESIL-06 | Phase 260 | Pending |
 | RESIL-07 | Phase 260 | Pending |
 | RESIL-08 | Phase 260 | Pending |
