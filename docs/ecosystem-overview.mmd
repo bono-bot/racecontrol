@@ -1,0 +1,142 @@
+---
+title: RaceControl Ecosystem — Full Architecture (incl. Meshed Intelligence)
+---
+flowchart TD
+    %% ── External Actors ──
+    Customer["🏎️ Customer<br/>(QR Scan / Mobile)"]
+    Staff["👤 Staff / Uday"]
+    GitHub["GitHub<br/>racingpoint repos"]
+    OpenRouter["OpenRouter API<br/>AI Models (Tier 3-4)"]
+
+    %% ── Tailscale VPN Mesh ──
+    subgraph TAILSCALE["☁️ Tailscale VPN Mesh"]
+        direction TB
+
+        %% ── Server .23 ──
+        subgraph SERVER["🖥️ Server .23 — Central Hub<br/>192.168.31.23 · TS 100.125.108.37"]
+            RC["racecontrol.exe<br/>:8080 REST + WebSocket"]
+            SOPS["server_ops<br/>:8090 Remote Exec"]
+            KIOSK["Next.js Kiosk<br/>:3300"]
+            WEBDASH["Next.js Web Dashboard<br/>:3200"]
+            DB[("SQLite<br/>racecontrol.db")]
+            RC --- DB
+            RC --- SOPS
+
+            subgraph MESH_SERVER["🧠 Meshed Intelligence — Server"]
+                FH["Fleet Health<br/>pod liveness"]
+                FKB["Fleet KB<br/>solutions DB"]
+                MH["Mesh Handler<br/>gossip router"]
+                PH["Pod Healer<br/>graduated recovery"]
+                PM["Pod Monitor<br/>offline detection"]
+                BC["Bot Coordinator<br/>anomaly routing"]
+                MCS["Mesh Cloud Sync<br/>every 30min"]
+                MH --> FKB
+                FH --> PH
+                PM --> PH
+            end
+            RC --- MH
+        end
+
+        %% ── James PC .27 ──
+        subgraph JAMES["🤖 James PC .27 — On-Site AI<br/>192.168.31.27 · TS 100.82.33.94"]
+            RELAY["comms-link Relay<br/>:8766 HTTP"]
+            GO2RTC["go2rtc<br/>:1984 Cameras"]
+            OLLAMA["Ollama<br/>:11434 AI Models"]
+
+            subgraph JAMES_HEAL["🩺 James AI Healer"]
+                WATCHDOG["rc-watchdog<br/>9-service monitor"]
+                JMON["james_monitor<br/>graduated recovery"]
+                WATCHDOG --> JMON
+            end
+            JMON -.- OLLAMA
+        end
+
+        %% ── Bono VPS ──
+        subgraph BONO["☁️ Bono VPS — Cloud Mirror<br/>srv1422716.hstgr.cloud · TS 100.70.177.44"]
+            BRC["racecontrol mirror<br/>:8080"]
+            BWS["comms-link WS<br/>:8765"]
+            EVOL["Evolution API<br/>:53622 WhatsApp"]
+            PWA["Next.js PWA<br/>:3500"]
+            BADMIN["Next.js Admin<br/>:3201"]
+            BDASH["Next.js Dashboard<br/>:3400"]
+            BDB[("SQLite mirror")]
+            BKBDB[("Fleet KB mirror<br/>cross-venue sync")]
+            BRC --- BDB
+            BRC --- BKBDB
+        end
+
+        %% ── POS PC .20 ──
+        subgraph POS["💳 POS PC .20 — Billing Terminal<br/>192.168.31.20 · TS 100.95.211.1"]
+            POSAGENT["rc-pos-agent<br/>:8090"]
+            POSKIOSK["Edge Kiosk<br/>:3200/billing"]
+        end
+
+        %% ── Pods 1-8 ──
+        subgraph PODS["🎮 Racing Pods 1–8<br/>192.168.31.89–.91"]
+            subgraph POD_STACK["Each Pod"]
+                AGENT["rc-agent :8090<br/>Game Launcher · Lock Screen"]
+                SENTRY["rc-sentry<br/>Watchdog + Self-Heal"]
+                GAMES["Games<br/>AC · iRacing · F1 25 · LMU"]
+                SENTRY -->|"Tier 1: monitors<br/>& restarts"| AGENT
+                AGENT -->|launches| GAMES
+
+                subgraph MESH_POD["🧠 Meshed Intelligence — Pod"]
+                    DIAG["Diagnostic Engine<br/>5-min scan + 9 detectors"]
+                    TIER["Tier Engine<br/>5-tier decision tree"]
+                    GOSSIP["Mesh Gossip<br/>WS announcements"]
+                    PODKB[("Local KB<br/>mesh_kb.db")]
+                    DIAG --> TIER
+                    TIER --> PODKB
+                    TIER --> GOSSIP
+                end
+            end
+        end
+    end
+
+    %% ── Core Data Flows ──
+    AGENT ==>|"WebSocket heartbeat<br/>+ mesh gossip"| RC
+    RC ==>|"HTTP commands<br/>+ solution broadcasts"| AGENT
+
+    RC <-->|"Cloud Sync<br/>every 30s HTTP"| BRC
+
+    RELAY ==>|"WebSocket relay<br/>exec commands"| BWS
+
+    RC -->|"WhatsApp alerts<br/>(Tier 5 escalation)"| EVOL
+
+    Customer -->|"QR Scan"| KIOSK
+    Customer -->|"Mobile PWA"| PWA
+    Staff -->|"Admin Portal"| BADMIN
+    Staff -->|"Dashboard"| WEBDASH
+    Staff -->|"Billing"| POSKIOSK
+
+    POSAGENT -->|"Session data"| RC
+
+    WATCHDOG -->|"Health probes<br/>all 8 pods + services"| AGENT
+
+    RC <-->|git push/pull| GitHub
+    BRC <-->|git push/pull| GitHub
+
+    %% ── Meshed Intelligence Flows ──
+    GOSSIP -.->|"Solution announce<br/>Experiment results"| MH
+    MH -.->|"Solution broadcast<br/>Systemic alerts"| GOSSIP
+    MCS -.->|"Fleet KB sync<br/>every 30min"| BKBDB
+    TIER -.->|"Tier 3-4<br/>AI diagnosis"| OpenRouter
+    BC -.->|"Hardware failure<br/>Billing anomaly"| EVOL
+    PH ==>|"Graduated recovery<br/>WoL · restart · reboot"| AGENT
+
+    %% ── Styles ──
+    classDef server fill:#1e3a5f,stroke:#4a90d9,color:#fff,stroke-width:2px
+    classDef james fill:#2d4a1e,stroke:#6abf4b,color:#fff,stroke-width:2px
+    classDef bono fill:#4a1e5f,stroke:#9b59b6,color:#fff,stroke-width:2px
+    classDef pos fill:#5f4a1e,stroke:#e67e22,color:#fff,stroke-width:2px
+    classDef pods fill:#1e4a4a,stroke:#1abc9c,color:#fff,stroke-width:2px
+    classDef external fill:#2c3e50,stroke:#95a5a6,color:#fff,stroke-width:1px
+    classDef mesh fill:#8b0000,stroke:#ff4444,color:#fff,stroke-width:2px
+
+    class RC,SOPS,KIOSK,WEBDASH,DB server
+    class RELAY,GO2RTC,OLLAMA james
+    class BRC,BWS,EVOL,PWA,BADMIN,BDASH,BDB bono
+    class POSAGENT,POSKIOSK pos
+    class AGENT,SENTRY,GAMES pods
+    class Customer,Staff,GitHub,OpenRouter external
+    class FH,FKB,MH,PH,PM,BC,MCS,DIAG,TIER,GOSSIP,PODKB,BKBDB,WATCHDOG,JMON mesh
