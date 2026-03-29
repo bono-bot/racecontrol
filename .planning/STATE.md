@@ -2,23 +2,23 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: verifying
-stopped_at: Completed 256-03-PLAN.md
-last_updated: "2026-03-29T06:06:01.684Z"
+status: executing
+stopped_at: Completed 257-01-PLAN.md
+last_updated: "2026-03-29T07:07:36.453Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 205
   completed_phases: 153
-  total_plans: 370
-  completed_plans: 365
+  total_plans: 373
+  completed_plans: 366
   percent: 98
 ---
 
 ## Current Position
 
-Phase: 257
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 257 (billing-edge-cases) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-03-29
 
 Progress: [██████████] 98% (349/355 plans)
@@ -74,6 +74,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 256 P01 | 35 | 2 tasks | 4 files |
 | Phase 256-game-specific-hardening P02 | 23 | 2 tasks | 11 files |
 | Phase 256-game-specific-hardening P03 | 30 | 2 tasks | 4 files |
+| Phase 257-billing-edge-cases P01 | 45 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -151,10 +152,18 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - check_dlc_installed returns Ok for custom Steam library paths — standard path check avoids false-blocking without full libraryfolders.vdf parsing (GAME-06)
 - SteamOverlayUpdate.exe + package_installer.exe-with-Steam-in-path = update detection signals — avoids parsing Steam internal state files (GAME-01)
 
+## Decisions (Phase 257)
+
+- PauseReason enum (None/GamePause/CrashRecovery/Disconnect) on BillingTimer — crash recovery pause time excluded from billable seconds via recovery_pause_seconds.saturating_sub() (BILL-06)
+- game_launch_requests INSERT non-fatal (let _ =) — TTL enforcement proceeds even if INSERT fails; customer receives request_id regardless (BILL-03)
+- cleanup_expired_game_requests runs every 60s with DashboardEvent::GameRequestExpired broadcast — staff dashboard removes pending PWA request cards automatically (BILL-03)
+- billing_timer_started audit event in start_billing_session() proves billing began at GameStateUpdate(Live) not staff launch click (BILL-05)
+- extension_rate_policy=current_tier_effective_rate logged on every extension — audit trail for pricing disputes (BILL-04)
+
 ## Session Continuity
 
-Stopped at: Completed 256-03-PLAN.md
-Next action: Phase 255 complete — all 3 plans done. Proceed to Phase 256.
+Stopped at: Completed 257-01-PLAN.md
+Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
 - RESIL-02: DONE (Staggered timer writes by pod index — 6babdd40)
@@ -184,6 +193,10 @@ Next action: Phase 255 complete — all 3 plans done. Proceed to Phase 256.
 - LEGAL-06: DONE (GET /legal/minor-waiver-disclosure — 12c1b62f)
 - LEGAL-08: DONE (data_retention_config + driver columns + daily anonymization job — 12c1b62f, 1db260dc)
 - LEGAL-09: DONE (POST /customer/revoke-consent + POST /drivers/{id}/revoke-consent — 12c1b62f)
+- BILL-03: DONE (game_launch_requests TTL + cleanup_expired_game_requests + GameRequestExpired event — 4efc070f)
+- BILL-04: DONE (extension pricing validation + tier rate logging — 4efc070f)
+- BILL-05: DONE (billing_timer_started audit event at game-live signal — 4efc070f)
+- BILL-06: DONE (PauseReason enum + recovery_pause_seconds excluded from billable time — 4efc070f)
 
 Ship gate reminder (Unified Protocol v3.1):
 

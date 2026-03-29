@@ -149,6 +149,22 @@ pub enum LockScreenEvent {
 
 // ─── Manager ─────────────────────────────────────────────────────────────────
 
+/// BILL-02: Countdown warning level for the persistent overlay.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CountdownWarningLevel {
+    /// Yellow warning — 5 minutes remaining.
+    Yellow,
+    /// Red warning — 1 minute remaining.
+    Red,
+}
+
+/// BILL-02: Active countdown warning state served via /countdown-warning endpoint.
+#[derive(Debug, Clone)]
+pub struct CountdownWarningState {
+    pub remaining_secs: u32,
+    pub level: CountdownWarningLevel,
+}
+
 /// Manages the lock screen lifecycle: state, HTTP server, and browser window.
 pub struct LockScreenManager {
     state: Arc<Mutex<LockScreenState>>,
@@ -166,6 +182,9 @@ pub struct LockScreenManager {
     /// Used on POS/auxiliary devices where Edge kiosk shows the billing page —
     /// launching the lock screen browser would overlay and hide the billing UI.
     browser_disabled: bool,
+    /// BILL-02: Current countdown warning state. Served via /countdown-warning endpoint.
+    /// None = no warning displayed. The HTTP server reads this on each request.
+    pub(crate) countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
 }
 
 impl LockScreenManager {
@@ -177,6 +196,7 @@ impl LockScreenManager {
             #[cfg(windows)]
             browser_process: None,
             wallpaper_url: Arc::new(Mutex::new(None)),
+            countdown_warning: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
             browser_disabled: false,
         }
@@ -197,6 +217,38 @@ impl LockScreenManager {
         self.safe_mode_active = flag;
     }
 
+    /// BILL-02: Show a persistent countdown warning overlay on the customer's screen.
+    ///
+    /// The overlay is served at http://127.0.0.1:{port}/countdown-warning and
+    /// uses `position: fixed; bottom: 20px; right: 20px; z-index: 99999` to float
+    /// over the game without blocking gameplay.
+    ///
+    /// level: "yellow" (5 min remaining) or "red" (1 min remaining).
+    /// The overlay auto-dismisses when `dismiss_countdown_warning()` is called.
+    pub fn show_countdown_warning(&self, remaining_secs: u32, level: &str) {
+        let warning_level = match level {
+            "red" => CountdownWarningLevel::Red,
+            _ => CountdownWarningLevel::Yellow,
+        };
+        tracing::info!(
+            target: LOG_TARGET,
+            remaining_secs,
+            level,
+            "BILL-02: countdown_warning"
+        );
+        let mut w = self.countdown_warning.lock().unwrap_or_else(|e| e.into_inner());
+        *w = Some(CountdownWarningState {
+            remaining_secs,
+            level: warning_level,
+        });
+    }
+
+    /// BILL-02: Dismiss the countdown warning overlay (session ended or time extended).
+    pub fn dismiss_countdown_warning(&self) {
+        let mut w = self.countdown_warning.lock().unwrap_or_else(|e| e.into_inner());
+        *w = None;
+    }
+
     /// Set the wallpaper URL for lock screen background (BRAND-02).
     /// Pass None to clear the wallpaper and revert to default gradient.
     pub fn set_wallpaper_url(&self, url: Option<String>) {
@@ -210,8 +262,9 @@ impl LockScreenManager {
         let event_tx = self.event_tx.clone();
         let port = self.port;
         let wallpaper_url = self.wallpaper_url.clone();
+        let countdown_warning = self.countdown_warning.clone();
         tokio::spawn(async move {
-            serve_lock_screen(port, state, event_tx, wallpaper_url).await;
+            serve_lock_screen(port, state, event_tx, wallpaper_url, countdown_warning).await;
         });
     }
 
@@ -226,6 +279,7 @@ impl LockScreenManager {
         let event_tx = self.event_tx.clone();
         let port = self.port;
         let wallpaper_url = self.wallpaper_url.clone();
+        let countdown_warning = self.countdown_warning.clone();
         tokio::spawn(async move {
             let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
             let socket = match tokio::net::TcpSocket::new_v4() {
@@ -252,7 +306,7 @@ impl LockScreenManager {
                 }
             };
             // Run the accept loop with pre-bound listener
-            serve_with_listener(listener, state, event_tx, wallpaper_url).await;
+            serve_with_listener(listener, state, event_tx, wallpaper_url, countdown_warning).await;
         });
         rx
     }
@@ -1032,6 +1086,7 @@ async fn serve_lock_screen(
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
     wallpaper_url: Arc<Mutex<Option<String>>>,
+    countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
 ) {
     // Use SO_REUSEADDR to bind even if port is in TIME_WAIT from previous Edge connections
     let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
@@ -1057,7 +1112,7 @@ async fn serve_lock_screen(
             return;
         }
     };
-    serve_with_listener(listener, state, event_tx, wallpaper_url).await;
+    serve_with_listener(listener, state, event_tx, wallpaper_url, countdown_warning).await;
 }
 
 /// Accept loop shared between `serve_lock_screen` and `start_server_checked`.
@@ -1066,6 +1121,7 @@ async fn serve_with_listener(
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
     wallpaper_url: Arc<Mutex<Option<String>>>,
+    countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
 ) {
     loop {
         let (mut stream, _) = match listener.accept().await {
@@ -1076,6 +1132,7 @@ async fn serve_with_listener(
         let state = state.clone();
         let event_tx = event_tx.clone();
         let wallpaper_url = wallpaper_url.clone();
+        let countdown_warning = countdown_warning.clone();
 
         tokio::spawn(async move {
             let mut buf = [0u8; 4096];
@@ -1102,6 +1159,18 @@ async fn serve_with_listener(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(),
                     body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+                return;
+            }
+
+            // GET /countdown-warning — BILL-02: serve floating countdown warning overlay
+            if first_line.contains("GET /countdown-warning") {
+                let warning = countdown_warning.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let body = render_countdown_warning_page(warning.as_ref());
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body
                 );
                 let _ = stream.write_all(resp.as_bytes()).await;
                 return;
@@ -1412,6 +1481,125 @@ fn render_qr_page(
         .replace("{{MINUTES}}", &minutes.to_string())
         .replace("{{QR_SVG}}", &qr_svg);
     page_shell_with_bg("Scan QR - Racing Point", &content, wallpaper_url)
+}
+
+/// BILL-02: Render the floating countdown warning overlay page.
+///
+/// Returns a full HTML page with a `position: fixed; bottom: 20px; right: 20px` overlay.
+/// The page polls the same endpoint every second to update the countdown timer.
+/// When no warning is active (None), returns an invisible placeholder page.
+fn render_countdown_warning_page(warning: Option<&CountdownWarningState>) -> String {
+    match warning {
+        None => {
+            // No warning — return blank page (auto-polls to detect when warning appears)
+            r#"<!DOCTYPE html><html><head><meta charset="utf-8">
+<script>setTimeout(function(){location.reload()},2000)</script>
+</head><body style="background:transparent;margin:0"></body></html>"#.to_string()
+        }
+        Some(w) => {
+            let mins = w.remaining_secs / 60;
+            let secs = w.remaining_secs % 60;
+            let (border_color, bg_color, text_color, pulse_class, message, level_class) = match w.level {
+                CountdownWarningLevel::Yellow => (
+                    "#FFD700", "rgba(0,0,0,0.85)", "#FFD700",
+                    "pulse-yellow",
+                    "5 minutes remaining",
+                    "warning-yellow",
+                ),
+                CountdownWarningLevel::Red => (
+                    "#FF0000", "rgba(80,0,0,0.90)", "#FF4444",
+                    "pulse-red",
+                    "1 minute remaining \u{2014} please save your progress",
+                    "warning-red",
+                ),
+            };
+            format!(r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ background: transparent; overflow: hidden; }}
+.warning-overlay {{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 99999;
+    background: {bg_color};
+    border: 3px solid {border_color};
+    border-radius: 12px;
+    padding: 16px 24px;
+    min-width: 280px;
+    text-align: center;
+    font-family: 'Montserrat', Arial, sans-serif;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}}
+.warning-timer {{
+    color: {text_color};
+    font-size: 48px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    line-height: 1;
+}}
+.warning-message {{
+    color: #ffffff;
+    font-size: 13px;
+    margin-top: 8px;
+    line-height: 1.4;
+}}
+@keyframes pulse-yellow {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.6; }}
+}}
+@keyframes pulse-red {{
+    0%, 100% {{ opacity: 1; }}
+    33% {{ opacity: 0.4; }}
+    66% {{ opacity: 0.8; }}
+}}
+.pulse-yellow {{ animation: pulse-yellow 2s ease-in-out infinite; }}
+.pulse-red {{ animation: pulse-red 0.8s ease-in-out infinite; }}
+</style>
+</head>
+<body>
+<div class="warning-overlay {level_class}">
+    <div class="warning-timer {pulse_class}" id="timer">{mins:02}:{secs:02}</div>
+    <div class="warning-message">{message}</div>
+</div>
+<script>
+var remaining = {remaining_secs};
+var startedAt = Date.now();
+function tick() {{
+    var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    var r = Math.max(0, remaining - elapsed);
+    var m = Math.floor(r / 60);
+    var s = r % 60;
+    document.getElementById('timer').textContent =
+        (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    if (r <= 0) {{
+        // Reload to dismiss or update from server
+        location.reload();
+    }} else {{
+        setTimeout(tick, 1000);
+    }}
+}}
+setTimeout(tick, 1000);
+// Poll server every 30s to stay in sync
+setTimeout(function() {{ location.reload(); }}, 30000);
+</script>
+</body>
+</html>"#,
+                bg_color = bg_color,
+                border_color = border_color,
+                text_color = text_color,
+                pulse_class = pulse_class,
+                message = message,
+                level_class = level_class,
+                mins = mins,
+                secs = secs,
+                remaining_secs = w.remaining_secs,
+            )
+        }
+    }
 }
 
 fn render_active_session_page(driver_name: &str, remaining_seconds: u32, allocated_seconds: u32) -> String {
@@ -1779,7 +1967,7 @@ mod tests {
 
         // Create manager on that port and confirm it returns quickly
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         manager.wait_for_self_ready().await;
@@ -1791,7 +1979,7 @@ mod tests {
     async fn wait_for_self_ready_timeout() {
         // Do NOT bind port 18922 — let it fail
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         // Should return (not panic) within ~6 seconds
@@ -1828,6 +2016,7 @@ mod tests {
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle (pod not ready for customers)");
     }
@@ -2150,6 +2339,7 @@ mod tests {
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle (pod not serving customer)");
     }
@@ -2173,6 +2363,7 @@ mod tests {
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             browser_disabled: false,
+            countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         // Should not panic or hang — safe mode gate skips taskkill
         manager.close_browser();
@@ -2190,9 +2381,65 @@ mod tests {
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         // Should not panic — with no browser_process and no real Edge running, this is a no-op
         manager.close_browser();
+    }
+
+    // ─── BILL-02: Countdown warning overlay tests ────────────────────────────
+
+    #[test]
+    fn test_countdown_warning_yellow_renders_correct_color() {
+        let warning = Some(CountdownWarningState {
+            remaining_secs: 300,
+            level: CountdownWarningLevel::Yellow,
+        });
+        let html = render_countdown_warning_page(warning.as_ref());
+        assert!(html.contains("FFD700"), "Yellow warning must use #FFD700 color");
+        assert!(html.contains("05:00") || html.contains("300"), "Must show 5-minute countdown");
+        assert!(html.contains("5 minutes remaining"), "Must show 5-minute message");
+        assert!(html.contains("position: fixed"), "Must use fixed positioning");
+        assert!(html.contains("bottom: 20px"), "Must anchor to bottom-right");
+    }
+
+    #[test]
+    fn test_countdown_warning_red_renders_correct_color() {
+        let warning = Some(CountdownWarningState {
+            remaining_secs: 60,
+            level: CountdownWarningLevel::Red,
+        });
+        let html = render_countdown_warning_page(warning.as_ref());
+        assert!(html.contains("FF0000") || html.contains("FF4444"), "Red warning must use red color");
+        assert!(html.contains("1 minute remaining"), "Must show 1-minute message");
+    }
+
+    #[test]
+    fn test_countdown_warning_none_returns_blank_page() {
+        let html = render_countdown_warning_page(None);
+        assert!(html.contains("transparent") || html.contains("reload"), "None warning must return blank/polling page");
+    }
+
+    #[test]
+    fn test_show_countdown_warning_stores_state() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let manager = LockScreenManager::new(tx);
+        manager.show_countdown_warning(300, "yellow");
+        let w = manager.countdown_warning.lock().unwrap();
+        assert!(w.is_some());
+        let state = w.as_ref().unwrap();
+        assert_eq!(state.remaining_secs, 300);
+        assert_eq!(state.level, CountdownWarningLevel::Yellow);
+    }
+
+    #[test]
+    fn test_dismiss_countdown_warning_clears_state() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let manager = LockScreenManager::new(tx);
+        manager.show_countdown_warning(60, "red");
+        manager.dismiss_countdown_warning();
+        let w = manager.countdown_warning.lock().unwrap();
+        assert!(w.is_none(), "Dismissing warning must clear the state");
     }
 }
 

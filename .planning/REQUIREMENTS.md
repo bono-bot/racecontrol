@@ -89,10 +89,10 @@
 
 - [ ] **BILL-01**: Inactivity detection: flag sessions with no input/lap progress for N minutes; alert staff
 - [ ] **BILL-02**: Session countdown: persistent on-screen timer with yellow (5 min) and red (1 min) warnings
-- [ ] **BILL-03**: PWA game-request timeout: 10-minute server-side TTL; auto-expire with customer notification
-- [ ] **BILL-04**: Extension pricing rule documented and enforced: extensions use current tier effective rate
-- [ ] **BILL-05**: Billing start-time defined: timer starts when game reaches Running state, not on staff click
-- [ ] **BILL-06**: Recovery time excluded from billing: crash recovery pause window not charged to customer
+- [x] **BILL-03**: PWA game-request timeout: 10-minute server-side TTL; auto-expire with customer notification
+- [x] **BILL-04**: Extension pricing rule documented and enforced: extensions use current tier effective rate
+- [x] **BILL-05**: Billing start-time defined: timer starts when game reaches Running state, not on staff click
+- [x] **BILL-06**: Recovery time excluded from billing: crash recovery pause window not charged to customer
 - [ ] **BILL-07**: Multiplayer session billing: canonical session object with participant roster and synchronized billing
 - [ ] **BILL-08**: Customer charge dispute portal: flag session in PWA; staff reviews logs and approves/denies refund
 
@@ -187,10 +187,10 @@ Updated during roadmap creation (2026-03-29).
 | GAME-08 | Phase 256 | Complete |
 | BILL-01 | Phase 257 | Pending |
 | BILL-02 | Phase 257 | Pending |
-| BILL-03 | Phase 257 | Pending |
-| BILL-04 | Phase 257 | Pending |
-| BILL-05 | Phase 257 | Pending |
-| BILL-06 | Phase 257 | Pending |
+| BILL-03 | Phase 257 | Complete |
+| BILL-04 | Phase 257 | Complete |
+| BILL-05 | Phase 257 | Complete |
+| BILL-06 | Phase 257 | Complete |
 | BILL-07 | Phase 257 | Pending |
 | BILL-08 | Phase 257 | Pending |
 | STAFF-01 | Phase 258 | Pending |
