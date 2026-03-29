@@ -253,11 +253,13 @@ mod tests {
     }
 
     #[test]
-    fn verify_261121_against_stored_hash() {
-        let hash = "$argon2id$v=19$m=19456,t=2,p=1$7HM4TtJrDU5lnhCTMIiusQ$3xT9d98mexHIx+4yWJwzDEfdls72XY+wEJVmR9aHFkU";
-        let result = verify_admin_pin("261121", hash);
-        println!("verify_admin_pin(261121) = {}", result);
-        assert!(result, "PIN 261121 should match the stored hash");
+    fn verify_pin_roundtrip_with_dynamic_hash() {
+        // SEC-P0-2: Never hardcode production PINs in test code.
+        // Generate a fresh hash and verify against it.
+        let test_pin = "999999";
+        let hash = hash_admin_pin(test_pin).unwrap();
+        assert!(verify_admin_pin(test_pin, &hash), "PIN should verify against its own fresh hash");
+        assert!(!verify_admin_pin("000000", &hash), "Wrong PIN should not verify");
     }
 
     #[test]

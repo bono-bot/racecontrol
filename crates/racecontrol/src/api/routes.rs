@@ -1217,6 +1217,29 @@ async fn ws_exec_pod(
     };
     let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
 
+    // SEC-P0-10: Block dangerous command patterns (shell injection prevention)
+    let cmd_lower = cmd.to_lowercase();
+    const BLOCKED_PATTERNS: &[&str] = &[
+        "net user", "net localgroup", "reg add", "reg delete",
+        "powershell -e", "powershell -enc", "iex(", "invoke-expression",
+        "downloadstring", "downloadfile", "new-object net.webclient",
+        "certutil -urlcache", "bitsadmin /transfer",
+        "format c:", "rd /s /q c:", "del /s /q c:",
+        "schtasks /create", "schtasks /change",
+        "sc create", "sc config",
+        "netsh advfirewall", "netsh firewall",
+        "wmic process call create",
+    ];
+    for pattern in BLOCKED_PATTERNS {
+        if cmd_lower.contains(pattern) {
+            tracing::warn!(
+                pod_id = %id, cmd = %cmd,
+                "SEC-P0-10: Blocked dangerous command pattern: {}", pattern
+            );
+            return Json(json!({ "error": format!("Command blocked: contains dangerous pattern '{}'", pattern) }));
+        }
+    }
+
     // Truncate command preview to 100 chars for audit
     let cmd_preview: String = cmd.chars().take(100).collect();
 

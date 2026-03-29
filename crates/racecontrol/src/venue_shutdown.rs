@@ -82,7 +82,8 @@ pub async fn venue_shutdown_handler(
 
     // ─── Step 2: Pre-shutdown audit via SSH to James ──────────────────────────
     let audit_cmd = format!(
-        "cd '{}' && AUDIT_PIN=261121 bash scripts/auto-detect.sh --mode quick --no-fix --no-notify",
+        // SEC-P0-2: PIN read from config, never hardcoded in source
+        "cd '{}' && AUDIT_PIN=$AUDIT_PIN bash scripts/auto-detect.sh --mode quick --no-fix --no-notify",
         JAMES_REPO_ROOT
     );
 

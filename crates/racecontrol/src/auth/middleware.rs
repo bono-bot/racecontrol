@@ -131,36 +131,8 @@ pub async fn require_staff_jwt(
     }
 }
 
-// ─── Permissive middleware (logs warnings but allows through) ─────────────
-
-/// Permissive variant of staff JWT middleware for the expand-migrate-contract
-/// rollout. Logs warnings for unauthenticated staff requests but always
-/// allows the request through. Once dashboard and bots send JWTs, switch
-/// to `require_staff_jwt` (strict).
-pub async fn require_staff_jwt_permissive(
-    State(state): State<Arc<AppState>>,
-    req: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    let (mut parts, body) = req.into_parts();
-
-    let temp_req = Request::from_parts(parts.clone(), axum::body::Body::empty());
-    match extract_staff_claims(&state, &temp_req) {
-        Ok(claims) => {
-            parts.extensions.insert(claims);
-        }
-        Err(_) => {
-            tracing::warn!(
-                path = %parts.uri.path(),
-                method = %parts.method,
-                "Unauthenticated staff request (permissive mode)"
-            );
-        }
-    }
-
-    let req = Request::from_parts(parts, body);
-    next.run(req).await
-}
+// SEC-FP-4: Permissive JWT middleware DELETED (was dead code, regression risk).
+// All routes now use strict require_staff_jwt only.
 
 // ─── RBAC role-checking middleware ────────────────────────────────────────
 

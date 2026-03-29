@@ -840,12 +840,15 @@ async fn main() -> anyhow::Result<()> {
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
                     let origin = origin.to_str().unwrap_or("");
+                    // SEC-P1-5: Restrict CORS to known service origins only
+                    // (was allowing entire 192.168.31.0/24 = customer phones on WiFi)
                     origin.starts_with("http://localhost:")
                         || origin.starts_with("https://localhost:")
                         || origin.starts_with("http://127.0.0.1:")
                         || origin.starts_with("https://127.0.0.1:")
-                        || origin.starts_with("http://192.168.31.")
-                        || origin.starts_with("https://192.168.31.")
+                        || origin.starts_with("http://192.168.31.23:")  // server
+                        || origin.starts_with("http://192.168.31.27:")  // james
+                        || origin.starts_with("http://192.168.31.20:")  // POS
                         || origin.starts_with("http://kiosk.rp")
                         || origin.starts_with("https://kiosk.rp")
                         || origin == "https://app.racingpoint.cloud"
