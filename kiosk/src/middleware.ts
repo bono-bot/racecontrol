@@ -33,18 +33,45 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for staff auth cookie (set by StaffLoginScreen on successful PIN validation)
+  // MMA iter1: Validate JWT structure, not just cookie existence.
+  // Full cryptographic validation happens server-side on API calls.
+  // Middleware checks: cookie exists + is valid JWT format (3 base64 segments)
+  // + not expired (exp claim decoded without signature verification).
   const staffJwt = request.cookies.get("kiosk_staff_jwt");
 
   if (!staffJwt?.value) {
-    // No auth — redirect to lock screen (not staff page)
     const url = request.nextUrl.clone();
     url.pathname = "/kiosk";
     return NextResponse.redirect(url);
   }
 
-  // Staff JWT present — allow through
-  // (JWT validation happens server-side on API calls, not in middleware)
+  // Validate JWT structure: must be 3 dot-separated base64url segments
+  const parts = staffJwt.value.split(".");
+  if (parts.length !== 3) {
+    // Malformed — not a real JWT (forged cookie)
+    const url = request.nextUrl.clone();
+    url.pathname = "/kiosk";
+    return NextResponse.redirect(url);
+  }
+
+  // Check exp claim (decode payload without signature verification)
+  try {
+    const payload = JSON.parse(atob(parts[1]));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      // Expired JWT — force re-login
+      const url = request.nextUrl.clone();
+      url.pathname = "/kiosk";
+      const response = NextResponse.redirect(url);
+      response.cookies.delete("kiosk_staff_jwt");
+      return response;
+    }
+  } catch {
+    // Can't decode payload — reject
+    const url = request.nextUrl.clone();
+    url.pathname = "/kiosk";
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 

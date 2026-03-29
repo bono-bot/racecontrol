@@ -43,10 +43,10 @@ for i in "${!POD_IPS[@]}"; do
       continue
     fi
 
-    # Use rc-sentry exec to download the bat file from James's HTTP server
+    # MMA iter1: atomic write — download to .tmp, then rename (prevents partial file corruption)
     RESULT=$(curl -s --connect-timeout 3 -X POST "http://${pod_ip}:${SENTRY_PORT}/exec" \
       -H "Content-Type: application/json" \
-      -d "{\"cmd\":\"curl.exe -s -o C:\\\\RacingPoint\\\\${bat} http://192.168.31.27:18889/${bat}\"}" \
+      -d "{\"cmd\":\"curl.exe -s -o C:\\\\RacingPoint\\\\${bat}.tmp http://192.168.31.27:18889/${bat} && move /Y C:\\\\RacingPoint\\\\${bat}.tmp C:\\\\RacingPoint\\\\${bat}\"}" \
       2>/dev/null || echo '{"error":"unreachable"}')
 
     if echo "$RESULT" | grep -q '"success":true\|"exit_code":0'; then
