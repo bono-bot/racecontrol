@@ -877,14 +877,14 @@ fn default_email_pod_cooldown() -> i64 { 1800 }
 fn default_email_venue_cooldown() -> i64 { 300 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex;
 
     // SAFETY: These tests mutate environment variables which is inherently unsafe
     // in multi-threaded contexts. ENV_MUTEX serializes all env-var tests within
     // this process so parallel cargo test invocations don't race on set_var/remove_var.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+    pub(crate) static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     macro_rules! with_env_lock {
         ($body:block) => {{

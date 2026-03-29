@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn load_keys_missing_env_vars() {
-        // SAFETY: test runs single-threaded (--test-threads=1), no concurrent env access
+        let _g = crate::config::tests::ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::remove_var("RACECONTROL_ENCRYPTION_KEY");
             std::env::remove_var("RACECONTROL_HMAC_KEY");
@@ -191,9 +191,10 @@ mod tests {
 
     #[test]
     fn load_keys_valid_hex() {
+        // Serialize env-var tests to prevent race with parallel tests (Rule 2)
+        let _g = crate::config::tests::ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let enc_key = "a".repeat(64); // 32 bytes of 0xAA
         let hmac_key = "b".repeat(64);
-        // SAFETY: test runs single-threaded (--test-threads=1), no concurrent env access
         unsafe {
             std::env::set_var("RACECONTROL_ENCRYPTION_KEY", &enc_key);
             std::env::set_var("RACECONTROL_HMAC_KEY", &hmac_key);
@@ -208,7 +209,7 @@ mod tests {
 
     #[test]
     fn load_keys_wrong_length() {
-        // SAFETY: test runs single-threaded (--test-threads=1), no concurrent env access
+        let _g = crate::config::tests::ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::set_var("RACECONTROL_ENCRYPTION_KEY", "abcd"); // only 2 bytes
             std::env::set_var("RACECONTROL_HMAC_KEY", "b".repeat(64));
