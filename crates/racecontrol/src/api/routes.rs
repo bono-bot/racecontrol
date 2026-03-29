@@ -115,8 +115,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Kiosk allowlist — read-only is public so rc-agent can fetch without auth
         .route("/config/kiosk-allowlist", get(list_kiosk_allowlist))
         // Recovery events API (COORD-04) -- public for rc-sentry cross-machine visibility
-        .route("/recovery/events", post(recovery::post_recovery_event))
-        .route("/recovery/events", get(recovery::get_recovery_events))
+        .route("/recovery/events", get(recovery::get_recovery_events).post(recovery::post_recovery_event))
         // Fleet alert API -- Tier 4 WhatsApp escalation (GRAD-04 prerequisite)
         .route("/fleet/alert", post(fleet_alert::post_fleet_alert))
         // Pricing psychology (v14.0 Phase 94) — public for customer-facing /book page
@@ -375,9 +374,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/{id}/discount", post(apply_billing_discount))
         .route("/billing/{id}/refund", post(refund_billing_session))
         .route("/billing/{id}/refunds", get(get_billing_refunds))
-        .route("/billing/report/daily", get(daily_billing_report))
-        .route("/billing/rates", get(list_billing_rates).post(create_billing_rate))
-        .route("/billing/rates/{id}", put(update_billing_rate).delete(delete_billing_rate))
+        // billing/report, billing/rates — moved to role-gated financial section
         .route("/billing/split-options/{duration_minutes}", get(get_split_options))
         .route("/billing/continue-split", post(continue_split))
         // Game Launcher
@@ -423,15 +420,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/guardian/send-otp", post(send_guardian_otp_handler))
         .route("/guardian/verify-otp", post(verify_guardian_otp_handler))
         // Kiosk (admin-only: create/update/delete -- pod-accessible routes are in kiosk_routes())
-        .route("/kiosk/experiences", post(create_kiosk_experience))
-        .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
-        .route("/kiosk/settings", put(update_kiosk_settings))
+        // kiosk experiences/settings — moved to role-gated admin section
         // Config
         // GET moved to public_routes (rc-agent fetches without auth)
-        .route("/config/kiosk-allowlist", post(add_kiosk_allowlist_entry))
-        .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
+        // config/kiosk-allowlist POST/DELETE — moved to role-gated admin section
         // POS — POST only (write), GET moved to public_routes (MMA Round 1 fix: POS agent polls without JWT)
-        .route("/pos/lockdown", post(set_pos_lockdown))
+        // pos/lockdown — moved to role-gated admin section
         // AI (staff)
         .route("/ai/chat", post(ai_chat))
         .route("/ai/diagnose", post(ai_diagnose))
@@ -470,27 +464,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/scheduler/settings", put(scheduler::update_settings))
         .route("/scheduler/analytics", get(scheduler::get_analytics))
         // Accounting & Audit — routes are in the role-gated financial section below
-        .route("/audit-log", get(query_audit_log))
-        // v22.0 Phase 177: Feature Flag Registry
-        .route("/flags", get(flags::list_flags).post(flags::create_flag))
-        .route("/flags/{name}", put(flags::update_flag))
-        // v22.0 Phase 177-02: Config Push
-        .route("/config/push", post(config_push::push_config))
-        .route("/config/push/queue", get(config_push::get_queue))
-        .route("/config/audit", get(config_push::get_audit_log))
-        // Deploy
-        .route("/deploy/status", get(deploy_status))
-        .route("/deploy/rolling", post(deploy_rolling_handler))
-        .route("/deploy/{pod_id}", post(deploy_single_pod))
-        // OTA Pipeline (v22.0 Phase 179)
-        .route("/ota/deploy", post(ota_deploy_handler))
-        .route("/ota/status", get(ota_status_handler))
-        // Debug
-        // Debug GET routes moved to public_routes — POST/PUT remain authed
-        .route("/debug/incidents", post(create_debug_incident))
-        .route("/debug/incidents/{id}", put(update_debug_incident))
-        .route("/debug/incidents/{id}/apply-fix", post(debug_apply_fix))
-        .route("/debug/diagnose", post(debug_diagnose))
+        // audit-log, flags, config/push, deploy, ota, debug/incidents, deploy-log, recovery/events — all moved to role-gated sections
         // STAFF-05: Shift handoff workflow
         .route("/staff/shift-handoff", post(shift_handoff_handler))
         .route("/staff/shift-briefing", get(shift_briefing_handler))
@@ -640,8 +614,7 @@ fn service_routes() -> Router<Arc<AppState>> {
         // Auth: X-Guard-Token header checked against config.process_guard.report_secret
         .route("/guard/report", post(process_guard::post_guard_report_handler))
         // Deploy audit log (Phase 177: record every deploy attempt)
-        .route("/deploy-log", post(create_deploy_log))
-        .route("/deploy-log", get(list_deploy_logs))
+        .route("/deploy-log", get(list_deploy_logs).post(create_deploy_log))
         // App health monitor (Phase 179: current probe results for admin/kiosk/web)
         .route("/app-health", get(get_app_health))
         // Mesh Intelligence Cloud KB sync (v26.0 Phase 227)
