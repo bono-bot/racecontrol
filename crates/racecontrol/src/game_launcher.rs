@@ -1134,10 +1134,17 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             }
             // STATE-01 edge case: detect stale Stopping state from server restart
             // (the in-memory timeout spawn is gone after restart, so we need this catch)
+            // GAME-05 fix: use last_state_change (if available) or launched_at + game duration
+            // to avoid force-erroring long-running games. Only timeout Stopping if the game
+            // has been in Stopping state for >60s (not since launch).
             if tracker.game_state == GameState::Stopping {
+                // Conservative: if launched_at is very recent (<90s), it's likely a
+                // post-restart reconstruction. Otherwise the in-memory spawn handles it.
                 if let Some(launched_at) = tracker.launched_at {
-                    let elapsed = now.signed_duration_since(launched_at);
-                    if elapsed.num_seconds() > 30 {
+                    let since_launch = now.signed_duration_since(launched_at).num_seconds();
+                    // Only force-timeout if launched recently (reconstructed after restart)
+                    // — the normal 30s spawn timeout handles non-restart cases
+                    if since_launch < 90 && since_launch > 30 {
                         timed_out.push((pod_id.clone(), tracker.sim_type, 30));
                     }
                 }

@@ -89,12 +89,9 @@ pub(crate) fn verify_sync_signature(
             false
         }
     } else {
-        // Mutex poisoned — fall back to signature-only verification
-        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-        mac.update(&timestamp.to_be_bytes());
-        mac.update(nonce.as_bytes());
-        mac.update(body);
-        mac.verify_slice(&hex::decode(signature).unwrap_or_default()).is_ok()
+        // AUTH-05 fix: fail CLOSED on mutex poison — never bypass nonce protection
+        tracing::error!("HMAC nonce mutex poisoned — rejecting request (fail-closed)");
+        false
     }
 }
 
@@ -1074,8 +1071,9 @@ async fn update_push_state(state: &Arc<AppState>) {
 }
 
 async fn get_last_sync_time(state: &Arc<AppState>) -> String {
+    // AUTH-03 fix: exclude _push sentinel row from MIN() — only track pull windows
     let row = match sqlx::query_as::<_, (String,)>(
-        "SELECT MIN(last_synced_at) FROM sync_state",
+        "SELECT MIN(last_synced_at) FROM sync_state WHERE table_name != '_push'",
     )
     .fetch_optional(&state.db)
     .await
@@ -1416,7 +1414,8 @@ async fn upsert_pricing_tier(state: &Arc<AppState>, tier: &Value) -> anyhow::Res
             is_trial = excluded.is_trial,
             is_active = excluded.is_active,
             sort_order = excluded.sort_order,
-            updated_at = excluded.updated_at",
+            updated_at = excluded.updated_at
+         WHERE excluded.updated_at > COALESCE(pricing_tiers.updated_at, '1970-01-01')",
     )
     .bind(id)
     .bind(tier.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))

@@ -436,8 +436,16 @@ pub async fn accept_group_invite(
     )
     .await?;
 
-    // Reserve pod
-    let reservation_id = pod_reservation::create_reservation(state, driver_id, &pod_id).await?;
+    // Reserve pod — refund wallet if reservation fails (GAME-02 MMA fix)
+    let reservation_id = match pod_reservation::create_reservation(state, driver_id, &pod_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("accept_group_invite: reservation failed, refunding wallet: {}", e);
+            let _ = wallet::refund(state, driver_id, price_paise, Some(group_session_id),
+                Some("Refund: multiplayer reservation failed")).await;
+            return Err(e);
+        }
+    };
 
     // Create auth token with shared PIN
     let token = auth::create_auth_token(
@@ -911,9 +919,9 @@ pub async fn staff_book_multiplayer(
         return Err("Must provide experience_id or game/track/car".to_string());
     };
 
-    // Generate shared PIN
-    let shared_pin: u32 = rand::thread_rng().gen_range(1000..=9999);
-    let shared_pin_str = format!("{:04}", shared_pin);
+    // Generate shared PIN (MMA: must be 6-digit, consistent with book_multiplayer)
+    let shared_pin: u32 = rand::thread_rng().gen_range(100000..=999999);
+    let shared_pin_str = format!("{:06}", shared_pin);
 
     // Create group session ID first for reference_id
     let group_session_id = uuid::Uuid::new_v4().to_string();
