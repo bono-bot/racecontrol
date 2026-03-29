@@ -210,6 +210,18 @@ pub struct AppState {
     /// Key: pod_id. Value: Instant when the phantom billing condition was first detected.
     /// Cleared when the condition resolves (game starts running or billing ends).
     pub phantom_billing_start: RwLock<HashMap<String, Instant>>,
+    /// Phase 255: Display machine heartbeats (display_id -> last_ping_instant, uptime_s).
+    /// Updated by POST /api/v1/kiosk/ping from leaderboard display pages.
+    pub display_heartbeats: RwLock<HashMap<String, (Instant, u64)>>,
+    /// Phase 253: Sender for driver rating computation requests.
+    /// None until rating worker is spawned in main.rs.
+    pub rating_tx: Option<mpsc::Sender<crate::driver_rating::RatingRequest>>,
+    /// Phase 251: Sender for telemetry frames → TelemetryWriter background task.
+    /// None if telemetry persistence is not initialized.
+    pub telemetry_writer_tx: Option<mpsc::Sender<rc_common::types::TelemetryFrame>>,
+    /// Phase 251: Separate SqlitePool for telemetry.db (read queries).
+    /// None if telemetry DB is not initialized.
+    pub telemetry_db: Option<sqlx::SqlitePool>,
 }
 
 impl AppState {
@@ -283,6 +295,10 @@ impl AppState {
             },
             recovery_intents: std::sync::Mutex::new(RecoveryIntentStore::new()),
             phantom_billing_start: RwLock::new(HashMap::new()),
+            display_heartbeats: RwLock::new(HashMap::new()),
+            rating_tx: None,           // Initialized after AppState::new() in main.rs
+            telemetry_writer_tx: None, // Initialized after AppState::new() in main.rs
+            telemetry_db: None,        // Initialized after AppState::new() in main.rs
         }
     }
 

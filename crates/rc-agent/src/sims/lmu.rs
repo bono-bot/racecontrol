@@ -748,6 +748,7 @@ impl SimAdapter for LmuAdapter {
             sector1_ms: None,
             sector2_ms: None,
             sector3_ms: None,
+            lap_id: None, // Phase 251: stamped by event_loop before WS send
         };
 
         Ok(Some(frame))

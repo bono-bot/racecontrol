@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { publicApi } from "@/lib/api";
+
+const TelemetryChart = dynamic(() => import("@/components/TelemetryChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-rp-card border border-rp-border rounded-lg p-4 flex items-center justify-center gap-2">
+      <div className="w-5 h-5 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
+      <span className="text-rp-grey text-sm">Loading chart...</span>
+    </div>
+  ),
+});
 
 function formatLapTime(ms: number): string {
   const mins = Math.floor(ms / 60000);
@@ -64,6 +75,7 @@ export default function PublicLeaderboardPage() {
   const [trackStats, setTrackStats] = useState<{ total_laps: number; unique_drivers: number; unique_cars: number } | null>(null);
   const [tab, setTab] = useState<"records" | "drivers" | "tracks">("records");
   const [loading, setLoading] = useState(true);
+  const [expandedLapId, setExpandedLapId] = useState<string | null>(null);
   const [simType, setSimType] = useState("assetto_corsa");
   const [showInvalid, setShowInvalid] = useState(false);
   const [carFilter, setCarFilter] = useState("");
@@ -223,27 +235,57 @@ export default function PublicLeaderboardPage() {
 
             {/* Desktop table layout */}
             <div className="hidden sm:block bg-rp-card border border-rp-border rounded-xl overflow-hidden">
-              <div className="grid grid-cols-[40px_1fr_1fr_90px] gap-1 px-4 py-2 text-[10px] text-rp-grey uppercase tracking-wider border-b border-rp-border">
+              <div className="grid grid-cols-[40px_1fr_1fr_90px_32px] gap-1 px-4 py-2 text-[10px] text-rp-grey uppercase tracking-wider border-b border-rp-border">
                 <span>#</span>
                 <span>Driver</span>
                 <span>Car</span>
                 <span className="text-right">Best Lap</span>
+                <span />
               </div>
-              {trackLeaderboard.map((entry) => (
-                <div
-                  key={`${entry.driver}-${entry.car}-${entry.position}`}
-                  className={`grid grid-cols-[40px_1fr_1fr_90px] gap-1 px-4 py-2.5 border-b border-rp-border/50 last:border-b-0 ${
-                    entry.position <= 3 ? "bg-rp-red/5" : ""
-                  }`}
-                >
-                  <span className={`text-base font-bold ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`}>
-                    {entry.position}
-                  </span>
-                  <span className="text-sm text-white truncate">{entry.driver}</span>
-                  <span className="text-xs text-rp-grey truncate self-center">{entry.car}</span>
-                  <span className="text-sm font-mono text-white text-right" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
-                </div>
-              ))}
+              {trackLeaderboard.map((entry) => {
+                const isExpanded = expandedLapId === entry.lap_id;
+                return (
+                  <div key={`${entry.driver}-${entry.car}-${entry.position}`}>
+                    <div
+                      className={`grid grid-cols-[40px_1fr_1fr_90px_32px] gap-1 px-4 py-2.5 border-b border-rp-border/50 ${
+                        entry.position <= 3 ? "bg-rp-red/5" : ""
+                      } ${isExpanded ? "border-b-0" : ""}`}
+                    >
+                      <span className={`text-base font-bold ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`}>
+                        {entry.position}
+                      </span>
+                      <span className="text-sm text-white truncate">{entry.driver}</span>
+                      <span className="text-xs text-rp-grey truncate self-center">{entry.car}</span>
+                      <span className="text-sm font-mono text-white text-right" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
+                      <span className="flex items-center justify-center">
+                        {entry.lap_id && (
+                          <button
+                            onClick={() => setExpandedLapId(isExpanded ? null : (entry.lap_id ?? null))}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${
+                              isExpanded
+                                ? "bg-rp-red/20 text-rp-red"
+                                : "text-rp-grey hover:text-white hover:bg-white/10"
+                            }`}
+                            title="View telemetry"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="1,12 4,4 7,9 10,2 13,8 15,6" />
+                            </svg>
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    {isExpanded && entry.lap_id && (
+                      <div className="px-4 pb-3 border-b border-rp-border/50">
+                        <TelemetryChart
+                          lapId={entry.lap_id}
+                          onClose={() => setExpandedLapId(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {trackLeaderboard.length === 0 && (
                 <p className="text-rp-grey text-sm text-center py-6">No laps recorded yet</p>
               )}
@@ -251,25 +293,54 @@ export default function PublicLeaderboardPage() {
 
             {/* Mobile card layout */}
             <div className="sm:hidden space-y-2">
-              {trackLeaderboard.map((entry) => (
-                <div
-                  key={`m-${entry.driver}-${entry.car}-${entry.position}`}
-                  className={`bg-rp-card border rounded-xl p-3 ${
-                    entry.position <= 3 ? "border-rp-red/30" : "border-rp-border"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-base font-bold min-w-[24px] ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`} style={{ fontSize: "16px" }}>
-                      {entry.position}
-                    </span>
-                    <span className="text-sm text-white truncate" style={{ fontSize: "14px" }}>{entry.driver}</span>
+              {trackLeaderboard.map((entry) => {
+                const isExpanded = expandedLapId === entry.lap_id;
+                return (
+                  <div key={`m-${entry.driver}-${entry.car}-${entry.position}`}>
+                    <div
+                      className={`bg-rp-card border rounded-xl p-3 ${
+                        entry.position <= 3 ? "border-rp-red/30" : "border-rp-border"
+                      } ${isExpanded ? "rounded-b-none" : ""}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-base font-bold min-w-[24px] ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`} style={{ fontSize: "16px" }}>
+                          {entry.position}
+                        </span>
+                        <span className="text-sm text-white truncate flex-1" style={{ fontSize: "14px" }}>{entry.driver}</span>
+                        {entry.lap_id && (
+                          <button
+                            onClick={() => setExpandedLapId(isExpanded ? null : (entry.lap_id ?? null))}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                              isExpanded
+                                ? "bg-rp-red/20 text-rp-red"
+                                : "text-rp-grey hover:text-white hover:bg-white/10"
+                            }`}
+                            title="View telemetry"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="1,12 4,4 7,9 10,2 13,8 15,6" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between pl-8">
+                        <span className="text-xs text-rp-grey truncate">{entry.car}</span>
+                        <span className="font-mono text-white font-medium" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
+                      </div>
+                    </div>
+                    {isExpanded && entry.lap_id && (
+                      <div className={`bg-rp-card border border-t-0 rounded-b-xl p-3 ${
+                        entry.position <= 3 ? "border-rp-red/30" : "border-rp-border"
+                      }`}>
+                        <TelemetryChart
+                          lapId={entry.lap_id}
+                          onClose={() => setExpandedLapId(null)}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between pl-8">
-                    <span className="text-xs text-rp-grey truncate">{entry.car}</span>
-                    <span className="font-mono text-white font-medium" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {trackLeaderboard.length === 0 && (
                 <p className="text-rp-grey text-sm text-center py-6">No laps recorded yet</p>
               )}

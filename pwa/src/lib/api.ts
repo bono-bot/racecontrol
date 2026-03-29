@@ -1211,9 +1211,13 @@ export const publicApi = {
   timeTrial: () =>
     fetch(`${API_BASE_URL}/public/time-trial`).then(r => r.json()),
 
-  lapTelemetry: (lapId: string) =>
-    fetch(`${API_BASE_URL}/public/laps/${encodeURIComponent(lapId)}/telemetry`)
-      .then(r => r.json()) as Promise<LapTelemetryData>,
+  lapTelemetry: (lapId: string, resolution?: string) => {
+    const qs = new URLSearchParams();
+    if (resolution) qs.set("resolution", resolution);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`${API_BASE_URL}/public/laps/${encodeURIComponent(lapId)}/telemetry${suffix}`)
+      .then(r => r.json()) as Promise<LapTelemetryData>;
+  },
 
   sessionSummary: (id: string) =>
     fetch(`${API_BASE_URL}/public/sessions/${encodeURIComponent(id)}`)

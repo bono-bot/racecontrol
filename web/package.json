@@ -9,12 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "socket.io-client": "^4.8.3",
+    "recharts": "^3.8.1",
     "satori": "^0.10.14",
-    "@resvg/resvg-wasm": "^2.6.2"
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

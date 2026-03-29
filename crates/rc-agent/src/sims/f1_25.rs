@@ -539,6 +539,7 @@ impl SimAdapter for F125Adapter {
             sector1_ms: self.sector1_ms,
             sector2_ms: self.sector2_ms,
             sector3_ms: None, // S3 only known at lap completion
+            lap_id: None, // Phase 251: stamped by event_loop before WS send
         }))
     }
 

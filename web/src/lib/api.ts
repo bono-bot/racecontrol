@@ -349,6 +349,14 @@ export const api = {
     return fetchApi<PublicTrackLeaderboardData>(`/public/leaderboard/${encodeURIComponent(track)}${suffix}`);
   },
 
+  // Public lap telemetry replay
+  lapTelemetry: (lapId: string, resolution?: string): Promise<LapTelemetryData> => {
+    const qs = new URLSearchParams();
+    if (resolution) qs.set("resolution", resolution);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetchPublic<LapTelemetryData>(`/public/laps/${encodeURIComponent(lapId)}/telemetry${suffix}`);
+  },
+
   // Events
   listEvents: () => fetchApi<{ events: RaceEvent[] }>("/events"),
 
@@ -709,6 +717,32 @@ export interface PublicTrackLeaderboardData {
   sim_type: string;
   stats: { total_laps: number; unique_drivers: number; unique_cars: number } | null;
   leaderboard: PublicTrackLeaderboardEntry[];
+}
+
+// ─── Lap Telemetry Types ──────────────────────────────────────────────────
+
+export interface LapTelemetrySample {
+  offset_ms: number;
+  speed: number | null;
+  throttle: number | null;
+  brake: number | null;
+  steering: number | null;
+  gear: number | null;
+  rpm: number | null;
+}
+
+export interface LapTelemetryData {
+  lap_id: string;
+  track: string;
+  car: string;
+  sim_type: string;
+  lap_time_ms: number;
+  sector1_ms: number | null;
+  sector2_ms: number | null;
+  sector3_ms: number | null;
+  samples: LapTelemetrySample[];
+  sample_count: number;
+  error?: string;
 }
 
 export interface RaceEvent {

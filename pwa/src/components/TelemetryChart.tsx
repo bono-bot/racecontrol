@@ -27,6 +27,7 @@ function formatLapTime(ms: number): string {
 interface TelemetryChartProps {
   lapId: string;
   onClose: () => void;
+  resolution?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,7 +43,7 @@ const darkTooltipStyle: any = {
   itemStyle: { padding: "2px 0" },
 };
 
-export default function TelemetryChart({ lapId, onClose }: TelemetryChartProps) {
+export default function TelemetryChart({ lapId, onClose, resolution = "500ms" }: TelemetryChartProps) {
   const [data, setData] = useState<LapTelemetryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export default function TelemetryChart({ lapId, onClose }: TelemetryChartProps) 
     setLoading(true);
     setError(null);
     publicApi
-      .lapTelemetry(lapId)
+      .lapTelemetry(lapId, resolution)
       .then((res) => {
         if (res.error) {
           setError(res.error);

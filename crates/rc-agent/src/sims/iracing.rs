@@ -688,6 +688,7 @@ impl SimAdapter for IracingAdapter {
             sector1_ms: None,
             sector2_ms: None,
             sector3_ms: None,
+            lap_id: None, // Phase 251: stamped by event_loop before WS send
         };
 
         let _ = is_on_track; // used via read_is_on_track_from_shm in trait method
