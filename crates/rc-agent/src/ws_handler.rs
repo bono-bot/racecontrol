@@ -688,6 +688,66 @@ pub async fn handle_ws_message(
                     }
                 }
 
+                // GAME-04: AC EVO config adapter — write Unreal GameUserSettings.ini before launch.
+                // AC EVO uses Unreal Engine, NOT race.ini format. launch_args fields are applied
+                // via GameUserSettings.ini so the game picks up car/track/weather selections.
+                // Failure is non-fatal: game launches with default config if write fails.
+                if launch_sim == SimType::AssettoCorsaEvo {
+                    if let Some(ref args) = game_config.args {
+                        let evo_dir = crate::sims::assetto_corsa_evo::find_evo_install_dir(&game_config);
+                        if let Some(dir) = evo_dir {
+                            let evo_args = args.clone();
+                            let evo_write_result = tokio::task::spawn_blocking(move || {
+                                crate::sims::assetto_corsa_evo::write_evo_config(&evo_args, &dir)
+                            }).await;
+                            match evo_write_result {
+                                Ok(Ok(())) => tracing::info!(target: LOG_TARGET, "GAME-04: AC EVO GameUserSettings.ini written successfully"),
+                                Ok(Err(e)) => tracing::warn!(target: LOG_TARGET, "GAME-04: AC EVO config write failed (non-fatal): {}", e),
+                                Err(e) => tracing::warn!(target: LOG_TARGET, "GAME-04: AC EVO config write panicked (non-fatal): {}", e),
+                            }
+                        } else {
+                            tracing::warn!(target: LOG_TARGET, "GAME-04: AC EVO install dir not found — launching with default config");
+                        }
+                    }
+                }
+
+                // GAME-05: iRacing subscription/launch check — blocks billing for inactive accounts.
+                // iRacing shows a login/subscription dialog if account is inactive. Without this check
+                // the customer would be billed for a session they cannot actually play.
+                if launch_sim == SimType::IRacing {
+                    let iracing_check = tokio::task::spawn_blocking(|| {
+                        crate::iracing_checks::check_iracing_ready()
+                    }).await;
+                    match iracing_check {
+                        Ok(Ok(())) => {
+                            tracing::info!(target: LOG_TARGET, "GAME-05: iRacing readiness check passed");
+                        }
+                        Ok(Err(reason)) => {
+                            tracing::error!(target: LOG_TARGET, "GAME-05: iRacing readiness check FAILED: {}", reason);
+                            let error_info = GameLaunchInfo {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: launch_sim,
+                                game_state: GameState::Error,
+                                pid: None,
+                                launched_at: Some(Utc::now()),
+                                error_message: Some(format!("iRacing readiness check failed: {}", reason)),
+                                diagnostics: None,
+                                exit_code: None,
+                            };
+                            state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                            conn.launch_state = LaunchState::Idle;
+                            if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                            }
+                            return Ok(HandleResult::Continue);
+                        }
+                        Err(e) => {
+                            tracing::warn!(target: LOG_TARGET, "GAME-05: iRacing readiness check panicked (non-fatal, proceeding): {}", e);
+                            // Proceed — spawn panic is not a billing reason to block
+                        }
+                    }
+                }
+
                 state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
                 state.heartbeat_status.game_id.store(match launch_sim {
                     SimType::AssettoCorsa => 1, SimType::F125 => 2, SimType::IRacing => 3,
