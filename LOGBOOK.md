@@ -1026,3 +1026,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 13:00 IST | James | e27f97ea | fix(tests): ENV_MUTEX in config tests — parallel set_var race was causing flaky pre-push gate failure |
 | 2026-03-29 13:50 IST | James | b44071f7 | feat(257-03): BILL-07 multiplayer synchronized billing pause/resume — pause_multiplayer_group, resume_multiplayer_group, MultiplayerGroupPaused event |
 | 2026-03-29 13:55 IST | James | f6a3cb76 | feat(257-03): BILL-08 dispute portal — dispute_requests table, POST /customer/dispute, GET/POST /admin/disputes, compute_refund approval path |
+| 2026-03-29 14:20 IST | James | 3257b077 | feat(258-01): STAFF-01/03/04 — discount approval gate (manager PIN validation), daily override report, cash drawer reconciliation |
+| 2026-03-29 14:22 IST | James | 11926c97 | fix(258-01): replace .unwrap() with .expect() on always-valid FixedOffset constants |
+| 2026-03-29 14:25 IST | James | c187696a | docs(258-01): SUMMARY.md, STATE.md, ROADMAP-v27.md, REQUIREMENTS.md STAFF-01/02/03/04 complete |
