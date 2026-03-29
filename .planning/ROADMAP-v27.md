@@ -162,7 +162,10 @@ Plans:
   3. A coupon reserved for a session that is cancelled or fails before billing commit is restored to available — no coupon lost to a failed session
   4. Stacking a coupon with a staff discount cannot reduce the payable amount below the configured floor — the floor is enforced server-side
   5. A payment gateway webhook that fires twice credits the wallet only once — duplicate webhooks are idempotently rejected
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 259-01-PLAN.md — Atomic extension purchase (wallet debit + time in single tx), discount stacking floor enforcement
+- [ ] 259-02-PLAN.md — Coupon lifecycle FSM (available/reserved/redeemed with TTL), restoration on cancel, payment gateway webhook with idempotent credit
 
 ### Phase 260: Notifications, Resilience & UX
 **Goal**: Notifications are durable, hardware disconnects are detected, anomalies are caught early, and customers have a reliable queue and receipt experience
@@ -192,7 +195,7 @@ Plans:
 | 256. Game-Specific Hardening | 0/3 | Planned | - |
 | 257. Billing Edge Cases | 0/3 | Planned | - |
 | 258. Staff Controls & Deployment Safety | 0/3 | Planned | - |
-| 259. Coupon & Discount System | 0/? | Not started | - |
+| 259. Coupon & Discount System | 0/2 | Planned | - |
 | 260. Notifications, Resilience & UX | 0/? | Not started | - |
 
 ---
