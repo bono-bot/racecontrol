@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v26.1
 milestone_name: Meshed Intelligence
-status: executing
-stopped_at: Completed 257-billing-edge-cases/257-02-PLAN.md
-last_updated: "2026-03-29T07:11:00.361Z"
+status: verifying
+stopped_at: Completed 257-billing-edge-cases/257-03-PLAN.md
+last_updated: "2026-03-29T08:27:28.077Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 205
-  completed_phases: 153
+  completed_phases: 154
   total_plans: 373
-  completed_plans: 367
+  completed_plans: 368
   percent: 98
 ---
 
@@ -18,7 +18,7 @@ progress:
 
 Phase: 257 (billing-edge-cases) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [██████████] 98% (349/355 plans)
@@ -76,6 +76,7 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 | Phase 256-game-specific-hardening P03 | 30 | 2 tasks | 4 files |
 | Phase 257-billing-edge-cases P01 | 45 | 2 tasks | 8 files |
 | Phase 257-billing-edge-cases P02 | 45 | 2 tasks | 7 files |
+| Phase 257-billing-edge-cases P03 | 37 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -160,10 +161,15 @@ See: .planning/ROADMAP-v27.md (this milestone's roadmap)
 - cleanup_expired_game_requests runs every 60s with DashboardEvent::GameRequestExpired broadcast — staff dashboard removes pending PWA request cards automatically (BILL-03)
 - billing_timer_started audit event in start_billing_session() proves billing began at GameStateUpdate(Live) not staff launch click (BILL-05)
 - extension_rate_policy=current_tier_effective_rate logged on every extension — audit trail for pricing disputes (BILL-04)
+- Multiplayer crash uses pause_multiplayer_group() — crash is recoverable; billing ends only when all group members explicitly stop (BILL-07)
+- AcStatus::Off + multiplayer group = group-wide pause; AcStatus::Off + single-player = end billing (BILL-07)
+- Partial UNIQUE index WHERE status != 'denied' allows re-submission after denial for dispute_requests (BILL-08)
+- Approve dispute uses compute_refund()+credit_in_tx() — reuses FATM-06/FATM-03 paths, no new money primitives (BILL-08)
+- Dispute admin routes under manager+ RBAC (SEC-04) — financial resolution requires manager authorization (BILL-08)
 
 ## Session Continuity
 
-Stopped at: Completed 257-billing-edge-cases/257-02-PLAN.md
+Stopped at: Completed 257-billing-edge-cases/257-03-PLAN.md
 Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 
 - RESIL-01: DONE (WAL mode verification — 08acee0c)
@@ -198,6 +204,8 @@ Next action: Phase 257 Plan 1 complete. Proceed to Plan 2 (257-02).
 - BILL-04: DONE (extension pricing validation + tier rate logging — 4efc070f)
 - BILL-05: DONE (billing_timer_started audit event at game-live signal — 4efc070f)
 - BILL-06: DONE (PauseReason enum + recovery_pause_seconds excluded from billable time — 4efc070f)
+- BILL-07: DONE (pause_multiplayer_group + resume_multiplayer_group + crash detection integration — b44071f7)
+- BILL-08: DONE (dispute_requests table + POST /customer/dispute + GET/POST /admin/disputes + approve/deny workflow — f6a3cb76)
 
 Ship gate reminder (Unified Protocol v3.1):
 

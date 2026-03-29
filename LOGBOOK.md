@@ -1024,3 +1024,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 12:50 IST | James | 4efc070f | feat(257-01): BILL-03/04/05/06 — game_launch_requests TTL, PauseReason enum, recovery_pause_seconds, billing_timer_started event |
 | 2026-03-29 12:55 IST | James | a0d8cdd6 | docs(257-01): SUMMARY.md, STATE.md decisions, REQUIREMENTS.md BILL-03/04/05/06 marked complete |
 | 2026-03-29 13:00 IST | James | e27f97ea | fix(tests): ENV_MUTEX in config tests — parallel set_var race was causing flaky pre-push gate failure |
+| 2026-03-29 13:50 IST | James | b44071f7 | feat(257-03): BILL-07 multiplayer synchronized billing pause/resume — pause_multiplayer_group, resume_multiplayer_group, MultiplayerGroupPaused event |
+| 2026-03-29 13:55 IST | James | f6a3cb76 | feat(257-03): BILL-08 dispute portal — dispute_requests table, POST /customer/dispute, GET/POST /admin/disputes, compute_refund approval path |

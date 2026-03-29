@@ -93,8 +93,8 @@
 - [x] **BILL-04**: Extension pricing rule documented and enforced: extensions use current tier effective rate
 - [x] **BILL-05**: Billing start-time defined: timer starts when game reaches Running state, not on staff click
 - [x] **BILL-06**: Recovery time excluded from billing: crash recovery pause window not charged to customer
-- [ ] **BILL-07**: Multiplayer session billing: canonical session object with participant roster and synchronized billing
-- [ ] **BILL-08**: Customer charge dispute portal: flag session in PWA; staff reviews logs and approves/denies refund
+- [x] **BILL-07**: Multiplayer session billing: canonical session object with participant roster and synchronized billing
+- [x] **BILL-08**: Customer charge dispute portal: flag session in PWA; staff reviews logs and approves/denies refund
 
 ### Resilience (RESIL)
 
@@ -191,8 +191,8 @@ Updated during roadmap creation (2026-03-29).
 | BILL-04 | Phase 257 | Complete |
 | BILL-05 | Phase 257 | Complete |
 | BILL-06 | Phase 257 | Complete |
-| BILL-07 | Phase 257 | Pending |
-| BILL-08 | Phase 257 | Pending |
+| BILL-07 | Phase 257 | Complete |
+| BILL-08 | Phase 257 | Complete |
 | STAFF-01 | Phase 258 | Pending |
 | STAFF-02 | Phase 258 | Pending |
 | STAFF-03 | Phase 258 | Pending |
