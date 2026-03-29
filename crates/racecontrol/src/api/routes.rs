@@ -106,6 +106,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/public/events/{id}/sessions", get(public_event_sessions))
         .route("/public/championships", get(public_championships_list))
         .route("/public/championships/{id}", get(public_championship_standings))
+        // Driver ratings (public, no auth — Phase 253)
+        .route("/public/drivers/{id}/rating", get(public_driver_rating))
         // Cafe menu (customer-facing, no auth)
         .route("/cafe/menu", get(cafe::public_menu))
         // Cafe promos (customer-facing, no auth — PROMO-05)
@@ -268,6 +270,8 @@ fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// dashboard, kiosk, and bots send staff JWTs.
 fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
+        // Driver rating history (staff-only — Phase 253)
+        .route("/drivers/{id}/rating-history", get(staff_driver_rating_history))
         // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
@@ -6295,17 +6299,17 @@ async fn customer_register(
     }
 
     // MMA-WIRED: Use centralized input validation module
-    let name = match racecontrol_crate::input_validation::validate_name(&req.name) {
+    let name = match crate::input_validation::validate_name(&req.name) {
         Ok(n) => n,
         Err(e) => return Json(json!({ "error": e })),
     };
     if let Some(ref email) = req.email {
-        if let Err(e) = racecontrol_crate::input_validation::validate_email(email) {
+        if let Err(e) = crate::input_validation::validate_email(email) {
             return Json(json!({ "error": e }));
         }
     }
     if let Some(ref phone) = req.guardian_phone {
-        if let Err(e) = racecontrol_crate::input_validation::validate_phone(phone) {
+        if let Err(e) = crate::input_validation::validate_phone(phone) {
             return Json(json!({ "error": format!("Guardian phone: {}", e) }));
         }
     }
@@ -11690,12 +11694,15 @@ async fn public_leaderboard(
         .unwrap_or_default()
     };
 
-    // Top drivers by total valid laps (optionally filtered by sim_type)
+    // Top drivers by total valid laps (optionally filtered by sim_type), with rating data
     let top_drivers = if let Some(ref st) = params.sim_type {
-        sqlx::query_as::<_, (String, i64, Option<i64>)>(
-            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+        sqlx::query_as::<_, (String, i64, Option<i64>, Option<f64>, Option<String>)>(
+            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                    COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest,
+                    dr.composite_rating, dr.rating_class
              FROM laps l
              JOIN drivers d ON l.driver_id = d.id
+             LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id AND dr.sim_type = l.sim_type
              WHERE l.valid = 1 AND l.sim_type = ?
              GROUP BY l.driver_id
              ORDER BY lap_count DESC
@@ -11706,10 +11713,13 @@ async fn public_leaderboard(
         .await
         .unwrap_or_default()
     } else {
-        sqlx::query_as::<_, (String, i64, Option<i64>)>(
-            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+        sqlx::query_as::<_, (String, i64, Option<i64>, Option<f64>, Option<String>)>(
+            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                    COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest,
+                    MAX(dr.composite_rating), (SELECT dr2.rating_class FROM driver_ratings dr2 WHERE dr2.driver_id = l.driver_id ORDER BY dr2.composite_rating DESC LIMIT 1)
              FROM laps l
              JOIN drivers d ON l.driver_id = d.id
+             LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id
              WHERE l.valid = 1
              GROUP BY l.driver_id
              ORDER BY lap_count DESC
@@ -11760,6 +11770,8 @@ async fn public_leaderboard(
             "name": d.0,
             "total_laps": d.1,
             "fastest_lap_ms": d.2,
+            "composite_rating": d.3,
+            "rating_class": d.4,
         })).collect::<Vec<_>>(),
         "available_sim_types": available_sim_types,
         "sim_type": params.sim_type,
@@ -11801,14 +11813,18 @@ async fn public_track_leaderboard(
     let car_clause = if params.car.is_some() { "AND l.car = ?" } else { "" };
 
     // Top 50 fastest laps on this track (best per driver per car), optionally filtered by sim_type
+    // Phase 253: LEFT JOIN driver_ratings to include composite_rating and rating_class
     let main_query = format!(
         "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
                 l.car, MIN(l.lap_time_ms), MAX(l.created_at),
                 (SELECT l2.id FROM laps l2 WHERE l2.driver_id = l.driver_id AND l2.car = l.car AND l2.track = l.track
                     {} {} ORDER BY l2.lap_time_ms ASC LIMIT 1),
-                l.sim_type
+                l.sim_type,
+                dr.composite_rating,
+                dr.rating_class
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
+         LEFT JOIN driver_ratings dr ON dr.driver_id = l.driver_id AND dr.sim_type = l.sim_type
          WHERE l.track = ? {} {} {}
          GROUP BY l.driver_id, l.car
          ORDER BY MIN(l.lap_time_ms) ASC
@@ -11820,7 +11836,7 @@ async fn public_track_leaderboard(
         car_clause,
     );
 
-    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String)>(&main_query);
+    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String, Option<f64>, Option<String>)>(&main_query);
 
     // Bind subquery sim_type first (if present)
     if let Some(ref st) = sim_type {
@@ -11870,6 +11886,8 @@ async fn public_track_leaderboard(
             "achieved_at": r.3,
             "lap_id": r.4,
             "sim_type": r.5,
+            "composite_rating": r.6,
+            "rating_class": r.7,
         })).collect::<Vec<_>>(),
     }))
 }
@@ -11931,6 +11949,134 @@ async fn public_circuit_records(
             "driver": r.4,
         })).collect::<Vec<_>>(),
         "count": count,
+    }))
+}
+
+// ─── Driver Rating (Public, No Auth — Phase 253) ─────────────────────────────
+
+#[derive(Deserialize)]
+struct DriverRatingQuery {
+    sim_type: Option<String>,
+}
+
+async fn public_driver_rating(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Query(params): Query<DriverRatingQuery>,
+) -> Json<Value> {
+    if let Some(ref sim_type) = params.sim_type {
+        // Single sim_type
+        let row = sqlx::query_as::<_, (String, String, f64, String, f64, f64, f64, i64, String)>(
+            "SELECT driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at
+             FROM driver_ratings WHERE driver_id = ? AND sim_type = ?",
+        )
+        .bind(&driver_id)
+        .bind(sim_type)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        match row {
+            Some(r) => Json(json!({
+                "driver_id": r.0,
+                "sim_type": r.1,
+                "composite_rating": r.2,
+                "rating_class": r.3,
+                "pace_score": r.4,
+                "consistency_score": r.5,
+                "experience_score": r.6,
+                "total_laps": r.7,
+                "updated_at": r.8,
+            })),
+            None => Json(json!({
+                "driver_id": driver_id,
+                "sim_type": sim_type,
+                "composite_rating": null,
+                "rating_class": "Unrated",
+                "message": "No rating data available",
+            })),
+        }
+    } else {
+        // All sim_types for this driver
+        let rows = sqlx::query_as::<_, (String, String, f64, String, f64, f64, f64, i64, String)>(
+            "SELECT driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at
+             FROM driver_ratings WHERE driver_id = ? ORDER BY composite_rating DESC",
+        )
+        .bind(&driver_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        Json(json!({
+            "driver_id": driver_id,
+            "ratings": rows.iter().map(|r| json!({
+                "sim_type": r.1,
+                "composite_rating": r.2,
+                "rating_class": r.3,
+                "pace_score": r.4,
+                "consistency_score": r.5,
+                "experience_score": r.6,
+                "total_laps": r.7,
+                "updated_at": r.8,
+            })).collect::<Vec<_>>(),
+        }))
+    }
+}
+
+// ─── Driver Rating History (Staff-Only — Phase 253) ──────────────────────────
+
+#[derive(Deserialize)]
+struct RatingHistoryQuery {
+    sim_type: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn staff_driver_rating_history(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Query(params): Query<RatingHistoryQuery>,
+) -> Json<Value> {
+    let limit = params.limit.unwrap_or(50).min(200);
+
+    // Current ratings serve as the "history" snapshot.
+    // A full temporal history table would require a separate audit_log table.
+    // For now, return all current ratings for this driver as their progression.
+    let rows = if let Some(ref sim_type) = params.sim_type {
+        sqlx::query_as::<_, (String, String, f64, String, f64, f64, f64, i64, String)>(
+            "SELECT driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at
+             FROM driver_ratings WHERE driver_id = ? AND sim_type = ? ORDER BY updated_at DESC LIMIT ?",
+        )
+        .bind(&driver_id)
+        .bind(sim_type)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as::<_, (String, String, f64, String, f64, f64, f64, i64, String)>(
+            "SELECT driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at
+             FROM driver_ratings WHERE driver_id = ? ORDER BY updated_at DESC LIMIT ?",
+        )
+        .bind(&driver_id)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    Json(json!({
+        "driver_id": driver_id,
+        "history": rows.iter().map(|r| json!({
+            "sim_type": r.1,
+            "composite_rating": r.2,
+            "rating_class": r.3,
+            "pace_score": r.4,
+            "consistency_score": r.5,
+            "experience_score": r.6,
+            "total_laps": r.7,
+            "updated_at": r.8,
+        })).collect::<Vec<_>>(),
     }))
 }
 
@@ -18406,7 +18552,7 @@ mod data_rights_tests {
         sqlx::query("CREATE TABLE IF NOT EXISTS session_highlights (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create session_highlights");
         sqlx::query("CREATE TABLE IF NOT EXISTS review_nudges (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create review_nudges");
         sqlx::query("CREATE TABLE IF NOT EXISTS multiplayer_results (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create multiplayer_results");
-        sqlx::query("CREATE TABLE IF NOT EXISTS driver_ratings (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create driver_ratings");
+        sqlx::query("CREATE TABLE IF NOT EXISTS driver_ratings (driver_id TEXT NOT NULL, sim_type TEXT NOT NULL DEFAULT 'assettocorsa', composite_rating REAL NOT NULL DEFAULT 0.0, rating_class TEXT NOT NULL DEFAULT 'Unrated', pace_score REAL NOT NULL DEFAULT 0.0, consistency_score REAL NOT NULL DEFAULT 0.0, experience_score REAL NOT NULL DEFAULT 0.0, total_laps INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (driver_id, sim_type))").execute(&db).await.expect("create driver_ratings");
 
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
