@@ -300,6 +300,25 @@ pub struct BillingTimer {
     pub max_session_seconds: u32,
     /// Game sim_type for per-game rate lookup. None = use universal rates.
     pub sim_type: Option<rc_common::types::SimType>,
+    /// BILL-06: Seconds spent paused due to crash recovery (PausedGamePause + CrashRecovery origin).
+    /// Excluded from billable time in cost computation. Tracked per-session, persisted to DB.
+    pub recovery_pause_seconds: u32,
+    /// BILL-06: Reason for the current pause (distinguishes crash recovery from manual ESC pause).
+    pub pause_reason: PauseReason,
+}
+
+/// BILL-06: Distinguishes why a billing session is paused.
+/// Used to track crash-recovery pauses separately from manual (ESC) pauses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseReason {
+    /// Not currently paused (default state when Active or Completed)
+    None,
+    /// Driver pressed ESC or manual pause from staff dashboard
+    GamePause,
+    /// Pod agent detected a crash and is recovering
+    CrashRecovery,
+    /// Pod WS connection dropped (reconnect pending)
+    Disconnect,
 }
 
 impl BillingTimer {
@@ -329,6 +348,12 @@ impl BillingTimer {
             elapsed_seconds: Some(self.elapsed_seconds),
             cost_paise: Some(cost.total_paise),
             rate_per_min_paise: Some(cost.rate_per_min_paise),
+            // BILL-06: Recovery pause time excluded from billing
+            recovery_pause_seconds: if self.recovery_pause_seconds > 0 {
+                Some(self.recovery_pause_seconds)
+            } else {
+                None
+            },
         }
     }
 
@@ -336,6 +361,7 @@ impl BillingTimer {
     ///
     /// - Active: increments elapsed_seconds + driving_seconds. Returns true on hard max cap.
     /// - PausedGamePause: increments pause_seconds. Returns true on 10-min pause timeout.
+    ///   If pause_reason == CrashRecovery, also increments recovery_pause_seconds (BILL-06).
     /// - WaitingForGame: no increments, returns false.
     /// - Other statuses: returns false (existing behavior).
     pub fn tick(&mut self) -> bool {
@@ -347,6 +373,10 @@ impl BillingTimer {
             }
             BillingSessionStatus::PausedGamePause => {
                 self.pause_seconds += 1;
+                // BILL-06: Track crash-recovery time separately for billing exclusion
+                if self.pause_reason == PauseReason::CrashRecovery {
+                    self.recovery_pause_seconds += 1;
+                }
                 self.pause_seconds >= 600 // 10-min pause timeout
             }
             BillingSessionStatus::WaitingForGame => false,
@@ -355,12 +385,16 @@ impl BillingTimer {
     }
 
     /// Get the current session cost based on elapsed seconds and rate tiers.
+    /// BILL-06: Subtracts recovery_pause_seconds from billable time so crash-recovery
+    /// pauses are not charged to the customer.
     pub fn current_cost(&self, tiers: &[BillingRateTier]) -> SessionCost {
         let filtered: Vec<BillingRateTier> = get_tiers_for_game(tiers, self.sim_type)
             .into_iter()
             .cloned()
             .collect();
-        compute_session_cost(self.elapsed_seconds, &filtered)
+        // BILL-06: Exclude recovery pause time from billable seconds
+        let billable_seconds = self.elapsed_seconds.saturating_sub(self.recovery_pause_seconds);
+        compute_session_cost(billable_seconds, &filtered)
     }
 
     /// Create a minimal BillingTimer for unit tests.
@@ -392,6 +426,8 @@ impl BillingTimer {
             pause_seconds: 0,
             max_session_seconds: 1800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         }
     }
 }
@@ -719,6 +755,8 @@ pub async fn handle_game_status_update(
                         Ok(new_status) => {
                             timer.status = new_status;
                             timer.pause_seconds = 0;
+                            // BILL-06: Clear pause reason on resume
+                            timer.pause_reason = PauseReason::None;
                             tracing::info!("Billing resumed on LIVE for pod {} (was PausedGamePause)", pod_id);
                         }
                         Err(e) => {
@@ -737,6 +775,8 @@ pub async fn handle_game_status_update(
                         timer.status = new_status;
                         timer.pause_seconds = 0;
                         timer.pause_count += 1;
+                        // BILL-06: Manual ESC pause — not a crash recovery
+                        timer.pause_reason = PauseReason::GamePause;
                         tracing::info!("Billing paused (game pause) for pod {}", pod_id);
                     }
                     Err(e) => {
@@ -1124,6 +1164,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 elapsed_seconds: Some(entry.waiting_since.elapsed().as_secs() as u32),
                 cost_paise: Some(0),
                 rate_per_min_paise: Some(0),
+                recovery_pause_seconds: None,
             };
             events_to_broadcast.push(DashboardEvent::BillingTick(info));
         }
@@ -1291,13 +1332,26 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         check_and_stop_multiplayer_server(state, pod_id).await;
     }
 
-    // Broadcast warnings
+    // Broadcast warnings — BILL-02: also send BillingCountdownWarning to the specific pod's agent
     for (session_id, pod_id, remaining, driving_seconds) in warnings {
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
             billing_session_id: session_id.clone(),
-            pod_id,
+            pod_id: pod_id.clone(),
             remaining_seconds: remaining,
         });
+
+        // BILL-02: Send countdown warning to agent for persistent overlay on customer screen
+        let level = if remaining <= 60 { "red" } else { "yellow" };
+        tracing::info!("BILL-02: Sending {} countdown warning to pod {} ({}s remaining)", level, pod_id, remaining);
+        {
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let _ = sender.send(CoreToAgentMessage::BillingCountdownWarning {
+                    remaining_secs: remaining,
+                    level: level.to_string(),
+                }).await;
+            }
+        } // agent_senders lock dropped
 
         // Log warning event to DB
         let _ = sqlx::query(
@@ -1401,14 +1455,19 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
             refund_paise = compute_refund(allocated, driving_seconds as i64, debit);
             if refund_paise > 0 {
-                let _ = crate::wallet::refund(
+                // L2-01 fix: handle refund failure explicitly (not let _ =)
+                match crate::wallet::refund(
                     state,
                     &driver_id,
                     refund_paise,
                     Some(&session_id),
                     Some("Auto-refund: disconnect pause timeout"),
                 )
-                .await;
+                .await
+                {
+                    Ok(_) => tracing::info!("BILLING: disconnect timeout refund {}p for session {}", refund_paise, session_id),
+                    Err(e) => tracing::error!("CRITICAL: disconnect timeout refund FAILED for session {} ({}p): {}", session_id, refund_paise, e),
+                }
             }
         }
 
@@ -1665,7 +1724,7 @@ pub async fn persist_timer_state(state: &Arc<AppState>, target_pod_number: Optio
     let now_str = chrono::Utc::now().to_rfc3339();
 
     // Snapshot timers under lock, then release before any async work (no RwLock across .await)
-    let snapshots: Vec<(String, u32, u32, u32, String)> = {
+    let snapshots: Vec<(String, u32, u32, u32, String, u32)> = {
         let timers = state.billing.active_timers.read().await;
         timers.values()
             .filter(|t| matches!(t.status,
@@ -1684,17 +1743,18 @@ pub async fn persist_timer_state(state: &Arc<AppState>, target_pod_number: Optio
                     None => true, // persist all (used for shutdown/emergency)
                 }
             })
-            .map(|t| (t.session_id.clone(), t.elapsed_seconds, t.driving_seconds, t.total_paused_seconds, t.pod_id.clone()))
+            .map(|t| (t.session_id.clone(), t.elapsed_seconds, t.driving_seconds, t.total_paused_seconds, t.pod_id.clone(), t.recovery_pause_seconds))
             .collect()
     }; // lock released here
 
-    for (session_id, elapsed, driving, paused, pod_id) in &snapshots {
+    for (session_id, elapsed, driving, paused, pod_id, recovery_pause) in &snapshots {
         let result = sqlx::query(
-            "UPDATE billing_sessions SET elapsed_seconds = ?, driving_seconds = ?, total_paused_seconds = ?, last_timer_sync_at = ? WHERE id = ?"
+            "UPDATE billing_sessions SET elapsed_seconds = ?, driving_seconds = ?, total_paused_seconds = ?, recovery_pause_seconds = ?, last_timer_sync_at = ? WHERE id = ?"
         )
         .bind(*elapsed as i64)
         .bind(*driving as i64)
         .bind(*paused as i64)
+        .bind(*recovery_pause as i64)
         .bind(&now_str)
         .bind(session_id)
         .execute(&state.db)
@@ -1773,6 +1833,8 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             pause_seconds: 0,
             max_session_seconds: allocated_secs,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         tracing::info!(
@@ -1989,6 +2051,63 @@ pub fn spawn_reconciliation_job(state: Arc<AppState>) {
 /// Public wrapper so the admin endpoint can trigger an immediate reconciliation run.
 pub async fn run_reconciliation_public(state: &Arc<AppState>) {
     run_reconciliation(state).await;
+}
+
+/// BILL-03: Spawn background task that marks expired PWA game requests.
+/// Runs every 60 seconds; marks pending requests whose expires_at < now() as 'expired'.
+/// Broadcasts GameRequestExpired dashboard event for each expired request so staff
+/// dashboard removes the card automatically.
+pub fn spawn_cleanup_expired_game_requests(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        tracing::info!("BILL-03: PWA game request TTL cleanup task started (60s interval)");
+        loop {
+            interval.tick().await;
+            cleanup_expired_game_requests(&state).await;
+        }
+    });
+}
+
+/// BILL-03: Inner cleanup logic — marks pending game requests as expired and notifies dashboard.
+async fn cleanup_expired_game_requests(state: &Arc<AppState>) {
+    // Fetch IDs of requests that have expired but are still pending
+    let expired: Vec<(String,)> = match sqlx::query_as(
+        "SELECT id FROM game_launch_requests WHERE status = 'pending' AND expires_at < datetime('now')",
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("BILL-03: Failed to query expired game requests: {}", e);
+            return;
+        }
+    };
+
+    if expired.is_empty() {
+        return;
+    }
+
+    // Update all expired requests in one query
+    let count = expired.len();
+    if let Err(e) = sqlx::query(
+        "UPDATE game_launch_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < datetime('now')",
+    )
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!("BILL-03: Failed to mark game requests as expired: {}", e);
+        return;
+    }
+
+    tracing::info!("BILL-03: Marked {} PWA game request(s) as expired", count);
+
+    // Broadcast GameRequestExpired for each expired request so staff dashboard removes them
+    for (request_id,) in expired {
+        let _ = state.dashboard_tx.send(DashboardEvent::GameRequestExpired {
+            request_id,
+        });
+    }
 }
 
 /// Inner reconciliation logic.
@@ -2329,6 +2448,33 @@ pub async fn start_billing_session(
         }
     }
 
+    // BILL-05: Log billing_timer_started event with game-live timestamp for audit trail.
+    // This creates an auditable record that billing began at game-live time, not staff click.
+    // started_at in billing_sessions is set to Utc::now() which is called from handle_game_status_update(Live).
+    let billing_start_iso = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    tracing::info!(
+        "BILL-05: billing_timer_started for session {} on pod {} at {} (game-live path, not staff click)",
+        session_id, pod_id, billing_start_iso
+    );
+    let billing_started_meta = serde_json::json!({
+        "billing_timer_started": true,
+        "started_at": billing_start_iso,
+        "pod_id": pod_id,
+        "trigger": "game_live_signal"
+    });
+    if let Err(e) = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
+         VALUES (?, ?, 'billing_timer_started', 0, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&session_id)
+    .bind(billing_started_meta.to_string())
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!("Failed to log billing_timer_started event for session {}: {}", session_id, e);
+    }
+
     // Mark trial as used (skip for unlimited_trials drivers)
     if is_trial && !unlimited_trials {
         let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1, updated_at = datetime('now') WHERE id = ?")
@@ -2363,6 +2509,8 @@ pub async fn start_billing_session(
         pause_seconds: 0,
         max_session_seconds: allocated_seconds,
         sim_type: None,
+        recovery_pause_seconds: 0,
+        pause_reason: PauseReason::None,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -2501,6 +2649,8 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         pause_seconds: 0,
         max_session_seconds: data.allocated_seconds,
         sim_type: None,
+        recovery_pause_seconds: 0,
+        pause_reason: PauseReason::None,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -2907,14 +3057,19 @@ async fn end_billing_session(
                     // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
                     let refund_amount = compute_refund(allocated, driving_seconds as i64, debit);
                     if refund_amount > 0 {
-                        let _ = crate::wallet::refund(
+                        // L2-01 fix: handle refund failure explicitly
+                        match crate::wallet::refund(
                             state,
                             &driver_id,
                             refund_amount,
                             Some(session_id),
                             Some("Early end — proportional refund"),
                         )
-                        .await;
+                        .await
+                        {
+                            Ok(_) => tracing::info!("BILLING: early-end refund {}p for session {}", refund_amount, session_id),
+                            Err(e) => tracing::error!("CRITICAL: early-end refund FAILED for session {} ({}p): {}", session_id, refund_amount, e),
+                        }
                     }
                 }
             }
@@ -2932,14 +3087,19 @@ async fn end_billing_session(
 
                 if let Some((driver_id, Some(debit))) = wallet_info {
                     if debit > 0 {
-                        let _ = crate::wallet::refund(
+                        // L2-01 fix: handle refund failure explicitly
+                        match crate::wallet::refund(
                             state,
                             &driver_id,
                             debit,
                             Some(session_id),
                             Some("Cancelled session — full refund"),
                         )
-                        .await;
+                        .await
+                        {
+                            Ok(_) => tracing::info!("BILLING: cancel refund {}p for session {}", debit, session_id),
+                            Err(e) => tracing::error!("CRITICAL: cancel refund FAILED for session {} ({}p): {}", session_id, debit, e),
+                        }
                     }
                 }
             }
@@ -3514,6 +3674,30 @@ async fn extend_billing_session(
 
     if let Some(pod_id) = pod_id {
         if let Some(timer) = timers.get_mut(&pod_id) {
+            // BILL-04: Validate session is active before extending
+            match timer.status {
+                BillingSessionStatus::Completed
+                | BillingSessionStatus::EndedEarly
+                | BillingSessionStatus::Cancelled
+                | BillingSessionStatus::CancelledNoPlayable => {
+                    tracing::warn!(
+                        "BILL-04: Extension attempt on non-active session {} (status={:?}) — rejected",
+                        session_id, timer.status
+                    );
+                    return;
+                }
+                _ => {}
+            }
+
+            // BILL-04: Compute extension cost from current tier rate (extension_rate_policy=current_tier_effective_rate)
+            let current_cost = timer.current_cost(&rate_tiers);
+            let extension_rate = current_cost.rate_per_min_paise;
+            let extension_cost_paise = (extension_rate * additional_seconds as i64 + 30) / 60;
+            tracing::info!(
+                "BILL-04: Extension uses tier '{}' rate {}p/min for {} seconds (extension_rate_policy=current_tier_effective_rate, cost={}p)",
+                current_cost.tier_name, extension_rate, additional_seconds, extension_cost_paise
+            );
+
             timer.allocated_seconds += additional_seconds;
             // Reset warnings if we extended past thresholds
             if timer.remaining_seconds() > 300 {
@@ -3870,6 +4054,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 1800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         // Should count when driving
@@ -3915,6 +4101,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 3,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         // One more tick should expire
@@ -3950,6 +4138,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 3600,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -3982,6 +4172,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 1800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         // Active tick — driving_seconds should increment
@@ -4024,6 +4216,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 1800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -4149,6 +4343,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         assert!(!timer.tick());
@@ -4186,6 +4382,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         assert!(!timer.tick());
@@ -4220,6 +4418,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         assert!(timer.tick()); // Should return true (elapsed == max)
@@ -4253,6 +4453,8 @@ mod tests {
             pause_seconds: 599,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         // One more tick should hit 600s pause timeout
@@ -4289,6 +4491,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         let cost = timer.current_cost(&rate_tiers);
@@ -4325,6 +4529,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         let info = timer.to_info(&rate_tiers);
@@ -4353,7 +4559,7 @@ mod tests {
             waiting_since: std::time::Instant::now(),
             attempt: 1,
             group_session_id: None,
-        sim_type: None,
+            sim_type: None,
         };
         assert_eq!(entry.pod_id, "pod1");
         assert_eq!(entry.attempt, 1);
@@ -4503,7 +4709,7 @@ mod tests {
                 waiting_since: std::time::Instant::now(),
                 attempt: 1,
                 group_session_id: None,
-            sim_type: None,
+                sim_type: None,
             };
             // Simulate time passing by using checked_sub
             entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
@@ -4533,7 +4739,7 @@ mod tests {
                 waiting_since: std::time::Instant::now() - std::time::Duration::from_secs(181),
                 attempt: 2, // second attempt
                 group_session_id: None,
-            sim_type: None,
+                sim_type: None,
             };
             waiting.insert("p8".to_string(), entry);
         }
@@ -4581,6 +4787,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         }
     }
 
@@ -5046,6 +5254,8 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
             sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
         };
 
         assert!(!timer.tick());
@@ -5318,6 +5528,7 @@ mod tests {
             elapsed_seconds: Some(e.waiting_since.elapsed().as_secs() as u32),
             cost_paise: Some(0),
             rate_per_min_paise: Some(0),
+            recovery_pause_seconds: None,
         };
         // Verify the simulated tick has the correct status
         assert_eq!(
@@ -5727,5 +5938,397 @@ mod tests {
         // Initially split 1 is active, so next PENDING is split 2
         let next = get_next_pending_split(&pool, "test-session").await.expect("get_next_pending_split failed");
         assert_eq!(next, Some((2, 600)), "Next pending should be split 2 with 600s");
+    }
+
+    // ─── BILL-03: PWA game request TTL tests ─────────────────────────────────
+
+    /// BILL-03: BillingTimer struct has no direct relation to game_launch_requests table,
+    /// but the cleanup function requires the DB table to exist. Test that game_launch_requests
+    /// table can be created and records inserted/queried with expires_at.
+    #[tokio::test]
+    async fn pwa_request_ttl_table_exists_and_queryable() {
+        let pool = create_test_db().await;
+
+        // Create game_launch_requests table (normally created by full db::migrate())
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS game_launch_requests (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL,
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolved_by TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create game_launch_requests table");
+
+        // Insert a pending request with a past expires_at (already expired)
+        let request_id = "test-req-001";
+        sqlx::query(
+            "INSERT INTO game_launch_requests (id, driver_id, pod_id, sim_type, status, expires_at)
+             VALUES (?, ?, ?, ?, 'pending', datetime('now', '-1 minute'))",
+        )
+        .bind(request_id)
+        .bind("driver-1")
+        .bind("pod_1")
+        .bind("AssettoCorsa")
+        .execute(&pool)
+        .await
+        .expect("Should insert game_launch_request");
+
+        // Verify that the row is pending and expires_at < now
+        let row: Option<(String, i64)> = sqlx::query_as(
+            "SELECT status, CASE WHEN expires_at < datetime('now') THEN 1 ELSE 0 END as is_expired
+             FROM game_launch_requests WHERE id = ?",
+        )
+        .bind(request_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("query failed");
+
+        assert!(row.is_some());
+        let (status, is_expired) = row.unwrap();
+        assert_eq!(status, "pending", "Status should be pending before cleanup");
+        assert_eq!(is_expired, 1, "expires_at should be in the past");
+
+        // Simulate cleanup: mark expired
+        sqlx::query(
+            "UPDATE game_launch_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < datetime('now')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Update failed");
+
+        let new_status: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM game_launch_requests WHERE id = ?",
+        )
+        .bind(request_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("query failed");
+
+        assert_eq!(new_status.unwrap().0, "expired", "Status should be expired after cleanup");
+    }
+
+    /// BILL-03: A request with expires_at in the future should NOT be marked expired.
+    #[tokio::test]
+    async fn pwa_request_ttl_future_request_not_expired() {
+        let pool = create_test_db().await;
+
+        // Create game_launch_requests table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS game_launch_requests (
+                id TEXT PRIMARY KEY, driver_id TEXT NOT NULL, pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT NOT NULL,
+                resolved_at TEXT, resolved_by TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create game_launch_requests table");
+
+        let request_id = "test-req-future";
+        sqlx::query(
+            "INSERT INTO game_launch_requests (id, driver_id, pod_id, sim_type, status, expires_at)
+             VALUES (?, ?, ?, ?, 'pending', datetime('now', '+10 minutes'))",
+        )
+        .bind(request_id)
+        .bind("driver-2")
+        .bind("pod_2")
+        .bind("AssettoCorsa")
+        .execute(&pool)
+        .await
+        .expect("Should insert game_launch_request");
+
+        // Cleanup should affect 0 rows (not expired yet)
+        let result = sqlx::query(
+            "UPDATE game_launch_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < datetime('now')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Update failed");
+
+        assert_eq!(result.rows_affected(), 0, "Future request should NOT be marked expired");
+
+        let status: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM game_launch_requests WHERE id = ?",
+        )
+        .bind(request_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("query failed");
+
+        assert_eq!(status.unwrap().0, "pending", "Status must remain pending");
+    }
+
+    // ─── BILL-04: Extension pricing enforcement tests ─────────────────────────
+
+    /// BILL-04: Extension on an active session correctly uses current tier rate.
+    #[test]
+    fn extension_pricing_uses_current_tier_rate() {
+        let tiers = default_billing_rate_tiers();
+        let mut timer = BillingTimer {
+            session_id: "ext-session".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 600,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 600,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+        };
+
+        // At 600s (10 min), still in Standard tier (threshold=1800s=30min)
+        let cost = timer.current_cost(&tiers);
+        assert_eq!(cost.tier_name, "Standard");
+        let rate_at_600s = cost.rate_per_min_paise;
+        assert_eq!(rate_at_600s, 2500, "Standard tier should be 2500p/min");
+
+        // Extend by 600s (10 min)
+        timer.allocated_seconds += 600;
+
+        // Rate should still be Standard (we're at 10min, threshold is 30min)
+        let cost_after = timer.current_cost(&tiers);
+        assert_eq!(cost_after.rate_per_min_paise, 2500, "Extension rate must match current tier");
+    }
+
+    /// BILL-04: Extension attempt on a completed session returns early (no crash).
+    #[test]
+    fn extension_rejected_on_completed_session() {
+        let timer = BillingTimer {
+            session_id: "done-session".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 1800,
+            status: BillingSessionStatus::Completed,
+            driving_state: DrivingState::Idle,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: true,
+            warning_1min_sent: true,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 1800,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+        };
+
+        // Verify: completed sessions are terminal — cannot be extended
+        assert!(matches!(
+            timer.status,
+            BillingSessionStatus::Completed
+                | BillingSessionStatus::EndedEarly
+                | BillingSessionStatus::Cancelled
+                | BillingSessionStatus::CancelledNoPlayable
+        ), "Completed session must be detected as terminal");
+    }
+
+    // ─── BILL-06: Crash recovery pause exclusion tests ────────────────────────
+
+    /// BILL-06: BillingTimer has recovery_pause_seconds field, starts at 0.
+    #[test]
+    fn recovery_pause_seconds_starts_at_zero() {
+        let timer = BillingTimer {
+            session_id: "rps-test".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+        };
+
+        assert_eq!(timer.recovery_pause_seconds, 0, "recovery_pause_seconds must start at 0");
+        assert_eq!(timer.pause_reason, PauseReason::None, "pause_reason must start at None");
+    }
+
+    /// BILL-06: When status is PausedGamePause + CrashRecovery reason, recovery_pause_seconds increments.
+    #[test]
+    fn recovery_pause_increments_on_crash_recovery_tick() {
+        let mut timer = BillingTimer {
+            session_id: "crash-test".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 300,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 300,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+        };
+
+        // Simulate crash recovery: set PausedGamePause + CrashRecovery
+        timer.status = BillingSessionStatus::PausedGamePause;
+        timer.pause_reason = PauseReason::CrashRecovery;
+
+        // Tick 30 times (30 seconds)
+        for _ in 0..30 {
+            timer.tick();
+        }
+
+        assert_eq!(timer.pause_seconds, 30, "pause_seconds must increment to 30");
+        assert_eq!(timer.recovery_pause_seconds, 30, "recovery_pause_seconds must also increment to 30 (crash recovery)");
+        assert_eq!(timer.elapsed_seconds, 300, "elapsed_seconds must NOT change during PausedGamePause");
+    }
+
+    /// BILL-06: Manual ESC pause does NOT increment recovery_pause_seconds.
+    #[test]
+    fn manual_pause_does_not_increment_recovery_pause_seconds() {
+        let mut timer = BillingTimer {
+            session_id: "manual-pause-test".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 300,
+            status: BillingSessionStatus::PausedGamePause,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 1,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 300,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::GamePause, // Manual ESC pause
+        };
+
+        // Tick 20 times
+        for _ in 0..20 {
+            timer.tick();
+        }
+
+        assert_eq!(timer.pause_seconds, 20, "pause_seconds must increment");
+        assert_eq!(timer.recovery_pause_seconds, 0, "Manual pause must NOT increment recovery_pause_seconds");
+    }
+
+    /// BILL-06: compute_session_cost subtracts recovery_pause_seconds from billable time.
+    #[test]
+    fn billing_start_time_recovery_pause_excluded_from_cost() {
+        let tiers = default_billing_rate_tiers();
+
+        // Scenario: 600s elapsed, 120s of that was crash recovery pause
+        // Billable = 600 - 120 = 480s = 8 min @ 2500p/min = 20000p
+        let timer = BillingTimer {
+            session_id: "cost-excl-test".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "Standard".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 600,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 120,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 600,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+            sim_type: None,
+            recovery_pause_seconds: 120,
+            pause_reason: PauseReason::None,
+        };
+
+        let cost = timer.current_cost(&tiers);
+        // Billable = 600 - 120 = 480s = 8 min @ 2500p/min = 20000p
+        assert_eq!(cost.total_paise, 20000, "Cost must exclude 120s crash recovery time");
+
+        // Without recovery pause (for comparison): 600s = 10 min = 25000p
+        let timer_no_recovery = BillingTimer {
+            recovery_pause_seconds: 0,
+            ..timer
+        };
+        let cost_no_recovery = timer_no_recovery.current_cost(&tiers);
+        assert_eq!(cost_no_recovery.total_paise, 25000, "Without recovery pause: 10min @ 2500p = 25000p");
     }
 }
