@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# pre-push hook — Gate 1: Quality Gate enforcement (GAP-2 fix)
+#
+# Runs cargo test on all crates before allowing push.
+# Also checks for .unwrap() in production code.
+#
+# Skip with: git push --no-verify (standing rules say don't)
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+echo ""
+echo "============================================================"
+echo "PRE-PUSH GATE: Running quality checks before push..."
+echo "============================================================"
+
+GATE_FAIL=0
+
+# Check 1: cargo test
+echo ""
+echo "Running cargo test -p rc-common..."
+cargo test -p rc-common 2>&1
+if [ $? -ne 0 ]; then
+  echo "BLOCKED: rc-common tests failed"
+  GATE_FAIL=1
+fi
+
+echo ""
+echo "Running cargo test -p racecontrol-crate --lib..."
+# --lib only: integration tests require a running server and their .exe
+# gets file-locked by parallel processes, causing spurious linker failures.
+# Integration tests are covered by E2E verification (Unified Protocol Layer 2).
+cargo test -p racecontrol-crate --lib 2>&1
+if [ $? -ne 0 ]; then
+  echo "BLOCKED: racecontrol tests failed"
+  GATE_FAIL=1
+fi
+
+# Check 2: .unwrap() in staged changes
+echo ""
+echo "Checking for .unwrap() in production code..."
+UNWRAP_COUNT=$(git diff origin/main..HEAD -- '*.rs' | grep '+.*\.unwrap()' | grep -v test | grep -v '#\[cfg(test)\]' | wc -l)
+if [ "$UNWRAP_COUNT" -gt 0 ]; then
+  echo "WARNING: ${UNWRAP_COUNT} .unwrap() calls in production code (review required)"
+  # Warning only, not blocking — some uses are legitimate
+fi
+
+echo ""
+if [ $GATE_FAIL -ne 0 ]; then
+  echo "============================================================"
+  echo "PRE-PUSH GATE: BLOCKED — fix test failures before pushing"
+  echo "============================================================"
+  echo ""
+  exit 1
+fi
+
+echo "============================================================"
+echo "PRE-PUSH GATE: PASS — push allowed"
+echo "============================================================"
+echo ""
+
+exit 0

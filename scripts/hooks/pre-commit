@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# pre-commit-hook.sh — Blocks commits that introduce security regressions.
+#
+# SEC-GATE-02: Pre-commit credential leak and security pattern scanner.
+# Installed in .git/hooks/pre-commit for both comms-link and racecontrol repos.
+#
+# What it checks (on STAGED files only — fast, incremental):
+#   1. Hardcoded credentials (passwords, API keys, private keys, AWS keys)
+#   2. Sensitive config files that shouldn't be committed (.env, racecontrol.toml)
+#   3. Dangerous code patterns (shell=true, .unwrap() in Rust, 'any' in TypeScript)
+#
+# Exit 0 = commit allowed. Non-zero = commit blocked.
+
+set -e
+
+RED=$(printf '\033[0;31m')
+GREEN=$(printf '\033[0;32m')
+YELLOW=$(printf '\033[0;33m')
+RESET=$(printf '\033[0m')
+
+FAILURES=0
+
+fail() {
+  echo "${RED}BLOCKED${RESET}: $1"
+  FAILURES=$((FAILURES + 1))
+}
+
+warn() {
+  echo "${YELLOW}WARNING${RESET}: $1"
+}
+
+pass() {
+  echo "${GREEN}OK${RESET}: $1"
+}
+
+# Get staged files (only added/modified, not deleted)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+echo "Security pre-commit check (SEC-GATE-02)..."
+echo ""
+
+# ---------------------------------------------------------------------------
+# Check 1: Credential patterns in staged content
+# ---------------------------------------------------------------------------
+
+# Get the staged diff content (what will actually be committed)
+STAGED_DIFF=$(git diff --cached --unified=0 2>/dev/null)
+
+# Patterns that should NEVER appear in committed code
+# Check added lines only (lines starting with +, not ++)
+ADDED_LINES=$(echo "$STAGED_DIFF" | grep '^+' | grep -v '^+++' || true)
+
+# Private keys (exclude regex patterns, test commands, grep patterns, and echo examples)
+if echo "$ADDED_LINES" | grep -v 'pattern' | grep -v 'test(' | grep -v 'assert' | grep -v 'RegExp' | grep -v 'grep' | grep -v 'echo ' | grep -v '#' | grep -q -- '-----BEGIN.*PRIVATE KEY-----'; then
+  fail "Private key detected in staged changes"
+fi
+
+# AWS access keys
+if echo "$ADDED_LINES" | grep -qE 'AKIA[0-9A-Z]{16}'; then
+  fail "AWS access key pattern detected in staged changes"
+fi
+
+# Hardcoded passwords (not in comments, not env var reads)
+if echo "$ADDED_LINES" | grep -v '^\+\s*//' | grep -v 'process\.env\.' | grep -v 'env::var' | grep -v 'getenv' | grep -qiE '(password|passwd)\s*[:=]\s*"[^"]{8,}"'; then
+  # Filter out test files and config templates
+  PASS_FILES=$(echo "$STAGED_FILES" | grep -E '\.(test|spec)\.' || true)
+  if [ -z "$PASS_FILES" ]; then
+    fail "Hardcoded password detected in staged changes (not in test file)"
+  fi
+fi
+
+# Check for the known-bad default JWT secret in non-config files
+if echo "$ADDED_LINES" | grep -v 'main\.rs' | grep -q 'racingpoint-jwt-change-me-in-production'; then
+  warn "Default JWT secret string found — ensure this is only in the startup warning check"
+fi
+
+if [ $FAILURES -eq 0 ]; then
+  pass "No credential leaks in staged changes"
+fi
+
+# ---------------------------------------------------------------------------
+# Check 2: Sensitive files that shouldn't be committed
+# ---------------------------------------------------------------------------
+
+SENSITIVE_PATTERNS=(
+  ".env.local"
+  ".env.production.local"
+  "racecontrol.toml"
+  "racecontrol.docker.toml"
+  "credentials.json"
+  "token.json"
+  "id_rsa"
+  "id_ed25519"
+  ".pem"
+)
+
+for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+  MATCHED=$(echo "$STAGED_FILES" | grep "$pattern" || true)
+  if [ -n "$MATCHED" ]; then
+    fail "Sensitive file staged for commit: $MATCHED"
+  fi
+done
+
+if [ $FAILURES -eq 0 ]; then
+  pass "No sensitive files in staged changes"
+fi
+
+# ---------------------------------------------------------------------------
+# Check 3: Dangerous code patterns (Rust + TypeScript + JavaScript)
+# ---------------------------------------------------------------------------
+
+# .unwrap() in production Rust (not in tests)
+RUST_STAGED=$(echo "$STAGED_FILES" | grep '\.rs$' | grep -v 'test' | grep -v 'build.rs' || true)
+if [ -n "$RUST_STAGED" ]; then
+  for file in $RUST_STAGED; do
+    # Check only the added lines in this file
+    FILE_ADDS=$(git diff --cached --unified=0 -- "$file" | grep '^+' | grep -v '^+++' || true)
+    UNWRAP_COUNT=$(echo "$FILE_ADDS" | grep -c '\.unwrap()' || true)
+    if [ "$UNWRAP_COUNT" -gt 0 ]; then
+      warn ".unwrap() found in $file ($UNWRAP_COUNT occurrences) — use ? or .ok() in production"
+    fi
+  done
+fi
+
+# 'any' type in TypeScript (not in tests, not in comments)
+TS_STAGED=$(echo "$STAGED_FILES" | grep '\.tsx\?$' | grep -v 'test' | grep -v '.d.ts' || true)
+if [ -n "$TS_STAGED" ]; then
+  for file in $TS_STAGED; do
+    FILE_ADDS=$(git diff --cached --unified=0 -- "$file" | grep '^+' | grep -v '^+++' || true)
+    # Match ': any' or '<any>' but not in comments
+    ANY_COUNT=$(echo "$FILE_ADDS" | grep -v '^\+\s*//' | grep -cE ':\s*any\b|<any>' || true)
+    if [ "$ANY_COUNT" -gt 0 ]; then
+      warn "'any' type found in $file ($ANY_COUNT occurrences) — type explicitly"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
+
+echo ""
+if [ $FAILURES -gt 0 ]; then
+  echo "${RED}Pre-commit check FAILED${RESET} ($FAILURES issue(s) found)"
+  echo "Fix the issues above or use --no-verify to bypass (NOT recommended)."
+  exit 1
+else
+  echo "${GREEN}Pre-commit check passed${RESET}"
+  exit 0
+fi
