@@ -40,6 +40,7 @@ mod self_test;
 mod tier_engine;
 mod sims;
 mod startup_log;
+mod steam_checks;
 mod udp_heartbeat;
 
 use std::sync::atomic::{AtomicBool, Ordering};

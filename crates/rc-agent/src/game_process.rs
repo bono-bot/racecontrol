@@ -178,13 +178,15 @@ pub fn clean_state_reset() -> u32 {
 /// Exposed for testing with temporary directories.
 
 /// All known game process names across all sim types.
+/// GAME-02: Kept in sync with steam_checks::game_exe_for_sim() and process_names().
 fn all_game_process_names() -> &'static [&'static str] {
     &[
         "acs.exe", "AssettoCorsa.exe",
         "AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
         "acr.exe",
         "iRacingSim64DX11.exe", "iRacingService.exe", "iRacingService64.exe", "iRacingLauncher64.exe",
-        "F1_25.exe",
+        "iRacingUI.exe",
+        "F1_25.exe", "F1_2025.exe",
         "LMU.exe", "Le Mans Ultimate.exe",
         "ForzaMotorsport.exe",
         "ForzaHorizon5.exe",
@@ -420,8 +422,8 @@ fn process_names(sim_type: SimType) -> &'static [&'static str] {
         SimType::AssettoCorsa => &["acs.exe", "AssettoCorsa.exe"],
         SimType::AssettoCorsaEvo => &["AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe"],
         SimType::AssettoCorsaRally => &["acr.exe"],
-        SimType::IRacing => &["iRacingSim64DX11.exe", "iRacingService.exe", "iRacingService64.exe", "iRacingLauncher64.exe"],
-        SimType::F125 => &["F1_25.exe"],
+        SimType::IRacing => &["iRacingSim64DX11.exe", "iRacingService.exe", "iRacingService64.exe", "iRacingLauncher64.exe", "iRacingUI.exe"],
+        SimType::F125 => &["F1_25.exe", "F1_2025.exe"],
         SimType::LeMansUltimate => &["LMU.exe", "Le Mans Ultimate.exe"],
         SimType::Forza => &["ForzaMotorsport.exe"],
         SimType::ForzaHorizon5 => &["ForzaHorizon5.exe"],
@@ -584,7 +586,9 @@ mod tests {
     #[test]
     fn test_process_names_f1_25() {
         let names = process_names(SimType::F125);
-        assert_eq!(names, &["F1_25.exe"]);
+        // GAME-02: Both F1_25.exe (primary) and F1_2025.exe (alternate) are tracked
+        assert!(names.contains(&"F1_25.exe"), "F125 must include F1_25.exe");
+        assert!(names.contains(&"F1_2025.exe"), "F125 must include F1_2025.exe (alternate name)");
     }
 
     #[test]
