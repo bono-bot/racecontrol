@@ -129,7 +129,11 @@ Plans:
   3. A PWA game request not acted on within 10 minutes is automatically expired with a customer notification
   4. Billing starts when the game reaches Running state — not when the staff clicks launch — so the customer is only charged for actual play time
   5. A customer can flag a disputed charge from the PWA; staff can review logs and approve or deny a refund from the admin panel
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 257-01-PLAN.md — PWA game request TTL (10-min auto-expire), extension pricing enforcement (current tier rate), billing start-time verification, crash recovery time exclusion
+- [ ] 257-02-PLAN.md — Agent-side inactivity monitor (10-min input detection, staff alert), persistent session countdown overlay (yellow 5min, red 1min)
+- [ ] 257-03-PLAN.md — Multiplayer synchronized billing pause/resume on crash, customer charge dispute portal (PWA submit, staff review/resolve)
 **UI hint**: yes
 
 ### Phase 258: Staff Controls & Deployment Safety
@@ -182,7 +186,7 @@ Plans:
 | 254. Security Hardening | 0/3 | Planned | - |
 | 255. Legal Compliance | 0/3 | Planned | - |
 | 256. Game-Specific Hardening | 0/3 | Planned | - |
-| 257. Billing Edge Cases | 0/? | Not started | - |
+| 257. Billing Edge Cases | 0/3 | Planned | - |
 | 258. Staff Controls & Deployment Safety | 0/? | Not started | - |
 | 259. Coupon & Discount System | 0/? | Not started | - |
 | 260. Notifications, Resilience & UX | 0/? | Not started | - |
