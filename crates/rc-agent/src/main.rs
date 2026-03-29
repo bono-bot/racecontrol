@@ -78,6 +78,107 @@ use overlay::OverlayManager;
 const LOG_TARGET: &str = "rc-agent";
 pub(crate) const BUILD_ID: &str = env!("GIT_HASH");
 
+/// DEPLOY-02: Write a sentinel file recording an interrupted billing session.
+/// Called when the server is unreachable during shutdown. The sentinel is processed
+/// on the next startup to ensure the server can issue a partial refund.
+fn write_interrupted_session_sentinel(session_id: &str, pod_id: &str) {
+    let path = format!(r"C:\RacingPoint\INTERRUPTED_SESSION_{}.json", session_id);
+    let payload = serde_json::json!({
+        "session_id": session_id,
+        "pod_id": pod_id,
+        "shutdown_at": chrono::Utc::now().to_rfc3339(),
+    });
+    match std::fs::write(&path, payload.to_string()) {
+        Ok(_) => tracing::info!(target: LOG_TARGET, "DEPLOY-02: Wrote interrupted session sentinel: {}", path),
+        Err(e) => tracing::error!(target: LOG_TARGET, "DEPLOY-02: Failed to write sentinel file {}: {}", path, e),
+    }
+}
+
+/// DEPLOY-04: On startup, check for any INTERRUPTED_SESSION_*.json sentinel files
+/// and notify the server so it can process partial refunds for sessions that were
+/// active during the last shutdown. Returns the number of sentinels processed.
+async fn recover_interrupted_sessions(core_ip: &str, pod_id: &str) -> usize {
+    let dir = std::path::Path::new(r"C:\RacingPoint");
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Failed to read C:\\RacingPoint: {}", e);
+            return 0;
+        }
+    };
+    // Collect sentinel files matching INTERRUPTED_SESSION_*.json
+    let sentinels: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("INTERRUPTED_SESSION_") && n.ends_with(".json"))
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if sentinels.is_empty() {
+        return 0;
+    }
+
+    #[cfg(feature = "http-client")]
+    {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+        let mut count = 0;
+        for path in sentinels {
+            let path_str = path.display().to_string();
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Failed to read sentinel {}: {}", path_str, e);
+                    continue;
+                }
+            };
+            let sentinel: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Failed to parse sentinel {}: {} — removing", path_str, e);
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
+            };
+            let session_id = match sentinel.get("session_id").and_then(|v| v.as_str()) {
+                Some(id) => id.to_string(),
+                None => {
+                    tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Sentinel {} missing session_id — removing", path_str);
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
+            };
+            let url = format!("http://{}:8080/api/v1/billing/{}/agent-shutdown", core_ip, session_id);
+            let body = serde_json::json!({ "pod_id": pod_id, "shutdown_reason": "restart_recovery" });
+            match client.post(&url).json(&body).send().await {
+                Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 409 => {
+                    tracing::info!(target: LOG_TARGET, "DEPLOY-04: Server processed interrupted session {} — removing sentinel", session_id);
+                    let _ = std::fs::remove_file(&path);
+                    count += 1;
+                }
+                Ok(resp) => {
+                    tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Server returned {} for interrupted session {} — will retry next startup", resp.status(), session_id);
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "DEPLOY-04: Failed to notify server for session {} ({})", session_id, e);
+                }
+            }
+        }
+        count
+    }
+    #[cfg(not(feature = "http-client"))]
+    {
+        tracing::info!(target: LOG_TARGET, "DEPLOY-04: {} sentinel(s) found but http-client feature disabled — skipping", sentinels.len());
+        0
+    }
+}
+
 // LaunchState and CrashRecoveryState moved to event_loop.rs (74-04)
 // WS_MAX_CONCURRENT_EXECS, WS_EXEC_SEMAPHORE, and handle_ws_exec moved to ws_handler.rs (74-03)
 
@@ -1243,12 +1344,58 @@ async fn main() -> Result<()> {
     // ─── Graceful Shutdown Handler ──────────────────────────────────────────
     // Ctrl+C on Windows (covers SIGTERM-equivalent). Sets SHUTDOWN_REQUESTED flag
     // so background tasks can exit cleanly and FFB is zeroed before process exit.
+    // DEPLOY-02: On shutdown, notify server about any active billing session so it
+    // can calculate a partial refund. Sentinel file written if server is unreachable.
     {
         let ffb_shutdown = state.ffb.clone();
+        let shutdown_pod_id = state.pod_id.clone();
+        #[allow(unused_variables)]
+        let shutdown_core_ip = core_ip.clone();
+        let shutdown_monitor = state.failure_monitor_tx.subscribe();
         tokio::spawn(async move {
             if let Ok(()) = tokio::signal::ctrl_c().await {
                 tracing::info!(target: LOG_TARGET, "Shutdown signal received (Ctrl+C) — initiating graceful shutdown");
                 SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+
+                // DEPLOY-02: Check for active billing session and notify server
+                let active_session_id = shutdown_monitor.borrow().active_billing_session_id.clone();
+                if let Some(session_id) = active_session_id {
+                    tracing::info!(target: LOG_TARGET, "DEPLOY-02: Active billing session {} detected during shutdown — notifying server", session_id);
+                    #[cfg(feature = "http-client")]
+                    {
+                        let server_url = format!(
+                            "http://{}:8080/api/v1/billing/{}/agent-shutdown",
+                            shutdown_core_ip, session_id
+                        );
+                        let client = reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                            .unwrap_or_default();
+                        let body = serde_json::json!({
+                            "pod_id": shutdown_pod_id,
+                            "shutdown_reason": "graceful_sigterm"
+                        });
+                        match client.post(&server_url).json(&body).send().await {
+                            Ok(resp) if resp.status().is_success() => {
+                                tracing::info!(target: LOG_TARGET, "DEPLOY-02: Server notified of agent shutdown for session {} — partial refund processed", session_id);
+                            }
+                            Ok(resp) => {
+                                tracing::warn!(target: LOG_TARGET, "DEPLOY-02: Server returned {} for agent-shutdown — writing sentinel file", resp.status());
+                                write_interrupted_session_sentinel(&session_id, &shutdown_pod_id);
+                            }
+                            Err(e) => {
+                                tracing::warn!(target: LOG_TARGET, "DEPLOY-02: Failed to notify server of shutdown ({}), writing sentinel file", e);
+                                write_interrupted_session_sentinel(&session_id, &shutdown_pod_id);
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "http-client"))]
+                    {
+                        tracing::warn!(target: LOG_TARGET, "DEPLOY-02: http-client feature disabled — writing sentinel file for session {}", session_id);
+                        write_interrupted_session_sentinel(&session_id, &shutdown_pod_id);
+                    }
+                }
+
                 // Zero FFB as a safety measure before exit
                 let _ = tokio::task::spawn_blocking(move || {
                     ffb_shutdown.zero_force_with_retry(3, 100);
@@ -1266,6 +1413,8 @@ async fn main() -> Result<()> {
     let mut reconnect_attempt: u32 = 0;
     let mut startup_complete_logged = false;
     let mut _startup_report_sent = false;
+    // DEPLOY-04: Post-restart session recovery — only run once per process lifetime.
+    let mut _interrupted_sessions_recovered = false;
     // SESSION-04: WS 30s grace window — suppress Disconnected screen for brief drops.
     // Billing, game, and overlay keep running during the grace window.
     let mut ws_disconnected_at: Option<std::time::Instant> = None;
@@ -1435,6 +1584,21 @@ async fn main() -> Result<()> {
             if ws_tx.send(Message::Text(json.into())).await.is_err() {
                 tracing::warn!(target: LOG_TARGET, "Failed to send content manifest");
             }
+        }
+
+        // DEPLOY-04: Post-restart session recovery — process interrupted session sentinels.
+        // Run once per process lifetime after the first successful WS connection, so the
+        // server is reachable and can handle the agent-shutdown endpoint idempotently.
+        if !_interrupted_sessions_recovered {
+            _interrupted_sessions_recovered = true;
+            let recovery_pod_id = state.pod_id.clone();
+            let recovery_core_ip = core_ip.clone();
+            tokio::spawn(async move {
+                let count = recover_interrupted_sessions(&recovery_core_ip, &recovery_pod_id).await;
+                if count > 0 {
+                    tracing::info!(target: LOG_TARGET, "DEPLOY-04: Processed {} interrupted session sentinel(s) on startup", count);
+                }
+            });
         }
 
         state.heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);

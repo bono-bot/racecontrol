@@ -3236,6 +3236,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── Phase 258: DEPLOY-02 Agent shutdown persistence ────────────────────
+    // shutdown_at: timestamp when the agent signalled a graceful shutdown with an
+    // active billing session. Used by DEPLOY-04 post-restart recovery to identify
+    // sessions that need partial refund processing.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN shutdown_at TEXT")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
