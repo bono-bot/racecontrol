@@ -1,11 +1,14 @@
 //! Session 1 spawn — launch processes in the active interactive desktop session.
 //!
-//! rc-sentry runs as SYSTEM (Session 0). GUI processes like rc-agent MUST run in
-//! Session 1 where the interactive desktop exists. std::process::Command from SYSTEM
-//! always targets Session 0 — processes start but have no visible desktop.
+//! Two modes:
+//! - **Session 0 (service/SYSTEM):** Uses WTSQueryUserToken + CreateProcessAsUser
+//!   to bridge the Session 0/1 boundary. Requires SE_TCB_NAME privilege.
+//! - **Session 1 (interactive/user):** Uses std::process::Command directly since
+//!   we're already in the interactive session. No special privileges needed.
 //!
-//! Uses WTSGetActiveConsoleSessionId + WTSQueryUserToken + CreateProcessAsUser
-//! to bridge the Session 0/Session 1 boundary.
+//! Auto-detects which mode to use via ProcessIdToSessionId on the current process.
+//! MMA fix (5/5 consensus): WTSQueryUserToken silently fails from user context
+//! (error 1314 = ERROR_PRIVILEGE_NOT_HELD), leaving rc-agent permanently down.
 //!
 //! Pure std — no anyhow, no tokio. Error handling via Result<(), String>.
 
@@ -13,12 +16,75 @@ use std::path::Path;
 
 const LOG_TARGET: &str = "session1-spawn";
 
-/// Spawn a bat script in the active interactive Session 1 from a SYSTEM service context.
+/// Get the session ID of the current process.
+#[cfg(windows)]
+fn current_session_id() -> u32 {
+    use winapi::um::processthreadsapi::{GetCurrentProcessId, ProcessIdToSessionId};
+    unsafe {
+        let pid = GetCurrentProcessId();
+        let mut session_id: u32 = 0;
+        if ProcessIdToSessionId(pid, &mut session_id) != 0 {
+            session_id
+        } else {
+            0xFFFF_FFFF // unknown
+        }
+    }
+}
+
+/// Spawn a bat script in the active interactive Session 1.
+///
+/// Auto-detects context:
+/// - If caller is in Session 0 (SYSTEM service): uses WTS token bridge
+/// - If caller is in Session 1 (interactive user): uses direct Command spawn
 ///
 /// Returns Err(reason) if no active console session exists (e.g., before user login at boot).
 /// The caller should fall back to schtasks in that case.
 #[cfg(windows)]
 pub fn spawn_in_session1(bat_path: &Path) -> Result<(), String> {
+    let my_session = current_session_id();
+    tracing::info!(target: LOG_TARGET, "Current process session: {}", my_session);
+
+    // If we're already in an interactive session (not Session 0), spawn directly.
+    // WTSQueryUserToken requires SYSTEM/SE_TCB_NAME — it will fail from user context.
+    if my_session != 0 && my_session != 0xFFFF_FFFF {
+        tracing::info!(target: LOG_TARGET,
+            "Already in Session {} — using direct Command spawn (no WTS needed)",
+            my_session
+        );
+        return spawn_direct(bat_path);
+    }
+
+    spawn_via_wts(bat_path)
+}
+
+/// Direct spawn — used when rc-sentry is already in Session 1 (interactive).
+/// Child process inherits the caller's session, desktop, and environment.
+#[cfg(windows)]
+fn spawn_direct(bat_path: &Path) -> Result<(), String> {
+    let work_dir = bat_path.parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\RacingPoint"));
+
+    match std::process::Command::new("cmd.exe")
+        .args(["/c", &bat_path.to_string_lossy()])
+        .current_dir(&work_dir)
+        .spawn()
+    {
+        Ok(child) => {
+            tracing::info!(target: LOG_TARGET,
+                "Direct spawn succeeded — PID {} (bat: {})",
+                child.id(), bat_path.display()
+            );
+            Ok(())
+        }
+        Err(e) => Err(format!("Direct spawn failed: {}", e)),
+    }
+}
+
+/// WTS token bridge — used when rc-sentry is in Session 0 (SYSTEM service).
+/// Requires SE_TCB_NAME privilege (only SYSTEM has this).
+#[cfg(windows)]
+fn spawn_via_wts(bat_path: &Path) -> Result<(), String> {
     use std::ptr;
     use winapi::ctypes::c_void;
     use winapi::um::errhandlingapi::GetLastError;
@@ -42,7 +108,7 @@ pub fn spawn_in_session1(bat_path: &Path) -> Result<(), String> {
         let mut user_token = ptr::null_mut();
         if WTSQueryUserToken(session_id, &mut user_token) == 0 {
             let err = GetLastError();
-            return Err(format!("WTSQueryUserToken failed: error code {}", err));
+            return Err(format!("WTSQueryUserToken failed: error code {} (1314=needs SYSTEM privileges)", err));
         }
 
         // 3. Duplicate token as a primary token

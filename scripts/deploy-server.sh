@@ -169,7 +169,21 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH 2>nul & echo CLEARED"}' > /dev/null 2>&1
 
-# ─── Step 3: Stop racecontrol via bat window kill ────────────────────
+# ─── Step 3a: Disable watchdog BEFORE kill (MMA fix: 9/9 consensus) ──
+# The watchdog auto-restarts racecontrol on crash. If we kill first,
+# the watchdog races to restart the OLD binary before we can swap.
+# Solution: disable watchdog → kill process → swap → restart → re-enable
+info "Disabling watchdog to prevent restart race..."
+curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
+# Also write a deploy sentinel to block any remaining watchdog instance
+curl -s --max-time 5 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"echo DEPLOYING > C:\\RacingPoint\\DEPLOY_IN_PROGRESS & echo SENTINEL_SET"}' > /dev/null 2>&1
+pass "Watchdog disabled + deploy sentinel set"
+
+# ─── Step 3b: Stop racecontrol via bat window kill ────────────────────
 info "Stopping racecontrol (killing bat wrapper + process)..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
@@ -197,6 +211,13 @@ info "Starting racecontrol..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
+
+# ─── Step 5b: Re-enable watchdog + clear deploy sentinel ────────────
+info "Re-enabling watchdog..."
+curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
+pass "Watchdog re-enabled"
 
 # ─── Step 6: Health check with build_id verification ─────────────────
 info "Waiting for server health..."
@@ -229,6 +250,10 @@ done
 
 echo ""
 echo -e "${RED}Server did not come up after 60 seconds — auto-rollback...${NC}"
+# Re-enable watchdog even on failure (always-do cleanup)
+curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 info "Rolling back to racecontrol-prev.exe..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \

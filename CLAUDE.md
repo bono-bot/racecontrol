@@ -378,6 +378,19 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Process multiplication: always kill-all before start-one.** Any process that can be started multiple times (ConspitLink, watchdogs, PowerShell helpers) must have `taskkill /F /IM <name>` BEFORE the `start` command in the bat file. Check `tasklist | findstr <name>` count after deploy to verify singleton.
   _Why: ConspitLink accumulated 4-11 instances per pod from accumulated restarts. Each instance grabbed the HID device, causing `Bind failed` errors and visible steering wheel flickering._
 
+### Deploy Pipeline Hardening (MMA 9-model consensus, 2026-03-29)
+
+- **NEVER conclude "powered off" from a single failed probe.** Use `bash scripts/wait-for-pods.sh` which polls all pods with 10s intervals for up to 150s. Pods take 30-120s to boot — a 1s ping timeout proves nothing. Report `TIMEOUT — NOT assuming powered off` instead of `DOWN = off`.
+  _Why: 2026-03-29 — all 8 pods falsely reported as "off" because single-shot `ping -W 1` failed during boot. Delayed deploy 15 min._
+- **Start staging HTTP server with `--directory` flag, NEVER `cd && cmd &`.** Use `bash scripts/start-staging-server.sh` or `python -m http.server 18889 --directory /path/to/deploy-staging`. Git Bash `cd dir && cmd &` does NOT propagate directory to the backgrounded process. Always verify the staging URL serves a binary > 1MB before downloading to pods.
+  _Why: 2026-03-29 — HTTP server served from repo root instead of deploy-staging. Pods downloaded 335-byte HTML 404 pages instead of 15MB binaries. Not detected until manual size check._
+- **Validate sentry key parity BEFORE pod deployment.** Use `bash scripts/deploy-preflight.sh <hash>` which reads the key from server's racecontrol.toml and validates it against all pods via authenticated ping. If any pod returns 401, abort and fix keys.
+  _Why: 2026-03-29 — server had key `a0ab7acc...`, pods had `478a3688...`. All pod exec commands returned "unauthorized". Required SSH to pod to discover the correct key._
+- **Disable watchdog BEFORE killing server binary.** The deploy-server.sh script now disables `StartRCOnBoot`/`StartRCTemp` schtasks, kills watchdog PowerShell, and sets a `DEPLOY_IN_PROGRESS` sentinel before killing racecontrol. After start, re-enables watchdog and clears sentinel (including in rollback path).
+  _Why: 2026-03-29 — watchdog restarted old binary before swap completed. Server showed stale build_id. Required manual PID kill + sentinel clear._
+- **`.gitattributes` enforces CRLF for `.ps1`/`.bat`/`.cmd`.** Root `.gitattributes` ensures Windows scripts have CRLF on checkout. PowerShell silently fails to parse LF-only `.ps1` files with misleading "missing terminator" error.
+  _Why: 2026-03-29 — james-firewall-rules.ps1 had LF endings from Write tool. PowerShell parse error required inline workaround._
+
 ### OTA Pipeline
 
 - **Always preserve previous binary before swap.** Rename the current binary to `*-prev.exe` before placing the new one. Never delete the previous binary during the swap step. Manual rollback = rename prev back.

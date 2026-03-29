@@ -1,0 +1,21 @@
+# .gitattributes — Enforce line endings for cross-platform scripts
+# MMA consensus: 9/9 models agreed .ps1/.bat MUST be CRLF on checkout
+# Git Bash + Write tool produce LF; PowerShell/cmd.exe require CRLF
+
+# Windows scripts: always CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts: always LF
+*.sh text eol=lf
+
+# Rust/TOML/JSON: platform default
+*.rs text
+*.toml text
+*.json text
+
+# Binaries: never modify
+*.exe binary
+*.dll binary
+*.msi binary
