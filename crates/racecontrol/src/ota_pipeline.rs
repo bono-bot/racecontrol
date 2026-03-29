@@ -721,7 +721,7 @@ binary_url_base = "http://localhost:9998"
         let data = b"Racing Point eSports OTA Pipeline test data";
         let expected = compute_sha256(data);
 
-        let tmp = std::env::temp_dir().join("ota_sha256_test.bin");
+        let tmp = std::env::temp_dir().join(format!("ota_sha256_test_{}.bin", std::process::id()));
         std::fs::write(&tmp, data).unwrap();
         let file_hash = compute_sha256_file(&tmp).unwrap();
         std::fs::remove_file(&tmp).ok();
