@@ -393,6 +393,10 @@ pub struct BillingSessionInfo {
     /// Current rate per minute in paise (2330 standard, 1500 value). None for legacy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_per_min_paise: Option<i64>,
+    /// BILL-06: Seconds excluded from billing due to crash recovery pauses.
+    /// Shown on dashboard and receipt so customers can see excluded time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_pause_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1193,6 +1197,7 @@ mod tests {
             elapsed_seconds: Some(900),
             cost_paise: Some(34950),
             rate_per_min_paise: Some(2330),
+            recovery_pause_seconds: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"elapsed_seconds\":900"));
