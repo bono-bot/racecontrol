@@ -474,6 +474,150 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
     }
 }
 
+// ─── AC EVO Unreal Engine config adapter (GAME-04) ───────────────────────────
+//
+// AC EVO uses Unreal Engine, NOT the classic race.ini format. Launch args
+// are applied via {install_dir}/Saved/Config/WindowsNoEditor/GameUserSettings.ini.
+//
+// IMPORTANT: Do NOT call this for classic Assetto Corsa (uses race.ini via ac_launcher).
+
+/// Find the AC EVO installation directory from config.
+///
+/// Checks in order:
+///   1. Parent directory of exe_path
+///   2. working_dir
+///   3. Known Steam default path
+pub fn find_evo_install_dir(config: &crate::game_process::GameExeConfig) -> Option<std::path::PathBuf> {
+    // 1. Parent of exe_path
+    if let Some(ref exe) = config.exe_path {
+        let path = std::path::Path::new(exe);
+        if let Some(parent) = path.parent() {
+            if parent.exists() {
+                return Some(parent.to_path_buf());
+            }
+        }
+    }
+
+    // 2. working_dir
+    if let Some(ref wd) = config.working_dir {
+        let path = std::path::PathBuf::from(wd);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // 3. Known Steam default path
+    let steam_default = std::path::PathBuf::from(
+        r"C:\Program Files (x86)\Steam\steamapps\common\Assetto Corsa EVO"
+    );
+    if steam_default.exists() {
+        return Some(steam_default);
+    }
+
+    None
+}
+
+/// Write AC EVO launch configuration to Unreal GameUserSettings.ini.
+///
+/// Parses `launch_args` as JSON with optional fields:
+///   {"car": "...", "track": "...", "weather": "...", "time_of_day": "..."}
+///
+/// Writes to {evo_install_dir}/Saved/Config/WindowsNoEditor/GameUserSettings.ini
+/// using Unreal INI format: [/Script/AssettoCorsaEVO.ACEVOGameUserSettings] section.
+///
+/// Existing INI content is read and merged — only our section is replaced, preserving
+/// graphics/audio/input settings set by the player.
+///
+/// Returns Ok(()) on success OR when launch_args is empty/has no parseable fields.
+/// Does NOT return Err on missing keys — missing fields are simply skipped.
+pub fn write_evo_config(launch_args: &str, evo_install_dir: &std::path::Path) -> Result<(), String> {
+    // Empty args = use game defaults, no config write needed
+    if launch_args.trim().is_empty() {
+        return Ok(());
+    }
+
+    // Parse launch_args JSON — non-fatal on parse failure
+    let parsed: serde_json::Value = match serde_json::from_str(launch_args) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(target: "sim-ac-evo", "write_evo_config: failed to parse launch_args JSON (non-fatal): {}", e);
+            return Ok(());
+        }
+    };
+
+    let car = parsed.get("car").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let track = parsed.get("track").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let weather = parsed.get("weather").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let time_of_day = parsed.get("time_of_day").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // No relevant fields — skip config write, use game defaults
+    if car.is_none() && track.is_none() && weather.is_none() && time_of_day.is_none() {
+        return Ok(());
+    }
+
+    // Ensure Saved/Config/WindowsNoEditor directory exists
+    let config_dir = evo_install_dir
+        .join("Saved")
+        .join("Config")
+        .join("WindowsNoEditor");
+
+    if let Err(e) = std::fs::create_dir_all(&config_dir) {
+        return Err(format!("write_evo_config: failed to create config directory {}: {}", config_dir.display(), e));
+    }
+
+    let ini_path = config_dir.join("GameUserSettings.ini");
+
+    // Read existing INI content if present, for merge
+    let existing_content = std::fs::read_to_string(&ini_path).unwrap_or_default();
+
+    // Build the updated INI: preserve all sections EXCEPT our section
+    const EVO_SECTION: &str = "[/Script/AssettoCorsaEVO.ACEVOGameUserSettings]";
+
+    let mut new_content = String::new();
+    let mut in_our_section = false;
+
+    for line in existing_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_our_section = trimmed == EVO_SECTION;
+            if !in_our_section {
+                new_content.push_str(line);
+                new_content.push('\n');
+            }
+        } else if !in_our_section {
+            new_content.push_str(line);
+            new_content.push('\n');
+        }
+    }
+
+    // Append our section with values set from launch_args
+    new_content.push_str(EVO_SECTION);
+    new_content.push('\n');
+    if let Some(ref c) = car {
+        new_content.push_str(&format!("SelectedCar={}\n", c));
+    }
+    if let Some(ref t) = track {
+        new_content.push_str(&format!("SelectedTrack={}\n", t));
+    }
+    if let Some(ref w) = weather {
+        new_content.push_str(&format!("WeatherPreset={}\n", w));
+    }
+    if let Some(ref tod) = time_of_day {
+        new_content.push_str(&format!("TimeOfDay={}\n", tod));
+    }
+
+    std::fs::write(&ini_path, &new_content)
+        .map_err(|e| format!("write_evo_config: failed to write {}: {}", ini_path.display(), e))?;
+
+    tracing::info!(
+        target: "sim-ac-evo",
+        "GAME-04: Wrote AC EVO GameUserSettings.ini (car={:?}, track={:?}, weather={:?}, time_of_day={:?})",
+        car, track, weather, time_of_day
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,5 +745,129 @@ mod tests {
         let adapter = AssettoCorsaEvoAdapter::new("pod_1".to_string());
         assert_eq!(adapter.sim_type(), SimType::AssettoCorsaEvo);
         assert_eq!(adapter.log_prefix, "[EVO]");
+    }
+
+    // ─── GAME-04: AC EVO config adapter tests ────────────────────────────────
+
+    /// GAME-04: write_evo_config with valid JSON produces correct Unreal INI format
+    #[test]
+    fn test_evo_config_valid_json_produces_ini() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let args = r#"{"car":"porsche_718","track":"monza","weather":"clear","time_of_day":"14:00"}"#;
+
+        let result = write_evo_config(args, tmp.path());
+        assert!(result.is_ok(), "write_evo_config should succeed: {:?}", result);
+
+        let ini_path = tmp.path()
+            .join("Saved").join("Config").join("WindowsNoEditor")
+            .join("GameUserSettings.ini");
+        assert!(ini_path.exists(), "GameUserSettings.ini should be created");
+
+        let content = std::fs::read_to_string(&ini_path).expect("read ini");
+        assert!(content.contains("[/Script/AssettoCorsaEVO.ACEVOGameUserSettings]"),
+            "INI must contain EVO section header");
+        assert!(content.contains("SelectedCar=porsche_718"), "INI must contain car");
+        assert!(content.contains("SelectedTrack=monza"), "INI must contain track");
+        assert!(content.contains("WeatherPreset=clear"), "INI must contain weather");
+        assert!(content.contains("TimeOfDay=14:00"), "INI must contain time_of_day");
+        // Must NOT contain race.ini format keys
+        assert!(!content.contains("RACE"), "INI must not use race.ini format");
+    }
+
+    /// GAME-04: write_evo_config with empty args returns Ok without writing file
+    #[test]
+    fn test_evo_config_empty_args_returns_ok() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let result = write_evo_config("", tmp.path());
+        assert!(result.is_ok(), "write_evo_config with empty args must return Ok");
+
+        // File should not be created for empty args
+        let ini_path = tmp.path()
+            .join("Saved").join("Config").join("WindowsNoEditor")
+            .join("GameUserSettings.ini");
+        assert!(!ini_path.exists(), "GameUserSettings.ini should NOT be created for empty args");
+    }
+
+    /// GAME-04: write_evo_config preserves existing INI sections not in our section
+    #[test]
+    fn test_evo_config_preserves_existing_sections() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let config_dir = tmp.path().join("Saved").join("Config").join("WindowsNoEditor");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        let ini_path = config_dir.join("GameUserSettings.ini");
+
+        // Pre-existing content: graphics settings we should preserve
+        let existing = "[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\nResolutionSizeY=1080\n";
+        std::fs::write(&ini_path, existing).expect("write existing ini");
+
+        let args = r#"{"car":"ferrari_488","track":"spa"}"#;
+        let result = write_evo_config(args, tmp.path());
+        assert!(result.is_ok(), "write_evo_config should succeed");
+
+        let content = std::fs::read_to_string(&ini_path).expect("read ini");
+        // Existing section must be preserved
+        assert!(content.contains("[/Script/Engine.GameUserSettings]"),
+            "Existing Engine section must be preserved");
+        assert!(content.contains("ResolutionSizeX=1920"),
+            "Existing resolution settings must be preserved");
+        // Our section must be present
+        assert!(content.contains("[/Script/AssettoCorsaEVO.ACEVOGameUserSettings]"),
+            "EVO section must be present");
+        assert!(content.contains("SelectedCar=ferrari_488"), "car must be set");
+        assert!(content.contains("SelectedTrack=spa"), "track must be set");
+    }
+
+    /// GAME-04: write_evo_config with whitespace-only args returns Ok
+    #[test]
+    fn test_evo_config_whitespace_args_returns_ok() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let result = write_evo_config("   ", tmp.path());
+        assert!(result.is_ok(), "write_evo_config with whitespace args must return Ok");
+    }
+
+    /// GAME-04: find_evo_install_dir returns parent of exe_path when it exists
+    #[test]
+    fn test_find_evo_install_dir_from_exe_path() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        // Create a fake exe file
+        let exe_path = tmp.path().join("ACE.exe");
+        std::fs::write(&exe_path, b"fake exe").expect("write fake exe");
+
+        let config = crate::game_process::GameExeConfig {
+            exe_path: Some(exe_path.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+
+        let result = find_evo_install_dir(&config);
+        assert!(result.is_some(), "find_evo_install_dir should find parent of exe_path");
+        assert_eq!(result.unwrap(), tmp.path(), "should return parent directory");
+    }
+
+    /// GAME-04: find_evo_install_dir returns working_dir when exe_path parent doesn't exist
+    #[test]
+    fn test_find_evo_install_dir_from_working_dir() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+
+        let config = crate::game_process::GameExeConfig {
+            exe_path: Some("/nonexistent/path/ACE.exe".to_string()),
+            working_dir: Some(tmp.path().to_string_lossy().to_string()),
+            ..Default::default()
+        };
+
+        let result = find_evo_install_dir(&config);
+        assert!(result.is_some(), "find_evo_install_dir should find working_dir");
+        assert_eq!(result.unwrap(), tmp.path().to_path_buf());
+    }
+
+    /// GAME-04: write_evo_config does NOT write race.ini (EVO is Unreal, not AC engine)
+    #[test]
+    fn test_evo_config_no_race_ini_format() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let args = r#"{"car":"bmw_m3","track":"nordschleife"}"#;
+        let _ = write_evo_config(args, tmp.path());
+
+        // race.ini must NOT exist
+        let race_ini = tmp.path().join("race.ini");
+        assert!(!race_ini.exists(), "race.ini must NOT be written for AC EVO (Unreal engine)");
     }
 }
