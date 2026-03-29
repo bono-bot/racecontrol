@@ -215,10 +215,12 @@ async fn run_scan_cycle(
             *pid != own_pid && !is_james_self_excluded(name) && !is_process_whitelisted(name, &allowed)
         })
         .count();
-    let effective_action = if non_excluded_count > 0 && violation_count * 2 > non_excluded_count {
+    // MMA: raised threshold to 80% to avoid false positives on minimal systems
+    let effective_action = if non_excluded_count > 10 && violation_count * 100 / non_excluded_count > 80 {
+        let pct = violation_count * 100 / non_excluded_count;
         tracing::error!(
-            "M5-SEC: {}% of processes are violations ({}/{}) — whitelist likely empty/corrupt. Forcing report_only.",
-            violation_count * 100 / non_excluded_count, violation_count, non_excluded_count
+            pct = pct, violations = violation_count, total = non_excluded_count,
+            "M5-SEC: whitelist likely empty/corrupt — forcing report_only"
         );
         "report_only"
     } else {
