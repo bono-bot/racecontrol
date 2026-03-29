@@ -1042,3 +1042,8 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 16:05 IST | James | 716fee1f | fix(rc-agent): Edge popup suppression (16 --disable-features flags) + hostname guard blocks rc-agent on AI-SERVER. Deployed 7/8 pods (build 8a89e404). Pod 7 missing HKLM Run key — added. |
 | 2026-03-29 16:26 IST | James | 6ed406eb | feat(260-01): notification outbox with OTP fallback chain (UX-01, UX-02) |
 | 2026-03-29 16:26 IST | James | 124c2a05 | feat(260-01): negative wallet balance alert and session block (RESIL-05) |
+| 2026-03-29 16:33 IST | James | 66f29d87 | feat(260-03): RESIL-04/07/08 agent-side — HardwareDisconnect variant, agent_timestamp in heartbeat, fresh controls.ini per AC launch |
+| 2026-03-29 16:33 IST | James | 5304f087 | feat(260-03): RESIL-04/06/08 server-side — billing pause on HW disconnect, pod_crash_events table, crash rate maintenance flag, clock drift check |
+| 2026-03-29 16:35 IST | James | a4059766 | feat(260-02): lap assist evidence schema — assist_config_hash, assist_tier, billing_session_id, validity columns + mark_laps_unverifiable() + UX-04 billing gate |
+| 2026-03-29 16:35 IST | James | b7de59f6 | feat(260-02): leaderboard segmentation by game+track+car_class+assist_tier, UX-04/UX-07 integrity gates on all 3 leaderboard endpoints |
+| 2026-03-29 16:36 IST | James | 043faf2d | docs(260-02): complete leaderboard integrity plan — UX-04/05/06/07 requirements marked complete |
