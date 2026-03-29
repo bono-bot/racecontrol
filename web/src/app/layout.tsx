@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
+import { ChunkErrorRecovery } from "@/components/ChunkErrorRecovery";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -24,6 +25,7 @@ export default function RootLayout({
       <body
         className={`${montserrat.variable} antialiased bg-rp-black text-white font-sans`}
       >
+        <ChunkErrorRecovery />
         <AuthGate>{children}</AuthGate>
       </body>
     </html>

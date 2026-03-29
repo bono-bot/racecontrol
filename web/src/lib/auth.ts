@@ -7,21 +7,36 @@ const TOKEN_KEY = "rp_staff_jwt";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    // localStorage unavailable (quota exceeded, kiosk restriction, SecurityError)
+    return null;
+  }
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Quota exceeded or storage unavailable — token won't persist across reloads
+    console.warn("[auth] Failed to save token to localStorage");
+  }
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Storage unavailable — token may persist but will expire via JWT exp
+  }
 }
 
 export function isAuthenticated(): boolean {
   const token = getToken();
   if (!token) return false;
-  // Check JWT expiry (decode payload without verification -- server validates)
   try {
     const payload = JSON.parse(atob(token.split(".")[1]));
     return payload.exp * 1000 > Date.now();
