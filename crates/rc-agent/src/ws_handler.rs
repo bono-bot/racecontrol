@@ -610,6 +610,83 @@ pub async fn handle_ws_message(
                 let mut game_config = base_config.clone();
                 if let Some(args) = launch_args { game_config.args = Some(args); }
 
+                // GAME-01: Steam readiness check — blocks launch if Steam is not running or updating.
+                // Skips for AC (Game Doctor handles it) and non-Steam games.
+                {
+                    let steam_sim = launch_sim;
+                    let steam_config = game_config.clone();
+                    let steam_result = tokio::task::spawn_blocking(move || {
+                        crate::steam_checks::check_steam_ready(steam_sim, &steam_config)
+                    }).await;
+                    match steam_result {
+                        Ok(Ok(())) => {
+                            tracing::info!(target: LOG_TARGET, "GAME-01: Steam readiness check passed for {:?}", launch_sim);
+                        }
+                        Ok(Err(reason)) => {
+                            tracing::error!(target: LOG_TARGET, "GAME-01: Steam readiness check FAILED for {:?}: {}", launch_sim, reason);
+                            let error_info = GameLaunchInfo {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: launch_sim,
+                                game_state: GameState::Error,
+                                pid: None,
+                                launched_at: Some(Utc::now()),
+                                error_message: Some(format!("Steam readiness check failed: {}", reason)),
+                                diagnostics: None,
+                                exit_code: None,
+                            };
+                            state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                            conn.launch_state = LaunchState::Idle;
+                            if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                            }
+                            return Ok(HandleResult::Continue);
+                        }
+                        Err(e) => {
+                            tracing::warn!(target: LOG_TARGET, "GAME-01: Steam readiness check panicked (non-fatal): {}", e);
+                            // Proceed — don't block launch on check panic
+                        }
+                    }
+                }
+
+                // GAME-06: DLC/content availability check — blocks launch if required content is missing.
+                // Prevents billing from starting for sessions that cannot load the requested content.
+                {
+                    let dlc_sim = launch_sim;
+                    let dlc_args = game_config.args.clone().unwrap_or_default();
+                    let dlc_config = game_config.clone();
+                    let dlc_result = tokio::task::spawn_blocking(move || {
+                        crate::steam_checks::check_dlc_installed(dlc_sim, &dlc_args, &dlc_config)
+                    }).await;
+                    match dlc_result {
+                        Ok(Ok(())) => {
+                            tracing::info!(target: LOG_TARGET, "GAME-06: DLC check passed for {:?}", launch_sim);
+                        }
+                        Ok(Err(reason)) => {
+                            tracing::error!(target: LOG_TARGET, "GAME-06: DLC check FAILED for {:?}: {}", launch_sim, reason);
+                            let error_info = GameLaunchInfo {
+                                pod_id: state.pod_id.clone(),
+                                sim_type: launch_sim,
+                                game_state: GameState::Error,
+                                pid: None,
+                                launched_at: Some(Utc::now()),
+                                error_message: Some(format!("Content not installed: {}", reason)),
+                                diagnostics: None,
+                                exit_code: None,
+                            };
+                            state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                            conn.launch_state = LaunchState::Idle;
+                            if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
+                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                            }
+                            return Ok(HandleResult::Continue);
+                        }
+                        Err(e) => {
+                            tracing::warn!(target: LOG_TARGET, "GAME-06: DLC check panicked (non-fatal): {}", e);
+                            // Proceed — don't block launch on check panic
+                        }
+                    }
+                }
+
                 state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
                 state.heartbeat_status.game_id.store(match launch_sim {
                     SimType::AssettoCorsa => 1, SimType::F125 => 2, SimType::IRacing => 3,
@@ -632,13 +709,21 @@ pub async fn handle_ws_message(
                 let json_str = serde_json::to_string(&msg)?;
                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
+                // GAME-07: Detect Steam URL launches by checking if this is a Steam game with no direct pid.
+                // For steam:// URL launches, GameProcess::launch returns immediately with pid=None.
+                // We need to poll for the actual game window after Steam processes the launch request.
+                let is_steam_url_launch = game_config.use_steam || game_config.steam_app_id.is_some()
+                    || game_config.args.as_deref().map(|a| a.starts_with("steam://")).unwrap_or(false);
+
                 match game_process::GameProcess::launch(&game_config, launch_sim) {
                     Ok(gp) => {
                         tracing::info!(target: LOG_TARGET, "Generic sim {:?} launched (pid: {:?})", launch_sim, gp.pid);
                         let gp_pid = gp.pid;
                         state.game_process = Some(gp);
                         let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = gp_pid; });
+
                         if let Some(pid) = gp_pid {
+                            // Direct exe launch — we have the pid immediately
                             let info = GameLaunchInfo {
                                 pod_id: state.pod_id.clone(), sim_type: launch_sim,
                                 game_state: GameState::Running, pid: Some(pid),
@@ -648,6 +733,64 @@ pub async fn handle_ws_message(
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                        } else if is_steam_url_launch {
+                            // GAME-07: Steam URL launch — pid is None until Steam passes control to the game.
+                            // Spawn a background task to wait for the game window to appear.
+                            // On success: game is confirmed running. On timeout: report Error to server.
+                            // Uses ws_exec_result_tx to route AgentMessage back to the event loop → WS send.
+                            let pod_id_clone = state.pod_id.clone();
+                            let failure_tx = state.failure_monitor_tx.clone();
+                            let ws_result_tx = state.ws_exec_result_tx.clone();
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                "GAME-07: Steam URL launch for {:?} — waiting for game window (60s timeout)",
+                                launch_sim
+                            );
+                            tokio::spawn(async move {
+                                let window_result = tokio::task::spawn_blocking(move || {
+                                    crate::steam_checks::wait_for_game_window(launch_sim, 60)
+                                }).await;
+                                match window_result {
+                                    Ok(Ok(pid)) => {
+                                        tracing::info!(
+                                            target: LOG_TARGET,
+                                            "GAME-07: Game window confirmed for {:?} (PID {})",
+                                            launch_sim, pid
+                                        );
+                                        let _ = failure_tx.send_modify(|s| { s.game_pid = Some(pid); });
+                                        let info = GameLaunchInfo {
+                                            pod_id: pod_id_clone.clone(), sim_type: launch_sim,
+                                            game_state: GameState::Running, pid: Some(pid),
+                                            launched_at: Some(Utc::now()), error_message: None,
+                                            diagnostics: None, exit_code: None,
+                                        };
+                                        let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
+                                    }
+                                    Ok(Err(reason)) => {
+                                        tracing::error!(
+                                            target: LOG_TARGET,
+                                            "GAME-07: Game window not detected for {:?} after timeout: {}",
+                                            launch_sim, reason
+                                        );
+                                        // Report error to server — Steam showed a dialog instead of launching
+                                        let info = GameLaunchInfo {
+                                            pod_id: pod_id_clone.clone(), sim_type: launch_sim,
+                                            game_state: GameState::Error, pid: None,
+                                            launched_at: None,
+                                            error_message: Some(format!("Game window not detected: {}", reason)),
+                                            diagnostics: None, exit_code: None,
+                                        };
+                                        let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            target: LOG_TARGET,
+                                            "GAME-07: wait_for_game_window task panicked (non-fatal): {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            });
                         }
                     }
                     Err(e) => {
