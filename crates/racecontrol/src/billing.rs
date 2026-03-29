@@ -3729,8 +3729,36 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
         .await;
     }
 
-    // 4. Send WhatsApp receipt (best-effort)
+    // 4. Send WhatsApp receipt (best-effort, direct Evolution API)
     send_whatsapp_receipt(state, session_id, driver_id).await;
+
+    // UX-03: Also enqueue receipt notification via durable outbox (retry-capable fallback)
+    if let Ok(phone) = get_driver_phone(&state.db, driver_id).await {
+        // Fetch driving_seconds and cost for the message
+        let session_info: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT driving_seconds, COALESCE(wallet_debit_paise, 0) FROM billing_sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some((secs, cost_paise)) = session_info {
+            let receipt_url = format!("/customer/sessions/{}/receipt", session_id);
+            let msg = format!(
+                "Your Racing Point session is complete! Duration: {}min {}s, Charged: Rs.{:.2}. View receipt: {}",
+                secs / 60, secs % 60,
+                cost_paise as f64 / 100.0,
+                receipt_url
+            );
+            let _ = crate::notification_outbox::enqueue_notification(
+                &state.db, &phone, "whatsapp", &msg, Some("receipt"), Some(session_id),
+            )
+            .await
+            .map_err(|e| tracing::warn!("UX-03: Failed to enqueue receipt notification for session {}: {}", session_id, e));
+        }
+    }
 
     // 5. Evaluate badges for this driver (fire-and-forget, errors logged internally)
     crate::psychology::evaluate_badges(state, driver_id).await;
@@ -4557,6 +4585,23 @@ pub async fn handle_interrupted_sessions_check(
         "ended_sessions": ended_sessions,
         "count": ended_sessions.len(),
     })
+}
+
+// UX-03: Fetch a driver's phone number for notification purposes.
+// Returns Err if driver not found, anonymized (phone is NULL), or phone is empty.
+async fn get_driver_phone(db: &sqlx::SqlitePool, driver_id: &str) -> anyhow::Result<String> {
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT phone FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(db)
+    .await?;
+
+    match row {
+        Some((Some(phone),)) if !phone.is_empty() => Ok(phone),
+        Some(_) => anyhow::bail!("Driver {} has no phone number", driver_id),
+        None => anyhow::bail!("Driver {} not found", driver_id),
+    }
 }
 
 #[cfg(test)]
