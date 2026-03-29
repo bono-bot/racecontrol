@@ -928,6 +928,13 @@ pub enum DashboardEvent {
         lap_id: String,
     },
 
+    /// BILL-07: All pods in a multiplayer group had billing paused due to crash recovery.
+    MultiplayerGroupPaused {
+        group_session_id: String,
+        pod_ids: Vec<String>,
+        reason: String,
+    },
+
     /// Phase 206: A sentinel file was created or deleted on a pod.
     /// Broadcast immediately on SentinelChange WS message for real-time dashboard visibility.
     SentinelChanged {
