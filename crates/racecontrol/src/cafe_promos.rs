@@ -88,7 +88,11 @@ fn ist_now_hhmm() -> String {
 
 /// Returns true if `now` (HH:MM) is within [start, end) window.
 /// Handles overnight wrap (e.g. 22:00 to 02:00) correctly.
-fn time_in_window(now: &str, start: &str, end: &str) -> bool {
+pub fn time_in_window(now: &str, start: &str, end: &str) -> bool {
+    if start == end {
+        // MMA iter2: start==end means "no window restriction" — always active
+        return true;
+    }
     if start < end {
         now >= start && now < end
     } else {

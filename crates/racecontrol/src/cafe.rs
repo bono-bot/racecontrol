@@ -1033,6 +1033,41 @@ struct VerifiedOrderItem {
     is_countable: bool,
 }
 
+// ─── Order Helpers ───────────────────────────────────────────────────────────
+
+/// Rollback stock for countable items with per-item tracking and 3x retry.
+/// MMA iter2 fix: tracks which items succeeded to prevent double-rollback.
+async fn rollback_stock(state: &Arc<AppState>, items: &[VerifiedOrderItem], context: &str) {
+    use std::collections::HashSet;
+    let mut done: HashSet<String> = HashSet::new();
+    for attempt in 0..3u8 {
+        let mut any_failed = false;
+        for item in items {
+            if !item.is_countable || done.contains(&item.item_id) {
+                continue;
+            }
+            match sqlx::query(
+                "UPDATE cafe_items SET stock_quantity = stock_quantity + ? WHERE id = ?",
+            )
+            .bind(item.quantity)
+            .bind(&item.item_id)
+            .execute(&state.db)
+            .await
+            {
+                Ok(_) => { done.insert(item.item_id.clone()); }
+                Err(e) => {
+                    tracing::error!("rollback_stock: item {} failed (attempt {}/3, ctx={}): {}", item.item_id, attempt + 1, context, e);
+                    any_failed = true;
+                }
+            }
+        }
+        if !any_failed { break; }
+        if attempt < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
+        }
+    }
+}
+
 // ─── Order Handlers ───────────────────────────────────────────────────────────
 
 /// Core order logic shared between staff and customer routes.
@@ -1181,7 +1216,8 @@ pub async fn place_cafe_order_inner(
         .into_iter()
         .filter_map(|p| {
             if let (Some(start), Some(end)) = (&p.start_time, &p.end_time) {
-                if !(now_ist.as_str() >= start.as_str() && now_ist.as_str() < end.as_str()) {
+                // APP-02 fix: use time_in_window which handles overnight wrap (e.g. 23:00-01:00)
+                if !crate::cafe_promos::time_in_window(now_ist.as_str(), start.as_str(), end.as_str()) {
                     return None;
                 }
             }
@@ -1292,24 +1328,8 @@ pub async fn place_cafe_order_inner(
         Ok(pair) => pair,
         Err(e) => {
             tracing::warn!("place_cafe_order: wallet debit failed for order {}: {}", order_id_for_log, e);
-            // Compensating stock rollback (best-effort)
-            let state_clone = state.clone();
-            let items_clone = verified_items.clone();
-            let oid = order_id_for_log.clone();
-            tokio::spawn(async move {
-                for item in &items_clone {
-                    if item.is_countable {
-                        let _ = sqlx::query(
-                            "UPDATE cafe_items SET stock_quantity = stock_quantity + ? WHERE id = ?",
-                        )
-                        .bind(item.quantity)
-                        .bind(&item.item_id)
-                        .execute(&state_clone.db)
-                        .await;
-                    }
-                }
-                tracing::warn!("Rolled back stock for failed wallet debit on order {}", oid);
-            });
+            // APP-01 fix (MMA iter2: tracks per-item success to prevent double-rollback)
+            rollback_stock(state, &verified_items, &order_id_for_log).await;
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e })),
@@ -1319,7 +1339,7 @@ pub async fn place_cafe_order_inner(
 
     // ── Step I: Insert order record ───────────────────────────────────────────
     let items_json = serde_json::to_string(&order_item_details).unwrap_or_else(|_| "[]".to_string());
-    sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, discount_paise, applied_promo_id, wallet_txn_id, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')",
     )
@@ -1333,13 +1353,40 @@ pub async fn place_cafe_order_inner(
     .bind(&wallet_txn_id)
     .execute(&state.db)
     .await
-    .map_err(|e| {
-        tracing::warn!("place_cafe_order: order insert error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "Failed to record order" })),
+    {
+        // APP-03 fix: compensating wallet refund if order INSERT fails after debit
+        // MMA iter2: log refund failures as CRITICAL instead of silently discarding
+        tracing::error!("place_cafe_order: order insert failed for {}: {} — issuing compensating refund", order_id, e);
+        match crate::wallet::refund(
+            state,
+            &req.driver_id,
+            final_total_paise,
+            None, // MMA iter2: no order_id ref (order doesn't exist) — prevents orphaned refs
+            Some(&format!("COMPENSATING REFUND: cafe order {} insert failed", order_id)),
         )
-    })?;
+        .await
+        {
+            Ok(_) => tracing::info!("place_cafe_order: compensating refund issued for failed order {}", order_id),
+            Err(refund_err) => {
+                // CRITICAL: customer charged with no order AND refund failed
+                tracing::error!("CRITICAL: place_cafe_order: refund FAILED for order {} ({}p charged to {}): {}",
+                    order_id, final_total_paise, req.driver_id, refund_err);
+                // Fire-and-forget WhatsApp alert to staff
+                let config_clone = state.config.clone();
+                let alert_msg = format!("CRITICAL: Cafe refund failed! Order {} — {}p stuck on driver {}. Manual refund required.",
+                    order_id, final_total_paise, req.driver_id);
+                tokio::spawn(async move {
+                    crate::whatsapp_alerter::send_whatsapp(&config_clone, &alert_msg).await;
+                });
+            }
+        }
+        // Rollback stock with retry (same as debit-failure path)
+        rollback_stock(state, &verified_items, &order_id).await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to record order — payment refunded" })),
+        ));
+    }
 
     // ── Step J: Fire low-stock alerts (non-blocking) ──────────────────────────
     for item in &verified_items {
