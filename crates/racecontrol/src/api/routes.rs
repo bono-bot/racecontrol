@@ -1219,47 +1219,51 @@ async fn ws_exec_pod(
     };
     let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
 
-    // SEC-P0-10: Block dangerous command patterns (shell injection prevention)
-    // MMA iter2: normalize cmd before checking — strip carets (^), collapse whitespace,
-    // resolve .exe suffixes, and check for pwsh/wscript/mshta/rundll32
+    // SEC-P0-10: Block dangerous command patterns (defense-in-depth)
+    // MMA iter2-4: normalize aggressively before checking:
+    //   1. Strip ^ (cmd.exe escape), collapse whitespace, lowercase
+    //   2. Strip .exe/.com suffixes from binary names so sc.exe = sc
+    //   3. Block dangerous BINARIES (not just command+args patterns)
     let cmd_normalized: String = cmd
-        .replace('^', "")           // strip Windows cmd.exe escape chars
-        .replace('\t', " ")         // tabs to spaces
+        .replace('^', "")
+        .replace('\t', " ")
         .to_lowercase();
-    // Collapse multiple spaces to single
     let cmd_collapsed: String = cmd_normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Strip .exe/.com suffixes for binary-level blocking
+    let cmd_no_exe: String = cmd_collapsed
+        .replace(".exe", "")
+        .replace(".com", "");
 
-    // MMA iter3: added powershell (no .exe), net.exe, broadened certutil
+    // Blocked dangerous binaries (checked against .exe-stripped command)
+    const BLOCKED_BINARIES: &[&str] = &[
+        "powershell", "pwsh", "mshta", "wscript", "cscript",
+        "regsvr32", "rundll32", "msiexec", "odbcconf", "pcalua",
+        "certutil", "bitsadmin", "bash", "wsl",
+    ];
+    for bin in BLOCKED_BINARIES {
+        if cmd_no_exe.contains(bin) {
+            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked binary: {}", bin);
+            return Json(json!({ "error": format!("Command blocked: '{}' is not allowed", bin) }));
+        }
+    }
+
+    // Blocked dangerous command patterns (checked against collapsed command)
     const BLOCKED_PATTERNS: &[&str] = &[
-        // User/group management
-        "net user", "net localgroup", "net.exe user", "net.exe localgroup",
-        "net1 user", "net1.exe",
-        // Registry manipulation
-        "reg add", "reg delete",
-        // PowerShell (all variants — legacy + core)
-        "powershell -", "powershell.exe -", "pwsh -", "pwsh.exe",
+        "net user", "net localgroup", "net1 user", "net1 localgroup",
+        "net use \\\\", "net start", "net stop",
+        "reg add", "reg delete", "reg import", "reg load", "reg restore",
+        "format c:", "rd /s /q c:", "del /s /q c:",
+        "schtasks /create", "schtasks /change", "schtasks /delete",
+        "sc create", "sc config", "sc stop", "sc delete",
+        "netsh advfirewall", "netsh firewall",
+        "wmic process call create", "wmic /node",
         "iex(", "invoke-expression", "invoke-webrequest",
         "downloadstring", "downloadfile", "new-object net.webclient",
-        // LOLBins (download/execute)
-        "certutil", "bitsadmin",
-        "mshta", "wscript", "cscript", "regsvr32", "rundll32",
-        // Destructive operations
-        "format c:", "rd /s /q c:", "del /s /q c:",
-        // Persistence mechanisms
-        "schtasks /create", "schtasks /change",
-        "sc create", "sc config",
-        // Network/firewall manipulation
-        "netsh advfirewall", "netsh firewall",
-        // Process creation via WMI
-        "wmic process call create",
     ];
     for pattern in BLOCKED_PATTERNS {
-        if cmd_collapsed.contains(pattern) {
-            tracing::warn!(
-                pod_id = %id, cmd = %cmd,
-                "SEC-P0-10: Blocked dangerous command pattern: {}", pattern
-            );
-            return Json(json!({ "error": format!("Command blocked: contains dangerous pattern '{}'", pattern) }));
+        if cmd_no_exe.contains(pattern) {
+            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked pattern: {}", pattern);
+            return Json(json!({ "error": format!("Command blocked: contains '{}'", pattern) }));
         }
     }
 
