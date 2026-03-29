@@ -759,6 +759,7 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
         "systeminfo", "systeminfo.exe",
         "del", "ren", "copy", "move", "mkdir",
         "shutdown", "shutdown.exe",
+        "powershell", "powershell.exe",
     ];
 
     // Extract the first token (command name) and check against allowlist

@@ -975,7 +975,8 @@ fn tier1_restart_edge_kiosk() -> bool {
     // MMA Round 1 P1 fix: derive billing URL from env var (same as check_pos_network_health)
     let server_ip = std::env::var("RACECONTROL_SERVER_IP")
         .unwrap_or_else(|_| "192.168.31.23".to_string());
-    let billing_url = format!("http://{}:8080/billing", server_ip);
+    // Web dashboard is on :3200, NOT :8080 (API port)
+    let billing_url = format!("http://{}:3200/billing", server_ip);
 
     // MMA Round 1 P2 fix: try x64 path first, fall back to x86
     let edge_x64 = r"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
@@ -983,7 +984,13 @@ fn tier1_restart_edge_kiosk() -> bool {
     let edge_path = if std::path::Path::new(edge_x64).exists() { edge_x64 } else { edge_x86 };
 
     let result = std::process::Command::new(edge_path)
-        .args(["--kiosk", &billing_url, "--edge-kiosk-type=fullscreen", "--no-first-run"])
+        .args([
+            "--kiosk", &billing_url,
+            "--edge-kiosk-type=fullscreen",
+            "--no-first-run",
+            "--remote-debugging-port=9222",
+            "--disable-session-crashed-bubble",
+        ])
         .spawn();
 
     match result {
