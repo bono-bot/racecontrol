@@ -1029,3 +1029,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 14:20 IST | James | 3257b077 | feat(258-01): STAFF-01/03/04 — discount approval gate (manager PIN validation), daily override report, cash drawer reconciliation |
 | 2026-03-29 14:22 IST | James | 11926c97 | fix(258-01): replace .unwrap() with .expect() on always-valid FixedOffset constants |
 | 2026-03-29 14:25 IST | James | c187696a | docs(258-01): SUMMARY.md, STATE.md, ROADMAP-v27.md, REQUIREMENTS.md STAFF-01/02/03/04 complete |
+| 2026-03-29 14:51 IST | James | 74b11b47 | feat(258-03): DEPLOY-02/04 — graceful agent shutdown with billing session HTTP notify + INTERRUPTED_SESSION sentinel, post-restart recovery |
+| 2026-03-29 14:52 IST | James | c9fa9b2a | feat(258-03): DEPLOY-05 — CoreMessage wrapper with command_id on all WS sends, seen_command_ids 5-min TTL dedup in agent |
+| 2026-03-29 14:58 IST | James | 2597e3f6 | docs(258-03): 258-03-SUMMARY.md, STATE.md DEPLOY-02/04/05 complete, REQUIREMENTS.md marked |
