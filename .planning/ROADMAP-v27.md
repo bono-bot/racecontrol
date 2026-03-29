@@ -146,7 +146,11 @@ Plans:
   3. An end-of-day report shows every discount, manual refund, and tier change with the actor ID — override activity is fully auditable
   4. A pod with an active billing session defers binary swap until the session ends — customers are never mid-session during an OTA deploy
   5. A deployment attempted during the 6-11 PM weekend window requires a manual override — accidental peak-hour deploys are blocked
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 258-01-PLAN.md — Discount approval gate (STAFF-01), self-service block verified (STAFF-02), daily override report (STAFF-03), cash drawer reconciliation (STAFF-04)
+- [ ] 258-02-PLAN.md — Shift handoff workflow (STAFF-05), OTA session drain verification (DEPLOY-01), weekend deploy window lock (DEPLOY-03)
+- [ ] 258-03-PLAN.md — Graceful agent shutdown with billing persistence (DEPLOY-02), post-restart session recovery (DEPLOY-04), WS command_id deduplication (DEPLOY-05)
 
 ### Phase 259: Coupon & Discount System
 **Goal**: Coupons have a stateful lifecycle with rollback on failure; discount stacking has a hard floor; payment gateway credits are idempotent
@@ -187,7 +191,7 @@ Plans:
 | 255. Legal Compliance | 0/3 | Planned | - |
 | 256. Game-Specific Hardening | 0/3 | Planned | - |
 | 257. Billing Edge Cases | 0/3 | Planned | - |
-| 258. Staff Controls & Deployment Safety | 0/? | Not started | - |
+| 258. Staff Controls & Deployment Safety | 0/3 | Planned | - |
 | 259. Coupon & Discount System | 0/? | Not started | - |
 | 260. Notifications, Resilience & UX | 0/? | Not started | - |
 
