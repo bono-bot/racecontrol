@@ -287,18 +287,25 @@ async fn run_nightly_cleanup(pool: &SqlitePool, retention_days: u32) {
         }
     }
 
-    // MMA-#7: Alert if table is growing unbounded (>10M rows = ~2GB at 200 bytes/row)
+    // MMA-#7 + ITER5-MMA: Alert if table is growing unbounded AND log cleanup heartbeat
+    // The heartbeat proves cleanup actually ran — absence of heartbeat = job dead
+    tracing::info!("TelemetryWriter cleanup heartbeat: job completed at {}", Utc::now().to_rfc3339());
     match sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM telemetry_samples")
         .fetch_one(pool)
         .await
     {
-        Ok((count,)) if count > 10_000_000 => {
-            tracing::error!(
-                "TELEMETRY ALERT: telemetry_samples has {} rows (>10M). \
-                 Nightly cleanup may be failing. Check disk space and retention_days config.",
-                count
-            );
+        Ok((count,)) => {
+            tracing::info!("TelemetryWriter row count after cleanup: {}", count);
+            if count > 10_000_000 {
+                tracing::error!(
+                    "TELEMETRY ALERT: telemetry_samples has {} rows (>10M). \
+                     Cleanup may be insufficient. Check disk space and retention_days config.",
+                    count
+                );
+            }
         }
-        _ => {}
+        Err(e) => {
+            tracing::error!("TelemetryWriter failed to count rows after cleanup: {}", e);
+        }
     }
 }

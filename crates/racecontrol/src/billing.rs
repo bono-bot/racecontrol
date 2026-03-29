@@ -2189,9 +2189,10 @@ pub fn spawn_coupon_ttl_expiry_job(state: Arc<AppState>) {
                  reserved_for_session = NULL \
                  WHERE coupon_status = 'reserved' \
                  AND reserved_at < datetime('now', '-10 minutes') \
-                 AND (reserved_for_session IS NULL \
-                      OR reserved_for_session NOT IN \
-                          (SELECT id FROM billing_sessions WHERE status IN ('active', 'paused_manual', 'paused_disconnect', 'paused_game_pause', 'waiting_for_game')))",
+                 AND NOT EXISTS ( \
+                     SELECT 1 FROM billing_sessions bs \
+                     WHERE bs.id = coupons.reserved_for_session \
+                     AND bs.status IN ('active', 'paused_manual', 'paused_disconnect', 'paused_game_pause', 'waiting_for_game'))",
             )
             .execute(&state.db)
             .await;
