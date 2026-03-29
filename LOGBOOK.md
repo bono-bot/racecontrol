@@ -1021,3 +1021,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 12:30 IST | James | 6c5e424d | fix(billing): 3 let _ = wallet refunds → match with CRITICAL logging |
 | 2026-03-29 12:35 IST | James | 7ce89fca | fix(types): add missing recovery_pause_seconds field to test |
 | 2026-03-29 12:40 IST | James | — | 3-layer re-audit CONVERGED: L1 infra PASS (admin static_assets fixed), L2 app 23 fixes VERIFIED + 3 new fixed, L3 ops ALL PASS. MMA convergence: DeepSeek R1 + Qwen3. 11 MMA iterations total across cafe/game/auth/billing domains |
+| 2026-03-29 12:50 IST | James | 4efc070f | feat(257-01): BILL-03/04/05/06 — game_launch_requests TTL, PauseReason enum, recovery_pause_seconds, billing_timer_started event |
+| 2026-03-29 12:55 IST | James | a0d8cdd6 | docs(257-01): SUMMARY.md, STATE.md decisions, REQUIREMENTS.md BILL-03/04/05/06 marked complete |
+| 2026-03-29 13:00 IST | James | e27f97ea | fix(tests): ENV_MUTEX in config tests — parallel set_var race was causing flaky pre-push gate failure |
