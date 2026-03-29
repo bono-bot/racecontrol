@@ -3205,6 +3205,37 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Phase 257: BILL-08 Customer charge dispute portal ───────────────────
+    // dispute_requests: Customer-initiated billing disputes.
+    // Lifecycle: pending → approved (triggers refund) | denied (with reason).
+    // One active dispute per session enforced via UNIQUE index on billing_session_id
+    // WHERE status != 'denied' (denied disputes allow a re-submission).
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS dispute_requests (
+          id TEXT PRIMARY KEY,
+          billing_session_id TEXT NOT NULL,
+          driver_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          resolved_at TEXT,
+          resolved_by TEXT,
+          resolution_reason TEXT,
+          refund_amount_paise INTEGER
+        )"
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to create dispute_requests table: {}", e))?;
+
+    // BILL-08: Unique index — one active dispute per session (denied = re-submittable)
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_dispute_session
+         ON dispute_requests(billing_session_id) WHERE status != 'denied'"
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

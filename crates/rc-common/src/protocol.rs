@@ -935,6 +935,14 @@ pub enum DashboardEvent {
         reason: String,
     },
 
+    /// BILL-08: Customer submitted a billing dispute — staff must review.
+    DisputeCreated {
+        dispute_id: String,
+        driver_name: String,
+        session_id: String,
+        reason: String,
+    },
+
     /// Phase 206: A sentinel file was created or deleted on a pod.
     /// Broadcast immediately on SentinelChange WS message for real-time dashboard visibility.
     SentinelChanged {
