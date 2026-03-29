@@ -1,7 +1,7 @@
 # Roadmap: v27.0 Workflow Integrity & Compliance Hardening
 
 **Milestone defined:** 2026-03-29
-**Phase range:** 251–260
+**Phase range:** 251-260
 **Granularity:** Standard (10 phases, justified by 83 requirements across 10 categories)
 **Core value:** Every customer interaction — from registration to refund — is atomic, auditable, safe, and legally compliant
 
@@ -59,7 +59,7 @@ Plans:
 **Depends on**: Phase 252 (atomicity layer must exist before state guards are added)
 **Requirements**: FSM-01, FSM-02, FSM-03, FSM-04, FSM-05, FSM-06, FSM-07, FSM-08
 **Success Criteria** (what must be TRUE):
-  1. An invalid state transition (e.g. active → active, or cancelled → ended) is rejected by the server with a logged error
+  1. An invalid state transition (e.g. active -> active, or cancelled -> ended) is rejected by the server with a logged error
   2. A billing session cannot remain active while the game is in Idle state — the server detects and resolves the phantom within one health cycle
   3. A game in Running state cannot exist without an active billing session — free gaming attempts are blocked at the server
   4. When a game crashes, billing is paused atomically before any relaunch is attempted — the customer is never charged for crash recovery time
@@ -113,7 +113,11 @@ Plans:
   3. A Forza Horizon 5 session is force-terminated by the agent when the paid duration expires — the customer sees a save warning before termination
   4. An iRacing launch is blocked if the subscription check fails — the customer is not charged for a game they cannot play
   5. A launch request for a car or track not installed on the pod is rejected before billing starts
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 256-01-PLAN.md — Steam pre-launch check, process name corrections, DLC verification, game window detection
+- [ ] 256-02-PLAN.md — Forza Horizon 5 session enforcer, generic process exit monitoring for non-AC games
+- [ ] 256-03-PLAN.md — AC EVO Unreal config adapter, iRacing subscription/launch verification
 
 ### Phase 257: Billing Edge Cases
 **Goal**: Edge cases in session lifecycle are handled correctly — inactivity, timeouts, extensions, and disputes all have defined behaviors
@@ -146,7 +150,7 @@ Plans:
 **Requirements**: FATM-07, FATM-08, FATM-09, FATM-10, FATM-11
 **Success Criteria** (what must be TRUE):
   1. Purchasing a session extension debits the wallet and adds session time in a single atomic transaction — no debit without time, no time without debit
-  2. A coupon moves through available → reserved → redeemed states; reserved coupons with expired TTL revert to available automatically
+  2. A coupon moves through available -> reserved -> redeemed states; reserved coupons with expired TTL revert to available automatically
   3. A coupon reserved for a session that is cancelled or fails before billing commit is restored to available — no coupon lost to a failed session
   4. Stacking a coupon with a staff discount cannot reduce the payable amount below the configured floor — the floor is enforced server-side
   5. A payment gateway webhook that fires twice credits the wallet only once — duplicate webhooks are idempotently rejected
@@ -177,7 +181,7 @@ Plans:
 | 253. State Machine Hardening | 3/3 | Complete | 2026-03-28 |
 | 254. Security Hardening | 0/3 | Planned | - |
 | 255. Legal Compliance | 0/3 | Planned | - |
-| 256. Game-Specific Hardening | 0/? | Not started | - |
+| 256. Game-Specific Hardening | 0/3 | Planned | - |
 | 257. Billing Edge Cases | 0/? | Not started | - |
 | 258. Staff Controls & Deployment Safety | 0/? | Not started | - |
 | 259. Coupon & Discount System | 0/? | Not started | - |
