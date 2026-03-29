@@ -1047,3 +1047,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 16:35 IST | James | a4059766 | feat(260-02): lap assist evidence schema — assist_config_hash, assist_tier, billing_session_id, validity columns + mark_laps_unverifiable() + UX-04 billing gate |
 | 2026-03-29 16:35 IST | James | b7de59f6 | feat(260-02): leaderboard segmentation by game+track+car_class+assist_tier, UX-04/UX-07 integrity gates on all 3 leaderboard endpoints |
 | 2026-03-29 16:36 IST | James | 043faf2d | docs(260-02): complete leaderboard integrity plan — UX-04/05/06/07 requirements marked complete |
+| 2026-03-29 17:00 IST | James | 5fcfe239 | feat(260-04): customer session receipt endpoint (UX-03) — GET /customer/sessions/{id}/receipt with GST breakup, before/after balance, outbox enqueue |
+| 2026-03-29 17:09 IST | James | f736cedc | feat(260-04): virtual queue management (UX-08) — join/status/leave/call/seat endpoints, virtual_queue table, 5min expire task |
