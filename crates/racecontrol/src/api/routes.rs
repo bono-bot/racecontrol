@@ -6294,9 +6294,20 @@ async fn customer_register(
         return Json(json!({ "error": "Waiver consent is required" }));
     }
 
-    let name = req.name.trim().to_string();
-    if name.len() < 2 {
-        return Json(json!({ "error": "Name must be at least 2 characters" }));
+    // MMA-WIRED: Use centralized input validation module
+    let name = match racecontrol_crate::input_validation::validate_name(&req.name) {
+        Ok(n) => n,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    if let Some(ref email) = req.email {
+        if let Err(e) = racecontrol_crate::input_validation::validate_email(email) {
+            return Json(json!({ "error": e }));
+        }
+    }
+    if let Some(ref phone) = req.guardian_phone {
+        if let Err(e) = racecontrol_crate::input_validation::validate_phone(phone) {
+            return Json(json!({ "error": format!("Guardian phone: {}", e) }));
+        }
     }
 
     // Parse and validate DOB

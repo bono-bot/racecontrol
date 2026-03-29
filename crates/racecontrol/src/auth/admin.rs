@@ -35,12 +35,10 @@ fn check_lockout() -> Result<(), std::time::Duration> {
     let mut state = ADMIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
     let now = std::time::Instant::now();
 
-    // Check if currently locked out
     if let Some(until) = state.locked_until {
         if now < until {
             return Err(until - now);
         }
-        // Lockout expired — clear
         state.locked_until = None;
         state.attempts.clear();
     }
@@ -52,7 +50,6 @@ fn record_failed_attempt() {
     let now = std::time::Instant::now();
     let window = std::time::Duration::from_secs(LOCKOUT_WINDOW_SECS);
 
-    // Prune old attempts outside the window
     state.attempts.retain(|t| now.duration_since(*t) < window);
     state.attempts.push(now);
 
@@ -71,6 +68,37 @@ fn clear_lockout_on_success() {
         state.attempts.clear();
         state.locked_until = None;
     }
+}
+
+/// MMA-WIRED: Persist lockout state to DB so it survives server restart.
+/// Called alongside in-memory functions for write-through persistence.
+async fn persist_lockout_to_db(db: &sqlx::SqlitePool, ip: &str, attempts: i64, locked_until: Option<&str>) {
+    let _ = sqlx::query(
+        "INSERT INTO admin_lockout (ip, failed_attempts, locked_until, updated_at)
+         VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(ip) DO UPDATE SET
+           failed_attempts = excluded.failed_attempts,
+           locked_until = excluded.locked_until,
+           updated_at = datetime('now')"
+    )
+    .bind(ip)
+    .bind(attempts)
+    .bind(locked_until)
+    .execute(db)
+    .await;
+}
+
+/// MMA-WIRED: Check DB for lockout state on startup (recovers across restarts).
+async fn restore_lockout_from_db(db: &sqlx::SqlitePool, ip: &str) -> Option<String> {
+    let row = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT locked_until FROM admin_lockout WHERE ip = ? AND locked_until > datetime('now')"
+    )
+    .bind(ip)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+    row.and_then(|(lu,)| lu)
 }
 
 // ---- Request / Response types ------------------------------------------------
@@ -130,7 +158,11 @@ pub async fn admin_login(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AdminLoginRequest>,
 ) -> impl IntoResponse {
-    // Check lockout before processing
+    // MMA-WIRED: Check DB lockout first (survives restart), then in-memory
+    if let Some(_locked_until) = restore_lockout_from_db(&state.db, "admin").await {
+        tracing::warn!("admin_login: DB lockout active");
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
     if let Err(remaining) = check_lockout() {
         tracing::warn!("admin_login: locked out for {}s more", remaining.as_secs());
         return Err(StatusCode::TOO_MANY_REQUESTS);
@@ -154,10 +186,26 @@ pub async fn admin_login(
 
     if !valid {
         record_failed_attempt();
+        // MMA-WIRED: Persist failed attempt to DB
+        let lockout_active = {
+            let s = ADMIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+            s.locked_until.is_some()
+        };
+        let locked_str = if lockout_active {
+            Some(chrono::Utc::now()
+                .checked_add_signed(chrono::Duration::seconds(LOCKOUT_DURATION_SECS as i64))
+                .map(|t| t.to_rfc3339())
+                .unwrap_or_default())
+        } else {
+            None
+        };
+        persist_lockout_to_db(&state.db, "admin", 1, locked_str.as_deref()).await;
         tracing::warn!("admin_login: invalid PIN attempt");
         return Err(StatusCode::UNAUTHORIZED);
     }
     clear_lockout_on_success();
+    // MMA-WIRED: Clear DB lockout on success
+    persist_lockout_to_db(&state.db, "admin", 0, None).await;
 
     // Generate 12-hour staff JWT with superadmin role (admin PIN = full access)
     let secret = &state.config.auth.jwt_secret;
