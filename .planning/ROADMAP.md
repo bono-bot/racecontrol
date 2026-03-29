@@ -3976,7 +3976,7 @@ Phases execute in numeric order: 241 → 242 → 243 → 244 → 245 → 246 →
 | 253. State Machine Hardening | 3/3 | Complete    | 2026-03-28 |
 | 254. Security Hardening | 2/3 | Complete    | 2026-03-28 |
 | 255. Legal Compliance | 3/3 | Complete    | 2026-03-28 |
-| 256. Game-Specific Hardening | 0/TBD | Not started | - |
+| 256. Game-Specific Hardening | 2/3 | In Progress|  |
 | 257. Billing Edge Cases | 0/TBD | Not started | - |
 | 258. Staff Controls & Deployment Safety | 0/TBD | Not started | - |
 | 259. Coupon & Discount System | 0/TBD | Not started | - |
