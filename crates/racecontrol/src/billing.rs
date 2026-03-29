@@ -2515,6 +2515,30 @@ pub async fn start_billing_session(
         None
     };
 
+    // RESIL-05: Pre-billing negative wallet balance guard (BLOCKING).
+    // If the wallet already has a negative balance, block session start.
+    // This prevents new debt accumulation on already-overdrawn accounts.
+    // Trials are excluded — they cost nothing.
+    if !is_trial {
+        let balance_row: Option<(i64,)> = sqlx::query_as(
+            "SELECT balance_paise FROM wallets WHERE driver_id = ?"
+        )
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if let Some((balance,)) = balance_row {
+            if balance < 0 {
+                tracing::error!(
+                    "RESIL-05: Blocking session start — wallet has negative balance: driver={}, balance_paise={}",
+                    driver_id, balance
+                );
+                return Err("Wallet has negative balance — contact staff".to_string());
+            }
+        }
+    }
+
     // Create billing session in DB
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
@@ -3898,6 +3922,33 @@ pub async fn extend_billing_session(
     // FATM-07: Commit — if commit fails, BOTH debit and time addition roll back atomically
     tx.commit().await
         .map_err(|e| format!("DB commit failed for extension: {}", e))?;
+
+    // RESIL-05: Post-debit negative wallet balance check (NON-BLOCKING).
+    // Read balance AFTER commit (lock already dropped). Alert staff if negative.
+    // This check does NOT affect the ongoing session — it is alert-only.
+    if extension_cost_paise > 0 {
+        let balance_row: Option<(i64,)> = sqlx::query_as(
+            "SELECT balance_paise FROM wallets WHERE driver_id = ?"
+        )
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if let Some((balance,)) = balance_row {
+            if balance < 0 {
+                tracing::error!(
+                    "RESIL-05: Negative wallet balance detected: driver={}, balance={}",
+                    driver_id, balance
+                );
+                let msg = format!(
+                    "[BILLING ALERT] Negative wallet balance detected! Driver: {}, Balance: {} paise. {}",
+                    driver_id, balance, crate::whatsapp_alerter::ist_now_string()
+                );
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
 
     // Phase 2: ONLY after successful commit, update in-memory timer
     // Re-acquire write lock to update in-memory state
