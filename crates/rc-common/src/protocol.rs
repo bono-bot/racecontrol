@@ -369,6 +369,15 @@ pub enum AgentMessage {
         summary: String,
     },
 
+    /// BILL-01: Customer has been idle (no steering/pedal/button input) for the threshold duration.
+    /// Sent once per idle period — fires again only after input resets the monitor.
+    /// Server must NOT auto-end the session — staff decides the action.
+    InactivityAlert {
+        pod_id: String,
+        /// Seconds elapsed since the last recorded input.
+        idle_seconds: u64,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -485,6 +494,15 @@ pub enum CoreToAgentMessage {
         /// Name of the current pricing tier (e.g. "Standard", "Extended"). None for legacy.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tier_name: Option<String>,
+    },
+
+    /// BILL-02: Countdown warning — show persistent overlay at specified warning level.
+    /// level: "yellow" (5min remaining) or "red" (1min remaining).
+    /// Agent must display persistent overlay during the threshold; dismiss on session end or extension.
+    BillingCountdownWarning {
+        remaining_secs: u32,
+        /// "yellow" or "red"
+        level: String,
     },
 
     /// Sub-session ended (billing expired but pod has active reservation — multi-session)
@@ -721,6 +739,23 @@ pub enum DashboardEvent {
         remaining_seconds: u32,
     },
 
+    /// BILL-01: Staff alert — customer has been idle for idle_seconds on this pod.
+    /// Staff must decide whether to end the session or contact the customer.
+    InactivityAlert {
+        pod_id: String,
+        idle_seconds: u64,
+        driver_name: String,
+        session_id: String,
+    },
+
+    /// BILL-02: Countdown warning sent to a specific pod's agent overlay.
+    /// level: "yellow" (5min) or "red" (1min).
+    BillingCountdownWarning {
+        pod_id: String,
+        remaining_secs: u32,
+        level: String,
+    },
+
     /// Game state changed on a pod
     GameStateChanged(GameLaunchInfo),
 
@@ -875,6 +910,11 @@ pub enum DashboardEvent {
         pod_id: String,
         sim_type: SimType,
         driver_name: String,
+        request_id: String,
+    },
+
+    /// PWA game launch request expired (TTL exceeded) -- staff dashboard should remove it
+    GameRequestExpired {
         request_id: String,
     },
 

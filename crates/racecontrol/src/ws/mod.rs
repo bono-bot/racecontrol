@@ -849,6 +849,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     tracing::warn!("[billing] FSM rejected CrashPause for session {}: {}", billing_session_id, e);
                                 } else {
                                     timer.status = rc_common::types::BillingSessionStatus::PausedGamePause;
+                                    // BILL-06: Mark this as crash-recovery pause so recovery_pause_seconds increments
+                                    timer.pause_reason = crate::billing::PauseReason::CrashRecovery;
                                     tracing::info!("[billing] Timer paused for session {} (FSM-04 crash recovery)", billing_session_id);
                                 }
                             }
@@ -1303,6 +1305,38 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                 }
                             }
+                        }
+
+                        // ─── BILL-01: Inactivity Alert ───────────────────────────────────────
+                        AgentMessage::InactivityAlert { pod_id, idle_seconds } => {
+                            // Look up driver name and session id from billing timers
+                            let (driver_name, session_id) = {
+                                let timers = state.billing.active_timers.read().await;
+                                if let Some(timer) = timers.get(pod_id.as_str()) {
+                                    (timer.driver_name.clone(), timer.session_id.clone())
+                                } else {
+                                    (String::from("unknown"), String::from("unknown"))
+                                }
+                            }; // lock dropped
+                            tracing::warn!(
+                                "BILL-01: Pod {} idle for {}s — staff alerted (driver={}, session={})",
+                                pod_id, idle_seconds, driver_name, session_id
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "billing",
+                                "Customer Idle",
+                                &format!("No input for {}s — staff alert sent", idle_seconds),
+                                "agent",
+                            );
+                            // Broadcast to staff dashboard — do NOT auto-end the session
+                            let _ = state.dashboard_tx.send(DashboardEvent::InactivityAlert {
+                                pod_id: pod_id.clone(),
+                                idle_seconds: *idle_seconds,
+                                driver_name,
+                                session_id,
+                            });
                         }
 
                         _ => { /* catch-all for future protocol additions */ }

@@ -3172,6 +3172,39 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Phase 257: BILL-03 PWA game request TTL ─────────────────────────────
+    // game_launch_requests: tracks customer PWA game requests with a 10-minute server-side TTL.
+    // expires_at is set to now + 10 minutes on INSERT; background cleanup marks pending → expired.
+    // resolved_at / resolved_by are set when staff confirms or rejects the request.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS game_launch_requests (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolved_by TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_game_launch_requests_status ON game_launch_requests(status, expires_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Phase 257: BILL-06 Recovery pause seconds ───────────────────────────
+    // recovery_pause_seconds: seconds spent in crash-recovery pause (PausedGamePause triggered
+    // by a CrashRecovery event). Excluded from billable time in compute_session_cost.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN recovery_pause_seconds INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
