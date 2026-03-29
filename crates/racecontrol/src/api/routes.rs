@@ -1452,6 +1452,47 @@ async fn clear_maintenance_pod(
     Json(json!({ "ok": true, "pod_id": id }))
 }
 
+/// RCA-PREVENTION: Static route uniqueness check.
+/// Extracts all .route() registrations from this file and asserts no METHOD+PATH duplicates.
+/// This catches the class of bug that caused the 2026-03-29 deploy failure
+/// (21 duplicate routes from Phase 258 move-without-delete).
+#[cfg(test)]
+mod route_uniqueness_tests {
+    #[test]
+    fn no_duplicate_route_registrations() {
+        let source = include_str!("routes.rs");
+        let mut routes: Vec<String> = Vec::new();
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if let Some(start) = trimmed.find(".route(\"") {
+                let after = &trimmed[start + 8..];
+                if let Some(end) = after.find('"') {
+                    let path = &after[..end];
+                    // Extract method from the handler chain: get(, post(, put(, delete(
+                    let rest = &after[end..];
+                    for method in &["get(", "post(", "put(", "delete(", "patch("] {
+                        if rest.contains(method) {
+                            routes.push(format!("{} {}", method.trim_end_matches('('), path));
+                        }
+                    }
+                }
+            }
+        }
+        routes.sort();
+        let mut duplicates: Vec<String> = Vec::new();
+        for window in routes.windows(2) {
+            if window[0] == window[1] && !duplicates.contains(&window[0]) {
+                duplicates.push(window[0].clone());
+            }
+        }
+        assert!(
+            duplicates.is_empty(),
+            "DUPLICATE ROUTES DETECTED (will panic at runtime):\n{}",
+            duplicates.join("\n")
+        );
+    }
+}
+
 #[cfg(test)]
 mod lockdown_tests {
     use super::*;
