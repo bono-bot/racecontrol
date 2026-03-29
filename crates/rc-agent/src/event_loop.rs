@@ -117,6 +117,15 @@ pub(crate) struct ConnectionState {
     /// BILL-01: Inactivity monitor — active when billing is live.
     /// Fires InactivityAlert to server after 10 minutes with no steering/pedal/button input.
     pub(crate) inactivity_monitor: Option<crate::inactivity_monitor::InactivityMonitor>,
+    /// Phase 251: Current lap ID — set when LapCompleted fires, stamped on each TelemetryFrame.
+    /// None before the first lap completes (pre-lap telemetry is discarded by server).
+    pub(crate) current_lap_id: Option<String>,
+    /// DEPLOY-05: Seen command_ids for WS message deduplication.
+    /// Prevents stale commands from being replayed on WS reconnect.
+    /// Entries expire after 5 minutes and are pruned every 60 seconds.
+    pub(crate) seen_command_ids: std::collections::HashMap<String, std::time::Instant>,
+    /// DEPLOY-05: Tick counter for periodic cleanup of seen_command_ids (every 60s).
+    pub(crate) dedup_cleanup_ticks: u32,
 }
 
 impl ConnectionState {
@@ -159,6 +168,9 @@ impl ConnectionState {
             process_monitor_interval: tokio::time::interval(Duration::from_secs(5)),
             session_enforcer_interval: tokio::time::interval(Duration::from_secs(1)),
             inactivity_monitor: None,
+            current_lap_id: None,
+            seen_command_ids: std::collections::HashMap::new(),
+            dedup_cleanup_ticks: 0,
         }
     }
 }
@@ -285,11 +297,16 @@ pub async fn run(
 
                         if let Ok(Some(lap)) = adapter.poll_lap_completed() {
                             state.overlay.on_lap_completed(&lap);
+                            // Phase 251: Track current lap_id for telemetry persistence
+                            conn.current_lap_id = Some(lap.id.clone());
                             let msg = AgentMessage::LapCompleted(lap);
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
                         }
 
+                        // Phase 251: Stamp frame with current lap_id before sending
+                        let mut frame = frame;
+                        frame.lap_id = conn.current_lap_id.clone();
                         let msg = AgentMessage::Telemetry(frame);
                         let json = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json.into())).await;

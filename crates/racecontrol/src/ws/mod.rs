@@ -57,7 +57,7 @@ fn pod_mac_address(pod_id: &str) -> Option<String> {
 }
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{
-    AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
+    AgentMessage, AiChannelMessage, CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
 use rc_common::types::{BillingSessionStatus, GameState};
 use sqlx;
@@ -143,7 +143,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 cmd = cmd_rx.recv() => {
                     match cmd {
                         Some(cmd) => {
-                            if let Ok(json) = serde_json::to_string(&cmd) {
+                            // DEPLOY-05: Wrap with CoreMessage to add command_id for agent deduplication.
+                            // This is the single serialization point for all CoreToAgentMessage sends.
+                            let wrapped = CoreMessage::wrap(cmd);
+                            if let Ok(json) = serde_json::to_string(&wrapped) {
                                 // MMA-P2: Log and continue on transient send failures instead
                                 // of breaking the entire send loop. Only break on channel close.
                                 if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
@@ -417,6 +420,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::Telemetry(frame.clone()));
+                            // Phase 251: Send to telemetry writer for persistence
+                            if let Some(ref tx) = state.telemetry_writer_tx {
+                                // Non-blocking send — drop frame if channel is full
+                                let _ = tx.try_send(frame.clone());
+                            }
                         }
                         AgentMessage::LapCompleted(lap) => {
                             let mut lap = lap.clone();

@@ -19,7 +19,7 @@ use crate::self_monitor;
 use crate::self_test;
 use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
 use crate::event_loop::{ConnectionState, CrashRecoveryState, LaunchState};
-use rc_common::protocol::{AgentMessage, CoreToAgentMessage};
+use rc_common::protocol::{AgentMessage, CoreMessage, CoreToAgentMessage};
 use rc_common::types::*;
 
 const LOG_TARGET: &str = "ws";
@@ -130,13 +130,44 @@ pub async fn handle_ws_message(
     #[cfg(not(feature = "http-client"))]
     split_brain_probe: &(),
 ) -> Result<HandleResult> {
-    let core_msg = match serde_json::from_str::<CoreToAgentMessage>(text) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!(target: LOG_TARGET, "Failed to parse CoreToAgentMessage: {} -- raw: {}", e, text);
-            return Ok(HandleResult::Continue);
+    // DEPLOY-05: Parse via CoreMessage wrapper for command_id deduplication.
+    // Falls back to legacy bare CoreToAgentMessage if wrapper parse fails
+    // (backward-compat for old server versions during rolling deploy).
+    let (command_id, core_msg) = match serde_json::from_str::<CoreMessage>(text) {
+        Ok(wrapped) => (wrapped.command_id, wrapped.inner),
+        Err(_) => {
+            // Try legacy bare format (no wrapper)
+            match serde_json::from_str::<CoreToAgentMessage>(text) {
+                Ok(m) => (None, m),
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "Failed to parse CoreToAgentMessage: {} -- raw: {}", e, text);
+                    return Ok(HandleResult::Continue);
+                }
+            }
         }
     };
+
+    // DEPLOY-05: Deduplicate commands by command_id within 5-minute TTL window.
+    // This prevents stale commands from WS reconnect replaying (e.g. duplicate BillingStarted).
+    if let Some(ref cid) = command_id {
+        let five_min = std::time::Duration::from_secs(300);
+        if let Some(seen_at) = conn.seen_command_ids.get(cid) {
+            if seen_at.elapsed() < five_min {
+                tracing::debug!(target: LOG_TARGET, "DEPLOY-05: Duplicate command_id {} (age={:?}) — silently acking", cid, seen_at.elapsed());
+                return Ok(HandleResult::Continue);
+            }
+        }
+        conn.seen_command_ids.insert(cid.clone(), std::time::Instant::now());
+
+        // Periodic cleanup every 60s (counted by heartbeat ticks in event_loop, approximated here)
+        conn.dedup_cleanup_ticks += 1;
+        if conn.dedup_cleanup_ticks >= 60 {
+            conn.dedup_cleanup_ticks = 0;
+            let five_min = std::time::Duration::from_secs(300);
+            conn.seen_command_ids.retain(|_, ts| ts.elapsed() < five_min);
+            tracing::debug!(target: LOG_TARGET, "DEPLOY-05: Pruned seen_command_ids, {} entries remain", conn.seen_command_ids.len());
+        }
+    }
 
     match core_msg {
         CoreToAgentMessage::BillingStarted {
