@@ -40,6 +40,7 @@ mod self_test;
 mod tier_engine;
 mod sims;
 mod startup_log;
+mod inactivity_monitor;
 mod session_enforcer;
 mod iracing_checks;
 mod steam_checks;

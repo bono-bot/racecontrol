@@ -222,6 +222,8 @@ pub async fn handle_ws_message(
             conn.current_driver_name = Some(driver_name.clone());
             conn.session_max_speed_kmh = 0.0;
             conn.session_race_position = None;
+            // BILL-01: Start inactivity monitor for this billing session (default 10 min threshold)
+            conn.inactivity_monitor = Some(crate::inactivity_monitor::InactivityMonitor::new(600));
             if allocated_seconds == 0 || allocated_seconds >= 10800 {
                 state.overlay.activate_v2(driver_name.clone());
             } else {
@@ -243,8 +245,21 @@ pub async fn handle_ws_message(
             }
         }
 
+        CoreToAgentMessage::BillingCountdownWarning { remaining_secs, level } => {
+            // BILL-02: Show persistent countdown warning overlay on customer screen
+            let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+            if billing_on {
+                state.lock_screen.show_countdown_warning(remaining_secs, level.as_str());
+            }
+        }
+
         CoreToAgentMessage::BillingStopped { billing_session_id } => {
             tracing::info!(target: LOG_TARGET, "Billing stopped: {}", billing_session_id);
+            // BILL-01: Clear inactivity monitor on session end
+            if let Some(ref mut inact) = conn.inactivity_monitor { inact.reset(); }
+            conn.inactivity_monitor = None;
+            // BILL-02: Dismiss countdown warning overlay on session end
+            state.lock_screen.dismiss_countdown_warning();
             state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
             crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
             state.overlay.deactivate();
@@ -271,6 +286,11 @@ pub async fn handle_ws_message(
             billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
         } => {
             tracing::info!(target: LOG_TARGET, "Session ended: {} -- {} laps, best: {:?}, {}s", billing_session_id, total_laps, best_lap_ms, driving_seconds);
+            // BILL-01: Clear inactivity monitor on session end
+            if let Some(ref mut inact) = conn.inactivity_monitor { inact.reset(); }
+            conn.inactivity_monitor = None;
+            // BILL-02: Dismiss countdown warning overlay on session end
+            state.lock_screen.dismiss_countdown_warning();
             state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
             crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
             conn.crash_recovery = CrashRecoveryState::Idle;

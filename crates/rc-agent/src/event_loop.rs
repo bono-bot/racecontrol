@@ -114,6 +114,9 @@ pub(crate) struct ConnectionState {
     pub(crate) process_monitor_interval: tokio::time::Interval,
     /// Interval for SessionEnforcer 1-second polling (GAME-03).
     pub(crate) session_enforcer_interval: tokio::time::Interval,
+    /// BILL-01: Inactivity monitor — active when billing is live.
+    /// Fires InactivityAlert to server after 10 minutes with no steering/pedal/button input.
+    pub(crate) inactivity_monitor: Option<crate::inactivity_monitor::InactivityMonitor>,
 }
 
 impl ConnectionState {
@@ -155,6 +158,7 @@ impl ConnectionState {
             session_enforcer: None,
             process_monitor_interval: tokio::time::interval(Duration::from_secs(5)),
             session_enforcer_interval: tokio::time::interval(Duration::from_secs(1)),
+            inactivity_monitor: None,
         }
     }
 }
@@ -268,6 +272,15 @@ pub async fn run(
                         state.overlay.update_telemetry(&frame);
                         if frame.speed_kmh > conn.session_max_speed_kmh {
                             conn.session_max_speed_kmh = frame.speed_kmh;
+                        }
+
+                        // BILL-01: Record customer input for inactivity detection.
+                        // Threshold: speed > 0 OR |steering| > 0.02 — avoids false resets from
+                        // menu/pre-race frames where the game reports minimal telemetry.
+                        if frame.speed_kmh > 0.0 || frame.steering.abs() > 0.02 {
+                            if let Some(ref mut inact) = conn.inactivity_monitor {
+                                inact.record_input();
+                            }
                         }
 
                         if let Ok(Some(lap)) = adapter.poll_lap_completed() {
@@ -918,7 +931,25 @@ pub async fn run(
             }
 
             // ─── GAME-03: SessionEnforcer — poll every 1s for FH5 duration enforcement ───
+            // ─── BILL-01: InactivityMonitor — co-ticked at 1s cadence ──────────────────
             _ = conn.session_enforcer_interval.tick() => {
+                // BILL-01: Inactivity detection — only fires during active billing sessions
+                if let Some(ref mut inact) = conn.inactivity_monitor {
+                    let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+                    if billing_on {
+                        if let Some(idle_secs) = inact.tick() {
+                            let pod_id = state.pod_id.clone();
+                            let alert = AgentMessage::InactivityAlert {
+                                pod_id,
+                                idle_seconds: idle_secs,
+                            };
+                            if let Ok(json) = serde_json::to_string(&alert) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+                        }
+                    }
+                }
+
                 if let Some(ref mut enforcer) = conn.session_enforcer {
                     use crate::session_enforcer::SessionAction;
                     let pid = enforcer.pid;
