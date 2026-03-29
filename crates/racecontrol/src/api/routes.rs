@@ -140,6 +140,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         // POS lockdown read — public so POS agent/kiosk can poll without JWT (MMA Round 1 fix: 2/3 consensus)
         // POST (write) stays in staff_routes
         .route("/pos/lockdown", get(get_pos_lockdown))
+        // Phase 255: Display machine heartbeat — no auth (display machines have no JWT)
+        .route("/kiosk/ping", post(kiosk_ping_handler))
         // DEPLOY-02: Agent graceful shutdown notification — no JWT (agent uses service key header).
         // Called by rc-agent during shutdown when a billing session is active.
         .route("/billing/{id}/agent-shutdown", post(agent_shutdown_handler))
@@ -163,6 +165,23 @@ async fn cameras_health_proxy() -> axum::response::Response {
     } else {
         (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"status": "down", "service": "go2rtc"}))).into_response()
     }
+}
+
+// ─── Phase 255: Display machine heartbeat ────────────────────────────────
+
+#[derive(Deserialize)]
+struct KioskPingBody {
+    display_id: String,
+    uptime_s: u64,
+}
+
+async fn kiosk_ping_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<KioskPingBody>,
+) -> Json<Value> {
+    let mut heartbeats = state.display_heartbeats.write().await;
+    heartbeats.insert(body.display_id, (std::time::Instant::now(), body.uptime_s));
+    Json(json!({ "ok": true }))
 }
 
 // ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
@@ -1249,6 +1268,25 @@ async fn ws_exec_pod(
     //   1. Strip ^ (cmd.exe escape), collapse whitespace, lowercase
     //   2. Strip .exe/.com suffixes from binary names so sc.exe = sc
     //   3. Block dangerous BINARIES (not just command+args patterns)
+    // MMA-R2-2: Block env var expansion bypass (%COMSPEC%, %SYSTEMROOT%\system32\cmd, $env:)
+    let cmd_lower = cmd.to_lowercase();
+    if cmd_lower.contains('%') || cmd_lower.contains("$env:") {
+        // Check for env var patterns that could expand to blocked binaries
+        let has_env_bypass = cmd_lower.contains("%comspec%")
+            || cmd_lower.contains("%systemroot%")
+            || cmd_lower.contains("%windir%")
+            || cmd_lower.contains("%temp%")
+            || cmd_lower.contains("$env:");
+        if has_env_bypass {
+            tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked env var expansion bypass");
+            return Json(json!({ "error": "Command blocked: environment variable expansion not allowed" }));
+        }
+    }
+    // MMA-R2-2: Block UNC paths that could execute remote binaries
+    if cmd_lower.contains("\\\\") {
+        tracing::warn!(pod_id = %id, cmd = %cmd, "SEC: Blocked UNC path execution");
+        return Json(json!({ "error": "Command blocked: UNC paths not allowed" }));
+    }
     let cmd_normalized: String = cmd
         .replace('^', "")
         .replace('\t', " ")
@@ -3104,7 +3142,19 @@ async fn start_billing(
     }
 
     let original_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
-    let final_price_paise = original_price_paise - applied_discount_paise;
+    let mut final_price_paise = original_price_paise - applied_discount_paise;
+
+    // FATM-10: Enforce discount floor — combined discounts cannot reduce payable below the floor
+    let discount_floor_paise = billing::DISCOUNT_FLOOR_PAISE;
+    if discount_floor_paise > 0 && final_price_paise < discount_floor_paise {
+        let original_total_discount = applied_discount_paise;
+        applied_discount_paise = original_price_paise - discount_floor_paise;
+        final_price_paise = discount_floor_paise;
+        tracing::info!(
+            "FATM-10: Discount floor enforced — original discount {}p capped to {}p (floor={}p, original_price={}p)",
+            original_total_discount, applied_discount_paise, discount_floor_paise, original_price_paise
+        );
+    }
 
     // Pre-check balance (optimistic, before acquiring tx) to return a clear error
     if !is_trial && final_price_paise > 0 {
@@ -3328,6 +3378,7 @@ async fn start_billing(
         "discount_paise": applied_discount_paise,
         "original_price_paise": original_price_paise,
         "discount_reason": applied_discount_reason,
+        "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
     }))
 }
 
@@ -3651,12 +3702,11 @@ async fn extend_billing(
         }));
     }
 
-    let cmd = rc_common::protocol::DashboardCommand::ExtendBilling {
-        billing_session_id: id,
-        additional_seconds,
-    };
-    billing::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    // FATM-07: Call extend_billing_session directly (not via DashboardCommand) to propagate errors
+    match billing::extend_billing_session(&state, &id, additional_seconds).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
 }
 
 async fn active_billing_sessions(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -19558,6 +19608,56 @@ async fn apply_billing_discount(
         }
     }
 
+    // FATM-10: Enforce discount floor — fetch current price/discount to check cap
+    let session_prices = sqlx::query_as::<_, (Option<i64>, i64)>(
+        "SELECT original_price_paise, COALESCE(discount_paise, 0) FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let effective_discount_paise = match session_prices {
+        Ok(Some((original_price_opt, current_discount))) => {
+            let floor = billing::DISCOUNT_FLOOR_PAISE;
+            if floor > 0 {
+                let base_price = original_price_opt.unwrap_or(0);
+                let max_total_discount = base_price - floor;
+                let remaining_headroom = max_total_discount - current_discount;
+                if remaining_headroom <= 0 {
+                    tracing::info!(
+                        "FATM-10: Discount floor already reached for session {} (base={}p, current_discount={}p, floor={}p) — discount rejected",
+                        session_id, base_price, current_discount, floor
+                    );
+                    return Json(json!({
+                        "error": "Discount floor already reached — no further discount allowed",
+                        "discount_floor_paise": floor,
+                        "session_id": session_id,
+                    }));
+                }
+                let capped = req.discount_paise.min(remaining_headroom);
+                if capped < req.discount_paise {
+                    tracing::info!(
+                        "FATM-10: Discount floor enforced for session {} — requested {}p capped to {}p (floor={}p, base={}p, current_discount={}p)",
+                        session_id, req.discount_paise, capped, floor, base_price, current_discount
+                    );
+                }
+                capped
+            } else {
+                req.discount_paise
+            }
+        }
+        Ok(None) => {
+            return Json(json!({
+                "error": "Session not found or not in an active/paused state",
+                "session_id": session_id,
+            }));
+        }
+        Err(e) => {
+            tracing::error!("FATM-10: DB error reading session for floor check: {}", e);
+            return Json(json!({ "error": "Database error checking discount floor" }));
+        }
+    };
+
     // Apply discount: UPDATE billing_sessions for active/paused sessions only
     let update_result = sqlx::query(
         "UPDATE billing_sessions
@@ -19565,7 +19665,7 @@ async fn apply_billing_discount(
              discount_reason = ?
          WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
     )
-    .bind(req.discount_paise)
+    .bind(effective_discount_paise)
     .bind(&req.reason_code)
     .bind(&session_id)
     .execute(&state.db)
@@ -19588,10 +19688,12 @@ async fn apply_billing_discount(
     // Insert audit_log entry
     let audit_details = json!({
         "session_id": session_id,
-        "discount_paise": req.discount_paise,
+        "discount_paise": effective_discount_paise,
+        "requested_discount_paise": req.discount_paise,
         "reason_code": req.reason_code,
         "manager_approved": manager_approved,
         "actor_id": claims.sub,
+        "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
     });
     accounting::log_admin_action(
         &state,
@@ -19605,7 +19707,7 @@ async fn apply_billing_discount(
     tracing::info!(
         actor_id = %claims.sub,
         session_id = %session_id,
-        discount_paise = req.discount_paise,
+        discount_paise = effective_discount_paise,
         manager_approved = manager_approved,
         reason_code = %req.reason_code,
         "STAFF-01: Discount applied"
@@ -19614,8 +19716,9 @@ async fn apply_billing_discount(
     Json(json!({
         "status": "ok",
         "session_id": session_id,
-        "discount_paise": req.discount_paise,
+        "discount_paise": effective_discount_paise,
         "manager_approved": manager_approved,
+        "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
     }))
 }
 
