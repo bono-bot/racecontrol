@@ -152,6 +152,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         // UX-02: OTP fallback display — customer polls this if WhatsApp delivery failed.
         // One-time token; consumed on first successful read.
         .route("/customer/otp-fallback/{token}", get(otp_fallback_handler))
+        // UX-08: Virtual queue — join, check status, leave (no auth required for walk-ins)
+        .route("/queue/join", post(queue_join_handler))
+        .route("/queue/status/{id}", get(queue_status_handler))
+        .route("/queue/{id}/leave", post(queue_leave_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -495,6 +499,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // STAFF-05: Shift handoff workflow
         .route("/staff/shift-handoff", post(shift_handoff_handler))
         .route("/staff/shift-briefing", get(shift_briefing_handler))
+        // UX-08: Virtual queue management (staff side)
+        .route("/queue", get(queue_list_handler))
+        .route("/queue/{id}/call", post(queue_call_handler))
+        .route("/queue/{id}/seat", post(queue_seat_handler))
         // Staff: Hotlap Events
         .route("/staff/events", post(create_hotlap_event).get(list_staff_events))
         .route("/staff/events/{id}", get(get_staff_event).put(update_hotlap_event))
@@ -20565,6 +20573,230 @@ async fn shift_briefing_handler(
         "active_sessions": active_sessions,
         "last_handoff": last_handoff,
     }))
+}
+
+// ─── UX-08: Virtual queue handlers ───────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct QueueJoinBody {
+    driver_name: String,
+    phone: Option<String>,
+    party_size: Option<i64>,
+    driver_id: Option<String>,
+}
+
+/// POST /queue/join — walk-in joins the virtual queue (no auth required)
+async fn queue_join_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<QueueJoinBody>,
+) -> Json<Value> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let party_size = body.party_size.unwrap_or(1).max(1);
+
+    // Insert the new queue entry
+    if let Err(e) = sqlx::query(
+        "INSERT INTO virtual_queue (id, driver_id, driver_name, phone, party_size, status)
+         VALUES (?, ?, ?, ?, ?, 'waiting')",
+    )
+    .bind(&id)
+    .bind(&body.driver_id)
+    .bind(&body.driver_name)
+    .bind(&body.phone)
+    .bind(party_size)
+    .execute(&state.db)
+    .await
+    {
+        return Json(json!({ "error": e.to_string() }));
+    }
+
+    // Compute position: count waiting entries joined before this one + 1
+    let position: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) + 1 FROM virtual_queue WHERE status = 'waiting' AND id != ? AND joined_at <= (SELECT joined_at FROM virtual_queue WHERE id = ?)",
+    )
+    .bind(&id)
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(1);
+
+    // Estimate wait: position * avg_session_minutes (30 min default) / 8 pods
+    let estimated_wait_minutes = (position * 30 + 7) / 8; // ceiling division
+
+    // Update with computed position and ETA
+    let _ = sqlx::query(
+        "UPDATE virtual_queue SET position = ?, estimated_wait_minutes = ? WHERE id = ?",
+    )
+    .bind(position)
+    .bind(estimated_wait_minutes)
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    Json(json!({
+        "queue_id": id,
+        "position": position,
+        "estimated_wait_minutes": estimated_wait_minutes,
+    }))
+}
+
+/// GET /queue/status/{id} — customer checks their queue position and status (no auth)
+async fn queue_status_handler(
+    State(state): State<Arc<AppState>>,
+    Path(queue_id): Path<String>,
+) -> Json<Value> {
+    let row = sqlx::query_as::<_, (String, String, i64, Option<String>, Option<String>)>(
+        "SELECT id, status, party_size, joined_at, called_at FROM virtual_queue WHERE id = ?",
+    )
+    .bind(&queue_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let row = match row {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "error": "Queue entry not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    let (id, status, party_size, joined_at, called_at) = row;
+
+    // Recompute live position from DB
+    let position: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) + 1 FROM virtual_queue WHERE status = 'waiting' AND id != ? AND joined_at <= (SELECT joined_at FROM virtual_queue WHERE id = ?)",
+    )
+    .bind(&id)
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(1);
+
+    let estimated_wait_minutes = if status == "waiting" {
+        Some((position * 30 + 7) / 8)
+    } else {
+        None
+    };
+
+    Json(json!({
+        "queue_id": id,
+        "status": status,
+        "party_size": party_size,
+        "position": if status == "waiting" { Some(position) } else { None },
+        "estimated_wait_minutes": estimated_wait_minutes,
+        "joined_at": joined_at,
+        "called_at": called_at,
+    }))
+}
+
+/// POST /queue/{id}/leave — customer removes themselves from queue (no auth)
+async fn queue_leave_handler(
+    State(state): State<Arc<AppState>>,
+    Path(queue_id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query(
+        "UPDATE virtual_queue SET status = 'left', updated_at = datetime('now') WHERE id = ? AND status IN ('waiting', 'called')",
+    )
+    .bind(&queue_id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({ "ok": true })),
+        Ok(_) => Json(json!({ "error": "Queue entry not found or already left/seated" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// GET /queue — staff sees all waiting + called entries ordered by join time
+async fn queue_list_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, Option<String>, String, Option<String>, i64, String, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, driver_id, driver_name, phone, party_size, status, joined_at, called_at, seated_at
+         FROM virtual_queue WHERE status IN ('waiting', 'called') ORDER BY joined_at ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, driver_id, driver_name, phone, party_size, status, joined_at, called_at, seated_at)| {
+            json!({
+                "queue_id": id,
+                "driver_id": driver_id,
+                "driver_name": driver_name,
+                "phone": phone,
+                "party_size": party_size,
+                "status": status,
+                "joined_at": joined_at,
+                "called_at": called_at,
+                "seated_at": seated_at,
+            })
+        })
+        .collect();
+
+    Json(json!({ "queue": entries, "count": entries.len() }))
+}
+
+/// POST /queue/{id}/call — staff calls the next customer (status: waiting → called)
+async fn queue_call_handler(
+    State(state): State<Arc<AppState>>,
+    Path(queue_id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query(
+        "UPDATE virtual_queue SET status = 'called', called_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = ? AND status = 'waiting'",
+    )
+    .bind(&queue_id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({ "ok": true })),
+        Ok(_) => Json(json!({ "error": "Queue entry not found or not in waiting status" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// POST /queue/{id}/seat — staff marks customer as seated/gaming (status: called → seated)
+async fn queue_seat_handler(
+    State(state): State<Arc<AppState>>,
+    Path(queue_id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query(
+        "UPDATE virtual_queue SET status = 'seated', seated_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = ? AND status = 'called'",
+    )
+    .bind(&queue_id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({ "ok": true })),
+        Ok(_) => Json(json!({ "error": "Queue entry not found or not in called status" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// Background task: expire 'called' entries that have been waiting > 10 minutes.
+/// Runs every 5 minutes. Spawned at server startup.
+pub async fn queue_expire_task(db: sqlx::SqlitePool) {
+    tracing::info!("QUEUE: expire task started");
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+    loop {
+        interval.tick().await;
+        match sqlx::query(
+            "UPDATE virtual_queue SET status = 'expired', updated_at = datetime('now')
+             WHERE status = 'called' AND called_at < datetime('now', '-10 minutes')",
+        )
+        .execute(&db)
+        .await
+        {
+            Ok(r) if r.rows_affected() > 0 => {
+                tracing::info!("QUEUE: expired {} stale 'called' entries", r.rows_affected());
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("QUEUE: expire task error: {}", e);
+            }
+        }
+    }
 }
 
 // ─── SEC-05: Self-topup guard tests ──────────────────────────────────────────

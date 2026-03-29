@@ -3408,6 +3408,35 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── Phase 260 UX-08: Virtual queue for walk-in customers ───────────────
+    // Customers join the queue via PWA/kiosk, see their position and ETA.
+    // Staff call the next customer and mark them seated.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS virtual_queue (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT,
+            driver_name TEXT,
+            phone TEXT,
+            party_size INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'waiting'
+                CHECK(status IN ('waiting','called','seated','left','expired')),
+            position INTEGER,
+            estimated_wait_minutes INTEGER,
+            joined_at TEXT DEFAULT (datetime('now')),
+            called_at TEXT,
+            seated_at TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_queue_status ON virtual_queue(status, joined_at)"
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

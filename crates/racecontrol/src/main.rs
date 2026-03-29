@@ -614,6 +614,12 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(racecontrol_crate::notification_outbox::notification_worker_task(notif_state));
     }
 
+    // UX-08: Spawn virtual queue expire task (expires 'called' entries after 10 minutes, runs every 5 min)
+    {
+        let queue_db = state.db.clone();
+        tokio::spawn(racecontrol_crate::api::routes::queue_expire_task(queue_db));
+    }
+
     // First-boot email test: verify Gmail OAuth works on initial setup
     maybe_send_first_boot_email(&state).await;
 
