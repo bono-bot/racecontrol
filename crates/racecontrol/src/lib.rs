@@ -26,6 +26,7 @@ pub mod config;
 pub mod crypto;
 pub mod data_collector;
 pub mod deploy;
+pub mod deploy_awareness;
 pub mod db;
 pub mod email_alerts;
 pub mod escalation;

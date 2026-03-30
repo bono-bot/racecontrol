@@ -524,6 +524,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/mesh/solutions/{id}", get(mesh_get_solution))
         .route("/mesh/incidents", get(mesh_list_incidents))
         .route("/mesh/stats", get(mesh_stats))
+        .route("/mesh/deploy-status", get(mesh_deploy_status))
         .route("/cameras/health", get(cameras_health_proxy))
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
@@ -20277,6 +20278,15 @@ async fn mesh_stats(
         "total_solutions": total,
         "by_status": status_map,
     }))
+}
+
+/// DEPLOY-AWARE-01: Fleet deployment status for Meshed Intelligence.
+/// Returns version consistency, stale builds, crash patterns, and deployment issues.
+async fn mesh_deploy_status(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let status = crate::deploy_awareness::get_fleet_deploy_status(&state).await;
+    Json(serde_json::to_value(status).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() })))
 }
 
 async fn mesh_promote_solution(

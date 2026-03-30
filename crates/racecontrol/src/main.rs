@@ -22,9 +22,10 @@ use rc_common::protocol::DashboardEvent;
 use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
     ac_camera, ac_server, action_queue, api, app_health_monitor, auth,
-    billing, bono_relay, cloud_sync, db, error_aggregator, fleet_health,
-    game_launcher, pod_healer, pod_monitor, pod_reservation, process_guard,
-    psychology, remote_terminal, scheduler, server_ops, udp_heartbeat, ws,
+    billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
+    fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
+    process_guard, psychology, remote_terminal, scheduler, server_ops,
+    udp_heartbeat, ws,
 };
 
 /// Auto-seed all 8 pods into the in-memory pods map on server startup.
@@ -883,6 +884,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
+
+    // Spawn deployment awareness (60s interval, fleet version consistency + crash detection)
+    deploy_awareness::spawn(state.clone());
 
     // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
     app_health_monitor::spawn(state.clone());
