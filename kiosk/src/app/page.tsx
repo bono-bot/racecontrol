@@ -175,6 +175,7 @@ export default function CustomerLanding() {
 
   const idleCount = sortedPods.filter((p) => p.status === "idle").length;
   const activeCount = sortedPods.filter((p) => p.status === "in_session").length;
+  const offlineCount = sortedPods.filter((p) => p.status === "offline" || p.status === "disabled").length;
 
   // ─── Render ───────────────────────────────────────────────────────────
 
@@ -202,12 +203,17 @@ export default function CustomerLanding() {
             <span className="text-white font-semibold">{activeCount}</span>
             <span className="text-rp-grey">Racing</span>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-zinc-500" />
+            <span className="text-white font-semibold">{offlineCount}</span>
+            <span className="text-rp-grey">Offline</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
           <Link
             href="/staff"
-            className="px-3 py-1.5 text-xs font-medium border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red transition-colors"
+            className="px-3 py-1.5 text-xs font-medium border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             Staff Login
           </Link>
@@ -300,15 +306,15 @@ export default function CustomerLanding() {
                   setErrorMsg("");
                   touch();
                 }}
-                className="rounded-xl border-2 border-rp-border bg-rp-card hover:border-rp-red hover:bg-rp-red/5 transition-all flex flex-col items-center justify-center gap-3 cursor-pointer group"
+                className="rounded-xl border-2 border-rp-border bg-rp-card active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-3 cursor-pointer focus-visible:border-rp-red"
               >
-                <span className="text-5xl font-bold text-white font-[family-name:var(--font-display)] group-hover:text-rp-red transition-colors">
+                <span className="text-5xl font-bold text-white font-[family-name:var(--font-display)]">
                   {pod.number}
                 </span>
                 <span className="px-3 py-1 rounded-full bg-green-500/15 text-green-400 text-xs font-semibold uppercase tracking-wider">
                   Available
                 </span>
-                <span className="text-rp-grey text-xs group-hover:text-white transition-colors">
+                <span className="text-rp-grey text-xs">
                   Tap to Enter PIN
                 </span>
               </button>
@@ -380,16 +386,7 @@ function ActivePodCard({
   gameInfo?: GameLaunchInfo;
   podLaps: Lap[];
 }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    if (!billing.started_at) return;
-    const start = new Date(billing.started_at).getTime();
-    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [billing.started_at]);
+  const remaining = billing.remaining_seconds ?? 0;
 
   const speed = telemetry?.speed_kmh ?? 0;
   const rpm = telemetry?.rpm ?? 0;
@@ -422,9 +419,12 @@ function ActivePodCard({
               {gameLabel(simType)}
             </span>
           )}
-          <span className="text-xs text-rp-grey font-[family-name:var(--font-mono-jb)]">
-            {formatTimer(elapsed)}
-          </span>
+          <div className="flex flex-col items-end">
+            <span className="text-[0.55rem] text-rp-grey uppercase tracking-wider leading-none">Remaining</span>
+            <span className={`text-xs font-[family-name:var(--font-mono-jb)] ${remaining < 300 ? "text-rp-red animate-pulse" : "text-rp-grey"}`}>
+              {formatTimer(remaining)}
+            </span>
+          </div>
         </div>
       </div>
 
