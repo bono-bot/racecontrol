@@ -6,14 +6,15 @@
 #   server: target SSH host (default: ADMIN@192.168.31.23)
 #
 # Pipeline:
-#   [1/8] Build locally (npm run build)
-#   [2/8] Verify build output (server.js + .next/static + page count)
-#   [3/8] Package (standalone + static → zip)
-#   [4/8] Pre-deploy health snapshot (capture current pages_before)
-#   [5/8] Upload & Deploy (SCP + SSH: stop → backup → extract → start)
-#   [6/8] Health check (refuse degraded deploys)
-#   [7/8] Log deploy result to racecontrol
-#   [8/8] Rollback if health check failed
+#   [1/9] Pre-build env var audit + Build locally (npm run build)
+#   [2/9] Verify build output (server.js + .next/static + page count)
+#   [3/9] Package (standalone + static → zip)
+#   [4/9] Pre-deploy health snapshot (capture current pages_before)
+#   [5/9] Upload & Deploy (SCP + SSH: stop → backup → extract → start)
+#   [6/9] Health check (refuse degraded deploys)
+#   [7/9] Log deploy result to racecontrol
+#   [8/9] Rollback if health check failed
+#   [9/9] Static file smoke test (curl _next/static/css/ → HTTP 200)
 #
 # Standing rule: NEVER deploy without this script. Manual deploys cause
 # stale builds with missing pages (happened 3+ times across all apps).
@@ -152,17 +153,22 @@ check_health() {
 }
 
 # =========================================================================
-# [1/8] Build
+# [1/9] Pre-build env var audit + Build
 # =========================================================================
-echo "[1/8] Building $APP..."
+echo "[1/9] Pre-build env var audit..."
+SCRIPT_DIR_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR_DEPLOY/check-frontend-env.sh" "$SRC"
+echo "  Env var audit passed."
+echo ""
+echo "[1/9] Building $APP..."
 cd "$SRC"
 npm run build
 echo "  Build complete."
 
 # =========================================================================
-# [2/8] Verify build output
+# [2/9] Verify build output
 # =========================================================================
-echo "[2/8] Verifying build..."
+echo "[2/9] Verifying build..."
 STANDALONE="$SRC/.next/standalone"
 STATIC="$SRC/.next/static"
 
@@ -186,9 +192,9 @@ if [ "$PAGE_COUNT" -lt 5 ]; then
 fi
 
 # =========================================================================
-# [3/8] Package
+# [3/9] Package
 # =========================================================================
-echo "[3/8] Packaging..."
+echo "[3/9] Packaging..."
 
 # Copy static into standalone (Next.js standalone requirement)
 rm -rf "$STANDALONE/.next/static"
@@ -209,9 +215,9 @@ ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "  Package: $ZIP_NAME ($ZIP_SIZE)"
 
 # =========================================================================
-# [4/8] Pre-deploy health snapshot (curl /api/health for pages_before)
+# [4/9] Pre-deploy health snapshot (curl /api/health for pages_before)
 # =========================================================================
-echo "[4/8] Pre-deploy health snapshot..."
+echo "[4/9] Pre-deploy health snapshot..."
 check_health
 
 if [ -n "$HEALTH_RESPONSE" ]; then
@@ -227,9 +233,9 @@ else
 fi
 
 # =========================================================================
-# [5/8] Upload & Deploy (with backup)
+# [5/9] Upload & Deploy (with backup)
 # =========================================================================
-echo "[5/8] Uploading and deploying..."
+echo "[5/9] Uploading and deploying..."
 
 # Upload via SCP
 echo "  SCP upload..."
@@ -278,9 +284,9 @@ echo "  Waiting for app to start..."
 sleep 5
 
 # =========================================================================
-# [6/8] Health check — refuse degraded deploys (curl /api/health gate)
+# [6/9] Health check — refuse degraded deploys (curl /api/health gate)
 # =========================================================================
-echo "[6/8] Health verification..."
+echo "[6/9] Health verification..."
 
 HEALTH_OK=false
 for ATTEMPT in 1 2 3; do
@@ -325,6 +331,38 @@ if [ "$HEALTH_OK" = true ]; then
   ERROR=""
   echo ""
   echo "  HEALTH CHECK PASSED: $SERVICE_NAME on :$PORT — all pages verified"
+
+  # =========================================================================
+  # [9/9] Static file smoke test — verifies .next/static was copied into standalone
+  # =========================================================================
+  echo ""
+  echo "[9/9] Static file smoke test..."
+  # Determine the correct static URL for this app
+  case "$APP" in
+    kiosk) STATIC_BASE_PATH="/kiosk" ;;
+    admin) STATIC_BASE_PATH="/admin" ;;
+    web)   STATIC_BASE_PATH="" ;;
+  esac
+
+  # Find the first CSS file that was built
+  FIRST_CSS=$(ls "$SRC/.next/static/css/"*.css 2>/dev/null | head -1 | xargs -I{} basename {} 2>/dev/null || echo "")
+
+  if [ -z "$FIRST_CSS" ]; then
+    echo "  WARNING: No CSS file found in .next/static/css/ — skipping static smoke test"
+  else
+    STATIC_URL="http://192.168.31.23:$PORT${STATIC_BASE_PATH}/_next/static/css/$FIRST_CSS"
+    echo "  Testing: $STATIC_URL"
+    STATIC_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$STATIC_URL" 2>/dev/null || echo "000")
+    if [ "$STATIC_HTTP_CODE" = "200" ]; then
+      echo "  PASS: Static file returned HTTP $STATIC_HTTP_CODE"
+    else
+      echo "  FAIL: Static file returned HTTP $STATIC_HTTP_CODE (expected 200)"
+      echo "  Static files not served correctly — deploy may have succeeded but CSS is broken"
+      echo "  Manual fix: cp -r $SRC/.next/static $SRC/.next/standalone/.next/static"
+      DEPLOY_RESULT="degraded"
+      ERROR="static file smoke test failed: $STATIC_URL returned $STATIC_HTTP_CODE"
+    fi
+  fi
 else
   DEPLOY_RESULT="failed"
   if [ -z "$HEALTH_RESPONSE" ]; then
@@ -337,16 +375,16 @@ else
 fi
 
 # =========================================================================
-# [7/8] Log deploy result to racecontrol
+# [7/9] Log deploy result to racecontrol
 # =========================================================================
-echo "[7/8] Logging deploy result..."
+echo "[7/9] Logging deploy result..."
 log_deploy "$DEPLOY_RESULT" "$ERROR"
 
 # =========================================================================
-# [8/8] Rollback if health check failed
+# [8/9] Rollback if health check failed
 # =========================================================================
 if [ "$DEPLOY_RESULT" = "failed" ]; then
-  echo "[8/8] ROLLING BACK to previous version..."
+  echo "[8/9] ROLLING BACK to previous version..."
 
   # Check if backup exists
   BACKUP_EXISTS=$(ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -Command \"Test-Path 'C:\\RacingPoint\\$APP-backup.zip'\"" 2>/dev/null || echo "False")
@@ -393,8 +431,8 @@ if [ "$DEPLOY_RESULT" = "failed" ]; then
 
   exit 1
 else
-  echo "[8/8] No rollback needed."
+  echo "[8/9] No rollback needed."
   echo ""
-  echo "=== DEPLOY SUCCESS === $APP ($SERVICE_NAME) on :$PORT — all pages verified"
+  echo "=== DEPLOY SUCCESS === $APP ($SERVICE_NAME) on :$PORT — health + static serving verified"
   exit 0
 fi
