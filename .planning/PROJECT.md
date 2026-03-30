@@ -596,6 +596,53 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - Must preserve all existing API integrations (backend unchanged)
 - 13 existing components to upgrade, 25+ pages across web + kiosk apps
 
+## Current Milestone: v31.0 Autonomous Survival System — 3-Layer MI Independence
+
+**Goal:** Make MI truly autonomous by separating diagnosis and recovery across 3 independent survival layers, each with its own Unified MMA Protocol via OpenRouter, so no single system failure can kill the healing brain. Prevents every future 2am "pods are down" scenario.
+
+**Target features:**
+
+**Layer 1 — Smart Watchdog (per-pod, Windows service):**
+- Binary validation before launch (size, PE header, SHA256 against server manifest)
+- Rollback to `rc-agent-prev.exe` if new binary crashes in <30s
+- Unified MMA Protocol diagnosis when restart loop detected (5 top-tier OpenRouter models, N-iteration consensus)
+- Direct HTTP reporting to server (bypasses dead rc-agent)
+- Auto-download correct binary from server if local is corrupted
+- Runs independently of rc-agent as a Windows service — survives everything
+
+**Layer 2 — Server Fleet Healer (inside racecontrol):**
+- Watches all pods — SSH into dark pods, collect diagnostics, Unified MMA Protocol root cause analysis
+- Fleet-wide pattern detection (same failure on 3+ pods = systemic issue, different response)
+- Remote binary push + validated restart with session awareness
+- Autonomous fix execution for known failure patterns from Knowledge Base
+
+**Layer 3 — External Guardian (James machine / Bono VPS):**
+- Watches server itself — if racecontrol dies, restart it via SSH/schtasks
+- Unified MMA Protocol diagnosis for server-level failures
+- WhatsApp alerts when everything else fails
+- Can recreate schtasks, restart services, push binaries to server
+
+**Unified MMA Protocol (extends Unified Protocol v3.1):**
+- Incorporates ALL 4 layers of Unified Protocol v3.1 (Quality Gate, E2E, Standing Rules, Multi-Model AI Audit)
+- OpenRouter management key (API Key: "Extra Usage Back Up")
+- 5 unique top-tier models per diagnosis iteration with N-iteration consensus
+- Diagnosis → Verification → Fix → Re-verify cycle at every layer (not just diagnosis)
+- Testing phase (30 days): top-tier models to collect training data
+- Post-30-days: migrate to cheaper/efficient models after ML data analysis
+- SHA256 binary manifest for integrity verification at all layers
+- Cross-layer communication: Watchdog → Server direct HTTP (bypasses rc-agent)
+
+**Key architectural change:** MI moves from "brain inside the body" (dies when rc-agent dies) to "3-layer independent survival" (each layer survives the layer below it dying).
+
+**Constraints:**
+- Rust/Axum stack — rc-watchdog is already a Windows service (v17.1), extend it
+- OpenRouter API key via env var on all machines, NEVER in code or git
+- Must not break existing billing, lock screen, session management, or recovery systems
+- Pod 8 canary-first for all watchdog changes
+- Budget awareness: top-tier models during 30-day training, cheaper models after
+- Backward compatible with existing MI (v26.0) — extend, don't replace
+- Binary manifest must be signed/verified to prevent corrupted download attacks
+
 ## Future Milestone Candidates
 
 - HUD overlay with live sector times and telemetry
@@ -609,4 +656,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-21 after milestone v15.0 AntiCheat Compatibility started*
+*Last updated: 2026-03-30 after milestone v31.0 Autonomous Survival System started*
