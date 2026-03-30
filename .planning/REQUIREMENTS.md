@@ -95,13 +95,62 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| SF-01 | Phase 267 | Pending |
+| SF-02 | Phase 267 | Pending |
+| SF-03 | Phase 267 | Pending |
+| SF-04 | Phase 267 | Pending |
+| SF-05 | Phase 267 | Pending |
+| MP-01 | Phase 268 | Pending |
+| MP-02 | Phase 268 | Pending |
+| MP-03 | Phase 268 | Pending |
+| MP-04 | Phase 268 | Pending |
+| MP-05 | Phase 268 | Pending |
+| MP-06 | Phase 268 | Pending |
+| MP-07 | Phase 268 | Pending |
+| MP-08 | Phase 268 | Pending |
+| MP-09 | Phase 268 | Pending |
+| SW-01 | Phase 269 | Pending |
+| SW-02 | Phase 269 | Pending |
+| SW-03 | Phase 269 | Pending |
+| SW-04 | Phase 269 | Pending |
+| SW-05 | Phase 269 | Pending |
+| SW-06 | Phase 269 | Pending |
+| SW-07 | Phase 269 | Pending |
+| SW-08 | Phase 269 | Pending |
+| SW-09 | Phase 269 | Pending |
+| SW-10 | Phase 269 | Pending |
+| SW-11 | Phase 269 | Pending |
+| SW-12 | Phase 269 | Pending |
+| SW-13 | Phase 269 | Pending |
+| SW-14 | Phase 269 | Pending |
+| FH-01 | Phase 270 | Pending |
+| FH-02 | Phase 270 | Pending |
+| FH-03 | Phase 270 | Pending |
+| FH-04 | Phase 270 | Pending |
+| FH-05 | Phase 270 | Pending |
+| FH-06 | Phase 270 | Pending |
+| FH-07 | Phase 270 | Pending |
+| FH-08 | Phase 270 | Pending |
+| FH-09 | Phase 270 | Pending |
+| FH-10 | Phase 270 | Pending |
+| FH-11 | Phase 270 | Pending |
+| FH-12 | Phase 270 | Pending |
+| EG-01 | Phase 271 | Pending |
+| EG-02 | Phase 271 | Pending |
+| EG-03 | Phase 271 | Pending |
+| EG-04 | Phase 271 | Pending |
+| EG-05 | Phase 271 | Pending |
+| EG-06 | Phase 271 | Pending |
+| EG-07 | Phase 271 | Pending |
+| EG-08 | Phase 271 | Pending |
+| EG-09 | Phase 271 | Pending |
+| EG-10 | Phase 271 | Pending |
 
 **Coverage:**
 - v31.0 requirements: 45 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 45
+- Mapped to phases: 45
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-03-30 after initial definition*
+*Last updated: 2026-03-30 — traceability populated after roadmap creation*

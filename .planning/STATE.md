@@ -4,10 +4,10 @@ milestone: v31.0
 milestone_name: Autonomous Survival System
 status: planning
 stopped_at: null
-last_updated: "2026-03-30T18:00:00.000Z"
+last_updated: "2026-03-30"
 last_activity: 2026-03-30
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,10 +16,10 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-30 — Milestone v31.0 started
+Phase: 267 of 272 (Survival Foundation)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-30 — ROADMAP-v31.md created, 45/45 requirements mapped across phases 267-272
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -27,78 +27,54 @@ Progress: [░░░░░░░░░░] 0%
 
 **Milestone:** v31.0 Autonomous Survival System — 3-Layer MI Independence
 **Core value:** No single system failure can kill the healing brain — 3 independent survival layers with Unified MMA Protocol
-**Phase range:** 267+
-**Roadmap:** .planning/ROADMAP-v31.md (pending)
-**Requirements:** .planning/REQUIREMENTS.md (pending)
+**Phase range:** 267-272
+**Roadmap:** .planning/ROADMAP-v31.md
+**Requirements:** .planning/REQUIREMENTS.md
 
 See: .planning/PROJECT.md (project context)
 See: UNIFIED-PROTOCOL.md (operations protocol v3.1)
-See: .planning/ROADMAP-v30.md (this milestone's roadmap)
-
-## Performance Metrics
-
-- Requirements defined: 30
-- Phases planned: 6
-- Plans written: 7
-- Plans complete: 6
-- Ship gate status: Not started
 
 ## Phase Index
 
 | # | Phase | Requirements | Status |
 |---|-------|-------------|--------|
-| 261 | Design System Foundation | DS-01, DS-02, DS-03, DS-04, DS-05, DS-06, DS-07 | Complete |
-| 262 | Deploy Pipeline Hardening | DQ-01, DQ-02 | Complete |
-| 263 | Web Primitive Components | SC-01..SC-10, LP-01, LP-02 | Not started |
-| 264 | Web Dashboard Pages | WD-01..WD-08 | Not started |
-| 265 | Kiosk Pages | KS-01..KS-05 | Not started |
-| 266 | Quality Gate & Audit | DQ-03, DQ-04 | Not started |
-| Phase 263 P01 | 3min | 2 tasks | 4 files |
-| Phase 263 P02 | 4min | 2 tasks | 6 files |
-| Phase 264 P04 | 3min | 2 tasks | 7 files |
-| Phase 264 P02 | 3m | 2 tasks | 2 files |
-| Phase 265 P02 | 8m | 2 tasks | 2 files |
+| 267 | Survival Foundation | SF-01..SF-05 | Not started |
+| 268 | Unified MMA Protocol | MP-01..MP-09 | Not started |
+| 269 | Layer 1 Smart Watchdog | SW-01..SW-14 | Not started |
+| 270 | Layer 2 Server Fleet Healer | FH-01..FH-12 | Not started |
+| 271 | Layer 3 External Guardian | EG-01..EG-10 | Not started |
+| 272 | Integration & MMA Audit | (cross-layer gate) | Not started |
 
 ## Accumulated Context
 
-### Key Architectural Decisions (from research)
+### Key Architectural Decisions
 
-- **Token divergence must be fixed first** (Phase 261): web has `rp-red-light`, kiosk has `rp-red-hover` for the same value. All component work blocks on `packages/shared-tokens/tokens.css` existing first.
-- **No shared component package** (from ARCHITECTURE.md): Web is mouse-driven/scrollable; kiosk is touch-driven/fixed-screen. Shared tokens + shared types only. Components are app-local.
-- **motion@12, NOT framer-motion**: Same codebase, different package name. Import from `motion/react`.
-- **tw-animate-css, NOT tailwindcss-animate**: `tailwindcss-animate` uses the v3 plugin API — removed in Tailwind v4.
-- **TanStack Table in web only**: Kiosk leaderboard uses `AnimatePresence` + `layout` for animated list, not a sortable data grid. Do NOT add `@tanstack/react-table` to kiosk.
-- **Deploy pipeline MUST be hardened before pages ship** (Phase 262): Static file 404 has already burned this codebase once (2026-03-25). The copy step and smoke test must be in place before any redesigned page reaches the server.
-- **LeaderboardTable is highest risk**: WS reconnect logic (cleanup on unmount), SSR boundary (`window is not defined` if WS opened server-side), auth boundary (leaderboard-display must NOT be behind AuthGate). Extract WS logic into a `useRef`+`useEffect` hook with cleanup.
-- **Kiosk touch verification on real hardware** (Phase 265, 266): Browser devtools touch simulation does not accurately reproduce hover state on a physical touchscreen. Must test on an actual pod before marking kiosk phases shipped.
-- **React Compiler must NOT be enabled**: TanStack Table breaks with React 19 auto-memoization (issue #5567). Leave `experimental.reactCompiler` disabled in `web/next.config.ts`.
+- **Build order is strict:** Foundation (267) → MMA Protocol (268) → Layer 1 (269) and Layer 2 (270) and Layer 3 (271) in parallel → Integration (272). Layer 1/2/3 all depend on 267 and 268.
+- **OpenRouter client trait in rc-common only** — trait definition, no reqwest dependency. Implementation lives in higher layers to avoid circular deps.
+- **rc-watchdog has NO tokio runtime** — Phase 269 must create Runtime::new() for async OpenRouter calls. Never use reqwest::blocking in the main watchdog poll loop.
+- **rc-guardian is a new Linux crate** — separate binary for Bono VPS, NOT an extension of rc-watchdog. Target: x86_64-unknown-linux-musl or gnu.
+- **goblin crate with `features = ["pe"]` only** — do not enable default features (avoids pulling in Mach-O/ELF parsers).
+- **HEAL_IN_PROGRESS sentinel** defined in rc-common (Phase 267) BEFORE any healing logic in later phases.
+- **Layer 2 SSH diagnostic runner** is the prerequisite for ALL autonomous remote repair (FH-01 must ship before FH-05).
 
 ### Key Risks From Research
 
-- NEXT_PUBLIC_ env vars baked at build time — audit before every build, verify from a non-server machine
-- Standalone deploy requires `cp -r .next/static .next/standalone/.next/static` — NOT automatic
-- `outputFileTracingRoot: path.join(__dirname)` must be in both `next.config.ts` files — never remove it
-- Kiosk `basePath: "/kiosk"` — all hrefs in kiosk components must be root-relative (no `/kiosk/...` hardcoding)
-- Recharts components need `dynamic` import with `ssr: false` — any new chart must follow this pattern
-- Deprecated orange `#FF4400` must not appear in any new component
+- Windows SYSTEM context (Session 0) HTTP: certificate validation may fail for watchdog direct reporting (SW-06) — test on real hardware
+- MAINTENANCE_MODE lockout: watchdog must NOT write it during MMA cycle; only read and escalate to Layer 2
+- Rollback loop: depth counter in rollback-state.json required before rollback code ships (SW-04 before SW-03)
+- Split-brain guardians: GUARDIAN_ACTING via comms-link WS must be implemented before EG-03 (restart) ships
+- Budget persistence: budget_state.json must be written on every OpenRouter call, not just at session end
 
-### Deferred (Out of Scope for v30.0)
+### Blockers/Concerns
 
-- Command palette (Ctrl+K) for power users
-- QR code telemetry sharing
-- Animated route transitions (full-page)
-- Light mode toggle
-- Ambient race-mode background on kiosk (CSS animation when most pods active)
-- Sim game logo assets (requires asset sourcing)
-- Revenue sparkline in billing header
+None yet. Research is complete, architecture is clear.
 
 ## Session Continuity
 
-Stopped at: Completed 265-02-PLAN.md
-Next action: Continue Phase 263 (Web Primitive Components) — Plan 263-02
+Stopped at: Roadmap and STATE initialized. All 45 requirements mapped.
+Next action: Run /gsd:plan-phase 267 to begin Survival Foundation planning.
 
 Ship gate reminder (Unified Protocol v3.1):
-
 1. Quality Gate: `cd comms-link && COMMS_PSK="..." bash test/run-all.sh`
 2. E2E: live exec + chain + health round-trip (REALTIME mode)
 3. Standing Rules: auto-push, Bono synced, watchdog, rules categorized
