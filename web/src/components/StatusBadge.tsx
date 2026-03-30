@@ -1,3 +1,5 @@
+"use client";
+
 // Label overrides for statuses whose raw value is not user-friendly
 const STATUS_LABELS: Record<string, string> = {
   waiting_for_game: "Loading...",
@@ -15,78 +17,121 @@ const PULSING = new Set([
   "running",
   "launching",
   "loading",
-  "stopping",
   "waiting_for_game",
 ]);
 
-const COLORS: Record<string, string> = {
-  // Pod statuses
-  offline: "bg-rp-card text-neutral-400",
-  idle: "bg-emerald-900/50 text-emerald-400",
-  in_session: "bg-rp-red/20 text-rp-red",
-  connected: "bg-emerald-900/50 text-emerald-400",
-  disconnected: "bg-red-900/50 text-red-400",
-  finished: "bg-blue-900/50 text-blue-400",
+// Racing flag color system (SC-01)
+// green  = idle, connected, active, running
+// red    = in_session, error, cancelled, cancelled_no_playable, disconnected
+// amber  = pending, stopping, ended_early
+// grey   = offline, completed
+// blue   = launching, loading, waiting_for_game, maintenance, paused_manual, finished
+// orange = paused_disconnect
+// yellow = paused_game_pause
 
-  // Game states (6 variants)
-  launching: "bg-blue-900/50 text-blue-400",
-  loading: "bg-blue-900/50 text-blue-400",
-  running: "bg-emerald-900/50 text-emerald-400",
-  stopping: "bg-amber-900/50 text-amber-400",
-  error: "bg-red-900/50 text-red-400",
+interface FlagStyle {
+  bg: string;
+  text: string;
+  dot: string;
+}
 
-  // Billing session statuses (10 variants)
-  pending: "bg-gray-900/50 text-gray-400",
-  waiting_for_game: "bg-purple-900/50 text-purple-400",
-  active: "bg-emerald-900/50 text-emerald-400",
-  paused_manual: "bg-blue-900/50 text-blue-400",
-  paused_disconnect: "bg-orange-900/50 text-orange-400",
-  paused_game_pause: "bg-yellow-900/50 text-yellow-400",
-  completed: "bg-gray-900/50 text-gray-400",
-  ended_early: "bg-amber-900/50 text-amber-400",
-  cancelled: "bg-red-900/50 text-red-400",
-  cancelled_no_playable: "bg-red-900/50 text-red-400",
+const FLAG_STYLES: Record<string, FlagStyle> = {
+  green: {
+    bg: "bg-rp-green/20",
+    text: "text-rp-green",
+    dot: "bg-rp-green",
+  },
+  red: {
+    bg: "bg-rp-red/20",
+    text: "text-rp-red",
+    dot: "bg-rp-red",
+  },
+  amber: {
+    bg: "bg-rp-yellow/20",
+    text: "text-rp-yellow",
+    dot: "bg-rp-yellow",
+  },
+  grey: {
+    bg: "bg-rp-card",
+    text: "text-neutral-400",
+    dot: "bg-rp-grey",
+  },
+  blue: {
+    bg: "bg-blue-900/50",
+    text: "text-blue-400",
+    dot: "bg-blue-400",
+  },
+  orange: {
+    bg: "bg-orange-900/50",
+    text: "text-orange-400",
+    dot: "bg-orange-400",
+  },
+  yellow: {
+    bg: "bg-rp-yellow/20",
+    text: "text-rp-yellow",
+    dot: "bg-rp-yellow",
+  },
+  purple: {
+    bg: "bg-purple-900/50",
+    text: "text-purple-400",
+    dot: "bg-purple-400",
+  },
 };
 
-function dotColor(status: string): string {
-  if (status === "active" || status === "running" || status === "in_session") {
-    return "bg-emerald-400";
-  }
-  if (status === "launching" || status === "loading" || status === "waiting_for_game") {
-    return "bg-purple-400 animate-pulse";
-  }
-  if (status === "stopping") {
-    return "bg-amber-400";
-  }
-  if (status === "error" || status === "disconnected" || status === "cancelled" || status === "cancelled_no_playable") {
-    return "bg-red-400";
-  }
-  if (status === "paused_disconnect") {
-    return "bg-orange-400";
-  }
-  if (status === "paused_game_pause") {
-    return "bg-yellow-400";
-  }
-  if (status === "paused_manual") {
-    return "bg-blue-400";
-  }
-  if (status === "idle" || status === "connected") {
-    return "bg-emerald-400";
-  }
-  return "bg-rp-grey";
+const STATUS_TO_FLAG: Record<string, string> = {
+  // Green: ready/active states
+  idle: "green",
+  connected: "green",
+  active: "green",
+  running: "green",
+
+  // Red: fault/error states
+  in_session: "red",
+  error: "red",
+  cancelled: "red",
+  cancelled_no_playable: "red",
+  disconnected: "red",
+
+  // Amber: transitional states
+  pending: "amber",
+  stopping: "amber",
+  ended_early: "amber",
+
+  // Grey: inactive states
+  offline: "grey",
+  completed: "grey",
+
+  // Blue: loading/maintenance states
+  launching: "blue",
+  loading: "blue",
+  waiting_for_game: "blue",
+  maintenance: "blue",
+  paused_manual: "blue",
+  finished: "blue",
+
+  // Orange: disconnect pause
+  paused_disconnect: "orange",
+
+  // Yellow: game pause
+  paused_game_pause: "yellow",
+};
+
+function getFlagStyle(status: string): FlagStyle {
+  const flag = STATUS_TO_FLAG[status] ?? "grey";
+  return FLAG_STYLES[flag] ?? FLAG_STYLES.grey;
 }
 
 export default function StatusBadge({ status }: { status: string }) {
-  const colorClass = COLORS[status] || "bg-rp-card text-neutral-400";
+  const style = getFlagStyle(status);
   const label = STATUS_LABELS[status] || status.replace(/_/g, " ");
   const isPulsing = PULSING.has(status);
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${style.bg} ${style.text}`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${dotColor(status)} ${isPulsing ? "animate-pulse" : ""}`}
+        className={`w-1.5 h-1.5 rounded-full ${style.dot} ${isPulsing ? "animate-pulse" : ""}`}
       />
       {label}
     </span>
