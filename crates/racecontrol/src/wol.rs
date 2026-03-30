@@ -10,6 +10,12 @@ const POD_AGENT_PORT: u16 = 8090;
 /// Send a Wake-on-LAN magic packet to the given MAC address.
 ///
 /// MAC can be in format "AA:BB:CC:DD:EE:FF" or "AA-BB-CC-DD-EE-FF".
+///
+/// SF-05: WoL runs on the server — it cannot read pod sentinel files directly.
+/// The caller (pod_monitor) is responsible for verifying no active heal lease exists
+/// before calling this function.
+/// TODO(267-02): Callers should check state.lease_manager.has_active_lease(&pod_id)
+/// before calling send_wol to avoid waking pods that are under active heal control.
 pub async fn send_wol(mac: &str) -> Result<()> {
     let mac_bytes = parse_mac(mac)?;
 

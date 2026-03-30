@@ -344,6 +344,30 @@ pub fn relaunch_self() {
         log_event(&format!("RESTART_CAP_REACHED: {} restarts exhausted, reboot required", count));
         return;
     }
+
+    // SF-05: Check survival sentinels before self-restart.
+    // Yield to the active healing layer — do not self-restart while healing is in progress.
+    #[cfg(not(test))]
+    {
+        use rc_common::survival_types::{any_sentinel_active, check_sentinel, SentinelKind};
+        if any_sentinel_active() {
+            if let Some(sentinel) = check_sentinel(SentinelKind::HealInProgress) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    layer = ?sentinel.layer,
+                    "HEAL_IN_PROGRESS active — deferring self-restart (SF-05)");
+            }
+            if let Some(sentinel) = check_sentinel(SentinelKind::OtaDeploying) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    "OTA_DEPLOYING active — deferring self-restart (SF-05)");
+            }
+            // Undo the restart count increment since we're not restarting
+            RESTART_COUNT.fetch_sub(1, Ordering::SeqCst);
+            return;
+        }
+    }
+
     if check_sentry_alive() {
         // SELF-01: Sentry is alive — write sentinel and exit cleanly.
         // rc-sentry's watchdog will detect rc-agent is dead, see the GRACEFUL_RELAUNCH
