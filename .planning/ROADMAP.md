@@ -64,7 +64,12 @@ Plans:
   4. LeaderboardTable (SC-08) renders with F1-style rank, driver, lap time, gap, and PB row highlighting; WS reconnect logic lives in a `useRef`+`useEffect` hook with cleanup (`return () => ws.close()`) and minimum 1s reconnect delay; `AnimatePresence` with `layout` prop handles row reordering
   5. LiveDataTable (SC-07) is built on `@tanstack/react-table` with sticky header, sort, and row select — `@tanstack/react-table` is in `web/package.json` only, NOT in `kiosk/package.json`; React Compiler is NOT enabled in `web/next.config.ts`
   6. Toast system (SC-09) fires feedback on user actions; loading skeletons (SC-10) and empty states replace all plain-text "Loading..." and "No data" strings across all data-fetching components
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 263-01-PLAN.md — StatusBadge racing flag redesign + MetricCard (new) + Toast system + Skeleton/EmptyState
+- [ ] 263-02-PLAN.md — PodCard F1 timing row + CountdownTimer radial SVG + PinPad (extracted) + AppShell/Sidebar redesign
+- [ ] 263-03-PLAN.md — LiveDataTable (TanStack Table, web-only) + LeaderboardTable (WS reconnect + AnimatePresence)
+- [ ] 263-04-PLAN.md — Login page redesign: PinPad integration + motorsport aesthetic + auth error states
 **UI hint**: yes
 
 ### Phase 264: Web Dashboard Pages
@@ -122,7 +127,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 261. Design System Foundation | 0/3 | Not started | - |
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
-| 263. Web Primitive Components | 0/TBD | Not started | - |
+| 263. Web Primitive Components | 0/4 | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
 | 265. Kiosk Pages | 0/3 | Not started | - |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |
