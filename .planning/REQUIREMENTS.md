@@ -35,8 +35,8 @@
 - [ ] **WD-04**: Billing page with wallet management, top-up, session history
 - [ ] **WD-05**: Fleet Health page with pod grid, status indicators, health timeline
 - [ ] **WD-06**: Leaderboards page with F1-style lap time table, PB/session-best highlights
-- [ ] **WD-07**: Settings page with venue configuration, theme preview
-- [ ] **WD-08**: All remaining pages updated to use new AppShell + design tokens
+- [x] **WD-07**: Settings page with venue configuration, theme preview
+- [x] **WD-08**: All remaining pages updated to use new AppShell + design tokens
 
 ## Kiosk (KS)
 - [ ] **KS-01**: Kiosk home with touch-optimized pod selection grid (44px+ touch targets)

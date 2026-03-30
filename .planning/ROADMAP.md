@@ -67,8 +67,8 @@ Plans:
 **Plans**: 4 plans
 Plans:
 - [x] 263-01-PLAN.md — StatusBadge racing flag redesign + MetricCard (new) + Toast system + Skeleton/EmptyState
-- [ ] 263-02-PLAN.md — PodCard F1 timing row + CountdownTimer radial SVG + PinPad (extracted) + AppShell/Sidebar redesign
-- [ ] 263-03-PLAN.md — LiveDataTable (TanStack Table, web-only) + LeaderboardTable (WS reconnect + AnimatePresence)
+- [x] 263-02-PLAN.md — PodCard F1 timing row + CountdownTimer radial SVG + PinPad (extracted) + AppShell/Sidebar redesign
+- [x] 263-03-PLAN.md — LiveDataTable (TanStack Table, web-only) + LeaderboardTable (WS reconnect + AnimatePresence)
 - [ ] 263-04-PLAN.md — Login page redesign: PinPad integration + motorsport aesthetic + auth error states
 **UI hint**: yes
 
@@ -84,10 +84,10 @@ Plans:
   5. All web pages verified from James's browser at `.23:3200` (not from the server itself) — WebSocket data flows, `NEXT_PUBLIC_WS_URL` does not resolve to localhost in the bundle; all Recharts chart components use `dynamic` import with `ssr: false`
 **Plans**: 4 plans
 Plans:
-- [ ] 264-01-PLAN.md � Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
+- [x] 264-01-PLAN.md � Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
 - [ ] 264-02-PLAN.md � Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
-- [ ] 264-03-PLAN.md � Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
-- [ ] 264-04-PLAN.md � Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
+- [x] 264-03-PLAN.md � Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
+- [x] 264-04-PLAN.md � Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
 **UI hint**: yes
 
 ### Phase 265: Kiosk Pages
@@ -127,7 +127,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 261. Design System Foundation | 3/3 | Complete   | 2026-03-30 |
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
-| 263. Web Primitive Components | 1/4 | In Progress|  |
-| 264. Web Dashboard Pages | 0/TBD | Not started | - |
+| 263. Web Primitive Components | 3/4 | In Progress|  |
+| 264. Web Dashboard Pages | 3/4 | In Progress|  |
 | 265. Kiosk Pages | 0/3 | Not started | - |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |
