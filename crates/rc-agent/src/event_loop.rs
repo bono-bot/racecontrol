@@ -1347,8 +1347,16 @@ pub async fn run(
             }
 
             // ─── v29.0: Extended Hardware Telemetry (60s) ──────────────────────
+            // MMA MITIGATION (4/5 consensus): Skip GPU-heavy nvidia-smi during active
+            // gaming sessions to prevent 50-200ms frame drops. Non-GPU metrics still collected.
             _ = conn.hw_telemetry_interval.tick() => {
-                let telem = crate::predictive_maintenance::collect_hardware_telemetry();
+                let gaming_active = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed)
+                    && state.heartbeat_status.game_running.load(std::sync::atomic::Ordering::Relaxed);
+                let telem = if gaming_active {
+                    crate::predictive_maintenance::collect_hardware_telemetry_no_gpu()
+                } else {
+                    crate::predictive_maintenance::collect_hardware_telemetry()
+                };
                 let msg = rc_common::protocol::AgentMessage::ExtendedTelemetry {
                     pod_id: state.pod_info.id.clone(),
                     gpu_temp_celsius: telem.gpu_temp_celsius,

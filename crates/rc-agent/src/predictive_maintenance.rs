@@ -486,6 +486,20 @@ pub struct HardwareTelemetry {
     pub usb_device_count: Option<u8>,
 }
 
+/// Collect hardware telemetry WITHOUT GPU metrics (nvidia-smi).
+/// Used during active gaming sessions to avoid frame drops.
+/// MMA MITIGATION: 4/5 models flagged nvidia-smi as RISK during gameplay.
+pub fn collect_hardware_telemetry_no_gpu() -> HardwareTelemetry {
+    let mut t = HardwareTelemetry::default();
+    collect_sysinfo_metrics(&mut t); // CPU/memory/disk — no GPU driver lock
+    t.system_uptime_secs = collect_system_uptime();
+    t.process_handle_count = collect_handle_count();
+    t.windows_critical_errors = collect_windows_errors();
+    t.usb_device_count = collect_usb_count();
+    t.network_latency_ms = collect_network_latency();
+    t
+}
+
 /// Collect all hardware telemetry metrics. Each sub-collector is independent —
 /// failure in one does not affect others. Static metrics (SMART, disk hours)
 /// are cached for 1 hour to minimize overhead.
@@ -523,14 +537,25 @@ pub fn collect_hardware_telemetry() -> HardwareTelemetry {
 
 /// Batch GPU metrics from a single nvidia-smi call.
 /// Returns (temp_c, power_w, vram_mb, utilization_pct).
+///
+/// MMA MITIGATION (4/5 consensus): nvidia-smi can cause 50-200ms GPU driver lock.
+/// - Runs at BELOW_NORMAL priority to minimize impact on game rendering
+/// - Caller should skip during active gaming sessions (billing_active flag)
 fn collect_gpu_metrics() -> Option<(f32, f32, u32, f32)> {
-    let output = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=temperature.gpu,power.draw,memory.used,utilization.gpu",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args([
+        "--query-gpu=temperature.gpu,power.draw,memory.used,utilization.gpu",
+        "--format=csv,noheader,nounits",
+    ]);
+
+    // Run at BELOW_NORMAL priority to avoid competing with game render thread
+    #[cfg(windows)]
+    cmd.creation_flags(0x00004000); // BELOW_NORMAL_PRIORITY_CLASS
+
+    let output = cmd.output().ok()?;
 
     let text = String::from_utf8(output.stdout).ok()?;
     let parts: Vec<&str> = text.trim().split(", ").collect();
