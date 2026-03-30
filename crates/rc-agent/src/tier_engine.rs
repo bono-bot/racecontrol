@@ -786,7 +786,7 @@ async fn run_tiers(
         }
     }
 
-    // ── MMA Diagnosis: 5-model parallel (Q3 authorized) ──
+    // ── Unified MMA Protocol: 4-Step Convergence Engine (v31.0) ──
 
     // Staggered startup: delay first model call by pod_number × 2s
     {
@@ -811,82 +811,128 @@ async fn run_tiers(
         return tier5_human_escalation(event);
     }
 
-    // C3: Budget pre-check — in training mode, go straight to 5-model
-    let mma_config = crate::config::load_config()
-        .map(|c| c.mma)
-        .unwrap_or_default();
+    // Run the full 4-step Unified MMA Protocol
+    tracing::info!(
+        target: LOG_TARGET,
+        trigger = ?event.trigger,
+        "Q3 authorized: launching Unified MMA Protocol (4-step convergence engine)"
+    );
 
-    if mma_config.is_training_active() {
-        // TRAINING MODE: skip single-model Tier 3, go straight to 5-model MMA
-        let mut bt = budget.write().await;
-        if !bt.can_spend(TIER4_ESTIMATED_COST) {
-            tracing::info!(target: LOG_TARGET, "Training mode: budget ceiling — skipping MMA");
+    let protocol_result = crate::mma_engine::run_protocol(event, budget).await;
+
+    match protocol_result {
+        crate::mma_engine::MmaProtocolResult::Success { consensus, total_cost, backtracks } => {
+            circuit_breaker.record_success();
+            tracing::info!(
+                target: LOG_TARGET,
+                findings = consensus.majority_findings.len(),
+                plans = consensus.fix_plans.len(),
+                executions = consensus.executions.len(),
+                cost = total_cost,
+                backtracks,
+                "Unified MMA Protocol SUCCEEDED — {} findings, {} plans, {} executions (${:.2}, {} backtracks)",
+                consensus.majority_findings.len(),
+                consensus.fix_plans.len(),
+                consensus.executions.len(),
+                total_cost,
+                backtracks
+            );
+
+            // Store in KB with full provenance
+            if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                let problem_key = crate::knowledge_base::normalize_problem_key(&event.trigger);
+                let env_fp = crate::knowledge_base::fingerprint_env(event.build_id);
+                let stable_hash = crate::knowledge_base::compute_stable_hash(&problem_key, &env_fp);
+
+                let root_cause = consensus.majority_findings.first()
+                    .map(|f| f.description.clone())
+                    .unwrap_or_else(|| "MMA protocol found no specific root cause".to_string());
+                let fix_action = consensus.executions.first()
+                    .map(|e| e.implementation.clone())
+                    .unwrap_or_else(|| consensus.fix_plans.first()
+                        .map(|p| p.actions.join("; "))
+                        .unwrap_or_default());
+                let fix_type = consensus.fix_plans.first()
+                    .map(|p| p.fix_type.clone())
+                    .unwrap_or_else(|| "deterministic".to_string());
+
+                let solution = crate::knowledge_base::Solution {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    problem_key: problem_key.clone(),
+                    problem_hash: stable_hash,
+                    symptoms: serde_json::to_string(&consensus).unwrap_or_default(),
+                    environment: serde_json::to_string(&env_fp).unwrap_or_default(),
+                    root_cause: root_cause.clone(),
+                    fix_action: fix_action.clone(),
+                    fix_type: format!("mma_protocol_{}", fix_type),
+                    success_count: 1,
+                    fail_count: 0,
+                    confidence: consensus.majority_findings.first()
+                        .map(|f| f.confidence).unwrap_or(0.8),
+                    cost_to_diagnose: total_cost,
+                    models_used: serde_json::to_string(&consensus.models_used).ok(),
+                    source_node: format!("pod_{}", event.build_id),
+                    created_at: event.timestamp.clone(),
+                    updated_at: event.timestamp.clone(),
+                    version: 1,
+                    ttl_days: 365,
+                    tags: Some(format!("[\"mma_protocol\",\"{}\"]", problem_key)),
+                    diagnosis_method: Some("unified_mma_4step".to_string()),
+                    fix_permanence: "permanent".to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
+                };
+                let _ = kb.store_solution(&solution);
+            }
+
+            return TierResult::Fixed {
+                tier: 4,
+                action: format!(
+                    "MMA Protocol (${:.2}, {} backtracks): {}",
+                    total_cost, backtracks,
+                    consensus.majority_findings.first()
+                        .map(|f| f.description.as_str())
+                        .unwrap_or("resolved")
+                ),
+            };
+        }
+
+        crate::mma_engine::MmaProtocolResult::BudgetExhausted { step, spent } => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                step, spent,
+                "MMA Protocol: budget exhausted at step {} (${:.2} spent)",
+                step, spent
+            );
             return tier5_human_escalation(event);
         }
-        drop(bt);
 
-        let t4 = tier4_multi_model(event).await;
-        match &t4 {
-            TierResult::Fixed { .. } => {
-                circuit_breaker.record_success();
-                let mut bt = budget.write().await;
-                bt.record_spend(TIER4_ESTIMATED_COST);
-                return t4;
-            }
-            TierResult::FailedToFix { .. } => {
-                circuit_breaker.record_failure();
-            }
-            _ => {}
+        crate::mma_engine::MmaProtocolResult::HumanEscalation { backtracks, last_failure, total_cost } => {
+            circuit_breaker.record_failure();
+            tracing::warn!(
+                target: LOG_TARGET,
+                backtracks,
+                cost = total_cost,
+                failure = %last_failure,
+                "MMA Protocol: max backtracks ({}) — human escalation",
+                backtracks
+            );
+            return TierResult::FailedToFix {
+                tier: 4,
+                reason: format!(
+                    "MMA Protocol exhausted {} backtracks (${:.2}): {}",
+                    backtracks, total_cost, last_failure
+                ),
+            };
         }
-    } else {
-        // PRODUCTION MODE: try cheap single-model first, then 5-model
-        {
-            let mut bt = budget.write().await;
-            if !bt.can_spend(TIER3_ESTIMATED_COST) {
-                tracing::info!(target: LOG_TARGET, tier = 3u8, "Budget ceiling — skipping model tiers");
-                return tier5_human_escalation(event);
-            }
-            drop(bt);
 
-            let t3 = tier3_single_model(event).await;
-            match &t3 {
-                TierResult::Fixed { .. } => {
-                    circuit_breaker.record_success();
-                    let mut bt = budget.write().await;
-                    bt.record_spend(TIER3_ESTIMATED_COST);
-                    return t3;
-                }
-                TierResult::FailedToFix { .. } => {
-                    circuit_breaker.record_failure();
-                }
-                _ => {}
-            }
-
-            // Single model didn't resolve — escalate to 5-model
-            {
-                let mut bt = budget.write().await;
-                if bt.can_spend(TIER4_ESTIMATED_COST) {
-                    drop(bt);
-                    let t4 = tier4_multi_model(event).await;
-                    match &t4 {
-                        TierResult::Fixed { .. } => {
-                            circuit_breaker.record_success();
-                            let mut bt = budget.write().await;
-                            bt.record_spend(TIER4_ESTIMATED_COST);
-                            return t4;
-                        }
-                        TierResult::FailedToFix { .. } => {
-                            circuit_breaker.record_failure();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        crate::mma_engine::MmaProtocolResult::ApiUnavailable { reason } => {
+            tracing::warn!(target: LOG_TARGET, reason = %reason, "MMA Protocol: API unavailable");
+            return tier5_human_escalation(event);
         }
     }
-
-    // ── Tier 5: Human escalation ──
-    tier5_human_escalation(event)
 }
 
 // ─── Q4: Background Permanent Fix Search (v31.0) ────────────────────────────
