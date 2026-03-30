@@ -6,7 +6,7 @@ No single system failure can kill the healing brain. Three independent survival 
 
 ## Phases
 
-- [x] **Phase 267: Survival Foundation** - Shared types, sentinel coordination, recovery protocol for all 5 existing healers (completed 2026-03-30)
+- [x] **Phase 267: Survival Foundation** - Shared types, sentinel coordination, recovery protocol for all 5 existing healers (completed 2026-03-30)
 - [ ] **Phase 268: Unified MMA Protocol** - 5-model OpenRouter roster with fact-checker, dual reasoning, cost guard, per-pod keys
 - [ ] **Phase 269: Layer 1 Smart Watchdog** - Binary SHA256 + PE validation, rollback depth tracking, MMA diagnosis in watchdog
 - [ ] **Phase 270: Layer 2 Server Fleet Healer** - SSH diagnostic runner, fleet-pattern detection, autonomous Tier 1 repair with canary
@@ -42,7 +42,11 @@ Plans:
   3. MMA session refuses to start when daily budget is exhausted, and daily spend survives process reboot (persisted to budget_state.json)
   4. When OpenRouter returns 3 consecutive failures, the protocol falls back to a deterministic rule engine and logs the fallback clearly
   5. Per-pod child API keys exist with $10/day caps and sessions tagged training=true during the 30-day training window
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 268-01-PLAN.md — rc-mma crate foundation: types, 5-model roster, budget persistence, config
+- [ ] 268-02-PLAN.md — MMA session engine: parallel model calls, fact-checker, dual reasoning, fallback
+- [ ] 268-03-PLAN.md — Per-pod key provisioning, model validation gate, training flag
 **UI hint**: no
 
 ### Phase 269: Layer 1 Smart Watchdog
@@ -158,7 +162,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 267. Survival Foundation | 3/3 | Complete    | 2026-03-30 |
-| 268. Unified MMA Protocol | 0/TBD | Not started | - |
+| 268. Unified MMA Protocol | 0/3 | In progress | - |
 | 269. Layer 1 Smart Watchdog | 0/TBD | Not started | - |
 | 270. Layer 2 Server Fleet Healer | 0/TBD | Not started | - |
 | 271. Layer 3 External Guardian | 0/TBD | Not started | - |
