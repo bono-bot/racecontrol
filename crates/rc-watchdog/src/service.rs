@@ -10,8 +10,13 @@ use windows_service::service::{
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 
+use crate::binary_validator;
+use crate::health_poller;
+use crate::mma_diagnosis;
 use crate::reporter;
+use crate::rollback_manager;
 use crate::session;
+use crate::survival_reporter;
 use rc_common::types::WatchdogCrashReport;
 
 /// Poll interval for checking rc-agent process health.
@@ -33,6 +38,18 @@ const DEFAULT_CORE_URL: &str = "http://192.168.31.23:8080";
 
 /// Watchdog version reported in crash reports.
 const WATCHDOG_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Time window for restart loop detection (seconds).
+const RESTART_LOOP_WINDOW_SECS: u64 = 600; // 10 minutes
+
+/// Number of restarts in the window to trigger MMA diagnosis.
+const RESTART_LOOP_THRESHOLD: u32 = 3;
+
+/// SW-07: MAINTENANCE_MODE auto-clear after this many seconds (30 minutes).
+const MAINTENANCE_AUTO_CLEAR_SECS: u64 = 1800;
+
+/// Interval between binary validation checks (every 10th poll cycle).
+const BINARY_VALIDATION_INTERVAL: u32 = 10;
 
 /// Check if the tasklist output string contains "rc-agent".
 /// Extracted as a testable helper — the actual is_rc_agent_running() function
@@ -166,6 +183,13 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
 
     let mut restart_count: u32 = 0;
     let mut last_restart_at: Option<Instant> = None;
+    let mut poll_cycle: u32 = 0;
+    let mut restart_timestamps: Vec<Instant> = Vec::new();
+    let mut initial_validation_done = false;
+
+    // SW-11: One-time binary validation at startup
+    let manifest_path = binary_validator::manifest_path_for(&exe_dir);
+    let agent_binary_path = exe_dir.join("rc-agent.exe");
 
     // Main poll loop
     loop {
@@ -173,6 +197,22 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
         if shutdown_rx.try_recv().is_ok() {
             tracing::info!("Shutdown signal received, exiting poll loop");
             break;
+        }
+
+        poll_cycle = poll_cycle.wrapping_add(1);
+
+        // SW-07: Auto-clear MAINTENANCE_MODE if stale
+        if rollback_manager::is_maintenance_mode() {
+            if rollback_manager::auto_clear_maintenance_mode(MAINTENANCE_AUTO_CLEAR_SECS) {
+                tracing::info!("MAINTENANCE_MODE auto-cleared after {}s", MAINTENANCE_AUTO_CLEAR_SECS);
+            }
+        }
+
+        // SW-14: Skip restart while MMA diagnosis is running
+        if mma_diagnosis::is_mma_diagnosing() {
+            tracing::debug!("MMA_DIAGNOSING active — skipping restart cycle");
+            std::thread::sleep(POLL_INTERVAL);
+            continue;
         }
 
         // SF-05: Check survival sentinels before restart — yield to active healing layer.
@@ -194,8 +234,59 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
             }
         }
 
+        // SW-01/SW-02/SW-11: Binary validation — on startup and every N cycles
+        if !initial_validation_done || poll_cycle % BINARY_VALIDATION_INTERVAL == 0 {
+            if binary_validator::manifest_exists(&manifest_path) {
+                match binary_validator::validate_binary(&agent_binary_path, &manifest_path) {
+                    Ok(result) => {
+                        if result.is_valid() {
+                            tracing::info!("Binary validation passed: {}", result.details);
+                            initial_validation_done = true;
+                        } else {
+                            tracing::error!("Binary validation FAILED: {}", result.details);
+
+                            // SW-03: Trigger rollback on validation failure
+                            let outcome = rollback_manager::perform_rollback(
+                                &exe_dir,
+                                &format!("Binary validation failed: {}", result.details),
+                                &result.computed_hash,
+                            );
+                            match outcome {
+                                rollback_manager::RollbackOutcome::Success { depth } => {
+                                    tracing::info!("Rollback succeeded (depth {}), will restart rc-agent", depth);
+                                    // Don't set initial_validation_done — re-validate after rollback
+                                }
+                                rollback_manager::RollbackOutcome::DepthExhausted { .. } => {
+                                    tracing::error!("Rollback depth exhausted — waiting for manual intervention");
+                                    std::thread::sleep(POLL_INTERVAL);
+                                    continue;
+                                }
+                                rollback_manager::RollbackOutcome::NoPreviousBinary => {
+                                    tracing::error!("No previous binary for rollback — continuing with invalid binary");
+                                    initial_validation_done = true; // Don't keep retrying
+                                }
+                                rollback_manager::RollbackOutcome::FileError(msg) => {
+                                    tracing::error!("Rollback file error: {}", msg);
+                                    initial_validation_done = true; // Don't keep retrying
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Binary validation skipped (I/O error): {}", e);
+                        initial_validation_done = true; // Don't block on missing manifest
+                    }
+                }
+            } else {
+                tracing::debug!("No release-manifest.toml found — skipping binary validation");
+                initial_validation_done = true;
+            }
+        }
+
         // Check if rc-agent is running
         if is_rc_agent_running() {
+            // Agent is healthy — confirm rollback state if applicable
+            rollback_manager::confirm_healthy();
             std::thread::sleep(POLL_INTERVAL);
             continue;
         }
@@ -216,6 +307,37 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
 
         tracing::warn!("rc-agent not running, attempting restart in Session 1");
 
+        // Track restart timestamps for loop detection
+        let now = Instant::now();
+        restart_timestamps.push(now);
+        // Prune old timestamps outside the detection window
+        let window_start = now.checked_sub(Duration::from_secs(RESTART_LOOP_WINDOW_SECS));
+        if let Some(cutoff) = window_start {
+            restart_timestamps.retain(|t| *t >= cutoff);
+        }
+
+        // SW-08: Detect restart loop and trigger MMA diagnosis
+        if restart_timestamps.len() as u32 >= RESTART_LOOP_THRESHOLD {
+            tracing::error!(
+                "Restart loop detected: {} restarts in {}s window (threshold: {})",
+                restart_timestamps.len(),
+                RESTART_LOOP_WINDOW_SECS,
+                RESTART_LOOP_THRESHOLD
+            );
+
+            let rollback_state = rollback_manager::RollbackState::load();
+            let context = mma_diagnosis::RestartContext {
+                restart_count: restart_timestamps.len() as u32,
+                time_window_secs: RESTART_LOOP_WINDOW_SECS,
+                pod_id: pod_id.clone(),
+                last_exit_code: None,
+                rollback_depth: rollback_state.depth,
+            };
+
+            // Launch diagnosis in background (SW-09: dedicated runtime thread)
+            mma_diagnosis::launch_diagnosis(context);
+        }
+
         // Attempt to spawn in Session 1
         match session::spawn_in_session1(&exe_dir) {
             Ok(()) => {
@@ -226,24 +348,38 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
                     restart_count
                 );
 
-                // Verify rc-agent actually started (SPAWN-01 pattern: 500ms poll for 10s)
-                let verified = {
-                    let max_wait = Duration::from_secs(10);
-                    let poll_interval_ms = Duration::from_millis(500);
-                    let start = Instant::now();
-                    let mut alive = false;
-                    while start.elapsed() < max_wait {
-                        std::thread::sleep(poll_interval_ms);
-                        if is_rc_agent_running() {
-                            alive = true;
-                            break;
-                        }
-                    }
-                    alive
-                };
-                tracing::info!("rc-agent spawn_verified={} (count: {})", verified, restart_count);
+                // SW-05: Startup health poll (3 x 10s)
+                let health_result = health_poller::poll_agent_health();
+                tracing::info!(
+                    "rc-agent health poll: healthy={}, attempts={}, build_id={:?}",
+                    health_result.healthy,
+                    health_result.attempts,
+                    health_result.build_id
+                );
 
-                // Fire-and-forget crash report
+                // Verify rc-agent actually started via process check as well (SPAWN-01 pattern)
+                let process_alive = is_rc_agent_running();
+                let verified = health_result.healthy || process_alive;
+                tracing::info!("rc-agent spawn_verified={} (health={}, process={}, count: {})",
+                    verified, health_result.healthy, process_alive, restart_count);
+
+                // SW-06: Send survival report
+                let rollback_state = rollback_manager::RollbackState::load();
+                let recovery_mode = if rollback_state.depth > 0 { "rollback" } else { "normal" };
+                let build_id = health_result.build_id.as_deref().unwrap_or("unknown");
+                let survival = survival_reporter::create_report(
+                    &pod_id,
+                    WATCHDOG_VERSION,
+                    build_id,
+                    restart_count,
+                    rollback_state.depth,
+                    &health_result,
+                    initial_validation_done,
+                    recovery_mode,
+                );
+                survival_reporter::send_survival_report(&core_url, &survival);
+
+                // Fire-and-forget crash report (existing behavior)
                 let report = WatchdogCrashReport {
                     pod_id: pod_id.clone(),
                     exit_code: None, // Cannot observe exit code from tasklist polling
@@ -252,6 +388,27 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
                     watchdog_version: WATCHDOG_VERSION.to_string(),
                 };
                 reporter::send_crash_report(&core_url, &report);
+
+                // If health poll failed after restart, consider rollback
+                if !health_result.healthy && !process_alive {
+                    tracing::error!("rc-agent failed to come up healthy after restart");
+                    // Only attempt rollback if we've had multiple failures
+                    if restart_timestamps.len() as u32 >= 2 {
+                        let outcome = rollback_manager::perform_rollback(
+                            &exe_dir,
+                            "Agent failed health poll after restart",
+                            "",
+                        );
+                        match outcome {
+                            rollback_manager::RollbackOutcome::Success { depth } => {
+                                tracing::info!("Rollback after health failure (depth {})", depth);
+                            }
+                            _ => {
+                                tracing::warn!("Rollback not possible after health failure");
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 tracing::warn!("Failed to spawn rc-agent: {} — will retry next cycle", e);
