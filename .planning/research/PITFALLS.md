@@ -1,322 +1,440 @@
-# Pitfalls Research
+# Domain Pitfalls: Racing Dashboard UI Redesign
 
-**Domain:** Autonomous bug detection and self-healing for an existing fleet management system
-**Researched:** 2026-03-26
-**Confidence:** HIGH — all pitfalls drawn from documented past incidents in this exact codebase (CLAUDE.md standing rules, PROJECT.md, MEMORY.md audit records). No hypothetical pitfalls.
+**Domain:** Multi-app Next.js dashboard system — UI overhaul on a live venue operations stack
+**Researched:** 2026-03-30
+**Confidence:** HIGH — pitfalls drawn from documented incidents in this exact codebase (CLAUDE.md standing rules, MEMORY.md, PROJECT.md, git history) plus verified Next.js/Tailwind v4 behaviour. No hypothetical pitfalls.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Recovery Systems Fighting Each Other (Infinite Restart Loop)
+### Pitfall 1: NEXT_PUBLIC_ Env Vars Baked at Build Time — Wrong Value Silently Deployed
 
 **What goes wrong:**
-Multiple independent recovery systems — self_monitor, rc-sentry watchdog, server pod_monitor, WoL, and now auto-detect.sh — each see a pod as "down" and independently act to bring it back up. One system restarts rc-agent, which triggers the MAINTENANCE_MODE sentinel, which blocks the restart, which causes the system to look "down" again, which triggers WoL, which boots a pod that immediately re-enters MAINTENANCE_MODE.
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are embedded into the JS bundle at `next build` time. If the build runs with `http://localhost:8080` defaults (because `.env.production.local` was missing or wrong), the deployed app makes all API calls to `localhost` on the CLIENT's machine. On the server itself this works fine. From every other machine — POS, kiosk, staff phone, leaderboard display — the app loads but shows no data. The silence is total: no error in the server log, HTTP 200 from the Next.js server, just empty dashboards.
 
 **Why it happens:**
-Each subsystem was built independently with no shared state about why a pod is offline. They see the same symptom (pod not responding) but have no coordination layer. Auto-detect.sh adding a 7th actor into this mix without coordination is the classic "one more system with no awareness of the others" mistake. This exact loop (self_monitor + rc-sentry + WoL) took 45 minutes to diagnose in a documented incident.
+`NEXT_PUBLIC_*` values are NOT runtime environment variables. They are compile-time string replacements. Changing `.env.production.local` after a build has zero effect — the app must be rebuilt. This is counterintuitive for developers used to server-side env vars.
 
-**How to avoid:**
-- Auto-detect.sh must read OTA_DEPLOYING, MAINTENANCE_MODE, and GRACEFUL_RELAUNCH sentinels before triggering any fix action
-- Any fix that restarts a service must check all existing recovery actors' state first (is rc-sentry already handling it? is WoL already triggered?)
-- Introduce a shared lock file: `C:\RacingPoint\AUTO_DETECT_ACTIVE` — prevents rc-sentry and pod_monitor from acting while auto-detect is mid-repair
-- Recovery intent must be logged to RecoveryIntentStore so any actor can see what others are doing
+This codebase hit this exact bug: "NEXT_PUBLIC_WS_URL was never set — NEXT_PUBLIC_API_URL was correct so REST worked, but WebSocket defaulted to `ws://localhost:8080` causing 'page loads but no data' on the POS machine for every session until caught." (CLAUDE.md standing rules)
 
-**Warning signs:**
-- Pod cycling between connected and disconnected at regular intervals (every 10-30s)
-- MAINTENANCE_MODE appears on multiple pods simultaneously after an auto-detect run
-- Fleet health shows rapid state changes without any manual intervention
-- rc-sentry logs show "restarting" for a pod that auto-detect just tried to heal
+**Consequences:**
+- WebSocket telemetry feed shows nothing on any machine except the server
+- Leaderboard display (separate TV machine) shows no data
+- POS billing dashboard appears to work but has no live pod status
+- No errors visible — the fetch silently hits localhost and gets connection refused
 
-**Phase to address:**
-Phase 1 (auto-detect.sh core pipeline) — sentinel-awareness must be in the first version, not added later.
+**Prevention:**
+- Before every build: run `grep -rn NEXT_PUBLIC_ web/src/ kiosk/src/` and verify EVERY var has a value in `.env.production.local` with the LAN IP (192.168.31.23), not localhost
+- After any redesign that adds new `NEXT_PUBLIC_` vars: grep the entire new component directory immediately
+- Verify from a machine that is NOT the server — SSH to POS or open from James's browser at `.23:3200`. `curl` from the server proves HTML loads, not that WebSocket works
+
+**Detection:**
+- App shows data on server but not on POS/kiosk/leaderboard display
+- Browser devtools on POS shows WebSocket connection to `ws://localhost:8080` (the give-away)
+- Zero errors in server logs despite the client-side failure
+
+**Phase to address:** Phase 1 (component scaffold). Before writing any new component, establish env var audit as a mandatory pre-build step.
 
 ---
 
-### Pitfall 2: Alert Fatigue — Too Many WhatsApp Messages to Uday
+### Pitfall 2: Standalone Next.js Deploy — Static Files Return 404 After Deploy
 
 **What goes wrong:**
-Auto-detect runs nightly, detects 3-5 non-critical drift items (expected log rotation, minor config deltas, the 6 QUIET venue-closed findings from every v23.0 audit run), and sends a WhatsApp message for each. After a week, Uday ignores all messages. When a real critical failure arrives, it is also ignored.
+`next build` with `output: "standalone"` creates a `.next/standalone/` directory. The JS and CSS bundles live in `.next/static/`. These are NOT copied into standalone automatically. If the deploy script copies only `.next/standalone/` to the server, every CSS file and JS chunk returns 404. The page loads as unstyled HTML with no interactivity. Health checks still pass — the Next.js server returns 200 for the HTML page. The bug is invisible to monitoring.
+
+This has already happened in this codebase: "kiosk and web dashboard had all static files returning 404 for an unknown duration. Health endpoint showed 'healthy'." (CLAUDE.md)
 
 **Why it happens:**
-The audit framework generates findings for everything including items already marked QUIET or INFO. If the escalation threshold is "anything that didn't auto-fix," non-critical residuals generate noise every night. The existing v23.0 audit already generates 6 QUIET findings at every run as a baseline.
+Next.js standalone intentionally excludes static files from the server bundle — they are meant to be served by a CDN or a static file server alongside the Node process. In this deployment (pm2 + nginx on the same server), the static directory must be manually copied. Two things must happen:
+1. `.next/static/` must be copied to `.next/standalone/.next/static/`
+2. `public/` must be copied to `.next/standalone/public/`
 
-**How to avoid:**
-- WhatsApp escalation ONLY for: (a) items that were attempted but auto-fix failed to verify, (b) items classified CRITICAL with no available auto-fix, (c) cascade failures (3+ pods affected simultaneously)
-- Never send WhatsApp for QUIET/venue-closed findings — they are always expected
-- Collapse multiple findings into one digest: "3 issues found, 2 auto-fixed, 1 needs attention: [item]"
-- Track "same finding N nights in a row" — first occurrence: auto-fix attempt + notify; subsequent occurrences: notify at most once per week until resolved
-- Gate: if 0 unfixed critical items, send NO message (stay silent on a clean run)
+For a UI redesign with new assets, fonts, or images, failing to re-copy `public/` leaves the new assets absent on the deployed server.
 
-**Warning signs:**
-- Uday stops responding to WhatsApp messages that were previously answered
-- Daily message count from auto-detect exceeds 2
-- Messages arriving during business hours (08:00-23:00 IST)
-- Every message body contains "no action required" but a message was still sent
+**Consequences:**
+- New Tailwind classes compile into CSS that never loads — the page looks broken
+- New fonts (Enthocentric, Montserrat) return 404 if added to `public/fonts/`
+- New leaderboard images or sponsor logos invisible
+- All pages look like unstyled HTML
 
-**Phase to address:**
-Phase 1 (escalation logic) — silence conditions must be correct before the first scheduled run.
+**Prevention:**
+- Deploy scripts MUST include the copy steps: `cp -r .next/static .next/standalone/.next/static` and `cp -r public .next/standalone/public`
+- After every deploy, verify with: `curl -I http://192.168.31.23:3200/_next/static/css/app.css` — must return 200, not 404
+- Add this curl to the smoke test in the deploy script (currently the smoke test checks 4 endpoints — add a static file check as the 5th)
+- Both `web/` and `kiosk/` (basePath: `/kiosk`) must be deployed this way. Kiosk static path is `http://192.168.31.23:3300/kiosk/_next/static/...`
+
+**Detection:**
+- Page renders with no CSS (white background, unstyled text)
+- Browser devtools shows `net::ERR_FAILED` or 404 for `/_next/static/css/...`
+- App "works" on James's dev machine but looks broken on server
+
+**Phase to address:** Phase 1 (deploy pipeline setup). The static file copy step must be in the deployment script before any redesign work ships.
 
 ---
 
-### Pitfall 3: Config Drift False Positives from Intentional Per-Pod Differences
+### Pitfall 3: outputFileTracingRoot Misconfiguration — Absolute Build Paths Embedded
 
 **What goes wrong:**
-Config drift detection compares expected vs actual values, but some values are intentionally different between pods (pod_number, pod_ip, tailscale IP, pod-specific feature flags). The checker flags these as drift, generating 8 findings per run (one per pod), and either overwhelms logs or trains the team to ignore all drift alerts.
+Without `outputFileTracingRoot: path.join(__dirname)` in `next.config.ts`, Next.js auto-detects the monorepo root (walks up to find `package.json`, finds `C:\Users\bono\racingpoint\racecontrol\`) and embeds this absolute path in `required-server-files.json` and `server.js`. When the standalone bundle is deployed to `C:\RacingPoint\web\` on the server, the `appDir` field still points to `C:\Users\bono\racingpoint\racecontrol\web\` — a path that does not exist on the server. SSR works (served from memory) but ALL static files serve as 404 because the static file handler looks in the wrong root.
 
 **Why it happens:**
-Config drift checkers typically diff against a single "golden config" — but the golden config has no per-pod overrides. The Racing Point system has pod_number, IP, and MAC fields that legitimately differ across all 8 pods. Additionally, OTA canary pods may intentionally run a different binary version.
+This exact fix is already implemented in both `web/next.config.ts` and `kiosk/next.config.ts`. The risk during a redesign is: adding a new Next.js app (e.g., a dedicated leaderboard display app or a presenter mode app), or if someone inadvertently removes the config setting while refactoring `next.config.ts` to add new options (rewrites, redirects, image domains).
 
-**How to avoid:**
-- Define a drift schema separating shared keys (ws_connect_timeout, app_health URLs) from per-pod keys (pod_number, ip, mac)
-- Shared keys: any deviation from expected is drift
-- Per-pod keys: deviation from that pod's expected value is drift; deviation from other pods is expected and not flagged
-- OTA sentinel check: if OTA_DEPLOYING exists for a pod, skip binary version drift checks for that pod
-- suppress.json with expiry for known-acceptable differences (document the reason + expiry date)
+**Consequences:**
+Same as Pitfall 2 — all static files 404. But harder to diagnose because the config looks correct to a casual reader.
 
-**Warning signs:**
-- Drift report shows the same 8 findings every run with pod-specific values (pod_number: 1, pod_number: 2, etc.)
-- suppress.json accumulates entries for pod_number, pod_ip, or mac_address
-- Delta tracking shows 0 new findings after the first run because everything was suppressed
+**Prevention:**
+- Never remove `outputFileTracingRoot: path.join(__dirname)` from any `next.config.ts`
+- Any NEW Next.js app created during the redesign MUST include this line — it is not optional in this monorepo
+- After adding any `next.config.ts` option, verify the line is still present: `grep outputFileTracingRoot */next.config.ts`
 
-**Phase to address:**
-Phase 2 (cascade engine and config drift detection).
+**Detection:**
+- Check `required-server-files.json` after build: `cat .next/required-server-files.json | grep appDir` — must show the app's own directory, not the repo root or James's machine path
+
+**Phase to address:** Phase 1 (config/scaffold). Verify in the first PR review.
 
 ---
 
-### Pitfall 4: Log Anomaly Detection Sensitivity Miscalibration
+### Pitfall 4: Kiosk is Touch-Only — Mouse-Centric UI Patterns Break Silently
 
 **What goes wrong:**
-Tuned too sensitively: flags every WARN log as an anomaly. The racecontrol JSONL logs contain hundreds of expected warnings during normal operation (WS reconnect on pod boot, telemetry timeout when no game is running, billing idle threshold hits). Alternatively, tuned too loosely: misses the rc-agent process guard empty-allowlist pattern that generated 28,749 violations/day for 2 days without detection.
+The kiosk (`/kiosk` basePath, port 3300) runs on pods where the only input is a touchscreen. Mouse-specific interactions — hover states, right-click menus, `mouseenter`/`mouseleave` events, tooltips that appear on hover, drag handles without touch equivalents — all fail silently on touch. The designer builds and tests on a laptop trackpad; everything looks fine. The UI ships; customers at pods cannot interact with the redesigned booking wizard or game selector.
 
 **Why it happens:**
-Log anomaly detection without a baseline is pattern matching against noise. Without knowing the "normal warn rate" per source, anything above zero looks like an anomaly. The 28,749/day incident went undetected because no monitoring existed — the same gap will appear again if the anomaly detector is too conservative.
+Tailwind v4's hover utilities (`hover:`) are mouse-centric. On iOS/Android touch browsers, hover state is emulated on tap-and-hold, but this is unreliable and not the intended UX. For an eSports kiosk in a dark venue, touch targets must be at minimum 44x44px and must respond to tap, not hover.
 
-**How to avoid:**
-- Baseline first: run 7 days of silent observation, compute p95 warn/error rate per source (rc-agent, racecontrol, rc-sentry)
-- Anomaly threshold: rate meaningfully above p95, not any non-zero rate
-- For launch: focus on specific high-value patterns rather than rate-based detection: `MAINTENANCE_MODE written`, `empty allowlist loaded`, `violation_count spiking beyond 100/hr`, `spawn() succeeded but health check failed`
-- Pattern-based triggers are more reliable than rate-based for this system in its first iteration
+**Consequences:**
+- Redesigned game selection cards show extra info only on hover — invisible on kiosk
+- Small filter buttons (track/car selectors) unreachable with fingers
+- Dropdown menus that open on hover fail completely
 
-**Warning signs:**
-- Log anomaly fires every night on the same WARN messages (false positive loop established)
-- Log anomaly never fires even after manually injecting known-bad state into a test pod
-- Anomaly log is larger than the audit log it's meant to summarize
+**Prevention:**
+- All interactive elements in `kiosk/` must use `onClick` (not `onMouseEnter`) as the primary interaction
+- Touch target minimum: 44x44px. Use `min-h-11 min-w-11` (44px = 2.75rem = h-11 in Tailwind)
+- Avoid `hover:` for revealing content; use toggled state (`useState`) instead
+- Test on an actual touchscreen before marking any kiosk phase complete — NOT in browser devtools touch simulation (it emulates touch events but has different behavior for hover state)
+- Any component used in BOTH `web/` (mouse) and `kiosk/` (touch) must handle both — use `@media (hover: hover)` for hover-only styles
 
-**Phase to address:**
-Phase 2 (expanded auto-fix engine, log anomaly detection).
+**Detection:**
+- Kiosk page requires hovering to see any action options
+- Touch on the kiosk selects text instead of triggering the button (too small)
+- UI works in browser, fails when Uday or staff try on the actual pod touchscreen
+
+**Phase to address:** Phase 2 (kiosk component redesign). Also applies to Phase 1 if shared components are being built.
 
 ---
 
-### Pitfall 5: Cascade Fixes Targeting the Symptom, Not the Cause
+### Pitfall 5: Hydration Mismatch — localStorage/sessionStorage in useState Initializer
 
 **What goes wrong:**
-Cascade engine detects that Pod 3 build_id differs from Pods 1, 2, 4-8. Auto-fix redeploys Pod 3. But the real situation: Pod 3 is mid-OTA from a scheduled canary window and the binary swap is in progress. The auto-fix interrupts the OTA, starts a concurrent download to `rc-agent-new.exe`, corrupts the partial file (two writers), and Pod 3 enters MAINTENANCE_MODE. This exact failure mode (OTA_DEPLOYING not checked) is documented in the OTA standing rules.
+SSR renders the page on the server without browser APIs. If a redesigned component reads from `localStorage` (e.g., to restore a leaderboard filter preference, or persist a selected car) directly in a `useState` initializer, the server renders with `undefined` and the client hydrates with the stored value. React throws a hydration mismatch error. In Next.js 15+ (App Router), this can cause the entire page to re-render or show a blank screen.
 
 **Why it happens:**
-Cascade engine sees "pod differs from fleet" and treats alignment as always safe. It has no model of "is this pod intentionally in a different state right now?" The system has well-defined sentinel files for exactly this purpose but they are not automatically checked by new actors.
+This is a standing rule in this codebase ("Next.js hydration: never read sessionStorage/localStorage in useState initializer — use useEffect + hydrated flag"). A UI redesign touching many components is exactly when this rule gets accidentally violated as new components are added.
 
-**How to avoid:**
-- Before any cascade fix: check OTA_DEPLOYING sentinel, RecoveryIntentStore entry, recent deploy timestamps in LOGBOOK.md
-- Pod 8 (canary by convention) is explicitly excluded from cascade homogenization — it is allowed to differ
-- Cascade fixes run in dry-run mode by default: log what would be fixed, require explicit `--apply` flag
-- 5-minute observation window before acting: if the difference resolves itself, no fix needed
-- The auto-detect pipeline's cascade step outputs a proposed fix list; the apply step is separate and gated
+**Consequences:**
+- Leaderboard filter position resets on every page load (if the fix is to just not persist it)
+- Or: entire leaderboard page shows hydration error and blank-screens for 1-2 seconds on load
 
-**Warning signs:**
-- Cascade fix triggered during a known deploy window
-- Pod 8 is constantly being "corrected" to match the rest of the fleet
-- Auto-fix log shows the same pod being fixed 2+ nights in a row (symptom returns each time)
+**Prevention:**
+- Pattern for persisted state:
+  ```tsx
+  const [hydrated, setHydrated] = useState(false);
+  const [filter, setFilter] = useState("all");
+  useEffect(() => {
+    setFilter(localStorage.getItem("lb-filter") ?? "all");
+    setHydrated(true);
+  }, []);
+  if (!hydrated) return null; // or skeleton
+  ```
+- Add ESLint rule or grep to catch `localStorage` in component bodies outside `useEffect`
+- Verify: `next build` must complete with 0 hydration errors in the build output
 
-**Phase to address:**
-Phase 2 (cascade engine) — dry-run-by-default must be in from the start.
+**Phase to address:** Phase 2 (component implementation). Add to code review checklist.
 
 ---
 
-### Pitfall 6: Scheduled Tasks Running During Venue Operations
+### Pitfall 6: Tailwind v4 CSS-First Config — Class Names Work in Dev, Fail in Build
 
 **What goes wrong:**
-Daily 2:30 AM IST run includes audit phases that check pod connectivity. Auto-detect sends WoL to wake a pod for health verification. Pod boots, finds no billing session, idles until morning. Staff arrive to find all 8 pods already powered on from the 2:30 AM check — power wasted, session timers exposed.
+Tailwind v4 uses a CSS-first configuration (`@theme` in `globals.css`) instead of `tailwind.config.js`. Custom classes like `bg-rp-card`, `text-rp-red`, `border-rp-border` are defined there. If a redesigned component uses a custom color that exists in the old `tailwind.config.js` (from a copy-paste from another project or old docs) but NOT in `globals.css @theme`, the class purges away in production build. The color appears in dev (JIT generates it) but is absent in production.
 
-Alternatively: venue has a late event (midnight racing league). Auto-detect runs at 2:30 AM while billing sessions are active. The idle gate check is based on fleet health aggregate — misses the active session on Pod 3 because Pod 3 is checked last. Auto-detect applies a restart-based fix to Pod 3 mid-race.
+This codebase already uses v4 CSS-first config in both `web/src/app/globals.css` and `kiosk/src/app/globals.css`. The deprecated orange `#FF4400` class must not be referenced in new components.
 
 **Why it happens:**
-Fixed schedule ignores the venue's operational calendar. Racing venues have irregular hours — late nights on weekends, early close on weekdays, private event bookings. The billing session check must cover ALL pods individually, not the aggregate fleet status.
+Tailwind v4 changed from JS config to CSS `@theme`. References to Tailwind's old color names (e.g. `text-gray-700`, `bg-zinc-800`) still work because v4 ships a compatibility preset. But custom theme tokens MUST be in `globals.css @theme inline` — not in a `tailwind.config.js`.
 
-**How to avoid:**
-- `has_active_billing_session()` checked against EACH pod individually before ANY pod-touching action
-- WoL actions are OFF by default in auto-detect — pods are not woken for health checks
-- Venue hours config: simple `venue_open_until: "01:00"` — skip pod-touching phases if within 2 hours of close
-- If any billing session is active anywhere in the fleet, run server-only checks only; skip all pod-touching phases
-- Bono-side cron checks James-side AUDIT_RUNNING sentinel before starting its own run
+**Consequences:**
+- New leaderboard cards built with a custom `rp-gold` color for first place look correct in `next dev` but have no color in production
+- Cards using the deprecated `#FF4400` orange appear in storybook/dev but wrong in production
 
-**Warning signs:**
-- Pods showing uptime of 4-6 hours when staff expect them to be powered off at venue open
-- Billing session started during an auto-detect run (check billing DB timestamps vs audit log timestamps)
-- Auto-detect log timestamps overlap with known late-night events
+**Prevention:**
+- Add any new design tokens to `globals.css` under `@theme inline` BEFORE writing components that use them
+- Never create `tailwind.config.js` for new apps — use `globals.css @theme`
+- Deprecated `#FF4400` orange: grep for it before marking any phase complete: `grep -rn "FF4400\|orange" web/src/ kiosk/src/`
+- After build: spot-check computed styles on the production URL for new color classes
 
-**Phase to address:**
-Phase 1 (scheduling and idle gate) — billing session check per-pod must gate ALL pod actions, not just the aggregate.
+**Phase to address:** Phase 1 (design token setup). Establish the full token set in `globals.css` before any component work.
 
 ---
 
-### Pitfall 7: Dual-AI Race Conditions (James and Bono Acting Simultaneously)
+## Moderate Pitfalls
+
+### Pitfall 7: API Contract Breakage — Renamed Fields in Redesign Break Existing TypeScript Types
 
 **What goes wrong:**
-James auto-detect.sh runs at 2:30 AM IST. Bono bono-auto-detect.sh runs at 2:30 AM IST (cron). Both detect build drift on Pod 5. Both trigger deploy chains. Two concurrent downloads write to `C:\RacingPoint\rc-agent-new.exe` simultaneously — file is corrupted or one deploy wins the rename race while the other fails silently, leaving Pod 5 with a truncated binary and no rollback.
-
-Second scenario: Bono failover activates because James's machine has a 15-minute network blip. Bono starts a cascade fix. James comes back online, auto-detect.sh also starts. Two independent fix sets applied to overlapping pods.
+The redesign refactors a component that calls `/api/v1/leaderboards/records` and the developer renames a field in the local TypeScript interface (e.g., `best_lap_ms` → `lapTimeMs`) to match a new naming convention. The type change is local — the Rust backend still returns `best_lap_ms`. TypeScript catches this at compile time only if the type is imported from `packages/shared-types/` (v21.0 shared types). If the developer copies the type locally and renames it, the mismatch is invisible until runtime: the field is `undefined`, lap times show as `NaN` or `0:00.000`.
 
 **Why it happens:**
-Two autonomous agents with the same goal will collide on shared resources unless they coordinate. The comms-link relay is the correct coordination channel but only if both agents check it before acting — the current foundation (bono-auto-detect.sh) does not yet have this coordination protocol.
+UI redesigns often "clean up" types to match a design system naming convention. The backend cannot be changed simultaneously (would require Rust rebuild + fleet deploy). Serde silently drops unknown fields and returns `undefined` for missing fields — no runtime error.
 
-**How to avoid:**
-- Global mutex via comms-link relay: before starting any fix, post AUTO_DETECT_LOCK to the relay; if the lock already exists from the other agent, abort and log
-- Bono failover activation requires confirmed offline status, not just "no response for N minutes" — Tailscale `node status` must show James as offline
-- Stagger schedules: James at 2:30 AM IST, Bono at 3:30 AM IST; if James's run posts completion to INBOX.md before 3:30 AM, Bono skips its run
-- Write `AUTO_DETECT_ACTIVE` sentinel with agent identity (james/bono) and timestamp; both agents check before starting
+**Consequences:**
+- Lap times show as `0:00.000` or `NaN` on the leaderboard
+- Driver scores show as `0`
+- No error in console — the fetch succeeds, the parse succeeds, the field is just `undefined`
 
-**Warning signs:**
-- Both James and Bono logs show deploy actions for the same pod within the same 10-minute window
-- Pod enters MAINTENANCE_MODE shortly after an auto-detect run (truncated binary from concurrent write)
-- comms-link relay shows two AUTO_DETECT sessions simultaneously active
+**Prevention:**
+- All API response types MUST be imported from `packages/shared-types/` (v21.0). Never duplicate them locally
+- If a type rename is needed for the new design system, add a UI-layer adapter that maps the shared type to the local display type — never rename the shared type itself
+- After any leaderboard or telemetry component change: verify the rendered values match the raw API response (`curl http://192.168.31.23:8080/api/v1/leaderboards/records | jq .` and compare fields)
 
-**Phase to address:**
-Phase 3 (Bono failover) — coordination protocol must be defined and implemented before Bono failover is enabled.
+**Phase to address:** Phase 2 (component refactor). Enforce in code review: no local copies of shared types.
 
 ---
 
-### Pitfall 8: MAINTENANCE_MODE Permanently Blocking Auto-Fix Cycles
+### Pitfall 8: WebSocket Reconnect Logic Lost During Redesign
 
 **What goes wrong:**
-Auto-detect triggers an auto-fix that restarts rc-agent on a pod. The restart fails (server is briefly processing another chain, network blip, 30-second window). rc-agent counts 3 failed restarts in 10 minutes and writes MAINTENANCE_MODE. Auto-detect sees the pod as failed on next check, tries another fix, but MAINTENANCE_MODE blocks all restarts. Auto-detect reports "unfixed" every night indefinitely until a human manually clears the sentinel.
+The existing leaderboard and fleet dashboard components have WebSocket reconnect logic (exponential backoff, cleanup on unmount). A redesign that rewrites a component from scratch may not replicate this logic. The new component opens a WS connection, never cleans it up on unmount, and opens a new connection on every re-render — resulting in multiple concurrent connections, duplicate event handlers, and memory leaks. Or: the component reconnects too aggressively and floods the server's WS handler.
 
-**Why it happens:**
-MAINTENANCE_MODE was designed as a human-intervention gate to prevent restart storms. Auto-detect is a new actor that can trigger the conditions that write MAINTENANCE_MODE without a human in the loop to clear it. v17.1 added 30-minute auto-clear but this must be verified active before relying on it.
+The server's WS handler has a `ws_connect_timeout >= 600ms` requirement (CLAUDE.md audit standing rule). A naive reconnect loop that retries every 100ms can overwhelm the server.
 
-**How to avoid:**
-- Verify v17.1 30-minute auto-clear is active before shipping auto-detect
-- Auto-detect must track whether IT caused MAINTENANCE_MODE (its fix triggered the restart threshold)
-- If auto-detect caused MAINTENANCE_MODE: wait 35 minutes for auto-clear + verify, then retry once, then escalate to Uday
-- Never retry a failed fix more than once in the same run cycle without waiting for MAINTENANCE_MODE to clear
-- MAINTENANCE_MODE written during auto-detect's own fix attempt = immediate WhatsApp to Uday (auto-detect failed, human needed)
+**Consequences:**
+- Leaderboard display shows duplicate record-broken events (each WS listener fires)
+- Server logs show 50+ simultaneous WS connections from the leaderboard TV
+- Component unmounts (navigation), WS stays open, server eventually kills the connection with no client cleanup
 
-**Warning signs:**
-- Pod stuck in MAINTENANCE_MODE with timestamp matching auto-detect run time
-- Auto-detect reports "unfixed" for the same pod multiple consecutive nights
-- MAINTENANCE_MODE timestamp is 2:31-2:38 AM IST (within auto-detect window)
+**Prevention:**
+- WS connection logic must live in a `useRef` + `useEffect` with cleanup: `return () => ws.close()`
+- Reconnect delay must be at minimum 1000ms for the first retry, backing off to 30s
+- Extract WebSocket into a shared hook (`useWebSocket.ts`) to ensure consistency across redesigned components
+- Test: navigate away from the leaderboard page and back 5 times; check server WS connection count stays at 1, not 5
 
-**Phase to address:**
-Phase 1 (auto-fix engine) — MAINTENANCE_MODE awareness required before first fix attempt.
+**Phase to address:** Phase 2 (leaderboard component). Extract the WS hook in Phase 1 if possible.
 
 ---
 
-### Pitfall 9: Process Guard Empty Allowlist Window After Auto-Deploy
+### Pitfall 9: Recharts / Dynamic Import Breaks SSR — Blank Chart on First Load
 
 **What goes wrong:**
-Auto-detect deploys a new rc-agent binary to a pod. Pod restarts rc-agent. At restart, rc-agent fetches the process guard allowlist from the server — but the server is briefly busy responding to the deploy chain, returns a timeout, rc-agent falls back to the empty default allowlist. Process guard enabled + empty allowlist = 28,749 false violations per day. If auto-detect deploys 4 pods in parallel, all 4 have the empty allowlist window simultaneously, creating a burst on the server.
+The existing `TelemetryChart.tsx` component uses `dynamic(() => import("@/components/TelemetryChart"), { ssr: false })` to prevent Recharts from trying to render on the server (Recharts uses `window` and `document`). If a redesign moves or renames this component, or if a new chart component is added without the `ssr: false` flag, the server-side render fails with a `window is not defined` error and the page may crash entirely (with error boundary fallback) or show a blank placeholder permanently.
 
 **Why it happens:**
-The periodic re-fetch (every 300 seconds) eventually corrects this, but the 0-300 second window after an auto-deploy is vulnerable. This is a known incident pattern in this codebase — it occurred because all 8 pods booted while the server was briefly down during a restart.
+Recharts (currently `^3.8.1`) is a client-only library. Any file it imports that touches browser globals fails on the server. The `dynamic` + `ssr: false` pattern is the correct workaround but must be applied to every chart component, not just the outer one.
 
-**How to avoid:**
-- After any rc-agent deploy, verification step must include: `GET /api/v1/guard/whitelist/pod-{N}` response must be non-empty
-- Include a 30-second delay after pod restart before running post-deploy verification (gives periodic re-fetch time to run)
-- If allowlist is empty post-deploy, trigger manual re-fetch via exec before marking deploy complete
-- Never deploy more than 2 pods concurrently to avoid overwhelming the server during allowlist fetch burst
+**Consequences:**
+- Telemetry chart area shows the spinning loader indefinitely
+- In development, this may not appear because `next dev` has different SSR behavior
+- Production build (with full SSR) breaks the chart
 
-**Warning signs:**
-- `violation_count_24h` spikes immediately after an auto-deploy run
-- All violations on a recently-deployed pod involve known-good processes (svchost.exe, rc-agent.exe)
-- Allowlist endpoint returns 0 entries for a pod that just restarted
+**Prevention:**
+- Any new component importing Recharts or charting libraries MUST use `dynamic` + `ssr: false`
+- Add to code review checklist: search for `recharts` in new files that don't have `dynamic` import
+- The loading placeholder must always be provided: `loading: () => <ChartSkeleton />`
 
-**Phase to address:**
-Phase 1 (auto-fix engine) — post-deploy verification must include allowlist check before marking pod fix as complete.
+**Phase to address:** Phase 2 (telemetry/analytics components). Add to PR template.
 
 ---
 
-### Pitfall 10: SSH Output Corrupting Config Files via Auto-Fix
+### Pitfall 10: Kiosk basePath Breaks Absolute URLs and Redirects
 
 **What goes wrong:**
-The cascade engine detects that `racecontrol.toml` on the server has a stale `ws_connect_timeout` value. Auto-fix SSH-es to the server and writes the corrected line by redirecting SSH output. The SSH banner (post-quantum warning, MOTD, OpenSSH version line) is captured along with the command output and prepended to the config file. TOML parser rejects the file from line 1. `load_or_default()` silently falls back to empty defaults. Process guard runs with 0 allowed entries for hours with no visible error — because the parse error occurs before logging is initialized.
+The kiosk app has `basePath: "/kiosk"` in `next.config.ts`. This means all client-side routes are prefixed: `/book` becomes `/kiosk/book`, `/settings` becomes `/kiosk/settings`. Internal Next.js `Link` and `router.push()` components handle this automatically. Problems arise when:
+1. A redesigned component uses a hardcoded absolute URL string: `href="/book"` — this bypasses the basePath prefix and navigates to the web dashboard route instead
+2. A redirect uses `basePath: false` incorrectly (the root redirect in `next.config.ts` already handles `/` → `/kiosk` with `basePath: false`, which is correct and must not be changed)
+3. API calls in the kiosk use relative URLs like `/api/something` — these are proxied to the Next.js API route at `/kiosk/api/something`, not the backend server
+
+**Consequences:**
+- Tapping "Book Session" navigates to web dashboard (staff view) instead of kiosk booking flow
+- Customer is looking at a billing admin panel, not the self-service booking UI
+- API calls from the kiosk 404 if using relative paths instead of the explicit `NEXT_PUBLIC_API_URL`
+
+**Prevention:**
+- All `Link` `href` props and `router.push()` calls in `kiosk/` must use relative paths (e.g. `/book`), not absolute (Next.js applies basePath automatically to relative paths)
+- Never hardcode `/kiosk/book` — basePath is applied automatically
+- Never use relative API paths like `/api/v1/...` in kiosk — always use `NEXT_PUBLIC_API_URL + "/api/v1/..."` (the backend is at port 8080, not the kiosk's 3300)
+- After any navigation change: verify by clicking through on an actual device at `192.168.31.23:3300/kiosk`
+
+**Phase to address:** Phase 2 (kiosk booking redesign). Verify in the navigation smoke test.
+
+---
+
+### Pitfall 11: Leaderboard Display on TV — Touch Events and Auth Assumptions Wrong
+
+**What goes wrong:**
+The `/leaderboard-display` route runs on a dedicated TV (leaderboard display PC, Tailscale: `desktop-*` nodes). It auto-rotates through records. A redesign that adds auth guards, JWT checks, or staff-only gates to this route will break it — the TV has no user logged in and cannot complete an auth flow.
+
+Separately, if the redesign adds `onClick` handlers expecting user interaction, the TV cannot interact (it has no keyboard or mouse — it is a pure display). Adding a "click to see more" interaction to a rotating display panel is a dead end.
 
 **Why it happens:**
-This exact incident occurred on 2026-03-24 (documented in CLAUDE.md standing rules). Auto-fix scripts written to correct config drift may repeat this mistake if the prohibition on SSH output piping is not enforced as a hard constraint in the fix action framework.
+The leaderboard display page is a public/unauthenticated display. The web dashboard `AuthGate` component wraps most pages. A redesign that adds `<AuthGate>` to the leaderboard-display route will silently redirect the TV to `/login` on next deploy.
 
-**How to avoid:**
-- Config fixes MUST use the dedicated ConfigPush WebSocket channel (CP-01) or the `/api/v1/config` REST endpoint — never SSH output redirect
-- SCP for file transfers only; exec endpoint for operational commands only; API for config changes only
-- After any config fix, validate file integrity: `head -1 racecontrol.toml | grep -q '^\[' || alert "config corrupted"`
-- Add a "config fix type" field to the approved-fixes whitelist — only `api_call` and `scp_file` types are permitted, never `ssh_exec_redirect`
+**Consequences:**
+- TV at the venue shows the login page instead of leaderboards
+- Staff don't notice immediately — the TV is decorative, not operationally critical
+- It may stay showing login for hours or days
 
-**Warning signs:**
-- racecontrol.toml has non-TOML content on its first line after an auto-detect run
-- Server starts returning empty/default responses for config-dependent features (process guard count drops to 0)
-- No tracing errors visible despite config-dependent features behaving incorrectly (parse error before logging init)
+**Prevention:**
+- `/leaderboard-display` must NEVER be wrapped in `AuthGate`
+- The page must use `fetchPublic()` (not `fetchApi()` which adds Authorization headers) — this is already the pattern in the existing code
+- No interactive elements (click handlers, modals) on the leaderboard display — it is display-only
+- After any auth middleware change: verify `curl -s http://192.168.31.23:3200/leaderboard-display` returns HTML, not a redirect to `/login`
 
-**Phase to address:**
-Phase 2 (config drift detection and auto-fix) — config update path enforced as API-only from the first implementation.
-
----
-
-## Technical Debt Patterns
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| No idle gate on first implementation | Simpler code, faster to ship | First scheduled run interrupts an active billing session | Never in production |
-| Single WhatsApp per finding (no digest) | Easier notification logic | Alert fatigue in week 1 — Uday ignores all messages including critical ones | Never after the first run |
-| Hardcode 2:30 AM with no venue hours awareness | Fast to implement | Conflicts with late venue events, no recovery if event runs late | MVP only with documented risk and manual override |
-| No dry-run mode for cascade fixes | Faster implementation | First cascade run applies fixes to wrong pods | Never — dry-run is always the default first mode |
-| Trust `spawn().is_ok()` for fix verification | One line of code | Silent non-start; pods appear fixed but aren't — documented incident where all 3 launch methods returned Ok but all silently failed | Never |
-| Skip coordination check between James and Bono | Simpler individual scripts | First time both run simultaneously corrupts a binary | Acceptable only in detect-only (no-fix) mode |
+**Phase to address:** Phase 1 or whichever phase introduces shared layout wrappers. Auth boundary must be explicit.
 
 ---
 
-## Integration Gotchas
+### Pitfall 12: Standalone Deploy on Windows — PM2 / Scheduled Task Path Issues
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| comms-link relay exec | Fire-and-forget exec assuming it ran | Use `/relay/exec/run` (synchronous) which returns the result; verify the result content, not just HTTP 200 |
-| WhatsApp Evolution API | Call directly from James auto-detect.sh via venue tunnel | Route through Bono VPS Evolution API (standing rule: marketing/alerts via Bono, not venue tunnel) |
-| rc-sentry exec endpoint | Use to write config files | SCP for file transfers only; exec is for operational commands only |
-| Windows Task Scheduler | Assume interactive session is available | Non-interactive context: no GUI, no user profile, absolute paths everywhere, no `timeout` command (use `ping -n N 127.0.0.1`) |
-| OTA pipeline | Auto-detect triggers during OTA_DEPLOYING window | Always read `C:\RacingPoint\OTA_DEPLOYING` before any pod-touching action |
-| Bono cron + James task | Same schedule, no coordination | Stagger by 60 minutes minimum; share run completion status via comms-link INBOX.md |
-| audit.sh integration | Call with `--auto-fix` always | Call in detect-only mode first; apply fixes selectively from the approved-fixes whitelist |
+**What goes wrong:**
+The web dashboard and kiosk both run as scheduled tasks on the server (`192.168.31.23`). The `node .next/standalone/server.js` command is called from the scheduled task. After a redesign and rebuild, the new `server.js` references a different set of chunks. If the deploy copies the new `server.js` but doesn't restart the scheduled task, the old process continues serving the old bundle. The deployment appears to have worked (files are updated) but users see the old UI.
 
----
+Additionally, on Windows, pm2 (used on Bono VPS for cloud deployments) does not pick up file changes automatically. `pm2 restart web` must be explicitly called.
 
-## Performance Traps
+**Consequences:**
+- Deployed new leaderboard design but server still shows old layout for hours
+- Health check returns 200 (process is alive), but build date or version shows the old deploy
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Full 60-phase audit on every nightly run | 8-minute run blocks all other scheduled operations | Use `--mode quick` for nightly; full mode only on weekend maintenance windows | When full mode is added to the default nightly schedule |
-| Parallel deploys to all 8 pods simultaneously | Server overload during allowlist fetch burst, corrupted concurrent binary writes | Max 2 concurrent pod deploys with 30-second stagger | First time 5+ pods need the same fix in one run |
-| Log anomaly scanning full JSONL history | Scan time grows linearly with log age (30+ days of rolling files) | Scan only last 24h of JSONL using timestamp filter on `racecontrol-*.jsonl` filename pattern | After 30 days of log accumulation |
-| Bono VPS Tailscale check via SSH for all pods | 10s timeout per pod, 8 pods sequential = 80s minimum | Use fleet health API for all-pod status in one call; SSH only for pods unreachable via HTTP | At 8 pods with intermittent Tailscale connectivity |
+**Prevention:**
+- Deploy script must: (1) copy new files, (2) stop the old process/task, (3) start new process/task, (4) verify the new build is serving by checking a cache-busting URL or the bundle hash in the HTML
+- Add a version endpoint: inject `GIT_HASH` or build timestamp into the standalone `server.js` environment at build time, expose via `/api/version` route, and verify it post-deploy
+- Bono VPS: `pm2 restart web && pm2 restart admin` (not just one app)
+
+**Phase to address:** Phase 1 (deploy pipeline). The version-verification step must be in the smoke test.
 
 ---
 
-## Security Mistakes
+## Minor Pitfalls
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Auto-fix executes shell commands derived from audit output | A crafted pod response could inject commands into the fix step | All auto-fix actions are whitelist-only from approved-fixes.json; audit output is data, never eval'd as commands |
-| COMMS_PSK passed as environment variable | PSK visible in process list via `ps aux` or Windows task manager | Read PSK from a chmod-600 file; never pass via command-line argument |
-| Auto-detect commits and pushes config changes to git unattended | Could push corrupted state after a failed partial fix | Limit auto-commits to audit report files only; never auto-push binary, config, or toml changes |
-| WhatsApp messages include internal IPs and build hashes | Leaks infrastructure details to anyone with phone access | Sanitize messages: "Pod 5 needs attention" not "Pod 5 (192.168.31.86) build 4bdcc6e9 failed allowlist check" |
+### Pitfall 13: Enthocentric Font Missing in New Components
+
+**What goes wrong:**
+The brand uses Enthocentric for headers. This is a custom font loaded via `public/fonts/` (not Google Fonts). New components in the redesign that use generic Tailwind heading classes without specifying `font-enthocentric` (or whatever the CSS class is) will render in Montserrat instead. The difference is subtle but visible — the header font is part of the Racing Point identity.
+
+**Prevention:**
+- Verify the Enthocentric CSS class name (`grep -n "Enthocentric\|enthocentric" web/src/app/globals.css`) and document it as a standing rule for the redesign
+- Any `<h1>`, `<h2>`, race name, or position number displaying "racing style" text must use Enthocentric
+- After any new page/component: visual check in a browser, not just a code review
+
+**Phase to address:** Phase 1 (design system setup).
+
+---
+
+### Pitfall 14: SIM_TYPES Array Diverges From Backend Enum
+
+**What goes wrong:**
+The leaderboard page has a `SIM_TYPES` array (comment: "must match SimType enum in rc-common/types.rs"). If the redesign adds a new game (e.g. "Dirt Rally 2.0") to the frontend `SIM_TYPES` without adding it to the Rust enum, the filter sends an unknown value to the backend. The API returns an error or empty results. Alternatively, if a new game is added to the backend but not the frontend filter, it is invisible on the leaderboard.
+
+**Prevention:**
+- `SIM_TYPES` must always be imported from `packages/shared-types/` or generated from the OpenAPI spec (v21.0 OpenAPI covers 66 endpoints including sim types)
+- Never duplicate the enum as a local constant in a component file
+- After any game is added: update rc-common first, rebuild, then update shared-types, then update frontend
+
+**Phase to address:** Phase 2 (leaderboard filter redesign).
+
+---
+
+### Pitfall 15: Recharts Responsive Container Height Zero on Initial Render
+
+**What goes wrong:**
+`ResponsiveContainer` from Recharts requires a parent element with an explicit height. In a redesigned card-based layout, if the parent uses `h-auto` or `flex-1` without a bounded height, `ResponsiveContainer` receives height=0 on initial render and renders an invisible chart. The chart only appears after a window resize triggers a reflow. This is a known Recharts issue.
+
+**Prevention:**
+- Always wrap `ResponsiveContainer` in a parent with explicit height: `<div className="h-64">` or `h-[16rem]`, not `h-auto`
+- Test the chart with a hard page refresh, not a client-side navigation (client nav may preserve the height from a previous render)
+
+**Phase to address:** Phase 2 (telemetry chart component).
+
+---
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Design system / token setup | Tailwind v4 config confusion (P6), Enthocentric missing (P13) | Define all tokens in `globals.css @theme` before any component work |
+| Leaderboard display redesign | WebSocket reconnect lost (P8), leaderboard TV auth guard (P11), SIM_TYPES drift (P14) | Extract WS hook first, keep auth boundary explicit, import shared types |
+| Kiosk booking wizard redesign | Touch targets too small (P4), basePath absolute URLs (P10), NEXT_PUBLIC_ vars (P1) | Verify on actual touchscreen, use relative hrefs, pre-build env check |
+| Deploy pipeline | Static files not copied (P2), wrong outputFileTracingRoot (P3), no process restart (P12) | Add static copy + version verify to smoke test |
+| Telemetry/chart components | Recharts SSR crash (P9), responsive container height zero (P15), missing ssr:false (P9) | Always dynamic import with ssr:false, explicit parent height |
+| API type refactor | Shared type rename breaks backend contract (P7), SIM_TYPES local copy (P14) | Import from shared-types, never duplicate |
+| Any new NEXT_PUBLIC_ var | Value baked at wrong time (P1) | Audit env vars in .env.production.local before build |
+
+---
+
+## Deployment Checklist (specific to this redesign)
+
+Run before marking any redesign phase as shipped:
+
+```bash
+# 1. Env var audit — must have LAN IP, not localhost
+grep -n "localhost" web/.env.production.local kiosk/.env.production.local
+# Must return 0 matches for NEXT_PUBLIC_ vars
+
+# 2. Build succeeds with 0 type errors
+cd web && npm run build 2>&1 | tail -20
+cd kiosk && npm run build 2>&1 | tail -20
+
+# 3. Static files present after build
+ls web/.next/static/css/ | head -5
+ls kiosk/.next/static/css/ | head -5
+
+# 4. Static files copied to standalone
+ls web/.next/standalone/.next/static/css/ | head -5
+# If missing: cp -r web/.next/static web/.next/standalone/.next/static
+
+# 5. Verify static serving from a non-server machine
+curl -I http://192.168.31.23:3200/_next/static/css/app.css
+# Must return HTTP 200
+
+# 6. Verify leaderboard display is unauthenticated
+curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display
+# Must return 200, not 302
+
+# 7. Verify kiosk basePath redirect
+curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3300/kiosk/book
+# Must return 200
+
+# 8. Deprecated orange check
+grep -rn "FF4400\|#ff4400" web/src/ kiosk/src/
+# Must return 0 matches
+
+# 9. Verify outputFileTracingRoot in all next.config.ts files
+grep outputFileTracingRoot web/next.config.ts kiosk/next.config.ts
+# Must appear in both
+
+# 10. Touch target size (spot check in devtools — set device to iPhone 12 Pro)
+# All interactive kiosk elements must be >= 44x44px
+
+# 11. WebSocket env var correct in deployed bundle (check HTML source)
+curl -s http://192.168.31.23:3200/ | grep -o "NEXT_PUBLIC_WS_URL[^\"]*"
+# Should NOT contain "localhost"
+```
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Idle gate per-pod:** Verify `has_active_billing_session()` is checked on ALL pods individually, not the fleet aggregate — an active session on Pod 3 is still active even if Pod 1's health is checked first
-- [ ] **Sentinel reads before fix:** Confirm auto-detect reads OTA_DEPLOYING, MAINTENANCE_MODE, and GRACEFUL_RELAUNCH before any fix — test by manually placing sentinel, running auto-detect in dry-run, and checking that the fix is skipped
-- [ ] **Cascade dry-run default:** First production run must use `--dry-run` — verify log shows "would fix" not "fixed" and that no actual changes were applied
-- [ ] **WhatsApp silence on clean run:** Trigger a run with no issues; confirm no WhatsApp message is sent to Uday
-- [ ] **Bono coordination:** Manually run James auto-detect.sh and Bono bono-auto-detect.sh simultaneously; confirm only one writes AUTO_DETECT_ACTIVE and the other aborts cleanly
-- [ ] **Post-deploy allowlist:** After auto-deploying rc-agent to Pod 8 canary, check `violation_count_24h` after 5 minutes — must be at baseline (not spiking from empty allowlist)
-- [ ] **Venue hours gate:** Insert an active billing session into the DB, trigger auto-detect, confirm all pod-touching phases are skipped and only server-side checks run
+- [ ] **Tested from POS machine or James's browser** — not just from the server itself (NEXT_PUBLIC_ vars only detectable from remote)
+- [ ] **Kiosk tested on actual touchscreen** — devtools touch simulation does not accurately test hover state
+- [ ] **Static files verified with curl** — not just "build succeeded" (standalone deploy step is separate)
+- [ ] **Leaderboard TV page loads without login** — curl the URL without cookies, verify 200 not 302
+- [ ] **WebSocket reconnects on disconnect** — disconnect the server briefly and verify the leaderboard reconnects within 30s
+- [ ] **New components use shared types from packages/shared-types/** — no local type duplicates
+- [ ] **Recharts components wrapped in dynamic import with ssr:false** — check every new chart file
+- [ ] **Enthocentric font used on headers** — visual check, not code review
+- [ ] **No new tailwind.config.js created** — v4 uses globals.css @theme only
+- [ ] **All NEXT_PUBLIC_ vars in .env.production.local** — grep before every build
 
 ---
 
@@ -324,38 +442,25 @@ Phase 2 (config drift detection and auto-fix) — config update path enforced as
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Recovery systems fighting (infinite loop) | HIGH | Kill all recovery actors manually, clear all sentinels (MAINTENANCE_MODE, GRACEFUL_RELAUNCH, AUTO_DETECT_ACTIVE), restart one pod at a time with manual monitoring |
-| Alert fatigue (Uday ignoring messages) | HIGH (trust erosion, slow to recover) | Silence all auto-detect WhatsApp for 72 hours, manually review all previous messages to identify which were noise, reduce threshold to critical-only |
-| Config corrupted by SSH banner | MEDIUM | SCP correct config from repo to server, verify first line is valid TOML (`head -1 | grep '^\['`), restart racecontrol.exe, verify build_id + config values at API level |
-| Cascade fix broke a pod mid-OTA | MEDIUM | Restore from `rc-agent-prev.exe` (preserved 72h per standing rule), clear OTA_DEPLOYING sentinel, restart rc-agent via rc-sentry exec, verify build_id |
-| MAINTENANCE_MODE from auto-detect's own restart | LOW | Wait 35 minutes for v17.1 auto-clear; if not clearing, manually delete `C:\RacingPoint\MAINTENANCE_MODE` via rc-sentry exec, then restart rc-agent |
-| Dual-AI race condition corrupts binary | HIGH | Restore from `rc-agent-prev.exe` on affected pod, clear AUTO_DETECT_ACTIVE on both agents, fix schedule stagger, add coordination protocol before re-enabling Bono failover |
-
----
-
-## Pitfall-to-Phase Mapping
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Recovery systems fighting | Phase 1: Core pipeline with sentinel reads | Manually set MAINTENANCE_MODE on a pod; run auto-detect in dry-run; confirm pod is skipped with sentinel logged |
-| Alert fatigue | Phase 1: Escalation logic with silence conditions | Trigger clean run with no issues; confirm no WhatsApp sent |
-| Config drift false positives | Phase 2: Drift schema with per-pod key exclusions | Run on live fleet; confirm pod_number, pod_ip, mac not flagged as drift |
-| Log anomaly miscalibration | Phase 2: Pattern-based anomaly triggers | Inject known-bad pattern (empty allowlist); confirm anomaly fires. Run normal night; confirm expected WARNs do not fire |
-| Cascade wrong target | Phase 2: Cascade engine with dry-run default | Run cascade in dry-run on live fleet; review log for any Pod 8 canary being "corrected" |
-| Scheduled task conflicts | Phase 1: Idle gate (per-pod) and venue hours gate | Insert active billing session in DB; run auto-detect; confirm pod phases skipped |
-| Dual-AI race conditions | Phase 3: Bono failover with coordination protocol | Run James + Bono simultaneously in dry-run; confirm only one writes AUTO_DETECT_ACTIVE |
-| MAINTENANCE_MODE blocking | Phase 1: Auto-fix engine with MAINTENANCE_MODE awareness | Trigger MAINTENANCE_MODE on a pod; run auto-detect fix; confirm it waits rather than retrying immediately |
-| Process guard empty allowlist | Phase 1: Post-deploy verification checklist | Deploy to Pod 8 canary via auto-detect; confirm allowlist non-empty in verification step output |
-| SSH banner config corruption | Phase 2: Config fixes via API only, no SSH write path | Attempt a config drift fix in test; trace code path; confirm no SSH exec redirect is used |
+| NEXT_PUBLIC_ deployed with localhost | MEDIUM — rebuild required | Set correct LAN IP in .env.production.local, `npm run build`, redeploy static + standalone |
+| Static files 404 after deploy | LOW — no rebuild | Copy `.next/static` to `.next/standalone/.next/static`, restart process |
+| outputFileTracingRoot wrong | LOW — no rebuild | Edit `required-server-files.json` appDir field manually OR rebuild with correct config |
+| Leaderboard TV showing login page | LOW — deploy fix | Remove AuthGate from that route, rebuild, redeploy |
+| WS reconnect leak — multiple connections | MEDIUM — code fix required | Extract WS into shared hook, rebuild, redeploy |
+| Touch targets too small — kiosk unusable | HIGH — design + code fix | Must enlarge all targets, rebuild kiosk, redeploy, verify on touchscreen |
 
 ---
 
 ## Sources
 
-- `CLAUDE.md` standing rules — Cross-Process Recovery Awareness, SSH banner corruption incident (2026-03-24), MAINTENANCE_MODE permanent blocker, process guard empty allowlist incident (28,749 false violations/day), `spawn().is_ok()` silent failure pattern, OTA sentinel protocol
-- `MEMORY.md` — v23.0 audit protocol QUIET findings baseline, rc-sentry restart bug, pod healer flicker (PowerShell variable strip), Self_monitor + WoL + rc-sentry infinite loop (45-minute diagnosis)
-- `PROJECT.md` — v26.0 milestone constraints, foundation already built (auto-detect.sh b54e4585, bono-auto-detect.sh deployed, chains.json templates), known constraint: Bono cron must not conflict with bono-server-monitor and bono-racecontrol-monitor
+- `CLAUDE.md` (racecontrol repo) — NEXT_PUBLIC_ env var bake-time trap, standalone static file 404 incident (2026-03-25), outputFileTracingRoot fix history, Tailwind v4 CSS-first config, hydration localStorage rule, kiosk basePath, Recharts dynamic import pattern, brand identity (#E10600, Enthocentric, Montserrat, deprecated orange)
+- `MEMORY.md` — v16.1 cameras dashboard hardcoded array pitfall, kiosk 14-day stale deploy incident (2026-03-28), frontend staleness check in quality gate, NEXT_PUBLIC_WS_URL "page loads but no data" on POS machine
+- `web/next.config.ts` + `kiosk/next.config.ts` — outputFileTracingRoot rationale comments, basePath configuration
+- `web/package.json` + `kiosk/package.json` — Next.js 16.1.6, React 19.2.3, Tailwind v4, Recharts 3.8.1, socket.io-client 4.8.3
+- `web/src/app/globals.css` — Tailwind v4 @theme inline config, CSS custom properties, current color tokens
+- `web/src/app/leaderboards/page.tsx` — WS_BASE NEXT_PUBLIC_ pattern, SIM_TYPES array with "must match SimType enum" comment, dynamic Recharts import
+- `web/src/lib/api.ts` — fetchPublic vs fetchApi distinction, 30s timeout, 401 redirect behaviour
 
 ---
-*Pitfalls research for: Autonomous bug detection and self-healing (v26.0)*
-*Researched: 2026-03-26 IST*
+*Pitfalls research for: Racing Dashboard UI Redesign (subsequent milestone)*
+*Researched: 2026-03-30 IST*
