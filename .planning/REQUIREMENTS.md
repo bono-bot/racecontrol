@@ -15,10 +15,10 @@
 ## Shared Components (SC)
 - [x] **SC-01**: StatusBadge redesign with racing flag color system (ready/occupied/warning/offline/maintenance)
 - [x] **SC-02**: MetricCard component (title, value, delta, sparkline, alert state)
-- [ ] **SC-03**: PodCard redesign with F1 timing tower row style (status bar, countdown, driver)
-- [ ] **SC-04**: AppShell with motorsport sidebar, top bar, and racing-control aesthetic
-- [ ] **SC-05**: PinPad component (6-digit, reusable for login + kiosk + supervisor auth)
-- [ ] **SC-06**: CountdownTimer redesign with radial progress ring and threshold colors
+- [x] **SC-03**: PodCard redesign with F1 timing tower row style (status bar, countdown, driver)
+- [x] **SC-04**: AppShell with motorsport sidebar, top bar, and racing-control aesthetic
+- [x] **SC-05**: PinPad component (6-digit, reusable for login + kiosk + supervisor auth)
+- [x] **SC-06**: CountdownTimer redesign with radial progress ring and threshold colors
 - [ ] **SC-07**: LiveDataTable built on TanStack Table with sticky header, sort, select (web only)
 - [ ] **SC-08**: LeaderboardTable with F1-style rank, driver, lap time, gap, PB highlighting
 - [x] **SC-09**: Toast/notification system for feedback on actions
