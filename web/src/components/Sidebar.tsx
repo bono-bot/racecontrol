@@ -24,6 +24,7 @@ import {
   Coffee,
   Settings,
   ToggleLeft,
+  Activity,
   Rocket,
   type LucideIcon,
 } from "lucide-react";
@@ -43,6 +44,7 @@ interface PodFleetStatus {
 const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/", label: "Live Overview", Icon: LayoutDashboard },
   { href: "/pods", label: "Pods", Icon: Cpu },
+  { href: "/fleet", label: "Fleet Health", Icon: Activity },
   { href: "/games", label: "Games", Icon: Gamepad2 },
   { href: "/telemetry", label: "Telemetry", Icon: BarChart2 },
   { href: "/ac-lan", label: "AC LAN Race", Icon: Flag },
