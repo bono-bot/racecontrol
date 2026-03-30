@@ -45,7 +45,7 @@ export default function CountdownTimer({
   const textSize = compact ? "text-base" : "text-2xl";
 
   return (
-    <div className="space-y-2" role="timer" aria-live="polite" aria-label={`${formatCountdown(remaining)} remaining`}>
+    <div className="space-y-2" role="timer" aria-label={`${formatCountdown(remaining)} remaining`}>
       {/* SVG Radial Ring */}
       <div className={`${ringSize} mx-auto relative`}>
         <svg viewBox="0 0 100 100" className="w-full h-full" aria-hidden="true">
@@ -80,6 +80,13 @@ export default function CountdownTimer({
           </span>
         </div>
       </div>
+
+      {/* Screen reader: announce only at key intervals (30s, 60s, 5min, 10min) */}
+      {(remaining === 600 || remaining === 300 || remaining === 60 || remaining === 30 || remaining === 10) && (
+        <span className="sr-only" role="status" aria-live="assertive">
+          {formatCountdown(remaining)} remaining
+        </span>
+      )}
 
       {/* Driving state indicator — only in full mode */}
       {!compact && (
