@@ -50,8 +50,8 @@ Plans:
   5. Post-deploy smoke test verifies `/leaderboard-display` is unauthenticated: `curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display` returns 200, not 302
 **Plans**: 2 plans
 Plans:
-- [ ] 262-01-PLAN.md — Env var audit script (check-frontend-env.sh) + static smoke test injected into deploy-nextjs.sh
-- [ ] 262-02-PLAN.md — Post-deploy verification gate script (verify-frontend-deploy.sh) covering all 5 ROADMAP success criteria
+- [ ] 262-01-PLAN.md ï¿½ Env var audit script (check-frontend-env.sh) + static smoke test injected into deploy-nextjs.sh
+- [ ] 262-02-PLAN.md ï¿½ Post-deploy verification gate script (verify-frontend-deploy.sh) covering all 5 ROADMAP success criteria
 
 ### Phase 263: Web Primitive Components
 **Goal**: All shared components for the web dashboard exist in redesigned form â€” StatusBadge, MetricCard, PodCard, AppShell, PinPad, CountdownTimer, LiveDataTable (TanStack Table), LeaderboardTable (with WS and AnimatePresence), Toast, and loading skeletons â€” plus the login page; Phase 264 page work assembles these primitives and invents nothing
@@ -79,10 +79,10 @@ Plans:
   5. All web pages verified from James's browser at `.23:3200` (not from the server itself) â€” WebSocket data flows, `NEXT_PUBLIC_WS_URL` does not resolve to localhost in the bundle; all Recharts chart components use `dynamic` import with `ssr: false`
 **Plans**: 4 plans
 Plans:
-- [ ] 264-01-PLAN.md — Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
-- [ ] 264-02-PLAN.md — Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
-- [ ] 264-03-PLAN.md — Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
-- [ ] 264-04-PLAN.md — Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
+- [ ] 264-01-PLAN.md ï¿½ Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
+- [ ] 264-02-PLAN.md ï¿½ Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
+- [ ] 264-03-PLAN.md ï¿½ Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
+- [ ] 264-04-PLAN.md ï¿½ Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
 **UI hint**: yes
 
 ### Phase 265: Kiosk Pages
@@ -95,7 +95,11 @@ Plans:
   3. Billing/payment view (KS-03) shows wallet balance, session timer, and CountdownTimer radial progress ring â€” ring pulses red when `remaining_seconds < 300`; remaining session time (not elapsed) is the primary display
   4. Staff tools page (KS-04) requires 6-digit PinPad entry using the same SC-05 component â€” pin-protected access verified working on touch; `overflow: hidden` and `user-select: none` are preserved on kiosk body (no scroll introduced)
   5. Kiosk leaderboard (KS-05) animates rank changes using `AnimatePresence` + `layout` prop â€” tested on an actual pod touchscreen (not browser devtools touch simulation); kiosk build does NOT contain `@tanstack/react-table`
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 265-01-PLAN.md -- Kiosk home pod grid: offline count, press feedback, remaining time on active cards (KS-01)
+- [ ] 265-02-PLAN.md -- Booking wizard touch-optimize + billing countdown ring + 6-digit PinPad in fleet page (KS-02, KS-03, KS-04)
+- [ ] 265-03-PLAN.md -- KioskLeaderboard with AnimatePresence + spectator page wire-up + pod hardware verification (KS-05)
 **UI hint**: yes
 
 ### Phase 266: Quality Gate & Audit
@@ -120,5 +124,5 @@ Plans:
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
 | 263. Web Primitive Components | 0/TBD | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
-| 265. Kiosk Pages | 0/TBD | Not started | - |
+| 265. Kiosk Pages | 0/3 | Not started | - |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |
