@@ -1,25 +1,11 @@
 @import "tailwindcss";
-
-:root {
-  --background: #1A1A1A;
-  --foreground: #FFFFFF;
-  --rp-red: #E10600;
-  --rp-red-light: #FF1A1A;
-  --rp-black: #1A1A1A;
-  --rp-grey: #5A5A5A;
-}
+@import "../../../packages/shared-tokens/tokens.css";
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-rp-red: #E10600;
-  --color-rp-red-light: #FF1A1A;
-  --color-rp-black: #1A1A1A;
-  --color-rp-grey: #5A5A5A;
-  --color-rp-card: #222222;
-  --color-rp-border: #333333;
+  --color-background: #1A1A1A;
+  --color-foreground: #FFFFFF;
   --font-sans: 'Montserrat', sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-jb-mono, 'JetBrains Mono', monospace);
 }
 
 body {
