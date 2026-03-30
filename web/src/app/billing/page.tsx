@@ -1,16 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Server } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import CountdownTimer from "@/components/CountdownTimer";
 import BillingStartModal from "@/components/BillingStartModal";
 import StatusBadge from "@/components/StatusBadge";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
+import { useToast } from "@/components/Toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { Pod } from "@/lib/api";
 
 export default function BillingPage() {
   const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand } = useWebSocket();
   const [modalPod, setModalPod] = useState<Pod | null>(null);
+  const [initialising, setInitialising] = useState(true);
+  const { toast } = useToast();
+
+  // Flip initialising to false after 800ms
+  useEffect(() => {
+    const timer = setTimeout(() => setInitialising(false), 800);
+    return () => clearTimeout(timer);
+  }, []);
 
   function handleStart(data: {
     pod_id: string;
@@ -24,6 +35,7 @@ export default function BillingPage() {
   }) {
     sendCommand("start_billing", data);
     setModalPod(null);
+    toast({ message: "Session started", type: "success" });
   }
 
   function handleAssign(data: {
@@ -43,6 +55,7 @@ export default function BillingPage() {
 
   function handleCancelToken(tokenId: string) {
     sendCommand("cancel_assignment", { token_id: tokenId });
+    toast({ message: "Assignment cancelled", type: "success" });
   }
 
   function handlePauseResume(sessionId: string, isPaused: boolean) {
@@ -51,10 +64,12 @@ export default function BillingPage() {
     } else {
       sendCommand("pause_billing", { session_id: sessionId });
     }
+    toast({ message: isPaused ? "Session resumed" : "Session paused", type: "success" });
   }
 
   function handleEnd(sessionId: string) {
     sendCommand("end_billing", { session_id: sessionId });
+    toast({ message: "Session ended", type: "success" });
   }
 
   function handleExtend(sessionId: string) {
@@ -62,9 +77,18 @@ export default function BillingPage() {
       session_id: sessionId,
       additional_seconds: 600,
     });
+    toast({ message: "+10 minutes added", type: "success" });
   }
 
   const sortedPods = [...pods].sort((a, b) => a.number - b.number);
+
+  // Count paused sessions
+  const pausedCount = Array.from(billingTimers.values()).filter(
+    (b) =>
+      b.status === "paused_manual" ||
+      b.status === "paused_disconnect" ||
+      b.status === "paused_game_pause"
+  ).length;
 
   return (
     <DashboardLayout>
@@ -73,9 +97,14 @@ export default function BillingPage() {
           <h1 className="text-2xl font-bold text-white">Billing</h1>
           <p className="text-sm text-rp-grey">Session management</p>
         </div>
-        <span className="text-xs text-rp-grey">
-          {billingTimers.size} active session{billingTimers.size !== 1 ? "s" : ""}
-        </span>
+        <div className="flex gap-3">
+          <span className="bg-rp-card border border-rp-border rounded-lg px-3 py-1.5 text-xs text-neutral-300">
+            {billingTimers.size} active
+          </span>
+          <span className="bg-rp-card border border-rp-border rounded-lg px-3 py-1.5 text-xs text-neutral-300">
+            {pausedCount} paused
+          </span>
+        </div>
       </div>
 
       {/* Billing Warnings */}
@@ -93,7 +122,7 @@ export default function BillingPage() {
                 key={`${w.sessionId}-${i}`}
                 className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 flex items-center gap-3"
               >
-                <span className="text-amber-400 text-lg">&#9888;</span>
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="text-sm text-amber-200">
                   <span className="font-semibold">{podLabel}</span> &mdash;{" "}
                   {mins > 0
@@ -106,15 +135,24 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Pod Grid */}
-      {sortedPods.length === 0 ? (
-        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
-          <p className="text-neutral-400 mb-2">No pods connected</p>
-          <p className="text-rp-grey text-sm">
-            Pods appear automatically when rc-agent connects from a sim PC.
-          </p>
+      {/* Loading skeleton */}
+      {initialising && pods.length === 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-lg" />
+          ))}
+        </div>
+      ) : sortedPods.length === 0 ? (
+        /* Empty state */
+        <div className="border border-rp-border rounded-lg">
+          <EmptyState
+            icon={<Server className="w-10 h-10" />}
+            headline="No pods connected"
+            hint="Pods appear automatically when rc-agent connects from a sim PC."
+          />
         </div>
       ) : (
+        /* Pod Grid */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {sortedPods.map((pod) => {
             const billing = billingTimers.get(pod.id);
@@ -189,7 +227,7 @@ export default function BillingPage() {
                       </div>
                     )}
 
-                    {/* Controls — hidden during waiting_for_game */}
+                    {/* Controls -- hidden during waiting_for_game */}
                     {!isWaitingForGame && (
                       <div className="flex gap-2">
                         <button
