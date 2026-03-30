@@ -55,7 +55,42 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| (filled by roadmapper) | | | |
+| DS-01 | Phase 261 | TBD | Pending |
+| DS-02 | Phase 261 | TBD | Pending |
+| DS-03 | Phase 261 | TBD | Pending |
+| DS-04 | Phase 261 | TBD | Pending |
+| DS-05 | Phase 261 | TBD | Pending |
+| DS-06 | Phase 261 | TBD | Pending |
+| DS-07 | Phase 261 | TBD | Pending |
+| DQ-01 | Phase 262 | TBD | Pending |
+| DQ-02 | Phase 262 | TBD | Pending |
+| SC-01 | Phase 263 | TBD | Pending |
+| SC-02 | Phase 263 | TBD | Pending |
+| SC-03 | Phase 263 | TBD | Pending |
+| SC-04 | Phase 263 | TBD | Pending |
+| SC-05 | Phase 263 | TBD | Pending |
+| SC-06 | Phase 263 | TBD | Pending |
+| SC-07 | Phase 263 | TBD | Pending |
+| SC-08 | Phase 263 | TBD | Pending |
+| SC-09 | Phase 263 | TBD | Pending |
+| SC-10 | Phase 263 | TBD | Pending |
+| LP-01 | Phase 263 | TBD | Pending |
+| LP-02 | Phase 263 | TBD | Pending |
+| WD-01 | Phase 264 | TBD | Pending |
+| WD-02 | Phase 264 | TBD | Pending |
+| WD-03 | Phase 264 | TBD | Pending |
+| WD-04 | Phase 264 | TBD | Pending |
+| WD-05 | Phase 264 | TBD | Pending |
+| WD-06 | Phase 264 | TBD | Pending |
+| WD-07 | Phase 264 | TBD | Pending |
+| WD-08 | Phase 264 | TBD | Pending |
+| KS-01 | Phase 265 | TBD | Pending |
+| KS-02 | Phase 265 | TBD | Pending |
+| KS-03 | Phase 265 | TBD | Pending |
+| KS-04 | Phase 265 | TBD | Pending |
+| KS-05 | Phase 265 | TBD | Pending |
+| DQ-03 | Phase 266 | TBD | Pending |
+| DQ-04 | Phase 266 | TBD | Pending |
 
 ## Future Requirements (Deferred)
 - Command palette (Ctrl+K) for power users
