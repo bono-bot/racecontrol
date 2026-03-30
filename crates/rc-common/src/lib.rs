@@ -9,5 +9,6 @@ pub mod ollama;
 pub mod pod_id;
 pub mod verification;
 pub mod mesh_types;
+pub mod survival_types;
 #[cfg(feature = "tokio")]
 pub mod boot_resilience;
