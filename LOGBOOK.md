@@ -1050,3 +1050,4 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-29 17:00 IST | James | 5fcfe239 | feat(260-04): customer session receipt endpoint (UX-03) — GET /customer/sessions/{id}/receipt with GST breakup, before/after balance, outbox enqueue |
 | 2026-03-29 17:09 IST | James | f736cedc | feat(260-04): virtual queue management (UX-08) — join/status/leave/call/seat endpoints, virtual_queue table, 5min expire task |
 | 2026-03-29 17:25 IST | James | 608216db | fix(rc-agent): MMA 5-model audit — F-03 allowlist guard (SIM1-8+POS1), F-04 Edge GPO (14 policies), F-07 Active Hours (8am-2am), F-06 log flush. Deployed 8/8 pods. Pod 8 root cause: winlogon.exe SYSTEM shutdown at 06:35 IST (Windows Update). |
+| 2026-03-30 17:31 IST | James | d7cf0533 | fix(MMA): 4 fixes from 3-model UP audit — P1 sanitize_for_prompt case-insensitive bypass, P2 VENUE_GSTIN from config, P2 invoice IST date, P2 webhook HMAC guard |
