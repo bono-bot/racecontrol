@@ -101,7 +101,7 @@ body {
   --secondary: var(--rp-surface);
   --secondary-foreground: #FFFFFF;
   --muted: var(--rp-surface);
-  --muted-foreground: var(--rp-grey);
+  --muted-foreground: #9A9A9A;
   --accent: var(--rp-surface);
   --accent-foreground: #FFFFFF;
   --destructive: oklch(0.577 0.245 27.325);
