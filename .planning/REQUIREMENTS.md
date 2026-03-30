@@ -5,11 +5,11 @@
 
 ## Design System (DS)
 - [x] **DS-01**: Shared design tokens CSS file with full color ramp (surfaces, semantics, status colors)
-- [ ] **DS-02**: JetBrains Mono integrated via next/font for numeric displays in both apps
+- [x] **DS-02**: JetBrains Mono integrated via next/font for numeric displays in both apps
 - [x] **DS-03**: shadcn/ui initialized in web app with motorsport theme variables
 - [x] **DS-04**: shadcn/ui initialized in kiosk app with touch-optimized theme
 - [x] **DS-05**: Lucide React icons replace all emoji sidebar icons
-- [ ] **DS-06**: motion@12 integrated for micro-interactions (pod transitions, leaderboard reorders)
+- [x] **DS-06**: motion@12 integrated for micro-interactions (pod transitions, leaderboard reorders)
 - [x] **DS-07**: tw-animate-css integrated for shadcn component animations
 
 ## Shared Components (SC)
