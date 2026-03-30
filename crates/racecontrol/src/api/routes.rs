@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::metrics;
+use super::survival;
 use crate::ac_server;
 use crate::accounting;
 use crate::fleet_alert;
@@ -59,6 +60,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(kiosk_routes(state.clone()))
         .merge(staff_routes(state))
         .merge(service_routes())
+        .merge(survival::survival_routes())
 }
 
 // ─── Rate-limited auth endpoints (5 req/min per IP via tower_governor) ───

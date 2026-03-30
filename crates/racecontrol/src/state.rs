@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, RwLock};
 
+use crate::api::survival::LeaseManager;
 use crate::flags::FeatureFlagRow;
 
 use crate::ac_camera::CameraController;
@@ -225,6 +226,10 @@ pub struct AppState {
     /// Phase 251: Separate SqlitePool for telemetry.db (read queries).
     /// None if telemetry DB is not initialized.
     pub telemetry_db: Option<sqlx::SqlitePool>,
+    /// Phase 267-02: Server-arbitrated heal lease manager (SF-02).
+    /// Grants exclusive healing access per pod to one survival layer at a time.
+    /// Expired leases are auto-freed on next request. Never hold lock across .await.
+    pub lease_manager: std::sync::Arc<LeaseManager>,
 }
 
 impl AppState {
@@ -303,6 +308,7 @@ impl AppState {
             rating_tx: None,           // Initialized after AppState::new() in main.rs
             telemetry_writer_tx: None, // Initialized after AppState::new() in main.rs
             telemetry_db: None,        // Initialized after AppState::new() in main.rs
+            lease_manager: std::sync::Arc::new(LeaseManager::new()),
         }
     }
 
