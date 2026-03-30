@@ -4,6 +4,7 @@ interface CountdownTimerProps {
   remaining: number;
   allocated: number;
   drivingState: string;
+  compact?: boolean;
 }
 
 function formatCountdown(seconds: number): string {
@@ -13,63 +14,94 @@ function formatCountdown(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+const CIRCUMFERENCE = 2 * Math.PI * 40; // ~251.2
+
 export default function CountdownTimer({
   remaining,
   allocated,
   drivingState,
+  compact = false,
 }: CountdownTimerProps) {
-  const used = allocated - remaining;
-  const percent = allocated > 0 ? Math.min((used / allocated) * 100, 100) : 0;
+  const progress = allocated > 0 ? Math.max(0, Math.min(1, remaining / allocated)) : 0;
 
   const isLow = remaining < 300; // < 5 min
   const isCritical = remaining < 60; // < 1 min
 
-  const timeColor = isCritical
+  // Stroke color based on threshold
+  const strokeColor = isCritical
+    ? "#ef4444"
+    : isLow
+    ? "#f59e0b"
+    : "var(--color-rp-red)";
+
+  // Text color classes
+  const textColor = isCritical
     ? "text-red-500 animate-pulse"
     : isLow
     ? "text-amber-400"
     : "text-rp-red";
 
-  const barColor = isCritical
-    ? "bg-red-500"
-    : isLow
-    ? "bg-amber-400"
-    : "bg-rp-red";
+  const ringSize = compact ? "w-20 h-20" : "w-28 h-28";
+  const textSize = compact ? "text-base" : "text-2xl";
 
   return (
     <div className="space-y-2">
-      {/* Timer display */}
-      <div className={`text-3xl font-mono font-bold text-center ${timeColor}`}>
-        {formatCountdown(remaining)}
+      {/* SVG Radial Ring */}
+      <div className={`${ringSize} mx-auto relative`}>
+        <svg viewBox="0 0 100 100" className="w-full h-full">
+          {/* Background circle */}
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            fill="none"
+            stroke="#333"
+            strokeWidth={8}
+          />
+          {/* Progress circle */}
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth={8}
+            strokeLinecap="round"
+            strokeDasharray={CIRCUMFERENCE}
+            strokeDashoffset={CIRCUMFERENCE * (1 - progress)}
+            transform="rotate(-90 50 50)"
+            className={`transition-[stroke-dashoffset] duration-1000 ease-linear ${isCritical ? "animate-pulse" : ""}`}
+          />
+        </svg>
+        {/* Time text centered in ring */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className={`${textSize} font-mono font-bold ${textColor}`}>
+            {formatCountdown(remaining)}
+          </span>
+        </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="w-full h-2 bg-rp-card rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-
-      {/* Driving state indicator */}
-      <div className="flex items-center justify-center gap-2 text-xs">
-        {drivingState === "active" ? (
-          <>
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-emerald-400">Driving</span>
-          </>
-        ) : drivingState === "idle" ? (
-          <>
-            <span className="w-2 h-2 rounded-full bg-rp-grey" />
-            <span className="text-neutral-400">Paused (idle)</span>
-          </>
-        ) : (
-          <>
-            <span className="w-2 h-2 rounded-full bg-rp-card" />
-            <span className="text-rp-grey">No telemetry</span>
-          </>
-        )}
-      </div>
+      {/* Driving state indicator — only in full mode */}
+      {!compact && (
+        <div className="flex items-center justify-center gap-2 text-xs">
+          {drivingState === "active" ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-400">Driving</span>
+            </>
+          ) : drivingState === "idle" ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-rp-grey" />
+              <span className="text-neutral-400">Paused (idle)</span>
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 rounded-full bg-rp-card" />
+              <span className="text-rp-grey">No telemetry</span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
