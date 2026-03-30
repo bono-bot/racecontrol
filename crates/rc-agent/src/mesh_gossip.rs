@@ -122,6 +122,11 @@ fn handle_solution_broadcast(
         ttl_days: 90,
         tags: Some(format!("[\"fleet\", \"{}\"]", promotion_status)),
         diagnosis_method: Some("fleet_gossip".to_string()),
+        fix_permanence: "workaround".to_string(),
+        recurrence_count: 0,
+        permanent_fix_id: None,
+        last_recurrence: None,
+        permanent_attempt_at: None,
     };
 
     if let Err(e) = kb.store_solution(&solution) {
@@ -300,6 +305,11 @@ mod tests {
             ttl_days: 90,
             tags: None,
             diagnosis_method: Some("consensus_5model".to_string()),
+            fix_permanence: "workaround".to_string(),
+            recurrence_count: 0,
+            permanent_fix_id: None,
+            last_recurrence: None,
+            permanent_attempt_at: None,
         };
 
         let msg = build_solution_announce(&sol, "abc123");

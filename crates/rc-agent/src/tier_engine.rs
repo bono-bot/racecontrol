@@ -426,6 +426,15 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
             format!("PosBillingApiError_{}", endpoint)
         }
         DiagnosticTrigger::TaskbarVisible => "TaskbarVisible".to_string(),
+        // MMA-First Protocol triggers (v31.0)
+        DiagnosticTrigger::GameMidSessionCrash { exit_code, .. } => {
+            format!("GameMidSessionCrash_{}", exit_code.unwrap_or(-1))
+        }
+        DiagnosticTrigger::PostSessionAnalysis { .. } => "PostSessionAnalysis".to_string(),
+        DiagnosticTrigger::PreShiftAudit => "PreShiftAudit".to_string(),
+        DiagnosticTrigger::DeployVerification { new_build_id } => {
+            format!("DeployVerification_{}", new_build_id)
+        }
     }
 }
 
@@ -799,6 +808,13 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
         | DiagnosticTrigger::PosBillingApiError { .. } => {
             tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing issue — no Tier 1 fix, escalating");
         }
+        // MMA-First Protocol triggers — no deterministic fix, escalate to MMA
+        DiagnosticTrigger::GameMidSessionCrash { .. }
+        | DiagnosticTrigger::PostSessionAnalysis { .. }
+        | DiagnosticTrigger::PreShiftAudit
+        | DiagnosticTrigger::DeployVerification { .. } => {
+            tracing::info!(target: LOG_TARGET, trigger = ?trigger, "MMA-First trigger — no Tier 1 deterministic fix, escalating to MMA");
+        }
     }
 
     // Ensure SSH key is deployed (self-healing — re-applies on every periodic scan)
@@ -1136,6 +1152,11 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
                     diagnosis_method: Some("scanner_enumeration".to_string()),
+                    fix_permanence: "workaround".to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
                 };
                 let _ = kb.store_solution(&solution);
             }
@@ -1212,6 +1233,11 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
                     diagnosis_method: Some("consensus_5model".to_string()),
+                    fix_permanence: "workaround".to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
                 };
                 let _ = kb.store_solution(&solution);
             }

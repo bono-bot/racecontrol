@@ -53,7 +53,25 @@ pub struct Solution {
     /// "deterministic", "fleet_gossip", or model-specific role names.
     /// Enables the fleet to learn not just WHAT to fix but HOW to diagnose.
     pub diagnosis_method: Option<String>,
+    /// MMA-First Protocol: whether this is a workaround or permanent fix.
+    /// Values: "workaround", "permanent", "pending_permanent", "fallback"
+    #[serde(default = "default_fix_permanence")]
+    pub fix_permanence: String,
+    /// How many times Q1 has applied this solution (issue recurrence count).
+    #[serde(default)]
+    pub recurrence_count: i64,
+    /// Links a workaround to its permanent replacement solution ID.
+    #[serde(default)]
+    pub permanent_fix_id: Option<String>,
+    /// ISO 8601 timestamp of last Q1 application.
+    #[serde(default)]
+    pub last_recurrence: Option<String>,
+    /// ISO 8601 timestamp of last Q4 permanent fix attempt.
+    #[serde(default)]
+    pub permanent_attempt_at: Option<String>,
 }
+
+fn default_fix_permanence() -> String { "workaround".to_string() }
 
 /// A row from the experiments table.
 #[allow(dead_code)]
@@ -152,8 +170,36 @@ impl KnowledgeBase {
         if !has_column {
             self.conn.execute_batch(
                 "ALTER TABLE solutions ADD COLUMN diagnosis_method TEXT;"
-            ).ok(); // Ignore error if column already exists
+            ).ok();
         }
+
+        // MMA-First Protocol (v31.0): 5 new columns for Q1-Q4 protocol
+        let mma_columns = [
+            ("fix_permanence", "TEXT DEFAULT 'workaround'"),
+            ("recurrence_count", "INTEGER DEFAULT 0"),
+            ("permanent_fix_id", "TEXT"),
+            ("last_recurrence", "TEXT"),
+            ("permanent_attempt_at", "TEXT"),
+        ];
+        for (col_name, col_type) in &mma_columns {
+            let exists: bool = self.conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM pragma_table_info('solutions') WHERE name='{}'", col_name),
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap_or(0) > 0;
+            if !exists {
+                self.conn.execute_batch(
+                    &format!("ALTER TABLE solutions ADD COLUMN {} {};", col_name, col_type)
+                ).ok();
+            }
+        }
+
+        // Index on stable_hash for two-tier lookup (added if not exists)
+        self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_solutions_stable_hash ON solutions(problem_key);"
+        ).ok();
 
         tracing::debug!(target: LOG_TARGET, "Migrations complete");
         Ok(())
@@ -178,12 +224,14 @@ impl KnowledgeBase {
                 id, problem_key, problem_hash, symptoms, environment,
                 root_cause, fix_action, fix_type, success_count, fail_count,
                 confidence, cost_to_diagnose, models_used, source_node,
-                created_at, updated_at, version, ttl_days, tags, diagnosis_method
+                created_at, updated_at, version, ttl_days, tags, diagnosis_method,
+                fix_permanence, recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5,
                 ?6, ?7, ?8, ?9, ?10,
                 ?11, ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19, ?20
+                ?15, ?16, ?17, ?18, ?19, ?20,
+                ?21, ?22, ?23, ?24, ?25
             )",
             params![
                 solution.id,
@@ -206,6 +254,11 @@ impl KnowledgeBase {
                 solution.ttl_days,
                 solution.tags,
                 solution.diagnosis_method,
+                solution.fix_permanence,
+                solution.recurrence_count,
+                solution.permanent_fix_id,
+                solution.last_recurrence,
+                solution.permanent_attempt_at,
             ],
         )?;
         tracing::debug!(
@@ -226,7 +279,8 @@ impl KnowledgeBase {
             "SELECT id, problem_key, problem_hash, symptoms, environment,
                     root_cause, fix_action, fix_type, success_count, fail_count,
                     confidence, cost_to_diagnose, models_used, source_node,
-                    created_at, updated_at, version, ttl_days, tags, diagnosis_method
+                    created_at, updated_at, version, ttl_days, tags, diagnosis_method,
+                    fix_permanence, recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
              FROM solutions
              WHERE problem_hash = ?1
                AND confidence >= ?2
@@ -256,6 +310,11 @@ impl KnowledgeBase {
                 ttl_days: row.get(17)?,
                 tags: row.get(18)?,
                 diagnosis_method: row.get(19)?,
+                fix_permanence: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "workaround".to_string()),
+                recurrence_count: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                permanent_fix_id: row.get(22)?,
+                last_recurrence: row.get(23)?,
+                permanent_attempt_at: row.get(24)?,
             })
         });
 
@@ -387,6 +446,148 @@ impl KnowledgeBase {
             .query_row("SELECT COUNT(*) FROM solutions", [], |r| r.get(0))?;
         Ok(count)
     }
+
+    // ─── MMA-First Protocol: Q1-Q4 Helper Methods ─────────────────────────────
+
+    /// Q1: Two-tier lookup — try exact hash first, then stable hash.
+    /// Returns the best matching solution, preferring permanent fixes over workarounds.
+    /// If a workaround has a permanent_fix_id, follows the link and returns the permanent fix.
+    pub fn lookup_two_tier(&self, exact_hash: &str, stable_hash: &str) -> anyhow::Result<Option<Solution>> {
+        // First: try exact hash (version-specific)
+        if let Some(sol) = self.lookup(exact_hash)? {
+            // If this workaround has been replaced by a permanent fix, return that instead
+            if let Some(ref perm_id) = sol.permanent_fix_id {
+                if let Ok(Some(perm)) = self.lookup_by_id(perm_id) {
+                    return Ok(Some(perm));
+                }
+            }
+            return Ok(Some(sol));
+        }
+        // Second: try stable hash (cross-version)
+        if let Some(sol) = self.lookup(stable_hash)? {
+            if let Some(ref perm_id) = sol.permanent_fix_id {
+                if let Ok(Some(perm)) = self.lookup_by_id(perm_id) {
+                    return Ok(Some(perm));
+                }
+            }
+            return Ok(Some(sol));
+        }
+        Ok(None)
+    }
+
+    /// Lookup a solution by its ID (not hash). Used to follow permanent_fix_id links.
+    fn lookup_by_id(&self, id: &str) -> anyhow::Result<Option<Solution>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, problem_key, problem_hash, symptoms, environment,
+                    root_cause, fix_action, fix_type, success_count, fail_count,
+                    confidence, cost_to_diagnose, models_used, source_node,
+                    created_at, updated_at, version, ttl_days, tags, diagnosis_method,
+                    fix_permanence, recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
+             FROM solutions WHERE id = ?1 LIMIT 1",
+        )?;
+        let result = stmt.query_row(params![id], |row| {
+            Ok(Solution {
+                id: row.get(0)?,
+                problem_key: row.get(1)?,
+                problem_hash: row.get(2)?,
+                symptoms: row.get(3)?,
+                environment: row.get(4)?,
+                root_cause: row.get(5)?,
+                fix_action: row.get(6)?,
+                fix_type: row.get(7)?,
+                success_count: row.get(8)?,
+                fail_count: row.get(9)?,
+                confidence: row.get(10)?,
+                cost_to_diagnose: row.get(11)?,
+                models_used: row.get(12)?,
+                source_node: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                version: row.get(16)?,
+                ttl_days: row.get(17)?,
+                tags: row.get(18)?,
+                diagnosis_method: row.get(19)?,
+                fix_permanence: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "workaround".to_string()),
+                recurrence_count: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                permanent_fix_id: row.get(22)?,
+                last_recurrence: row.get(23)?,
+                permanent_attempt_at: row.get(24)?,
+            })
+        });
+        match result {
+            Ok(sol) => Ok(Some(sol)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(anyhow::anyhow!("KB lookup_by_id error: {}", e)),
+        }
+    }
+
+    /// Q1: Increment recurrence_count and update last_recurrence timestamp.
+    /// Called every time Q1 applies a workaround from the KB.
+    pub fn increment_recurrence(&self, solution_id: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "UPDATE solutions SET recurrence_count = recurrence_count + 1,
+             last_recurrence = datetime('now'),
+             updated_at = datetime('now')
+             WHERE id = ?1",
+            params![solution_id],
+        )?;
+        tracing::debug!(target: LOG_TARGET, id = solution_id, "Recurrence count incremented");
+        Ok(())
+    }
+
+    /// Q4: Check whether this solution should trigger a permanent fix search.
+    /// Returns true when: fix_permanence is "workaround" AND recurrence_count >= 3
+    /// AND no permanent fix attempt in the last 7 days.
+    pub fn should_trigger_q4(&self, solution: &Solution) -> bool {
+        if solution.fix_permanence != "workaround" {
+            return false;
+        }
+        if solution.recurrence_count < 3 {
+            return false;
+        }
+        // Check cooldown: no attempt in last 7 days
+        if let Some(ref attempt_at) = solution.permanent_attempt_at {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(attempt_at) {
+                let days_since = chrono::Utc::now()
+                    .signed_duration_since(dt.with_timezone(&chrono::Utc))
+                    .num_days();
+                if days_since < 7 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Q4: Mark that a permanent fix attempt has been made for this solution.
+    pub fn mark_permanent_attempt(&self, solution_id: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "UPDATE solutions SET permanent_attempt_at = datetime('now'),
+             updated_at = datetime('now')
+             WHERE id = ?1",
+            params![solution_id],
+        )?;
+        tracing::info!(target: LOG_TARGET, id = solution_id, "Q4 permanent fix attempt marked");
+        Ok(())
+    }
+
+    /// Q4: Link a workaround to its permanent replacement and demote the workaround.
+    pub fn link_permanent_fix(&self, workaround_id: &str, permanent_id: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "UPDATE solutions SET permanent_fix_id = ?2,
+             fix_permanence = 'fallback',
+             updated_at = datetime('now')
+             WHERE id = ?1",
+            params![workaround_id, permanent_id],
+        )?;
+        tracing::info!(
+            target: LOG_TARGET,
+            workaround = workaround_id,
+            permanent = permanent_id,
+            "Workaround linked to permanent fix — demoted to fallback"
+        );
+        Ok(())
+    }
 }
 
 /// Normalize a DiagnosticTrigger into a stable, canonical problem key.
@@ -436,6 +637,13 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
             format!("pos_billing_api_error:{}", sanitize_kb_key_component(endpoint))
         }
         DiagnosticTrigger::TaskbarVisible => "taskbar_visible".to_string(),
+        // MMA-First Protocol triggers (v31.0)
+        DiagnosticTrigger::GameMidSessionCrash { .. } => "game_mid_session_crash".to_string(),
+        DiagnosticTrigger::PostSessionAnalysis { .. } => "post_session_analysis".to_string(),
+        DiagnosticTrigger::PreShiftAudit => "pre_shift_audit".to_string(),
+        DiagnosticTrigger::DeployVerification { new_build_id } => {
+            format!("deploy_verification:{}", new_build_id)
+        }
     }
 }
 
@@ -459,11 +667,28 @@ pub fn fingerprint_env(build_id: &str) -> EnvironmentFingerprint {
 
 /// Compute a problem_hash from the problem_key + environment fingerprint.
 /// Used as the lookup key in the solutions table.
+/// This is the "exact" hash — includes build_id, so it changes on every deploy.
 pub fn compute_problem_hash(problem_key: &str, env: &EnvironmentFingerprint) -> String {
+    compute_exact_hash(problem_key, env)
+}
+
+/// Exact hash: problem_key + build_id + hardware_class.
+/// Changes on every deploy — use for version-specific issues.
+pub fn compute_exact_hash(problem_key: &str, env: &EnvironmentFingerprint) -> String {
     use sha2::{Digest, Sha256};
     let input = format!("{}|{}|{}", problem_key, env.build_id, env.hardware_class);
     let hash = Sha256::digest(input.as_bytes());
     format!("{:x}", hash)[..16].to_string()
+}
+
+/// Stable hash: problem_key + hardware_class only (no build_id).
+/// Survives across deploys — use for issues that are version-independent
+/// (corrupted track data, GPU thermal, orphan processes, etc).
+pub fn compute_stable_hash(problem_key: &str, env: &EnvironmentFingerprint) -> String {
+    use sha2::{Digest, Sha256};
+    let input = format!("{}|{}", problem_key, env.hardware_class);
+    let hash = Sha256::digest(input.as_bytes());
+    format!("s_{:x}", hash)[..16].to_string()
 }
 
 #[cfg(test)]
@@ -499,6 +724,11 @@ mod tests {
             ttl_days: 90,
             tags: None,
             diagnosis_method: None,
+            fix_permanence: "workaround".to_string(),
+            recurrence_count: 0,
+            permanent_fix_id: None,
+            last_recurrence: None,
+            permanent_attempt_at: None,
         }
     }
 
