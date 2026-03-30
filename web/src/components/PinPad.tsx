@@ -72,9 +72,9 @@ export default function PinPad({
   const buttons = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "\u232B"];
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center" role="group" aria-label="PIN entry">
       {/* PIN display */}
-      <div className="flex justify-center gap-3 mb-6">
+      <div className="flex justify-center gap-3 mb-6" aria-label={`${pin.length} of ${digits} digits entered`}>
         {Array.from({ length: digits }).map((_, i) => (
           <div
             key={i}
@@ -90,14 +90,14 @@ export default function PinPad({
       </div>
 
       {/* Error / Loading feedback */}
-      <div className="min-h-[20px] mb-4">
+      <div className="min-h-[20px] mb-4" id="pin-status" role="status" aria-live="polite">
         {loading && (
           <span className="text-neutral-400 text-sm animate-pulse text-center block">
             Verifying...
           </span>
         )}
         {error && !loading && (
-          <span className="text-sm text-rp-red text-center font-medium block">
+          <span className="text-sm text-rp-red text-center font-medium block" role="alert">
             {error}
           </span>
         )}

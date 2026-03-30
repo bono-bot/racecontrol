@@ -45,10 +45,10 @@ export default function CountdownTimer({
   const textSize = compact ? "text-base" : "text-2xl";
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" role="timer" aria-live="polite" aria-label={`${formatCountdown(remaining)} remaining`}>
       {/* SVG Radial Ring */}
       <div className={`${ringSize} mx-auto relative`}>
-        <svg viewBox="0 0 100 100" className="w-full h-full">
+        <svg viewBox="0 0 100 100" className="w-full h-full" aria-hidden="true">
           {/* Background circle */}
           <circle
             cx="50"

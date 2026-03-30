@@ -17,9 +17,9 @@ export default function BillingPage() {
   const [initialising, setInitialising] = useState(true);
   const { toast } = useToast();
 
-  // Flip initialising to false after 800ms
+  // Flip initialising to false after 200ms (P2-C: reduced from 800ms)
   useEffect(() => {
-    const timer = setTimeout(() => setInitialising(false), 800);
+    const timer = setTimeout(() => setInitialising(false), 200);
     return () => clearTimeout(timer);
   }, []);
 
