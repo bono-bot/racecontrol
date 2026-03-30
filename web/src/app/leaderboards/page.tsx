@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { Trophy } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { api } from "@/lib/api";
 import type {
   PublicTrackRecord,
@@ -86,6 +88,9 @@ export default function LeaderboardsPage() {
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Phase 264: Record broken achievement overlay
+  const [recordEvent, setRecordEvent] = useState<RecordBrokenEvent | null>(null);
+
   // Phase 254: Reload functions for WS-triggered refresh
   const reloadOverview = useCallback(() => {
     api.publicLeaderboard().then((data) => {
@@ -112,19 +117,36 @@ export default function LeaderboardsPage() {
     }).catch(() => { /* ignore */ });
   }, []);
 
-  // Phase 254: WebSocket subscription for real-time leaderboard updates
-  useEffect(() => {
+  // Phase 264: WebSocket with useRef+useEffect reconnect (1s min delay, cleanup on unmount)
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const connectWs = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     const socket = new WebSocket(WS_URL);
+    wsRef.current = socket;
+
     socket.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data) as { event: string; data: unknown };
+        const msg = JSON.parse(event.data as string) as {
+          event: string;
+          data: unknown;
+        };
         if (msg.event === "record_broken") {
           const data = msg.data as RecordBrokenEvent;
+          setRecordEvent(data);
+
           // Set highlight key for CSS animation
           const key = `${data.track}-${data.car}-${data.driver_name}`;
           setHighlightKey(key);
           if (highlightTimer.current) clearTimeout(highlightTimer.current);
-          highlightTimer.current = setTimeout(() => setHighlightKey(null), 5000);
+          highlightTimer.current = setTimeout(
+            () => setHighlightKey(null),
+            5000
+          );
 
           // Refresh data
           reloadOverview();
@@ -134,14 +156,35 @@ export default function LeaderboardsPage() {
         // ignore parse errors
       }
     };
+
     socket.onclose = () => {
-      // Reconnection handled by browser or could add retry
+      // Reconnect with minimum 1s delay (prevents reconnect storm)
+      reconnectTimer.current = setTimeout(connectWs, 1000);
     };
-    return () => {
-      socket.close();
-      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+
+    socket.onerror = () => {
+      socket.close(); // triggers onclose -> reconnect
     };
   }, [reloadOverview, reloadTrack]);
+
+  useEffect(() => {
+    connectWs();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    };
+  }, [connectWs]);
+
+  // Phase 264: Auto-dismiss RecordBanner after 6 seconds
+  useEffect(() => {
+    if (!recordEvent) return;
+    const t = setTimeout(() => setRecordEvent(null), 6000);
+    return () => clearTimeout(t);
+  }, [recordEvent]);
 
   // Load overview
   useEffect(() => {
@@ -194,6 +237,32 @@ export default function LeaderboardsPage() {
 
   return (
     <DashboardLayout>
+      {/* Phase 264: RecordBanner achievement overlay */}
+      {recordEvent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+          aria-live="polite"
+        >
+          <div className="bg-rp-red text-white rounded-xl p-8 text-center max-w-lg shadow-2xl animate-in slide-in-from-top-4 duration-300">
+            <p className="text-xs font-bold tracking-[0.3em] uppercase mb-2 opacity-80">
+              NEW TRACK RECORD
+            </p>
+            <p className="text-3xl font-bold mb-1">
+              {recordEvent.driver_name}
+            </p>
+            <p className="text-base opacity-90 mb-2">{recordEvent.track}</p>
+            <p className="text-2xl font-mono font-bold">
+              {formatLapTime(recordEvent.lap_time_ms)}
+            </p>
+            {recordEvent.previous_time_ms && (
+              <p className="text-sm opacity-75 mt-2">
+                Previous: {formatLapTime(recordEvent.previous_time_ms)}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">Leaderboards</h1>
         <p className="text-sm text-rp-grey">Track records, top drivers, and per-track rankings</p>
@@ -236,7 +305,11 @@ export default function LeaderboardsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-rp-grey text-sm">Loading leaderboards...</div>
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-lg" />
+          ))}
+        </div>
       ) : selectedTrack ? (
         /* ── Track Drill-Down ── */
         <div>
@@ -259,7 +332,11 @@ export default function LeaderboardsPage() {
           </div>
 
           {loadingTrack ? (
-            <div className="text-center py-8 text-rp-grey text-sm">Loading...</div>
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 rounded-lg" />
+              ))}
+            </div>
           ) : (
             <div className="bg-rp-card border border-rp-border rounded-lg overflow-hidden">
               <div className="grid grid-cols-[50px_1fr_1fr_120px_140px_36px] gap-2 px-4 py-2 text-[10px] text-rp-grey uppercase tracking-wider border-b border-rp-border">
@@ -323,7 +400,11 @@ export default function LeaderboardsPage() {
                 );
               })}
               {trackEntries.length === 0 && (
-                <p className="text-rp-grey text-sm text-center py-6">No laps recorded yet</p>
+                <EmptyState
+                  icon={<Trophy className="w-12 h-12" />}
+                  headline="No laps recorded yet"
+                  hint="Lap times will appear as drivers complete laps on this track"
+                />
               )}
             </div>
           )}
@@ -369,7 +450,11 @@ export default function LeaderboardsPage() {
                 </div>
               ))}
               {records.length === 0 && (
-                <p className="text-rp-grey text-sm text-center py-8">No records yet</p>
+                <EmptyState
+                  icon={<Trophy className="w-12 h-12" />}
+                  headline="No records yet"
+                  hint="Track records will appear as drivers set lap times"
+                />
               )}
             </div>
           )}
@@ -406,7 +491,11 @@ export default function LeaderboardsPage() {
                 </div>
               ))}
               {topDrivers.length === 0 && (
-                <p className="text-rp-grey text-sm text-center py-8">No drivers yet</p>
+                <EmptyState
+                  icon={<Trophy className="w-12 h-12" />}
+                  headline="No drivers yet"
+                  hint="Top drivers will appear as they complete laps"
+                />
               )}
             </div>
           )}
@@ -429,7 +518,11 @@ export default function LeaderboardsPage() {
                 </div>
               ))}
               {tracks.length === 0 && (
-                <p className="text-rp-grey text-sm text-center py-8">No tracks yet</p>
+                <EmptyState
+                  icon={<Trophy className="w-12 h-12" />}
+                  headline="No tracks yet"
+                  hint="Tracks will appear as drivers complete laps"
+                />
               )}
             </div>
           )}
