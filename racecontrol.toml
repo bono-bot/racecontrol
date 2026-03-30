@@ -147,6 +147,15 @@ relay_port = 8099
 
 relay_secret = "85c650850520f0cabf8f99b0c3cecc3e"
 
+# --- MMA-First Protocol (v31.0) — 30-day training period ---
+[mma]
+training_mode = true
+training_start = "2026-03-31"
+training_end = "2026-04-29"
+daily_budget_pod = 15.0
+daily_budget_server = 25.0
+daily_budget_pos = 8.0
+
 # --- Process Guard (report_only mode -- scanned 2026-03-23) ---
 [process_guard]
 enabled = true
