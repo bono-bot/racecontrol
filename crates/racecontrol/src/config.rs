@@ -61,6 +61,13 @@ pub struct VenueConfig {
     pub location: String,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    /// GST Identification Number (15-char alphanumeric). Used for invoice generation.
+    #[serde(default = "default_venue_gstin")]
+    pub venue_gstin: String,
+}
+
+fn default_venue_gstin() -> String {
+    "36PLACEHOLDER0Z0".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +179,10 @@ pub struct IntegrationsConfig {
     pub discord: DiscordConfig,
     #[serde(default)]
     pub whatsapp: WhatsAppConfig,
+    /// HMAC secret for payment gateway webhook signature verification.
+    /// When set, /webhooks/payment-gateway requires X-Webhook-Signature header.
+    #[serde(default)]
+    pub payment_webhook_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -752,6 +763,7 @@ impl Config {
                 name: "RacingPoint".to_string(),
                 location: default_location(),
                 timezone: default_timezone(),
+                venue_gstin: default_venue_gstin(),
             },
             server: ServerConfig {
                 host: default_host(),

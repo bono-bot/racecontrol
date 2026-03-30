@@ -2237,7 +2237,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             cgst_paise INTEGER NOT NULL,
             sgst_paise INTEGER NOT NULL,
             total_paise INTEGER NOT NULL,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
         )",
     )
     .execute(pool)

@@ -393,9 +393,9 @@ pub async fn post_session_debit(
 
 // ─── Invoice Generation (LEGAL-02) ──────────────────────────────────────────
 
-/// Venue GSTIN placeholder — update with actual GSTIN from racecontrol.toml once available.
-/// TODO: read from config.venue_gstin field.
-const VENUE_GSTIN: &str = "29AABCU9603R1ZX";
+/// Fallback GSTIN used only if config.venue.venue_gstin is missing.
+/// Production should always set venue_gstin in racecontrol.toml.
+const VENUE_GSTIN_FALLBACK: &str = "36PLACEHOLDER0Z0";
 
 /// SAC code 999692: Amusement and recreation services (sim racing is recreational amusement).
 const SAC_CODE: &str = "999692";
@@ -445,7 +445,15 @@ pub async fn generate_invoice(
     .bind(billing_session_id)
     .bind(driver_id)
     .bind(driver_name)
-    .bind(VENUE_GSTIN)
+    .bind({
+        let gstin = &state.config.venue.venue_gstin;
+        if gstin.is_empty() || gstin.contains("PLACEHOLDER") {
+            tracing::warn!("Invoice generated with fallback GSTIN — set venue.venue_gstin in racecontrol.toml");
+            VENUE_GSTIN_FALLBACK
+        } else {
+            gstin.as_str()
+        }
+    })
     .bind(SAC_CODE)
     .bind(net_paise)
     .bind(cgst_paise)

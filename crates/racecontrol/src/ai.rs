@@ -501,15 +501,16 @@ pub fn sanitize_for_prompt(text: &str) -> String {
         "Human:",
         "```system",
     ];
-    let lower = sanitized.to_lowercase();
     for pattern in &injection_patterns {
-        if lower.contains(pattern) {
-            tracing::warn!(target: "ai", "Prompt injection pattern detected and stripped: {}", pattern);
-            sanitized = sanitized.replace(pattern, "[FILTERED]");
-            // Case-insensitive replacement
-            let lower_sanitized = sanitized.to_lowercase();
-            if lower_sanitized.contains(pattern) {
-                sanitized = sanitized.to_string();
+        // Case-insensitive scan: rebuild sanitized by searching lowercase copy
+        loop {
+            let lower = sanitized.to_lowercase();
+            if let Some(pos) = lower.find(pattern) {
+                tracing::warn!(target: "ai", "Prompt injection pattern detected and stripped: {}", pattern);
+                let end = pos + pattern.len();
+                sanitized = format!("{}[FILTERED]{}", &sanitized[..pos], &sanitized[end..]);
+            } else {
+                break;
             }
         }
     }
