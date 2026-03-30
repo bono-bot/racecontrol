@@ -574,6 +574,28 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 
 **Evidence:** Audit of git log (80+ commits), live pod logs (CLOSE_WAIT on pods 1/2/3/6/8, 3 fleet-wide WS disconnects, Pod 8 port binding conflicts), and code analysis (no panic hook, 6 unhandled startup failures, billing guard sends alerts but never acts).
 
+## Current Milestone: v30.0 Racing Dashboard UI Redesign
+
+**Goal:** Full motorsport-inspired redesign of all venue management pages with shared component system, F1 timing tower patterns, and MMA design audits.
+
+**Target features:**
+- Shared design system (extended Tailwind theme with full color token ramp, JetBrains Mono for numerics, motorsport CSS vars)
+- Shared component library (AppShell, PodCard, StatusBadge, MetricCard, PinPad, LeaderboardTable, Countdown, LiveDataTable)
+- Login page redesign (6-digit PIN, motorsport aesthetic, racing-control feel)
+- Web Dashboard redesign (pods view, sessions, billing, fleet health, leaderboards, settings — 15+ pages)
+- Kiosk redesign (customer-facing pod selection, game launch, billing — 10+ pages)
+- Admin Dashboard pages (staff management, fleet overview, analytics)
+- MMA design audit after each phase batch for quality assurance
+
+**Design direction:** F1 timing tower + pit wall + race control aesthetic. Dark OLED-optimized theme. shadcn/ui + Tailwind v4. Montserrat body + JetBrains Mono for lap times/counters. Racing Red #E10600 accents, Asphalt Black #1A1A1A backgrounds, Gunmetal Grey #5A5A5A secondary. Restrained glow (not neon), precise micro-interactions (150-250ms), status-heavy grids, timer-centric layouts.
+
+**Constraints:**
+- Must work on venue LAN (192.168.31.23), all NEXT_PUBLIC_ vars baked at build time
+- Kiosk must be touch-optimized (44x44px min touch targets)
+- Dark theme only — no light mode toggle needed
+- Must preserve all existing API integrations (backend unchanged)
+- 13 existing components to upgrade, 25+ pages across web + kiosk apps
+
 ## Future Milestone Candidates
 
 - HUD overlay with live sector times and telemetry

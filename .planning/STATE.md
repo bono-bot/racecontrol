@@ -1,27 +1,25 @@
 ---
 gsd_state_version: 1.0
-milestone: v26.1
-milestone_name: Meshed Intelligence
-status: verifying
-stopped_at: Completed 260-notifications-resilience-ux/260-04-PLAN.md (FINAL PLAN)
-last_updated: "2026-03-29T11:35:39.577Z"
-last_activity: 2026-03-29
+milestone: v30.0
+milestone_name: Racing Dashboard UI Redesign
+status: defining-requirements
+stopped_at: Milestone started
+last_updated: "2026-03-30T09:30:00.000Z"
+last_activity: 2026-03-30
 progress:
-  total_phases: 205
-  completed_phases: 157
-  total_plans: 382
-  completed_plans: 377
-  percent: 98
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 ## Current Position
 
-Phase: 260
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-29
-
-Progress: [██████████] 98% (349/355 plans)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-30 — Milestone v30.0 started
 
 ## Project Reference
 
