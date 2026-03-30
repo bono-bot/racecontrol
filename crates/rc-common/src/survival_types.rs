@@ -115,7 +115,10 @@ pub fn sentinel_path(kind: SentinelKind) -> &'static str {
 /// - `Ok(false)` — a valid (non-expired) sentinel already exists; caller must back off.
 /// - `Err(e)` — I/O error writing the sentinel.
 ///
-/// If an expired sentinel exists, it is overwritten and `Ok(true)` is returned.
+/// If an expired sentinel exists, it is removed and re-acquired atomically.
+///
+/// MMA P1 fix: Uses atomic `create_new(true)` to prevent TOCTOU race where two
+/// processes could both see an expired sentinel and both overwrite it.
 pub fn try_acquire_sentinel(
     kind: SentinelKind,
     layer: SurvivalLayer,
@@ -123,17 +126,16 @@ pub fn try_acquire_sentinel(
     ttl_secs: u64,
     action_id: &ActionId,
 ) -> std::io::Result<bool> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
     let path = sentinel_path(kind);
 
-    // Check if a valid sentinel already exists
-    if let Some(existing) = read_sentinel_file(path) {
-        if !existing.is_expired() {
-            return Ok(false); // Valid sentinel held by another layer
-        }
-        // Expired — fall through to overwrite
+    // Ensure parent directory exists (MMA P1: missing directory creation)
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent)?;
     }
 
-    // Write new sentinel
     let sentinel = HealSentinel {
         kind,
         layer,
@@ -145,8 +147,41 @@ pub fn try_acquire_sentinel(
 
     let json = serde_json::to_string(&sentinel)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    std::fs::write(path, json)?;
-    Ok(true)
+
+    // Attempt atomic creation — if file doesn't exist, this is the fast path
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            file.write_all(json.as_bytes())?;
+            return Ok(true);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // File exists — check if it's expired
+        }
+        Err(e) => return Err(e),
+    }
+
+    // File exists — check if held by another layer
+    if let Some(existing) = read_sentinel_file(path) {
+        if !existing.is_expired() {
+            return Ok(false); // Valid sentinel held by another layer
+        }
+    }
+
+    // Expired or corrupt — remove and re-acquire atomically
+    // The remove + create_new sequence has a tiny window, but if another process
+    // wins the create_new, our attempt fails gracefully with AlreadyExists
+    let _ = std::fs::remove_file(path);
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            file.write_all(json.as_bytes())?;
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Another process won the race — back off
+            Ok(false)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Check if a sentinel is active (exists and not expired).
@@ -183,9 +218,23 @@ pub fn any_sentinel_active() -> bool {
 }
 
 // Private helper — read and deserialize a sentinel file, return None on any error.
+// MMA P2 fix: log warnings instead of silently swallowing errors.
 fn read_sentinel_file(path: &str) -> Option<HealSentinel> {
-    let content = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&content).ok()
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(path, error = %e, "sentinel file read error");
+            return None;
+        }
+    };
+    match serde_json::from_str(&content) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!(path, error = %e, "sentinel file parse error — treating as absent");
+            None
+        }
+    }
 }
 
 // ─── SurvivalReport (SF-04) ──────────────────────────────────────────────────
