@@ -61,6 +61,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(staff_routes(state))
         .merge(service_routes())
         .merge(survival::survival_routes())
+        .merge(crate::fleet_healer::fleet_healer_routes())
 }
 
 // ─── Rate-limited auth endpoints (5 req/min per IP via tower_governor) ───

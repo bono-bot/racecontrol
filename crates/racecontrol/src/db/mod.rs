@@ -3441,6 +3441,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // v31.0 Phase 270: Fleet Healer incident_log table
+    crate::fleet_healer::AuditTrail::migrate(pool).await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
