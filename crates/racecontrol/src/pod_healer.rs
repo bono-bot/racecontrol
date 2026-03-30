@@ -643,14 +643,11 @@ async fn run_graduated_recovery(
         _ => {} // Sentinel absent or rc-sentry unreachable — proceed with recovery
     }
 
-    // SF-05: Server-side heal-lease coordination.
-    // The server cannot directly read sentinel files on pods (different machine).
-    // Server-side coordination uses the heal-lease API (Plan 267-02).
-    // TODO(267-02): Once LeaseManager is in AppState, check:
-    //   if state.lease_manager.has_active_lease(&pod.id) { return; }
-    // For now, COORD-02 (recovery_intents) and COORD-03 (GRACEFUL_RELAUNCH sentinel)
-    // above provide equivalent coordination for existing recovery paths.
-    // OTA_DEPLOYING check: server initiated OTA — pod_deploy_states check above covers this.
+    // SF-05: Server-side heal-lease coordination via LeaseManager (v31.0 Phase 267).
+    if state.lease_manager.get_lease(&pod.id).is_some() {
+        tracing::info!(pod_id = %pod.id, "pod_healer: active heal lease — skipping recovery");
+        return;
+    }
     tracing::debug!(pod_id = %pod.id, "pod_healer: SF-05 coordination check passed, proceeding with recovery");
 
     let tracker = trackers.entry(pod.id.clone()).or_insert_with(PodRecoveryTracker::new);
@@ -966,9 +963,11 @@ async fn run_graduated_recovery(
                     }
                     let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
 
-                    // SF-05: TODO(267-02): Check state.lease_manager.has_active_lease(&pod.id)
-                    // before sending WoL to avoid waking pods under active heal control.
-                    // Currently covered by COORD-02 (recovery_intents) and maintenance gate above.
+                    // SF-05: Heal-lease check before WoL (v31.0 Phase 267).
+                    if state.lease_manager.get_lease(&pod.id).is_some() {
+                        tracing::info!(pod_id = %pod.id, "pod_healer: active heal lease — skipping WoL");
+                        return;
+                    }
                     match wol::send_wol(mac_addr).await {
                         Ok(()) => {
                             tracing::info!(
