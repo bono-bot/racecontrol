@@ -66,7 +66,26 @@ impl SshDiagnosticRunner {
     ///
     /// Uses `tokio::process::Command` to invoke the ssh binary with
     /// StrictHostKeyChecking=no (Tailscale manages trust).
+    ///
+    /// SECURITY: Commands are validated against an allowlist of safe characters
+    /// to prevent shell injection via KB-sourced fix actions (MMA audit P0 fix).
     pub async fn run_command(pod_number: u32, command: &str) -> Result<SshCommandResult, FleetHealerError> {
+        // MMA audit P0 fix: validate command against injection attacks.
+        // KB-sourced fix_action could contain shell metacharacters (;, |, &&, $()).
+        // Only allow: alphanumeric, spaces, slashes, dots, hyphens, underscores, colons, equals.
+        if !command.chars().all(|c| c.is_alphanumeric() || " /\\.-_:=,\"'".contains(c)) {
+            tracing::warn!(
+                target: LOG_TARGET,
+                pod = pod_number,
+                command = %command,
+                "SSH command BLOCKED — contains unsafe characters (potential injection)"
+            );
+            return Err(FleetHealerError::CommandBlocked {
+                pod_id: format!("pod_{}", pod_number),
+                reason: "Command contains unsafe characters".to_string(),
+            });
+        }
+
         let ip = tailscale_ip(pod_number)
             .ok_or(FleetHealerError::UnknownPod(pod_number))?;
 
@@ -999,6 +1018,9 @@ pub enum FleetHealerError {
 
     #[error("Billing session active on {pod_id} — repair not permitted")]
     BillingActive { pod_id: String },
+
+    #[error("SSH command blocked on {pod_id}: {reason}")]
+    CommandBlocked { pod_id: String, reason: String },
 }
 
 // ─── Orchestrator (ties FH-01 through FH-12 together) ──────────────────────
