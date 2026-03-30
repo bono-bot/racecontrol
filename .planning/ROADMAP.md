@@ -12,7 +12,7 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
 - Integer phases: Planned milestone work
 - Decimal phases: Urgent insertions (created via /gsd:insert-phase)
 
-- [ ] **Phase 261: Design System Foundation** - Unified token file, shadcn/ui init in both apps, motion@12, tw-animate-css, JetBrains Mono in web — zero component work, full coverage unlocked
+- [x] **Phase 261: Design System Foundation** - Unified token file, shadcn/ui init in both apps, motion@12, tw-animate-css, JetBrains Mono in web — zero component work, full coverage unlocked (completed 2026-03-30)
 - [ ] **Phase 262: Deploy Pipeline Hardening** - Static file copy verification, env var audit, smoke test with static serving check — locks the ship path before any redesigned page lands
 - [ ] **Phase 263: Web Primitive Components** - All shared components (SC-01..SC-10) and login page (LP-01..LP-02) built before web pages depend on them
 - [ ] **Phase 264: Web Dashboard Pages** - All 8 web dashboard pages redesigned using Phase 263 primitives
@@ -33,9 +33,9 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
   5. `cd web && npm run build` and `cd kiosk && npm run build` both complete with 0 TypeScript errors; `grep -rn "tailwindcss-animate" web/ kiosk/` returns zero hits
 **Plans**: 3 plans
 Plans:
-- [ ] 261-01-PLAN.md — Shared token file (packages/shared-tokens/tokens.css) + both globals.css updated
-- [ ] 261-02-PLAN.md — shadcn/ui init in both apps + tw-animate-css + Lucide icons in Sidebar
-- [ ] 261-03-PLAN.md — motion@12 install + JetBrains Mono in web layout + build verification
+- [x] 261-01-PLAN.md — Shared token file (packages/shared-tokens/tokens.css) + both globals.css updated
+- [x] 261-02-PLAN.md — shadcn/ui init in both apps + tw-animate-css + Lucide icons in Sidebar
+- [x] 261-03-PLAN.md — motion@12 install + JetBrains Mono in web layout + build verification
 **UI hint**: yes
 
 ### Phase 262: Deploy Pipeline Hardening
@@ -66,7 +66,7 @@ Plans:
   6. Toast system (SC-09) fires feedback on user actions; loading skeletons (SC-10) and empty states replace all plain-text "Loading..." and "No data" strings across all data-fetching components
 **Plans**: 4 plans
 Plans:
-- [ ] 263-01-PLAN.md — StatusBadge racing flag redesign + MetricCard (new) + Toast system + Skeleton/EmptyState
+- [x] 263-01-PLAN.md — StatusBadge racing flag redesign + MetricCard (new) + Toast system + Skeleton/EmptyState
 - [ ] 263-02-PLAN.md — PodCard F1 timing row + CountdownTimer radial SVG + PinPad (extracted) + AppShell/Sidebar redesign
 - [ ] 263-03-PLAN.md — LiveDataTable (TanStack Table, web-only) + LeaderboardTable (WS reconnect + AnimatePresence)
 - [ ] 263-04-PLAN.md — Login page redesign: PinPad integration + motorsport aesthetic + auth error states
@@ -125,9 +125,9 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 261. Design System Foundation | 0/3 | Not started | - |
+| 261. Design System Foundation | 3/3 | Complete   | 2026-03-30 |
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
-| 263. Web Primitive Components | 0/4 | Not started | - |
+| 263. Web Primitive Components | 1/4 | In Progress|  |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
 | 265. Kiosk Pages | 0/3 | Not started | - |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |
