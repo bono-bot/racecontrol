@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { PodFleetStatus } from "@/lib/types";
+import type { PodFleetStatus, BillingSession } from "@/lib/types";
 
 function formatUptime(secs: number | null | undefined): string {
   if (secs == null) return "--";
@@ -47,13 +47,41 @@ function StatusDot({ active }: StatusDotProps) {
   );
 }
 
+function CountdownRing({ remaining, allocated }: { remaining: number; allocated: number }) {
+  const R = 26;
+  const CIRC = 2 * Math.PI * R;
+  const pct = allocated > 0 ? Math.max(0, remaining / allocated) : 0;
+  const dashOffset = CIRC * (1 - pct);
+  const isLow = remaining < 300;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <svg width="64" height="64" className="-rotate-90">
+        <circle cx="32" cy="32" r={R} fill="none" stroke="#333" strokeWidth="5" />
+        <circle
+          cx="32" cy="32" r={R} fill="none"
+          stroke={isLow ? "#E10600" : "#22c55e"}
+          strokeWidth="5"
+          strokeDasharray={`${CIRC} ${CIRC}`}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          className={isLow ? "animate-pulse" : ""}
+        />
+      </svg>
+      <span className={`text-xs font-mono ${isLow ? "text-[#E10600] animate-pulse" : "text-white"}`}>
+        {Math.floor(remaining / 60)}:{String(Math.floor(remaining % 60)).padStart(2, "0")}
+      </span>
+    </div>
+  );
+}
+
 export default function FleetPage() {
   const [pods, setPods] = useState<PodFleetStatus[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [billingSessions, setBillingSessions] = useState<Map<string, BillingSession>>(new Map());
   const [selectedMaintenancePod, setSelectedMaintenancePod] = useState<number | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
-  const [pinInput, setPinInput] = useState("");
+  const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [clearing, setClearing] = useState(false);
 
@@ -77,6 +105,29 @@ export default function FleetPage() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Fetch active billing sessions for countdown rings
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    async function fetchSessions() {
+      try {
+        const data = await api.activeBillingSessions();
+        const map = new Map<string, BillingSession>();
+        for (const s of data.sessions || []) {
+          if (s.pod_id) map.set(s.pod_id, s);
+        }
+        setBillingSessions(map);
+      } catch {
+        // Billing sessions are optional — don't break fleet view
+      }
+    }
+
+    fetchSessions();
+    intervalId = setInterval(fetchSessions, 5000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   function formatTimestamp(ts: string): string {
     try {
       const d = new Date(ts);
@@ -87,7 +138,7 @@ export default function FleetPage() {
   }
 
   return (
-    <div className="bg-[var(--color-rp-black)] min-h-screen text-white">
+    <div className="bg-[var(--color-rp-black)] h-screen overflow-hidden text-white flex flex-col">
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-xl font-bold">Fleet Health</h1>
         <p className="text-xs text-gray-500 mt-1">
@@ -98,7 +149,7 @@ export default function FleetPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 pb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 pb-4 flex-1 overflow-y-auto content-start">
         {pods.map((pod) => {
           const ws = pod.ws_connected;
           const http = pod.http_reachable;
@@ -154,14 +205,27 @@ export default function FleetPage() {
                 <div className="mt-1 text-xs text-red-500">Crash recovered</div>
               )}
 
+              {pod.pod_id && billingSessions.has(pod.pod_id) && ws && http && (() => {
+                const session = billingSessions.get(pod.pod_id!)!;
+                return (
+                  <div className="mt-2 flex items-center gap-2">
+                    <CountdownRing remaining={session.remaining_seconds} allocated={session.allocated_seconds} />
+                    <div className="text-xs">
+                      <p className="text-white font-medium">{session.driver_name}</p>
+                      <p className="text-gray-500">{session.pricing_tier_name}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {pod.in_maintenance && (
                 <button
                   onClick={() => {
                     setSelectedMaintenancePod(pod.pod_number);
                     setPinVerified(false);
-                    setPinInput("");
+                    setPin("");
                   }}
-                  className="mt-1.5 px-2 py-0.5 rounded text-xs font-bold text-white"
+                  className="mt-1.5 px-3 py-2 rounded text-xs font-bold text-white min-h-[44px] active:scale-[0.97] transition-transform"
                   style={{ backgroundColor: "#E10600" }}
                 >
                   Maintenance
@@ -188,40 +252,55 @@ export default function FleetPage() {
 
               {!pinVerified ? (
                 <div>
-                  <p className="text-sm text-gray-400 mb-3">Enter staff PIN to view details</p>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={pinInput}
-                    onChange={e => { setPinInput(e.target.value.replace(/\D/g, "")); setPinError(""); }}
-                    onKeyDown={async e => {
-                      if (e.key === "Enter" && pinInput.length === 4) {
-                        try {
-                          const res = await api.validateStaffPin(pinInput);
-                          if (res.error) { setPinError(res.error); return; }
-                          if (res.token) sessionStorage.setItem("kiosk_staff_token", res.token);
-                          setPinVerified(true);
-                        } catch { setPinError("Network error"); }
-                      }
-                    }}
-                    className="w-full bg-[#1A1A1A] border border-[#333333] text-white text-center text-2xl tracking-widest rounded px-4 py-2 mb-3"
-                    placeholder="----"
-                    autoFocus
-                  />
+                  <p className="text-sm text-gray-400 mb-3">Enter 6-digit staff PIN</p>
+
+                  {/* PIN dot display */}
+                  <div className="flex gap-2 justify-center mb-4">
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className={`w-10 h-12 rounded border-2 flex items-center justify-center
+                        ${i < pin.length ? "border-[#E10600] bg-[#E10600]/10" : "border-[#333333] bg-[#1A1A1A]"}`}>
+                        {pin[i] ? <span className="text-white text-xl">*</span> : null}
+                      </div>
+                    ))}
+                  </div>
+
                   {pinError && <p className="text-red-400 text-xs mb-2">{pinError}</p>}
+
+                  {/* On-screen numpad */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(d => (
+                      <button key={d} onClick={() => { if (pin.length < 6) { setPin(p => p + d); setPinError(""); } }}
+                        className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
+                        {d}
+                      </button>
+                    ))}
+                    <button onClick={() => { setPin(""); setPinError(""); }}
+                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xs text-gray-500 active:scale-[0.97] transition-transform min-h-[44px]">
+                      Clear
+                    </button>
+                    <button onClick={() => { if (pin.length < 6) { setPin(p => p + "0"); setPinError(""); } }}
+                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
+                      0
+                    </button>
+                    <button onClick={() => setPin(p => p.slice(0, -1))}
+                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-gray-500 active:scale-[0.97] transition-transform min-h-[44px] flex items-center justify-center">
+                      &#x232B;
+                    </button>
+                  </div>
+
+                  {/* Verify button */}
                   <button
                     onClick={async () => {
-                      if (pinInput.length !== 4) return;
+                      if (pin.length !== 6) return;
                       try {
-                        const res = await api.validateStaffPin(pinInput);
+                        const res = await api.validateStaffPin(pin);
                         if (res.error) { setPinError(res.error); return; }
                         if (res.token) sessionStorage.setItem("kiosk_staff_token", res.token);
                         setPinVerified(true);
                       } catch { setPinError("Network error"); }
                     }}
-                    disabled={pinInput.length < 4}
-                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-40"
+                    disabled={pin.length < 6}
+                    className="w-full py-3 rounded text-sm font-bold text-white disabled:opacity-40 min-h-[44px]"
                     style={{ backgroundColor: "#E10600" }}
                   >
                     Verify
@@ -251,7 +330,7 @@ export default function FleetPage() {
                       }
                     }}
                     disabled={clearing}
-                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-60"
+                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-60 min-h-[44px] active:scale-[0.97] transition-transform"
                     style={{ backgroundColor: "#E10600" }}
                   >
                     {clearing ? "Clearing..." : "Clear Maintenance"}
@@ -261,7 +340,7 @@ export default function FleetPage() {
 
               <button
                 onClick={() => setSelectedMaintenancePod(null)}
-                className="w-full py-2 mt-2 rounded text-sm text-gray-400 hover:text-white"
+                className="w-full py-2 mt-2 rounded text-sm text-gray-400 hover:text-white min-h-[44px]"
               >
                 Close
               </button>
