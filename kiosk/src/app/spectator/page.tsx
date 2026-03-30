@@ -3,6 +3,7 @@
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { Lap, TelemetryFrame, BillingSession, Pod, GameLaunchInfo } from "@/lib/types";
+import { KioskLeaderboard } from "@/components/KioskLeaderboard";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -670,7 +671,7 @@ export default function SpectatorMode() {
 
   // State
   const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [activeTab, setActiveTab] = useState<"live_timing" | "track_map" | "rigs" | "settings">("live_timing");
+  const [activeTab, setActiveTab] = useState<"live_timing" | "track_map" | "rigs" | "settings" | "leaderboard">("live_timing");
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -790,6 +791,7 @@ export default function SpectatorMode() {
 
   const tabs = [
     { key: "live_timing" as const, label: "Live Timing" },
+    { key: "leaderboard" as const, label: "Leaderboard" },
     { key: "track_map" as const, label: "Track Map" },
     { key: "rigs" as const, label: "Rigs" },
     { key: "settings" as const, label: "Settings" },
@@ -869,6 +871,11 @@ export default function SpectatorMode() {
       </header>
 
       {/* ── Main Content ──────────────────────────────────────────────── */}
+      {activeTab === "leaderboard" ? (
+        <div className="flex-1 overflow-hidden">
+          <KioskLeaderboard />
+        </div>
+      ) : (
       <div className="flex-1 flex overflow-hidden">
         {/* Left Section: Live Timing (65%) */}
         <div className="flex-[65] flex flex-col overflow-hidden">
@@ -1031,6 +1038,7 @@ export default function SpectatorMode() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Telemetry Sidebar ─────────────────────────────────────────── */}
       <TelemetrySidebar
