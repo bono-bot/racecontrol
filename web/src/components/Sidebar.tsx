@@ -2,29 +2,53 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Activity,
+  Settings2,
+  Gamepad2,
+  TrendingUp,
+  Flag,
+  Trophy,
+  Play,
+  User,
+  Star,
+  Zap,
+  Wallet,
+  DollarSign,
+  ClipboardList,
+  Calendar,
+  Bot,
+  Camera,
+  Timer,
+  Coffee,
+  Wrench,
+  ToggleLeft,
+  Rocket,
+  type LucideIcon,
+} from "lucide-react";
 
-const nav = [
-  { href: "/", label: "Live Overview", icon: "\u25C9" },
-  { href: "/pods", label: "Pods", icon: "\u2699" },
-  { href: "/games", label: "Games", icon: "\uD83C\uDFAE" },
-  { href: "/telemetry", label: "Telemetry", icon: "\uD83D\uDCC8" },
-  { href: "/ac-lan", label: "AC LAN Race", icon: "\uD83C\uDFC1" },
-  { href: "/ac-sessions", label: "AC Results", icon: "\uD83C\uDFC6" },
-  { href: "/sessions", label: "Sessions", icon: "\u25B6" },
-  { href: "/drivers", label: "Drivers", icon: "\u263A" },
-  { href: "/leaderboards", label: "Leaderboards", icon: "\u2605" },
-  { href: "/events", label: "Events", icon: "\u2694" },
-  { href: "/billing", label: "Billing", icon: "\uD83D\uDCB0" },
-  { href: "/billing/pricing", label: "Pricing", icon: "\uD83D\uDCB5" },
-  { href: "/billing/history", label: "History", icon: "\uD83D\uDCCB" },
-  { href: "/bookings", label: "Bookings", icon: "\uD83D\uDCC5" },
-  { href: "/ai", label: "AI Insights", icon: "\uD83E\uDD16" },
-  { href: "/cameras", label: "Cameras", icon: "\uD83D\uDCF7" },
-  { href: "/cameras/playback", label: "Playback", icon: "\u23F2" },
-  { href: "/cafe", label: "Cafe Menu", icon: "\u2615" },
-  { href: "/settings", label: "Settings", icon: "\u2692" },
-  { href: "/flags", label: "Feature Flags", icon: "\u2691" },
-  { href: "/ota", label: "OTA Releases", icon: "\uD83D\uDE80" },
+const nav: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/", label: "Live Overview", icon: Activity },
+  { href: "/pods", label: "Pods", icon: Settings2 },
+  { href: "/games", label: "Games", icon: Gamepad2 },
+  { href: "/telemetry", label: "Telemetry", icon: TrendingUp },
+  { href: "/ac-lan", label: "AC LAN Race", icon: Flag },
+  { href: "/ac-sessions", label: "AC Results", icon: Trophy },
+  { href: "/sessions", label: "Sessions", icon: Play },
+  { href: "/drivers", label: "Drivers", icon: User },
+  { href: "/leaderboards", label: "Leaderboards", icon: Star },
+  { href: "/events", label: "Events", icon: Zap },
+  { href: "/billing", label: "Billing", icon: Wallet },
+  { href: "/billing/pricing", label: "Pricing", icon: DollarSign },
+  { href: "/billing/history", label: "History", icon: ClipboardList },
+  { href: "/bookings", label: "Bookings", icon: Calendar },
+  { href: "/ai", label: "AI Insights", icon: Bot },
+  { href: "/cameras", label: "Cameras", icon: Camera },
+  { href: "/cameras/playback", label: "Playback", icon: Timer },
+  { href: "/cafe", label: "Cafe Menu", icon: Coffee },
+  { href: "/settings", label: "Settings", icon: Wrench },
+  { href: "/flags", label: "Feature Flags", icon: ToggleLeft },
+  { href: "/ota", label: "OTA Releases", icon: Rocket },
 ];
 
 export default function Sidebar() {
@@ -49,7 +73,7 @@ export default function Sidebar() {
                   : "text-neutral-400 hover:text-white hover:bg-rp-card"
               }`}
             >
-              <span>{item.icon}</span>
+              <item.icon size={16} className="shrink-0" />
               {item.label}
             </Link>
           );
