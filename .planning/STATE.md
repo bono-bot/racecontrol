@@ -39,7 +39,7 @@ See: UNIFIED-PROTOCOL.md (operations protocol v3.1)
 | # | Phase | Requirements | Status |
 |---|-------|-------------|--------|
 | 267 | Survival Foundation | SF-01..SF-05 | Not started |
-| 268 | Unified MMA Protocol | MP-01..MP-09 | Not started |
+| 268 | Unified MMA Protocol (4-Step Engine) | MP-01..MP-20 | In progress (foundation coded, spec complete) |
 | 269 | Layer 1 Smart Watchdog | SW-01..SW-14 | Not started |
 | 270 | Layer 2 Server Fleet Healer | FH-01..FH-12 | Not started |
 | 271 | Layer 3 External Guardian | EG-01..EG-10 | Not started |
