@@ -15,7 +15,7 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
 - [x] **Phase 261: Design System Foundation** - Unified token file, shadcn/ui init in both apps, motion@12, tw-animate-css, JetBrains Mono in web — zero component work, full coverage unlocked (completed 2026-03-30)
 - [x] **Phase 262: Deploy Pipeline Hardening** - Static file copy verification, env var audit, smoke test with static serving check — locks the ship path before any redesigned page lands (completed 2026-03-30)
 - [ ] **Phase 263: Web Primitive Components** - All shared components (SC-01..SC-10) and login page (LP-01..LP-02) built before web pages depend on them
-- [ ] **Phase 264: Web Dashboard Pages** - All 8 web dashboard pages redesigned using Phase 263 primitives
+- [x] **Phase 264: Web Dashboard Pages** - All 8 web dashboard pages redesigned using Phase 263 primitives (completed 2026-03-30)
 - [ ] **Phase 265: Kiosk Pages** - All 5 kiosk screens redesigned with touch-optimized primitives, verified on actual pod hardware
 - [ ] **Phase 266: Quality Gate & Audit** - MMA design audit (3-model minimum), touch verification on actual pod hardware, cross-app consistency check
 
@@ -85,7 +85,7 @@ Plans:
 **Plans**: 4 plans
 Plans:
 - [x] 264-01-PLAN.md � Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
-- [ ] 264-02-PLAN.md � Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
+- [x] 264-02-PLAN.md � Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
 - [x] 264-03-PLAN.md � Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
 - [x] 264-04-PLAN.md � Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
 **UI hint**: yes
@@ -128,6 +128,6 @@ Plans:
 | 261. Design System Foundation | 3/3 | Complete   | 2026-03-30 |
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
 | 263. Web Primitive Components | 3/4 | In Progress|  |
-| 264. Web Dashboard Pages | 3/4 | In Progress|  |
+| 264. Web Dashboard Pages | 4/4 | Complete   | 2026-03-30 |
 | 265. Kiosk Pages | 0/3 | Not started | - |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |

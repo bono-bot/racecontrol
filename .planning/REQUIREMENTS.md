@@ -31,8 +31,8 @@
 ## Web Dashboard (WD)
 - [ ] **WD-01**: Dashboard home with KPI tiles (active sessions, pods online, revenue, queue)
 - [ ] **WD-02**: Pods page with F1 timing tower vertical strip + detail drawer
-- [ ] **WD-03**: Sessions page with active/completed session list and session detail cards
-- [ ] **WD-04**: Billing page with wallet management, top-up, session history
+- [x] **WD-03**: Sessions page with active/completed session list and session detail cards
+- [x] **WD-04**: Billing page with wallet management, top-up, session history
 - [ ] **WD-05**: Fleet Health page with pod grid, status indicators, health timeline
 - [ ] **WD-06**: Leaderboards page with F1-style lap time table, PB/session-best highlights
 - [x] **WD-07**: Settings page with venue configuration, theme preview
