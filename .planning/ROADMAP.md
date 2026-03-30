@@ -48,7 +48,10 @@ Plans:
   3. Pre-build env var audit step `grep -rn NEXT_PUBLIC_ web/src/ kiosk/src/` is documented and run before every build — every `NEXT_PUBLIC_` var has a LAN IP (192.168.31.23, not localhost) in `.env.production.local`
   4. `grep outputFileTracingRoot web/next.config.ts kiosk/next.config.ts` returns hits in both files — `outputFileTracingRoot: path.join(__dirname)` present and correct in both
   5. Post-deploy smoke test verifies `/leaderboard-display` is unauthenticated: `curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display` returns 200, not 302
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 262-01-PLAN.md � Env var audit script (check-frontend-env.sh) + static smoke test injected into deploy-nextjs.sh
+- [ ] 262-02-PLAN.md � Post-deploy verification gate script (verify-frontend-deploy.sh) covering all 5 ROADMAP success criteria
 
 ### Phase 263: Web Primitive Components
 **Goal**: All shared components for the web dashboard exist in redesigned form — StatusBadge, MetricCard, PodCard, AppShell, PinPad, CountdownTimer, LiveDataTable (TanStack Table), LeaderboardTable (with WS and AnimatePresence), Toast, and loading skeletons — plus the login page; Phase 264 page work assembles these primitives and invents nothing
@@ -114,7 +117,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 261. Design System Foundation | 0/3 | Not started | - |
-| 262. Deploy Pipeline Hardening | 0/TBD | Not started | - |
+| 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
 | 263. Web Primitive Components | 0/TBD | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
 | 265. Kiosk Pages | 0/TBD | Not started | - |
