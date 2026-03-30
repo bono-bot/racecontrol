@@ -34,12 +34,12 @@ run_phase64() {
 
   # Check if any pod response contains active_sentinels field
   local has_sentinel_field
-  has_sentinel_field=$(printf '%s' "$fleet_resp" | jq '[.[] | select(has("active_sentinels"))] | length' 2>/dev/null || echo "0")
+  has_sentinel_field=$(printf '%s' "$fleet_resp" | jq '[.pods[] | select(has("active_sentinels"))] | length' 2>/dev/null || echo "0")
 
   if [[ "${has_sentinel_field:-0}" -gt 0 ]]; then
     # active_sentinels field exists in fleet response -- OBS-04 wiring is present
     local active_sentinel_count
-    active_sentinel_count=$(printf '%s' "$fleet_resp" | jq '[.[] | .active_sentinels // [] | length] | add // 0' 2>/dev/null || echo "0")
+    active_sentinel_count=$(printf '%s' "$fleet_resp" | jq '[.pods[] | .active_sentinels // [] | length] | add // 0' 2>/dev/null || echo "0")
     if [[ "${active_sentinel_count:-0}" -eq 0 ]]; then
       status="WARN"; severity="P3"
       message="Sentinel wiring present but 0 active sentinels across ${has_sentinel_field} pod(s) -- sentinels may be down"

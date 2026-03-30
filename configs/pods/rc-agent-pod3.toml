@@ -49,5 +49,5 @@ use_steam = true
 enabled = true
 ollama_url = "http://127.0.0.1:11434"
 ollama_model = "rp-debug"
-openrouter_api_key = "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"
+openrouter_api_key = "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"
 openrouter_model = "openrouter/auto"

@@ -229,17 +229,21 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
                 return Ok(());
             }
 
-            // Credit the local wallet
-            let _ = sqlx::query(
+            // MMA-GLM5-FIX: Wrap wallet credit + transaction log in a DB transaction
+            // to prevent balance increase without a recorded transaction entry.
+            let mut tx = state.db.begin().await
+                .map_err(|e| anyhow::anyhow!("DB transaction start failed: {}", e))?;
+
+            sqlx::query(
                 "UPDATE wallets SET balance_paise = balance_paise + ?, updated_at = datetime('now') WHERE driver_id = ?",
             )
             .bind(amount_paise)
             .bind(driver_id)
-            .execute(&state.db)
-            .await;
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Wallet credit failed: {}", e))?;
 
-            // Log the transaction
-            let _ = sqlx::query(
+            sqlx::query(
                 "INSERT OR IGNORE INTO wallet_transactions (id, driver_id, amount_paise, type, reference_id, created_at) \
                  VALUES (?, ?, ?, 'topup', ?, datetime('now'))",
             )
@@ -247,8 +251,12 @@ pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) 
             .bind(driver_id)
             .bind(amount_paise)
             .bind(transaction_id)
-            .execute(&state.db)
-            .await;
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Transaction log failed: {}", e))?;
+
+            tx.commit().await
+                .map_err(|e| anyhow::anyhow!("Wallet topup commit failed: {}", e))?;
 
             Ok(())
         }

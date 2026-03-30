@@ -63,7 +63,7 @@ check_billing_active() {
 
 check_peak_load() {
   local pods
-  pods=$(curl -sf http://localhost:8080/api/v1/fleet/health 2>/dev/null | jq '[.[] | select(.ws_connected==true)] | length')
+  pods=$(curl -sf http://localhost:8080/api/v1/fleet/health 2>/dev/null | jq '[.pods[] | select(.ws_connected==true)] | length')
   [ "${pods:-0}" -gt 4 ]
 }
 
@@ -281,8 +281,8 @@ cmd_venue() {
   local fleet_json fleet_count ws_count
   fleet_json=$(curl -sf --max-time 3 "http://$fleet_api:8080/api/v1/fleet/health" 2>/dev/null) || fleet_json=""
   if [ -n "$fleet_json" ]; then
-    fleet_count=$(echo "$fleet_json" | jq 'length' 2>/dev/null) || fleet_count="?"
-    ws_count=$(echo "$fleet_json" | jq '[.[] | select(.ws_connected==true)] | length' 2>/dev/null) || ws_count="?"
+    fleet_count=$(echo "$fleet_json" | jq '.pods | length' 2>/dev/null) || fleet_count="?"
+    ws_count=$(echo "$fleet_json" | jq '[.pods[] | select(.ws_connected==true)] | length' 2>/dev/null) || ws_count="?"
   else
     fleet_count="?"
     ws_count="?"

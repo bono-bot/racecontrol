@@ -410,7 +410,7 @@ run_cascade_check() {
   local fleet_health
   fleet_health=$(curl -s --max-time 10 "$SERVER_URL/api/v1/fleet/health" 2>/dev/null || echo "[]")
   local pod_builds
-  pod_builds=$(echo "$fleet_health" | jq -r '.[].build_id // empty' 2>/dev/null | sort -u || echo "")
+  pod_builds=$(echo "$fleet_health" | jq -r '.pods[].build_id // empty' 2>/dev/null | sort -u || echo "")
   local unique_builds
   unique_builds=$(echo "$pod_builds" | wc -l | tr -d ' ')
   if [[ "$unique_builds" -gt 1 ]] && [[ -n "$pod_builds" ]]; then

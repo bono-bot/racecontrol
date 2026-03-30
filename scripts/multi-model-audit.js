@@ -48,6 +48,9 @@ const MODEL_CONFIG = {
   'tencent/hunyuan-a13b-instruct':       { short: 'hunyuan', ctx: 131072, priceIn: 0.14, priceOut: 0.57, timeout: 180000, maxOut: 16000 },
   'moonshotai/kimi-k2.5':               { short: 'kimi-k2.5', ctx: 131072, priceIn: 0.35, priceOut: 1.40, timeout: 300000, maxOut: 16000 },
   'inception/mercury-coder':             { short: 'mercury-coder', ctx: 128000, priceIn: 0.25, priceOut: 0.75, timeout: 180000, maxOut: 16000 },
+  // Round 5 models — new top-tier (2026-03-30)
+  'z-ai/glm-5':                          { short: 'glm-5', ctx: 262144, priceIn: 0.50, priceOut: 2.00, timeout: 300000, maxOut: 16000 },
+  'minimax/minimax-m2.7':                { short: 'minimax-m2.7', ctx: 1048576, priceIn: 0.50, priceOut: 2.00, timeout: 300000, maxOut: 16000 },
 };
 
 const config = MODEL_CONFIG[MODEL];

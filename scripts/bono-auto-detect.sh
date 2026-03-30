@@ -236,14 +236,14 @@ fi
 if [[ "$server_status" == "ok" ]]; then
   log INFO "=== Check 3: Fleet Health ==="
   fleet_health=$(curl -s --max-time 10 "$SERVER_URL/api/v1/fleet/health" 2>/dev/null || echo "[]")
-  pod_count=$(echo "$fleet_health" | jq 'length' 2>/dev/null || echo "0")
-  pods_connected=$(echo "$fleet_health" | jq '[.[] | select(.ws_connected == true)] | length' 2>/dev/null || echo "0")
-  pods_down=$(echo "$fleet_health" | jq '[.[] | select(.ws_connected == false or .ws_connected == null)] | length' 2>/dev/null || echo "0")
+  pod_count=$(echo "$fleet_health" | jq '.pods | length' 2>/dev/null || echo "0")
+  pods_connected=$(echo "$fleet_health" | jq '[.pods[] | select(.ws_connected == true)] | length' 2>/dev/null || echo "0")
+  pods_down=$(echo "$fleet_health" | jq '[.pods[] | select(.ws_connected == false or .ws_connected == null)] | length' 2>/dev/null || echo "0")
 
   log INFO "Fleet: $pods_connected/$pod_count pods connected, $pods_down down"
 
   if [[ "$pods_down" -gt 0 ]]; then
-    down_pods=$(echo "$fleet_health" | jq -r '.[] | select(.ws_connected == false or .ws_connected == null) | .pod_number' 2>/dev/null || echo "")
+    down_pods=$(echo "$fleet_health" | jq -r '.pods[] | select(.ws_connected == false or .ws_connected == null) | .pod_number' 2>/dev/null || echo "")
     log WARN "Pods DOWN: $down_pods"
     BUGS_FOUND=$((BUGS_FOUND + 1))
   fi
