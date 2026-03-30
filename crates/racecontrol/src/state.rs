@@ -213,6 +213,9 @@ pub struct AppState {
     /// Phase 255: Display machine heartbeats (display_id -> last_ping_instant, uptime_s).
     /// Updated by POST /api/v1/kiosk/ping from leaderboard display pages.
     pub display_heartbeats: RwLock<HashMap<String, (Instant, u64)>>,
+    /// v29.0 Phase 27: Pod availability map for kiosk/PWA/POS.
+    /// Updated by anomaly scanner via self-healing orchestration.
+    pub pod_availability: crate::self_healing::PodAvailabilityMap,
     /// Phase 253: Sender for driver rating computation requests.
     /// None until rating worker is spawned in main.rs.
     pub rating_tx: Option<mpsc::Sender<crate::driver_rating::RatingRequest>>,
@@ -296,6 +299,7 @@ impl AppState {
             recovery_intents: std::sync::Mutex::new(RecoveryIntentStore::new()),
             phantom_billing_start: RwLock::new(HashMap::new()),
             display_heartbeats: RwLock::new(HashMap::new()),
+            pod_availability: crate::self_healing::new_availability_map(),
             rating_tx: None,           // Initialized after AppState::new() in main.rs
             telemetry_writer_tx: None, // Initialized after AppState::new() in main.rs
             telemetry_db: None,        // Initialized after AppState::new() in main.rs

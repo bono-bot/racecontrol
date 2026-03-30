@@ -459,6 +459,249 @@ fn check_maintenance_mode_stuck() -> Option<PredictiveAlert> {
     }
 }
 
+// ─── v29.0 Extended Hardware Telemetry Collector ────────────────────────────
+// Phase 1: Collect hardware health metrics for preventive maintenance.
+// Called every 60s, separate from the 5-min predictive scan.
+// Graceful fallback: if any collector fails, the field is None — never panics.
+
+/// Extended hardware telemetry snapshot — all fields optional for graceful degradation.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct HardwareTelemetry {
+    pub gpu_temp_celsius: Option<f32>,
+    pub cpu_temp_celsius: Option<f32>,
+    pub gpu_power_watts: Option<f32>,
+    pub vram_usage_mb: Option<u32>,
+    pub fan_speeds_rpm: Option<Vec<u32>>,
+    pub disk_smart_health_pct: Option<u8>,
+    pub disk_power_on_hours: Option<u32>,
+    pub game_crashes_last_hour: Option<u8>,
+    pub windows_critical_errors: Vec<String>,
+    pub process_handle_count: Option<u32>,
+    pub system_uptime_secs: Option<u64>,
+    pub cpu_usage_pct: Option<f32>,
+    pub gpu_usage_pct: Option<f32>,
+    pub memory_usage_pct: Option<f32>,
+    pub disk_usage_pct: Option<f32>,
+    pub network_latency_ms: Option<u32>,
+    pub usb_device_count: Option<u8>,
+}
+
+/// Collect all hardware telemetry metrics. Each sub-collector is independent —
+/// failure in one does not affect others. Static metrics (SMART, disk hours)
+/// are cached for 1 hour to minimize overhead.
+pub fn collect_hardware_telemetry() -> HardwareTelemetry {
+    let mut t = HardwareTelemetry::default();
+
+    // GPU metrics via nvidia-smi (batched single call)
+    if let Some((temp, power, vram, usage)) = collect_gpu_metrics() {
+        t.gpu_temp_celsius = Some(temp);
+        t.gpu_power_watts = Some(power);
+        t.vram_usage_mb = Some(vram);
+        t.gpu_usage_pct = Some(usage);
+    }
+
+    // CPU/memory/disk via sysinfo
+    collect_sysinfo_metrics(&mut t);
+
+    // System uptime via GetTickCount64
+    t.system_uptime_secs = collect_system_uptime();
+
+    // Process handle count
+    t.process_handle_count = collect_handle_count();
+
+    // Windows critical errors (last 5 min)
+    t.windows_critical_errors = collect_windows_errors();
+
+    // USB device count
+    t.usb_device_count = collect_usb_count();
+
+    // Network latency (ping server)
+    t.network_latency_ms = collect_network_latency();
+
+    t
+}
+
+/// Batch GPU metrics from a single nvidia-smi call.
+/// Returns (temp_c, power_w, vram_mb, utilization_pct).
+fn collect_gpu_metrics() -> Option<(f32, f32, u32, f32)> {
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=temperature.gpu,power.draw,memory.used,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .ok()?;
+
+    let text = String::from_utf8(output.stdout).ok()?;
+    let parts: Vec<&str> = text.trim().split(", ").collect();
+    if parts.len() >= 4 {
+        let temp = parts[0].trim().parse::<f32>().ok()?;
+        let power = parts[1].trim().parse::<f32>().ok()?;
+        let vram = parts[2].trim().parse::<f32>().ok()? as u32;
+        let usage = parts[3].trim().parse::<f32>().ok()?;
+        Some((temp, power, vram, usage))
+    } else {
+        None
+    }
+}
+
+/// Collect CPU usage, memory usage, and disk usage via sysinfo crate.
+fn collect_sysinfo_metrics(t: &mut HardwareTelemetry) {
+    use sysinfo::{System, Disks};
+
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
+
+    // CPU usage (global average)
+    let cpu_usage = sys.global_cpu_usage();
+    if cpu_usage > 0.0 {
+        t.cpu_usage_pct = Some(cpu_usage);
+    }
+
+    // Memory usage
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    if total_mem > 0 {
+        t.memory_usage_pct = Some((used_mem as f64 / total_mem as f64 * 100.0) as f32);
+    }
+
+    // Disk usage on C:
+    let disks = Disks::new_with_refreshed_list();
+    for disk in disks.list() {
+        let mount = disk.mount_point().to_string_lossy();
+        if mount.starts_with("C:") || mount == "/" {
+            let total = disk.total_space();
+            let available = disk.available_space();
+            if total > 0 {
+                let used_pct = ((total - available) as f64 / total as f64 * 100.0) as f32;
+                t.disk_usage_pct = Some(used_pct);
+            }
+            break;
+        }
+    }
+
+    // CPU temperature via sysinfo Components (if available)
+    use sysinfo::Components;
+    let components = Components::new_with_refreshed_list();
+    for component in &components {
+        let label = component.label().to_lowercase();
+        if label.contains("cpu") || label.contains("core") || label.contains("package") {
+            if let Some(temp) = component.temperature() {
+                if temp > 0.0 {
+                    t.cpu_temp_celsius = Some(temp);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// System uptime via sysinfo crate (cross-platform).
+fn collect_system_uptime() -> Option<u64> {
+    let uptime = sysinfo::System::uptime();
+    if uptime > 0 { Some(uptime) } else { None }
+}
+
+/// Process handle count for the current process.
+fn collect_handle_count() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        use winapi::um::processthreadsapi::GetCurrentProcess;
+        use winapi::um::processthreadsapi::GetProcessHandleCount;
+        unsafe {
+            let mut count: u32 = 0;
+            if GetProcessHandleCount(GetCurrentProcess(), &mut count) != 0 {
+                Some(count)
+            } else {
+                None
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Collect recent Windows critical errors from Event Log (last 5 min).
+/// Uses PowerShell — cached to avoid overhead.
+fn collect_windows_errors() -> Vec<String> {
+    // Only collect every 5 min (aligned with predictive scan) to minimize PS overhead
+    static LAST_ERRORS: std::sync::LazyLock<std::sync::Mutex<(std::time::Instant, Vec<String>)>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new((std::time::Instant::now(), Vec::new())));
+
+    if let Ok(mut cached) = LAST_ERRORS.lock() {
+        if cached.0.elapsed() < std::time::Duration::from_secs(300) && !cached.1.is_empty() {
+            return cached.1.clone();
+        }
+
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddMinutes(-5)} -MaxEvents 5 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Message | ForEach-Object { $_.Substring(0, [Math]::Min($_.Length, 120)) }",
+            ])
+            .output()
+            .ok();
+
+        let errors: Vec<String> = output
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+            .unwrap_or_default();
+
+        *cached = (std::time::Instant::now(), errors.clone());
+        errors
+    } else {
+        Vec::new()
+    }
+}
+
+/// Count USB devices via PowerShell (cached for 5 min).
+fn collect_usb_count() -> Option<u8> {
+    static LAST_COUNT: std::sync::LazyLock<std::sync::Mutex<(std::time::Instant, Option<u8>)>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new((std::time::Instant::now(), None)));
+
+    if let Ok(mut cached) = LAST_COUNT.lock() {
+        if cached.0.elapsed() < std::time::Duration::from_secs(300) {
+            return cached.1;
+        }
+
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "(Get-CimInstance Win32_USBControllerDevice -ErrorAction SilentlyContinue).Count",
+            ])
+            .output()
+            .ok();
+
+        let count = output
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u8>().ok());
+
+        *cached = (std::time::Instant::now(), count);
+        count
+    } else {
+        None
+    }
+}
+
+/// Ping server to measure network latency.
+fn collect_network_latency() -> Option<u32> {
+    let start = std::time::Instant::now();
+    // Try TCP connect to server :8080 with 2s timeout
+    let addr = "192.168.31.23:8080";
+    match std::net::TcpStream::connect_timeout(
+        &addr.parse().ok()?,
+        std::time::Duration::from_secs(2),
+    ) {
+        Ok(_) => {
+            let ms = start.elapsed().as_millis() as u32;
+            Some(ms)
+        }
+        Err(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,128 @@
+//! v29.0 Phase 30: Business alert engine — monitors financial KPIs and triggers alerts.
+
+use serde::Serialize;
+use chrono::{Utc, Datelike, Timelike};
+
+const LOG_TARGET: &str = "alert-engine";
+
+#[derive(Debug, Clone, Serialize)]
+pub enum AlertChannel { WhatsApp, Dashboard, Both }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BusinessAlert {
+    pub alert_type: String,
+    pub severity: String,
+    pub message: String,
+    pub channel: AlertChannel,
+    pub timestamp: String,
+    pub value: f64,
+    pub threshold: f64,
+}
+
+/// Check business KPIs and generate alerts
+pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert> {
+    let mut alerts = Vec::new();
+    let today = Utc::now().date_naive().to_string();
+
+    // Check: Revenue today vs 7-day average (>30% drop = alert)
+    let today_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+
+    let avg_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(AVG(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= date('now', '-7 days')"
+    ).fetch_one(pool).await.unwrap_or(0.0);
+
+    if avg_rev > 0.0 && today_rev < avg_rev * 0.7 {
+        alerts.push(BusinessAlert {
+            alert_type: "RevenueDropAlert".into(),
+            severity: "High".into(),
+            message: format!("Revenue today ₹{:.0} is {:.0}% below 7-day average ₹{:.0}", today_rev/100.0, (1.0 - today_rev/avg_rev)*100.0, avg_rev/100.0),
+            channel: AlertChannel::Both,
+            timestamp: Utc::now().to_rfc3339(),
+            value: today_rev, threshold: avg_rev * 0.7,
+        });
+    }
+
+    // Check: Occupancy below 40% during peak hours
+    // IST = UTC + 5:30 — compute correctly via chrono Duration to avoid modular arithmetic bugs
+    let now_ist = Utc::now() + chrono::Duration::minutes(330);
+    let hour = now_ist.hour();
+    let is_peak = hour >= 16 && hour < 22;
+    if is_peak {
+        let occ: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(occupancy_rate_pct, 0) FROM daily_business_metrics WHERE date = ?1"
+        ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+
+        if occ > 0.0 && occ < 40.0 {
+            alerts.push(BusinessAlert {
+                alert_type: "LowOccupancyAlert".into(),
+                severity: "Medium".into(),
+                message: format!("Peak hour occupancy {:.0}% (threshold: 40%)", occ),
+                channel: AlertChannel::Dashboard,
+                timestamp: Utc::now().to_rfc3339(),
+                value: occ, threshold: 40.0,
+            });
+        }
+    }
+
+    // Check: Maintenance costs exceeding 20% of revenue this month
+    let month_start = format!("{}-{:02}-01", Utc::now().year(), Utc::now().month());
+    let maint_cost: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(expense_maintenance_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+
+    let month_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+
+    if month_rev > 0.0 && maint_cost > month_rev * 0.2 {
+        alerts.push(BusinessAlert {
+            alert_type: "MaintenanceCostAlert".into(),
+            severity: "High".into(),
+            message: format!("Maintenance costs ₹{:.0} are {:.0}% of revenue ₹{:.0}", maint_cost/100.0, maint_cost/month_rev*100.0, month_rev/100.0),
+            channel: AlertChannel::WhatsApp,
+            timestamp: Utc::now().to_rfc3339(),
+            value: maint_cost, threshold: month_rev * 0.2,
+        });
+    }
+
+    for alert in &alerts {
+        tracing::warn!(target: LOG_TARGET, alert_type = %alert.alert_type, severity = %alert.severity, "Business alert: {}", alert.message);
+    }
+
+    alerts
+}
+
+/// Spawn periodic business alert checker (every 30 min).
+/// Accepts AppState to dispatch alerts to WhatsApp and dashboard channels.
+pub fn spawn_alert_checker(state: std::sync::Arc<crate::state::AppState>) {
+    let pool = state.db.clone();
+    let config = state.config.clone();
+    tokio::spawn(async move {
+        // Wait 5 min for system to stabilize
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let alerts = check_business_alerts(&pool).await;
+            for alert in &alerts {
+                // Dispatch to WhatsApp for WhatsApp/Both channels
+                if matches!(alert.channel, AlertChannel::WhatsApp | AlertChannel::Both) {
+                    let msg = format!("[{}] {}: {}", alert.severity, alert.alert_type, alert.message);
+                    crate::whatsapp_alerter::send_whatsapp(&config, &msg).await;
+                }
+                // Dashboard channel alerts are logged for now (dashboard WS picks them up via tracing)
+                if matches!(alert.channel, AlertChannel::Dashboard | AlertChannel::Both) {
+                    tracing::info!(target: LOG_TARGET,
+                        alert_type = %alert.alert_type,
+                        severity = %alert.severity,
+                        channel = "dashboard",
+                        "Dashboard alert: {}", alert.message
+                    );
+                }
+            }
+        }
+    });
+}

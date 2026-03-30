@@ -69,6 +69,8 @@ pub(crate) struct ConnectionState {
     pub(crate) overlay_topmost_interval: tokio::time::Interval,
     pub(crate) maintenance_retry_interval: tokio::time::Interval,
     pub(crate) browser_watchdog_interval: tokio::time::Interval,
+    /// v29.0: Extended hardware telemetry collection (60s interval)
+    pub(crate) hw_telemetry_interval: tokio::time::Interval,
     pub(crate) idle_health_interval: tokio::time::Interval,
     pub(crate) idle_health_fail_count: u32,
     pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
@@ -141,6 +143,7 @@ impl ConnectionState {
             overlay_topmost_interval: tokio::time::interval(Duration::from_secs(10)),
             maintenance_retry_interval: tokio::time::interval(Duration::from_secs(30)),
             browser_watchdog_interval: tokio::time::interval(Duration::from_secs(30)),
+            hw_telemetry_interval: tokio::time::interval(Duration::from_secs(60)),
             idle_health_interval: tokio::time::interval(Duration::from_secs(60)),
             idle_health_fail_count: 0,
             blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
@@ -1340,6 +1343,41 @@ pub async fn run(
                             "BWDOG-05: Browser expected but 0 msedge.exe running — relaunching");
                         state.lock_screen.launch_browser();
                     }
+                }
+            }
+
+            // ─── v29.0: Extended Hardware Telemetry (60s) ──────────────────────
+            _ = conn.hw_telemetry_interval.tick() => {
+                let telem = crate::predictive_maintenance::collect_hardware_telemetry();
+                let msg = rc_common::protocol::AgentMessage::ExtendedTelemetry {
+                    pod_id: state.pod_info.id.clone(),
+                    gpu_temp_celsius: telem.gpu_temp_celsius,
+                    cpu_temp_celsius: telem.cpu_temp_celsius,
+                    gpu_power_watts: telem.gpu_power_watts,
+                    vram_usage_mb: telem.vram_usage_mb,
+                    fan_speeds_rpm: telem.fan_speeds_rpm,
+                    disk_smart_health_pct: telem.disk_smart_health_pct,
+                    disk_power_on_hours: telem.disk_power_on_hours,
+                    game_crashes_last_hour: telem.game_crashes_last_hour,
+                    windows_critical_errors: telem.windows_critical_errors,
+                    process_handle_count: telem.process_handle_count,
+                    system_uptime_secs: telem.system_uptime_secs,
+                    cpu_usage_pct: telem.cpu_usage_pct,
+                    gpu_usage_pct: telem.gpu_usage_pct,
+                    memory_usage_pct: telem.memory_usage_pct,
+                    disk_usage_pct: telem.disk_usage_pct,
+                    network_latency_ms: telem.network_latency_ms,
+                    usb_device_count: telem.usb_device_count,
+                    collected_at: chrono::Utc::now().to_rfc3339(),
+                };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                    tracing::debug!(target: LOG_TARGET,
+                        gpu_temp = ?telem.gpu_temp_celsius,
+                        cpu_pct = ?telem.cpu_usage_pct,
+                        mem_pct = ?telem.memory_usage_pct,
+                        "v29.0: Extended telemetry sent"
+                    );
                 }
             }
 

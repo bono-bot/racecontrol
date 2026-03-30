@@ -1464,6 +1464,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             });
                         }
 
+                        // v29.0: Extended hardware telemetry for preventive maintenance
+                        AgentMessage::ExtendedTelemetry {
+                            pod_id,
+                            gpu_temp_celsius,
+                            cpu_usage_pct,
+                            gpu_usage_pct,
+                            memory_usage_pct,
+                            disk_usage_pct,
+                            process_handle_count,
+                            network_latency_ms,
+                            system_uptime_secs,
+                            ..
+                        } => {
+                            tracing::debug!(
+                                pod = %pod_id,
+                                gpu_temp = ?gpu_temp_celsius,
+                                cpu = ?cpu_usage_pct,
+                                gpu = ?gpu_usage_pct,
+                                mem = ?memory_usage_pct,
+                                disk = ?disk_usage_pct,
+                                handles = ?process_handle_count,
+                                latency = ?network_latency_ms,
+                                uptime = ?system_uptime_secs,
+                                "v29.0: Extended telemetry received"
+                            );
+                            // Store in telemetry_store for trend analysis
+                            crate::telemetry_store::store_extended_telemetry(
+                                &state,
+                                pod_id,
+                                &agent_msg,
+                            );
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }

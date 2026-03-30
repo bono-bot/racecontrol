@@ -342,6 +342,67 @@ pub enum AgentMessage {
         last_diagnosis: Option<String>,
     },
 
+    // ─── Extended Hardware Telemetry (v29.0 Preventive Maintenance) ────────
+
+    /// Pod sends extended hardware health metrics every 60s for preventive maintenance.
+    /// Phase 1 of Meshed Intelligence v29.0 — 14-model MMA consensus.
+    ExtendedTelemetry {
+        pod_id: String,
+        /// GPU temperature in Celsius (nvidia-smi)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gpu_temp_celsius: Option<f32>,
+        /// CPU temperature in Celsius (WMI)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cpu_temp_celsius: Option<f32>,
+        /// GPU power draw in watts (nvidia-smi)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gpu_power_watts: Option<f32>,
+        /// GPU VRAM usage in MB (nvidia-smi)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        vram_usage_mb: Option<u32>,
+        /// Fan speeds in RPM (sysinfo)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fan_speeds_rpm: Option<Vec<u32>>,
+        /// Disk SMART health percentage 0-100
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disk_smart_health_pct: Option<u8>,
+        /// Disk power-on hours from SMART
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disk_power_on_hours: Option<u32>,
+        /// Game crashes in the last hour
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        game_crashes_last_hour: Option<u8>,
+        /// Recent Windows critical event log errors (last 5 min)
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        windows_critical_errors: Vec<String>,
+        /// Process handle count (detect leaks)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        process_handle_count: Option<u32>,
+        /// System uptime in seconds since last boot
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_uptime_secs: Option<u64>,
+        /// CPU usage percentage (sysinfo)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cpu_usage_pct: Option<f32>,
+        /// GPU usage percentage (nvidia-smi)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gpu_usage_pct: Option<f32>,
+        /// Memory usage percentage (sysinfo)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memory_usage_pct: Option<f32>,
+        /// Disk usage percentage on C: (sysinfo)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disk_usage_pct: Option<f32>,
+        /// Network latency to server in ms
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        network_latency_ms: Option<u32>,
+        /// Number of connected USB devices
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usb_device_count: Option<u8>,
+        /// ISO-8601 timestamp of collection
+        collected_at: String,
+    },
+
     // ─── Staff Diagnostic Bridge (v27.0) ─────────────────────────────────────
 
     /// Pod returns the result of a staff-triggered diagnostic request.

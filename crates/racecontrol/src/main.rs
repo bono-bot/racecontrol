@@ -559,7 +559,14 @@ async fn main() -> anyhow::Result<()> {
                 );
                 let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
                 inner.telemetry_writer_tx = Some(writer_tx);
-                inner.telemetry_db = Some(telem_pool);
+                inner.telemetry_db = Some(telem_pool.clone());
+                racecontrol_crate::telemetry_store::spawn_maintenance_scheduler(telem_pool.clone());
+                // v29.0 Phase 5: Rule-based anomaly detection on hardware telemetry
+                // Wire to self-healing availability map so anomalies update pod state
+                let _anomaly_state = racecontrol_crate::maintenance_engine::spawn_anomaly_scanner_with_healing(
+                    telem_pool,
+                    Some(inner.pod_availability.clone()),
+                );
                 tracing::info!("Telemetry persistence enabled: {}", telem_path);
             }
             Err(e) => {
@@ -567,6 +574,49 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    // Phase 2 (v29.0): Initialize maintenance event tables in main DB
+    if let Err(e) = racecontrol_crate::maintenance_store::init_maintenance_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize maintenance tables: {e}");
+    }
+
+    // Phase 11 (v29.0): Initialize business metrics tables
+    if let Err(e) = racecontrol_crate::maintenance_store::init_business_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize business metrics tables: {e}");
+    }
+
+    // Phase 13-14 (v29.0): Initialize HR + attendance tables
+    if let Err(e) = racecontrol_crate::maintenance_store::init_hr_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize HR tables: {e}");
+    }
+
+    // Phase 26 (v29.0): Spawn hourly business aggregator (billing+cafe -> daily_business_metrics)
+    {
+        let agg_db = Arc::get_mut(&mut state).expect("no other Arc refs yet").db.clone();
+        racecontrol_crate::business_aggregator::spawn_business_aggregator(agg_db);
+    }
+
+    // Phase 28 (v29.0): Initialize feedback loop tables (prediction outcomes, admin overrides)
+    if let Err(e) = racecontrol_crate::feedback_loop::init_feedback_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize feedback tables: {e}");
+    }
+
+    // Phase 30 (v29.0): Initialize pricing proposal tables
+    if let Err(e) = racecontrol_crate::pricing_bridge::init_pricing_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize pricing tables: {e}");
+    }
+
+    // Phase 30 (v29.0): alert checker spawned below after all Arc::get_mut calls
 
     // Phase 253: Spawn driver rating worker and set up backfill
     {
@@ -588,6 +638,10 @@ async fn main() -> anyhow::Result<()> {
 
     // v22.0 Phase 179: Check for interrupted OTA pipeline on startup
     racecontrol_crate::ota_pipeline::check_interrupted_pipeline();
+
+    // Phase 30 (v29.0): Spawn business alert checker (every 30 min)
+    // Wired to WhatsApp + dashboard alert delivery
+    racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
 
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
@@ -795,6 +849,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn cloud sync (pulls customer data from cloud racecontrol)
     cloud_sync::spawn(state.clone());
+
+    // v29.0 Phase 35: Spawn data collector + RUL threshold checks (15-min interval)
+    if let Some(telem_pool) = state.telemetry_db.clone() {
+        racecontrol_crate::data_collector::spawn_data_collector(state.db.clone(), telem_pool);
+    } else {
+        tracing::warn!("Data collector skipped — telemetry DB not initialized");
+    }
 
     // Spawn Bono relay (pushes events to Bono's VPS over Tailscale mesh)
     bono_relay::spawn(state.clone());

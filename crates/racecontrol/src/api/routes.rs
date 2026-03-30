@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -36,6 +36,7 @@ use crate::pod_reservation;
 use crate::reservation;
 use crate::scheduler;
 use crate::wallet;
+use crate::maintenance_store;
 use crate::state::{AppState, VenueConfigSnapshot};
 use crate::venue_shutdown;
 use crate::wol;
@@ -155,6 +156,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/queue/join", post(queue_join_handler))
         .route("/queue/status/{id}", get(queue_status_handler))
         .route("/queue/{id}/leave", post(queue_leave_handler))
+        // v29.0 Phase 34: Pod availability for kiosk maintenance gate
+        .route("/pods/{id}/availability", get(pod_availability_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -440,6 +443,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/activity", get(global_activity))
         // Staff
         .route("/staff", get(list_staff).post(create_staff))
+        .route("/staff/{id}", put(update_staff).delete(delete_staff))
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
         .route("/employee/debug-unlock", post(employee_debug_unlock))
@@ -523,6 +527,13 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
+        // ─── v29.0 Phase 9: Maintenance & Analytics ─────────────────────────
+        .route("/maintenance/events", post(maintenance_create_event).get(maintenance_list_events))
+        .route("/maintenance/summary", get(maintenance_summary))
+        .route("/maintenance/tasks", post(maintenance_create_task).get(maintenance_list_tasks))
+        .route("/maintenance/tasks/{id}", axum::routing::patch(maintenance_update_task))
+        .route("/analytics/telemetry", get(analytics_telemetry))
+        .route("/analytics/trends", get(analytics_trends))
         // Merge role-gated sub-routers (SEC-04: manager+, superadmin-only groups)
         .merge(
             // ── Manager+ routes ─────────────────────────────────────────────
@@ -1450,6 +1461,216 @@ async fn clear_maintenance_pod(
     crate::activity_log::log_pod_activity(&state, &id, "system", "Maintenance Cleared", "Staff cleared maintenance via dashboard", "staff");
 
     Json(json!({ "ok": true, "pod_id": id }))
+}
+
+// ─── v29.0 Phase 9: Maintenance & Analytics Handlers ────────────────────────
+
+#[derive(Deserialize)]
+struct MaintenanceEventQuery {
+    pod_id: Option<u8>,
+    severity: Option<String>,
+    hours: Option<u32>,
+}
+
+/// POST /api/v1/maintenance/events — Insert a MaintenanceEvent
+async fn maintenance_create_event(
+    State(state): State<Arc<AppState>>,
+    Json(event): Json<crate::maintenance_models::MaintenanceEvent>,
+) -> impl IntoResponse {
+    match maintenance_store::insert_event(&state.db, &event).await {
+        Ok(()) => Json(json!({ "ok": true, "id": event.id.to_string() })),
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+/// GET /api/v1/maintenance/events — Query events with filters (pod_id, severity, hours)
+async fn maintenance_list_events(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MaintenanceEventQuery>,
+) -> impl IntoResponse {
+    let since = params.hours.map(|h| {
+        chrono::Utc::now() - chrono::Duration::hours(h as i64)
+    });
+    let limit = 200u32;
+    match maintenance_store::query_events(&state.db, params.pod_id, since, limit).await {
+        Ok(events) => {
+            // Optional severity filter (post-query since store doesn't support it directly)
+            let filtered: Vec<_> = if let Some(ref sev) = params.severity {
+                events.into_iter().filter(|e| {
+                    let s = serde_json::to_string(&e.severity).unwrap_or_default().replace('"', "");
+                    s.eq_ignore_ascii_case(sev)
+                }).collect()
+            } else {
+                events
+            };
+            Json(json!({ "ok": true, "events": filtered, "count": filtered.len() }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+/// GET /api/v1/maintenance/summary — Get MaintenanceSummary
+async fn maintenance_summary(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match maintenance_store::get_summary(&state.db).await {
+        Ok(summary) => Json(json!({ "ok": true, "summary": summary })),
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+/// POST /api/v1/maintenance/tasks — Create a maintenance task
+async fn maintenance_create_task(
+    State(state): State<Arc<AppState>>,
+    Json(task): Json<crate::maintenance_models::MaintenanceTask>,
+) -> impl IntoResponse {
+    match maintenance_store::insert_task(&state.db, &task).await {
+        Ok(()) => Json(json!({ "ok": true, "id": task.id.to_string() })),
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+#[derive(Deserialize)]
+struct MaintenanceTaskQuery {
+    status: Option<String>,
+    pod_id: Option<u8>,
+}
+
+/// GET /api/v1/maintenance/tasks — Query tasks (status, pod_id)
+async fn maintenance_list_tasks(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MaintenanceTaskQuery>,
+) -> impl IntoResponse {
+    let limit = 200u32;
+    match maintenance_store::query_tasks(&state.db, params.status.as_deref(), limit).await {
+        Ok(tasks) => {
+            // Optional pod_id filter (post-query)
+            let filtered: Vec<_> = if let Some(pid) = params.pod_id {
+                tasks.into_iter().filter(|t| t.pod_id == Some(pid)).collect()
+            } else {
+                tasks
+            };
+            Json(json!({ "ok": true, "tasks": filtered, "count": filtered.len() }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+#[derive(Deserialize)]
+struct TaskStatusUpdate {
+    status: crate::maintenance_models::TaskStatus,
+}
+
+/// PATCH /api/v1/maintenance/tasks/:id — Update task status
+async fn maintenance_update_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<TaskStatusUpdate>,
+) -> impl IntoResponse {
+    let task_id = match uuid::Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return Json(json!({ "ok": false, "error": "Invalid UUID" })),
+    };
+    match maintenance_store::update_task_status(&state.db, task_id, &body.status).await {
+        Ok(true) => Json(json!({ "ok": true })),
+        Ok(false) => Json(json!({ "ok": false, "error": "Task not found" })),
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+#[derive(Deserialize)]
+struct TelemetryQuery {
+    pod_id: Option<String>,
+    hours: Option<u32>,
+    limit: Option<u32>,
+}
+
+/// GET /api/v1/analytics/telemetry — Query hardware telemetry history
+async fn analytics_telemetry(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<TelemetryQuery>,
+) -> impl IntoResponse {
+    let pool = match &state.telemetry_db {
+        Some(p) => p,
+        None => return Json(json!({ "ok": false, "error": "Telemetry DB not initialized" })),
+    };
+    let hours = params.hours.unwrap_or(24);
+    let limit = params.limit.unwrap_or(500).min(2000);
+    let cutoff = (chrono::Utc::now() - chrono::Duration::hours(hours as i64)).to_rfc3339();
+
+    let query = if let Some(ref pid) = params.pod_id {
+        sqlx::query(
+            "SELECT pod_id, collected_at, gpu_temp_celsius, cpu_temp_celsius, gpu_power_watts,
+                    cpu_usage_pct, gpu_usage_pct, memory_usage_pct, disk_usage_pct,
+                    network_latency_ms, process_handle_count, disk_smart_health_pct
+             FROM hardware_telemetry
+             WHERE collected_at > ?1 AND pod_id = ?2
+             ORDER BY collected_at DESC
+             LIMIT ?3"
+        )
+        .bind(&cutoff)
+        .bind(pid)
+        .bind(limit as i64)
+    } else {
+        sqlx::query(
+            "SELECT pod_id, collected_at, gpu_temp_celsius, cpu_temp_celsius, gpu_power_watts,
+                    cpu_usage_pct, gpu_usage_pct, memory_usage_pct, disk_usage_pct,
+                    network_latency_ms, process_handle_count, disk_smart_health_pct
+             FROM hardware_telemetry
+             WHERE collected_at > ?1
+             ORDER BY collected_at DESC
+             LIMIT ?2"
+        )
+        .bind(&cutoff)
+        .bind(limit as i64)
+    };
+
+    match query.fetch_all(pool).await {
+        Ok(rows) => {
+            use sqlx::Row;
+            let data: Vec<Value> = rows.iter().map(|r| {
+                json!({
+                    "pod_id": r.get::<String, _>("pod_id"),
+                    "collected_at": r.get::<String, _>("collected_at"),
+                    "gpu_temp_celsius": r.get::<Option<f64>, _>("gpu_temp_celsius"),
+                    "cpu_temp_celsius": r.get::<Option<f64>, _>("cpu_temp_celsius"),
+                    "gpu_power_watts": r.get::<Option<f64>, _>("gpu_power_watts"),
+                    "cpu_usage_pct": r.get::<Option<f64>, _>("cpu_usage_pct"),
+                    "gpu_usage_pct": r.get::<Option<f64>, _>("gpu_usage_pct"),
+                    "memory_usage_pct": r.get::<Option<f64>, _>("memory_usage_pct"),
+                    "disk_usage_pct": r.get::<Option<f64>, _>("disk_usage_pct"),
+                    "network_latency_ms": r.get::<Option<i64>, _>("network_latency_ms"),
+                    "process_handle_count": r.get::<Option<i64>, _>("process_handle_count"),
+                    "disk_smart_health_pct": r.get::<Option<i64>, _>("disk_smart_health_pct"),
+                })
+            }).collect();
+            Json(json!({ "ok": true, "data": data, "count": data.len() }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
+}
+
+#[derive(Deserialize)]
+struct TrendQuery {
+    pod_id: String,
+    metric: String,
+    window_days: Option<u32>,
+}
+
+/// GET /api/v1/analytics/trends — Get metric trend for a pod
+async fn analytics_trends(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<TrendQuery>,
+) -> impl IntoResponse {
+    let pool = match &state.telemetry_db {
+        Some(p) => p,
+        None => return Json(json!({ "ok": false, "error": "Telemetry DB not initialized" })),
+    };
+    let window = params.window_days.unwrap_or(30);
+    match crate::telemetry_store::get_metric_trend(pool, &params.pod_id, &params.metric, window).await {
+        Ok(trend) => Json(json!({ "ok": true, "trend": trend })),
+        Err(e) => Json(json!({ "ok": false, "error": format!("{}", e) })),
+    }
 }
 
 /// RCA-PREVENTION: Static route uniqueness check.
@@ -10852,8 +11073,8 @@ async fn create_staff(
 async fn list_staff(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, bool, Option<String>)>(
-        "SELECT id, name, phone, pin, is_active, last_login_at FROM staff_members ORDER BY name",
+    let rows = sqlx::query_as::<_, (String, String, String, String, bool, Option<String>, Option<String>)>(
+        "SELECT id, name, phone, pin, is_active, last_login_at, role FROM staff_members ORDER BY name",
     )
     .fetch_all(&state.db)
     .await
@@ -10861,7 +11082,7 @@ async fn list_staff(
 
     let staff: Vec<Value> = rows
         .into_iter()
-        .map(|(id, name, phone, pin, active, last_login)| {
+        .map(|(id, name, phone, pin, active, last_login, role)| {
             json!({
                 "id": id,
                 "name": name,
@@ -10869,11 +11090,113 @@ async fn list_staff(
                 "pin": pin,
                 "is_active": active,
                 "last_login_at": last_login,
+                "role": role.unwrap_or_else(|| "staff".to_string()),
             })
         })
         .collect();
 
     Json(json!({ "staff": staff }))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateStaffRequest {
+    name: Option<String>,
+    phone: Option<String>,
+    pin: Option<String>,
+    role: Option<String>,
+    is_active: Option<bool>,
+}
+
+async fn update_staff(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateStaffRequest>,
+) -> Json<Value> {
+    // Verify staff exists
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM staff_members WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    if exists == 0 {
+        return Json(json!({ "error": "Staff member not found" }));
+    }
+
+    // Validate role if provided
+    if let Some(ref role) = req.role {
+        if !["staff", "cashier", "manager", "superadmin"].contains(&role.as_str()) {
+            return Json(json!({ "error": format!("Invalid role: {}. Must be one of: staff, cashier, manager, superadmin", role) }));
+        }
+    }
+
+    // Build dynamic UPDATE
+    let mut sets: Vec<String> = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(ref name) = req.name {
+        sets.push("name = ?".to_string());
+        binds.push(name.clone());
+    }
+    if let Some(ref phone) = req.phone {
+        sets.push("phone = ?".to_string());
+        binds.push(phone.clone());
+    }
+    if let Some(ref pin) = req.pin {
+        sets.push("pin = ?".to_string());
+        binds.push(pin.clone());
+    }
+    if let Some(ref role) = req.role {
+        sets.push("role = ?".to_string());
+        binds.push(role.clone());
+    }
+    if let Some(active) = req.is_active {
+        sets.push("is_active = ?".to_string());
+        binds.push(if active { "1".to_string() } else { "0".to_string() });
+    }
+
+    if sets.is_empty() {
+        return Json(json!({ "error": "No fields to update" }));
+    }
+
+    sets.push("updated_at = datetime('now')".to_string());
+    let sql = format!("UPDATE staff_members SET {} WHERE id = ?", sets.join(", "));
+
+    let mut query = sqlx::query(&sql);
+    for val in &binds {
+        query = query.bind(val);
+    }
+    // Bind is_active as integer separately if present
+    query = query.bind(&id);
+
+    match query.execute(&state.db).await {
+        Ok(_) => Json(json!({ "status": "ok", "id": id })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn delete_staff(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query(
+        "UPDATE staff_members SET is_active = 0, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                Json(json!({ "error": "Staff member not found" }))
+            } else {
+                Json(json!({ "status": "ok", "id": id }))
+            }
+        }
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
 }
 
 // ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────
@@ -20736,6 +21059,80 @@ async fn queue_leave_handler(
         Ok(r) if r.rows_affected() > 0 => Json(json!({ "ok": true })),
         Ok(_) => Json(json!({ "error": "Queue entry not found or already left/seated" })),
         Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// v29.0 Phase 34: GET /api/v1/pods/:id/availability
+/// Returns pod availability from the self-healing availability map (updated by anomaly scanner)
+/// with DB fallback for unresolved Critical maintenance events.
+/// Used by kiosk maintenance gate to prevent booking degraded/unavailable pods.
+async fn pod_availability_handler(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<i64>,
+) -> Json<Value> {
+    let pod_num = pod_id as u8;
+
+    // Check in-memory availability map (updated by anomaly scanner → self-healing)
+    {
+        let avail_map = state.pod_availability.read().await;
+        if let Some(avail) = avail_map.get(&pod_num) {
+            match avail {
+                crate::self_healing::PodAvailability::Degraded { reason } => {
+                    return Json(json!({
+                        "pod_id": pod_id,
+                        "state": "Degraded",
+                        "reason": reason,
+                        "hold_until": null
+                    }));
+                }
+                crate::self_healing::PodAvailability::Unavailable { reason } => {
+                    return Json(json!({
+                        "pod_id": pod_id,
+                        "state": "Unavailable",
+                        "reason": reason,
+                        "hold_until": null
+                    }));
+                }
+                crate::self_healing::PodAvailability::MaintenanceHold { until, reason } => {
+                    return Json(json!({
+                        "pod_id": pod_id,
+                        "state": "MaintenanceHold",
+                        "reason": reason,
+                        "hold_until": until
+                    }));
+                }
+                crate::self_healing::PodAvailability::Available => {
+                    // Fall through to DB check below
+                }
+            }
+        }
+    }
+
+    // DB fallback: check for unresolved Critical events in last hour
+    let critical_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM maintenance_events \
+         WHERE pod_id = ?1 AND severity = 'Critical' AND resolved_at IS NULL \
+         AND detected_at > datetime('now', '-1 hour')"
+    )
+    .bind(pod_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    if critical_count > 0 {
+        Json(json!({
+            "pod_id": pod_id,
+            "state": "Unavailable",
+            "reason": "Critical maintenance alert",
+            "hold_until": null
+        }))
+    } else {
+        Json(json!({
+            "pod_id": pod_id,
+            "state": "Available",
+            "reason": null,
+            "hold_until": null
+        }))
     }
 }
 
