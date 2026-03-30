@@ -1543,11 +1543,15 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
 
     let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
     let env_fp = knowledge_base::fingerprint_env(event.build_id);
-    let symptoms = openrouter::format_symptoms(
+    let base_symptoms = openrouter::format_symptoms(
         &format!("{:?}", event.trigger),
         &problem_key,
         &serde_json::to_string(&env_fp).unwrap_or_default(),
         &format!("build_id={}", event.build_id),
+    );
+    // MMA-First: enrich with trigger-specific context bundle
+    let symptoms = openrouter::enrich_with_context_bundle(
+        &base_symptoms, &event.trigger, &event.pod_state,
     );
 
     // Reuse a single client (T5 concern — avoid per-call client creation)
@@ -1565,6 +1569,8 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                 root_cause = %diag.root_cause, confidence = diag.confidence,
                 cost = response.cost_estimate, "Tier 3: Qwen3 diagnosis"
             );
+            // MMA-First: classify fix permanence based on model response
+            let permanence = if diag.permanent_fix.is_some() { "permanent" } else { "workaround" };
             if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
                 let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
                 let solution = knowledge_base::Solution {
@@ -1586,7 +1592,7 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
                     diagnosis_method: Some("scanner_enumeration".to_string()),
-                    fix_permanence: "workaround".to_string(),
+                    fix_permanence: permanence.to_string(),
                     recurrence_count: 0,
                     permanent_fix_id: None,
                     last_recurrence: None,
@@ -1621,11 +1627,15 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
 
     let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
     let env_fp = knowledge_base::fingerprint_env(event.build_id);
-    let symptoms = openrouter::format_symptoms(
+    let base_symptoms = openrouter::format_symptoms(
         &format!("{:?}", event.trigger),
         &problem_key,
         &serde_json::to_string(&env_fp).unwrap_or_default(),
         &format!("build_id={}", event.build_id),
+    );
+    // MMA-First: enrich with trigger-specific context bundle
+    let symptoms = openrouter::enrich_with_context_bundle(
+        &base_symptoms, &event.trigger, &event.pod_state,
     );
 
     tracing::info!(target: LOG_TARGET, tier = 4u8, "Tier 4: 5-model parallel (~$4)");
@@ -1645,29 +1655,54 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
                 root_cause = %consensus.root_cause, confidence = consensus.confidence,
                 cost = total_cost, "Tier 4: consensus found"
             );
+            // MMA-First: classify fix permanence and type from consensus
+            let permanence = if consensus.permanent_fix.is_some() { "permanent" } else { "workaround" };
+            let fix_type_class = consensus.fix_type_class.as_deref().unwrap_or("deterministic");
+
+            // MMA-First: route by fix_type_class
+            let requires_human = matches!(fix_type_class, "code_change" | "hardware");
+            if requires_human {
+                tracing::info!(
+                    target: LOG_TARGET, tier = 4u8,
+                    fix_type = fix_type_class,
+                    "MMA-First: fix requires human intervention — storing but NOT auto-applying"
+                );
+            }
+
             if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
                 let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+                // MMA-First: use stable hash for permanent fixes (survive deploys)
+                let store_hash = if permanence == "permanent" {
+                    knowledge_base::compute_stable_hash(&problem_key, &env_fp)
+                } else {
+                    problem_hash
+                };
                 let models_used: Vec<String> = responses.iter().map(|r| r.model_id.clone()).collect();
                 let solution = knowledge_base::Solution {
                     id: uuid::Uuid::new_v4().to_string(),
                     problem_key: problem_key.clone(),
-                    problem_hash,
+                    problem_hash: store_hash,
                     symptoms: symptoms.clone(),
                     environment: serde_json::to_string(&env_fp).unwrap_or_default(),
                     root_cause: consensus.root_cause.clone(),
-                    fix_action: consensus.fix_action.clone(),
-                    fix_type: "model_diagnosed".to_string(),
-                    success_count: 1, fail_count: 0,
+                    fix_action: if let Some(ref pf) = consensus.permanent_fix {
+                        pf.clone()
+                    } else {
+                        consensus.fix_action.clone()
+                    },
+                    fix_type: format!("model_diagnosed_{}", fix_type_class),
+                    success_count: if requires_human { 0 } else { 1 },
+                    fail_count: 0,
                     confidence: consensus.confidence,
                     cost_to_diagnose: total_cost,
                     models_used: serde_json::to_string(&models_used).ok(),
                     source_node: format!("pod_{}", event.build_id),
                     created_at: event.timestamp.clone(),
                     updated_at: event.timestamp.clone(),
-                    version: 1, ttl_days: 90,
-                    tags: Some(format!("[\"{}\"]", problem_key)),
+                    version: 1, ttl_days: if permanence == "permanent" { 365 } else { 90 },
+                    tags: Some(format!("[\"{}\",\"{}\"]", problem_key, fix_type_class)),
                     diagnosis_method: Some("consensus_5model".to_string()),
-                    fix_permanence: "workaround".to_string(),
+                    fix_permanence: permanence.to_string(),
                     recurrence_count: 0,
                     permanent_fix_id: None,
                     last_recurrence: None,
@@ -1677,7 +1712,11 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
             }
             return TierResult::Fixed {
                 tier: 4,
-                action: format!("5-model (${:.2}): {}", total_cost, consensus.root_cause),
+                action: format!(
+                    "5-model {} (${:.2}): {}{}",
+                    permanence, total_cost, consensus.root_cause,
+                    if requires_human { " [REQUIRES HUMAN]" } else { "" }
+                ),
             };
         }
     }
