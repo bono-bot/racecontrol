@@ -1,0 +1,36 @@
+/* Racing Point Design System Tokens — v1.0 */
+/* Single source of truth. Both web and kiosk globals.css import this. */
+/* Do NOT add font tokens here — fonts are app-specific. */
+
+:root {
+  /* Brand primary */
+  --rp-red:       #E10600;
+  --rp-red-hover: #FF1A1A;   /* canonical name — web previously used rp-red-light */
+
+  /* Neutral scale */
+  --rp-black:     #1A1A1A;
+  --rp-grey:      #5A5A5A;
+
+  /* Surface scale (lighter = more elevated) */
+  --rp-surface:   #2A2A2A;   /* modals, elevated panels */
+  --rp-card:      #222222;   /* card background */
+  --rp-border:    #333333;   /* dividers and outlines */
+
+  /* Semantic status palette */
+  --rp-green:     #16a34a;   /* available / success */
+  --rp-yellow:    #ca8a04;   /* warning / pending */
+  --rp-purple:    #a855f7;   /* special / featured */
+}
+
+@theme inline {
+  --color-rp-red:       var(--rp-red);
+  --color-rp-red-hover: var(--rp-red-hover);
+  --color-rp-black:     var(--rp-black);
+  --color-rp-grey:      var(--rp-grey);
+  --color-rp-surface:   var(--rp-surface);
+  --color-rp-card:      var(--rp-card);
+  --color-rp-border:    var(--rp-border);
+  --color-rp-green:     var(--rp-green);
+  --color-rp-yellow:    var(--rp-yellow);
+  --color-rp-purple:    var(--rp-purple);
+}
