@@ -74,7 +74,12 @@ Plans:
   3. Leaderboards page (WD-06) shows F1-style lap time table with PB and session-best highlights; `RecordBrokenEvent` from WS fires the achievement overlay; `curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display` returns 200 (auth boundary preserved â€” AuthGate does NOT wrap the leaderboard-display route)
   4. Sessions (WD-03), Billing (WD-04), Fleet Health (WD-05), Settings (WD-07), and all remaining pages (WD-08) render using the new AppShell with Lucide icons â€” `grep -rn "FF4400\|#ff4400\|rp-red-light" web/src/` returns zero hits
   5. All web pages verified from James's browser at `.23:3200` (not from the server itself) â€” WebSocket data flows, `NEXT_PUBLIC_WS_URL` does not resolve to localhost in the bundle; all Recharts chart components use `dynamic` import with `ssr: false`
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 264-01-PLAN.md — Dashboard home (MetricCard KPI row + F1 timing tower) + Pods page (F1 tower + detail drawer)
+- [ ] 264-02-PLAN.md — Sessions page (LiveDataTable) + Billing page (Toast + skeleton)
+- [ ] 264-03-PLAN.md — Fleet Health page (pod grid + 30s polling) + Leaderboards page (achievement overlay + WS reconnect)
+- [ ] 264-04-PLAN.md — Settings page (theme preview) + all remaining pages (Skeleton + EmptyState + colour purge)
 **UI hint**: yes
 
 ### Phase 265: Kiosk Pages
