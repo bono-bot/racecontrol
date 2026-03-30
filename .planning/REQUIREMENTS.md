@@ -6,11 +6,11 @@
 ## Design System (DS)
 - [x] **DS-01**: Shared design tokens CSS file with full color ramp (surfaces, semantics, status colors)
 - [ ] **DS-02**: JetBrains Mono integrated via next/font for numeric displays in both apps
-- [ ] **DS-03**: shadcn/ui initialized in web app with motorsport theme variables
-- [ ] **DS-04**: shadcn/ui initialized in kiosk app with touch-optimized theme
-- [ ] **DS-05**: Lucide React icons replace all emoji sidebar icons
+- [x] **DS-03**: shadcn/ui initialized in web app with motorsport theme variables
+- [x] **DS-04**: shadcn/ui initialized in kiosk app with touch-optimized theme
+- [x] **DS-05**: Lucide React icons replace all emoji sidebar icons
 - [ ] **DS-06**: motion@12 integrated for micro-interactions (pod transitions, leaderboard reorders)
-- [ ] **DS-07**: tw-animate-css integrated for shadcn component animations
+- [x] **DS-07**: tw-animate-css integrated for shadcn component animations
 
 ## Shared Components (SC)
 - [ ] **SC-01**: StatusBadge redesign with racing flag color system (ready/occupied/warning/offline/maintenance)
@@ -57,11 +57,11 @@
 |--------|-------|------|--------|
 | DS-01 | Phase 261 | 261-01 | Complete |
 | DS-02 | Phase 261 | TBD | Pending |
-| DS-03 | Phase 261 | TBD | Pending |
-| DS-04 | Phase 261 | TBD | Pending |
-| DS-05 | Phase 261 | TBD | Pending |
+| DS-03 | Phase 261 | 261-02 | Complete |
+| DS-04 | Phase 261 | 261-02 | Complete |
+| DS-05 | Phase 261 | 261-02 | Complete |
 | DS-06 | Phase 261 | TBD | Pending |
-| DS-07 | Phase 261 | TBD | Pending |
+| DS-07 | Phase 261 | 261-02 | Complete |
 | DQ-01 | Phase 262 | TBD | Pending |
 | DQ-02 | Phase 262 | TBD | Pending |
 | SC-01 | Phase 263 | TBD | Pending |
