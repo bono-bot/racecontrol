@@ -1,0 +1,42 @@
+Excellent research. This is a solid foundation for a complex system. As requested, here is my architectural review focusing on the specified areas.
+
+---
+
+## GAPS
+
+-   **OpenRouter Model Selection Criteria:** The research only considers cost per million tokens. It omits critical operational metrics:
+    -   **Latency (Time to First Token & Total Time):** For a survival system, slow responses can be fatal. A cheap model that takes 60 seconds to respond is less useful than a more expensive one that responds in 5.
+    -   **Rate Limits & Concurrency:** What are the limits per key? Can all 8 pods and the server query simultaneously without being throttled? This is a critical fleet-wide availability concern.
+    -   **Uptime/Reliability:** OpenRouter is a meta-provider. The reliability of the underlying model providers (e.g., Together, Anthropic, Google) varies. There is no mention of a fallback strategy if a chosen model is down.
+-   **API Key Lifecycle Management:** The plan mentions creating per-pod child keys, which is good for isolation. However, it omits the entire lifecycle:
+    -   **Provisioning:** How does a new or reimaged pod securely receive its initial OpenRouter API key?
+    -   **Rotation:** What is the process for rotating these keys? A compromised key needs a clear and rapid invalidation/re-provisioning path.
+    -   **Revocation:** How is a key for a decommissioned pod securely revoked?
+-   **Layer 3 to Layer 2/1 Communication:** The research specifies Layer 3 (Guardian) can SSH into the server to restart it. It does not specify how the Guardian communicates *state* or *commands* back to the fleet (e.g., "I am taking control," "Place all pods in a safe state"). The `GUARDIAN_ACTING` sentinel mentioned in P5 needs a defined communication channel, which is missing.
+-   **Windows Service File Permissions:** The `rc-watchdog` runs as SYSTEM. While it can read most files, writing `rollback-state.json` to arbitrary locations could fail due to permissions or virtualization (e.g., writing to `C:\Windows\System32` might be redirected to `SysWOW64`). The exact, fully-qualified path and its ACLs need to be defined and verified.
+-   **Budget Enforcement Mechanism:** The budget is stated as a goal ($10/day/pod), but the mechanism for *enforcing* it is not defined. The system needs a way to query current spend (via the OpenRouter API) and halt or degrade service *before* exceeding the budget. The "cost guard" in the MMA protocol is mentioned but not detailed.
+
+## RISKS
+
+-   **Leaked Production API Key:** The research document contains a production management key (`sk-or-v1-5e8e94ea...`). **This is a critical security breach.** That key must be considered compromised and should be revoked and rotated immediately. All future documentation must use placeholders.
+-   **Watchdog Thread Blocking:** Using `reqwest::blocking` inside the `rc-watchdog` service is a significant risk. If an OpenRouter API call hangs or is slow due to network issues, it will block the watchdog's main thread. This could prevent the watchdog from performing its primary function: monitoring the `rc-agent` process, potentially leading to a missed failure.
+-   **Permanent `HEAL_IN_PROGRESS` State:** The proposed sentinel for P1 is vulnerable. If a healing process crashes *after* setting the sentinel but *before* clearing it, the system may enter a state where no further healing can occur until manual intervention. The TTL helps, but a crash could happen before the TTL is even set.
+-   **Stale `MAINTENANCE_MODE` Lockout:** The finding in P2 that the watchdog must never write `MAINTENANCE_MODE` is a good safety rule, but it creates a new risk. If the process that sets `MAINTENANCE_MODE` (e.g., `rc-agent` during an update) crashes, the pod could be permanently locked in maintenance, unable to self-heal.
+-   **MMA Cost Overrun:** The "Unified MMA Protocol" with a "thinking variant" and a "fact-checker" role sounds like a multi-step LLM chain. This can easily double or triple the token count and cost for a single diagnostic cycle, putting the $10/day budget at extreme risk, especially during the expensive "training period."
+
+## CORRECTIONS
+
+-   **`goblin` Crate Version:** `goblin` 0.10 is from 2018. The current version is 0.8.x (as of late 2024). This suggests a typo or outdated dependency research. The latest `0.8.x` version should be used for the most up-to-date PE format support and security fixes.
+-   **`MAINTENANCE_MODE` Writer:** The statement "Watchdog must NEVER write MAINTENANCE_MODE" is too absolute. A better rule is: "The Layer 1 watchdog should not set `MAINTENANCE_MODE` *for its own diagnostic cycle*." However, it may need to be commanded by a higher layer (Layer 2 or 3) to set this mode to safely quiesce the pod for a fleet-level operation. The watchdog should be a *receiver* of this command, not an initiator.
+-   **Training Period Assumption:** The idea of switching from expensive to cheap models post-training assumes that the collected data will make the cheaper models "smart enough." This is a flawed assumption. The performance of a model is inherent. The collected data can be used to create better *prompts* or fine-tune a model, but it won't magically make a cheap model perform like a top-tier one. The correction is to define a formal *validation gate* with performance benchmarks that must be passed before switching to a cheaper model, rather than relying on a fixed 30-day period.
+
+## IMPROVEMENTS
+
+-   **Watchdog Async Execution:** Instead of `reqwest::blocking`, instantiate a small, dedicated async runtime within the watchdog's smart-survival thread. Use `tokio::runtime::Builder::new_current_thread()` to create a lightweight, single-threaded executor. This contains the async complexity, prevents blocking the main service thread, and allows the use of modern async patterns like `tokio::select!` for timeouts.
+-   **Robust Recovery Locking:** Replace the simple `HEAL_IN_PROGRESS` sentinel with a proper leasing mechanism arbitrated by the Layer 2 server.
+    1.  A component (L1, L2, or L3) wanting to heal a pod must request a "heal lease" from the server for a specific pod ID.
+    2.  The server grants the lease with a short TTL (e.g., 5 minutes).
+    3.  The healing component must periodically renew the lease while working.
+    4.  If the lease expires, the server considers the healer dead and can grant a lease to another component. This prevents the "stale lock" problem.
+-   **Binary Integrity with Code Signing:** SHA256 validation only protects against corruption. It does not protect against a malicious replacement where the binary and its hash are replaced together.
+    -   **Action:** Integrate `signtool.exe` (from the Windows SDK) into

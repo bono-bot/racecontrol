@@ -1,522 +1,545 @@
-# Architecture Patterns: Shared Component System — Racing Dashboard UI Redesign
+# Architecture Patterns: v31.0 Autonomous Survival System (3-Layer MI Independence)
 
-**Domain:** Racing venue management — dual Next.js apps (web dashboard + kiosk terminal)
+**Domain:** Self-healing fleet management — Rust/Axum monorepo with Windows pod agents
 **Researched:** 2026-03-30
-**Confidence:** HIGH — based on direct code inspection of both apps, globals.css, layout files, and all component files
+**Confidence:** HIGH — based on direct code inspection of all relevant source files
 
 ---
 
-## Current State Audit
+## Current Architecture Baseline
 
-### Web App (`web/`)
+The existing codebase already has significant MI infrastructure. v31.0 adds a survival layer
+on top of it, not a replacement. Key existing modules per crate:
 
-- **Serves at:** `:3200` (dashboard) and `:3201` (admin)
-- **Components (13):** AiChatPanel, AiDebugPanel, AuthGate, BillingStartModal, ChunkErrorRecovery,
-  CountdownTimer, DashboardLayout, GameLaunchModal, LiveLapFeed, PodCard, Sidebar, StatusBadge, TelemetryBar, TelemetryChart
-- **Layout pattern:** Three-column flex — `Sidebar` (w-56) + `main` (flex-1) + `AiChatPanel`
-- **Fonts loaded:** Montserrat only (weights 300–700)
-- **Token source:** `globals.css` via `@theme inline` block — 6 color tokens, 2 font tokens
-- **Auth:** `AuthGate` wrapper at root layout level
+### rc-agent (pod, :8090)
 
-### Kiosk App (`kiosk/`)
+Relevant existing modules:
+- `diagnostic_engine.rs` — anomaly detection, emits `DiagnosticEvent` via mpsc
+- `tier_engine.rs` — 5-tier decision tree, reads DiagnosticEvent, has circuit breaker + budget pre-check
+- `knowledge_base.rs` — local SQLite KB per pod
+- `openrouter.rs` — OpenRouter API client
+- `budget_tracker.rs` — per-node cost tracking
+- `mesh_gossip.rs` — gossip broadcast over existing WS
+- `self_heal.rs` — startup config/bat self-repair (boot-time only)
+- `self_monitor.rs` — self-health monitoring loop
+- `failure_monitor.rs` — failure state tracking
 
-- **Serves at:** `:3300` with `basePath: /kiosk`
-- **Components (24):** AssistanceAlert, CafeMenuPanel, DeployPanel, DriverRegistration, ErrorBoundary,
-  F1Speedometer, GameCatalogLoader, GameLaunchRequestBanner, GamePickerPanel, KioskHeader,
-  KioskPodCard, LiveLapTicker, LiveSessionPanel, LiveTelemetry, PinRedeemScreen, PodKioskView,
-  PricingDisplay, ScarcityBanner, SessionTimer, SetupWizard, SidePanel, StaffLoginScreen, Toast,
-  WalletTopup, WalletTopupPanel
-- **Layout pattern:** Full-screen, `overflow: hidden`, `user-select: none` — pure kiosk mode
-- **Fonts loaded:** Montserrat + Orbitron (`--font-display`) + JetBrains Mono (`--font-mono-jb`)
-- **Token source:** `globals.css` via `@theme inline` — 10 color tokens, 3 font tokens
-- **Auth:** `StaffLoginScreen` is a component-level gate, NOT at root layout
+### racecontrol (server, :8080)
 
-### Shared Infrastructure (Already Exists)
+Relevant existing modules:
+- `pod_monitor.rs` — heartbeat detector, pure detection, delegates repair to pod_healer
+- `pod_healer.rs` — graduated AI-driven recovery (kill zombies, WoL, AI escalation)
+- `fleet_kb.rs` — fleet-wide SQLite KB, gossip storage + promotion pipeline
+- `mesh_handler.rs` — processes incoming MeshSolution*/MeshExperiment*/MeshHeartbeat messages
+- `maintenance_engine.rs` — predictive maintenance signals
 
-- **`packages/shared-types/` (`@racingpoint/types`):** Core domain types — Pod, BillingSession, Driver,
-  PricingTier, GameState, FleetHealth, WS message shapes. Both apps already import from here.
-  Kiosk `lib/types.ts` re-exports and extends it. Web `lib/api.ts` imports directly.
-- **NO shared component package exists.** Every UI component is app-local.
+### rc-watchdog (Windows service, pods + james mode)
 
----
+- `service.rs` — Windows SYSTEM service, polls rc-agent liveness every 5s, restarts via Session 1
+- `james_monitor.rs` — James machine mode, monitors 9 services, graduated AI recovery via Ollama
+- `reporter.rs` — sends `WatchdogCrashReport` to server via HTTP POST `/pods/{id}/watchdog-crash`
 
-## Token Divergence — The Root Problem
+### rc-common (shared lib)
 
-Both `globals.css` files define the same tokens independently. They have already drifted:
-
-| Token | `web/globals.css` | `kiosk/globals.css` | Status |
-|-------|-------------------|---------------------|--------|
-| `--color-rp-red` | `#E10600` | `#E10600` | In sync |
-| `--color-rp-red-light` | `#FF1A1A` | missing | Web-only name |
-| `--color-rp-red-hover` | missing | `#FF1A1A` | Kiosk-only name |
-| `--color-rp-black` | `#1A1A1A` | `#1A1A1A` | In sync |
-| `--color-rp-grey` | `#5A5A5A` | `#5A5A5A` | In sync |
-| `--color-rp-card` | `#222222` | `#222222` | In sync |
-| `--color-rp-border` | `#333333` | `#333333` | In sync |
-| `--color-rp-surface` | MISSING | `#2A2A2A` | Kiosk-only |
-| `--color-rp-purple` | MISSING | `#a855f7` | Kiosk-only |
-| `--color-rp-green` | MISSING | `#16a34a` | Kiosk-only |
-| `--color-rp-yellow` | MISSING | `#ca8a04` | Kiosk-only |
-| `--font-display` | MISSING | `var(--font-display, 'Orbitron')` | Kiosk-only |
-| `--font-mono` | `var(--font-geist-mono)` | `var(--font-mono-jb, 'JetBrains Mono')` | Different fonts |
-
-The drift will get worse as the redesign adds new tokens. A shared token file must be created before any component work begins.
+- `mesh_types.rs` — `MeshSolution`, `SolutionStatus`, `FixType`, `DiagnosisTier`
+- `verification.rs` — `ColdVerificationChain`, `VerifyStep`
+- `recovery.rs` — `RecoveryAction`, `RecoveryAuthority`, `RecoveryDecision`, `RecoveryLogger`
+- `watchdog.rs` — `EscalatingBackoff`
+- `protocol.rs` — `AgentMessage`, `CoreToAgentMessage`, `DashboardEvent`
+- `types.rs` — `WatchdogCrashReport`, `PodInfo`, `PodStatus`
 
 ---
 
-## Recommended Architecture
+## v31.0 Architecture: 3-Layer Survival System
 
-### Strategy: Token-Shared, Component-Isolated
-
-Do NOT create a shared component package (`packages/shared-ui/`). The two apps have fundamentally incompatible interaction models:
-
-- **Web:** Mouse-driven, scrollable, data-dense, sidebar navigation, resizable windows
-- **Kiosk:** Touch-driven, full-screen, panel-based, no scroll, no text selection, fixed 1920x1080
-
-Attempting to share layout components across these models produces components with so many conditional props that they become harder to maintain than two separate implementations.
-
-The correct sharing boundary:
+### System Overview
 
 ```
-packages/shared-tokens/       NEW — CSS design token source of truth
-packages/shared-types/        EXISTING — TypeScript domain types (keep as-is)
-web/src/components/           Web-only UI (redesign in place)
-kiosk/src/components/         Kiosk-only UI (redesign in place)
-```
-
----
-
-## Component Hierarchy
-
-### Web App — Full Hierarchy
-
-```
-RootLayout (layout.tsx)
-  ChunkErrorRecovery          KEEP — error boundary for Next.js chunk failures
-  AuthGate                    KEEP — session validation wrapper (no visual change)
-    DashboardLayout            MODIFY — new chrome, same flex structure
-      Sidebar                  REDESIGN — nav hierarchy, brand refresh
-      <page slot>              per-page, not in scope here
-      AiChatPanel              KEEP — right rail panel, no structural change
-
-  Primitive components (zero dependencies):
-    StatusBadge               MODIFY — align token names to unified set
-    CountdownTimer            MODIFY — align colors, add variant/size prop
-
-  Data viz (standalone):
-    TelemetryBar              KEEP — data viz, token alignment only
-    TelemetryChart            KEEP — recharts wrapper, no structural change
-
-  Pod display:
-    PodCard                   REDESIGN — new card chrome, same data props
-    LiveLapFeed               MODIFY — token alignment
-
-  Modals:
-    BillingStartModal         REDESIGN — new modal chrome
-    GameLaunchModal           REDESIGN — new modal chrome
-    AiDebugPanel              KEEP — debug tool, not customer-facing
-```
-
-### Kiosk App — Full Hierarchy
-
-```
-RootLayout (layout.tsx)
-  ErrorBoundary               KEEP — root error containment
-  ToastProvider               KEEP — notification context (wraps children)
-    GameCatalogLoader         KEEP — background catalog prefetch
-
-  Per-page:
-    KioskHeader               REDESIGN — new brand chrome, same data shape
-    <page content>
-
-  Pod display grid:
-    KioskPodCard              REDESIGN — new card chrome, preserve 12-state machine
-    PodKioskView              REDESIGN — full-pod overlay view
-
-  Session setup pipeline (SetupWizard steps):
-    StaffLoginScreen          REDESIGN — new login chrome
-    PinRedeemScreen           REDESIGN — new PIN entry chrome
-    SetupWizard               REDESIGN — wizard chrome, steps unchanged
-      DriverRegistration      REDESIGN — step component
-      GamePickerPanel         REDESIGN — step component
-      PricingDisplay          REDESIGN — step component
-      WalletTopup             REDESIGN — step component
-
-  Live session display:
-    SidePanel                 REDESIGN — slide-out panel chrome
-    LiveSessionPanel          REDESIGN — active session container
-    SessionTimer              MODIFY — align token names
-    LiveLapTicker             MODIFY — token alignment
-    LiveTelemetry             MODIFY — token alignment
-    F1Speedometer             KEEP — specialized gauge widget
-    WalletTopupPanel          MODIFY — inline panel variant
-
-  Utility/staff tools:
-    CafeMenuPanel             KEEP NOW, redesign later
-    DeployPanel               KEEP — staff tool, not customer-facing
-    ScarcityBanner            MODIFY — marketing banner chrome
-    AssistanceAlert           MODIFY — alert chrome
-    GameLaunchRequestBanner   MODIFY — notification banner chrome
-    Toast                     REDESIGN — notification chrome
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LAYER 3: EXTERNAL GUARDIAN  (Bono VPS srv1422716.hstgr.cloud)          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  guardian_daemon (new standalone binary: rc-guardian)           │    │
+│  │  - WS subscriber to server /ws/guardian                         │    │
+│  │  - Polls server :8080/api/v1/health every 60s (outside LAN)     │    │
+│  │  - WhatsApp alert escalation (Evolution API)                     │    │
+│  │  - Cross-venue KB sync endpoint                                  │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │ HTTPS/WS (public internet)
+┌───────────────────────────────────▼─────────────────────────────────────┐
+│  LAYER 2: SERVER FLEET HEALER  (Server 192.168.31.23:8080)              │
+│  ┌────────────────────────────┐  ┌────────────────────────────────────┐ │
+│  │  pod_monitor.rs (existing) │  │  survival_coordinator.rs (NEW)     │ │
+│  │  - heartbeat detection     │  │  - Layer 1 report ingestion        │ │
+│  └────────────┬───────────────┘  │  - cross-pod pattern detection     │ │
+│               │ delegates        │  - server self-check loop          │ │
+│  ┌────────────▼───────────────┐  │  - guardian push channel           │ │
+│  │  pod_healer.rs (extended)  │  └────────────────────────────────────┘ │
+│  │  + MMA diagnosis path      │                                         │
+│  │  + Layer1Report ingestion  │  ┌────────────────────────────────────┐ │
+│  │  + survival_action API     │  │  fleet_kb.rs (existing, extended)  │ │
+│  └────────────────────────────┘  │  + survival_events table           │ │
+│                                  └────────────────────────────────────┘ │
+└──────────────────────┬──────────────────────────────────────────────────┘
+                       │ WS + HTTP (LAN)
+┌──────────────────────▼──────────────────────────────────────────────────┐
+│  LAYER 1: SMART WATCHDOG  (each pod: Windows SYSTEM service)            │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  rc-watchdog/src/service.rs (extended — NOT a new binary)        │    │
+│  │                                                                  │    │
+│  │  ┌──────────────────────┐   ┌─────────────────────────────────┐ │    │
+│  │  │  existing: liveness  │   │  NEW: smart_watchdog.rs module  │ │    │
+│  │  │  poll + Session 1    │   │  - binary validation (SHA256)   │ │    │
+│  │  │  restart             │   │  - OpenRouter MMA diagnosis     │ │    │
+│  │  └──────────────────────┘   │  - HTTP crash report to server  │ │    │
+│  │                             │  - survival_state.rs            │ │    │
+│  │                             └─────────────────────────────────┘ │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Design Token Flow
+## New vs Modified: Explicit Breakdown
 
-### New File: `packages/shared-tokens/tokens.css`
+### New Modules
 
-This is a plain CSS file — no build step, no package exports. Both apps reference it via relative path in `@import`.
+| Module | Crate | Type | Purpose |
+|--------|-------|------|---------|
+| `crates/rc-watchdog/src/smart_watchdog.rs` | rc-watchdog | NEW module | OpenRouter client, binary validation, MMA diagnosis inside watchdog |
+| `crates/rc-watchdog/src/survival_state.rs` | rc-watchdog | NEW module | Persistent state across watchdog cycles (crash count, last_diagnosis, budget spent) |
+| `crates/racecontrol/src/survival_coordinator.rs` | racecontrol | NEW module | Layer 1 report ingestion, cross-pod pattern detection, server self-check loop, guardian push channel |
+| `crates/racecontrol/src/api/survival.rs` | racecontrol | NEW module | HTTP endpoints for Layer 1 reports + guardian health queries |
+| `crates/rc-common/src/survival_types.rs` | rc-common | NEW module | Shared types: `Layer1Report`, `SurvivalAction`, `GuardianEvent`, `SurvivalState` |
+| `crates/rc-guardian/` | NEW CRATE | New standalone binary | External guardian daemon (Bono VPS) — separate deploy target |
 
-```css
-/* Racing Point Design System Tokens — v1.0 */
-/* Single source of truth. Both web and kiosk globals.css import this. */
+### Modified Modules
 
-:root {
-  /* Brand */
-  --rp-red:       #E10600;
-  --rp-red-hover: #FF1A1A;    /* canonical name — replaces web's rp-red-light */
-  --rp-black:     #1A1A1A;
-  --rp-grey:      #5A5A5A;
+| Module | Crate | What Changes |
+|--------|-------|-------------|
+| `crates/rc-watchdog/src/service.rs` | rc-watchdog | Add `smart_watchdog::SmartWatchdogContext` field; after restart, call `smart_watchdog::run_diagnosis()` if crash count >= 2 |
+| `crates/rc-watchdog/src/james_monitor.rs` | rc-watchdog | Add `survival_state` persistence; extend Ollama diagnosis to use `smart_watchdog::diagnose_with_openrouter()` as fallback when Ollama fails |
+| `crates/racecontrol/src/pod_healer.rs` | racecontrol | Ingest `Layer1Report` from survival_coordinator; Layer 1 diagnosis feeds Tier 2 KB lookup before healer runs its own AI path |
+| `crates/racecontrol/src/fleet_kb.rs` | racecontrol | Add `survival_events` table; add `record_survival_event()` and `query_survival_pattern()` functions |
+| `crates/rc-common/src/types.rs` | rc-common | Extend `WatchdogCrashReport` with `diagnosis_summary: Option<String>` and `mma_cost: Option<f64>` |
+| `crates/rc-common/src/lib.rs` | rc-common | Export `survival_types` module |
+| `crates/Cargo.toml` (workspace) | workspace | Add `crates/rc-guardian` to members |
 
-  /* Surface scale (light → dark) */
-  --rp-surface:   #2A2A2A;    /* modals, elevated panels */
-  --rp-card:      #222222;    /* card background */
-  --rp-border:    #333333;    /* dividers */
+---
 
-  /* Semantic palette */
-  --rp-green:     #16a34a;
-  --rp-yellow:    #ca8a04;
-  --rp-purple:    #a855f7;
-}
+## Component Boundaries
 
-@theme inline {
-  --color-rp-red:       var(--rp-red);
-  --color-rp-red-hover: var(--rp-red-hover);
-  --color-rp-black:     var(--rp-black);
-  --color-rp-grey:      var(--rp-grey);
-  --color-rp-surface:   var(--rp-surface);
-  --color-rp-card:      var(--rp-card);
-  --color-rp-border:    var(--rp-border);
-  --color-rp-green:     var(--rp-green);
-  --color-rp-yellow:    var(--rp-yellow);
-  --color-rp-purple:    var(--rp-purple);
+### Layer 1: Smart Watchdog (rc-watchdog, pod-side)
+
+**Location:** `crates/rc-watchdog/src/smart_watchdog.rs` — new module within existing crate.
+
+**Why not a new crate:** rc-watchdog is already the Windows service binary on pods. Adding a new crate would require a new binary deployed to all 8 pods. The smart watchdog logic belongs in the same process that already owns restart authority. Adding a module costs zero deploy complexity.
+
+**What it owns:**
+- Binary validation: SHA256 check of `rc-agent.exe` against manifest before restart
+- Crash count tracking: persisted to `C:\RacingPoint\watchdog-survival.json` (survives watchdog restart)
+- MMA diagnosis trigger: after crash_count >= 2 in a 10-minute window, call OpenRouter
+- HTTP report to server: POST to `/api/v1/survival/layer1-report` (non-blocking, fire-and-forget)
+
+**What it does NOT own:**
+- Fleet-level decisions (belongs to Layer 2)
+- Solution storage in fleet KB (belongs to Layer 2)
+- External alerting (belongs to Layer 3)
+
+**Interaction with existing code:**
+
+```rust
+// service.rs modification — pseudocode, not full implementation
+// After restart loop detects crash:
+if self.smart_ctx.crash_count_in_window() >= 2 {
+    let report = self.smart_ctx.run_diagnosis(&agent_log_tail).await;
+    // fire-and-forget — watchdog cannot block the restart loop
+    tokio::spawn(async move { report_to_server(report).await; });
 }
 ```
 
-### Per-App `globals.css` After Import
+### Layer 2: Server Fleet Healer (racecontrol, server-side)
 
-```css
-/* web/src/app/globals.css */
-@import "tailwindcss";
-@import "../../../packages/shared-tokens/tokens.css";
+**Location:** `crates/racecontrol/src/survival_coordinator.rs` — new module within existing crate.
 
-@theme inline {
-  /* Web additions — not in shared tokens */
-  --font-sans: 'Montserrat', sans-serif;
-  --font-mono: var(--font-geist-mono);
-}
+**Why not a new crate:** racecontrol already owns pod_monitor + pod_healer. The survival coordinator reads from the same AppState channels and writes to the same fleet_kb. Splitting would require IPC. No benefit for a single-server deployment.
 
-body {
-  background: var(--rp-black);
-  color: #FFFFFF;
-  font-family: 'Montserrat', sans-serif;
-}
-/* web-specific scrollbar, animation classes */
+**What it owns:**
+- Layer 1 report ingestion: receives `Layer1Report` from pods via POST `/api/v1/survival/layer1-report`
+- Cross-pod pattern detection: "3 pods same crash within 5 minutes = systemic, alert guardian"
+- Server self-check loop: every 60s, verify own DB connectivity + WS broker health + guardian reachability
+- Guardian push channel: mpsc sender feeding `guardian_event_tx` for Layer 3 notifications
+
+**Interaction with existing pod_healer.rs:**
+
+Layer 1 reports feed into pod_healer's existing graduated recovery tracker. The healer already has a Tier 2 KB lookup path. Layer 1 diagnosis results are injected as synthetic `DiagnosticEvent` entries, allowing the healer's existing tier logic to consume them without architectural changes.
+
+```rust
+// survival_coordinator.rs feeds pod_healer via AppState channel
+// AppState gets new field: layer1_report_tx: mpsc::Sender<Layer1Report>
+// pod_healer spawns a receiver task that converts Layer1Report → DiagnosticEvent
 ```
 
-```css
-/* kiosk/src/app/globals.css */
-@import "tailwindcss";
-@import "../../../packages/shared-tokens/tokens.css";
+**Interaction with existing fleet_kb.rs:**
 
-@theme inline {
-  /* Kiosk additions — three font families */
-  --font-sans:    'Montserrat', sans-serif;
-  --font-display: var(--font-display, 'Orbitron', sans-serif);
-  --font-mono:    var(--font-mono-jb, 'JetBrains Mono', monospace);
-}
+New `survival_events` table appended to fleet_kb migration. Existing tables untouched. Pattern detection queries over `survival_events` to find cross-pod correlation.
 
-body {
-  background: var(--rp-black);
-  color: #FFFFFF;
-  overflow: hidden;       /* kiosk-specific: no scroll */
-  user-select: none;      /* kiosk-specific: no text selection */
-}
-/* kiosk-specific animations: pulse-dot, red-glow, slideUp */
-```
+### Layer 3: External Guardian (rc-guardian, Bono VPS)
 
-### Token Flow Diagram
+**Location:** `crates/rc-guardian/` — NEW crate, new binary, deployed to Bono VPS.
 
-```
-packages/shared-tokens/tokens.css
-         |
-         ├── web/src/app/globals.css
-         │         └── Tailwind v4 generates:
-         │             bg-rp-red, bg-rp-card, text-rp-grey, border-rp-border ...
-         │             bg-rp-surface (newly available in web)
-         │
-         └── kiosk/src/app/globals.css
-                   └── Tailwind v4 generates:
-                       bg-rp-red, bg-rp-card, text-rp-grey, border-rp-border ...
-                       (identical utility classes for shared tokens)
-```
+**Why a new crate:** This runs on a different machine (Bono VPS, Linux), has different dependencies (no Windows APIs, no rc-watchdog service code), and is a separate deploy target. It cannot be a module of rc-watchdog or racecontrol. A new crate is the correct boundary.
 
-Both apps generate identical Tailwind utilities for all shared tokens. App-specific font tokens (`--font-display` in kiosk only) do not appear in web's generated CSS.
+**What it owns:**
+- WS connection to server `/ws/guardian` — receives `GuardianEvent` stream
+- External health polling: GET `https://racingpoint.cloud/api/v1/health` every 60s (internet path)
+- WhatsApp escalation: POST to Evolution API on Bono VPS when events require human response
+- Cross-venue KB sync endpoint: future (Phase 2+)
+
+**Deploy target:** pm2 on Bono VPS, same pattern as existing `racecontrol` pm2 service.
+
+### Unified MMA Protocol Placement
+
+**Lives in:** `crates/rc-watchdog/src/smart_watchdog.rs` (pod-side, Layer 1) and
+`crates/racecontrol/src/survival_coordinator.rs` (server-side, Layer 2).
+
+**Shared types in:** `crates/rc-common/src/survival_types.rs`
+
+The existing `openrouter.rs` in rc-agent already has a working OpenRouter client. rc-watchdog currently uses Ollama via james_monitor.rs. The smart watchdog needs an OpenRouter client too, but importing rc-agent from rc-watchdog creates a circular dependency (rc-watchdog already imports rc-common, not rc-agent).
+
+**Resolution:** Extract the OpenRouter client logic into `rc-common` as `crates/rc-common/src/openrouter.rs`. Both rc-agent's existing `openrouter.rs` and the new `smart_watchdog.rs` will use this shared implementation. The rc-agent module becomes a thin wrapper.
 
 ---
 
-## Shared vs App-Specific Boundaries
-
-### Shared — `packages/shared-types/` (existing, keep as-is)
-
-All domain types derived from Rust structs: `Pod`, `BillingSession`, `Driver`, `PricingTier`,
-`GameState`, `BillingSessionStatus`, `PodFleetStatus`, `FleetHealthResponse`, WS message shapes.
-
-**Rule:** If the data comes from the Rust backend, it belongs in `@racingpoint/types`.
-
-### Shared — `packages/shared-tokens/` (new)
-
-All brand color tokens. No component logic, no TypeScript.
-
-**Rule:** If it's a CSS custom property that must be identical in both apps, it belongs here.
-
-### App-specific: Web only
-
-| Component | Reason for web-only |
-|-----------|---------------------|
-| `Sidebar` | Web navigation paradigm — does not exist in kiosk |
-| `DashboardLayout` | Web chrome (sidebar + main + panel) |
-| `AuthGate` | Web auth wrapper — kiosk uses component-level auth |
-| `AiChatPanel`, `AiDebugPanel` | Staff debug tools with mouse hover interactions |
-| `BillingStartModal`, `GameLaunchModal` | Mouse-driven modal dialogs |
-| `TelemetryChart` | Recharts dependency (not in kiosk package.json) |
-| `ChunkErrorRecovery` | Web SPA chunk failure recovery |
-
-### App-specific: Kiosk only
-
-| Component | Reason for kiosk-only |
-|-----------|----------------------|
-| `KioskHeader` | Touch-optimized top bar with IST clock, pod counts |
-| `SetupWizard` + steps | Multi-step kiosk session flow |
-| `StaffLoginScreen`, `PinRedeemScreen` | Kiosk auth flows (no browser auth) |
-| `SidePanel` | Slide-out panel for touch screens |
-| `F1Speedometer` | Specialized real-time telemetry gauge |
-| `Toast` / `ToastProvider` | Kiosk notification system |
-| `GameCatalogLoader` | Background AC catalog prefetch |
-| `ScarcityBanner`, `AssistanceAlert`, `GameLaunchRequestBanner` | Kiosk-specific UX patterns |
-
-### Conceptually Overlapping — Keep Separate
-
-These components exist in both apps solving the same conceptual problem but with different constraints. Keep them separate. Align via shared types and tokens, not shared code.
-
-| Concept | Web component | Kiosk component | Why separate |
-|---------|--------------|----------------|--------------|
-| Pod status card | `PodCard` | `KioskPodCard` | Web: dense data, hover states. Kiosk: large touch target, 12-state machine, glow animation |
-| Session countdown | `CountdownTimer` | `SessionTimer` | Web: compact bar with 3-state color. Kiosk: pause-state aware, local interpolation between WS ticks |
-| Status indicator | `StatusBadge` | Inline in `KioskPodCard` | Web: pill badge. Kiosk: colored dot with glow |
-| Live lap stream | `LiveLapFeed` | `LiveLapTicker` | Web: scrollable table. Kiosk: animated ticker |
-
-**Alignment rule across both:** Status string values must be identical (they come from `@racingpoint/types`). Color semantics must match: red = active/in_session, green = idle/available, grey = offline. Timer format must match: `MM:SS`. These behavioral alignments are enforced by shared types, not shared components.
-
----
-
-## Data Flow
+## Data Flow: Diagnosis Event (Watchdog to Server to Guardian)
 
 ```
-Rust Backend (:8080)
-    |
-    ├── REST API: /api/v1/...
-    │       ├── web/src/lib/api.ts    ← typed fetch wrappers
-    │       └── kiosk/src/lib/api.ts  ← typed fetch wrappers
+[rc-agent crash detected by rc-watchdog service.rs]
     │
-    └── WebSocket: /ws
-            ├── web: socket.io-client (dep in web/package.json)
-            │         → page-level hooks → component props
-            └── kiosk: native WebSocket (no socket.io dep)
-                      → React state → component props
-
-@racingpoint/types (packages/shared-types/)
-    └── Both apps import domain types
-        (Pod, BillingSession, Driver, GameState, WS message shapes)
-
-packages/shared-tokens/tokens.css  [NEW]
-    └── Both globals.css import this
-        Tailwind v4 generates identical utility classes in both builds
+    ▼
+[smart_watchdog.rs: increment crash_count in survival_state.rs]
+    │
+    ├── crash_count < 2: standard restart (existing path), no diagnosis
+    │
+    ▼ crash_count >= 2 within 10-min window
+[smart_watchdog.rs: collect_symptoms()]
+    │  - tail last 200 lines of C:\RacingPoint\rc-agent-*.log
+    │  - read survival_state.json for crash history
+    │  - capture process exit code from Windows event log
+    │
+    ▼
+[smart_watchdog.rs: try_ollama_diagnosis()]
+    │  - POST http://192.168.31.27:11434 (James local Ollama)
+    │  - timeout: 8s (watchdog cannot block restart loop)
+    │  - if timeout/fail: fall through to OpenRouter
+    │
+    ▼ (on Ollama timeout or failure)
+[smart_watchdog.rs: diagnose_with_openrouter()]
+    │  - Tier 3: Qwen3 only (Scanner) — cheapest, <$0.05
+    │  - Tier 4: all 4 models in parallel — only if Tier 3 inconclusive
+    │  - budget check against survival_state.daily_watchdog_spend
+    │
+    ▼
+[smart_watchdog.rs: build Layer1Report]
+    │  struct Layer1Report {
+    │      pod_id, crash_count, symptoms, diagnosis_summary,
+    │      mma_cost, fix_suggestion, fix_type, timestamp
+    │  }
+    │
+    ▼ (fire-and-forget tokio::spawn — MUST NOT block restart)
+[reporter.rs: POST http://192.168.31.23:8080/api/v1/survival/layer1-report]
+    │  - 5s timeout
+    │  - on failure: write to C:\RacingPoint\watchdog-offline-reports.jsonl
+    │                (server picks up when back online via poll at reconnect)
+    │
+    ▼
+[racecontrol/api/survival.rs: POST handler]
+    │  - validate Layer1Report struct
+    │  - write to fleet_kb.survival_events
+    │  - send to survival_coordinator via mpsc
+    │
+    ▼
+[survival_coordinator.rs: ingest_layer1_report()]
+    │  - check cross-pod correlation: query survival_events WHERE
+    │    problem_key = $key AND created_at > (now - 5min) GROUP BY pod_id HAVING count >= 3
+    │
+    ├── no correlation: inject as DiagnosticEvent into pod_healer channel
+    │       pod_healer proceeds with existing Tier 2 KB lookup → Tier 3/4 if needed
+    │
+    ▼ systemic pattern detected (3+ pods, same issue, 5-min window)
+[survival_coordinator.rs: escalate_to_guardian()]
+    │  - build GuardianEvent { severity: Critical, pattern: Systemic, ... }
+    │  - send via guardian_event_tx mpsc channel
+    │
+    ▼
+[rc-guardian: receive GuardianEvent via /ws/guardian]
+    │  - classify severity: Info / Warning / Critical / Emergency
+    │
+    ├── Info/Warning: log only, no alert
+    ├── Critical: WhatsApp alert to Uday + Bono
+    ▼ Emergency (server unreachable from external + 3+ pods down)
+[rc-guardian: escalate()]
+    │  - WhatsApp: immediate alert to Uday
+    │  - Attempt comms-link WS message to James
+    │  - Record in guardian incident log on Bono VPS
 ```
 
-### WebSocket Asymmetry — Keep It
+### Offline Report Recovery
 
-Web uses `socket.io-client`. Kiosk uses native WebSocket. This is intentional — kiosk needs minimal bundle size. Do not unify to one WS library during this redesign.
+When the watchdog cannot reach the server (server down, LAN issue):
 
----
-
-## Build Order for Maximum Reuse
-
-### Phase 0 — Token Foundation (prerequisite for all phases, do first)
-
-No component work. Pure CSS and naming cleanup.
-
-1. Create `packages/shared-tokens/tokens.css` with unified token set (all 10 color tokens)
-2. Update `web/src/app/globals.css`: add `@import` of shared tokens, remove inline duplicate token definitions, rename `rp-red-light` → `rp-red-hover` throughout web codebase
-3. Update `kiosk/src/app/globals.css`: add `@import` of shared tokens, remove inline duplicate token definitions, keep kiosk-specific font tokens and animations
-4. Verify both apps build cleanly: `cd web && npm run build` and `cd kiosk && npm run build`
-5. Verify Tailwind generates `bg-rp-surface` in web (was missing), `bg-rp-red-hover` replaces `bg-rp-red-light`
-
-**Output:** Unified token namespace. Zero component changes. Zero runtime risk.
-
-### Phase 1 — Web Primitive Redesign (web-only, no kiosk dependency)
-
-Build primitives before composites. Order within web:
-
-1. `StatusBadge` — pure render, zero deps. Redesign badge chrome. Rename `rp-red-light` uses inside.
-2. `CountdownTimer` — pure render, zero deps. Redesign with new token names.
-3. `TelemetryBar`, `TelemetryChart` — token alignment only, no structural change.
-4. `Sidebar` — redesign chrome. Depends on: Next.js `Link` and `usePathname` only.
-5. `DashboardLayout` — redesign shell. Depends on: `Sidebar` (must come after step 4).
-6. `PodCard` — redesign card chrome. Depends on: `StatusBadge`, `CountdownTimer` (must come after steps 1 and 2).
-7. `LiveLapFeed` — token alignment. Depends on: `StatusBadge`.
-8. `BillingStartModal`, `GameLaunchModal` — new modal chrome. Depends on: `StatusBadge`.
-
-### Phase 2 — Kiosk Primitive Redesign (kiosk-only, no web dependency)
-
-Build primitives before composites. Order within kiosk:
-
-1. `Toast` / `ToastProvider` — context provider. Everything else can toast. Zero component deps.
-2. `SessionTimer` — pure render, zero deps. Align token names.
-3. `KioskHeader` — depends on: `usePathname`, pod data only (no component deps).
-4. `KioskPodCard` — redesign card chrome. Depends on: `SessionTimer` (step 2 first).
-5. `PodKioskView` — redesign overlay. Depends on: `KioskPodCard`, `SessionTimer`.
-6. `SidePanel` — slide-out shell. Depends on: `Toast`.
-7. SetupWizard pipeline (in wizard flow order): `StaffLoginScreen` → `PinRedeemScreen` → `SetupWizard` → step components (`DriverRegistration`, `GamePickerPanel`, `PricingDisplay`, `WalletTopup`). Each step is independent of other steps.
-8. Live session stack: `LiveSessionPanel` → `LiveLapTicker` → `LiveTelemetry`.
-9. Staff tools: `CafeMenuPanel`, `DeployPanel` — defer to last.
-
-### Phase 3 — Cross-App Consistency Audit (after both phases complete)
-
-1. Verify status color semantics match across both apps (same status string → same semantic color meaning)
-2. Verify timer format strings match (both use `MM:SS`)
-3. Verify driving state display labels match ("Driving", "Paused", "No Device")
-4. Verify Tailwind class names for shared tokens resolve identically in both builds
-5. Run `grep -r "rp-red-light" web/ kiosk/` — must return zero results (old name fully removed)
+```
+[Layer1Report fails to POST]
+    │
+    ▼
+[smart_watchdog.rs: write to C:\RacingPoint\watchdog-offline-reports.jsonl]
+    │  (append-only, one JSON object per line)
+    │
+    ▼ on next successful server connection (ws_handler.rs or reporter.rs)
+[service.rs: flush_offline_reports()]
+    │  - read watchdog-offline-reports.jsonl
+    │  - POST each to /api/v1/survival/layer1-report
+    │  - on success: clear the file
+```
 
 ---
 
-## Integration Points
+## New API Endpoints
 
-### 1. Breaking: Token Rename `rp-red-light` → `rp-red-hover`
+All endpoints added to `crates/racecontrol/src/api/survival.rs`, registered in `routes.rs`.
 
-Web currently uses `rp-red-light` in component class strings. Kiosk already uses `rp-red-hover` for the same value. The unified token picks `rp-red-hover` (more semantic).
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/v1/survival/layer1-report` | service key | Receive Layer 1 crash report from watchdog |
+| GET | `/api/v1/survival/status` | staff JWT | Current survival state for all pods + server |
+| GET | `/api/v1/survival/events` | staff JWT | Paginated survival event log |
+| WS | `/ws/guardian` | guardian token | Guardian daemon event stream |
 
-**Action required before Phase 1:** `grep -rn "rp-red-light" web/src/` and update every hit.
-Components affected: likely `PodCard.tsx`, `StatusBadge.tsx`, and any page-level class strings.
-
-### 2. `rp-surface` Now Available in Web
-
-Web was missing `--color-rp-surface: #2A2A2A`. After Phase 0, web can use `bg-rp-surface` for modal backgrounds and elevated panels. Redesigned modals (`BillingStartModal`, `GameLaunchModal`) should use `bg-rp-surface` instead of `bg-rp-card` to create visual hierarchy.
-
-### 3. Font Variable Asymmetry — Keep Asymmetric
-
-Web uses `--font-mono: var(--font-geist-mono)`. Kiosk uses `--font-mono: var(--font-mono-jb)`. These are different fonts. The shared token file does NOT define `--font-mono` — each app defines it in its own `@theme inline` block after the import. This is correct: fonts are app-specific concerns.
-
-### 4. Tailwind v4 `@import` Order
-
-The `@import "tailwindcss"` directive must come before `@import "../../../packages/shared-tokens/tokens.css"`. Tailwind v4 processes `@theme inline` blocks in order — the shared tokens file uses `@theme inline` so it must come after the `tailwindcss` import. Verify the PostCSS chain resolves the relative path correctly from each app's directory.
-
-If relative path resolution fails: add a TypeScript `paths` alias or use a symlink. Do NOT copy the token file into both apps.
-
-### 5. Kiosk `overflow: hidden` Constraint
-
-Kiosk body is `overflow: hidden; user-select: none`. Any component designed for or compared to the web app must account for this. Do not use `overflow-auto`, `overflow-y-scroll`, or `overflow-x-scroll` at the panel level in kiosk. Use paginated views, carousels, or expandable sections for content that exceeds the viewport.
-
-### 6. Kiosk `basePath: /kiosk`
-
-All kiosk internal links are prefixed with `/kiosk` automatically by Next.js when `basePath` is set. Component code must never hardcode `/kiosk/...` paths — use root-relative paths and let basePath handle the prefix. This applies especially to `Link` hrefs and any `router.push()` calls in redesigned components.
-
-### 7. Font Loading in Kiosk Layout
-
-Kiosk loads three font families: Montserrat, Orbitron, JetBrains Mono. These are loaded in `layout.tsx` via `next/font/google` and injected as CSS variables (`--font-montserrat`, `--font-display`, `--font-mono-jb`). Any redesigned kiosk component using `font-display` class (Orbitron) or `font-mono` class (JetBrains Mono) depends on these being loaded at root layout. Do not move font loading out of `kiosk/src/app/layout.tsx`.
+**Auth note:** `/api/v1/survival/layer1-report` uses `X-Service-Key` (same as other pod-to-server endpoints). The guardian WS uses a dedicated `GUARDIAN_TOKEN` env var on Bono VPS — separate from the pod service key, so a compromised pod cannot impersonate the guardian.
 
 ---
 
-## New vs Modified Summary
+## Recommended Project Structure Changes
 
-| Component | App | Action | Notes |
-|-----------|-----|--------|-------|
-| `packages/shared-tokens/tokens.css` | shared | NEW | Phase 0 prerequisite |
-| `web/globals.css` | web | MODIFY | Import shared tokens, remove duplicates |
-| `kiosk/globals.css` | kiosk | MODIFY | Import shared tokens, remove duplicates |
-| `StatusBadge` | web | MODIFY | Token name update + design refresh |
-| `CountdownTimer` | web | MODIFY | Token name update + design refresh |
-| `Sidebar` | web | REDESIGN | New nav chrome |
-| `DashboardLayout` | web | MODIFY | New shell chrome |
-| `PodCard` | web | REDESIGN | New card chrome, same data props |
-| `LiveLapFeed` | web | MODIFY | Token alignment |
-| `BillingStartModal` | web | REDESIGN | New modal chrome |
-| `GameLaunchModal` | web | REDESIGN | New modal chrome |
-| `TelemetryBar`, `TelemetryChart` | web | KEEP | Token alignment only |
-| `AuthGate`, `ChunkErrorRecovery` | web | KEEP | No change |
-| `AiChatPanel`, `AiDebugPanel` | web | KEEP | No redesign needed |
-| `Toast` / `ToastProvider` | kiosk | REDESIGN | New notification chrome |
-| `SessionTimer` | kiosk | MODIFY | Token alignment |
-| `KioskHeader` | kiosk | REDESIGN | New brand chrome |
-| `KioskPodCard` | kiosk | REDESIGN | New card chrome, preserve state machine |
-| `PodKioskView` | kiosk | REDESIGN | New overlay chrome |
-| `SidePanel` | kiosk | REDESIGN | New slide-out chrome |
-| `LiveSessionPanel` | kiosk | REDESIGN | New container chrome |
-| `StaffLoginScreen`, `PinRedeemScreen` | kiosk | REDESIGN | New auth chrome |
-| `SetupWizard` + step components | kiosk | REDESIGN | Wizard chrome, steps preserved |
-| `LiveLapTicker`, `LiveTelemetry` | kiosk | MODIFY | Token alignment |
-| `F1Speedometer` | kiosk | KEEP | Specialized widget |
-| `CafeMenuPanel`, `DeployPanel` | kiosk | KEEP NOW | Redesign in later milestone |
-| `GameCatalogLoader` | kiosk | KEEP | Background loader, no visual |
-| `ErrorBoundary` | kiosk | KEEP | Error boundary, no visual |
-| `ScarcityBanner`, `AssistanceAlert`, `GameLaunchRequestBanner` | kiosk | MODIFY | Banner/alert chrome |
+```
+crates/
+├── rc-common/src/
+│   ├── survival_types.rs    # NEW — Layer1Report, SurvivalAction, GuardianEvent, SurvivalState
+│   ├── openrouter.rs        # NEW — extracted from rc-agent/src/openrouter.rs (shared client)
+│   └── lib.rs               # MODIFIED — export survival_types, openrouter
+│
+├── rc-watchdog/src/
+│   ├── smart_watchdog.rs    # NEW — binary validation, symptom collection, MMA diagnosis
+│   ├── survival_state.rs    # NEW — persistent state (crash counts, spend, last diagnosis)
+│   ├── service.rs           # MODIFIED — inject SmartWatchdogContext, call diagnosis on threshold
+│   ├── james_monitor.rs     # MODIFIED — use openrouter fallback from rc-common
+│   └── reporter.rs          # MODIFIED — extend WatchdogCrashReport fields, add flush_offline
+│
+├── racecontrol/src/
+│   ├── survival_coordinator.rs  # NEW — Layer1 ingestion, pattern detection, guardian channel
+│   ├── api/survival.rs          # NEW — HTTP endpoints for layer1-report, status, events
+│   ├── pod_healer.rs            # MODIFIED — consume Layer1Report via new mpsc channel
+│   ├── fleet_kb.rs              # MODIFIED — survival_events table + query_survival_pattern()
+│   └── state.rs                 # MODIFIED — add guardian_event_tx, layer1_report_tx to AppState
+│
+└── rc-guardian/                 # NEW CRATE
+    ├── Cargo.toml
+    └── src/
+        ├── main.rs              # Binary entry point, pm2 target
+        ├── ws_client.rs         # WS connection to server /ws/guardian with reconnect
+        ├── health_poller.rs     # External health polling (internet path)
+        ├── escalation.rs        # WhatsApp + comms-link alert routing
+        └── incident_log.rs      # Persistent incident log on Bono VPS
+```
+
+---
+
+## Architectural Patterns
+
+### Pattern 1: Module Injection over New Crate
+
+**What:** Add new capability as a module inside an existing crate rather than creating a new binary.
+
+**When to use:** When the new logic needs to run in the same process, shares memory with existing code, and doesn't have conflicting platform requirements.
+
+**Applied here:** `smart_watchdog.rs` is a module in rc-watchdog (not a new crate). `survival_coordinator.rs` is a module in racecontrol. This avoids 2 new binaries that would need separate deploy pipelines to 8 pods + server.
+
+**Trade-offs:** Increases binary size slightly. Tighter coupling — a panic in smart_watchdog could crash the service loop. Mitigate with `tokio::spawn` for all MMA calls (panics stay contained).
+
+### Pattern 2: Fire-and-Forget Diagnosis (Non-Blocking Restart Loop)
+
+**What:** All MMA calls inside rc-watchdog are spawned in a separate tokio task. The restart loop never awaits diagnosis results.
+
+**When to use:** When the primary function (restart rc-agent within seconds) must not be delayed by a secondary function (diagnosis taking up to 30s for 4-model parallel).
+
+**Applied here:** `tokio::spawn(async move { diagnose_and_report(symptoms).await; })` is called immediately after the decision to diagnose. The restart proceeds in parallel.
+
+**Critical constraint:** smart_watchdog.rs cannot use `tokio::runtime::Handle::current()` inside service.rs's std::thread context. The watchdog service.rs uses a `std::thread` loop, not an async runtime. Diagnosis must either be synchronous (blocking reqwest) with a short timeout, OR service.rs must spawn a Tokio runtime for the diagnosis task.
+
+**Resolution:** Add a `tokio::runtime::Builder::new_multi_thread()` runtime inside smart_watchdog's diagnosis path, kept alive for the watchdog process lifetime. This mirrors the pattern in james_monitor.rs.
+
+### Pattern 3: Offline-First Report Queue
+
+**What:** If the report destination is unreachable, persist reports locally to a JSONL file. Flush on next successful connection.
+
+**When to use:** When the reporter (watchdog) may outlive the reportee (server) and reports must not be lost.
+
+**Applied here:** `watchdog-offline-reports.jsonl` on each pod. Prevents survival data loss during server restarts or LAN issues.
+
+**Constraint:** File must be append-only and bounded. Cap at 200 entries (rotate oldest). A server that's been down for days should not receive a flood of stale reports on reconnect.
+
+### Pattern 4: Shared OpenRouter Client in rc-common
+
+**What:** Extract the OpenRouter HTTP client from rc-agent into rc-common so both rc-agent and rc-watchdog can use it without creating a crate dependency from rc-watchdog on rc-agent.
+
+**When to use:** When two crates need the same external API client and neither should depend on the other.
+
+**Applied here:** `rc-common/src/openrouter.rs` contains `OpenRouterClient` struct with `diagnose()` method. Both rc-agent's existing `openrouter.rs` (becomes a re-export or thin wrapper) and the new `smart_watchdog.rs` import from `rc_common::openrouter`.
+
+**Dependency graph result:**
+```
+rc-guardian → rc-common
+rc-watchdog → rc-common
+rc-agent    → rc-common
+racecontrol → rc-common
+```
+No circular dependencies. rc-common remains a leaf crate.
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Shared Component Package
+### Anti-Pattern 1: Diagnosis Blocking the Restart Loop
 
-**What:** Creating `packages/shared-ui/` with shared `PodCard`, layout primitives, etc.
-**Why bad:** Web and kiosk have incompatible interaction models. A shared `PodCard` would require conditional props for mouse hover vs touch target sizes, scrollable vs fixed overflow, glow animations vs compact display. The kiosk `KioskPodCard` has a 12-state session machine — sharing it with web would pollute the web component with kiosk-only states.
-**Instead:** Share tokens and types. Keep components app-local.
+**What people do:** `await diagnose_with_openrouter(&symptoms).await` directly in the service poll loop before calling restart.
 
-### Anti-Pattern 2: Copying Token Values Instead of Importing
+**Why it's wrong:** OpenRouter Tier 4 (4 models parallel) can take 15-30 seconds. rc-agent stays dead during that window. Customer sessions are disrupted. The primary job of the watchdog is to restart fast.
 
-**What:** Keeping duplicate `@theme inline` blocks in both `globals.css` with the same hex values.
-**Why bad:** Already caused `rp-red-light` vs `rp-red-hover` naming divergence. Any future brand update requires editing two files and risks drift.
-**Instead:** One source of truth in `packages/shared-tokens/tokens.css`, imported by both.
+**Do this instead:** `tokio::spawn(...)` or run in a separate thread with `std::thread::spawn`. The restart executes immediately; diagnosis runs in parallel.
 
-### Anti-Pattern 3: Unifying WebSocket Libraries
+### Anti-Pattern 2: New Binary for Layer 1 Smart Watchdog
 
-**What:** Making kiosk use `socket.io-client` to match web.
-**Why bad:** Kiosk runs on fixed venue hardware with a constrained bundle. socket.io adds unnecessary overhead. Both apps talk to the same server endpoints — the client library is an implementation detail.
-**Instead:** Accept the asymmetry. Both work correctly with their current WS implementations.
+**What people do:** Create a new `rc-smart-watchdog` crate that replaces rc-watchdog.
 
-### Anti-Pattern 4: Adding Scroll to Kiosk Components
+**Why it's wrong:** rc-watchdog is a Windows service registered by name `RCWatchdog`. Replacing it requires uninstalling the service on all 8 pods (SSH access needed), re-registering, and updating the `start-rcagent.bat` that references it. The existing binary validation, Session 1 restart logic, and sentry breadcrumb coordination would need to be re-implemented. High deploy risk for no structural benefit.
 
-**What:** Using `overflow-y-auto` inside a kiosk panel to handle content overflow.
-**Why bad:** Kiosk body has `overflow: hidden`. Touch screens at the venue do not have scroll wheels. Scroll-locking gestures for inner panels conflict with the kiosk touch model.
-**Instead:** Use paginated views, expandable sections, or fixed-height grid layouts.
+**Do this instead:** Add `smart_watchdog.rs` as a module inside rc-watchdog. Deploy the updated rc-watchdog binary via the normal pod deploy pipeline. Service name stays `RCWatchdog`.
 
-### Anti-Pattern 5: Hardcoding `/kiosk` in Component Hrefs
+### Anti-Pattern 3: Guardian Directly Accessing Pod Endpoints
 
-**What:** Writing `<Link href="/kiosk/staff">` inside a kiosk component.
-**Why bad:** Next.js `basePath: /kiosk` adds the prefix automatically. Double-prefixing causes 404s.
-**Instead:** Always write root-relative paths: `<Link href="/staff">`.
+**What people do:** rc-guardian polls each pod directly (curl pod1:8090/health, etc.) from Bono VPS.
+
+**Why it's wrong:** Pod endpoints are LAN-only (192.168.31.x). Bono VPS is on the public internet. This would require Tailscale access from Bono to all pods — fragile and creates a large attack surface. Also, if the server is down but pods are fine, the guardian should know the server is the problem, not the pods.
+
+**Do this instead:** Guardian only talks to the server. The server aggregates pod state and exposes it via `/ws/guardian`. The guardian's job is to observe the server's view of the world from an external vantage point.
+
+### Anti-Pattern 4: Layer 1 Reports Flowing Through WS (Instead of HTTP)
+
+**What people do:** Encode Layer1Report as a new `AgentMessage::Layer1Report` variant and send it over the existing rc-agent WS connection.
+
+**Why it's wrong:** The Layer 1 watchdog is a separate process from rc-agent. The WS connection belongs to rc-agent, not to rc-watchdog. rc-watchdog sends reports because rc-agent is DEAD or crash-looping — there is no WS to use. The report mechanism must be independent of rc-agent's WS connection.
+
+**Do this instead:** rc-watchdog uses its own HTTP client (blocking reqwest, already used in reporter.rs) to POST directly to the server. This path works even when rc-agent is completely down.
+
+---
+
+## Integration Points
+
+### External Services
+
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| OpenRouter API | HTTPS POST from rc-watchdog (new) and rc-agent (existing) | Use shared `rc_common::openrouter::OpenRouterClient`; key from `OPENROUTER_API_KEY` env var |
+| Evolution API (WhatsApp) | HTTPS POST from rc-guardian on Bono VPS | Same path as existing `whatsapp_alerter.rs` in racecontrol; rc-guardian gets its own client |
+| comms-link WS | WS from rc-guardian for James notification | Use existing comms-link relay at ws://srv1422716.hstgr.cloud:8765 |
+| Ollama (James .27) | HTTP from rc-watchdog james_monitor (existing) + smart_watchdog Tier 3 fallback | `http://127.0.0.1:11434` — only accessible from James machine, not pods |
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| rc-watchdog → racecontrol (Layer 1 report) | HTTP POST `/api/v1/survival/layer1-report` | reqwest blocking client, 5s timeout, offline JSONL queue on failure |
+| rc-watchdog → racecontrol (crash report, existing) | HTTP POST `/api/v1/pods/{id}/watchdog-crash` | Extended with `diagnosis_summary`, `mma_cost` fields in `WatchdogCrashReport` |
+| survival_coordinator → pod_healer | tokio mpsc `Sender<Layer1Report>` in AppState | Layer1Report converted to synthetic DiagnosticEvent in pod_healer |
+| survival_coordinator → rc-guardian | WS push `/ws/guardian` | `GuardianEvent` enum with severity classification |
+| rc-guardian → server (external poll) | HTTP GET `https://racingpoint.cloud/api/v1/health` | Bono VPS → public internet path; uses Bono's outbound HTTP |
+| rc-common (openrouter) ← rc-watchdog + rc-agent | Shared library (crate dependency) | rc-watchdog gains `rc-common` dependency for openrouter module |
+
+---
+
+## Build Order (Phase Dependencies)
+
+Build order is driven by: (1) shared types must compile before consumers, (2) no new crates that block other phases, (3) server endpoints must exist before watchdog reports to them, (4) guardian is independent and can ship last.
+
+```
+Phase 1 (Foundation — unblocks all other phases)
+    └── rc-common: add survival_types.rs + openrouter.rs extraction
+        - SurvivalState, Layer1Report, SurvivalAction, GuardianEvent
+        - OpenRouterClient moved from rc-agent/src/openrouter.rs to rc-common
+        - rc-agent/src/openrouter.rs becomes thin re-export wrapper
+        - Compile-verified: cargo check -p rc-common -p rc-agent
+        - No deploy needed yet (lib change only)
+
+Phase 2 (Layer 2 Server — establishes report ingestion endpoint)
+    └── racecontrol:
+        - survival_coordinator.rs (new module)
+        - api/survival.rs (new endpoints)
+        - fleet_kb.rs: survival_events migration
+        - state.rs: new AppState fields
+        - routes.rs: register /api/v1/survival/* + /ws/guardian
+        Deploy: server only. Pods don't report yet but endpoints exist.
+
+Phase 3 (Layer 1 Watchdog — pods start reporting)
+    └── rc-watchdog:
+        - smart_watchdog.rs (new module)
+        - survival_state.rs (new module)
+        - service.rs: inject SmartWatchdogContext
+        - reporter.rs: extend WatchdogCrashReport, add flush_offline
+        Deploy: all 8 pods + POS. Uses canary (Pod 8 first).
+        Server endpoints from Phase 2 must be live before deploy.
+
+Phase 4 (Layer 2 Integration — healer consumes Layer 1 data)
+    └── racecontrol:
+        - pod_healer.rs: consume Layer1Report channel
+        - survival_coordinator.rs: cross-pod pattern detection active
+        Deploy: server only.
+
+Phase 5 (Layer 3 Guardian — external survival view)
+    └── rc-guardian (new crate):
+        - ws_client.rs, health_poller.rs, escalation.rs, incident_log.rs
+        Deploy: Bono VPS (pm2, new process). Zero pod/server changes.
+```
+
+**Why this order:**
+- Phase 1 first: rc-common is a leaf dep; compiling new shared types before anything uses them prevents "type not found" errors cascade.
+- Phase 2 before Phase 3: Pods cannot send reports to an endpoint that doesn't exist. Deploying the watchdog first would cause 8 failed HTTP POSTs per crash event and fill offline JSONL queues unnecessarily.
+- Phase 4 after Phase 3: pod_healer integration only adds value once Layer 1 reports are actually arriving.
+- Phase 5 last: Guardian is pure consumer, no producer. No other phase depends on it. It can ship incrementally — even a basic "ping server + WhatsApp on failure" guardian provides immediate value.
+
+---
+
+## Scaling Considerations
+
+This is a fixed fleet (8-10 pods, 1-2 servers, 1-2 venues). Not a user-scaling problem.
+
+| Concern | Current Scale (8 pods) | Future Scale (3 venues, 24 pods) |
+|---------|------------------------|-----------------------------------|
+| Layer 1 HTTP reports | Each watchdog POSTs on crash only — negligible | Same pattern; server can handle 100+ reports/min |
+| survival_events table | Low write volume (crash events are rare) | Partition by venue_id when multi-venue ships |
+| Guardian WS | 1 persistent WS connection | 1 per venue server; guardian fans out WhatsApp per venue |
+| OpenRouter cost (Layer 1) | $0.05-$3.01 per diagnosis, only on crash_count >= 2 | Budget-gated; per-venue budget tracked in survival_state |
 
 ---
 
 ## Sources
 
-- Direct inspection: `web/src/app/globals.css`, `kiosk/src/app/globals.css` — token divergence confirmed (HIGH confidence)
-- Direct inspection: `web/src/components/PodCard.tsx`, `kiosk/src/components/KioskPodCard.tsx` — confirmed incompatible state models (HIGH confidence)
-- Direct inspection: `web/src/components/CountdownTimer.tsx`, `kiosk/src/components/SessionTimer.tsx` — same concept, different implementation requirements (HIGH confidence)
-- Direct inspection: `web/src/components/StatusBadge.tsx` — 30+ status mappings shared via type system only (HIGH confidence)
-- Direct inspection: `kiosk/src/components/KioskHeader.tsx` — IST clock, pod counts, touch nav (HIGH confidence)
-- Direct inspection: `packages/shared-types/package.json` and kiosk `lib/types.ts` — existing shared type infrastructure confirmed (HIGH confidence)
-- Direct inspection: `web/package.json`, `kiosk/package.json` — socket.io asymmetry confirmed, no shared-ui package (HIGH confidence)
-- Direct inspection: `web/next.config.ts`, `kiosk/next.config.ts` — outputFileTracingRoot, basePath settings (HIGH confidence)
-- Tailwind v4 `@import "tailwindcss"` + `@theme inline` pattern confirmed in both globals.css (HIGH confidence)
+- Direct code inspection: `crates/rc-watchdog/src/service.rs`, `james_monitor.rs`, `reporter.rs`
+- Direct code inspection: `crates/rc-agent/src/diagnostic_engine.rs`, `tier_engine.rs`, `openrouter.rs`
+- Direct code inspection: `crates/racecontrol/src/pod_healer.rs`, `pod_monitor.rs`, `fleet_kb.rs`, `mesh_handler.rs`
+- Direct code inspection: `crates/rc-common/src/mesh_types.rs`, `recovery.rs`, `verification.rs`, `types.rs`
+- `.planning/MESHED-INTELLIGENCE.md` — v26.0 MI design spec
+- `CLAUDE.md` standing rules — deploy pipeline, Session 1 constraints, WatchdogCrashReport HTTP path
+
+---
+*Architecture research for: v31.0 Autonomous Survival System (3-Layer MI Independence)*
+*Researched: 2026-03-30*

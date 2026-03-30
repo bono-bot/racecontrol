@@ -1,466 +1,582 @@
-# Domain Pitfalls: Racing Dashboard UI Redesign
+# Pitfalls Research
 
-**Domain:** Multi-app Next.js dashboard system — UI overhaul on a live venue operations stack
+**Domain:** Multi-layer autonomous healing — adding 3-layer survival system to existing Windows fleet management (v31.0)
 **Researched:** 2026-03-30
-**Confidence:** HIGH — pitfalls drawn from documented incidents in this exact codebase (CLAUDE.md standing rules, MEMORY.md, PROJECT.md, git history) plus verified Next.js/Tailwind v4 behaviour. No hypothetical pitfalls.
+**Confidence:** HIGH — all pitfalls drawn from documented incidents in this exact codebase (CLAUDE.md standing rules, MEMORY.md, git history, existing code in `crates/rc-watchdog/`, `crates/rc-agent/`, `crates/racecontrol/`). No hypothetical pitfalls.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: NEXT_PUBLIC_ Env Vars Baked at Build Time — Wrong Value Silently Deployed
+### Pitfall 1: Recovery System Fight — Five Independent Healers on the Same Patient
 
 **What goes wrong:**
-`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are embedded into the JS bundle at `next build` time. If the build runs with `http://localhost:8080` defaults (because `.env.production.local` was missing or wrong), the deployed app makes all API calls to `localhost` on the CLIENT's machine. On the server itself this works fine. From every other machine — POS, kiosk, staff phone, leaderboard display — the app loads but shows no data. The silence is total: no error in the server log, HTTP 200 from the Next.js server, just empty dashboards.
+v31.0 adds Layer 1 (Smart Watchdog MMA), Layer 2 (Fleet Healer SSH), and Layer 3 (External Guardian) on top of the EXISTING recovery systems that have not been removed: `rc-sentry` watchdog (breadcrumb file at `C:\RacingPoint\sentry-restart-breadcrumb.txt`), `RCWatchdog` Windows service (5s poll, `restart_grace_active` + `sentry_breadcrumb_active` deconfliction), and `server pod_monitor/WoL`. With 5 independent healers:
+
+- Layer 1 Smart Watchdog detects crash-loop → triggers MMA → recommends rollback → starts rolling back
+- Simultaneously Layer 2 Fleet Healer SSHes in to collect diagnostics → sees the binary swap in progress
+- rc-sentry also wakes up → writes its breadcrumb → tries to restart via existing path
+- Layer 3 External Guardian sees server not reporting healthy pods → escalates
+- The MMA cycle from Layer 1 runs for 30-60s → by the time it completes, rc-sentry has already restarted the agent in a corrupted state (new binary half-written due to OTA_DEPLOYING not being checked)
+
+This is not theoretical. It already happened during v17.1: "Self-restart + watchdog + WoL created an infinite restart loop that took 45 minutes to diagnose." The new layers multiply the competing actors from 3 to 5+.
 
 **Why it happens:**
-`NEXT_PUBLIC_*` values are NOT runtime environment variables. They are compile-time string replacements. Changing `.env.production.local` after a build has zero effect — the app must be rebuilt. This is counterintuitive for developers used to server-side env vars.
-
-This codebase hit this exact bug: "NEXT_PUBLIC_WS_URL was never set — NEXT_PUBLIC_API_URL was correct so REST worked, but WebSocket defaulted to `ws://localhost:8080` causing 'page loads but no data' on the POS machine for every session until caught." (CLAUDE.md standing rules)
-
-**Consequences:**
-- WebSocket telemetry feed shows nothing on any machine except the server
-- Leaderboard display (separate TV machine) shows no data
-- POS billing dashboard appears to work but has no live pod status
-- No errors visible — the fetch silently hits localhost and gets connection refused
-
-**Prevention:**
-- Before every build: run `grep -rn NEXT_PUBLIC_ web/src/ kiosk/src/` and verify EVERY var has a value in `.env.production.local` with the LAN IP (192.168.31.23), not localhost
-- After any redesign that adds new `NEXT_PUBLIC_` vars: grep the entire new component directory immediately
-- Verify from a machine that is NOT the server — SSH to POS or open from James's browser at `.23:3200`. `curl` from the server proves HTML loads, not that WebSocket works
-
-**Detection:**
-- App shows data on server but not on POS/kiosk/leaderboard display
-- Browser devtools on POS shows WebSocket connection to `ws://localhost:8080` (the give-away)
-- Zero errors in server logs despite the client-side failure
-
-**Phase to address:** Phase 1 (component scaffold). Before writing any new component, establish env var audit as a mandatory pre-build step.
-
----
-
-### Pitfall 2: Standalone Next.js Deploy — Static Files Return 404 After Deploy
-
-**What goes wrong:**
-`next build` with `output: "standalone"` creates a `.next/standalone/` directory. The JS and CSS bundles live in `.next/static/`. These are NOT copied into standalone automatically. If the deploy script copies only `.next/standalone/` to the server, every CSS file and JS chunk returns 404. The page loads as unstyled HTML with no interactivity. Health checks still pass — the Next.js server returns 200 for the HTML page. The bug is invisible to monitoring.
-
-This has already happened in this codebase: "kiosk and web dashboard had all static files returning 404 for an unknown duration. Health endpoint showed 'healthy'." (CLAUDE.md)
-
-**Why it happens:**
-Next.js standalone intentionally excludes static files from the server bundle — they are meant to be served by a CDN or a static file server alongside the Node process. In this deployment (pm2 + nginx on the same server), the static directory must be manually copied. Two things must happen:
-1. `.next/static/` must be copied to `.next/standalone/.next/static/`
-2. `public/` must be copied to `.next/standalone/public/`
-
-For a UI redesign with new assets, fonts, or images, failing to re-copy `public/` leaves the new assets absent on the deployed server.
-
-**Consequences:**
-- New Tailwind classes compile into CSS that never loads — the page looks broken
-- New fonts (Enthocentric, Montserrat) return 404 if added to `public/fonts/`
-- New leaderboard images or sponsor logos invisible
-- All pages look like unstyled HTML
-
-**Prevention:**
-- Deploy scripts MUST include the copy steps: `cp -r .next/static .next/standalone/.next/static` and `cp -r public .next/standalone/public`
-- After every deploy, verify with: `curl -I http://192.168.31.23:3200/_next/static/css/app.css` — must return 200, not 404
-- Add this curl to the smoke test in the deploy script (currently the smoke test checks 4 endpoints — add a static file check as the 5th)
-- Both `web/` and `kiosk/` (basePath: `/kiosk`) must be deployed this way. Kiosk static path is `http://192.168.31.23:3300/kiosk/_next/static/...`
-
-**Detection:**
-- Page renders with no CSS (white background, unstyled text)
-- Browser devtools shows `net::ERR_FAILED` or 404 for `/_next/static/css/...`
-- App "works" on James's dev machine but looks broken on server
-
-**Phase to address:** Phase 1 (deploy pipeline setup). The static file copy step must be in the deployment script before any redesign work ships.
-
----
-
-### Pitfall 3: outputFileTracingRoot Misconfiguration — Absolute Build Paths Embedded
-
-**What goes wrong:**
-Without `outputFileTracingRoot: path.join(__dirname)` in `next.config.ts`, Next.js auto-detects the monorepo root (walks up to find `package.json`, finds `C:\Users\bono\racingpoint\racecontrol\`) and embeds this absolute path in `required-server-files.json` and `server.js`. When the standalone bundle is deployed to `C:\RacingPoint\web\` on the server, the `appDir` field still points to `C:\Users\bono\racingpoint\racecontrol\web\` — a path that does not exist on the server. SSR works (served from memory) but ALL static files serve as 404 because the static file handler looks in the wrong root.
-
-**Why it happens:**
-This exact fix is already implemented in both `web/next.config.ts` and `kiosk/next.config.ts`. The risk during a redesign is: adding a new Next.js app (e.g., a dedicated leaderboard display app or a presenter mode app), or if someone inadvertently removes the config setting while refactoring `next.config.ts` to add new options (rewrites, redirects, image domains).
-
-**Consequences:**
-Same as Pitfall 2 — all static files 404. But harder to diagnose because the config looks correct to a casual reader.
-
-**Prevention:**
-- Never remove `outputFileTracingRoot: path.join(__dirname)` from any `next.config.ts`
-- Any NEW Next.js app created during the redesign MUST include this line — it is not optional in this monorepo
-- After adding any `next.config.ts` option, verify the line is still present: `grep outputFileTracingRoot */next.config.ts`
-
-**Detection:**
-- Check `required-server-files.json` after build: `cat .next/required-server-files.json | grep appDir` — must show the app's own directory, not the repo root or James's machine path
-
-**Phase to address:** Phase 1 (config/scaffold). Verify in the first PR review.
-
----
-
-### Pitfall 4: Kiosk is Touch-Only — Mouse-Centric UI Patterns Break Silently
-
-**What goes wrong:**
-The kiosk (`/kiosk` basePath, port 3300) runs on pods where the only input is a touchscreen. Mouse-specific interactions — hover states, right-click menus, `mouseenter`/`mouseleave` events, tooltips that appear on hover, drag handles without touch equivalents — all fail silently on touch. The designer builds and tests on a laptop trackpad; everything looks fine. The UI ships; customers at pods cannot interact with the redesigned booking wizard or game selector.
-
-**Why it happens:**
-Tailwind v4's hover utilities (`hover:`) are mouse-centric. On iOS/Android touch browsers, hover state is emulated on tap-and-hold, but this is unreliable and not the intended UX. For an eSports kiosk in a dark venue, touch targets must be at minimum 44x44px and must respond to tap, not hover.
-
-**Consequences:**
-- Redesigned game selection cards show extra info only on hover — invisible on kiosk
-- Small filter buttons (track/car selectors) unreachable with fingers
-- Dropdown menus that open on hover fail completely
-
-**Prevention:**
-- All interactive elements in `kiosk/` must use `onClick` (not `onMouseEnter`) as the primary interaction
-- Touch target minimum: 44x44px. Use `min-h-11 min-w-11` (44px = 2.75rem = h-11 in Tailwind)
-- Avoid `hover:` for revealing content; use toggled state (`useState`) instead
-- Test on an actual touchscreen before marking any kiosk phase complete — NOT in browser devtools touch simulation (it emulates touch events but has different behavior for hover state)
-- Any component used in BOTH `web/` (mouse) and `kiosk/` (touch) must handle both — use `@media (hover: hover)` for hover-only styles
-
-**Detection:**
-- Kiosk page requires hovering to see any action options
-- Touch on the kiosk selects text instead of triggering the button (too small)
-- UI works in browser, fails when Uday or staff try on the actual pod touchscreen
-
-**Phase to address:** Phase 2 (kiosk component redesign). Also applies to Phase 1 if shared components are being built.
-
----
-
-### Pitfall 5: Hydration Mismatch — localStorage/sessionStorage in useState Initializer
-
-**What goes wrong:**
-SSR renders the page on the server without browser APIs. If a redesigned component reads from `localStorage` (e.g., to restore a leaderboard filter preference, or persist a selected car) directly in a `useState` initializer, the server renders with `undefined` and the client hydrates with the stored value. React throws a hydration mismatch error. In Next.js 15+ (App Router), this can cause the entire page to re-render or show a blank screen.
-
-**Why it happens:**
-This is a standing rule in this codebase ("Next.js hydration: never read sessionStorage/localStorage in useState initializer — use useEffect + hydrated flag"). A UI redesign touching many components is exactly when this rule gets accidentally violated as new components are added.
-
-**Consequences:**
-- Leaderboard filter position resets on every page load (if the fix is to just not persist it)
-- Or: entire leaderboard page shows hydration error and blank-screens for 1-2 seconds on load
-
-**Prevention:**
-- Pattern for persisted state:
-  ```tsx
-  const [hydrated, setHydrated] = useState(false);
-  const [filter, setFilter] = useState("all");
-  useEffect(() => {
-    setFilter(localStorage.getItem("lb-filter") ?? "all");
-    setHydrated(true);
-  }, []);
-  if (!hydrated) return null; // or skeleton
-  ```
-- Add ESLint rule or grep to catch `localStorage` in component bodies outside `useEffect`
-- Verify: `next build` must complete with 0 hydration errors in the build output
-
-**Phase to address:** Phase 2 (component implementation). Add to code review checklist.
-
----
-
-### Pitfall 6: Tailwind v4 CSS-First Config — Class Names Work in Dev, Fail in Build
-
-**What goes wrong:**
-Tailwind v4 uses a CSS-first configuration (`@theme` in `globals.css`) instead of `tailwind.config.js`. Custom classes like `bg-rp-card`, `text-rp-red`, `border-rp-border` are defined there. If a redesigned component uses a custom color that exists in the old `tailwind.config.js` (from a copy-paste from another project or old docs) but NOT in `globals.css @theme`, the class purges away in production build. The color appears in dev (JIT generates it) but is absent in production.
-
-This codebase already uses v4 CSS-first config in both `web/src/app/globals.css` and `kiosk/src/app/globals.css`. The deprecated orange `#FF4400` class must not be referenced in new components.
-
-**Why it happens:**
-Tailwind v4 changed from JS config to CSS `@theme`. References to Tailwind's old color names (e.g. `text-gray-700`, `bg-zinc-800`) still work because v4 ships a compatibility preset. But custom theme tokens MUST be in `globals.css @theme inline` — not in a `tailwind.config.js`.
-
-**Consequences:**
-- New leaderboard cards built with a custom `rp-gold` color for first place look correct in `next dev` but have no color in production
-- Cards using the deprecated `#FF4400` orange appear in storybook/dev but wrong in production
-
-**Prevention:**
-- Add any new design tokens to `globals.css` under `@theme inline` BEFORE writing components that use them
-- Never create `tailwind.config.js` for new apps — use `globals.css @theme`
-- Deprecated `#FF4400` orange: grep for it before marking any phase complete: `grep -rn "FF4400\|orange" web/src/ kiosk/src/`
-- After build: spot-check computed styles on the production URL for new color classes
-
-**Phase to address:** Phase 1 (design token setup). Establish the full token set in `globals.css` before any component work.
-
----
-
-## Moderate Pitfalls
-
-### Pitfall 7: API Contract Breakage — Renamed Fields in Redesign Break Existing TypeScript Types
-
-**What goes wrong:**
-The redesign refactors a component that calls `/api/v1/leaderboards/records` and the developer renames a field in the local TypeScript interface (e.g., `best_lap_ms` → `lapTimeMs`) to match a new naming convention. The type change is local — the Rust backend still returns `best_lap_ms`. TypeScript catches this at compile time only if the type is imported from `packages/shared-types/` (v21.0 shared types). If the developer copies the type locally and renames it, the mismatch is invisible until runtime: the field is `undefined`, lap times show as `NaN` or `0:00.000`.
-
-**Why it happens:**
-UI redesigns often "clean up" types to match a design system naming convention. The backend cannot be changed simultaneously (would require Rust rebuild + fleet deploy). Serde silently drops unknown fields and returns `undefined` for missing fields — no runtime error.
-
-**Consequences:**
-- Lap times show as `0:00.000` or `NaN` on the leaderboard
-- Driver scores show as `0`
-- No error in console — the fetch succeeds, the parse succeeds, the field is just `undefined`
-
-**Prevention:**
-- All API response types MUST be imported from `packages/shared-types/` (v21.0). Never duplicate them locally
-- If a type rename is needed for the new design system, add a UI-layer adapter that maps the shared type to the local display type — never rename the shared type itself
-- After any leaderboard or telemetry component change: verify the rendered values match the raw API response (`curl http://192.168.31.23:8080/api/v1/leaderboards/records | jq .` and compare fields)
-
-**Phase to address:** Phase 2 (component refactor). Enforce in code review: no local copies of shared types.
-
----
-
-### Pitfall 8: WebSocket Reconnect Logic Lost During Redesign
-
-**What goes wrong:**
-The existing leaderboard and fleet dashboard components have WebSocket reconnect logic (exponential backoff, cleanup on unmount). A redesign that rewrites a component from scratch may not replicate this logic. The new component opens a WS connection, never cleans it up on unmount, and opens a new connection on every re-render — resulting in multiple concurrent connections, duplicate event handlers, and memory leaks. Or: the component reconnects too aggressively and floods the server's WS handler.
-
-The server's WS handler has a `ws_connect_timeout >= 600ms` requirement (CLAUDE.md audit standing rule). A naive reconnect loop that retries every 100ms can overwhelm the server.
-
-**Consequences:**
-- Leaderboard display shows duplicate record-broken events (each WS listener fires)
-- Server logs show 50+ simultaneous WS connections from the leaderboard TV
-- Component unmounts (navigation), WS stays open, server eventually kills the connection with no client cleanup
-
-**Prevention:**
-- WS connection logic must live in a `useRef` + `useEffect` with cleanup: `return () => ws.close()`
-- Reconnect delay must be at minimum 1000ms for the first retry, backing off to 30s
-- Extract WebSocket into a shared hook (`useWebSocket.ts`) to ensure consistency across redesigned components
-- Test: navigate away from the leaderboard page and back 5 times; check server WS connection count stays at 1, not 5
-
-**Phase to address:** Phase 2 (leaderboard component). Extract the WS hook in Phase 1 if possible.
-
----
-
-### Pitfall 9: Recharts / Dynamic Import Breaks SSR — Blank Chart on First Load
-
-**What goes wrong:**
-The existing `TelemetryChart.tsx` component uses `dynamic(() => import("@/components/TelemetryChart"), { ssr: false })` to prevent Recharts from trying to render on the server (Recharts uses `window` and `document`). If a redesign moves or renames this component, or if a new chart component is added without the `ssr: false` flag, the server-side render fails with a `window is not defined` error and the page may crash entirely (with error boundary fallback) or show a blank placeholder permanently.
-
-**Why it happens:**
-Recharts (currently `^3.8.1`) is a client-only library. Any file it imports that touches browser globals fails on the server. The `dynamic` + `ssr: false` pattern is the correct workaround but must be applied to every chart component, not just the outer one.
-
-**Consequences:**
-- Telemetry chart area shows the spinning loader indefinitely
-- In development, this may not appear because `next dev` has different SSR behavior
-- Production build (with full SSR) breaks the chart
-
-**Prevention:**
-- Any new component importing Recharts or charting libraries MUST use `dynamic` + `ssr: false`
-- Add to code review checklist: search for `recharts` in new files that don't have `dynamic` import
-- The loading placeholder must always be provided: `loading: () => <ChartSkeleton />`
-
-**Phase to address:** Phase 2 (telemetry/analytics components). Add to PR template.
-
----
-
-### Pitfall 10: Kiosk basePath Breaks Absolute URLs and Redirects
-
-**What goes wrong:**
-The kiosk app has `basePath: "/kiosk"` in `next.config.ts`. This means all client-side routes are prefixed: `/book` becomes `/kiosk/book`, `/settings` becomes `/kiosk/settings`. Internal Next.js `Link` and `router.push()` components handle this automatically. Problems arise when:
-1. A redesigned component uses a hardcoded absolute URL string: `href="/book"` — this bypasses the basePath prefix and navigates to the web dashboard route instead
-2. A redirect uses `basePath: false` incorrectly (the root redirect in `next.config.ts` already handles `/` → `/kiosk` with `basePath: false`, which is correct and must not be changed)
-3. API calls in the kiosk use relative URLs like `/api/something` — these are proxied to the Next.js API route at `/kiosk/api/something`, not the backend server
-
-**Consequences:**
-- Tapping "Book Session" navigates to web dashboard (staff view) instead of kiosk booking flow
-- Customer is looking at a billing admin panel, not the self-service booking UI
-- API calls from the kiosk 404 if using relative paths instead of the explicit `NEXT_PUBLIC_API_URL`
-
-**Prevention:**
-- All `Link` `href` props and `router.push()` calls in `kiosk/` must use relative paths (e.g. `/book`), not absolute (Next.js applies basePath automatically to relative paths)
-- Never hardcode `/kiosk/book` — basePath is applied automatically
-- Never use relative API paths like `/api/v1/...` in kiosk — always use `NEXT_PUBLIC_API_URL + "/api/v1/..."` (the backend is at port 8080, not the kiosk's 3300)
-- After any navigation change: verify by clicking through on an actual device at `192.168.31.23:3300/kiosk`
-
-**Phase to address:** Phase 2 (kiosk booking redesign). Verify in the navigation smoke test.
-
----
-
-### Pitfall 11: Leaderboard Display on TV — Touch Events and Auth Assumptions Wrong
-
-**What goes wrong:**
-The `/leaderboard-display` route runs on a dedicated TV (leaderboard display PC, Tailscale: `desktop-*` nodes). It auto-rotates through records. A redesign that adds auth guards, JWT checks, or staff-only gates to this route will break it — the TV has no user logged in and cannot complete an auth flow.
-
-Separately, if the redesign adds `onClick` handlers expecting user interaction, the TV cannot interact (it has no keyboard or mouse — it is a pure display). Adding a "click to see more" interaction to a rotating display panel is a dead end.
-
-**Why it happens:**
-The leaderboard display page is a public/unauthenticated display. The web dashboard `AuthGate` component wraps most pages. A redesign that adds `<AuthGate>` to the leaderboard-display route will silently redirect the TV to `/login` on next deploy.
-
-**Consequences:**
-- TV at the venue shows the login page instead of leaderboards
-- Staff don't notice immediately — the TV is decorative, not operationally critical
-- It may stay showing login for hours or days
-
-**Prevention:**
-- `/leaderboard-display` must NEVER be wrapped in `AuthGate`
-- The page must use `fetchPublic()` (not `fetchApi()` which adds Authorization headers) — this is already the pattern in the existing code
-- No interactive elements (click handlers, modals) on the leaderboard display — it is display-only
-- After any auth middleware change: verify `curl -s http://192.168.31.23:3200/leaderboard-display` returns HTML, not a redirect to `/login`
-
-**Phase to address:** Phase 1 or whichever phase introduces shared layout wrappers. Auth boundary must be explicit.
-
----
-
-### Pitfall 12: Standalone Deploy on Windows — PM2 / Scheduled Task Path Issues
-
-**What goes wrong:**
-The web dashboard and kiosk both run as scheduled tasks on the server (`192.168.31.23`). The `node .next/standalone/server.js` command is called from the scheduled task. After a redesign and rebuild, the new `server.js` references a different set of chunks. If the deploy copies the new `server.js` but doesn't restart the scheduled task, the old process continues serving the old bundle. The deployment appears to have worked (files are updated) but users see the old UI.
-
-Additionally, on Windows, pm2 (used on Bono VPS for cloud deployments) does not pick up file changes automatically. `pm2 restart web` must be explicitly called.
-
-**Consequences:**
-- Deployed new leaderboard design but server still shows old layout for hours
-- Health check returns 200 (process is alive), but build date or version shows the old deploy
-
-**Prevention:**
-- Deploy script must: (1) copy new files, (2) stop the old process/task, (3) start new process/task, (4) verify the new build is serving by checking a cache-busting URL or the bundle hash in the HTML
-- Add a version endpoint: inject `GIT_HASH` or build timestamp into the standalone `server.js` environment at build time, expose via `/api/version` route, and verify it post-deploy
-- Bono VPS: `pm2 restart web && pm2 restart admin` (not just one app)
-
-**Phase to address:** Phase 1 (deploy pipeline). The version-verification step must be in the smoke test.
-
----
-
-## Minor Pitfalls
-
-### Pitfall 13: Enthocentric Font Missing in New Components
-
-**What goes wrong:**
-The brand uses Enthocentric for headers. This is a custom font loaded via `public/fonts/` (not Google Fonts). New components in the redesign that use generic Tailwind heading classes without specifying `font-enthocentric` (or whatever the CSS class is) will render in Montserrat instead. The difference is subtle but visible — the header font is part of the Racing Point identity.
-
-**Prevention:**
-- Verify the Enthocentric CSS class name (`grep -n "Enthocentric\|enthocentric" web/src/app/globals.css`) and document it as a standing rule for the redesign
-- Any `<h1>`, `<h2>`, race name, or position number displaying "racing style" text must use Enthocentric
-- After any new page/component: visual check in a browser, not just a code review
-
-**Phase to address:** Phase 1 (design system setup).
-
----
-
-### Pitfall 14: SIM_TYPES Array Diverges From Backend Enum
-
-**What goes wrong:**
-The leaderboard page has a `SIM_TYPES` array (comment: "must match SimType enum in rc-common/types.rs"). If the redesign adds a new game (e.g. "Dirt Rally 2.0") to the frontend `SIM_TYPES` without adding it to the Rust enum, the filter sends an unknown value to the backend. The API returns an error or empty results. Alternatively, if a new game is added to the backend but not the frontend filter, it is invisible on the leaderboard.
-
-**Prevention:**
-- `SIM_TYPES` must always be imported from `packages/shared-types/` or generated from the OpenAPI spec (v21.0 OpenAPI covers 66 endpoints including sim types)
-- Never duplicate the enum as a local constant in a component file
-- After any game is added: update rc-common first, rebuild, then update shared-types, then update frontend
-
-**Phase to address:** Phase 2 (leaderboard filter redesign).
-
----
-
-### Pitfall 15: Recharts Responsive Container Height Zero on Initial Render
-
-**What goes wrong:**
-`ResponsiveContainer` from Recharts requires a parent element with an explicit height. In a redesigned card-based layout, if the parent uses `h-auto` or `flex-1` without a bounded height, `ResponsiveContainer` receives height=0 on initial render and renders an invisible chart. The chart only appears after a window resize triggers a reflow. This is a known Recharts issue.
-
-**Prevention:**
-- Always wrap `ResponsiveContainer` in a parent with explicit height: `<div className="h-64">` or `h-[16rem]`, not `h-auto`
-- Test the chart with a hard page refresh, not a client-side navigation (client nav may preserve the height from a previous render)
-
-**Phase to address:** Phase 2 (telemetry chart component).
-
----
-
-## Phase-Specific Warnings
-
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| Design system / token setup | Tailwind v4 config confusion (P6), Enthocentric missing (P13) | Define all tokens in `globals.css @theme` before any component work |
-| Leaderboard display redesign | WebSocket reconnect lost (P8), leaderboard TV auth guard (P11), SIM_TYPES drift (P14) | Extract WS hook first, keep auth boundary explicit, import shared types |
-| Kiosk booking wizard redesign | Touch targets too small (P4), basePath absolute URLs (P10), NEXT_PUBLIC_ vars (P1) | Verify on actual touchscreen, use relative hrefs, pre-build env check |
-| Deploy pipeline | Static files not copied (P2), wrong outputFileTracingRoot (P3), no process restart (P12) | Add static copy + version verify to smoke test |
-| Telemetry/chart components | Recharts SSR crash (P9), responsive container height zero (P15), missing ssr:false (P9) | Always dynamic import with ssr:false, explicit parent height |
-| API type refactor | Shared type rename breaks backend contract (P7), SIM_TYPES local copy (P14) | Import from shared-types, never duplicate |
-| Any new NEXT_PUBLIC_ var | Value baked at wrong time (P1) | Audit env vars in .env.production.local before build |
-
----
-
-## Deployment Checklist (specific to this redesign)
-
-Run before marking any redesign phase as shipped:
-
-```bash
-# 1. Env var audit — must have LAN IP, not localhost
-grep -n "localhost" web/.env.production.local kiosk/.env.production.local
-# Must return 0 matches for NEXT_PUBLIC_ vars
-
-# 2. Build succeeds with 0 type errors
-cd web && npm run build 2>&1 | tail -20
-cd kiosk && npm run build 2>&1 | tail -20
-
-# 3. Static files present after build
-ls web/.next/static/css/ | head -5
-ls kiosk/.next/static/css/ | head -5
-
-# 4. Static files copied to standalone
-ls web/.next/standalone/.next/static/css/ | head -5
-# If missing: cp -r web/.next/static web/.next/standalone/.next/static
-
-# 5. Verify static serving from a non-server machine
-curl -I http://192.168.31.23:3200/_next/static/css/app.css
-# Must return HTTP 200
-
-# 6. Verify leaderboard display is unauthenticated
-curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display
-# Must return 200, not 302
-
-# 7. Verify kiosk basePath redirect
-curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3300/kiosk/book
-# Must return 200
-
-# 8. Deprecated orange check
-grep -rn "FF4400\|#ff4400" web/src/ kiosk/src/
-# Must return 0 matches
-
-# 9. Verify outputFileTracingRoot in all next.config.ts files
-grep outputFileTracingRoot web/next.config.ts kiosk/next.config.ts
-# Must appear in both
-
-# 10. Touch target size (spot check in devtools — set device to iPhone 12 Pro)
-# All interactive kiosk elements must be >= 44x44px
-
-# 11. WebSocket env var correct in deployed bundle (check HTML source)
-curl -s http://192.168.31.23:3200/ | grep -o "NEXT_PUBLIC_WS_URL[^\"]*"
-# Should NOT contain "localhost"
+Each new layer is added incrementally to fix a new failure mode, with deconfliction added as an afterthought. The existing breadcrumb mechanism (`sentry-restart-breadcrumb.txt`) only deconflicts between rc-sentry and RCWatchdog. It is invisible to Layer 1 MMA, Layer 2 SSH healer, and Layer 3 Guardian.
+
+**How to avoid:**
+Implement a single `HEAL_IN_PROGRESS` sentinel file at `C:\RacingPoint\HEAL_IN_PROGRESS` before any autonomous healing action at ANY layer. Every recovery system (existing and new) must check this file before acting. Contents: JSON with `{"layer": 1, "started_at": "ISO8601", "action": "mma_diagnosis", "ttl_secs": 120}`. TTL is mandatory — sentinel expires automatically if healing crashes mid-way.
+
+```rust
+// In rc-watchdog, before MMA diagnosis:
+fn try_acquire_heal_lock(ttl_secs: u64) -> bool {
+    let path = Path::new(r"C:\RacingPoint\HEAL_IN_PROGRESS");
+    // Check existing lock first
+    if let Ok(contents) = fs::read_to_string(&path) {
+        if let Ok(lock) = serde_json::from_str::<HealLock>(&contents) {
+            if lock.started_at.elapsed_secs() < lock.ttl_secs {
+                return false; // Another layer is healing
+            }
+        }
+    }
+    // Write our lock
+    fs::write(&path, serde_json::to_string(&HealLock {
+        layer: 1,
+        started_at: Utc::now(),
+        ttl_secs,
+    }).unwrap_or_default()).is_ok()
+}
 ```
+
+Also extend the existing `OTA_DEPLOYING` sentinel check — all three new layers must skip ALL healing actions when `OTA_DEPLOYING` is present. The existing rc-watchdog service already respects `MAINTENANCE_MODE`; the new MMA-triggered actions must too.
+
+**Warning signs:**
+- `restart_count` incrementing faster than possible (2+ restarts per 10s window)
+- `HEAL_IN_PROGRESS` file exists with age > TTL (healing crashed, stale lock)
+- Layer 2 SSH diagnostics return "binary not found" — Layer 1 was mid-swap when Layer 2 ran
+- Server fleet health shows pod flip-flopping between `ws_connected: true` and `ws_connected: false` every 5-15s
+
+**Phase to address:** Phase 1 (Smart Watchdog core) — the sentinel protocol must be defined BEFORE any healing logic is written. Every subsequent phase references it.
+
+---
+
+### Pitfall 2: MAINTENANCE_MODE Has No Timeout — Smart Watchdog MMA Triggers It Then Locks Itself Out
+
+**What goes wrong:**
+The existing `MAINTENANCE_MODE` file blocks ALL restarts permanently (no TTL). The Smart Watchdog MMA loop detects a crash-loop (>3 restarts in 10 min), runs MMA diagnosis, then recommends "block further restarts while we analyze." If the watchdog writes `MAINTENANCE_MODE` as part of the analysis pause, it then cannot restart the agent after the fix is identified — the fix is correct but the sentinel blocks execution of the fix indefinitely.
+
+This is not a new risk — v17.1 explicitly addressed it: "MAINTENANCE_MODE sentinel written after 3 restarts in 10 min, but has no auto-clear mechanism, no TTL, no timeout." However, v31.0 adds a new actor (Layer 1 MMA) that will interact with this sentinel in a new way: the MMA cycle itself takes 30-120s, meaning a pod can be in "analyzing" state much longer than the existing 10-min MAINTENANCE_MODE window anticipates.
+
+**Why it happens:**
+The MMA loop is slow by design (multi-model consensus). The sentinel was designed for human-in-the-loop operation where a human clears it. With autonomous operation, no human clears it.
+
+**How to avoid:**
+The v17.1 fix added a 30-minute auto-clear TTL to MAINTENANCE_MODE. v31.0 must ensure:
+
+1. MMA diagnosis uses a SEPARATE sentinel (`MMA_DIAGNOSING`) with its own TTL (= MMA_TIMEOUT + 30s buffer), distinct from MAINTENANCE_MODE.
+2. MAINTENANCE_MODE is NEVER written by the Smart Watchdog during autonomous MMA — it is only written by rc-agent itself after crash-loop detection. The watchdog reads it (to know healing is blocked) but does not write it.
+3. If MMA recommends a fix and MAINTENANCE_MODE is present, the Smart Watchdog calls the server's new direct-report endpoint to have the server send a CLEAR_SENTINEL command to the pod via rc-sentry (bypassing the dead rc-agent).
+
+```rust
+// In rc-watchdog MMA completion:
+fn apply_mma_fix(fix: &MmaFix) {
+    // Check for blocking sentinels first
+    if Path::new(r"C:\RacingPoint\MAINTENANCE_MODE").exists() {
+        // Cannot act locally — escalate to server to clear via rc-sentry
+        self.report_to_server(WatchdogReport {
+            action_blocked_by: Some("MAINTENANCE_MODE".into()),
+            recommended_fix: fix.clone(),
+            ..
+        });
+        return;
+    }
+    // Proceed with fix
+}
+```
+
+**Warning signs:**
+- Pod stays in `ws_connected: false` indefinitely after MMA reports "fix identified"
+- `MMA_DIAGNOSING` file age > 3 minutes (MMA stalled or crashed)
+- `MAINTENANCE_MODE` present AND `HEAL_IN_PROGRESS` present simultaneously (two blocking sentinels)
+- Server watchdog report endpoint receives `action_blocked_by: MAINTENANCE_MODE` repeatedly
+
+**Phase to address:** Phase 1 (Smart Watchdog core) — sentinel inventory and interaction protocol must be defined before MMA integration.
+
+---
+
+### Pitfall 3: Windows Service Cannot Make HTTP Calls to OpenRouter Without Proxy Config
+
+**What goes wrong:**
+The Smart Watchdog runs as a Windows service (`RCWatchdog`, `NT AUTHORITY\SYSTEM`). The SYSTEM account on pod machines does NOT have WinHTTP proxy settings configured. The `reqwest` client in the existing `openrouter.rs` uses the system default trust store and proxy settings. When the SYSTEM account makes an outbound HTTPS request to `https://openrouter.ai`, three failure modes occur:
+
+1. **Proxy redirect:** Venue WiFi has a captive portal or transparent proxy; SYSTEM doesn't get the `INTERNET_DEFAULT_PROXY` settings that the user account has
+2. **Certificate validation:** SYSTEM's certificate store may not have the intermediate CA chain for OpenRouter's TLS cert, causing `certificate verify failed`
+3. **TLS timeouts:** SYSTEM-context HTTP is subject to different timeout behavior — the `PER_ATTEMPT_TIMEOUT_SECS = 30` in `openrouter.rs` may not apply correctly from a service
+
+The rc-agent already calls OpenRouter successfully but rc-agent runs in Session 1 (user context), not as SYSTEM. This distinction will cause the Smart Watchdog to fail on its first real MMA call in production even though it works in testing (where testing is done interactively).
+
+**Why it happens:**
+Service context vs user context HTTP differences are only visible at runtime. `cargo test` and local development run in user context. The service only runs on the pod hardware. The failure does not appear until a real crash-loop triggers MMA.
+
+**How to avoid:**
+```rust
+// In rc-watchdog openrouter client initialization:
+fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        // Explicit timeout — don't rely on system defaults from SYSTEM context
+        .timeout(Duration::from_secs(45))
+        // Load system certs AND bundled Mozilla root certs (fallback for SYSTEM store gaps)
+        .tls_built_in_root_certs(true)
+        // Disable proxy for direct API calls from service context
+        // (venue proxy only applies to user-context browsing)
+        .no_proxy()
+        .build()
+        .expect("reqwest client construction failed")
+}
+```
+
+Test this BEFORE any MMA feature goes to production: deploy a service-context version that calls `https://openrouter.ai/api/v1/models` and verify the response in the watchdog log. This test call should be in the watchdog startup sequence.
+
+**Warning signs:**
+- Watchdog log shows `WARN openrouter — attempt 1/4 error: certificate verify failed`
+- MMA diagnosis never completes, pod stays in crash-loop
+- OpenRouter calls succeed when tested from rc-agent (Session 1) but fail from watchdog (SYSTEM)
+- `reqwest::Error { kind: Connect }` from service context but not from user context
+
+**Phase to address:** Phase 1 (Smart Watchdog core) — verify SYSTEM-context HTTP in a canary deploy before wiring MMA. A startup connectivity check (`POST /api/v1/models`) must pass before MMA is enabled.
+
+---
+
+### Pitfall 4: Rollback Loop — `rc-agent-prev.exe` Is Also Broken
+
+**What goes wrong:**
+The Smart Watchdog detects a crash in <30s, rolls back to `rc-agent-prev.exe`. If `rc-agent-prev.exe` is ALSO broken (corrupted download, same bug, or binary from before a required DB migration), the rollback itself crashes in <30s. The watchdog detects this, decides to "roll forward" — but the new binary is already marked bad. Net result: the watchdog alternates between two broken binaries, incrementing `restart_count` until MAINTENANCE_MODE fires.
+
+This is different from the existing crash-loop detection because the crash-loop counter does not distinguish between "new binary is bad" and "both binaries are bad." After rollback, `restart_count` should reset (new state), but the existing counter is session-scoped and increments regardless.
+
+**Why it happens:**
+The deploy sequence creates `rc-agent-prev.exe` by renaming the outgoing binary. If two successive deploys both ship bad binaries, both `rc-agent.exe` AND `rc-agent-prev.exe` are bad. The rollback mechanism has no concept of "how many rollback depth levels" exist.
+
+**How to avoid:**
+1. Maintain a `rollback-state.json` at `C:\RacingPoint\rollback-state.json`:
+   ```json
+   {
+     "current_hash": "abc123",
+     "prev_hash": "def456",
+     "rollback_attempted_at": null,
+     "rollback_succeeded": null,
+     "rollback_depth": 0
+   }
+   ```
+2. After rollback, reset the crash-loop counter to 0 (new binary, new chance). If rollback binary also crashes in <30s, set `rollback_depth: 1` and do NOT attempt another rollback.
+3. At `rollback_depth: 1` (both binaries bad), escalate to Layer 2 (server fleet healer) via the direct-report endpoint — do NOT loop. The watchdog sends: `{"action": "both_binaries_bad", "current_hash": "...", "prev_hash": "..."}`.
+4. Layer 2 response: push a known-good binary from the server's staging area via its own download channel.
+
+```rust
+// In rc-watchdog rollback logic:
+fn handle_crash_loop(state: &mut WatchdogState) {
+    if state.rollback_depth == 0 && prev_binary_exists() {
+        attempt_rollback();
+        state.rollback_depth += 1;
+        state.crash_count = 0; // Reset for rollback binary
+    } else {
+        // rollback_depth >= 1: both binaries bad
+        // Do NOT write MAINTENANCE_MODE — escalate to server instead
+        report_to_server(WatchdogReport {
+            escalation_reason: "both_binaries_bad",
+            ..
+        });
+        // Stop restarting — wait for server to push binary
+        state.healing_paused = true;
+    }
+}
+```
+
+**Warning signs:**
+- `restart_count` > 10 in watchdog report (alternating between two binaries)
+- Log shows alternating "rolling back to prev" and "rolling forward to current"
+- `rc-agent-prev.exe` crash time matches `rc-agent.exe` crash time (same code path failing)
+- Pod dark for >15 minutes despite watchdog active (both binaries bad, paused)
+
+**Phase to address:** Phase 1 (Smart Watchdog rollback logic) — depth tracking and "both bad" escalation path must be designed before rollback is implemented.
+
+---
+
+### Pitfall 5: Split-Brain Between James (Layer 3) and Bono (Layer 3)
+
+**What goes wrong:**
+Both James (.27) and Bono VPS are defined as "External Guardian" (Layer 3). Both watch the server. Both can trigger restart via SSH/schtasks. If the server is slow to respond (high CPU, network jitter), both guardians independently conclude the server is down and simultaneously:
+
+1. James sends `schtasks /Run /TN StartRCOnBoot` via Tailscale SSH to the server
+2. Bono sends the same command via its own SSH connection 30 seconds later
+3. Two racecontrol instances attempt to bind port 8080 simultaneously → `os error 10048 (address in use)` → both crash
+4. Both guardians now see the server as down and escalate again
+
+This is the "16 orphan watchdog instances" incident from 2026-03-24 but at the inter-AI level instead of the intra-machine level.
+
+**Why it happens:**
+Distributed guardians without a coordination protocol independently observe the same symptom and independently apply the same fix. The fix itself (starting racecontrol) requires a "confirm kill" step that takes 15s. If both guardians start within that 15s window, they both "win" and create a conflict.
+
+**How to avoid:**
+One guardian owns server restarts. The other is in "standby" mode — it only acts if the primary guardian is itself unreachable. Concrete assignment: **Bono VPS is primary for server-level recovery** (24/7 always-on). James is secondary, only activates if Bono's VPS goes dark.
+
+Implementation:
+```
+# Bono Layer 3 Guardian checks:
+1. Is James's relay alive? (curl http://James:8766/relay/health)
+2. If YES: Is James already acting on this? (check shared GUARDIAN_ACTING sentinel in comms-link)
+3. If James acting: skip, let James finish
+4. If neither acting: Bono acquires GUARDIAN_ACTING sentinel (written to comms-link INBOX.md)
+5. Bono performs recovery
+6. Bono clears GUARDIAN_ACTING sentinel
+```
+
+The `GUARDIAN_ACTING` sentinel must be in the shared comms-link channel (INBOX.md commit or a dedicated sentinel endpoint), NOT a local file on either machine. A local file only coordinates with the local process — it does nothing to coordinate between two different machines.
+
+**Warning signs:**
+- Server log shows `os error 10048` within 60 seconds of a restart attempt
+- Both James and Bono WhatsApp notifications show "server restarted" at nearly identical timestamps
+- `start-racecontrol.bat` logs show two simultaneous executions
+- Server health endpoint alternates between available and `connection refused`
+
+**Phase to address:** Phase 5 (External Guardian / Layer 3) — guardian coordination protocol must be the FIRST thing defined before either guardian's recovery logic is written.
+
+---
+
+### Pitfall 6: SSH Into Dark Pods — Fleet Healer SSH Concurrency Causes `MaxSessions` Exhaustion
+
+**What goes wrong:**
+Layer 2 (Server Fleet Healer) SSHes into dark pods for diagnostics. The existing OpenSSH on Windows pods defaults to `MaxSessions 10` and `MaxStartups 10:30:100`. With 8 pods potentially all dark simultaneously, the Fleet Healer might spawn parallel SSH connections. Additionally:
+
+1. SSH to Windows pods uses a password or key (`ssh User@<pod_ip>`). The known-good path is Tailscale SSH (`ssh User@<tailscale_ip>`). But Tailscale on pods may also be down (if it's a deep crash where the pod can't connect to Tailscale coordination server).
+2. The Fleet Healer is inside `racecontrol.exe` running on the server. `std::process::Command::new("ssh")` in a Rust async context blocks the calling thread. Spawning 8 concurrent `ssh` processes from Axum's async runtime causes thread pool starvation.
+3. `ssh` in a non-interactive context (no TTY) may hang waiting for a password prompt if key auth fails, blocking indefinitely.
+
+**Why it happens:**
+Fleet healing was designed in the v26.0 MESHED-INTELLIGENCE spec but the SSH implementation details were deferred. The `pod_healer.rs` currently uses `rc-agent /exec` for diagnostics — it assumes rc-agent is alive. For the v31.0 use case (dark pods where rc-agent is dead), SSH is needed but not yet implemented.
+
+**How to avoid:**
+```rust
+// In fleet_healer SSH diagnostics:
+async fn ssh_diagnose_pod(pod_ip: &str, tailscale_ip: &str) -> Result<PodDiagnostics> {
+    // Use tokio::process (non-blocking), not std::process
+    let mut cmd = tokio::process::Command::new("ssh");
+    cmd.args([
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",      // Fail fast — don't hang on dead pod
+        "-o", "BatchMode=yes",          // No interactive prompts — key auth only
+        "-o", "ServerAliveInterval=5",
+        "-o", "ServerAliveCountMax=2",
+        &format!("User@{}", tailscale_ip),
+        "tasklist /FI \"IMAGENAME eq rc-agent.exe\" && dir C:\\RacingPoint\\"
+    ]);
+
+    // EXPLICIT timeout: 20s max per SSH command
+    tokio::time::timeout(Duration::from_secs(20), cmd.output()).await
+        .map_err(|_| anyhow!("SSH to {} timed out", tailscale_ip))?
+}
+
+// Limit concurrency — max 2 SSH connections at a time
+static SSH_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(2));
+```
+
+For Tailscale-down scenarios: maintain a second attempt path using LAN IP with `ping -n 1 -w 500` first, then SSH. If neither path reaches the pod, report as `unreachable` and use WoL if MAC address is known — do not hang.
+
+**Warning signs:**
+- Fleet healer cycle takes >2 minutes (multiple SSH hangs)
+- `ssh` processes accumulate in `tasklist` on the server
+- Fleet health check endpoint (:8080/api/v1/fleet/health) becomes slow (blocked on SSH in healer loop)
+- Pod shows `unreachable` in fleet health but is actually up (Tailscale IP vs LAN IP confusion)
+
+**Phase to address:** Phase 3 (Server Fleet Healer SSH diagnostics) — concurrency limit and timeout must be in the initial implementation, not added later.
+
+---
+
+### Pitfall 7: MMA Budget Overrun in Service Context — No User to Approve
+
+**What goes wrong:**
+The existing `budget_tracker.rs` in rc-agent has a `$10/day/pod` hard cap. When the cap hits, the existing code falls back to the mechanical (local Ollama) path. In v31.0, the Smart Watchdog adds its OWN MMA calls that also bill to the same OpenRouter API key. In a crash-loop scenario:
+
+- Pod enters crash loop → watchdog MMA fires (5 models, ~$4/run)
+- MMA recommends rollback → rollback binary also crashes → watchdog MMA fires AGAIN
+- If this happens at 2am: 3 iterations = $12 before the existing rc-agent budget tracker even sees it (the budget tracker is inside rc-agent, which is dead during the crash loop)
+
+The watchdog operates OUTSIDE the rc-agent process, so the existing `budget_tracker.rs` state is inaccessible to the watchdog. Two independent callers share one API key with no shared budget tracking.
+
+**Why it happens:**
+The v26.0 budget tracker was designed for rc-agent only. The watchdog was not an AI caller at that time. v31.0 makes the watchdog an AI caller, but the budget tracker doesn't know about it.
+
+**How to avoid:**
+1. The watchdog must maintain its OWN budget file at `C:\RacingPoint\watchdog-budget.json` (separate from rc-agent's budget state), with `$5/day` hard cap (half the pod budget).
+2. Before any MMA call, the watchdog reads BOTH budget files (its own + rc-agent's, if accessible) and aborts MMA if combined daily spend > $8.
+3. Budget file is shared via the server's direct-report endpoint — the watchdog sends its spend in every report so the server can aggregate fleet-wide AI spend.
+
+```rust
+struct WatchdogBudget {
+    daily_spend_usd: f32,
+    last_reset: NaiveDate,
+    hard_cap_usd: f32, // = 5.0
+}
+
+fn can_run_mma(&self) -> bool {
+    let today = Utc::now().date_naive();
+    if self.last_reset < today {
+        return true; // New day, reset
+    }
+    self.daily_spend_usd < self.hard_cap_usd
+}
+```
+
+**Warning signs:**
+- OpenRouter API key returns 402 (payment required) across ALL layers simultaneously
+- Watchdog log shows MMA calls at high frequency (>3/hour)
+- No budget file exists at `C:\RacingPoint\watchdog-budget.json` (budget never persisted)
+- rc-agent budget tracker shows $0 spend but OpenRouter bills show high usage (watchdog spend uncounted)
+
+**Phase to address:** Phase 1 (Smart Watchdog MMA integration) — budget file must exist before the first MMA call. Never add MMA without a spend cap.
+
+---
+
+### Pitfall 8: Binary Manifest TOCTOU — Check Happens on Disk, Launch Happens Seconds Later
+
+**What goes wrong:**
+The Smart Watchdog validates the SHA256 of `rc-agent.exe` against a manifest before launching. This is correct. However:
+
+1. The check happens at T=0: hash matches manifest → OK
+2. Between T=0 and T=2s (when the watchdog calls `spawn_in_session1()`), an interrupted download or partial OTA write overwrites `rc-agent.exe` with a partially-written file
+3. The watchdog launches the partially-written binary
+4. The binary crashes instantly (PE header corrupted) → crash-loop starts
+
+The TOCTOU window is especially large if the watchdog is throttling between the check and the launch (e.g., waiting for MAINTENANCE_MODE to clear, running MMA, etc.).
+
+A secondary case: the manifest distribution path. The server serves the manifest at an endpoint like `/api/v1/manifest`. If the manifest is fetched AFTER the binary is downloaded (instead of before), the binary has already been written by the time the hash is checked against a fresh manifest — a corrupted download could match an older manifest entry if the server is serving a cached response.
+
+**Why it happens:**
+Manifest checks are added as a pre-condition check, not as a "load-and-lock" operation. The binary is treated as immutable between check and launch, but it is not.
+
+**How to avoid:**
+```rust
+fn validate_and_prepare_binary(path: &Path) -> Result<ValidatedBinary> {
+    // 1. Open file with FILE_FLAG_SEQUENTIAL_SCAN (no write sharing)
+    // 2. Hash the open file descriptor (not the path)
+    // 3. Keep file handle open until spawn — no window for replacement
+    // Actually in Windows, rename() is used for atomic swap (delete prev, rename new)
+    // So the correct check is: hash THEN immediately rename to a temp name for launch
+
+    let hash = sha256_file(path)?;
+    let manifest = fetch_manifest_from_server()?;
+    if manifest.get_hash_for(path) != Some(&hash) {
+        return Err(anyhow!("Binary hash mismatch — abort launch"));
+    }
+    // Atomically rename to a "validated" copy that OTA cannot overwrite
+    let validated_path = path.with_extension("validated.exe");
+    fs::rename(path, &validated_path)?; // Atomic on same volume
+    // ... launch from validated_path
+    Ok(ValidatedBinary { path: validated_path })
+}
+```
+
+For manifest distribution: fetch the manifest FIRST from the server (with auth), then download and verify the binary against the fetched manifest. Never check a downloaded binary against a manifest fetched after the download.
+
+**Warning signs:**
+- `rc-agent.exe` file size changes between watchdog check and launch
+- `OTA_DEPLOYING` file is absent but binary content is inconsistent with manifest hash
+- Crash at T < 5s with exit code -1073741795 (0xC000007B — invalid image format)
+- Multiple hash-check failures in rapid succession (active OTA in progress)
+
+**Phase to address:** Phase 1 (Smart Watchdog binary validation) — the check-then-launch must be made atomic before rollback logic is added.
+
+---
+
+### Pitfall 9: Layer 2 Fleet Healer SSH Runs During Active Customer Sessions
+
+**What goes wrong:**
+Layer 2 SSH diagnostics are triggered when a pod appears "dark" to the server (no WS connection). However, a pod can appear dark to the server while STILL HAVING AN ACTIVE BILLING SESSION if:
+
+- The WebSocket connection dropped (brief network glitch) but rc-agent is still running
+- The billing timer is persisting to SQLite on the pod (heartbeat every 60s)
+- A customer is mid-session
+
+If the Fleet Healer SSHes in and starts running diagnostics (`tasklist`, `netstat`, reading log files), it competes for I/O with the billing heartbeat. Worse, if the Fleet Healer decides to push a new binary and restart rc-agent, it kills an active billing session — the customer loses their remaining session time and the venue loses the revenue.
+
+The existing `pod_healer.rs` already has this check:
+```rust
+const PROTECTED_PROCESSES: &[&str] = &["rc-agent.exe", "acs.exe", ...];
+```
+But this protection is at the "kill process" level. The Layer 2 SSH healer operates at a lower level (direct SSH commands) and bypasses this protection entirely.
+
+**Why it happens:**
+Layer 2 SSH is designed for "dark pods" — the assumption is that if SSH is needed, rc-agent is dead. But a pod can be dark to the server without rc-agent being dead (WS disconnected ≠ rc-agent dead).
+
+**How to avoid:**
+Before any Layer 2 SSH action that modifies the pod (binary push, process kill, restart):
+1. Attempt to reach the pod via HTTP directly: `curl http://<pod_ip>:8090/health` — if this succeeds, rc-agent IS alive, WS merely disconnected. Switch to WS reconnect path, not SSH intervention.
+2. Read `C:\RacingPoint\billing_active.sentinel` via SSH before any disruptive action — if this file exists and is <120s old, a billing session is active. SSH diagnostics only, no restarts.
+3. The billing session drain from the OTA pipeline (`has_active_billing_session()`) must also be called from the Layer 2 healer before any binary push.
+
+**Warning signs:**
+- Pod shows `ws_connected: false` but `http_reachable: true` — this is WS glitch, NOT dead pod
+- Fleet Healer SSH log shows "session drain: 0" but billing DB has an active session (check times)
+- Customer complains about session ending unexpectedly during Fleet Healer cycle
+- `billing_active.sentinel` present on pod at time of SSH healer action
+
+**Phase to address:** Phase 3 (Server Fleet Healer) — "dark pod" must have three definitions: WS-only dark (WS down, HTTP up), partially dark (WS down, HTTP up but unhealthy), and truly dark (WS down, HTTP unreachable). Each requires a different healer response.
+
+---
+
+### Pitfall 10: OpenRouter API Rate Limits and 503s During a Fleet Crash Storm
+
+**What goes wrong:**
+A firmware update, power event, or network issue takes down all 8 pods simultaneously. All 8 Smart Watchdog instances independently detect the crash and independently trigger MMA diagnosis. OpenRouter receives 8 parallel requests for 5-model consensus, each spawning 5 API calls = 40 concurrent API calls from one key. OpenRouter rate limits at the API key level (not per-IP). Result:
+
+- 6 of 8 watchdog MMA calls get 429 errors
+- The existing `MAX_RETRIES: 4` + exponential backoff in `openrouter.rs` retries with up to 10s delays
+- All 8 watchdogs are now in retry loops simultaneously, retrying at nearly synchronized intervals (thundering herd)
+- The retries themselves cause more 429s
+- No pod gets an MMA result for 5-10 minutes
+
+The existing `TIER4_SEMAPHORE: Semaphore::new(2)` in `openrouter.rs` limits concurrency within ONE rc-agent process. It does NOT limit concurrency across 8 pod watchdogs.
+
+**Why it happens:**
+The semaphore in `openrouter.rs` is a static within one process. Cross-process coordination requires a different mechanism.
+
+**How to avoid:**
+1. Stagger watchdog MMA triggers by pod number. Pod 1 waits 0s, Pod 2 waits 15s, Pod 3 waits 30s, etc. After the first MMA result, Layer 2 (Fleet Healer) detects the fleet-wide pattern and can provide the same root cause to all pods without running 8 separate MMA cycles.
+2. Fleet-wide pattern detection (already in the v31.0 spec: "same failure on 3+ pods = systemic issue") should SHORT-CIRCUIT individual pod MMA. The Fleet Healer runs ONE MMA on the pattern, distributes the result to all affected pods.
+3. In the watchdog retry logic, add full jitter: `delay = rand(0, BASE_DELAY_MS * 2^attempt)` (not just `BASE_DELAY_MS * 2^attempt`). The existing `openrouter.rs` uses fixed base delay multiplied by attempt — add randomization to spread retries.
+
+```rust
+// Add to rc-watchdog openrouter client:
+fn backoff_with_jitter(attempt: u32) -> Duration {
+    let base = BASE_DELAY_MS * (1u64 << attempt.min(5));
+    let jitter = rand::random::<u64>() % base;
+    Duration::from_millis((base + jitter).min(MAX_DELAY_MS))
+}
+```
+
+**Warning signs:**
+- 8 pods all enter crash-loop within 60s of each other (fleet-wide event)
+- OpenRouter API logs show >20 requests from same key in <10s
+- Watchdog logs show "429 Too Many Requests — attempt N/4" on most pods
+- Fleet Healer detects fleet-wide pattern but continues running pod-by-pod MMA anyway
+
+**Phase to address:** Phase 2 (Unified MMA Protocol) — staggering and fleet-pattern short-circuit must be in the MMA spec before implementation.
+
+---
+
+## Technical Debt Patterns
+
+Shortcuts that seem reasonable but create long-term problems.
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Using `tasklist` polling to detect crashes (current rc-watchdog) | Simple, no extra dependencies | Cannot determine WHY the crash happened (exit code, exception type) | Acceptable for restart detection; NEVER as input for MMA diagnosis |
+| Hardcoding `C:\RacingPoint` path in watchdog | Simpler code | All machines must use this exact path | Acceptable for pods (all configured this way); NOT acceptable for server or James |
+| Single OpenRouter key for all layers | One thing to manage | Budget overrun between layers invisible; key rotation affects everything | Only acceptable with cross-layer spend tracking (Pitfall 7) |
+| Writing MAINTENANCE_MODE from watchdog | Stops restart storms | Watchdog locks itself out of applying the fix | Never — watchdog must NOT write MAINTENANCE_MODE |
+| Using sentry breadcrumb file for all deconfliction | Already exists | Does not scale to 3+ recovery layers | Never for v31.0 — extend to HEAL_IN_PROGRESS sentinel |
+| Running MMA on every single crash (not just crash-loops) | More diagnosis data | $4/crash × 8 pods × 3 crashes/day = $96/day | Never — MMA only on confirmed crash-loops (>3 restarts / 10 min) |
+
+---
+
+## Integration Gotchas
+
+Common mistakes when connecting the new layers to existing systems.
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| Watchdog → Server direct-report endpoint | Adding endpoint to `public_routes` (no auth) | Behind `require_service_key` middleware; watchdog sends `RCSENTRY_SERVICE_KEY` header |
+| Fleet Healer SSH → Windows pods | Using password auth (may prompt) | Key-based auth only; `BatchMode=yes` SSH flag; `rc-watchdog` key pre-authorized on all pods |
+| External Guardian → Server schtasks | Calling `schtasks /Run /TN StartRCOnBoot` directly | Use `deploy-server.sh` logic: disable watchdog → confirmed kill → swap → start → verify |
+| Layer 1 MMA → OpenRouter | Using rc-agent's `openrouter.rs` unchanged | Separate client with SYSTEM-context certificate handling and no-proxy setting |
+| Layer 2 SSH → Pod exec | Running arbitrary commands | Whitelist: `tasklist`, `dir`, `netstat -an`, `type C:\RacingPoint\*.log` — never arbitrary shell |
+| Manifest server → Pods | Serving unsigned manifest over HTTP | Manifest must be signed with HMAC-SHA256 using the service key; watchdog verifies before trusting |
+
+---
+
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Synchronous SSH in async healer | Fleet health endpoint becomes slow during pod-down events | `tokio::process::Command` + `tokio::time::timeout(20s)` | When >2 pods go dark simultaneously |
+| MMA on every watchdog cycle | $100+/day API bills | MMA gated behind crash-loop threshold (>3 restarts/10min) | Immediately if trigger threshold is too low |
+| Loading full pod diagnostics into MMA prompt | Token limits exceeded for complex cases | Cap diagnostic context at 4000 tokens; summarize log tail | When pod has 100MB of crash logs |
+| Fleet healer collecting ALL pod logs via SSH | Server memory pressure from 8× multi-MB log transfers | Collect last 50 lines only; stream via SSH, don't buffer | When pods have verbose logging enabled |
+
+---
+
+## Security Mistakes
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| OpenRouter key in watchdog registry or toml | Key exposed to any local admin process | Environment variable only, set via service properties; NEVER in config file |
+| Watchdog direct-report endpoint without auth | Any LAN client can inject false crash reports | `RCSENTRY_SERVICE_KEY` header required on all new Layer 1 endpoints |
+| SSH private key stored on server in plain text | Compromised server = fleet access | Key stored in `C:\RacingPoint\fleet-ssh-key` with ACL limiting to ADMIN user only |
+| Guardian executing arbitrary server commands via SSH | Compromise of guardian machine = full server access | Guardian whitelist: `schtasks`, `netstat`, `dir C:\RacingPoint\`; no arbitrary shell |
+| Manifest served over unauthenticated HTTP | MITM can swap manifest, watchdog accepts corrupted binary | HMAC-SHA256 signed manifest; watchdog verifies signature with pre-shared key |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Tested from POS machine or James's browser** — not just from the server itself (NEXT_PUBLIC_ vars only detectable from remote)
-- [ ] **Kiosk tested on actual touchscreen** — devtools touch simulation does not accurately test hover state
-- [ ] **Static files verified with curl** — not just "build succeeded" (standalone deploy step is separate)
-- [ ] **Leaderboard TV page loads without login** — curl the URL without cookies, verify 200 not 302
-- [ ] **WebSocket reconnects on disconnect** — disconnect the server briefly and verify the leaderboard reconnects within 30s
-- [ ] **New components use shared types from packages/shared-types/** — no local type duplicates
-- [ ] **Recharts components wrapped in dynamic import with ssr:false** — check every new chart file
-- [ ] **Enthocentric font used on headers** — visual check, not code review
-- [ ] **No new tailwind.config.js created** — v4 uses globals.css @theme only
-- [ ] **All NEXT_PUBLIC_ vars in .env.production.local** — grep before every build
+- [ ] **HEAL_IN_PROGRESS sentinel:** All 5 recovery systems check it before acting — verify by grepping `HEAL_IN_PROGRESS` appears in: `rc-watchdog/src/service.rs`, `rc-sentry/src/`, `racecontrol/src/pod_healer.rs`, `racecontrol/src/fleet_health.rs`, and the External Guardian script.
+- [ ] **Rollback depth tracking:** `rollback-state.json` exists and `rollback_depth` field is checked before the second rollback attempt — verify by grepping `rollback_depth` in watchdog code.
+- [ ] **Budget file bootstrapping:** `watchdog-budget.json` is created on first start if missing (do not crash on missing file) — verify watchdog starts cleanly on a fresh pod with no budget file.
+- [ ] **SYSTEM-context HTTP test:** Watchdog startup runs `GET https://openrouter.ai/api/v1/models` as SYSTEM and logs the result before MMA is enabled — verify this test appears in watchdog boot log.
+- [ ] **Session awareness in Layer 2:** Fleet Healer checks `billing_active.sentinel` before ANY binary push — verify by grepping `billing_active` in `racecontrol/src/` fleet healer code.
+- [ ] **Guardian coordination:** `GUARDIAN_ACTING` is written to comms-link (shared channel) not to a local file — verify by grepping `GUARDIAN_ACTING` in both James and Bono guardian scripts.
+- [ ] **MMA stagger:** Watchdog MMA trigger is staggered by pod number — verify by reading pod-ID-based delay calculation in watchdog code.
+- [ ] **Manifest signature verification:** Watchdog rejects manifests without valid HMAC-SHA256 — verify test exists for malformed manifest handling.
 
 ---
 
 ## Recovery Strategies
 
+When pitfalls occur despite prevention, how to recover.
+
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| NEXT_PUBLIC_ deployed with localhost | MEDIUM — rebuild required | Set correct LAN IP in .env.production.local, `npm run build`, redeploy static + standalone |
-| Static files 404 after deploy | LOW — no rebuild | Copy `.next/static` to `.next/standalone/.next/static`, restart process |
-| outputFileTracingRoot wrong | LOW — no rebuild | Edit `required-server-files.json` appDir field manually OR rebuild with correct config |
-| Leaderboard TV showing login page | LOW — deploy fix | Remove AuthGate from that route, rebuild, redeploy |
-| WS reconnect leak — multiple connections | MEDIUM — code fix required | Extract WS into shared hook, rebuild, redeploy |
-| Touch targets too small — kiosk unusable | HIGH — design + code fix | Must enlarge all targets, rebuild kiosk, redeploy, verify on touchscreen |
+| Recovery system fight | MEDIUM | (1) `del C:\RacingPoint\HEAL_IN_PROGRESS` on affected pod, (2) restart rc-watchdog service, (3) manually clear breadcrumb file |
+| MAINTENANCE_MODE lockout | LOW | `del C:\RacingPoint\MAINTENANCE_MODE` via rc-sentry exec; `schtasks /Run /TN StartRCAgent` via SSH |
+| Both binaries bad | HIGH | SSH to pod → `scp` known-good binary from server → `ren rc-agent.exe rc-agent-prev.exe && ren rc-agent-good.exe rc-agent.exe && schtasks /Run /TN StartRCAgent` |
+| Split-brain double-restart | MEDIUM | SSH to server → `taskkill /F /IM racecontrol.exe` → wait 5s → `schtasks /Run /TN StartRCDirect` → verify one instance in tasklist |
+| OpenRouter rate limit storm | LOW | Wait 60s for backoff to clear; manually trigger `del C:\RacingPoint\MMA_DIAGNOSING` on affected pods to unblock |
+| SSH session exhaustion | LOW | Restart OpenSSH service on affected pods via WoL + scheduled task |
+| Budget overrun | MEDIUM | Delete `watchdog-budget.json` ONLY if day has rolled over; otherwise wait for midnight reset; check OpenRouter dashboard for anomalous spend |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Recovery system fight (Pitfall 1) | Phase 1 — Smart Watchdog core | `grep HEAL_IN_PROGRESS` in all recovery system source files |
+| MAINTENANCE_MODE lockout (Pitfall 2) | Phase 1 — Smart Watchdog core | Test: trigger crash-loop → verify MMA completes → verify fix applied without MAINTENANCE_MODE blocking |
+| SYSTEM-context HTTP failure (Pitfall 3) | Phase 1 — Smart Watchdog core | Deploy watchdog canary on Pod 8 → verify OpenRouter HTTP succeeds from service log |
+| Rollback loop (Pitfall 4) | Phase 1 — Smart Watchdog rollback | Test: deploy two bad binaries in sequence → verify watchdog escalates at depth=1, not loops |
+| Split-brain guardians (Pitfall 5) | Phase 5 — External Guardian | Test: simulate server down with both guardians active → verify only one restart occurs |
+| SSH concurrency exhaustion (Pitfall 6) | Phase 3 — Fleet Healer SSH | Load test: 8 dark pods → verify SSH semaphore prevents >2 concurrent connections |
+| Budget overrun in service (Pitfall 7) | Phase 2 — Unified MMA Protocol | Verify `watchdog-budget.json` created on first start; verify MMA blocked after cap |
+| Binary manifest TOCTOU (Pitfall 8) | Phase 1 — Smart Watchdog binary validation | Test: corrupt `rc-agent.exe` between check and launch → verify watchdog detects mismatch |
+| Active session disruption by Layer 2 (Pitfall 9) | Phase 3 — Fleet Healer | Test: create active billing session → verify fleet healer does NOT push binary or restart |
+| OpenRouter thundering herd (Pitfall 10) | Phase 2 — Unified MMA Protocol | Test: trigger fleet-wide crash → verify pod-staggered MMA calls and fleet-pattern short-circuit |
 
 ---
 
 ## Sources
 
-- `CLAUDE.md` (racecontrol repo) — NEXT_PUBLIC_ env var bake-time trap, standalone static file 404 incident (2026-03-25), outputFileTracingRoot fix history, Tailwind v4 CSS-first config, hydration localStorage rule, kiosk basePath, Recharts dynamic import pattern, brand identity (#E10600, Enthocentric, Montserrat, deprecated orange)
-- `MEMORY.md` — v16.1 cameras dashboard hardcoded array pitfall, kiosk 14-day stale deploy incident (2026-03-28), frontend staleness check in quality gate, NEXT_PUBLIC_WS_URL "page loads but no data" on POS machine
-- `web/next.config.ts` + `kiosk/next.config.ts` — outputFileTracingRoot rationale comments, basePath configuration
-- `web/package.json` + `kiosk/package.json` — Next.js 16.1.6, React 19.2.3, Tailwind v4, Recharts 3.8.1, socket.io-client 4.8.3
-- `web/src/app/globals.css` — Tailwind v4 @theme inline config, CSS custom properties, current color tokens
-- `web/src/app/leaderboards/page.tsx` — WS_BASE NEXT_PUBLIC_ pattern, SIM_TYPES array with "must match SimType enum" comment, dynamic Recharts import
-- `web/src/lib/api.ts` — fetchPublic vs fetchApi distinction, 30s timeout, 401 redirect behaviour
+- CLAUDE.md standing rules — all incidents marked "Why:" — direct evidence from this codebase
+- MEMORY.md — shipped milestones v17.1, v26.0, v27.0, v28.0 incident history
+- PROJECT.md v31.0 milestone definition — architecture and constraints
+- `crates/rc-watchdog/src/service.rs` — current deconfliction implementation (breadcrumb file, grace window)
+- `crates/rc-agent/src/openrouter.rs` — existing MMA client (semaphore, retry logic, SYSTEM context gap)
+- `crates/racecontrol/src/pod_healer.rs` — existing fleet healer (protected processes, WoL interaction)
+- `crates/racecontrol/src/fleet_health.rs` — crash-loop detection implementation
+- `.planning/research/PITFALLS-v17.1-watchdog-ai.md` — prior watchdog AI pitfalls (Session 0/1, spawn verification)
+- 2026-03-24 incident: 16 orphan PowerShell watchdog instances (split-brain pattern at intra-machine scale)
+- 2026-03-26 incident: MAINTENANCE_MODE blocked 3 pods for 1.5h without alert
+- 2026-03-29 incident: both racecontrol instances attempted to bind port 8080 simultaneously
 
 ---
-*Pitfalls research for: Racing Dashboard UI Redesign (subsequent milestone)*
-*Researched: 2026-03-30 IST*
+*Pitfalls research for: v31.0 Autonomous Survival System — 3-Layer MI Independence*
+*Researched: 2026-03-30*

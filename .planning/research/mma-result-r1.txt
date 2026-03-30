@@ -1,0 +1,45 @@
+## GAPS  
+- **Windows service network isolation**: No plan for handling corporate VPN/proxy requirements in Session 0 SYSTEM context. Watchdog HTTP calls may fail if pods operate in restricted networks.  
+- **OpenRouter fallback strategy**: Absence of fallback procedure when all 5 models exceed budget or become unavailable. Risk of complete MMA failure during OpenRouter outages.  
+- **Binary hash management**: No secure mechanism for distributing/updating expected SHA256 hashes. Watchdog lacks source-of-truth for validation beyond local files.  
+- **Budget enforcement granularity**: Missing real-time cost tracking per MMA invocation. Risk of micro-budget overruns accumulating unnoticed.  
+- **Layer 3 state synchronization**: No protocol for External Guardian to verify HEAL_IN_PROGRESS state before acting. Risk of duplicate interventions during network partitions.  
+- **Watchdog self-protection**: No integrity check for rc-watchdog.exe itself. Compromised watchdog could disable entire survival system.  
+
+## RISKS  
+- **SYSTEM context certificate failure**: P3 testing might miss enterprise CA requirements. Untrusted cert errors could block Layer 1 HTTP reporting permanently.  
+- **Blocking call deadlocks**: Using `reqwest::blocking` in watchdog without thread pool may freeze service during OpenRouter latency spikes.  
+- **Rollback-state explosion**: Unbounded `rollback-state.json` depth tracking could fill disk space during prolonged failures.  
+- **Model cost miscalculation**: Token-based billing underestimates complex diagnostics. Gemini 2.5 Pro at $1.25/1M tokens ≠ $1.25/1M *words* (actual ~4x higher).  
+- **Guardian split-brain**: P5 coordination relies on comms-link that may fail during server outages. Dual guardians could trigger conflicting VPS restarts.  
+- **Child key throttling**: OpenRouter child keys lack rate limit control. Malicious pod could drain budget via MMA spam.  
+
+## CORRECTIONS  
+- **OpenRouter pricing**: Gemini 2.5 Pro is $7.00/1M tokens (not $1.25) per current OpenRouter docs. Top models should be re-evaluated.  
+- **rc-watchdog async capability**: Existing watchdog *may* have Tokio runtime if built with `axum` dependencies. Verify Cargo.toml before adding explicit runtime.  
+- **Layer 3 deployment**: `pm2` is Node.js manager; Rust binary requires systemd service or `cargo install --system` on Bono VPS.  
+- **MAINTENANCE_MODE handling**: Watchdog *must* clear MAINTENANCE_MODE after successful recovery per existing v26.0 protocol (contradicts P2 finding).  
+- **Token economics**: $10/day = ~45M tokens/day for Qwen3. Actual diagnostic prompts average 2K tokens => ~22K queries/day budget.  
+
+## IMPROVEMENTS  
+- **Windows HTTP robustness**:  
+  - Use `schannel` TLS backend for SYSTEM context instead of default `rustls`  
+  - Add registry key detection for corporate proxies via `winreg` crate  
+- **OpenRouter client**:  
+  - Implement model circuit-breaker pattern: Skip models after 3 consecutive failures  
+  - Add request-level token counting with `tiktoken-rs` for precise cost prediction  
+- **Recovery coordination**:  
+  - Replace HEAL_IN_PROGRESS sentinel with etcd/Consul distributed lock with auto-renewal  
+  - Embed healer ID (e.g., "smart_watchdog_pod3") in lock value for debugging  
+- **Binary integrity**:  
+  - Store golden hashes in encrypted S3 bucket with IAM role access  
+  - Add watchdog self-check via embedded hash in resource section  
+- **Budget management**:  
+  - Implement sliding-window rate limiter using Redis on server  
+  - Add WhatsApp alerts at 75%/90%/100% daily budget consumption  
+- **Rollback escape**:  
+  - Cap rollback depth at 3, then trigger Layer 3 guardian intervention  
+  - Store known-good binaries in VPS-based artifact repository  
+- **Cross-layer optimization**:  
+  - Reuse server's SSH connection pool in Layer 2 instead of new connections  
+  - Share OpenRouter client crate between layers via workspace dependency

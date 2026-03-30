@@ -1,0 +1,77 @@
+## GAPS
+
+- **No mechanism for Layer 1 to detect or avoid interfering with manual admin interventions** — The research assumes autonomous healing is always safe, but there's no detection of active RDP sessions, running game processes, or ongoing maintenance. This could lead to disruptive rollbacks or restarts during legitimate operations.
+  
+- **Missing binary integrity verification at Layer 3** — While Layer 1 validates SHA256 of local binaries, the External Guardian (Layer 3) has no way to verify the authenticity or expected hash of the server or pod binaries before triggering remote repairs. This opens a window for false-positive recovery on corrupted deployment artifacts.
+
+- **No fallback path if OpenRouter is unreachable long-term** — The system relies on AI decision-making via OpenRouter even during training. If OpenRouter is down for >30 minutes, there’s no degraded mode (e.g., rule-based fallback) to maintain basic survival logic.
+
+- **No budget tracking persistence across reboots** — Daily budget limits ($10/pod) are not persisted to disk. A reboot could reset counters and allow overspending, especially under repeated AI invocation during a crisis.
+
+- **Missing coordination between Layer 2 and existing MI v26.0 systems** — The new survival coordinator may conflict with MI’s 5-tier diagnosis and SQLite knowledge base. No plan to integrate or disable overlapping logic (e.g., duplicate SSH diagnostics).
+
+- **No audit trail for AI-driven actions** — Every AI decision (rollback, restart, etc.) should be logged with full context (prompt, model, cost, reasoning) for post-mortem. Missing in current design.
+
+- **No mechanism to validate HTTP connectivity to server from Layer 1 before reporting** — If the watchdog cannot reach the server due to firewall or NIC failure, it will silently fail. Need connectivity pre-check or local spooling.
+
+---
+
+## RISKS
+
+- **OpenRouter API rate limiting or quota exhaustion** — Even with per-pod keys, OpenRouter enforces global rate limits. High-frequency failures across pods could trigger throttling, breaking critical AI analysis during cascading outages.
+
+- **AI model drift or degradation** — Switching to cheaper models post-training (e.g., Devstral 2) risks lower reasoning quality. No validation mechanism to ensure model performance meets minimum thresholds before switching.
+
+- **SYSTEM-context HTTP failures due to missing proxy or corporate cert trust** — Windows services in Session 0 often lack access to user-trusted certificate stores. If pods are behind a MITM proxy (e.g., Zscaler), reqwest::blocking will fail unless custom root certs are installed.
+
+- **Rollback-state.json becomes a single point of failure** — If this file is corrupted or locked during concurrent recovery attempts (e.g., watchdog + guardian), rollback logic may fail or loop.
+
+- **Layer 3 (rc-guardian) lacks self-healing** — If the Bono VPS crashes or pm2 kills rc-guardian, there's no watchdog for the guardian itself. This creates a blind spot in the survival chain.
+
+- **SSH-based restarts may hang or fail silently** — Using SSH to restart Windows services can time out or leave processes orphaned. No confirmation loop to verify that the target actually came back online.
+
+- **WhatsApp escalation may fail silently** — No retry logic, delivery confirmation, or alternate channel (SMS, email) if WhatsApp API fails.
+
+- **Cross-layer action storms** — Even with `HEAL_IN_PROGRESS`, multiple layers might initiate different repairs (rollback vs. full reboot) if TTL is too short or coordination is not atomic.
+
+---
+
+## CORRECTIONS
+
+- **"rc-watchdog has NO tokio runtime" is misleading** — While rc-watchdog may not currently use tokio, it can still spawn a lightweight Runtime::new() for async tasks. Blocking reqwest is acceptable but suboptimal; better to use a minimal async runtime for timeout control and non-blocking behavior.
+
+- **Gemini 2.5 Pro at $1.25/1M is outdated pricing** — As of mid-2025, Gemini Pro 1.5 is $0.35/1M input tokens; Gemini 2.0 (if available) is not priced at $1.25. Likely confusion with ultra-high-res image input pricing. Overestimating cost may bias model selection unfairly.
+
+- **"Devstral 2" likely meant "Dolphin 2" or "DeepSeek Coder"** — No known model named "Devstral 2" on OpenRouter. Possibly a typo for **Dolphin 2** (NLP model) or **DeepSeek Coder 2**, but neither are general reasoning models. If referring to **DeepSeek-V2**, that’s $0.19/1M, not $0.05. **$0.05/1M is closer to Qwen1.5 7B or Phi-3**. This mispricing invalidates cost-benefit analysis.
+
+- **"OpenRouter client must be extracted to rc-common" creates a dependency inversion risk** — rc-common should not depend on reqwest or HTTP clients. Better to define a trait in rc-common (e.g., `OpenRouterClient`) and implement it in higher layers to avoid pulling heavy deps into shared core.
+
+- **"Unified MMA Protocol: 5th model (thinking variant)" is underspecified** — No definition of what a "thinking variant" entails (e.g., CoT prompting, self-consistency, reflection). Without prompt engineering specs, this is not implementable.
+
+---
+
+## IMPROVEMENTS
+
+- **Introduce a shared coordination store (Redis or file-based sentinel)** — Replace ad-hoc `HEAL_IN_PROGRESS` with a TTL-backed coordination key in a shared location (e.g., server Redis or S3-compatible bucket). Include actor ID, action type, timestamp, and expected duration to prevent conflicts.
+
+- **Implement budget tracking with persistent counters** — Store daily usage per pod in a `budget_state.json` on durable storage (or server DB), updated after each OpenRouter call. Enforce hard cap at $9.50 to avoid overage.
+
+- **Add a local fallback rule engine for AI outages** — When OpenRouter fails >3 times, fall back to deterministic rules (e.g., “if 3 health polls fail → rollback”) to maintain basic survival without AI.
+
+- **Use signed binary manifests for integrity** — Extend SHA256 validation with a signed manifest (Ed25519) from the build system. Layer 3 can verify signatures before approving repairs, preventing rollback to tampered binaries.
+
+- **Adopt a publish-subscribe pattern for survival reports** — Instead of Layer 1 POSTing directly to server, use a local queue (e.g., SQLite-backed) that retries on failure. Server pulls or watches for reports to decouple availability.
+
+- **Implement a "safe window" check in all healers** — Before any action, check for active sim sessions (e.g., process list for iRacing, Assetto Corsa) or RDP connections via `qwinsta`. Skip healing if users are active.
+
+- **Use structured logging with action IDs** — Correlate AI decisions, recovery steps, and outcomes using a shared `action_id` across layers. Enables tracing and auditability.
+
+- **Deploy rc-guardian with systemd + health check, not just pm2** — On Bono VPS, use systemd with `Restart=always` and a `/health` endpoint to ensure self-healing. pm2 is insufficient for production-critical guardians.
+
+- **Implement model validation phase before downgrading** — After training, run a shadow mode where both high-cost and low-cost models analyze the same incidents. Only switch if agreement >90% on action and confidence.
+
+- **Add certificate pinning or CA bundle injection for Windows service** — Bundle Mozilla CA certs or use `native-tls` with explicit trust store in rc-watchdog to avoid cert validation failures in SYSTEM context.
+
+- **Replace WhatsApp with multi-channel alerting (Twilio + Email + Discord webhook)** — Avoid vendor lock-in and increase reliability. Use a notification abstraction in rc-common.
+
+- **Introduce a "dry-run" mode for AI actions** — All AI-generated repair plans must be logged and optionally require manual approval during early rollout. Prevents catastrophic missteps.
