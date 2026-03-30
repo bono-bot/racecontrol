@@ -102,8 +102,8 @@ Plans:
   5. Kiosk leaderboard (KS-05) animates rank changes using `AnimatePresence` + `layout` prop — tested on an actual pod touchscreen (not browser devtools touch simulation); kiosk build does NOT contain `@tanstack/react-table`
 **Plans**: 3 plans
 Plans:
-- [ ] 265-01-PLAN.md -- Kiosk home pod grid: offline count, press feedback, remaining time on active cards (KS-01)
-- [ ] 265-02-PLAN.md -- Booking wizard touch-optimize + billing countdown ring + 6-digit PinPad in fleet page (KS-02, KS-03, KS-04)
+- [x] 265-01-PLAN.md -- Kiosk home pod grid: offline count, press feedback, remaining time on active cards (KS-01)
+- [x] 265-02-PLAN.md -- Booking wizard touch-optimize + billing countdown ring + 6-digit PinPad in fleet page (KS-02, KS-03, KS-04)
 - [ ] 265-03-PLAN.md -- KioskLeaderboard with AnimatePresence + spectator page wire-up + pod hardware verification (KS-05)
 **UI hint**: yes
 
@@ -129,5 +129,5 @@ Plans:
 | 262. Deploy Pipeline Hardening | 0/2 | Not started | - |
 | 263. Web Primitive Components | 3/4 | In Progress|  |
 | 264. Web Dashboard Pages | 4/4 | Complete   | 2026-03-30 |
-| 265. Kiosk Pages | 0/3 | Not started | - |
+| 265. Kiosk Pages | 2/3 | In Progress|  |
 | 266. Quality Gate & Audit | 0/2 | Not started | - |

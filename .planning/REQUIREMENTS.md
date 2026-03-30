@@ -40,9 +40,9 @@
 
 ## Kiosk (KS)
 - [ ] **KS-01**: Kiosk home with touch-optimized pod selection grid (44px+ touch targets)
-- [ ] **KS-02**: Game launch flow with sim selection, difficulty, AI config
-- [ ] **KS-03**: Billing/payment view with wallet balance, session timer, countdown ring
-- [ ] **KS-04**: Staff tools page with pin-protected access
+- [x] **KS-02**: Game launch flow with sim selection, difficulty, AI config
+- [x] **KS-03**: Billing/payment view with wallet balance, session timer, countdown ring
+- [x] **KS-04**: Staff tools page with pin-protected access
 - [ ] **KS-05**: Kiosk leaderboard with animated rank changes
 
 ## Deploy & Quality (DQ)
