@@ -504,6 +504,25 @@ async fn run_tiers(
         return t2;
     }
 
+    // ── Staggered startup: delay first model call by pod_number × 2s ──
+    // Prevents thundering herd when all 8 pods restart simultaneously.
+    // Uses a one-shot static flag so only the very first call is delayed.
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STARTUP_DELAYED: AtomicBool = AtomicBool::new(false);
+        if !STARTUP_DELAYED.swap(true, Ordering::SeqCst) {
+            if let Ok(cfg) = crate::config::load_config() {
+                let delay_ms = u64::from(cfg.pod.number) * 2000;
+                tracing::info!(
+                    target: LOG_TARGET,
+                    pod = cfg.pod.number, delay_ms,
+                    "Staggered startup: delaying first model call"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+
     // ── Tier 3: Single Model (Qwen3) — only for real anomalies ──
     // C1: Check circuit breaker before model calls
     if circuit_breaker.is_open() {

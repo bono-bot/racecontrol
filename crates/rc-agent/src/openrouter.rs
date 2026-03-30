@@ -20,6 +20,20 @@ const LOG_TARGET: &str = "openrouter";
 /// OpenRouter API endpoint
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+/// Max retries for transient errors (429, 5xx)
+const MAX_RETRIES: u32 = 4;
+/// Base delay for exponential backoff (1 second)
+const BASE_DELAY_MS: u64 = 1000;
+/// Max backoff cap (10 seconds)
+const MAX_DELAY_MS: u64 = 10_000;
+/// Per-attempt timeout (30s) — total job timeout handled by caller
+const PER_ATTEMPT_TIMEOUT_SECS: u64 = 30;
+
+/// Tier 4 concurrency limiter — max 2 parallel Tier 4 diagnostic jobs per pod.
+/// Prevents thundering herd when all 8 pods fire simultaneously.
+static TIER4_SEMAPHORE: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(2));
+
 /// Model registry — version-pinned OpenRouter model IDs
 #[derive(Debug, Clone)]
 pub struct ModelConfig {
@@ -230,8 +244,56 @@ pub fn get_api_key() -> Option<String> {
     std::env::var("OPENROUTER_KEY").ok().filter(|k| !k.is_empty())
 }
 
+/// Classify HTTP status into retry strategy.
+#[derive(Debug, PartialEq)]
+enum ErrorClass {
+    /// 401/403 — auth/permission error, never retry
+    Auth,
+    /// 402 — out of credits, never retry
+    OutOfCredits,
+    /// 429 — rate limited, retry with backoff (honor Retry-After)
+    RateLimited,
+    /// 500-599 — transient upstream error, retry limited times
+    ServerError,
+    /// Other 4xx — client error, don't retry
+    ClientError,
+}
+
+fn classify_error(status: u16) -> ErrorClass {
+    match status {
+        401 | 403 => ErrorClass::Auth,
+        402 => ErrorClass::OutOfCredits,
+        429 => ErrorClass::RateLimited,
+        500..=599 => ErrorClass::ServerError,
+        _ => ErrorClass::ClientError,
+    }
+}
+
+/// Compute jittered backoff delay.
+/// Base: 1s, 2s, 4s, 8s... capped at MAX_DELAY_MS. Jitter: ±25%.
+fn backoff_delay(attempt: u32) -> std::time::Duration {
+    use rand::Rng;
+    let base = BASE_DELAY_MS.saturating_mul(1u64 << attempt).min(MAX_DELAY_MS);
+    let jitter_range = base / 4; // ±25%
+    let jitter = rand::thread_rng().gen_range(0..=jitter_range * 2);
+    let delay = base.saturating_sub(jitter_range).saturating_add(jitter);
+    std::time::Duration::from_millis(delay)
+}
+
+/// Parse Retry-After header value (seconds or HTTP date → seconds).
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<std::time::Duration> {
+    let val = headers.get("retry-after")?.to_str().ok()?;
+    // Try parsing as seconds first
+    if let Ok(secs) = val.parse::<u64>() {
+        return Some(std::time::Duration::from_secs(secs.min(30)));
+    }
+    // Could parse HTTP date here, but seconds is the common case for OpenRouter
+    None
+}
+
 /// Call a single OpenRouter model with diagnostic symptoms.
-/// Returns ModelResponse with parsed diagnosis or error.
+/// Retries transient errors (429, 5xx) with jittered exponential backoff.
+/// Honors Retry-After header. Aborts immediately on auth/credit errors.
 pub async fn call_model(
     client: &reqwest::Client,
     api_key: &str,
@@ -248,105 +310,193 @@ pub async fn call_model(
         "temperature": 0.1
     });
 
-    tracing::debug!(
-        target: LOG_TARGET,
-        model = model.id,
-        role = model.role,
-        "Calling OpenRouter model"
-    );
+    let mut last_error = String::new();
 
-    let result = client
-        .post(OPENROUTER_API_URL)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .header("HTTP-Referer", "https://racingpoint.in")
-        .header("X-Title", "Racing Point Mesh Intelligence")
-        .json(&request_body)
-        .timeout(std::time::Duration::from_secs(60))
-        .send()
-        .await;
-
-    let response = match result {
-        Ok(resp) => resp,
-        Err(e) => {
-            tracing::warn!(target: LOG_TARGET, model = model.id, error = %e, "OpenRouter request failed");
-            return ModelResponse {
-                model_id: model.id.to_string(),
-                role: model.role.to_string(),
-                diagnosis: None,
-                raw_text: String::new(),
-                cost_estimate: 0.0,
-                error: Some(format!("Request failed: {}", e)),
-            };
+    for attempt in 0..=MAX_RETRIES {
+        if attempt > 0 {
+            tracing::info!(
+                target: LOG_TARGET,
+                model = model.id,
+                attempt = attempt,
+                "Retrying OpenRouter call"
+            );
+        } else {
+            tracing::debug!(
+                target: LOG_TARGET,
+                model = model.id,
+                role = model.role,
+                "Calling OpenRouter model"
+            );
         }
-    };
 
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
+        let result = client
+            .post(OPENROUTER_API_URL)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .header("HTTP-Referer", "https://racingpoint.in")
+            .header("X-Title", "Racing Point Mesh Intelligence")
+            .json(&request_body)
+            .timeout(std::time::Duration::from_secs(PER_ATTEMPT_TIMEOUT_SECS))
+            .send()
+            .await;
 
-    if !status.is_success() {
-        tracing::warn!(target: LOG_TARGET, model = model.id, status = %status, "OpenRouter returned error");
+        let response = match result {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_error = format!("Request failed: {}", e);
+                if e.is_timeout() && attempt < MAX_RETRIES {
+                    // Timeout is retryable
+                    tracing::warn!(target: LOG_TARGET, model = model.id, attempt, "OpenRouter timeout — retrying");
+                    tokio::time::sleep(backoff_delay(attempt)).await;
+                    continue;
+                }
+                tracing::warn!(target: LOG_TARGET, model = model.id, error = %e, "OpenRouter request failed (final)");
+                return ModelResponse {
+                    model_id: model.id.to_string(),
+                    role: model.role.to_string(),
+                    diagnosis: None,
+                    raw_text: String::new(),
+                    cost_estimate: 0.0,
+                    error: Some(last_error),
+                };
+            }
+        };
+
+        let status = response.status();
+        let status_code = status.as_u16();
+
+        if !status.is_success() {
+            let error_class = classify_error(status_code);
+            let retry_after = parse_retry_after(response.headers());
+            let body = response.text().await.unwrap_or_default();
+            last_error = format!("HTTP {}: {}", status_code, &body[..body.len().min(200)]);
+
+            match error_class {
+                ErrorClass::Auth => {
+                    tracing::error!(
+                        target: LOG_TARGET, model = model.id, status = status_code,
+                        "OpenRouter auth error — check OPENROUTER_KEY (not retrying)"
+                    );
+                    return ModelResponse {
+                        model_id: model.id.to_string(),
+                        role: model.role.to_string(),
+                        diagnosis: None, raw_text: body, cost_estimate: 0.0,
+                        error: Some(last_error),
+                    };
+                }
+                ErrorClass::OutOfCredits => {
+                    tracing::error!(
+                        target: LOG_TARGET, model = model.id,
+                        "OpenRouter out of credits (402) — not retrying"
+                    );
+                    return ModelResponse {
+                        model_id: model.id.to_string(),
+                        role: model.role.to_string(),
+                        diagnosis: None, raw_text: body, cost_estimate: 0.0,
+                        error: Some(last_error),
+                    };
+                }
+                ErrorClass::RateLimited if attempt < MAX_RETRIES => {
+                    let delay = retry_after.unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        target: LOG_TARGET, model = model.id, attempt,
+                        delay_ms = delay.as_millis() as u64,
+                        "OpenRouter 429 rate limited — backing off"
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                ErrorClass::ServerError if attempt < MAX_RETRIES => {
+                    let delay = retry_after.unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        target: LOG_TARGET, model = model.id, status = status_code, attempt,
+                        "OpenRouter server error — retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                _ => {
+                    tracing::warn!(
+                        target: LOG_TARGET, model = model.id, status = status_code,
+                        "OpenRouter error (not retrying)"
+                    );
+                    return ModelResponse {
+                        model_id: model.id.to_string(),
+                        role: model.role.to_string(),
+                        diagnosis: None, raw_text: body, cost_estimate: 0.0,
+                        error: Some(last_error),
+                    };
+                }
+            }
+        }
+
+        // ── Success path ──
+        let body = response.text().await.unwrap_or_default();
+
+        let chat_resp: ChatResponse = match serde_json::from_str(&body) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, model = model.id, error = %e, "Failed to parse OpenRouter response");
+                return ModelResponse {
+                    model_id: model.id.to_string(),
+                    role: model.role.to_string(),
+                    diagnosis: None,
+                    raw_text: body,
+                    cost_estimate: 0.0,
+                    error: Some(format!("Parse error: {}", e)),
+                };
+            }
+        };
+
+        let raw_text = chat_resp
+            .choices
+            .as_ref()
+            .and_then(|c| c.first())
+            .and_then(|c| c.message.content.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        let cost_estimate = chat_resp.usage.as_ref().map_or(0.0, |u| {
+            let prompt = u.prompt_tokens.unwrap_or(0) as f64;
+            let completion = u.completion_tokens.unwrap_or(0) as f64;
+            (prompt * 0.5 + completion * 1.5) / 1_000_000.0
+        });
+
+        let diagnosis = extract_diagnosis(&raw_text);
+
+        tracing::info!(
+            target: LOG_TARGET,
+            model = model.id,
+            role = model.role,
+            has_diagnosis = diagnosis.is_some(),
+            cost = cost_estimate,
+            retries = attempt,
+            "OpenRouter model responded"
+        );
+
         return ModelResponse {
             model_id: model.id.to_string(),
             role: model.role.to_string(),
-            diagnosis: None,
-            raw_text: body.clone(),
-            cost_estimate: 0.0,
-            error: Some(format!("HTTP {}: {}", status, &body[..body.len().min(200)])),
+            diagnosis,
+            raw_text,
+            cost_estimate,
+            error: None,
         };
     }
 
-    // Parse the chat completion response
-    let chat_resp: ChatResponse = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(target: LOG_TARGET, model = model.id, error = %e, "Failed to parse OpenRouter response");
-            return ModelResponse {
-                model_id: model.id.to_string(),
-                role: model.role.to_string(),
-                diagnosis: None,
-                raw_text: body,
-                cost_estimate: 0.0,
-                error: Some(format!("Parse error: {}", e)),
-            };
-        }
-    };
-
-    let raw_text = chat_resp
-        .choices
-        .as_ref()
-        .and_then(|c| c.first())
-        .and_then(|c| c.message.content.as_ref())
-        .cloned()
-        .unwrap_or_default();
-
-    // Estimate cost from token usage
-    let cost_estimate = chat_resp.usage.as_ref().map_or(0.0, |u| {
-        let prompt = u.prompt_tokens.unwrap_or(0) as f64;
-        let completion = u.completion_tokens.unwrap_or(0) as f64;
-        // Rough estimate — actual pricing varies by model
-        (prompt * 0.5 + completion * 1.5) / 1_000_000.0
-    });
-
-    // Try to extract JSON diagnosis from the response text
-    let diagnosis = extract_diagnosis(&raw_text);
-
-    tracing::info!(
-        target: LOG_TARGET,
-        model = model.id,
-        role = model.role,
-        has_diagnosis = diagnosis.is_some(),
-        cost = cost_estimate,
-        "OpenRouter model responded"
+    // Exhausted all retries
+    tracing::error!(
+        target: LOG_TARGET, model = model.id,
+        retries = MAX_RETRIES,
+        "OpenRouter call failed after all retries"
     );
-
     ModelResponse {
         model_id: model.id.to_string(),
         role: model.role.to_string(),
-        diagnosis,
-        raw_text,
-        cost_estimate,
-        error: None,
+        diagnosis: None,
+        raw_text: String::new(),
+        cost_estimate: 0.0,
+        error: Some(last_error),
     }
 }
 
@@ -355,18 +505,30 @@ pub async fn tier3_diagnose(client: &reqwest::Client, api_key: &str, symptoms: &
     call_model(client, api_key, &MODELS[0], symptoms).await
 }
 
-/// Tier 4: Call all 4 models in parallel, return consensus diagnosis.
+/// Tier 4: Call all 5 models in parallel, gated by concurrency semaphore.
+/// Max 2 Tier 4 jobs can run concurrently per pod — prevents thundering herd
+/// when all 8 pods fire diagnostics simultaneously (would be 40+ parallel requests).
 pub async fn tier4_diagnose_parallel(
     client: &reqwest::Client,
     api_key: &str,
     symptoms: &str,
 ) -> Vec<ModelResponse> {
+    // Acquire semaphore permit — blocks if 2 Tier 4 jobs already in flight
+    let _permit = match TIER4_SEMAPHORE.acquire().await {
+        Ok(p) => p,
+        Err(_) => {
+            tracing::error!(target: LOG_TARGET, "Tier 4 semaphore closed — skipping");
+            return vec![];
+        }
+    };
+
     let futures: Vec<_> = MODELS
         .iter()
         .map(|model| call_model(client, api_key, model, symptoms))
         .collect();
 
     futures_util::future::join_all(futures).await
+    // _permit dropped here — releases slot for next Tier 4 job
 }
 
 /// Find consensus among multiple model responses.
