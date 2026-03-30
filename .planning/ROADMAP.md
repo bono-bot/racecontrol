@@ -99,7 +99,10 @@ Plans:
   2. Physical touch verification on an actual pod touchscreen confirms all kiosk interactive elements respond to tap — no hover-only interactions remain; `grep -rn "onMouseEnter\|onMouseLeave\|hover:" kiosk/src/` returns zero hits in primary interaction paths
   3. `grep -rn "rp-red-light\|FF4400\|#ff4400\|tailwindcss-animate\|framer-motion" web/src/ kiosk/src/` returns zero hits — deprecated tokens and wrong package names fully purged
   4. Cross-app consistency check passes: same status string values produce same semantic colors in both apps, `MM:SS` timer format is consistent, both `npm run build` complete clean, and static serving verified with HTTP 200 from a non-server machine
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 266-01-PLAN.md — MMA design audit (3-model council, P1 fix, P2 triage) + deprecated token grep sweep
+- [ ] 266-02-PLAN.md — Touch verification on Pod 1 + Pod 2 + cross-app consistency check + build verification
 
 ## Progress Table
 
@@ -110,4 +113,4 @@ Plans:
 | 263. Web Primitive Components | 0/TBD | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
 | 265. Kiosk Pages | 0/TBD | Not started | - |
-| 266. Quality Gate & Audit | 0/TBD | Not started | - |
+| 266. Quality Gate & Audit | 0/2 | Not started | - |
