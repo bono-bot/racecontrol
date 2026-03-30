@@ -175,6 +175,25 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
             break;
         }
 
+        // SF-05: Check survival sentinels before restart — yield to active healing layer.
+        // This must come BEFORE is_rc_agent_running() so the watchdog does not restart
+        // rc-agent while another survival layer is mid-heal.
+        {
+            use rc_common::survival_types::{any_sentinel_active, check_sentinel, SentinelKind};
+            if any_sentinel_active() {
+                if let Some(sentinel) = check_sentinel(SentinelKind::HealInProgress) {
+                    tracing::info!("HEAL_IN_PROGRESS active (layer={:?}, action_id={}, ttl={}s) — skipping restart cycle (SF-05)",
+                        sentinel.layer, sentinel.action_id, sentinel.remaining_secs());
+                }
+                if let Some(sentinel) = check_sentinel(SentinelKind::OtaDeploying) {
+                    tracing::info!("OTA_DEPLOYING active (action_id={}) — skipping restart cycle (SF-05)",
+                        sentinel.action_id);
+                }
+                std::thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+        }
+
         // Check if rc-agent is running
         if is_rc_agent_running() {
             std::thread::sleep(POLL_INTERVAL);

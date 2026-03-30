@@ -836,6 +836,25 @@ pub fn enter_maintenance_mode(reason: &str, restart_count: u32, diagnostic_conte
     }
     #[cfg(not(test))]
     {
+        // SF-05: Do NOT write MAINTENANCE_MODE while a survival sentinel is active.
+        // This prevents the watchdog MMA lockout (Pitfall 2) — the active healing layer
+        // should not be interrupted by a maintenance lockout triggered by restart counting.
+        use rc_common::survival_types::{any_sentinel_active, check_sentinel, SentinelKind};
+        if any_sentinel_active() {
+            if let Some(sentinel) = check_sentinel(SentinelKind::HealInProgress) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    layer = ?sentinel.layer,
+                    "HEAL_IN_PROGRESS active — suppressing MAINTENANCE_MODE entry (SF-05)");
+            }
+            if let Some(sentinel) = check_sentinel(SentinelKind::OtaDeploying) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    "OTA_DEPLOYING active — suppressing MAINTENANCE_MODE entry (SF-05)");
+            }
+            return false;
+        }
+
         let payload = MaintenanceModePayload {
             reason: reason.to_string(),
             timestamp_epoch: std::time::SystemTime::now()
@@ -1112,6 +1131,35 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> CrashHa
     );
     #[cfg(not(feature = "ai-diagnosis"))]
     let pattern_key = format!("exit:{:?}", ctx.exit_code);
+
+    // SF-05: Check survival sentinels before any restart action.
+    // Yield to the active healing layer so systems don't fight each other.
+    #[cfg(not(test))]
+    {
+        use rc_common::survival_types::{any_sentinel_active, check_sentinel, SentinelKind};
+        if any_sentinel_active() {
+            if let Some(sentinel) = check_sentinel(SentinelKind::HealInProgress) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    layer = ?sentinel.layer,
+                    action = %sentinel.action,
+                    remaining_secs = sentinel.remaining_secs(),
+                    "HEAL_IN_PROGRESS active — skipping restart (SF-05)");
+            }
+            if let Some(sentinel) = check_sentinel(SentinelKind::OtaDeploying) {
+                tracing::warn!(target: LOG_TARGET,
+                    action_id = %sentinel.action_id,
+                    "OTA_DEPLOYING active — skipping restart (SF-05)");
+            }
+            return CrashHandlerResult {
+                fix_results: results,
+                restarted: false,
+                spawn_verified: false,
+                server_reachable: false,
+                pattern_key,
+            };
+        }
+    }
 
     // Check maintenance mode
     if is_maintenance_mode() {
