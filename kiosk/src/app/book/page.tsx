@@ -441,7 +441,7 @@ function BookingPageInner() {
               key={digit}
               data-testid={`numpad-digit-${digit}`}
               onClick={() => handlePhoneDigit(digit)}
-              className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
+              className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 active:scale-[0.97] transition-all"
             >
               {digit}
             </button>
@@ -455,7 +455,7 @@ function BookingPageInner() {
           <button
             data-testid="numpad-digit-0"
             onClick={() => handlePhoneDigit("0")}
-            className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
+            className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 active:scale-[0.97] transition-all"
           >
             0
           </button>
@@ -474,7 +474,7 @@ function BookingPageInner() {
           data-testid="send-otp-btn"
           onClick={handleSendOtp}
           disabled={phone.length < 10 || loading}
-          className="mt-6 w-full max-w-sm py-4 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl transition-colors"
+          className="mt-6 w-full max-w-sm py-4 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl active:scale-[0.97] transition-all min-h-[44px]"
         >
           {loading ? "Sending..." : "Send OTP"}
         </button>
@@ -484,7 +484,7 @@ function BookingPageInner() {
           <button
             data-testid="walkin-btn"
             onClick={handleStaffWalkIn}
-            className="mt-3 w-full max-w-sm py-4 bg-amber-600/20 border border-amber-600 text-amber-400 font-bold text-lg rounded-xl hover:bg-amber-600 hover:text-white transition-colors"
+            className="mt-3 w-full max-w-sm py-4 bg-amber-600/20 border border-amber-600 text-amber-400 font-bold text-lg rounded-xl hover:bg-amber-600 hover:text-white active:scale-[0.97] transition-all min-h-[44px]"
           >
             Walk-in (No Phone)
           </button>
@@ -494,7 +494,7 @@ function BookingPageInner() {
         <button
           data-testid="cancel-btn"
           onClick={handleCancel}
-          className="mt-4 text-rp-grey text-sm hover:text-white transition-colors"
+          className="mt-4 text-rp-grey text-sm hover:text-white transition-colors min-h-[44px]"
         >
           {isStaffMode ? "Back to Control" : "Cancel"}
         </button>
@@ -543,7 +543,7 @@ function BookingPageInner() {
               key={digit}
               data-testid={`otp-digit-${digit}`}
               onClick={() => handleOtpDigit(digit)}
-              className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
+              className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 active:scale-[0.97] transition-all"
             >
               {digit}
             </button>
@@ -557,7 +557,7 @@ function BookingPageInner() {
           <button
             data-testid="otp-digit-0"
             onClick={() => handleOtpDigit("0")}
-            className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
+            className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 active:scale-[0.97] transition-all"
           >
             0
           </button>
@@ -581,7 +581,7 @@ function BookingPageInner() {
         {/* Back */}
         <button
           onClick={() => { setPhase("phone"); setOtp(""); setErrorMsg(""); }}
-          className="mt-6 text-rp-grey text-sm hover:text-white transition-colors"
+          className="mt-6 text-rp-grey text-sm hover:text-white transition-colors min-h-[44px]"
         >
           Back
         </button>
@@ -713,7 +713,7 @@ function BookingPageInner() {
 
         <button
           onClick={() => router.push("/")}
-          className="px-8 py-3 border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red transition-colors"
+          className="px-8 py-3 border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red transition-colors min-h-[44px]"
         >
           Done
         </button>
@@ -740,14 +740,14 @@ function BookingPageInner() {
 
         <button
           onClick={() => { setPhase("wizard"); wizard.goToStep("review"); }}
-          className="px-8 py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-lg transition-colors"
+          className="px-8 py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-lg active:scale-[0.97] transition-all min-h-[44px]"
         >
           Try Again
         </button>
 
         <button
           onClick={handleCancel}
-          className="text-rp-grey text-sm hover:text-white transition-colors"
+          className="text-rp-grey text-sm hover:text-white transition-colors min-h-[44px]"
         >
           Back to Home
         </button>
@@ -780,7 +780,7 @@ function BookingPageInner() {
           <button
             data-testid="cancel-btn"
             onClick={handleCancel}
-            className="px-4 py-2 border border-rp-border rounded-lg text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
+            className="px-4 py-2 border border-rp-border rounded-lg text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors min-h-[44px]"
           >
             Cancel
           </button>
@@ -799,7 +799,7 @@ function BookingPageInner() {
                   key={tier.id}
                   data-testid={`tier-option-${tier.id}`}
                   onClick={() => handleSelectTier(tier)}
-                  className="w-full flex items-center justify-between px-6 py-5 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 transition-all"
+                  className="w-full flex items-center justify-between px-6 py-5 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 active:scale-[0.97] transition-all min-h-[60px]"
                 >
                   <div className="text-left">
                     <p className="text-lg font-bold text-white">{tier.name}</p>
@@ -825,9 +825,9 @@ function BookingPageInner() {
                     data-testid={`game-option-${g.id}`}
                     disabled={!available}
                     onClick={() => available && handleSelectGame(g.id)}
-                    className={`p-8 rounded-xl border-2 text-center transition-all ${
+                    className={`p-8 rounded-xl border-2 text-center transition-all min-h-[60px] ${
                       available
-                        ? "border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 cursor-pointer"
+                        ? "border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 active:scale-[0.97] transition-transform cursor-pointer"
                         : "border-rp-border/50 bg-rp-surface/50 opacity-40 cursor-not-allowed"
                     }`}
                   >
@@ -846,7 +846,7 @@ function BookingPageInner() {
               <button
                 data-testid="player-mode-single"
                 onClick={() => handleSelectPlayerMode("single")}
-                className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
+                className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 active:scale-[0.97] transition-all min-h-[60px] text-center"
               >
                 <svg className="w-12 h-12 mx-auto mb-3 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -857,7 +857,7 @@ function BookingPageInner() {
               <button
                 data-testid="player-mode-multi"
                 onClick={() => handleSelectPlayerMode("multi")}
-                className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
+                className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 active:scale-[0.97] transition-all min-h-[60px] text-center"
               >
                 <svg className="w-12 h-12 mx-auto mb-3 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -880,7 +880,7 @@ function BookingPageInner() {
                   key={type}
                   data-testid={`session-type-${type}`}
                   onClick={() => handleSelectSessionType(type)}
-                  className={`w-full flex items-center gap-5 px-6 py-5 rounded-xl border-2 transition-all text-left ${
+                  className={`w-full flex items-center gap-5 px-6 py-5 rounded-xl border-2 active:scale-[0.97] transition-all min-h-[60px] text-left ${
                     ws.sessionType === type
                       ? "border-rp-red bg-rp-red/10"
                       : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -909,7 +909,7 @@ function BookingPageInner() {
                 <button
                   data-testid="ai-toggle"
                   onClick={() => wizard.setField("aiEnabled", !ws.aiEnabled)}
-                  className={`w-14 h-7 rounded-full transition-colors ${ws.aiEnabled ? "bg-rp-red" : "bg-zinc-700"}`}
+                  className={`w-14 h-7 rounded-full transition-colors min-h-[44px] ${ws.aiEnabled ? "bg-rp-red" : "bg-zinc-700"}`}
                 >
                   <div className={`w-6 h-6 bg-white rounded-full transition-transform mx-0.5 ${ws.aiEnabled ? "translate-x-7" : ""}`} />
                 </button>
@@ -925,7 +925,7 @@ function BookingPageInner() {
                           key={level}
                           data-testid={`ai-difficulty-${level}`}
                           onClick={() => wizard.setField("aiDifficulty", level)}
-                          className={`p-5 rounded-xl border-2 text-center transition-all ${
+                          className={`p-5 rounded-xl border-2 text-center active:scale-[0.97] transition-all min-h-[60px] ${
                             ws.aiDifficulty === level
                               ? "border-rp-red bg-rp-red/10"
                               : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -941,18 +941,30 @@ function BookingPageInner() {
                     <h4 className="text-sm font-semibold text-white mb-3">
                       Number of AI: <span className="text-rp-red">{ws.aiCount}</span>
                     </h4>
-                    <input
-                      data-testid="ai-count-slider"
-                      type="range"
-                      min={1}
-                      max={20}
-                      value={ws.aiCount}
-                      onChange={(e) => wizard.setField("aiCount", parseInt(e.target.value))}
-                      className="w-full accent-rp-red"
-                    />
-                    <div className="flex justify-between text-xs text-rp-grey mt-1">
-                      <span>1</span>
-                      <span>20</span>
+                    <div className="flex items-center justify-center gap-6">
+                      <button
+                        data-testid="ai-count-minus"
+                        onClick={() => wizard.setField("aiCount", Math.max(1, ws.aiCount - 1))}
+                        disabled={ws.aiCount <= 1}
+                        className="min-h-[44px] min-w-[44px] w-14 h-14 rounded-xl bg-rp-surface border border-rp-border text-2xl font-bold text-white active:scale-[0.97] transition-transform disabled:opacity-40"
+                      >
+                        -
+                      </button>
+                      <span className="text-4xl font-bold text-white w-16 text-center font-[family-name:var(--font-mono-jb)]">
+                        {ws.aiCount}
+                      </span>
+                      <button
+                        data-testid="ai-count-plus"
+                        onClick={() => wizard.setField("aiCount", Math.min(20, ws.aiCount + 1))}
+                        disabled={ws.aiCount >= 20}
+                        className="min-h-[44px] min-w-[44px] w-14 h-14 rounded-xl bg-rp-surface border border-rp-border text-2xl font-bold text-white active:scale-[0.97] transition-transform disabled:opacity-40"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="flex justify-between text-xs text-rp-grey mt-2">
+                      <span>Min: 1</span>
+                      <span>Max: 20</span>
                     </div>
                   </div>
                 </>
@@ -961,7 +973,7 @@ function BookingPageInner() {
               <button
                 data-testid="ai-config-next"
                 onClick={() => wizard.goNext()}
-                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl active:scale-[0.97] transition-all min-h-[44px]"
               >
                 Continue
               </button>
@@ -982,7 +994,7 @@ function BookingPageInner() {
                   <button
                     key={n}
                     onClick={() => setPodCount(n)}
-                    className={`h-20 rounded-xl border-2 text-center transition-all ${
+                    className={`h-20 rounded-xl border-2 text-center active:scale-[0.97] transition-all min-h-[44px] ${
                       podCount === n
                         ? "border-rp-red bg-rp-red/10"
                         : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -996,7 +1008,7 @@ function BookingPageInner() {
 
               <button
                 onClick={() => wizard.goNext()}
-                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl active:scale-[0.97] transition-all min-h-[44px]"
               >
                 Continue with {podCount} Rigs
               </button>
@@ -1010,7 +1022,7 @@ function BookingPageInner() {
                 <button
                   data-testid="experience-mode-preset"
                   onClick={() => wizard.setField("experienceMode", "preset")}
-                  className={`flex-1 py-3 rounded-xl text-sm font-medium transition-colors ${
+                  className={`flex-1 py-3 rounded-xl text-sm font-medium active:scale-[0.97] transition-all min-h-[44px] ${
                     ws.experienceMode === "preset"
                       ? "bg-rp-red text-white"
                       : "bg-rp-surface border border-rp-border text-rp-grey hover:text-white"
@@ -1024,7 +1036,7 @@ function BookingPageInner() {
                     wizard.setField("experienceMode", "custom");
                     wizard.goToStep("select_track");
                   }}
-                  className="flex-1 py-3 rounded-xl text-sm font-medium transition-colors bg-rp-surface border border-rp-border text-rp-grey hover:text-white"
+                  className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-[0.97] transition-all min-h-[44px] bg-rp-surface border border-rp-border text-rp-grey hover:text-white"
                 >
                   Custom (Track + Car)
                 </button>
@@ -1039,7 +1051,7 @@ function BookingPageInner() {
                       key={exp.id}
                       data-testid={`experience-option-${exp.id}`}
                       onClick={() => handleSelectExperience(exp)}
-                      className="w-full flex items-center gap-4 px-5 py-4 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 transition-all text-left"
+                      className="w-full flex items-center gap-4 px-5 py-4 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 active:scale-[0.97] transition-all min-h-[60px] text-left"
                     >
                       {exp.car_class && (
                         <span className={`w-9 h-9 flex items-center justify-center rounded-lg text-sm font-bold ${CLASS_COLORS[exp.car_class] || "bg-zinc-600 text-white"}`}>
@@ -1076,7 +1088,7 @@ function BookingPageInner() {
                   <button
                     key={cat}
                     onClick={() => setTrackCategory(cat)}
-                    className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap active:scale-[0.97] transition-all min-h-[44px] ${
                       trackCategory === cat
                         ? "bg-rp-red text-white"
                         : "bg-rp-surface border border-rp-border text-rp-grey hover:text-white"
@@ -1092,7 +1104,7 @@ function BookingPageInner() {
                     key={t.id}
                     data-testid={`track-option-${t.id}`}
                     onClick={() => handleSelectTrack(t)}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`p-4 rounded-xl border-2 text-left active:scale-[0.97] transition-all min-h-[60px] ${
                       ws.selectedTrack?.id === t.id
                         ? "border-rp-red bg-rp-red/10"
                         : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -1125,7 +1137,7 @@ function BookingPageInner() {
                   <button
                     key={cat}
                     onClick={() => setCarCategory(cat)}
-                    className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap active:scale-[0.97] transition-all min-h-[44px] ${
                       carCategory === cat
                         ? "bg-rp-red text-white"
                         : "bg-rp-surface border border-rp-border text-rp-grey hover:text-white"
@@ -1141,7 +1153,7 @@ function BookingPageInner() {
                     key={c.id}
                     data-testid={`car-option-${c.id}`}
                     onClick={() => handleSelectCar(c)}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`p-4 rounded-xl border-2 text-left active:scale-[0.97] transition-all min-h-[60px] ${
                       ws.selectedCar?.id === c.id
                         ? "border-rp-red bg-rp-red/10"
                         : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -1169,7 +1181,7 @@ function BookingPageInner() {
                       key={key}
                       data-testid={`difficulty-${key}`}
                       onClick={() => wizard.setField("drivingDifficulty", key)}
-                      className={`p-5 rounded-xl border-2 text-center transition-all ${
+                      className={`p-5 rounded-xl border-2 text-center active:scale-[0.97] transition-all min-h-[60px] ${
                         ws.drivingDifficulty === key
                           ? "border-rp-red bg-rp-red/10"
                           : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -1193,7 +1205,7 @@ function BookingPageInner() {
                       key={key}
                       data-testid={`transmission-${key}`}
                       onClick={() => wizard.setField("transmission", key)}
-                      className={`p-5 rounded-xl border-2 text-center transition-all ${
+                      className={`p-5 rounded-xl border-2 text-center active:scale-[0.97] transition-all min-h-[60px] ${
                         ws.transmission === key
                           ? "border-rp-red bg-rp-red/10"
                           : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -1218,7 +1230,7 @@ function BookingPageInner() {
                       key={key}
                       data-testid={`ffb-${key}`}
                       onClick={() => wizard.setField("ffb", key)}
-                      className={`p-5 rounded-xl border-2 text-center transition-all ${
+                      className={`p-5 rounded-xl border-2 text-center active:scale-[0.97] transition-all min-h-[60px] ${
                         ws.ffb === key
                           ? "border-rp-red bg-rp-red/10"
                           : "border-rp-border bg-rp-surface hover:border-rp-red/50"
@@ -1234,7 +1246,7 @@ function BookingPageInner() {
               <button
                 data-testid="driving-settings-next"
                 onClick={() => wizard.goNext()}
-                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl active:scale-[0.97] transition-all min-h-[44px]"
               >
                 Review
               </button>
@@ -1272,7 +1284,7 @@ function BookingPageInner() {
               <button
                 data-testid="book-btn"
                 onClick={ws.playerMode === "multi" ? handleBookMultiplayer : handleBook}
-                className="w-full py-5 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-xl rounded-xl transition-colors"
+                className="w-full py-5 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-xl rounded-xl active:scale-[0.97] transition-all min-h-[44px]"
               >
                 {ws.playerMode === "multi" ? `BOOK ${podCount} RIGS` : "BOOK SESSION"}
               </button>
@@ -1286,7 +1298,7 @@ function BookingPageInner() {
         <button
           data-testid="wizard-back-btn"
           onClick={handleWizardBack}
-          className="px-6 py-3 border border-rp-border rounded-xl text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
+          className="px-6 py-3 border border-rp-border rounded-xl text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors min-h-[44px]"
         >
           Back
         </button>
