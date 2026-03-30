@@ -6,7 +6,7 @@ No single system failure can kill the healing brain. Three independent survival 
 
 ## Phases
 
-- [ ] **Phase 267: Survival Foundation** - Shared types, sentinel coordination, recovery protocol for all 5 existing healers
+- [x] **Phase 267: Survival Foundation** - Shared types, sentinel coordination, recovery protocol for all 5 existing healers (completed 2026-03-30)
 - [ ] **Phase 268: Unified MMA Protocol** - 5-model OpenRouter roster with fact-checker, dual reasoning, cost guard, per-pod keys
 - [ ] **Phase 269: Layer 1 Smart Watchdog** - Binary SHA256 + PE validation, rollback depth tracking, MMA diagnosis in watchdog
 - [ ] **Phase 270: Layer 2 Server Fleet Healer** - SSH diagnostic runner, fleet-pattern detection, autonomous Tier 1 repair with canary
@@ -27,9 +27,9 @@ No single system failure can kill the healing brain. Three independent survival 
   5. OTA_DEPLOYING and HEAL_IN_PROGRESS sentinel checks are present in all existing recovery code paths
 **Plans**: 3 plans
 Plans:
-- [ ] 267-01-PLAN.md — Survival types, sentinel protocol, and OpenRouter trait in rc-common
-- [ ] 267-02-PLAN.md — Server heal-lease endpoints and LeaseManager
-- [ ] 267-03-PLAN.md — Retrofit all 5 recovery systems with sentinel checks
+- [x] 267-01-PLAN.md — Survival types, sentinel protocol, and OpenRouter trait in rc-common
+- [x] 267-02-PLAN.md — Server heal-lease endpoints and LeaseManager
+- [x] 267-03-PLAN.md — Retrofit all 5 recovery systems with sentinel checks
 **UI hint**: no
 
 ### Phase 268: Unified MMA Protocol
@@ -157,7 +157,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 267. Survival Foundation | 0/3 | Planning complete | - |
+| 267. Survival Foundation | 3/3 | Complete   | 2026-03-30 |
 | 268. Unified MMA Protocol | 0/TBD | Not started | - |
 | 269. Layer 1 Smart Watchdog | 0/TBD | Not started | - |
 | 270. Layer 2 Server Fleet Healer | 0/TBD | Not started | - |

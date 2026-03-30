@@ -9,7 +9,7 @@
 - [x] **SF-02**: Server-arbitrated heal lease — component requests lease from server for specific pod, server grants with TTL, healer renews while working, expired lease frees pod for other healers
 - [x] **SF-03**: Structured action_id logging — every cross-layer operation (diagnosis, fix, rollback, escalation) shares a correlation ID for tracing
 - [x] **SF-04**: Survival types in rc-common — SurvivalReport, HealLease, BinaryManifest, DiagnosisContext structs + OpenRouter client trait (trait only, no reqwest)
-- [ ] **SF-05**: Recovery coordination protocol — existing rc-sentry, RCWatchdog, self_monitor, pod_monitor, WoL all check HEAL_IN_PROGRESS + OTA_DEPLOYING before acting
+- [x] **SF-05**: Recovery coordination protocol — existing rc-sentry, RCWatchdog, self_monitor, pod_monitor, WoL all check HEAL_IN_PROGRESS + OTA_DEPLOYING before acting
 
 ## Smart Watchdog — Layer 1 (SW)
 
@@ -99,7 +99,7 @@
 | SF-02 | Phase 267 | Complete |
 | SF-03 | Phase 267 | Complete |
 | SF-04 | Phase 267 | Complete |
-| SF-05 | Phase 267 | Pending |
+| SF-05 | Phase 267 | Complete |
 | MP-01 | Phase 268 | Pending |
 | MP-02 | Phase 268 | Pending |
 | MP-03 | Phase 268 | Pending |
