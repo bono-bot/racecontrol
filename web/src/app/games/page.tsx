@@ -3,9 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import DashboardLayout from "@/components/DashboardLayout";
+import { EmptyState } from "@/components/Skeleton";
 import StatusBadge from "@/components/StatusBadge";
 import GameLaunchModal from "@/components/GameLaunchModal";
 import AiDebugPanel from "@/components/AiDebugPanel";
+import { Gamepad2 } from "lucide-react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { api } from "@/lib/api";
 import type { Pod } from "@/lib/api";
@@ -84,12 +86,11 @@ export default function GamesPage() {
 
       {/* Pod Grid */}
       {sortedPods.length === 0 ? (
-        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
-          <p className="text-neutral-400 mb-2">No pods connected</p>
-          <p className="text-rp-grey text-sm">
-            Pods appear automatically when rc-agent connects from a sim PC.
-          </p>
-        </div>
+        <EmptyState
+          icon={<Gamepad2 className="w-10 h-10" />}
+          headline="No pods connected"
+          hint="Pods appear automatically when rc-agent connects from a sim PC."
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {sortedPods.map((pod) => {

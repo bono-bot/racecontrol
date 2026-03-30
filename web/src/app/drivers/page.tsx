@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
+import { Users } from "lucide-react";
 import type { Driver } from "@/lib/api";
 import { api } from "@/lib/api";
 
@@ -34,14 +36,17 @@ export default function DriversPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-rp-grey text-sm">Loading drivers...</div>
-      ) : drivers.length === 0 ? (
-        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
-          <p className="text-neutral-400 mb-2">No drivers registered</p>
-          <p className="text-rp-grey text-sm">
-            Drivers can register through the kiosk or be added via the API.
-          </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-32 rounded-lg" />
+          ))}
         </div>
+      ) : drivers.length === 0 ? (
+        <EmptyState
+          icon={<Users className="w-10 h-10" />}
+          headline="No drivers registered"
+          hint="Drivers can register through the kiosk or be added via the API."
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {drivers.map((driver) => (

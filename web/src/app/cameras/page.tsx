@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
+import { Video } from "lucide-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SENTRY_BASE = "http://192.168.31.27:8096";
@@ -607,8 +609,10 @@ export default function CamerasPage() {
         {/* ── Main content area ────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-rp-grey">
-              <p className="animate-pulse text-sm">Loading camera feeds...</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-lg" />
+              ))}
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -621,8 +625,12 @@ export default function CamerasPage() {
               </button>
             </div>
           ) : cameras.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-rp-grey">
-              <p className="text-sm">No cameras configured.</p>
+            <div className="flex items-center justify-center h-full">
+              <EmptyState
+                icon={<Video className="w-10 h-10" />}
+                headline="No cameras configured"
+                hint="Cameras appear when configured in rc-sentry-ai."
+              />
             </div>
           ) : (
             /* ── Camera grid ─────────────────────────────────────────────── */

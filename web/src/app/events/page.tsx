@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
 import StatusBadge from "@/components/StatusBadge";
+import { Calendar } from "lucide-react";
 import type { RaceEvent } from "@/lib/api";
 import { api } from "@/lib/api";
 
@@ -27,14 +29,17 @@ export default function EventsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-rp-grey text-sm">Loading events...</div>
-      ) : events.length === 0 ? (
-        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
-          <p className="text-neutral-400 mb-2">No events scheduled</p>
-          <p className="text-rp-grey text-sm">
-            Create race events, hotlap competitions, and tournaments from the API.
-          </p>
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-lg" />
+          ))}
         </div>
+      ) : events.length === 0 ? (
+        <EmptyState
+          icon={<Calendar className="w-10 h-10" />}
+          headline="No events scheduled"
+          hint="Create race events, hotlap competitions, and tournaments from the API."
+        />
       ) : (
         <div className="space-y-2">
           {events.map((event) => (

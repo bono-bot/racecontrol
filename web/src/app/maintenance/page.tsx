@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
+import { Wrench } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 
 interface MaintenanceEvent {
@@ -87,7 +89,18 @@ export default function MaintenancePage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-rp-grey text-sm">Loading maintenance data...</div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-lg" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 rounded-lg" />
+            ))}
+          </div>
+        </div>
       ) : error ? (
         <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
           <p className="text-red-400 mb-2">Failed to load maintenance data</p>
@@ -133,8 +146,12 @@ export default function MaintenancePage() {
               <h2 className="text-sm font-semibold text-white">Recent Events</h2>
             </div>
             {events.length === 0 ? (
-              <div className="p-8 text-center text-rp-grey text-sm">
-                No maintenance events in the last 24 hours.
+              <div className="p-4">
+                <EmptyState
+                  icon={<Wrench className="w-8 h-8" />}
+                  headline="No maintenance events"
+                  hint="No events detected in the last 24 hours."
+                />
               </div>
             ) : (
               <div className="divide-y divide-rp-border">

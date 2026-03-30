@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Skeleton, EmptyState } from "@/components/Skeleton";
 import StatusBadge from "@/components/StatusBadge";
+import { BookOpen } from "lucide-react";
 import type { Booking } from "@/lib/api";
 import { api } from "@/lib/api";
 
@@ -27,14 +29,17 @@ export default function BookingsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-rp-grey text-sm">Loading bookings...</div>
-      ) : bookings.length === 0 ? (
-        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
-          <p className="text-neutral-400 mb-2">No bookings</p>
-          <p className="text-rp-grey text-sm">
-            Bookings can be made via the kiosk or API.
-          </p>
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-lg" />
+          ))}
         </div>
+      ) : bookings.length === 0 ? (
+        <EmptyState
+          icon={<BookOpen className="w-10 h-10" />}
+          headline="No bookings yet"
+          hint="Bookings can be made via the kiosk or API."
+        />
       ) : (
         <div className="space-y-2">
           {bookings.map((booking) => (
