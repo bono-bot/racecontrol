@@ -1,105 +1,107 @@
-# Requirements: v30.0 Racing Dashboard UI Redesign
+# Requirements: v31.0 Autonomous Survival System
 
 **Defined:** 2026-03-30
-**Core Value:** Every venue management page looks and feels like a premium F1 pit wall — fast, precise, motorsport-inspired
+**Core Value:** No single system failure can kill the healing brain — 3 independent survival layers with Unified MMA Protocol
 
-## Design System (DS)
-- [x] **DS-01**: Shared design tokens CSS file with full color ramp (surfaces, semantics, status colors)
-- [x] **DS-02**: JetBrains Mono integrated via next/font for numeric displays in both apps
-- [x] **DS-03**: shadcn/ui initialized in web app with motorsport theme variables
-- [x] **DS-04**: shadcn/ui initialized in kiosk app with touch-optimized theme
-- [x] **DS-05**: Lucide React icons replace all emoji sidebar icons
-- [x] **DS-06**: motion@12 integrated for micro-interactions (pod transitions, leaderboard reorders)
-- [x] **DS-07**: tw-animate-css integrated for shadcn component animations
+## Survival Foundation (SF)
 
-## Shared Components (SC)
-- [x] **SC-01**: StatusBadge redesign with racing flag color system (ready/occupied/warning/offline/maintenance)
-- [x] **SC-02**: MetricCard component (title, value, delta, sparkline, alert state)
-- [x] **SC-03**: PodCard redesign with F1 timing tower row style (status bar, countdown, driver)
-- [x] **SC-04**: AppShell with motorsport sidebar, top bar, and racing-control aesthetic
-- [x] **SC-05**: PinPad component (6-digit, reusable for login + kiosk + supervisor auth)
-- [x] **SC-06**: CountdownTimer redesign with radial progress ring and threshold colors
-- [ ] **SC-07**: LiveDataTable built on TanStack Table with sticky header, sort, select (web only)
-- [ ] **SC-08**: LeaderboardTable with F1-style rank, driver, lap time, gap, PB highlighting
-- [x] **SC-09**: Toast/notification system for feedback on actions
-- [x] **SC-10**: Loading skeletons and empty states for all data views
+- [ ] **SF-01**: HEAL_IN_PROGRESS sentinel file with JSON payload (layer, started_at, action, ttl_secs) checked by all 5 recovery systems before acting
+- [ ] **SF-02**: Server-arbitrated heal lease — component requests lease from server for specific pod, server grants with TTL, healer renews while working, expired lease frees pod for other healers
+- [ ] **SF-03**: Structured action_id logging — every cross-layer operation (diagnosis, fix, rollback, escalation) shares a correlation ID for tracing
+- [ ] **SF-04**: Survival types in rc-common — SurvivalReport, HealLease, BinaryManifest, DiagnosisContext structs + OpenRouter client trait (trait only, no reqwest)
+- [ ] **SF-05**: Recovery coordination protocol — existing rc-sentry, RCWatchdog, self_monitor, pod_monitor, WoL all check HEAL_IN_PROGRESS + OTA_DEPLOYING before acting
 
-## Login Page (LP)
-- [ ] **LP-01**: Login page redesign with 6-digit PinPad, motorsport aesthetic, Racing Red accents
-- [ ] **LP-02**: Auth error states with clear feedback and lockout indication
+## Smart Watchdog — Layer 1 (SW)
 
-## Web Dashboard (WD)
-- [ ] **WD-01**: Dashboard home with KPI tiles (active sessions, pods online, revenue, queue)
-- [ ] **WD-02**: Pods page with F1 timing tower vertical strip + detail drawer
-- [x] **WD-03**: Sessions page with active/completed session list and session detail cards
-- [x] **WD-04**: Billing page with wallet management, top-up, session history
-- [ ] **WD-05**: Fleet Health page with pod grid, status indicators, health timeline
-- [ ] **WD-06**: Leaderboards page with F1-style lap time table, PB/session-best highlights
-- [x] **WD-07**: Settings page with venue configuration, theme preview
-- [x] **WD-08**: All remaining pages updated to use new AppShell + design tokens
+- [ ] **SW-01**: Binary SHA256 validation — rc-watchdog reads release-manifest.toml, computes SHA256 of rc-agent.exe, blocks launch if mismatch
+- [ ] **SW-02**: PE header validation — rc-watchdog checks DOS_MAGIC, PE_MAGIC, COFF_MACHINE_X86_64, TimeDateStamp via goblin crate before launching rc-agent
+- [ ] **SW-03**: Automatic rollback to rc-agent-prev.exe if new binary fails health poll within 30s of launch
+- [ ] **SW-04**: Rollback depth tracking in rollback-state.json — max depth 3, then escalate to Layer 2 ("both binaries bad")
+- [ ] **SW-05**: Startup health poll loop — 3 attempts at 10s intervals before declaring healthy or escalating to MMA
+- [ ] **SW-06**: Direct HTTP survival reporting to server /api/v1/pods/{id}/survival-report bypassing dead rc-agent
+- [ ] **SW-07**: MAINTENANCE_MODE auto-clear on confirmed clean binary + clean health poll after validated startup
+- [ ] **SW-08**: Unified MMA Protocol diagnosis when restart loop detected (>2 fails in 10 min) — 5 top-tier models via OpenRouter
+- [ ] **SW-09**: Dedicated async runtime thread in watchdog for OpenRouter calls — never block the main service poll loop
+- [ ] **SW-10**: OpenRouter fallback to deterministic rule engine when API unreachable (>3 consecutive failures)
+- [ ] **SW-11**: Manifest-driven health expectations — watchdog validates expected build_id from manifest, not just HTTP 200
+- [ ] **SW-12**: Budget persistence to disk — daily spend stored in budget_state.json, survives reboots, enforces $10/day cap
+- [ ] **SW-13**: Post-rollback WhatsApp alert to staff via server relay
+- [ ] **SW-14**: MMA_DIAGNOSING sentinel with TTL (separate from MAINTENANCE_MODE) — prevents concurrent diagnosis
 
-## Kiosk (KS)
-- [ ] **KS-01**: Kiosk home with touch-optimized pod selection grid (44px+ touch targets)
-- [x] **KS-02**: Game launch flow with sim selection, difficulty, AI config
-- [x] **KS-03**: Billing/payment view with wallet balance, session timer, countdown ring
-- [x] **KS-04**: Staff tools page with pin-protected access
-- [ ] **KS-05**: Kiosk leaderboard with animated rank changes
+## Server Fleet Healer — Layer 2 (FH)
 
-## Deploy & Quality (DQ)
-- [x] **DQ-01**: Deploy pipeline with static file copy verification and _next/static/ smoke test
-- [x] **DQ-02**: NEXT_PUBLIC_ env var audit across all apps before each deploy
-- [ ] **DQ-03**: MMA design audit after each phase batch (minimum 3-model consensus)
-- [ ] **DQ-04**: Touch verification on actual pod hardware for kiosk changes
+- [ ] **FH-01**: SSH diagnostic runner — server SSHes into dark pods, runs predefined diagnostic scripts, returns structured JSON
+- [ ] **FH-02**: SSH diagnostic fingerprinting — map known output patterns (tasklist, netstat, Event Log) to symptom JSON schema
+- [ ] **FH-03**: Fleet-pattern detection — same failure on 3+ pods within 5 min triggers single MMA session (not 8 parallel)
+- [ ] **FH-04**: Repair confidence gate — only dispatch autonomous fix if confidence >= 0.8 AND fix_type is deterministic or config (never code_change)
+- [ ] **FH-05**: Autonomous Tier 1 fix dispatch via SSH — apply deterministic fixes from fleet KB remotely
+- [ ] **FH-06**: Post-fix behavioral verification — poll /health for build_id match AND /debug for edge_process_count > 0
+- [ ] **FH-07**: Canary rollout — fix applied to Pod 8 first, wait for verification, then gradual (3 pods, then remaining)
+- [ ] **FH-08**: Pod isolation before risky repair — write MAINTENANCE_MODE via rc-sentry before repair, clear after verification
+- [ ] **FH-09**: Repair audit trail — every SSH command + response logged to incident_log table with action_id
+- [ ] **FH-10**: Layer 1 report ingestion — survival_coordinator receives and stores watchdog survival reports
+- [ ] **FH-11**: Billing safety check — never restart or repair a pod with an active billing session (check has_active_billing_session())
+- [ ] **FH-12**: New server endpoint POST /api/v1/pods/{id}/survival-report for watchdog direct reporting
+
+## External Guardian — Layer 3 (EG)
+
+- [ ] **EG-01**: Server health polling from Bono VPS every 60s via HTTP to /api/v1/health
+- [ ] **EG-02**: Dead-man detection — 3 consecutive missed polls (3 min) declares server dead
+- [ ] **EG-03**: Server restart via Tailscale SSH — schtasks /Run /TN StartRCTemp after dead-man trigger
+- [ ] **EG-04**: Billing safety check — check /api/v1/fleet/health for active_billing_sessions before restart
+- [ ] **EG-05**: WhatsApp escalation when restart fails or is unsafe (active sessions during peak hours)
+- [ ] **EG-06**: Status distinction — dead (connection refused) vs busy (HTTP 200 but slow) vs unreachable (timeout)
+- [ ] **EG-07**: Graduated restart — soft (schtasks) first, hard (taskkill + start) if soft fails, report-only if hard fails
+- [ ] **EG-08**: Guardian heartbeat to James via comms-link every 6h or on any triggered event
+- [ ] **EG-09**: GUARDIAN_ACTING coordination — shared state via comms-link WS prevents James and Bono guardians from acting simultaneously
+- [ ] **EG-10**: New rc-guardian crate — standalone binary for Bono VPS (Linux target), deployed via pm2/systemd
+
+## Unified MMA Protocol (MP)
+
+- [ ] **MP-01**: 5-model roster via OpenRouter — Scanner, Reasoner, Code Expert, SRE/Ops, Security with role-based prompts
+- [ ] **MP-02**: Fact-checker role — one model cross-references all findings against standing rules before action
+- [ ] **MP-03**: Dual reasoning mode — non-thinking models (architecture bugs) + thinking model variants (execution-path bugs) in same session
+- [ ] **MP-04**: Cost guard — check remaining daily budget before launching MMA session, abort if insufficient
+- [ ] **MP-05**: Structured finding taxonomy — P0/P1/P2 severity, finding type, affected component, recommended action
+- [ ] **MP-06**: Unified Protocol v3.1 integration — MMA sessions include Quality Gate + E2E + Standing Rules checks
+- [ ] **MP-07**: Training-period model selection flag — tag sessions as training=true during 30-day window, use top-tier models
+- [ ] **MP-08**: Per-pod child API keys via OpenRouter management API — $10/day cap per pod, provisioned at deploy time
+- [ ] **MP-09**: Model validation gate — require >90% agreement benchmark between top-tier and candidate cheap models before switching
+
+## v31.x Requirements (Deferred)
+
+### Future (after training period)
+
+- **FUT-01**: N-iteration convergence — run MMA until 3 consecutive rounds with 0 new P1/P2 findings
+- **FUT-02**: Night-ops autonomous maintenance window (02:00-05:00 IST) — full fleet SSH sweep + Tier 1 apply
+- **FUT-03**: Graduated repair scope — single pod → pod class (hardware_class) → fleet
+- **FUT-04**: API key lifecycle management — provisioning, rotation, revocation in deploy pipeline
+- **FUT-05**: Predictive repair trigger — trending metric threshold crosses pre-emptive action
+- **FUT-06**: Cross-region KB sync — Guardian triggers KB sync after server restart
+- **FUT-07**: Binary age monitoring — alert if binary > 7 days without re-deploy
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Replace rc-sentry entirely | Layer 1 extends rc-watchdog, not rc-sentry. Sentry's 6 endpoints remain for fallback ops |
+| Guardian diagnosing pods directly | Guardian watches server only. Layer 2 watches pods. Separation of concerns |
+| Custom model fine-tuning | Training period collects data; fine-tuning is a separate future initiative |
+| Light mode/mobile UI for survival dashboard | Backend-only milestone; dashboard integration deferred |
+| Replacing OpenRouter with self-hosted models | 30-day training uses cloud; self-hosting is post-training decision |
+| Code signing with real certificate | v15.0 AntiCheat scope; not duplicated here |
 
 ## Traceability
 
-| REQ-ID | Phase | Plan | Status |
-|--------|-------|------|--------|
-| DS-01 | Phase 261 | 261-01 | Complete |
-| DS-02 | Phase 261 | TBD | Pending |
-| DS-03 | Phase 261 | 261-02 | Complete |
-| DS-04 | Phase 261 | 261-02 | Complete |
-| DS-05 | Phase 261 | 261-02 | Complete |
-| DS-06 | Phase 261 | TBD | Pending |
-| DS-07 | Phase 261 | 261-02 | Complete |
-| DQ-01 | Phase 262 | 262-01, 262-02 | Complete |
-| DQ-02 | Phase 262 | 262-01 | Complete |
-| SC-01 | Phase 263 | TBD | Pending |
-| SC-02 | Phase 263 | TBD | Pending |
-| SC-03 | Phase 263 | TBD | Pending |
-| SC-04 | Phase 263 | TBD | Pending |
-| SC-05 | Phase 263 | TBD | Pending |
-| SC-06 | Phase 263 | TBD | Pending |
-| SC-07 | Phase 263 | TBD | Pending |
-| SC-08 | Phase 263 | TBD | Pending |
-| SC-09 | Phase 263 | TBD | Pending |
-| SC-10 | Phase 263 | TBD | Pending |
-| LP-01 | Phase 263 | TBD | Pending |
-| LP-02 | Phase 263 | TBD | Pending |
-| WD-01 | Phase 264 | TBD | Pending |
-| WD-02 | Phase 264 | TBD | Pending |
-| WD-03 | Phase 264 | TBD | Pending |
-| WD-04 | Phase 264 | TBD | Pending |
-| WD-05 | Phase 264 | TBD | Pending |
-| WD-06 | Phase 264 | TBD | Pending |
-| WD-07 | Phase 264 | TBD | Pending |
-| WD-08 | Phase 264 | TBD | Pending |
-| KS-01 | Phase 265 | TBD | Pending |
-| KS-02 | Phase 265 | TBD | Pending |
-| KS-03 | Phase 265 | TBD | Pending |
-| KS-04 | Phase 265 | TBD | Pending |
-| KS-05 | Phase 265 | TBD | Pending |
-| DQ-03 | Phase 266 | TBD | Pending |
-| DQ-04 | Phase 266 | TBD | Pending |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| (populated during roadmap creation) | | |
 
-## Future Requirements (Deferred)
-- Command palette (Ctrl+K) for power users
-- QR code telemetry sharing
-- Animated route transitions
-- Light mode toggle
+**Coverage:**
+- v31.0 requirements: 45 total
+- Mapped to phases: 0 (pending roadmap)
+- Unmapped: 45
 
-## Out of Scope
-- Backend API changes (all existing endpoints preserved)
-- Light mode (dark only per brand guidelines)
-- Pod reordering in grid (fixed pod numbering per standing rules)
-- Mobile app (web-only, kiosk is touch but not phone)
+---
+*Requirements defined: 2026-03-30*
+*Last updated: 2026-03-30 after initial definition*
