@@ -46,8 +46,8 @@
 - [ ] **KS-05**: Kiosk leaderboard with animated rank changes
 
 ## Deploy & Quality (DQ)
-- [ ] **DQ-01**: Deploy pipeline with static file copy verification and _next/static/ smoke test
-- [ ] **DQ-02**: NEXT_PUBLIC_ env var audit across all apps before each deploy
+- [x] **DQ-01**: Deploy pipeline with static file copy verification and _next/static/ smoke test
+- [x] **DQ-02**: NEXT_PUBLIC_ env var audit across all apps before each deploy
 - [ ] **DQ-03**: MMA design audit after each phase batch (minimum 3-model consensus)
 - [ ] **DQ-04**: Touch verification on actual pod hardware for kiosk changes
 
@@ -62,8 +62,8 @@
 | DS-05 | Phase 261 | 261-02 | Complete |
 | DS-06 | Phase 261 | TBD | Pending |
 | DS-07 | Phase 261 | 261-02 | Complete |
-| DQ-01 | Phase 262 | TBD | Pending |
-| DQ-02 | Phase 262 | TBD | Pending |
+| DQ-01 | Phase 262 | 262-01, 262-02 | Complete |
+| DQ-02 | Phase 262 | 262-01 | Complete |
 | SC-01 | Phase 263 | TBD | Pending |
 | SC-02 | Phase 263 | TBD | Pending |
 | SC-03 | Phase 263 | TBD | Pending |

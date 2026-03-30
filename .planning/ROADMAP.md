@@ -13,7 +13,7 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
 - Decimal phases: Urgent insertions (created via /gsd:insert-phase)
 
 - [x] **Phase 261: Design System Foundation** - Unified token file, shadcn/ui init in both apps, motion@12, tw-animate-css, JetBrains Mono in web — zero component work, full coverage unlocked (completed 2026-03-30)
-- [ ] **Phase 262: Deploy Pipeline Hardening** - Static file copy verification, env var audit, smoke test with static serving check — locks the ship path before any redesigned page lands
+- [x] **Phase 262: Deploy Pipeline Hardening** - Static file copy verification, env var audit, smoke test with static serving check — locks the ship path before any redesigned page lands (completed 2026-03-30)
 - [ ] **Phase 263: Web Primitive Components** - All shared components (SC-01..SC-10) and login page (LP-01..LP-02) built before web pages depend on them
 - [ ] **Phase 264: Web Dashboard Pages** - All 8 web dashboard pages redesigned using Phase 263 primitives
 - [ ] **Phase 265: Kiosk Pages** - All 5 kiosk screens redesigned with touch-optimized primitives, verified on actual pod hardware
@@ -50,8 +50,8 @@ Plans:
   5. Post-deploy smoke test verifies `/leaderboard-display` is unauthenticated: `curl -s -o /dev/null -w "%{http_code}" http://192.168.31.23:3200/leaderboard-display` returns 200, not 302
 **Plans**: 2 plans
 Plans:
-- [ ] 262-01-PLAN.md � Env var audit script (check-frontend-env.sh) + static smoke test injected into deploy-nextjs.sh
-- [ ] 262-02-PLAN.md � Post-deploy verification gate script (verify-frontend-deploy.sh) covering all 5 ROADMAP success criteria
+- [x] 262-01-PLAN.md -- Env var audit script (check-frontend-env.sh) + static smoke test injected into deploy-nextjs.sh
+- [x] 262-02-PLAN.md -- Post-deploy verification gate script (verify-frontend-deploy.sh) covering all 5 ROADMAP success criteria
 
 ### Phase 263: Web Primitive Components
 **Goal**: All shared components for the web dashboard exist in redesigned form — StatusBadge, MetricCard, PodCard, AppShell, PinPad, CountdownTimer, LiveDataTable (TanStack Table), LeaderboardTable (with WS and AnimatePresence), Toast, and loading skeletons — plus the login page; Phase 264 page work assembles these primitives and invents nothing
