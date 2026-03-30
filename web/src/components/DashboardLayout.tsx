@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import AiChatPanel from "./AiChatPanel";
+import AppShell from "./AppShell";
 
 function BackButton() {
   const router = useRouter();
@@ -34,15 +35,17 @@ function BackButton() {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
-          <BackButton />
-          {children}
-        </div>
-      </main>
-      <AiChatPanel />
-    </div>
+    <AppShell>
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <main className="flex-1 overflow-auto">
+          <div className="p-6">
+            <BackButton />
+            {children}
+          </div>
+        </main>
+        <AiChatPanel />
+      </div>
+    </AppShell>
   );
 }
