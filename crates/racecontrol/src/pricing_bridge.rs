@@ -63,21 +63,28 @@ pub async fn approve_proposal(pool: &SqlitePool, proposal_id: &str, approved_by:
 }
 
 /// Apply approved pricing (push to billing config)
+/// MMA-R1: Use transaction to ensure all-or-nothing atomicity
 pub async fn apply_approved_pricing(pool: &SqlitePool) -> anyhow::Result<u32> {
     let approved: Vec<(String, i64)> = sqlx::query_as(
         "SELECT id, proposed_price_paise FROM pricing_proposals WHERE status = 'approved'"
     ).fetch_all(pool).await?;
 
-    let mut applied = 0u32;
+    if approved.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tx = pool.begin().await?;
+    let now = Utc::now().to_rfc3339();
+
     for (id, _price) in &approved {
         // Mark as applied (actual price push to billing config would go here)
         sqlx::query("UPDATE pricing_proposals SET status = 'applied', applied_at = ?1 WHERE id = ?2")
-            .bind(Utc::now().to_rfc3339()).bind(id).execute(pool).await?;
-        applied += 1;
+            .bind(&now).bind(id).execute(&mut *tx).await?;
     }
 
-    if applied > 0 {
-        tracing::info!(target: LOG_TARGET, applied, "Pricing proposals applied to billing config");
-    }
+    tx.commit().await?;
+    let applied = approved.len() as u32;
+
+    tracing::info!(target: LOG_TARGET, applied, "Pricing proposals applied to billing config");
     Ok(applied)
 }

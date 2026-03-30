@@ -278,8 +278,20 @@ pub async fn run_anomaly_scan(
         }
     };
 
+    // MMA-R1: Read current state snapshot under brief read lock, process without lock,
+    // then apply mutations under brief write lock. Prevents blocking API readers during scan.
+    let (last_alert_snapshot, first_violation_snapshot) = {
+        let guard = state.read().await;
+        (guard.last_alert.clone(), guard.first_violation.clone())
+    };
+
     let mut alerts = Vec::new();
-    let mut guard = state.write().await;
+    let mut new_last_alert: HashMap<(String, String), DateTime<Utc>> = HashMap::new();
+    let mut new_first_violation: HashMap<(String, String), DateTime<Utc>> = HashMap::new();
+    let mut cleared_violations: Vec<(String, String)> = Vec::new();
+
+    // Copy existing first_violation entries so we can track them across the scan
+    let mut working_violations = first_violation_snapshot;
 
     for row in &rows {
         for rule in rules {
@@ -289,7 +301,8 @@ pub async fn run_anomaly_scan(
                 Some(v) => v,
                 None => {
                     // Metric is NULL — clear any tracked violation (sensor offline).
-                    guard.first_violation.remove(&key);
+                    working_violations.remove(&key);
+                    cleared_violations.push(key);
                     continue;
                 }
             };
@@ -302,15 +315,16 @@ pub async fn run_anomaly_scan(
 
             if !violated {
                 // No violation — clear tracked first-violation time.
-                guard.first_violation.remove(&key);
+                working_violations.remove(&key);
+                cleared_violations.push(key);
                 continue;
             }
 
             // Track sustained violation start.
-            let first = *guard
-                .first_violation
+            let first = *working_violations
                 .entry(key.clone())
                 .or_insert(now);
+            new_first_violation.insert(key.clone(), first);
 
             let sustained_secs = (now - first).num_seconds().max(0) as u32;
             let sustained_min = sustained_secs / 60;
@@ -320,9 +334,10 @@ pub async fn run_anomaly_scan(
                 continue;
             }
 
-            // Check cooldown.
-            if let Some(last) = guard.last_alert.get(&key) {
-                let since_last = (now - *last).num_seconds().max(0) as u32;
+            // Check cooldown (use snapshot + any new alerts we've recorded this scan).
+            let last = new_last_alert.get(&key).or_else(|| last_alert_snapshot.get(&key));
+            if let Some(last_time) = last {
+                let since_last = (now - *last_time).num_seconds().max(0) as u32;
                 if since_last < rule.cooldown_minutes * 60 {
                     continue;
                 }
@@ -348,9 +363,10 @@ pub async fn run_anomaly_scan(
                 message: message.clone(),
             };
 
-            guard.last_alert.insert(key.clone(), now);
+            new_last_alert.insert(key.clone(), now);
             // Reset first_violation so the sustained window restarts after cooldown.
-            guard.first_violation.remove(&key);
+            working_violations.remove(&key);
+            cleared_violations.push(key);
 
             match rule.severity.as_str() {
                 "Critical" => tracing::error!("ANOMALY [{}]: {}", rule.severity, message),
@@ -362,12 +378,24 @@ pub async fn run_anomaly_scan(
         }
     }
 
-    // Store alerts for API access (cap at 200).
-    if !alerts.is_empty() {
-        guard.recent_alerts.extend(alerts.clone());
-        let len = guard.recent_alerts.len();
-        if len > 200 {
-            guard.recent_alerts.drain(..len - 200);
+    // Brief write lock only for state mutations
+    {
+        let mut guard = state.write().await;
+        for (k, v) in new_last_alert {
+            guard.last_alert.insert(k, v);
+        }
+        for (k, v) in new_first_violation {
+            guard.first_violation.insert(k, v);
+        }
+        for k in cleared_violations {
+            guard.first_violation.remove(&k);
+        }
+        if !alerts.is_empty() {
+            guard.recent_alerts.extend(alerts.clone());
+            let len = guard.recent_alerts.len();
+            if len > 200 {
+                guard.recent_alerts.drain(..len - 200);
+            }
         }
     }
 
@@ -419,18 +447,22 @@ pub fn spawn_anomaly_scanner_with_healing(
                 // Wire anomaly alerts to self-healing availability map
                 if let Some(ref avail_map) = availability_map {
                     for alert in &alerts {
-                        let pod_num: u8 = alert.pod_id
-                            .trim_start_matches("pod_")
-                            .trim_start_matches("pod")
-                            .parse()
-                            .unwrap_or(0);
-                        if pod_num > 0 {
+                        // MMA-R1: Use strip_prefix for strict parsing, validate range 1-8
+                        let pod_num: Option<u8> = alert.pod_id
+                            .strip_prefix("pod_")
+                            .or_else(|| alert.pod_id.strip_prefix("pod"))
+                            .and_then(|s| s.parse::<u8>().ok())
+                            .filter(|&p| (1..=8).contains(&p));
+
+                        if let Some(pod_num) = pod_num {
                             let action = crate::self_healing::recommend_action(
                                 &alert.rule_name,
                                 &alert.severity,
                                 pod_num,
                             );
                             crate::self_healing::apply_action(avail_map, &action).await;
+                        } else {
+                            tracing::warn!("Anomaly scanner: invalid pod_id '{}', skipping self-heal", alert.pod_id);
                         }
                     }
                 }

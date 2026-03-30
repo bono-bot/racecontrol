@@ -13,6 +13,7 @@ const LOG_TARGET: &str = "biz-aggregator";
 pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyhow::Result<()> {
     let date_str = date.format("%Y-%m-%d").to_string();
 
+    // MMA-R1: Propagate DB errors instead of swallowing with unwrap_or(0)
     // Gaming revenue: sum of wallet_debit_paise from completed/ended_early billing sessions today
     let gaming: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(wallet_debit_paise), 0) FROM billing_sessions \
@@ -20,8 +21,7 @@ pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyh
     )
     .bind(&date_str)
     .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    .await?;
 
     // Cafe revenue: sum from confirmed cafe orders
     let cafe: i64 = sqlx::query_scalar(
@@ -30,8 +30,7 @@ pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyh
     )
     .bind(&date_str)
     .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    .await?;
 
     // Session count (completed + ended_early)
     let sessions: i64 = sqlx::query_scalar(
@@ -40,8 +39,7 @@ pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyh
     )
     .bind(&date_str)
     .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    .await?;
 
     // Occupancy: approximate — sessions per pod per operating hour window (12h day)
     let total_pods = 8.0f32;
@@ -82,7 +80,8 @@ pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyh
         expense_salaries_paise: base.expense_salaries_paise,
         expense_maintenance_paise: base.expense_maintenance_paise,
         expense_other_paise: base.expense_other_paise,
-        sessions_count: sessions as u32,
+        // MMA-R1: Use try_from instead of `as` for safe narrowing
+        sessions_count: u32::try_from(sessions.max(0)).unwrap_or(0),
         occupancy_rate_pct: occupancy,
         peak_occupancy_pct: occupancy.max(base.peak_occupancy_pct),
     };

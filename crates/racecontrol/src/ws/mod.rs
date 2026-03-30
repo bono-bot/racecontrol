@@ -210,6 +210,43 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     .insert(canonical_id.clone(), pod_info.clone());
                             }
 
+                            // MMA-P1-FIX: Sync pod registration to SQLite — keeps DB in sync
+                            // with in-memory state so kiosk/API queries see current pod data.
+                            // - ON CONFLICT preserves 'disabled' status (MMA F-02)
+                            // - Validates number matches seeded value (MMA F-03/F-06)
+                            // - Awaited (not spawned) to prevent race with disconnect (MMA F-01)
+                            {
+                                let db_result = sqlx::query(
+                                    "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen)
+                                     VALUES (?, ?, ?, ?, 'assetto_corsa', 'online', datetime('now'))
+                                     ON CONFLICT(id) DO UPDATE SET
+                                       ip_address = excluded.ip_address,
+                                       status = CASE WHEN pods.status IN ('disabled', 'maintenance') THEN pods.status ELSE 'online' END,
+                                       last_seen = datetime('now')"
+                                )
+                                .bind(&canonical_id)
+                                .bind(pod_info.number as i64)
+                                .bind(&pod_info.name)
+                                .bind(&pod_info.ip_address)
+                                .execute(&state.db)
+                                .await;
+
+                                match db_result {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        let msg = e.to_string();
+                                        if msg.contains("UNIQUE") {
+                                            tracing::error!(
+                                                "Pod {} registration DB sync failed: number {} conflicts with another pod — DB/memory diverged",
+                                                canonical_id, pod_info.number
+                                            );
+                                        } else {
+                                            tracing::warn!("Failed to sync pod {} registration to DB: {}", canonical_id, e);
+                                        }
+                                    }
+                                }
+                            }
+
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::PodUpdate(pod_info.clone()));
@@ -874,6 +911,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 rc_common::types::DrivingState::NoDevice,
                             )
                             .await;
+                            // MMA-P1-FIX: Sync offline status to DB — preserves disabled/maintenance.
+                            if let Err(e) = sqlx::query(
+                                "UPDATE pods SET status = 'offline', last_seen = datetime('now')
+                                 WHERE id = ? AND status NOT IN ('disabled', 'maintenance')"
+                            )
+                            .bind(pod_id)
+                            .execute(&state.db)
+                            .await {
+                                tracing::warn!("Failed to sync pod {} graceful disconnect to DB: {}", pod_id, e);
+                            }
                             // Clear fleet health version/uptime on graceful disconnect.
                             {
                                 let mut fleet = state.pod_fleet_health.write().await;
@@ -1581,6 +1628,18 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                     }
                     let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
                 }
+            }
+
+            // MMA-P1-FIX: Sync offline status to DB — preserves disabled/maintenance
+            // status (MMA F-02), awaited for ordering guarantees (MMA F-01).
+            if let Err(e) = sqlx::query(
+                "UPDATE pods SET status = 'offline', last_seen = datetime('now')
+                 WHERE id = ? AND status NOT IN ('disabled', 'maintenance')"
+            )
+            .bind(pod_id)
+            .execute(&state.db)
+            .await {
+                tracing::warn!("Failed to sync pod {} disconnect to DB: {}", pod_id, e);
             }
 
             billing::update_driving_state(&state, pod_id, rc_common::types::DrivingState::NoDevice)

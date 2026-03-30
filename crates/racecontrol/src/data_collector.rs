@@ -36,9 +36,12 @@ pub async fn collect_venue_snapshot(pool: &SqlitePool) -> VenueSnapshot {
         "SELECT COUNT(*) FROM maintenance_tasks WHERE status IN ('Open', 'Assigned', 'InProgress')"
     ).fetch_one(pool).await.unwrap_or(0);
 
+    // MMA-R1: severity is stored as JSON string '"Critical"', not bare 'Critical'.
+    // Also use RFC3339 cutoff for consistent timestamp comparison.
+    let cutoff = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
     let critical_alerts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM maintenance_events WHERE severity = 'Critical' AND resolved_at IS NULL AND detected_at > datetime('now', '-1 hour')"
-    ).fetch_one(pool).await.unwrap_or(0);
+        "SELECT COUNT(*) FROM maintenance_events WHERE severity = '\"Critical\"' AND resolved_at IS NULL AND detected_at > ?1"
+    ).bind(&cutoff).fetch_one(pool).await.unwrap_or(0);
 
     let staff: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM employees WHERE is_active = 1"
@@ -52,9 +55,10 @@ pub async fn collect_venue_snapshot(pool: &SqlitePool) -> VenueSnapshot {
         active_sessions: 0, // TODO: query from billing_fsm
         occupancy_pct: 0.0,
         revenue_today_paise: revenue,
-        open_maintenance_tasks: open_tasks as u32,
-        critical_alerts_active: critical_alerts as u32,
-        staff_on_duty: staff as u32,
+        // MMA-R1: Use try_from instead of `as` for safe narrowing
+        open_maintenance_tasks: u32::try_from(open_tasks.max(0)).unwrap_or(0),
+        critical_alerts_active: u32::try_from(critical_alerts.max(0)).unwrap_or(0),
+        staff_on_duty: u32::try_from(staff.max(0)).unwrap_or(0),
         avg_gpu_temp: None,
         avg_network_latency: None,
     }
@@ -87,13 +91,25 @@ pub async fn check_rul_thresholds(
         };
 
         if let Some((component, title)) = should_create {
-            // Check if a task already exists for this pod/component
-            let pod_num = pod_id_str.replace("pod_", "").parse::<i64>().unwrap_or(0);
+            // MMA-R1: Validate pod_id instead of defaulting to 0 (phantom tasks)
+            let pod_num = match pod_id_str
+                .strip_prefix("pod_")
+                .and_then(|s| s.parse::<i64>().ok())
+                .filter(|&p| (1..=8).contains(&p))
+            {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(target: LOG_TARGET, pod = %pod_id_str, "Invalid pod_id in RUL check — skipping");
+                    continue;
+                }
+            };
+            // MMA-R1: Use exact JSON-quoted match instead of LIKE (which fails for JSON strings)
+            let component_json = format!("\"{}\"", component);
             let existing: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM maintenance_tasks WHERE pod_id = ?1 AND component LIKE ?2 AND status NOT IN ('Completed', 'Failed', 'Cancelled')"
+                "SELECT COUNT(*) FROM maintenance_tasks WHERE pod_id = ?1 AND component = ?2 AND status NOT IN ('Completed', 'Failed', 'Cancelled')"
             )
             .bind(pod_num)
-            .bind(format!("%{}%", component))
+            .bind(&component_json)
             .fetch_one(pool).await.unwrap_or(0);
 
             if existing == 0 {

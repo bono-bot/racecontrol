@@ -111,7 +111,8 @@ pub async fn insert_event(pool: &SqlitePool, event: &MaintenanceEvent) -> anyhow
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
     )
     .bind(event.id.to_string())
-    .bind(event.pod_id.map(|p| p as i64))
+    // MMA-R1: Use i64::from for infallible widening instead of `as`
+    .bind(event.pod_id.map(i64::from))
     .bind(&event_type_str)
     .bind(&severity_str)
     .bind(&component_str)
@@ -122,8 +123,8 @@ pub async fn insert_event(pool: &SqlitePool, event: &MaintenanceEvent) -> anyhow
     .bind(&event.source)
     .bind(event.correlation_id.map(|u| u.to_string()))
     .bind(event.revenue_impact_paise)
-    .bind(event.customers_affected.map(|c| c as i64))
-    .bind(event.downtime_minutes.map(|d| d as i64))
+    .bind(event.customers_affected.map(i64::from))
+    .bind(event.downtime_minutes.map(i64::from))
     .bind(event.cost_estimate_paise)
     .bind(&event.assigned_staff_id)
     .bind(&metadata_str)
@@ -151,7 +152,7 @@ pub async fn query_events(
          ORDER BY detected_at DESC
          LIMIT ?1",
     )
-    .bind(limit as i64)
+    .bind(i64::from(limit))
     .fetch_all(pool)
     .await?;
 
@@ -258,7 +259,8 @@ pub async fn get_summary(pool: &SqlitePool) -> anyhow::Result<MaintenanceSummary
         by_type,
         mttr_minutes,
         self_heal_rate,
-        open_tasks: open_row.0 as u32,
+        // MMA-R1: Use try_from instead of `as` for safe narrowing
+        open_tasks: u32::try_from(open_row.0.max(0)).unwrap_or(0),
     })
 }
 
@@ -291,9 +293,10 @@ pub async fn insert_task(pool: &SqlitePool, task: &MaintenanceTask) -> anyhow::R
     .bind(task.id.to_string())
     .bind(&task.title)
     .bind(&task.description)
-    .bind(task.pod_id.map(|p| p as i64))
+    // MMA-R1: Use i64::from for infallible widening instead of `as`
+    .bind(task.pod_id.map(i64::from))
     .bind(&component_str)
-    .bind(task.priority as i64)
+    .bind(i64::from(task.priority))
     .bind(&status_str)
     .bind(task.created_at.to_rfc3339())
     .bind(task.due_by.map(|t| t.to_rfc3339()))
@@ -323,7 +326,7 @@ pub async fn query_tasks(
          ORDER BY priority ASC, created_at DESC
          LIMIT ?1",
     )
-    .bind(limit as i64)
+    .bind(i64::from(limit))
     .fetch_all(pool)
     .await?;
 
@@ -412,39 +415,55 @@ struct TaskRow {
 // ---------------------------------------------------------------------------
 
 fn row_to_event(row: EventRow) -> anyhow::Result<MaintenanceEvent> {
-    // P1-2: Log warning on date parse fallback instead of silent Utc::now()
+    // MMA-R1: Return error on date parse failure instead of silent Utc::now() fallback
+    // (corrupts historical data, breaks MTTR/KPI calculations)
     let detected_at = match row.detected_at_str.as_deref() {
-        Some(s) => match DateTime::parse_from_rfc3339(s) {
-            Ok(d) => d.with_timezone(&Utc),
-            Err(e) => {
-                tracing::warn!(
-                    "maintenance_store: detected_at parse failed for event {}: '{}' — {}. Using Utc::now() fallback.",
-                    row.id, s, e
-                );
-                Utc::now()
-            }
-        },
-        None => {
-            tracing::warn!(
-                "maintenance_store: detected_at is NULL for event {}. Using Utc::now() fallback.",
-                row.id
-            );
-            Utc::now()
-        }
+        Some(s) => DateTime::parse_from_rfc3339(s)
+            .map_err(|e| anyhow::anyhow!("detected_at parse failed for event {}: '{}' — {}", row.id, s, e))?
+            .with_timezone(&Utc),
+        None => anyhow::bail!("detected_at is NULL for event {}", row.id),
     };
 
-    let resolved_at = row
-        .resolved_at_str
-        .as_deref()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&Utc));
+    let resolved_at = match row.resolved_at_str.as_deref() {
+        Some(s) => Some(
+            DateTime::parse_from_rfc3339(s)
+                .map_err(|e| anyhow::anyhow!("resolved_at parse failed for event {}: '{}' — {}", row.id, s, e))?
+                .with_timezone(&Utc),
+        ),
+        None => None,
+    };
+
+    // MMA-R1: Reject invalid pod_id instead of clamping (masks data corruption)
+    let pod_id = match row.pod_id {
+        Some(p) => {
+            let val = u8::try_from(p)
+                .map_err(|_| anyhow::anyhow!("pod_id {} out of u8 range for event {}", p, row.id))?;
+            if !(1..=8).contains(&val) {
+                anyhow::bail!("pod_id {} out of valid range 1-8 for event {}", val, row.id);
+            }
+            Some(val)
+        }
+        None => None,
+    };
+
+    // MMA-R1: Reject negative values instead of clamping to 0 or u32::MAX
+    let customers_affected = match row.customers_affected {
+        Some(c) if c < 0 => anyhow::bail!("customers_affected is negative ({}) for event {}", c, row.id),
+        Some(c) => Some(u32::try_from(c)
+            .map_err(|_| anyhow::anyhow!("customers_affected {} exceeds u32 for event {}", c, row.id))?),
+        None => None,
+    };
+
+    let downtime_minutes = match row.downtime_minutes {
+        Some(d) if d < 0 => anyhow::bail!("downtime_minutes is negative ({}) for event {}", d, row.id),
+        Some(d) => Some(u32::try_from(d)
+            .map_err(|_| anyhow::anyhow!("downtime_minutes {} exceeds u32 for event {}", d, row.id))?),
+        None => None,
+    };
 
     Ok(MaintenanceEvent {
         id: Uuid::parse_str(&row.id)?,
-        // P1-1: Safe narrowing cast — clamp pod_id to 1-8 range
-        pod_id: row.pod_id.and_then(|p| {
-            u8::try_from(p.clamp(0, 255)).ok().map(|v| v.clamp(1, 8))
-        }),
+        pod_id,
         event_type: serde_json::from_str(&row.event_type)?,
         severity: serde_json::from_str(&row.severity)?,
         component: serde_json::from_str(&row.component)?,
@@ -463,14 +482,8 @@ fn row_to_event(row: EventRow) -> anyhow::Result<MaintenanceEvent> {
             .map(Uuid::parse_str)
             .transpose()?,
         revenue_impact_paise: row.revenue_impact_paise,
-        // P1-1: Safe narrowing cast for customers_affected
-        customers_affected: row.customers_affected.map(|c| {
-            u32::try_from(c.max(0)).unwrap_or(u32::MAX)
-        }),
-        // P1-1: Safe narrowing cast for downtime_minutes
-        downtime_minutes: row.downtime_minutes.map(|d| {
-            u32::try_from(d.max(0)).unwrap_or(u32::MAX)
-        }),
+        customers_affected,
+        downtime_minutes,
         cost_estimate_paise: row.cost_estimate_paise,
         assigned_staff_id: row.assigned_staff_id,
         metadata: serde_json::from_str(&row.metadata)?,
@@ -478,47 +491,50 @@ fn row_to_event(row: EventRow) -> anyhow::Result<MaintenanceEvent> {
 }
 
 fn row_to_task(row: TaskRow) -> anyhow::Result<MaintenanceTask> {
-    // P1-2: Log warning on date parse fallback instead of silent Utc::now()
+    // MMA-R1: Return error on date parse failure instead of silent Utc::now() fallback
     let created_at = match row.created_at_str.as_deref() {
-        Some(s) => match DateTime::parse_from_rfc3339(s) {
-            Ok(d) => d.with_timezone(&Utc),
-            Err(e) => {
-                tracing::warn!(
-                    "maintenance_store: created_at parse failed for task {}: '{}' — {}. Using Utc::now() fallback.",
-                    row.id, s, e
-                );
-                Utc::now()
-            }
-        },
-        None => {
-            tracing::warn!(
-                "maintenance_store: created_at is NULL for task {}. Using Utc::now() fallback.",
-                row.id
-            );
-            Utc::now()
-        }
+        Some(s) => DateTime::parse_from_rfc3339(s)
+            .map_err(|e| anyhow::anyhow!("created_at parse failed for task {}: '{}' — {}", row.id, s, e))?
+            .with_timezone(&Utc),
+        None => anyhow::bail!("created_at is NULL for task {}", row.id),
     };
 
-    let due_by = row
-        .due_by_str
-        .as_deref()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&Utc));
+    let due_by = match row.due_by_str.as_deref() {
+        Some(s) => Some(
+            DateTime::parse_from_rfc3339(s)
+                .map_err(|e| anyhow::anyhow!("due_by parse failed for task {}: '{}' — {}", row.id, s, e))?
+                .with_timezone(&Utc),
+        ),
+        None => None,
+    };
 
     // Wrap status string in quotes for JSON deserialization of enum variant
     let status_json = format!("\"{}\"", row.status);
+
+    // MMA-R1: Reject invalid pod_id instead of clamping
+    let pod_id = match row.pod_id {
+        Some(p) => {
+            let val = u8::try_from(p)
+                .map_err(|_| anyhow::anyhow!("pod_id {} out of u8 range for task {}", p, row.id))?;
+            if !(1..=8).contains(&val) {
+                anyhow::bail!("pod_id {} out of valid range 1-8 for task {}", val, row.id);
+            }
+            Some(val)
+        }
+        None => None,
+    };
+
+    // MMA-R1: Reject invalid priority instead of clamping to 50
+    let priority = u8::try_from(row.priority)
+        .map_err(|_| anyhow::anyhow!("priority {} out of u8 range for task {}", row.priority, row.id))?;
 
     Ok(MaintenanceTask {
         id: Uuid::parse_str(&row.id)?,
         title: row.title,
         description: row.description,
-        // P1-1: Safe narrowing cast — clamp pod_id to 1-8 range
-        pod_id: row.pod_id.and_then(|p| {
-            u8::try_from(p.clamp(0, 255)).ok().map(|v| v.clamp(1, 8))
-        }),
+        pod_id,
         component: serde_json::from_str(&row.component)?,
-        // P1-1: Safe narrowing cast — clamp priority to 0-100
-        priority: u8::try_from(row.priority.clamp(0, 100)).unwrap_or(50),
+        priority,
         status: serde_json::from_str(&status_json)?,
         created_at,
         due_by,
@@ -607,7 +623,7 @@ pub async fn upsert_daily_metrics(
     .bind(metrics.expense_salaries_paise)
     .bind(metrics.expense_maintenance_paise)
     .bind(metrics.expense_other_paise)
-    .bind(metrics.sessions_count as i64)
+    .bind(i64::from(metrics.sessions_count))
     .bind(metrics.occupancy_rate_pct as f64)
     .bind(metrics.peak_occupancy_pct as f64)
     .execute(pool)
@@ -638,8 +654,9 @@ pub async fn query_business_metrics(
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
+        // MMA-R1: Return error on invalid date instead of silent 2000-01-01 fallback
         let date = chrono::NaiveDate::parse_from_str(&row.date, "%Y-%m-%d")
-            .unwrap_or_else(|_| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+            .map_err(|e| anyhow::anyhow!("invalid business metric date '{}': {}", row.date, e))?;
         results.push(DailyBusinessMetrics {
             date,
             revenue_gaming_paise: row.revenue_gaming_paise,
@@ -650,7 +667,8 @@ pub async fn query_business_metrics(
             expense_salaries_paise: row.expense_salaries_paise,
             expense_maintenance_paise: row.expense_maintenance_paise,
             expense_other_paise: row.expense_other_paise,
-            sessions_count: row.sessions_count as u32,
+            // MMA-R1: Use try_from instead of `as` for safe narrowing
+            sessions_count: u32::try_from(row.sessions_count.max(0)).unwrap_or(0),
             occupancy_rate_pct: row.occupancy_rate_pct as f32,
             peak_occupancy_pct: row.peak_occupancy_pct as f32,
         });
@@ -800,7 +818,7 @@ pub async fn insert_employee(pool: &SqlitePool, employee: &Employee) -> anyhow::
     .bind(&skills_str)
     .bind(employee.hourly_rate_paise)
     .bind(&employee.phone)
-    .bind(employee.is_active as i64)
+    .bind(if employee.is_active { 1i64 } else { 0i64 })
     .bind(&employee.face_enrollment_id)
     .bind(employee.hired_at.format("%Y-%m-%d").to_string())
     .execute(pool)
@@ -865,46 +883,49 @@ pub async fn update_employee(
     is_active: Option<bool>,
     face_enrollment_id: Option<&str>,
 ) -> anyhow::Result<bool> {
+    // MMA-R1: Wrap all updates in a transaction to prevent partial updates
+    let mut tx = pool.begin().await?;
     let mut any_updated = false;
 
     if let Some(n) = name {
         let r = sqlx::query("UPDATE employees SET name = ?1 WHERE id = ?2")
-            .bind(n).bind(id).execute(pool).await?;
+            .bind(n).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(r) = role {
         let role_str = serde_json::to_string(r)?.replace('"', "");
         let r = sqlx::query("UPDATE employees SET role = ?1 WHERE id = ?2")
-            .bind(&role_str).bind(id).execute(pool).await?;
+            .bind(&role_str).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(s) = skills {
         let skills_str = serde_json::to_string(s)?;
         let r = sqlx::query("UPDATE employees SET skills = ?1 WHERE id = ?2")
-            .bind(&skills_str).bind(id).execute(pool).await?;
+            .bind(&skills_str).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(rate) = hourly_rate_paise {
         let r = sqlx::query("UPDATE employees SET hourly_rate_paise = ?1 WHERE id = ?2")
-            .bind(rate).bind(id).execute(pool).await?;
+            .bind(rate).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(p) = phone {
         let r = sqlx::query("UPDATE employees SET phone = ?1 WHERE id = ?2")
-            .bind(p).bind(id).execute(pool).await?;
+            .bind(p).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(a) = is_active {
         let r = sqlx::query("UPDATE employees SET is_active = ?1 WHERE id = ?2")
-            .bind(if a { 1i64 } else { 0i64 }).bind(id).execute(pool).await?;
+            .bind(if a { 1i64 } else { 0i64 }).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
     if let Some(f) = face_enrollment_id {
         let r = sqlx::query("UPDATE employees SET face_enrollment_id = ?1 WHERE id = ?2")
-            .bind(f).bind(id).execute(pool).await?;
+            .bind(f).bind(id).execute(&mut *tx).await?;
         if r.rows_affected() > 0 { any_updated = true; }
     }
 
+    tx.commit().await?;
     Ok(any_updated)
 }
 
@@ -1247,7 +1268,10 @@ pub async fn calculate_kpis(pool: &SqlitePool, days: u32) -> anyhow::Result<Main
     .bind(&since_str)
     .fetch_optional(pool)
     .await?;
-    let downtime_minutes = downtime_row.map(|(v,)| v as u32).unwrap_or(0);
+    // MMA-R1: Use try_from instead of `as` for safe narrowing
+    let downtime_minutes = downtime_row
+        .map(|(v,)| u32::try_from(v.max(0)).unwrap_or(0))
+        .unwrap_or(0);
 
     // MTBF: total hours in period / number of failure events
     let total_hours = days as f64 * 24.0;
@@ -1279,18 +1303,19 @@ pub async fn calculate_kpis(pool: &SqlitePool, days: u32) -> anyhow::Result<Main
     .await
     .unwrap_or((0,));
 
+    // MMA-R1: Use try_from instead of `as` for safe narrowing
     Ok(MaintenanceKPIs {
         period_days: days,
-        total_events: total_events as u32,
-        total_tasks: total_tasks as u32,
+        total_events: u32::try_from(total_events.max(0)).unwrap_or(0),
+        total_tasks: u32::try_from(total_tasks.max(0)).unwrap_or(0),
         mttr_minutes,
         mtbf_hours,
         self_heal_rate,
         prediction_accuracy: 0.0, // requires ground truth data — placeholder
         false_positive_rate: 0.0, // requires labeled alert data — placeholder
         downtime_minutes,
-        tasks_completed: tasks_completed as u32,
-        tasks_open: tasks_open as u32,
+        tasks_completed: u32::try_from(tasks_completed.max(0)).unwrap_or(0),
+        tasks_open: u32::try_from(tasks_open.max(0)).unwrap_or(0),
     })
 }
 
@@ -1303,21 +1328,28 @@ pub async fn calculate_kpis(pool: &SqlitePool, days: u32) -> anyhow::Result<Main
 /// Finds active employees with role 'Technician' or 'Manager' whose skills
 /// match the task's component, then picks the one with the fewest open tasks.
 /// Returns the assigned employee ID, or None if no suitable employee found.
+/// MMA-R1: Use transaction + `assigned_to IS NULL` guard to prevent race conditions.
 pub async fn auto_assign_task(
     pool: &SqlitePool,
     task_id: &str,
 ) -> anyhow::Result<Option<String>> {
-    // Get task component (stored as JSON-serialized string)
+    let mut tx = pool.begin().await?;
+
+    // Get task component — only if task exists and is unassigned
     let component: Option<String> = sqlx::query_scalar(
-        "SELECT component FROM maintenance_tasks WHERE id = ?1",
+        "SELECT component FROM maintenance_tasks WHERE id = ?1 AND assigned_to IS NULL",
     )
     .bind(task_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let component = match component {
         Some(c) => c,
-        None => return Ok(None),
+        None => {
+            // Task doesn't exist or already assigned
+            tx.rollback().await?;
+            return Ok(None);
+        }
     };
 
     // Find available active employees (Technician or Manager roles)
@@ -1325,7 +1357,7 @@ pub async fn auto_assign_task(
         "SELECT id, name, skills FROM employees \
          WHERE is_active = 1 AND (role = 'Technician' OR role = 'Manager') LIMIT 20",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
 
     // Find best match: employee with matching skill and lowest current task load
@@ -1351,7 +1383,7 @@ pub async fn auto_assign_task(
                  WHERE assigned_to = ?1 AND status NOT IN ('Completed', 'Failed', 'Cancelled')",
             )
             .bind(emp_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await
             .unwrap_or(0);
 
@@ -1363,14 +1395,25 @@ pub async fn auto_assign_task(
     }
 
     if let Some(ref emp_id) = best_id {
-        sqlx::query(
-            "UPDATE maintenance_tasks SET assigned_to = ?1, status = 'Assigned' WHERE id = ?2",
+        // MMA-R1: Use `assigned_to IS NULL` guard to prevent overwriting concurrent assignment
+        let result = sqlx::query(
+            "UPDATE maintenance_tasks SET assigned_to = ?1, status = 'Assigned' WHERE id = ?2 AND assigned_to IS NULL",
         )
         .bind(emp_id)
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+        if result.rows_affected() == 0 {
+            // Concurrent assignment won — rollback
+            tx.rollback().await?;
+            return Ok(None);
+        }
+
+        tx.commit().await?;
         tracing::info!(target: "maint-store", task_id, employee_id = %emp_id, "Task auto-assigned");
+    } else {
+        tx.rollback().await?;
     }
 
     Ok(best_id)

@@ -25,22 +25,24 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
     let today = Utc::now().date_naive().to_string();
 
     // Check: Revenue today vs 7-day average (>30% drop = alert)
-    let today_rev: f64 = sqlx::query_scalar(
+    // MMA-R1: DB columns are INTEGER — query as i64, not f64 (was runtime type mismatch)
+    let today_rev: i64 = sqlx::query_scalar(
         "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
-    ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0_i64);
 
-    let avg_rev: f64 = sqlx::query_scalar(
+    let avg_rev: i64 = sqlx::query_scalar(
         "SELECT COALESCE(AVG(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= date('now', '-7 days')"
-    ).fetch_one(pool).await.unwrap_or(0.0);
+    ).fetch_one(pool).await.unwrap_or(0_i64);
 
-    if avg_rev > 0.0 && today_rev < avg_rev * 0.7 {
+    if avg_rev > 0 && today_rev * 10 < avg_rev * 7 {
+        let drop_pct = if avg_rev > 0 { ((avg_rev - today_rev) * 100) / avg_rev } else { 0 };
         alerts.push(BusinessAlert {
             alert_type: "RevenueDropAlert".into(),
             severity: "High".into(),
-            message: format!("Revenue today ₹{:.0} is {:.0}% below 7-day average ₹{:.0}", today_rev/100.0, (1.0 - today_rev/avg_rev)*100.0, avg_rev/100.0),
+            message: format!("Revenue today ₹{:.0} is {}% below 7-day average ₹{:.0}", today_rev as f64 / 100.0, drop_pct, avg_rev as f64 / 100.0),
             channel: AlertChannel::Both,
             timestamp: Utc::now().to_rfc3339(),
-            value: today_rev, threshold: avg_rev * 0.7,
+            value: today_rev as f64, threshold: avg_rev as f64 * 0.7,
         });
     }
 
@@ -50,8 +52,9 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
     let hour = now_ist.hour();
     let is_peak = hour >= 16 && hour < 22;
     if is_peak {
+        // MMA-R1: occupancy_rate_pct is REAL in DB — f64 is correct here
         let occ: f64 = sqlx::query_scalar(
-            "SELECT COALESCE(occupancy_rate_pct, 0) FROM daily_business_metrics WHERE date = ?1"
+            "SELECT COALESCE(occupancy_rate_pct, 0.0) FROM daily_business_metrics WHERE date = ?1"
         ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
 
         if occ > 0.0 && occ < 40.0 {
@@ -68,22 +71,24 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
 
     // Check: Maintenance costs exceeding 20% of revenue this month
     let month_start = format!("{}-{:02}-01", Utc::now().year(), Utc::now().month());
-    let maint_cost: f64 = sqlx::query_scalar(
+    // MMA-R1: DB columns are INTEGER — query as i64, not f64
+    let maint_cost: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(expense_maintenance_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
-    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0_i64);
 
-    let month_rev: f64 = sqlx::query_scalar(
+    let month_rev: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
-    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0_i64);
 
-    if month_rev > 0.0 && maint_cost > month_rev * 0.2 {
+    if month_rev > 0 && maint_cost * 5 > month_rev {
+        let cost_pct = if month_rev > 0 { (maint_cost * 100) / month_rev } else { 0 };
         alerts.push(BusinessAlert {
             alert_type: "MaintenanceCostAlert".into(),
             severity: "High".into(),
-            message: format!("Maintenance costs ₹{:.0} are {:.0}% of revenue ₹{:.0}", maint_cost/100.0, maint_cost/month_rev*100.0, month_rev/100.0),
+            message: format!("Maintenance costs ₹{:.0} are {}% of revenue ₹{:.0}", maint_cost as f64 / 100.0, cost_pct, month_rev as f64 / 100.0),
             channel: AlertChannel::WhatsApp,
             timestamp: Utc::now().to_rfc3339(),
-            value: maint_cost, threshold: month_rev * 0.2,
+            value: maint_cost as f64, threshold: month_rev as f64 * 0.2,
         });
     }
 

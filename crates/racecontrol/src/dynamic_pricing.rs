@@ -51,7 +51,12 @@ pub fn recommend_pricing(
     // P1-4: Integer arithmetic for money — avoid f64 rounding errors.
     // change_pct is in whole percent (e.g. 15.0 = 15%). Convert to basis points for integer math.
     let change_bp = (change_pct * 100.0).round() as i64; // e.g. 15.0% → 1500 basis points
-    let recommended = current_price_paise + (current_price_paise * change_bp / 10000);
+    // MMA-R1: Use checked arithmetic to prevent overflow on large prices
+    let recommended = current_price_paise
+        .checked_mul(change_bp)
+        .and_then(|v| v.checked_div(10000))
+        .and_then(|delta| current_price_paise.checked_add(delta))
+        .unwrap_or(current_price_paise); // on overflow, keep current price
 
     PricingRecommendation {
         date: chrono::Utc::now().to_rfc3339(),
