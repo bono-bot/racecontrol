@@ -1,0 +1,165 @@
+---
+title: "v29.0 Meshed Intelligence — Preventive Maintenance & Operational Intelligence (IMPLEMENTED)"
+---
+flowchart TD
+    %% ═══ LAYER 1: DATA SOURCES ═══════════════════════════════════════════
+    subgraph PODS["🎮 8 Gaming Pods (rc-agent + rc-sentry)"]
+        EXTENDED_TELEM["📡 Extended Telemetry<br/>GPU temp · CPU temp · VRAM · Power<br/>Disk SMART · Handles · USB · FPS<br/><i>60s interval via WS</i>"]
+        PRED_MAINT["🔍 Predictive Maintenance<br/>9 PRED rules (GPU, disk, handles,<br/>CLOSE_WAIT, PowerShell, sentinel)<br/><i>5-min scan cycle</i>"]
+        SELF_HEAL_LOCAL["🔧 Local Self-Heal<br/>Tier 1: rc-sentry fixes<br/>Tier 2: rc-agent self_heal<br/><i>Automatic, no server needed</i>"]
+    end
+
+    subgraph CAMERAS["📷 Camera AI (rc-sentry-ai on James)"]
+        FACE_DETECT["👤 Face Detection<br/>3 cameras (cam2, cam9, entrance)<br/>Attendance tracking"]
+        OLLAMA_LOCAL["🤖 Ollama AI<br/>qwen2.5:3b (primary)<br/>llama3.1:8b (fallback)<br/><i>:11434 on James</i>"]
+    end
+
+    subgraph BILLING["💳 Billing & POS"]
+        BILLING_FSM["📊 billing_fsm.rs<br/>Session lifecycle<br/>(Idle→Active→Paused→Ended)"]
+        CAFE_ORDERS["☕ cafe.rs<br/>Food & drink orders"]
+        WALLET["💰 wallet.rs<br/>Prepaid wallet"]
+        POS_PC["🖥️ POS PC (.20)<br/>Walk-in bookings<br/>Cash/card payments"]
+    end
+
+    %% ═══ LAYER 2: SERVER CORE (racecontrol :8080) ═══════════════════════
+    subgraph SERVER["🖥️ Server (racecontrol.exe :8080)"]
+        direction TB
+
+        subgraph INGESTION["📥 Data Ingestion"]
+            TELEM_STORE["telemetry_store.rs<br/>hardware_telemetry table<br/>+ hourly/daily aggregates<br/>+ 7/30/90d retention"]
+            EVENT_STORE["maintenance_store.rs<br/>maintenance_events table<br/>maintenance_tasks table"]
+            BIZ_AGG["business_aggregator.rs<br/>Auto-populate revenue<br/>from billing_fsm + cafe<br/><i>Hourly aggregation</i>"]
+        end
+
+        subgraph INTELLIGENCE["🧠 Meshed Intelligence Core"]
+            ANOMALY_ENGINE["maintenance_engine.rs<br/>10 anomaly rules<br/>3 failure patterns<br/>RUL estimation<br/>Priority scoring<br/><i>60s scan cycle</i>"]
+            SELF_HEALING["self_healing.rs<br/>HealingAction dispatch<br/>PodAvailabilityMap<br/>(Available/Degraded/<br/>Hold/Unavailable)"]
+            FEEDBACK["feedback_loop.rs<br/>Prediction outcomes<br/>Admin overrides<br/>Precision/recall metrics"]
+            OLLAMA_CLIENT["ollama_client.rs<br/>HTTP → James Ollama<br/>Primary + fallback chain"]
+            XAI["maintenance_xai.rs<br/>Decision explanations<br/>Anomaly rationale<br/>Escalation reasoning"]
+        end
+
+        subgraph BUSINESS["💹 Business Intelligence"]
+            BIZ_METRICS["daily_business_metrics<br/>Revenue (gaming+cafe+other)<br/>Expenses (rent+util+salary+maint)<br/>Sessions · Occupancy"]
+            EBITDA["EBITDA Calculator<br/>Revenue − Expenses<br/>Best/worst day<br/>Avg daily"]
+            FORECAST["business_forecast.rs<br/>7-day demand prediction<br/>Day-of-week patterns<br/>Occupancy forecasting"]
+            DYN_PRICING["dynamic_pricing.rs<br/>Demand-based pricing<br/>+15% peak / -15% low<br/><i>Admin approval required</i>"]
+            PRICING_BRIDGE["pricing_bridge.rs<br/>Proposals → Approve → Apply<br/>Write-through to POS/kiosk"]
+        end
+
+        subgraph HR_MOD["🧍 HR Module"]
+            EMPLOYEES["employees table<br/>Name · Role · Skills<br/>Rate · Phone · Active<br/>Face enrollment ID"]
+            ATTENDANCE["attendance_records<br/>Clock in/out · Hours<br/>Camera AI source"]
+            PAYROLL["Payroll Calculator<br/>Monthly hours × rate<br/>Integer paise math"]
+            AUTO_ASSIGN["auto_assign_task()<br/>Skill matching<br/>Load balancing"]
+        end
+
+        subgraph ORCHESTRATION["⚙️ Orchestration"]
+            SCHEDULER["maintenance_scheduler<br/>Task lifecycle<br/>Before/after metrics<br/>Pre-maintenance checks"]
+            ESCALATION["escalation.rs<br/>Tier 1: Auto-fix<br/>Tier 2: Technician notify<br/>Tier 3: Manager escalate"]
+            ALERT_ENGINE["alert_engine.rs<br/>Revenue drops >30%<br/>Low peak occupancy <40%<br/>Maintenance cost >20% rev<br/><i>30-min check cycle</i>"]
+            OPTIMIZER["optimization_engine.rs<br/>Maintenance windows<br/>Staffing levels<br/>Pod rotation"]
+        end
+
+        subgraph SUPPORT["🔧 Support Modules"]
+            INVENTORY["inventory.rs<br/>Spare parts RUL-driven<br/>Cost lookup table<br/>(GPU ₹12K, SSD ₹5.5K)"]
+            SNAPSHOT["snapshot_manager.rs<br/>Pre-maintenance config<br/>Build ID + config hash"]
+            DATA_COLLECTOR["data_collector.rs<br/>VenueSnapshot cross-domain<br/>RUL threshold triggers<br/><i>15-min collection cycle</i>"]
+            CLOUD_SYNC_EXT["cloud_sync.rs (extended)<br/>Maintenance events sync<br/>HR data sync<br/>Analytics sync"]
+        end
+
+        KPI["maintenance_kpi<br/>MTTR · MTBF · Self-heal rate<br/>Prediction accuracy<br/>False positive rate<br/>Downtime minutes"]
+    end
+
+    %% ═══ LAYER 3: FRONTENDS ═══════════════════════════════════════════════
+    subgraph FRONTEND["🌐 Frontends"]
+        DASHBOARD["📊 Admin Dashboard (:3200)<br/>/maintenance — KPIs + timeline<br/>/maintenance/tasks — work orders<br/>/maintenance/feedback — ratings<br/>/analytics/ebitda — financials<br/>/hr — employees/shifts/leaderboard"]
+        KIOSK["🎮 Kiosk (:3300)<br/>Game launcher<br/>Pod availability gate<br/>/pods/{id}/availability API"]
+        PWA["📱 PWA (racingpoint.cloud)<br/>Customer booking<br/>Downtime notifications<br/>Wallet + leaderboards"]
+    end
+
+    subgraph ALERTS["📱 Alerts"]
+        WHATSAPP["WhatsApp Bot<br/>Staff: 7075778180<br/>Customer: 9059833001<br/>Escalation delivery"]
+        UDAY["👤 Uday Singh<br/>Admin overrides<br/>Approval workflow<br/>Dashboard + WhatsApp"]
+    end
+
+    %% ═══ DATA FLOWS ══════════════════════════════════════════════════════
+    %% Pod → Server
+    EXTENDED_TELEM -->|"WS AgentMessage<br/>ExtendedTelemetry"| TELEM_STORE
+    PRED_MAINT -->|"Local alerts"| SELF_HEAL_LOCAL
+    SELF_HEAL_LOCAL -->|"Log events"| EVENT_STORE
+
+    %% Billing → Business
+    BILLING_FSM -->|"wallet_debit_paise"| BIZ_AGG
+    CAFE_ORDERS -->|"total_paise"| BIZ_AGG
+    BIZ_AGG -->|"Hourly upsert"| BIZ_METRICS
+    BIZ_METRICS --> EBITDA
+    BIZ_METRICS --> FORECAST
+    FORECAST --> DYN_PRICING
+    DYN_PRICING --> PRICING_BRIDGE
+    PRICING_BRIDGE -->|"Approved prices"| POS_PC
+    PRICING_BRIDGE -->|"Approved prices"| KIOSK
+
+    %% Telemetry → Intelligence
+    TELEM_STORE -->|"Latest per pod"| ANOMALY_ENGINE
+    ANOMALY_ENGINE -->|"Alerts"| SELF_HEALING
+    ANOMALY_ENGINE -->|"Alerts"| EVENT_STORE
+    SELF_HEALING -->|"Pod state"| KIOSK
+    ANOMALY_ENGINE -->|"Complex cases"| OLLAMA_CLIENT
+    OLLAMA_CLIENT -->|"HTTP"| OLLAMA_LOCAL
+    OLLAMA_LOCAL -->|"Diagnosis"| XAI
+
+    %% Maintenance lifecycle
+    ANOMALY_ENGINE -->|"Auto-create tasks"| SCHEDULER
+    DATA_COLLECTOR -->|"RUL threshold"| SCHEDULER
+    SCHEDULER -->|"Assign"| AUTO_ASSIGN
+    AUTO_ASSIGN -->|"Match skills"| EMPLOYEES
+    SCHEDULER -->|"Severity routing"| ESCALATION
+    ESCALATION -->|"Tier 2/3"| WHATSAPP
+    WHATSAPP --> UDAY
+
+    %% Alert engine
+    BIZ_METRICS -->|"KPI monitoring"| ALERT_ENGINE
+    ALERT_ENGINE -->|"Business alerts"| WHATSAPP
+    ALERT_ENGINE -->|"Dashboard alerts"| DASHBOARD
+
+    %% Feedback loop
+    SCHEDULER -->|"Task outcomes"| FEEDBACK
+    UDAY -->|"Overrides"| FEEDBACK
+    FEEDBACK -->|"Accuracy metrics"| KPI
+    FEEDBACK -->|"Threshold tuning"| ANOMALY_ENGINE
+
+    %% HR
+    FACE_DETECT -->|"Attendance"| ATTENDANCE
+    ATTENDANCE --> PAYROLL
+    PAYROLL -->|"expense_salaries_paise"| BIZ_METRICS
+
+    %% Optimization
+    FORECAST -->|"Demand data"| OPTIMIZER
+    OPTIMIZER -->|"Window recs"| SCHEDULER
+    OPTIMIZER -->|"Staff recs"| DASHBOARD
+
+    %% Cloud
+    EVENT_STORE -->|"Sync"| CLOUD_SYNC_EXT
+    BIZ_METRICS -->|"Sync"| CLOUD_SYNC_EXT
+    CLOUD_SYNC_EXT -->|"HTTPS"| PWA
+
+    %% Frontend consumption
+    EVENT_STORE --> DASHBOARD
+    KPI --> DASHBOARD
+    INVENTORY -->|"Parts recs"| DASHBOARD
+    EMPLOYEES --> DASHBOARD
+
+    %% Kiosk gate
+    SELF_HEALING -->|"PodAvailabilityMap"| KIOSK
+
+    %% ═══ STYLES ═══════════════════════════════════════════════════════════
+    classDef new fill:#1a472a,stroke:#2d8659,color:#fff
+    classDef extended fill:#2a3a5c,stroke:#4a7ab5,color:#fff
+    classDef existing fill:#333,stroke:#666,color:#ccc
+    classDef frontend fill:#4a2a5c,stroke:#8a5ab5,color:#fff
+
+    class EXTENDED_TELEM,ANOMALY_ENGINE,SELF_HEALING,FEEDBACK,OLLAMA_CLIENT,XAI,BIZ_AGG,FORECAST,DYN_PRICING,PRICING_BRIDGE,ALERT_ENGINE,OPTIMIZER,INVENTORY,SNAPSHOT,DATA_COLLECTOR,AUTO_ASSIGN,KPI,ESCALATION new
+    class TELEM_STORE,EVENT_STORE,EMPLOYEES,ATTENDANCE,PAYROLL,SCHEDULER,CLOUD_SYNC_EXT,BIZ_METRICS,EBITDA extended
+    class BILLING_FSM,CAFE_ORDERS,WALLET,POS_PC,PRED_MAINT,SELF_HEAL_LOCAL,FACE_DETECT,OLLAMA_LOCAL,WHATSAPP,UDAY existing
+    class DASHBOARD,KIOSK,PWA frontend
