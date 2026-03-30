@@ -1,174 +1,128 @@
 "use client";
-import { useState, useEffect, useCallback, FormEvent } from "react";
+
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { setToken, isAuthenticated } from "@/lib/auth";
+import PinPad from "@/components/PinPad";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export default function LoginPage() {
-  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const router = useRouter();
 
+  // Redirect if already authenticated (SSR safe — in useEffect only)
   useEffect(() => {
     if (isAuthenticated()) {
       router.push("/");
     }
   }, [router]);
 
-  const handleSubmit = useCallback(async (pinValue?: string) => {
-    const submitPin = pinValue ?? pin;
-    if (submitPin.length !== 4) return;
-    setError(null);
-    setLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/staff/validate-pin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: submitPin }),
-      });
-
-      if (res.status === 200) {
-        const data = await res.json();
-        if (data.status === "ok" && data.token) {
-          setToken(data.token);
-          router.push("/");
-        } else {
-          setError(data.error || "Invalid staff PIN");
-          setPin("");
-        }
-      } else {
-        setError("Invalid staff PIN");
-        setPin("");
-      }
-    } catch {
-      setError("Cannot reach server. Check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  }, [pin, router]);
-
-  function handleDigit(digit: string) {
-    if (loading) return;
-    setPin((prev) => {
-      if (prev.length >= 4) return prev;
-      const newPin = prev + digit;
-      setError(null);
-      if (newPin.length === 4) {
-        handleSubmit(newPin);
-      }
-      return newPin;
-    });
-  }
-
-  function handleBackspace() {
-    setPin((prev) => prev.slice(0, -1));
-    setError(null);
-  }
-
-  function handleClear() {
-    setPin("");
-    setError(null);
-  }
-
-  // Keyboard support
+  // Lockout countdown timer
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key >= "0" && e.key <= "9") {
-        handleDigit(e.key);
-      } else if (e.key === "Backspace") {
-        handleBackspace();
-      } else if (e.key === "Escape") {
-        handleClear();
+    if (lockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutSeconds((s) => {
+        if (s <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
+  const handleComplete = useCallback(
+    async (pin: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/staff/validate-pin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin }),
+        });
+
+        if (res.status === 429) {
+          const data = await res.json().catch(() => ({}));
+          const secs = data.lockout_seconds ?? 30;
+          setLockoutSeconds(secs);
+          setError(`Too many attempts. Try again in ${secs}s`);
+          return;
+        }
+
+        if (res.status === 200) {
+          const data = await res.json();
+          if (data.status === "ok" && data.token) {
+            setToken(data.token);
+            router.push("/");
+            return;
+          }
+          setError(data.error || "Invalid staff PIN");
+          return;
+        }
+
+        setError("Invalid staff PIN");
+      } catch {
+        setError("Cannot reach server. Check your connection.");
+      } finally {
+        setLoading(false);
       }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  });
+    },
+    [router]
+  );
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1A1A1A] px-4">
-      <div className="w-full max-w-sm text-center">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            RaceControl
-          </h1>
-          <p className="text-sm text-neutral-400 mt-1">Enter your 4-digit staff PIN</p>
-        </div>
+    <div
+      className="min-h-screen flex items-center justify-center bg-rp-black px-4"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          -45deg,
+          transparent,
+          transparent 40px,
+          rgba(225, 6, 0, 0.03) 40px,
+          rgba(225, 6, 0, 0.03) 41px
+        )`,
+      }}
+    >
+      <div className="w-full max-w-xs bg-rp-card border border-rp-border rounded-2xl p-8 shadow-2xl">
+        {/* Racing Red accent bar at card top */}
+        <div className="h-1 bg-rp-red rounded-t-2xl -mt-8 -mx-8 mb-8" />
 
-        {/* PIN display boxes */}
-        <div className="flex justify-center gap-4 mb-8">
-          {[0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center text-2xl font-bold transition-all ${
-                i < pin.length
-                  ? "border-[#E10600] bg-[#E10600]/10 text-white"
-                  : "border-[#333333] bg-[#222222] text-transparent"
-              }`}
+        {/* Wordmark */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <svg
+              className="w-6 h-6 text-rp-red"
+              fill="currentColor"
+              viewBox="0 0 24 24"
             >
-              {i < pin.length ? "\u2022" : "0"}
-            </div>
-          ))}
+              <path d="M3 3h9l-1.5 3H12l1.5-3H21v9l-1.5-3H18l1.5 3H3V3z" />
+            </svg>
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              RaceControl
+            </h1>
+          </div>
+          <p className="text-xs text-rp-grey">Racing Point Bandlaguda</p>
+          <p className="text-xs text-rp-grey mt-0.5">
+            Enter your 6-digit staff PIN
+          </p>
         </div>
 
-        {/* Error */}
-        {error && (
-          <p className="text-sm text-[#E10600] text-center font-medium mb-4">
-            {error}
-          </p>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <p className="text-neutral-400 text-sm animate-pulse mb-4">
-            Verifying...
-          </p>
-        )}
-
-        {/* Numpad */}
-        <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-            <button
-              key={digit}
-              onClick={() => handleDigit(digit)}
-              disabled={loading || pin.length >= 4}
-              className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-white text-xl font-semibold
-                         hover:bg-[#333333] hover:border-[#555555] active:bg-[#E10600]/20
-                         disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              {digit}
-            </button>
-          ))}
-          <button
-            onClick={handleClear}
-            disabled={loading}
-            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-neutral-400 text-sm font-medium
-                       hover:bg-[#333333] transition-all disabled:opacity-30"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => handleDigit("0")}
-            disabled={loading || pin.length >= 4}
-            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-white text-xl font-semibold
-                       hover:bg-[#333333] hover:border-[#555555] active:bg-[#E10600]/20
-                       disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            0
-          </button>
-          <button
-            onClick={handleBackspace}
-            disabled={loading || pin.length === 0}
-            className="h-16 rounded-xl bg-[#222222] border border-[#333333] text-neutral-400 text-lg font-medium
-                       hover:bg-[#333333] transition-all disabled:opacity-30"
-          >
-            &#9003;
-          </button>
-        </div>
+        {/* PinPad component — handles keyboard, PIN display, numpad */}
+        <PinPad
+          onComplete={handleComplete}
+          disabled={loading || lockoutSeconds > 0}
+          error={
+            lockoutSeconds > 0
+              ? `Locked out \u2014 ${lockoutSeconds}s remaining`
+              : error
+          }
+          loading={loading}
+        />
       </div>
     </div>
   );
