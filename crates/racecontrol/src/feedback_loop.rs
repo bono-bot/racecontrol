@@ -127,8 +127,10 @@ pub async fn calculate_feedback_metrics(
 ) -> anyhow::Result<FeedbackMetrics> {
     let since = (Utc::now() - chrono::Duration::days(days as i64)).to_rfc3339();
 
+    // MMA-v29: Only count evaluated predictions (was_accurate IS NOT NULL).
+    // Previously counted ALL rows including unevaluated (NULL), corrupting precision/FPR.
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1",
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1 AND was_accurate IS NOT NULL",
     )
     .bind(&since)
     .fetch_one(pool)
@@ -175,7 +177,10 @@ pub async fn calculate_feedback_metrics(
         total_predictions: total as u32,
         accurate_predictions: accurate as u32,
         precision,
-        recall: precision, // simplified — need separate tracking of missed failures
+        // MMA-v29: recall != precision. Recall requires tracking false negatives (missed failures)
+        // which our schema doesn't capture. Set to 0.0 to avoid misleading metrics.
+        // TODO: Add missed_failures tracking to prediction_outcomes table for real recall.
+        recall: 0.0,
         mean_lead_time_hours: avg_lead,
         false_positive_rate: fpr,
         period_days: days,

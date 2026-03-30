@@ -21,7 +21,16 @@ pub fn determine_escalation(
     if auto_fix_attempts == 0 && !is_recurring && severity != "High" {
         return EscalationTier::Auto;
     }
-    if auto_fix_attempts <= 2 || severity == "High" {
+    // MMA-v29: Fixed — High with >2 attempts must escalate to Manager (was stuck at Technician
+    // because `||` short-circuited: `severity == "High"` was always true for High, so the
+    // `auto_fix_attempts > 2` branch was unreachable).
+    if auto_fix_attempts > 2 {
+        return EscalationTier::Manager;
+    }
+    if severity == "High" || is_recurring {
+        return EscalationTier::Technician;
+    }
+    if auto_fix_attempts <= 2 {
         return EscalationTier::Technician;
     }
     EscalationTier::Manager
@@ -90,6 +99,27 @@ mod tests {
     fn test_many_attempts_escalates_to_manager() {
         assert_eq!(
             determine_escalation("Medium", 3, false),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_high_many_attempts_escalates_to_manager() {
+        // MMA-v29: This was the bug — High + >2 attempts was stuck at Technician
+        assert_eq!(
+            determine_escalation("High", 3, false),
+            EscalationTier::Manager
+        );
+        assert_eq!(
+            determine_escalation("High", 5, true),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_low_many_attempts_escalates_to_manager() {
+        assert_eq!(
+            determine_escalation("Low", 3, false),
             EscalationTier::Manager
         );
     }

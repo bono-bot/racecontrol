@@ -45,8 +45,10 @@ pub async fn diagnose(prompt: &str) -> anyhow::Result<String> {
                     Ok(response)
                 }
                 Err(e2) => {
-                    tracing::error!(target: LOG_TARGET, error = %e2, "Both Ollama models failed");
-                    Err(anyhow::anyhow!("Ollama unavailable: primary={}, fallback={}", e, e2))
+                    // MMA-v29: Log full errors server-side but return generic message to callers
+                    // (prevents leaking internal model names, IPs, and reqwest error details)
+                    tracing::error!(target: LOG_TARGET, primary_error = %e, fallback_error = %e2, "Both Ollama models failed");
+                    Err(anyhow::anyhow!("AI diagnosis service unavailable"))
                 }
             }
         }
@@ -66,7 +68,9 @@ async fn call_ollama(client: &reqwest::Client, model: &str, prompt: &str) -> any
         .await?;
 
     if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("Ollama returned {}", resp.status()));
+        // MMA-v29: Log status server-side, return generic error
+        tracing::warn!(target: LOG_TARGET, status = %resp.status(), model, "Ollama HTTP error");
+        return Err(anyhow::anyhow!("AI diagnosis service error"));
     }
 
     let body: OllamaResponse = resp.json().await?;

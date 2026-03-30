@@ -48,15 +48,30 @@ pub fn recommend_pricing(
         );
     }
 
+    // MMA-v29: Zero base price — can't compute percentage change, return early
+    if current_price_paise == 0 {
+        return PricingRecommendation {
+            date: chrono::Utc::now().to_rfc3339(),
+            current_price_paise: 0,
+            recommended_price_paise: 0,
+            change_pct: 0.0,
+            reason: "Current price is zero — cannot compute percentage change".to_string(),
+            confidence: 0.0,
+            requires_approval: true,
+        };
+    }
+
     // P1-4: Integer arithmetic for money — avoid f64 rounding errors.
     // change_pct is in whole percent (e.g. 15.0 = 15%). Convert to basis points for integer math.
-    let change_bp = (change_pct * 100.0).round() as i64; // e.g. 15.0% → 1500 basis points
+    // MMA-v29: Clamp basis points to prevent extreme price swings
+    let change_bp = ((change_pct * 100.0).round() as i64).clamp(-10000, 10000);
     // MMA-R1: Use checked arithmetic to prevent overflow on large prices
     let recommended = current_price_paise
         .checked_mul(change_bp)
         .and_then(|v| v.checked_div(10000))
         .and_then(|delta| current_price_paise.checked_add(delta))
-        .unwrap_or(current_price_paise); // on overflow, keep current price
+        .unwrap_or(current_price_paise) // on overflow, keep current price
+        .max(0); // MMA-v29: Never recommend negative prices
 
     PricingRecommendation {
         date: chrono::Utc::now().to_rfc3339(),

@@ -35,7 +35,8 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
     ).fetch_one(pool).await.unwrap_or(0_i64);
 
     if avg_rev > 0 && today_rev * 10 < avg_rev * 7 {
-        let drop_pct = if avg_rev > 0 { ((avg_rev - today_rev) * 100) / avg_rev } else { 0 };
+        // MMA-v29: Use f64 for percentage display to avoid integer truncation (33% vs 33.3%)
+        let drop_pct = if avg_rev > 0 { ((avg_rev - today_rev) as f64 * 100.0 / avg_rev as f64).round() as i64 } else { 0 };
         alerts.push(BusinessAlert {
             alert_type: "RevenueDropAlert".into(),
             severity: "High".into(),
@@ -81,7 +82,8 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
     ).bind(&month_start).fetch_one(pool).await.unwrap_or(0_i64);
 
     if month_rev > 0 && maint_cost * 5 > month_rev {
-        let cost_pct = if month_rev > 0 { (maint_cost * 100) / month_rev } else { 0 };
+        // MMA-v29: Use f64 for percentage display to avoid integer truncation
+        let cost_pct = if month_rev > 0 { (maint_cost as f64 * 100.0 / month_rev as f64).round() as i64 } else { 0 };
         alerts.push(BusinessAlert {
             alert_type: "MaintenanceCostAlert".into(),
             severity: "High".into(),

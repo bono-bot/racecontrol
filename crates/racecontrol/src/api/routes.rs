@@ -83,10 +83,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
-        .route("/debug/db-stats", get(debug_db_stats))
         // MMA-P1: Debug endpoints moved to staff_routes (below) to prevent information
         // disclosure. Kiosk debug UI must use staff JWT to access these endpoints.
         // Previously public: /debug/activity, /debug/playbooks, /debug/incidents, /debug/pod-events
+        // MMA-v29: /debug/db-stats also moved to staff_routes (was leaking table names, row counts)
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -124,19 +124,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/pricing/social-proof", get(pricing_social_proof_handler))
         // Legal disclosure (LEGAL-06) — public so kiosk can fetch during minor registration flow
         .route("/legal/minor-waiver-disclosure", get(minor_waiver_disclosure))
-        // Metrics API (METRICS-05, METRICS-06) — operational metrics for admin dashboard + intelligence
-        .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
-        .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
-        // Intelligence API (INTEL-03, INTEL-04) — combo alternatives + fleet reliability matrix
+        // MMA-v29: Metrics, mesh intelligence, admin, and cameras endpoints moved to staff_routes.
+        // These leaked operational data (billing accuracy, incidents, camera topology) publicly.
+        // /games/alternatives remains public (customer-facing combo recommendations).
         .route("/games/alternatives", get(metrics::alternatives_handler))
-        .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
-        // Mesh Intelligence (v26.0) — read-only for dashboard
-        .route("/mesh/solutions", get(mesh_list_solutions))
-        .route("/mesh/solutions/{id}", get(mesh_get_solution))
-        .route("/mesh/incidents", get(mesh_list_incidents))
-        .route("/mesh/stats", get(mesh_stats))
-        // Cameras health proxy — checks go2rtc on James (.27:1984)
-        .route("/cameras/health", get(cameras_health_proxy))
         // POS lockdown read — public so POS agent/kiosk can poll without JWT (MMA Round 1 fix: 2/3 consensus)
         // POST (write) stays in staff_routes
         .route("/pos/lockdown", get(get_pos_lockdown))
@@ -305,6 +296,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Driver rating history (staff-only — Phase 253)
         .route("/drivers/{id}/rating-history", get(staff_driver_rating_history))
         // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
+        .route("/debug/db-stats", get(debug_db_stats))
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
         .route("/debug/incidents", get(list_debug_incidents))
@@ -524,6 +516,15 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/gamification/challenges/{id}/progress", post(staff_challenge_update_progress))
         // ─── Autonomous Pipeline (v26.0) ─────────────────────────────────────
         .route("/pipeline/status", get(pipeline_status))
+        // MMA-v29: Metrics, mesh, admin, cameras moved from public_routes — require staff JWT
+        .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
+        .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
+        .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        .route("/mesh/solutions", get(mesh_list_solutions))
+        .route("/mesh/solutions/{id}", get(mesh_get_solution))
+        .route("/mesh/incidents", get(mesh_list_incidents))
+        .route("/mesh/stats", get(mesh_stats))
+        .route("/cameras/health", get(cameras_health_proxy))
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
