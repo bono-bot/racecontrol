@@ -233,13 +233,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
 
                                 match db_result {
                                     Ok(_) => {}
-                                    Err(e) => {
-                                        let msg = e.to_string();
-                                        if msg.contains("UNIQUE") {
+                                    Err(ref e) => {
+                                        // MMA-R2: Use sqlx error type matching, not string contains
+                                        let is_unique = matches!(e, sqlx::Error::Database(db_err) if db_err.code().map_or(false, |c| c == "2067"));
+                                        if is_unique {
                                             tracing::error!(
-                                                "Pod {} registration DB sync failed: number {} conflicts with another pod — DB/memory diverged",
+                                                "Pod {} registration rejected: number {} conflicts with another pod — rolling back in-memory",
                                                 canonical_id, pod_info.number
                                             );
+                                            // MMA-R2-01: Roll back in-memory insert to prevent divergence
+                                            state.pods.write().await.remove(&canonical_id);
+                                            state.agent_senders.write().await.remove(&canonical_id);
+                                            state.agent_conn_ids.write().await.remove(&canonical_id);
+                                            registered_pod_id = None;
+                                            continue; // Skip rest of Register handling
                                         } else {
                                             tracing::warn!("Failed to sync pod {} registration to DB: {}", canonical_id, e);
                                         }
