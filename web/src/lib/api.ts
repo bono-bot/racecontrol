@@ -309,6 +309,10 @@ export const api = {
   listPods: () => fetchApi<{ pods: Pod[] }>("/pods"),
   getPod: (id: string) => fetchApi<{ pod: Pod }>(`/pods/${id}`),
 
+  // Fleet Health
+  fleetHealth: () =>
+    fetchApi<PodFleetStatus[]>("/fleet/health"),
+
   // Drivers
   listDrivers: (search?: string) => {
     const qs = search ? `?search=${encodeURIComponent(search)}` : "";
@@ -619,6 +623,16 @@ export interface Pod {
   billing_session_id?: string;
   game_state?: GameState;
   current_game?: string;
+}
+
+export interface PodFleetStatus {
+  pod_number: number;
+  ws_connected: boolean;
+  http_reachable: boolean;
+  version: string;
+  build_id: string;
+  uptime_secs: number;
+  last_seen: string;
 }
 
 export interface Driver {
