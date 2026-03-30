@@ -1,33 +1,15 @@
 @import "tailwindcss";
-
-:root {
-  --background: #1A1A1A;
-  --foreground: #FFFFFF;
-  --rp-red: #E10600;
-  --rp-red-light: #FF1A1A;
-  --rp-black: #1A1A1A;
-  --rp-grey: #5A5A5A;
-}
+@import "../../../packages/shared-tokens/tokens.css";
 
 @theme inline {
-  --color-rp-red: #E10600;
-  --color-rp-red-hover: #FF1A1A;
-  --color-rp-black: #1A1A1A;
-  --color-rp-grey: #5A5A5A;
-  --color-rp-card: #222222;
-  --color-rp-border: #333333;
-  --color-rp-surface: #2A2A2A;
-  --color-rp-purple: #a855f7;
-  --color-rp-green: #16a34a;
-  --color-rp-yellow: #ca8a04;
-  --font-sans: 'Montserrat', sans-serif;
+  --font-sans:    'Montserrat', sans-serif;
   --font-display: var(--font-display, 'Orbitron', sans-serif);
-  --font-mono: var(--font-mono-jb, 'JetBrains Mono', monospace);
+  --font-mono:    var(--font-mono-jb, 'JetBrains Mono', monospace);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--rp-black);
+  color: #FFFFFF;
   overflow: hidden;
   user-select: none;
 }
