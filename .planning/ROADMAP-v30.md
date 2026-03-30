@@ -101,7 +101,7 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 261. Design System Foundation | 0/TBD | Not started | - |
+| 261. Design System Foundation | 1/7 | In progress | - |
 | 262. Deploy Pipeline Hardening | 0/TBD | Not started | - |
 | 263. Web Primitive Components | 0/TBD | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |

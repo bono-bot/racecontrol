@@ -4,7 +4,7 @@
 **Core Value:** Every venue management page looks and feels like a premium F1 pit wall — fast, precise, motorsport-inspired
 
 ## Design System (DS)
-- [ ] **DS-01**: Shared design tokens CSS file with full color ramp (surfaces, semantics, status colors)
+- [x] **DS-01**: Shared design tokens CSS file with full color ramp (surfaces, semantics, status colors)
 - [ ] **DS-02**: JetBrains Mono integrated via next/font for numeric displays in both apps
 - [ ] **DS-03**: shadcn/ui initialized in web app with motorsport theme variables
 - [ ] **DS-04**: shadcn/ui initialized in kiosk app with touch-optimized theme
@@ -55,7 +55,7 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| DS-01 | Phase 261 | TBD | Pending |
+| DS-01 | Phase 261 | 261-01 | Complete |
 | DS-02 | Phase 261 | TBD | Pending |
 | DS-03 | Phase 261 | TBD | Pending |
 | DS-04 | Phase 261 | TBD | Pending |
