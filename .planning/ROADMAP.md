@@ -25,7 +25,11 @@ No single system failure can kill the healing brain. Three independent survival 
   3. Every cross-layer operation log entry carries the same action_id, traceable end-to-end from diagnosis to rollback
   4. SurvivalReport, HealLease, BinaryManifest, DiagnosisContext structs exist in rc-common and compile cleanly across all crates
   5. OTA_DEPLOYING and HEAL_IN_PROGRESS sentinel checks are present in all existing recovery code paths
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 267-01-PLAN.md — Survival types, sentinel protocol, and OpenRouter trait in rc-common
+- [ ] 267-02-PLAN.md — Server heal-lease endpoints and LeaseManager
+- [ ] 267-03-PLAN.md — Retrofit all 5 recovery systems with sentinel checks
 **UI hint**: no
 
 ### Phase 268: Unified MMA Protocol
@@ -153,7 +157,7 @@ No single system failure can kill the healing brain. Three independent survival 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 267. Survival Foundation | 0/TBD | Not started | - |
+| 267. Survival Foundation | 0/3 | Planning complete | - |
 | 268. Unified MMA Protocol | 0/TBD | Not started | - |
 | 269. Layer 1 Smart Watchdog | 0/TBD | Not started | - |
 | 270. Layer 2 Server Fleet Healer | 0/TBD | Not started | - |
