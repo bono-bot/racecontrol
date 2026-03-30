@@ -157,7 +157,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 267. Survival Foundation | 3/3 | Complete   | 2026-03-30 |
+| 267. Survival Foundation | 3/3 | Complete    | 2026-03-30 |
 | 268. Unified MMA Protocol | 0/TBD | Not started | - |
 | 269. Layer 1 Smart Watchdog | 0/TBD | Not started | - |
 | 270. Layer 2 Server Fleet Healer | 0/TBD | Not started | - |
