@@ -31,7 +31,11 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
   3. `motion` (not `framer-motion`) is in both `web/package.json` and `kiosk/package.json`; import resolves as `import { motion } from "motion/react"`
   4. JetBrains Mono is loaded via `next/font/google` in `web/src/app/layout.tsx` and `--font-mono` resolves to JetBrains Mono in web (replacing Geist Mono); kiosk already has JetBrains Mono and is unchanged
   5. `cd web && npm run build` and `cd kiosk && npm run build` both complete with 0 TypeScript errors; `grep -rn "tailwindcss-animate" web/ kiosk/` returns zero hits
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 261-01-PLAN.md — Shared token file (packages/shared-tokens/tokens.css) + both globals.css updated
+- [ ] 261-02-PLAN.md — shadcn/ui init in both apps + tw-animate-css + Lucide icons in Sidebar
+- [ ] 261-03-PLAN.md — motion@12 install + JetBrains Mono in web layout + build verification
 **UI hint**: yes
 
 ### Phase 262: Deploy Pipeline Hardening
@@ -101,7 +105,7 @@ Phase numbering continues from v27.0 (last phase was 260). Phases 261-266.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 261. Design System Foundation | 0/TBD | Not started | - |
+| 261. Design System Foundation | 0/3 | Not started | - |
 | 262. Deploy Pipeline Hardening | 0/TBD | Not started | - |
 | 263. Web Primitive Components | 0/TBD | Not started | - |
 | 264. Web Dashboard Pages | 0/TBD | Not started | - |
