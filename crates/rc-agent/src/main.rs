@@ -982,6 +982,17 @@ async fn main() -> Result<()> {
     );
     tracing::info!(target: LOG_TARGET, "Failure monitor started (poll interval: 5s)");
 
+    // ─── Knowledge Base pre-init (GAP-06: ensure mesh_kb.db exists before tier engine) ──
+    match knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
+        Ok(kb) => {
+            let count = kb.solution_count().unwrap_or(0);
+            tracing::info!(target: LOG_TARGET, solutions = count, path = knowledge_base::KB_PATH, "Knowledge base ready");
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "Knowledge base init failed — Tier 2 lookups will be unavailable");
+        }
+    }
+
     // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
     // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
     diagnostic_engine::spawn(
@@ -1012,6 +1023,45 @@ async fn main() -> Result<()> {
     // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
     tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe());
     tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge active");
+
+    // ─── Mesh Heartbeat (GAP-10: periodic KB digest for server fleet view) ─────────
+    {
+        let hb_tx = ws_exec_result_tx.clone();
+        let hb_pod_id = pod_id.clone();
+        let hb_budget = mesh_budget.clone();
+        tokio::spawn(async move {
+            tracing::info!(target: "mesh-gossip", task = "mesh_heartbeat", event = "lifecycle", "lifecycle: started");
+            // Wait 60s for system to stabilize
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let (kb_size, kb_hash) = match knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
+                    Ok(kb) => {
+                        let size = kb.solution_count().unwrap_or(0) as u32;
+                        let hash = kb.kb_hash().unwrap_or_default();
+                        (size, hash)
+                    }
+                    Err(_) => (0, String::new()),
+                };
+                let budget_remaining = {
+                    let mut b = hb_budget.write().await;
+                    b.remaining()
+                };
+                let msg = rc_common::protocol::AgentMessage::MeshHeartbeat {
+                    node: hb_pod_id.clone(),
+                    kb_size,
+                    kb_hash,
+                    budget_remaining,
+                    last_diagnosis: None,
+                };
+                let _ = hb_tx.send(msg).await;
+                tracing::debug!(target: "mesh-gossip", kb_size, budget_remaining, "Sent mesh heartbeat");
+            }
+        });
+        tracing::info!(target: LOG_TARGET, "Mesh heartbeat started (5-min interval)");
+    }
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
     tokio::spawn(async {

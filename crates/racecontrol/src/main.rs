@@ -891,6 +891,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
     app_health_monitor::spawn(state.clone());
 
+    // Spawn Meshed Intelligence promotion pipeline (60s: promote candidates, detect patterns, expire stale)
+    racecontrol_crate::promotion::spawn(state.clone());
+
     // Spawn server-side process guard (monitors server .23 for unauthorized processes)
     process_guard::spawn_server_guard(state.clone());
 

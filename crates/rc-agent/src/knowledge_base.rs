@@ -447,6 +447,21 @@ impl KnowledgeBase {
         Ok(count)
     }
 
+    /// Compute a simple hash of the KB state for drift detection (GAP-10 mesh heartbeat).
+    /// Uses count + max updated_at as a cheap fingerprint.
+    pub fn kb_hash(&self) -> anyhow::Result<String> {
+        let count = self.solution_count().unwrap_or(0);
+        let max_updated: String = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(updated_at), '') FROM solutions",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_default();
+        Ok(format!("{}:{}", count, max_updated))
+    }
+
     // ─── MMA-First Protocol: Q1-Q4 Helper Methods ─────────────────────────────
 
     /// Q1: Two-tier lookup — try exact hash first, then stable hash.

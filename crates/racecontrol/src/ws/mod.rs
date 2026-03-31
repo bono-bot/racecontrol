@@ -1551,6 +1551,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             );
                         }
 
+                        // ─── Meshed Intelligence gossip (v26.0) ─────────────────────
+                        AgentMessage::MeshSolutionAnnounce { .. }
+                        | AgentMessage::MeshSolutionRequest { .. }
+                        | AgentMessage::MeshExperimentAnnounce { .. }
+                        | AgentMessage::MeshHeartbeat { .. } => {
+                            crate::mesh_handler::handle_mesh_message(
+                                &state, &agent_msg, &cmd_tx,
+                            ).await;
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }
