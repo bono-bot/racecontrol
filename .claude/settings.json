@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/cgp-session-bootstrap.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

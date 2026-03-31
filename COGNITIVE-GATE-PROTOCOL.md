@@ -1,4 +1,4 @@
-# Cognitive Gate Protocol v2.0
+# Cognitive Gate Protocol v2.1
 
 **Purpose:** Structurally prevent the 7 systematic thinking failures documented in 37 feedback corrections (2026-03-16 to 2026-03-31). These gates are NOT rules — they are mandatory output requirements. Each gate has a TRIGGER (when it fires) and a PROOF (what James must write in the response). Skipping a gate = the response is incomplete.
 
@@ -175,6 +175,12 @@ A response claiming "done" without this block = incomplete response.
 
 6. **No gate is "obvious enough to skip."** The bias that skips gates is the same bias that caused 37 corrections. The answer feeling obvious is the trigger for the bias — writing it out is the fix.
 
+7. **Session Bootstrap Hook (v2.1):** `.claude/hooks/cgp-session-bootstrap.sh` runs at every Claude Code session start (SessionStart event). Injects a compact gate reference into the conversation context. Fixes W-01 (voluntary file read), W-03 (no hook), W-04 (continued sessions), W-12 (no session-start gate). Both racecontrol and comms-link repos have this hook wired via `.claude/settings.json`.
+
+8. **Machine-Readable Compliance Checker (v2.1):** `scripts/cgp-compliance-check.sh` scans a response for gate proof artifacts and outputs a structured pass/fail report. Exit 0 = compliant, exit 1 = missing proofs, exit 2 = no gates detected. Fixes W-06 (machine-readable state), W-10 (compliance metrics), W-11 (external validation).
+
+9. **Inline CGP in CLAUDE.md (v2.1):** Both repos carry the full gate table inline in CLAUDE.md, not just a reference to this file. This ensures gate triggers and proof requirements survive even if this file is not read. Fixes W-01 (voluntary read) and W-05 (divergent files).
+
 ---
 
 ## MMA Cross-Model Consensus (Audit Trail)
@@ -200,3 +206,4 @@ A response claiming "done" without this block = incomplete response.
 |---------|------|--------|
 | 1.0 | 2026-03-31 | Initial protocol. 7 gates from 37 feedback corrections. |
 | 2.0 | 2026-03-31 | MMA-hardened. 4-model audit (R1, V3, Qwen3, Gemini). Added Gates 0, 8, 9. Hardened Gates 1, 2, 4, 5, 7. Defense-in-depth enforcement. Emergency bypass. Cross-model consensus table. |
+| 2.1 | 2026-03-31 | Active enforcement. SessionStart hook (layer 7), compliance checker (layer 8), inline CGP in both CLAUDE.md files (layer 9). Fixes 12 weaknesses from single-model analysis (W-01 through W-12). |

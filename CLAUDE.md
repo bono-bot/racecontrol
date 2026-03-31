@@ -26,6 +26,8 @@
 - **User is Supervisor:** If response claims "done" without Gate 1 proof block or makes a fix without Gate 2 table, user should reject.
 - **Emergency bypass:** During Phase E, gates 0/5/8/9 may be deferred (label: "EMERGENCY BYPASS"). Gates 1/2/4 always apply.
 - **No gate is "obvious enough to skip."** The bias that skips gates IS the bias being fixed.
+- **Session Bootstrap:** `.claude/hooks/cgp-session-bootstrap.sh` injects gate awareness at every session start. Both repos have this hook.
+- **Compliance Checker:** `scripts/cgp-compliance-check.sh` validates proof blocks machine-readably (exit 0 = compliant).
 
 ---
 
