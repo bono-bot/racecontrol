@@ -387,80 +387,117 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
             mma_diagnosis::launch_diagnosis(context);
         }
 
-        // Attempt to spawn in Session 1
-        match session::spawn_in_session1(&exe_dir) {
-            Ok(()) => {
-                restart_count = restart_count.saturating_add(1);
-                last_restart_at = Some(Instant::now());
-                tracing::info!(
-                    "rc-agent restart initiated (count: {})",
-                    restart_count
-                );
+        // RECOV-13: Check shutdown before spawn (service stop during spawn)
+        if shutdown_rx.try_recv().is_ok() {
+            tracing::info!("Shutdown signal received during spawn sequence, exiting");
+            break;
+        }
 
-                // SW-05: Startup health poll (3 x 10s)
-                let health_result = health_poller::poll_agent_health();
-                tracing::info!(
-                    "rc-agent health poll: healthy={}, attempts={}, build_id={:?}",
-                    health_result.healthy,
-                    health_result.attempts,
-                    health_result.build_id
-                );
-
-                // Verify rc-agent actually started via process check as well (SPAWN-01 pattern)
-                let process_alive = is_rc_agent_running();
-                let verified = health_result.healthy || process_alive;
-                tracing::info!("rc-agent spawn_verified={} (health={}, process={}, count: {})",
-                    verified, health_result.healthy, process_alive, restart_count);
-
-                // SW-06: Send survival report
-                let rollback_state = rollback_manager::RollbackState::load();
-                let recovery_mode = if rollback_state.depth > 0 { "rollback" } else { "normal" };
-                let build_id = health_result.build_id.as_deref().unwrap_or("unknown");
-                let survival = survival_reporter::create_report(
-                    &pod_id,
-                    WATCHDOG_VERSION,
-                    build_id,
-                    restart_count,
-                    rollback_state.depth,
-                    &health_result,
-                    initial_validation_done,
-                    recovery_mode,
-                );
-                survival_reporter::send_survival_report(&core_url, &survival);
-
-                // Fire-and-forget crash report (existing behavior)
-                let report = WatchdogCrashReport {
-                    pod_id: pod_id.clone(),
-                    exit_code: None, // Cannot observe exit code from tasklist polling
-                    crash_time: chrono::Utc::now().to_rfc3339(),
-                    restart_count,
-                    watchdog_version: WATCHDOG_VERSION.to_string(),
-                };
-                reporter::send_crash_report(&core_url, &report);
-
-                // If health poll failed after restart, consider rollback
-                if !health_result.healthy && !process_alive {
-                    tracing::error!("rc-agent failed to come up healthy after restart");
-                    // Only attempt rollback if we've had multiple failures
-                    if restart_timestamps.len() as u32 >= 2 {
-                        let outcome = rollback_manager::perform_rollback(
-                            &exe_dir,
-                            "Agent failed health poll after restart",
-                            "",
-                        );
-                        match outcome {
-                            rollback_manager::RollbackOutcome::Success { depth } => {
-                                tracing::info!("Rollback after health failure (depth {})", depth);
-                            }
-                            _ => {
-                                tracing::warn!("Rollback not possible after health failure");
-                            }
+        // RECOV-06: Session 1 spawn with retry (4/4 consensus P1)
+        let mut spawn_success = false;
+        let mut shutdown_during_retry = false;
+        for attempt in 1..=3u32 {
+            match session::spawn_in_session1(&exe_dir) {
+                Ok(()) => {
+                    spawn_success = true;
+                    tracing::info!("rc-agent spawn attempt {}/3 succeeded (Session 1)", attempt);
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "rc-agent spawn attempt {}/3 failed: {} — retrying in {}s (RECOV-06)",
+                        attempt, e, attempt * 5
+                    );
+                    if attempt < 3 {
+                        std::thread::sleep(Duration::from_secs(attempt as u64 * 5));
+                        // RECOV-13: Check shutdown between retry attempts
+                        if shutdown_rx.try_recv().is_ok() {
+                            tracing::info!("Shutdown signal received between spawn retries, exiting");
+                            shutdown_during_retry = true;
+                            break;
                         }
                     }
                 }
             }
-            Err(e) => {
-                tracing::warn!("Failed to spawn rc-agent: {} — will retry next cycle", e);
+        }
+        if shutdown_during_retry {
+            break;
+        }
+        if !spawn_success {
+            tracing::error!(
+                "rc-agent spawn FAILED after 3 attempts — Session 1 may not exist. Will retry next poll cycle."
+            );
+            std::thread::sleep(POLL_INTERVAL);
+            continue;
+        }
+
+        // Spawn succeeded — proceed with health verification and reporting
+        restart_count = restart_count.saturating_add(1);
+        last_restart_at = Some(Instant::now());
+        tracing::info!(
+            "rc-agent restart initiated (count: {})",
+            restart_count
+        );
+
+        // SW-05: Startup health poll (3 x 10s)
+        let health_result = health_poller::poll_agent_health();
+        tracing::info!(
+            "rc-agent health poll: healthy={}, attempts={}, build_id={:?}",
+            health_result.healthy,
+            health_result.attempts,
+            health_result.build_id
+        );
+
+        // Verify rc-agent actually started via process check as well (SPAWN-01 pattern)
+        let process_alive = is_rc_agent_running();
+        let verified = health_result.healthy || process_alive;
+        tracing::info!("rc-agent spawn_verified={} (health={}, process={}, count: {})",
+            verified, health_result.healthy, process_alive, restart_count);
+
+        // SW-06: Send survival report
+        let rollback_state = rollback_manager::RollbackState::load();
+        let recovery_mode = if rollback_state.depth > 0 { "rollback" } else { "normal" };
+        let build_id = health_result.build_id.as_deref().unwrap_or("unknown");
+        let survival = survival_reporter::create_report(
+            &pod_id,
+            WATCHDOG_VERSION,
+            build_id,
+            restart_count,
+            rollback_state.depth,
+            &health_result,
+            initial_validation_done,
+            recovery_mode,
+        );
+        survival_reporter::send_survival_report(&core_url, &survival);
+
+        // Fire-and-forget crash report (existing behavior)
+        let report = WatchdogCrashReport {
+            pod_id: pod_id.clone(),
+            exit_code: None, // Cannot observe exit code from tasklist polling
+            crash_time: chrono::Utc::now().to_rfc3339(),
+            restart_count,
+            watchdog_version: WATCHDOG_VERSION.to_string(),
+        };
+        reporter::send_crash_report(&core_url, &report);
+
+        // If health poll failed after restart, consider rollback
+        if !health_result.healthy && !process_alive {
+            tracing::error!("rc-agent failed to come up healthy after restart");
+            // Only attempt rollback if we've had multiple failures
+            if restart_timestamps.len() as u32 >= 2 {
+                let outcome = rollback_manager::perform_rollback(
+                    &exe_dir,
+                    "Agent failed health poll after restart",
+                    "",
+                );
+                match outcome {
+                    rollback_manager::RollbackOutcome::Success { depth } => {
+                        tracing::info!("Rollback after health failure (depth {})", depth);
+                    }
+                    _ => {
+                        tracing::warn!("Rollback not possible after health failure");
+                    }
+                }
             }
         }
 

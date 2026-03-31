@@ -539,11 +539,32 @@ fn handle_exec(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std:
         "certutil -urlcache", // download & execute
         "bitsadmin", // download & execute
     ];
+
+    // RECOV-07: Self-kill protection — prevent killing rc-sentry or rc-watchdog via exec
+    const SELF_KILL_PATTERNS: &[&str] = &[
+        "taskkill", "kill", "sc stop",
+    ];
+    const PROTECTED_SERVICES: &[&str] = &[
+        "rc-sentry", "rc_sentry", "rcsentry",
+        "rc-watchdog", "rc_watchdog", "rcwatchdog",
+    ];
     let cmd_lower = cmd.to_lowercase();
     for pattern in BLOCKED_PATTERNS {
         if cmd_lower.contains(&pattern.to_lowercase()) {
             tracing::warn!(cmd = cmd, blocked_pattern = pattern, "exec BLOCKED: dangerous pattern");
             return send_response(stream, 403, r#"{"error":"command contains blocked pattern"}"#);
+        }
+    }
+
+    // RECOV-07: Self-kill protection — reject commands that would kill rc-sentry or rc-watchdog
+    for kill_pat in SELF_KILL_PATTERNS {
+        if cmd_lower.contains(kill_pat) {
+            for svc in PROTECTED_SERVICES {
+                if cmd_lower.contains(svc) {
+                    tracing::warn!(cmd = cmd, protected_service = svc, "exec BLOCKED: self-kill protection (RECOV-07)");
+                    return send_response(stream, 403, r#"{"error":"cannot kill rc-sentry or rc-watchdog via exec (RECOV-07)"}"#);
+                }
+            }
         }
     }
 

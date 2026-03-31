@@ -827,56 +827,39 @@ pub fn escalate_to_whatsapp(
     );
 }
 
+/// Check if system recently booted (< 120 seconds uptime).
+/// Boot storms should not trigger MAINTENANCE_MODE (RECOV-10).
+fn is_boot_storm() -> bool {
+    #[cfg(test)]
+    { return false; }
+    #[cfg(not(test))]
+    {
+        // Use GetTickCount64 which returns ms since boot
+        #[cfg(windows)]
+        {
+            unsafe extern "system" { fn GetTickCount64() -> u64; }
+            let uptime_ms = unsafe { GetTickCount64() };
+            uptime_ms < 120_000
+        }
+        #[cfg(not(windows))]
+        { false }
+    }
+}
+
 /// Write MAINTENANCE_MODE file as JSON and fire WhatsApp alert (MAINT-02, MAINT-03).
-pub fn enter_maintenance_mode(reason: &str, restart_count: u32, diagnostic_context: &str) -> bool {
+pub fn enter_maintenance_mode(reason: &str, restart_count: u32, _diagnostic_context: &str) -> bool {
     #[cfg(test)]
     {
-        let _ = (reason, restart_count, diagnostic_context);
+        let _ = (reason, restart_count, _diagnostic_context);
         return true;
     }
     #[cfg(not(test))]
     {
-        // SF-05: Do NOT write MAINTENANCE_MODE while a survival sentinel is active.
-        // This prevents the watchdog MMA lockout (Pitfall 2) — the active healing layer
-        // should not be interrupted by a maintenance lockout triggered by restart counting.
-        use rc_common::survival_types::{any_sentinel_active, check_sentinel, SentinelKind};
-        if any_sentinel_active() {
-            if let Some(sentinel) = check_sentinel(SentinelKind::HealInProgress) {
-                tracing::warn!(target: LOG_TARGET,
-                    action_id = %sentinel.action_id,
-                    layer = ?sentinel.layer,
-                    "HEAL_IN_PROGRESS active — suppressing MAINTENANCE_MODE entry (SF-05)");
-            }
-            if let Some(sentinel) = check_sentinel(SentinelKind::OtaDeploying) {
-                tracing::warn!(target: LOG_TARGET,
-                    action_id = %sentinel.action_id,
-                    "OTA_DEPLOYING active — suppressing MAINTENANCE_MODE entry (SF-05)");
-            }
-            return false;
-        }
-
-        let payload = MaintenanceModePayload {
-            reason: reason.to_string(),
-            timestamp_epoch: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
-            restart_count,
-            diagnostic_context: diagnostic_context.to_string(),
-        };
-        let json = match serde_json::to_string_pretty(&payload) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::error!(target: LOG_TARGET, "failed to serialize MAINTENANCE_MODE payload: {}", e);
-                return false;
-            }
-        };
-        if let Err(e) = std::fs::write(MAINTENANCE_FILE, &json) {
-            tracing::error!(target: LOG_TARGET, "failed to write MAINTENANCE_MODE: {}", e);
-            return false;
-        }
-        tracing::error!(target: LOG_TARGET,
-            "MAINTENANCE_MODE ACTIVATED — reason: {}, restart_count: {}", reason, restart_count);
+        // RECOV-01: Single-writer protocol — rc-sentry does NOT create MAINTENANCE_MODE.
+        // Only rc-watchdog creates it. rc-sentry only READS and CLEARS it.
+        tracing::info!(target: LOG_TARGET,
+            "MAINTENANCE_MODE entry DELEGATED to rc-watchdog (RECOV-01 single-writer protocol) — reason: {}, restart_count: {}",
+            reason, restart_count);
 
         // MAINT-03: WhatsApp alert on activation
         let pod_id = get_pod_id();
@@ -982,7 +965,14 @@ pub fn check_and_clear_maintenance() -> ClearResult {
                     }
                 }
             }
-            Err(_) => 0,
+            Err(e) => {
+                // RECOV-01: Unreadable MAINTENANCE_MODE = clear it (corrupt file should never lock pod permanently)
+                tracing::warn!(target: LOG_TARGET,
+                    "MAINTENANCE_MODE file unreadable ({}), treating as expired — clearing to prevent permanent lock", e);
+                let _ = std::fs::remove_file(MAINTENANCE_FILE);
+                attempt_restart_after_clear();
+                return ClearResult::Cleared { reason: "unreadable file cleared (RECOV-01)" };
+            }
         };
 
         if elapsed_secs >= MAINTENANCE_AUTOCLEAR_TIMEOUT.as_secs() {
@@ -1236,9 +1226,12 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> CrashHa
     // Check server reachability (GRAD-05) — must happen BEFORE escalation counter
     let server_reachable = check_server_reachable();
 
-    // Escalation guard — skip counter for graceful restarts AND server-unreachable events (GRAD-05)
+    // Escalation guard — skip counter for graceful restarts, server-unreachable, AND boot storms (GRAD-05, RECOV-10)
     if !is_graceful {
-        if !server_reachable {
+        if is_boot_storm() {
+            tracing::info!(target: LOG_TARGET,
+                "Boot storm detected (uptime < 120s) — skipping MAINTENANCE_MODE counter (RECOV-10)");
+        } else if !server_reachable {
             tracing::info!(target: LOG_TARGET,
                 "server unreachable — excluding from MAINTENANCE_MODE counter (GRAD-05)");
             // Skip escalation counter — server-down disconnects never trigger pod lockout
