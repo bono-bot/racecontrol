@@ -62,7 +62,10 @@ GAME LAUNCH (REVENUE-CRITICAL): AC launch sequence: kill existing → write race
 Known launch failures: orphan acs.exe blocking new instance, Content Manager hung on error dialog, stale game.pid, \
 missing FORCE_START=1 in gui.ini, car/track not installed, Steam not running, race.ini corrupted or missing sections, \
 serde field mismatch (kiosk sends ai_difficulty string but agent expects ai_level u32 — silently ignored), \
-CM shows 'Settings are not specified' when Quick Drive preset never configured on pod.";
+CM shows 'Settings are not specified' when Quick Drive preset never configured on pod. \
+COGNITIVE GATES: All diagnoses must follow Cognitive Gate Protocol v2.0 — \
+G1: verify exact behavior path not proxies, G5: consider 2+ competing hypotheses, \
+G8: check downstream cascade impact, G4: confidence reflects verified vs assumed.";
 
 /// The 5 models used for diagnosis — trained from MMA audit methodologies
 pub const MODELS: [ModelConfig; 5] = [
@@ -680,6 +683,16 @@ pub fn format_symptoms(
             \"code_change\" (escalate to James), \"hardware\" (alert staff)\n\
          6. confidence — your confidence 0.0-1.0\n\
          7. risk_level — \"safe\" or \"caution\" or \"dangerous\"\n\n\
+         --- COGNITIVE GATE PROTOCOL v2.0 ---\n\
+         Before finalizing your diagnosis, apply these mandatory checks:\n\
+         G1 OUTCOME: Your root_cause must name the EXACT broken behavior path, not a proxy metric. \
+         \"health returns 200\" is NOT a root cause — trace the actual failure path.\n\
+         G5 COMPETING HYPOTHESES: You MUST consider at least 2 competing root causes before settling on one. \
+         If you can only think of one cause, your analysis is incomplete.\n\
+         G8 DEPENDENCY CASCADE: Your fix_action must account for downstream consumers. \
+         Will this fix break anything else? List affected systems in your root_cause analysis.\n\
+         G4 CONFIDENCE: Your confidence score must reflect what you ACTUALLY verified vs assumed. \
+         If your diagnosis is based on pattern-matching rather than trace-level reasoning, cap confidence at 0.6.\n\n\
          Output ONLY valid JSON with these fields.",
         FLEET_CONTEXT, trigger, problem_key, environment, pod_state_summary
     )

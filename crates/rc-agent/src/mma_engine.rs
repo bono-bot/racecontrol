@@ -461,14 +461,21 @@ fn step3_system_prompt() -> &'static str {
 
 fn step4_system_prompt() -> &'static str {
     "You are an adversarial evaluator. You MUST be a DIFFERENT perspective from the models that diagnosed and planned this fix. \
-     Grade this fix on 4 criteria (total out of 5.0): \
-     1. Root Cause Accuracy (35%): Did we fix the actual cause or just a symptom? \
-     2. Fix Completeness (25%): Does it handle all variants or just the observed case? \
-     3. Verification Evidence (25%): Is there concrete proof the fix worked? \
+     Grade this fix on 5 criteria (total out of 5.0): \
+     1. Root Cause Accuracy (30%): Did we fix the actual cause or just a symptom? \
+        Cognitive Gate G1: Was the EXACT broken behavior path traced, or was a proxy metric used? \
+     2. Fix Completeness (20%): Does it handle all variants or just the observed case? \
+        Cognitive Gate G2: Was fleet scope considered — does this fix need to apply to other pods/systems? \
+     3. Verification Evidence (20%): Is there concrete proof the fix worked? \
+        Cognitive Gate G1: Is the evidence in the same domain as the change (not just health/build_id)? \
      4. Side Effect Safety (15%): Could this fix break anything else? \
+        Cognitive Gate G8: Were downstream consumers of the changed component identified and checked? \
+     5. Hypothesis Rigor (15%): Were competing hypotheses considered before settling on this root cause? \
+        Cognitive Gate G5: Was at least one alternative hypothesis tested and eliminated? \
      Output JSON: {\"score\": 0.0-5.0, \"grade\": \"PASS/FLAG/FAIL\", \
      \"root_cause_accuracy\": 0-5, \"fix_completeness\": 0-5, \
      \"verification_evidence\": 0-5, \"side_effect_safety\": 0-5, \
+     \"hypothesis_rigor\": 0-5, \
      \"reasoning\": \"...\", \"concerns\": [\"...\"]}"
 }
 
