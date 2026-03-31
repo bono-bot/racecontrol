@@ -48,6 +48,10 @@ pub struct SentryConfig {
     /// Stderr log path (for crash context).
     #[serde(default = "default_stderr_log")]
     pub stderr_log: String,
+
+    /// Mesh connectivity configuration.
+    #[serde(default)]
+    pub mesh: MeshConfig,
 }
 
 fn default_service_name() -> String { "rc-agent".to_string() }
@@ -59,6 +63,54 @@ fn default_start_script() -> String { r"C:\RacingPoint\start-rcagent.bat".to_str
 fn default_service_toml() -> String { r"C:\RacingPoint\rc-agent.toml".to_string() }
 fn default_startup_log() -> String { r"C:\RacingPoint\rc-agent-startup.log".to_string() }
 fn default_stderr_log() -> String { r"C:\RacingPoint\rc-agent-stderr.log".to_string() }
+
+/// Mesh configuration — connects rc-sentry to Bono comms-link hub via Tailscale.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MeshConfig {
+    /// Enable mesh connectivity (default: false until configured)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Node identifier (e.g. "pod-8", "pos-1")
+    #[serde(default = "default_mesh_node_id")]
+    pub node_id: String,
+
+    /// Role: "pod" or "pos" — controls which commands are allowed
+    #[serde(default = "default_mesh_role")]
+    pub role: String,
+
+    /// Bono hub WebSocket URL (Tailscale IP)
+    #[serde(default = "default_mesh_hub_url")]
+    pub hub_url: String,
+
+    /// Pre-shared key for HMAC auth (same as COMMS_PSK)
+    #[serde(default)]
+    pub psk: String,
+
+    /// Heartbeat interval in seconds
+    #[serde(default = "default_mesh_heartbeat_secs")]
+    pub heartbeat_secs: u64,
+}
+
+fn default_mesh_node_id() -> String {
+    sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string())
+}
+fn default_mesh_role() -> String { "pod".to_string() }
+fn default_mesh_hub_url() -> String { "ws://100.70.177.44:8765".to_string() }
+fn default_mesh_heartbeat_secs() -> u64 { 15 }
+
+impl Default for MeshConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            node_id: default_mesh_node_id(),
+            role: default_mesh_role(),
+            hub_url: default_mesh_hub_url(),
+            psk: String::new(),
+            heartbeat_secs: default_mesh_heartbeat_secs(),
+        }
+    }
+}
 
 impl Default for SentryConfig {
     fn default() -> Self {
@@ -72,6 +124,7 @@ impl Default for SentryConfig {
             service_toml: default_service_toml(),
             startup_log: default_startup_log(),
             stderr_log: default_stderr_log(),
+            mesh: MeshConfig::default(),
         }
     }
 }

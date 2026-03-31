@@ -24,6 +24,8 @@ mod tier1_fixes;
 mod debug_memory;
 // ollama module is now in rc-common — see rc_common::ollama
 mod session1_spawn;
+#[cfg(feature = "mesh")]
+mod mesh_client;
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision};
 #[cfg(feature = "watchdog")]
@@ -350,6 +352,27 @@ fn main() {
             })
             .expect("spawn crash handler thread");
     } // end #[cfg(feature = "watchdog")]
+
+    // Spawn mesh client thread (connects to Bono comms-link hub via Tailscale)
+    #[cfg(feature = "mesh")]
+    {
+        let mesh_cfg = &cfg.mesh;
+        if mesh_cfg.enabled {
+            if mesh_cfg.psk.is_empty() {
+                tracing::warn!(target: "mesh", "mesh.enabled=true but mesh.psk is empty — mesh client disabled");
+            } else {
+                tracing::info!(target: "mesh",
+                    node_id = %mesh_cfg.node_id,
+                    role = %mesh_cfg.role,
+                    hub_url = %mesh_cfg.hub_url,
+                    "starting mesh client"
+                );
+                let _mesh_handle = mesh_client::spawn(mesh_cfg, &SHUTDOWN_REQUESTED);
+            }
+        } else {
+            tracing::info!(target: "mesh", "mesh client disabled (mesh.enabled=false)");
+        }
+    }
 
     const MAX_CONCURRENT_CONNECTIONS: usize = 32;
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
