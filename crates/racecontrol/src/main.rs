@@ -953,8 +953,9 @@ async fn main() -> anyhow::Result<()> {
         }))
         // Redirects: common wrong URLs → correct destinations
         // Staff/POS might type these directly — redirect to the right app
-        .route("/admin", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/") }))
-        .route("/admin/", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/") }))
+        // MMA consensus: use 307 (not 308) to avoid permanent cache of hardcoded IP
+        .route("/admin", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
+        .route("/admin/", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
         .route("/pos", get(|| async { axum::response::Redirect::permanent("/billing") }))
         .route("/dashboard", get(|| async { axum::response::Redirect::permanent("/billing") }))
         .route("/staff", get(|| async { axum::response::Redirect::permanent("/kiosk/staff") }))
@@ -963,6 +964,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/fleet", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
         .route("/cameras", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
         .route("/book", get(|| async { axum::response::Redirect::permanent("/kiosk/book") }))
+        // MMA consensus: /kiosk without trailing slash misses proxy, add redirect
+        .route("/kiosk", get(|| async { axum::response::Redirect::temporary("/kiosk/") }))
         // Root → portal directory page (so 192.168.31.23 shows all links)
         .route("/", get(|| async { axum::response::Redirect::temporary("/portal") }))
         // Static file serving for cafe item images
