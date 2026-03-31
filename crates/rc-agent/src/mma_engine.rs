@@ -1,4 +1,4 @@
-//! Unified MMA Protocol v2.0 — 4-Step Convergence Engine
+//! Unified MMA Protocol v3.0 — 4-Step Convergence Engine
 //!
 //! When Q3 authorizes MMA, this engine runs 4 sequential steps:
 //!   Step 1: DIAGNOSE — 5 models × N iterations → consensus on all problems

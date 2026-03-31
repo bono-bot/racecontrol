@@ -41,7 +41,7 @@ pub struct Config {
     pub mma: MmaConfig,
 }
 
-/// Unified MMA Protocol v2.0 config (v29.0+) — 30-day AI training period settings
+/// Unified MMA Protocol v3.0 config (v31.0+) — 30-day AI training period settings
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct MmaConfig {
     #[serde(default)]

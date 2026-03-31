@@ -299,7 +299,7 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Audit the MONITOR, not just the MONITORED.** Every audit must verify that meta-monitoring systems (rc-watchdog, auto-detect pipeline, escalation engine) are: (1) **process running** (`tasklist`), (2) **scheduled task registered** (`schtasks /Query`), (3) **output fresh** (log recency < 5 min for watchdog, < 26h for auto-detect). Checking only the state file or code existence is proxy verification — the same class of bug as "health passes but blanking is broken." Phase 67 enforces this in Tier 1.
   _Why: 2026-03-26 — rc-watchdog died at 18:14 IST, both CommsLink-DaemonWatchdog and AutoDetect-Daily scheduled tasks were never registered, and self_patch was disabled. The audit's phase 10 checked watchdog-state.json (PASS — stale file existed) and phase 66 checked scripts existed (PASS — code was there). Neither detected that zero healing or detection was actually running. All autonomous self-debugging was silently dead._
 
-### Unified MMA Protocol v2.0 Standing Rules (2026-03-31)
+### Unified MMA Protocol v3.0 Standing Rules (2026-03-31)
 
 - **MMA bootstrap is env-only.** API key (`OPENROUTER_KEY`), budget limits (`MMA_DAILY_BUDGET`), and training mode (`MMA_TRAINING_MODE`) read from environment variables FIRST, then `mma.toml`, then hardcoded defaults. NEVER depend on `racecontrol.toml` for MMA core config.
   _Why: v31.0 — `racecontrol.toml` parse failure killed MMA itself. Bootstrap paradox._
