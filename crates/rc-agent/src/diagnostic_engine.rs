@@ -29,11 +29,12 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::config::NodeType;
 use crate::failure_monitor::FailureMonitorState;
 use crate::udp_heartbeat::HeartbeatStatus;
+use rc_common::fleet_event::FleetEvent;
 
 const LOG_TARGET: &str = "diagnostic-engine";
 const SCAN_INTERVAL_SECS: u64 = 300; // 5 minutes per DIAG-07
@@ -148,6 +149,8 @@ pub fn emit_external_event(
 ///   heartbeat_status  — Arc<HeartbeatStatus> for ws_connected polling
 ///   failure_monitor_rx — watch::Receiver<FailureMonitorState> for pod state snapshots
 ///   event_tx — mpsc::Sender<DiagnosticEvent> — Plan 02's tier engine reads from the other end
+///   fleet_event_tx — broadcast::Sender<FleetEvent> — fan-out to multiple subscribers (Plan 273-01)
+///   node_id — identifies this node in FleetEvents (e.g. "pod_1", "pos")
 ///
 /// Lifecycle logs per standing rule: started, first-item-processed, exit reason.
 pub fn spawn(
@@ -155,6 +158,8 @@ pub fn spawn(
     failure_monitor_rx: watch::Receiver<FailureMonitorState>,
     event_tx: mpsc::Sender<DiagnosticEvent>,
     node_type: NodeType,
+    fleet_event_tx: broadcast::Sender<FleetEvent>,
+    node_id: String,
 ) {
     let is_pos = node_type == NodeType::Pos;
     tokio::spawn(async move {
@@ -170,6 +175,7 @@ pub fn spawn(
         let mut ws_disconnect_since: Option<Instant> = None;
         let mut last_violation_count: u64 = 0;
         let mut first_scan_done = false;
+        let mut pred_state = crate::predictive_maintenance::PredictiveState::new();
 
         loop {
             interval.tick().await;
@@ -279,10 +285,12 @@ pub fn spawn(
                 first_scan_done = true;
             }
 
-            // Send all events to tier engine — non-blocking, drop if channel full
-            for event in events {
+            // Send all events to tier engine (mpsc) AND broadcast bus (fan-out)
+            for event in &events {
                 tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "Emitting diagnostic event");
-                match event_tx.try_send(event) {
+
+                // Existing mpsc path — tier engine (backward compatible)
+                match event_tx.try_send(event.clone()) {
                     Ok(()) => {}
                     Err(mpsc::error::TrySendError::Full(_)) => {
                         tracing::warn!(target: LOG_TARGET, "DiagnosticEvent channel FULL — tier engine overwhelmed, event DROPPED");
@@ -291,6 +299,42 @@ pub fn spawn(
                         tracing::error!(target: LOG_TARGET, "DiagnosticEvent channel CLOSED — tier engine may have crashed");
                     }
                 }
+
+                // Broadcast FleetEvent — fan-out to all subscribers (Plan 273-01)
+                // Severity derived from trigger type: spikes/crashes = "high", periodic = "low"
+                let severity = match &event.trigger {
+                    DiagnosticTrigger::Periodic => "low",
+                    DiagnosticTrigger::ProcessCrash { .. }
+                    | DiagnosticTrigger::GameLaunchFail
+                    | DiagnosticTrigger::DisplayMismatch { .. }
+                    | DiagnosticTrigger::GameMidSessionCrash { .. } => "high",
+                    DiagnosticTrigger::ErrorSpike { .. }
+                    | DiagnosticTrigger::ViolationSpike { .. }
+                    | DiagnosticTrigger::WsDisconnect { .. } => "medium",
+                    _ => "low",
+                };
+
+                let pod_state_json = format!("{:?}", event.pod_state);
+                let fleet_event = FleetEvent::AnomalyDetected {
+                    trigger: format!("{:?}", event.trigger),
+                    severity: severity.to_string(),
+                    node_id: node_id.clone(),
+                    timestamp: chrono::Utc::now(),
+                    pod_state_snapshot: pod_state_json,
+                };
+                // Ignore send error — no subscribers yet is normal during startup
+                let _ = fleet_event_tx.send(fleet_event);
+            }
+
+            // ─── Predictive Maintenance → FleetEvent bridge (Plan 273-01) ────────
+            // Runs predictive scan inline so alerts are broadcast immediately.
+            // The standalone predictive_maintenance task in main.rs is kept for
+            // backward compatibility (logging) — this bridge adds the broadcast path.
+            let pred_alerts = crate::predictive_maintenance::run_predictive_scan(&mut pred_state);
+            for alert in &pred_alerts {
+                let fleet_event = crate::predictive_maintenance::alert_to_fleet_event(alert, &node_id);
+                let _ = fleet_event_tx.send(fleet_event);
+                tracing::debug!(target: LOG_TARGET, alert_type = ?alert.alert_type, "Broadcast predictive alert as FleetEvent");
             }
         }
 
