@@ -993,7 +993,7 @@ fn run_deterministic_checks(
     // For now, basic checks. James will add Windows-specific checks.
     // These run on the pod itself (not via models).
 
-    let all_passed = true;
+    let mut all_passed = true;
 
     // Check 1: Are we still running? (basic process liveness)
     // On Linux (VPS), this always passes. On Windows pods, check rc-agent process.
