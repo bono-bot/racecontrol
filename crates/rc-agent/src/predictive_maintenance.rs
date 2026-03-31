@@ -119,6 +119,22 @@ impl Default for PredictiveState {
     }
 }
 
+/// Convert a PredictiveAlert into a FleetEvent::PredictiveAlert for broadcast.
+///
+/// This bridges the predictive maintenance system into the fleet event bus (Plan 273-01).
+/// Called by diagnostic_engine after each predictive scan so alerts fan out to all subscribers.
+pub fn alert_to_fleet_event(alert: &PredictiveAlert, node_id: &str) -> rc_common::fleet_event::FleetEvent {
+    rc_common::fleet_event::FleetEvent::PredictiveAlert {
+        alert_type: format!("{:?}", alert.alert_type),
+        severity: format!("{:?}", alert.severity),
+        message: alert.message.clone(),
+        metric_value: alert.metric_value,
+        threshold: alert.threshold,
+        node_id: node_id.to_string(),
+        timestamp: chrono::Utc::now(),
+    }
+}
+
 /// Run all predictive checks. Returns alerts for any degrading metrics.
 /// Called every 5 minutes by the diagnostic engine scan loop.
 pub fn run_predictive_scan(state: &mut PredictiveState) -> Vec<PredictiveAlert> {

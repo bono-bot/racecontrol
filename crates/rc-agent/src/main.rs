@@ -966,6 +966,13 @@ async fn main() -> Result<()> {
     // Buffer 32 events — scan is every 5 min, so backpressure means something is wrong.
     let (diagnostic_event_tx, diagnostic_event_rx) = mpsc::channel::<diagnostic_engine::DiagnosticEvent>(32);
 
+    // ─── Fleet Event Bus (Plan 273-01) ──────────────────────────────────────
+    // Broadcast channel for FleetEvents — fans out to multiple subscribers
+    // (tier engine, future experience scorer, fleet coordinator).
+    // Capacity 256: enough for burst anomalies without dropping.
+    let fleet_bus = std::sync::Arc::new(rc_common::fleet_event::FleetEventBus::new(256));
+    tracing::info!(target: LOG_TARGET, "Fleet event bus created (broadcast, capacity: 256)");
+
     // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
     // Passes diagnostic_event_tx so WS disconnect events are bridged into
     // the Meshed Intelligence 5-tier pipeline before relaunch.
@@ -995,13 +1002,17 @@ async fn main() -> Result<()> {
 
     // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
     // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
+    // Plan 273-01: Also emits FleetEvents via broadcast for fan-out to multiple subscribers.
+    let node_id_for_diag = format!("pod_{}", config.pod.number);
     diagnostic_engine::spawn(
         heartbeat_status.clone(),
         failure_monitor_tx.subscribe(), // watch::Receiver — cheap clone from sender
         diagnostic_event_tx.clone(),
         config.pod.node_type,
+        fleet_bus.sender(),
+        node_id_for_diag,
     );
-    tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan)");
+    tracing::info!(target: LOG_TARGET, "Diagnostic engine started (5-min periodic scan + fleet event broadcast)");
 
     // ─── Budget Tracker (Meshed Intelligence — per-pod $10/day, POS $5/day) ────
     let mesh_budget = std::sync::Arc::new(tokio::sync::RwLock::new(
@@ -1081,22 +1092,35 @@ async fn main() -> Result<()> {
     }
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
-    tokio::spawn(async {
+    // Note: diagnostic_engine also runs predictive scans inline (Plan 273-01 bridge).
+    // This standalone task is kept for backward-compatible logging + independent lifecycle.
+    let pred_fleet_tx = fleet_bus.sender();
+    let pred_node_id = format!("pod_{}", config.pod.number);
+    tokio::spawn(async move {
         tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: started");
         // Wait for system to stabilize before first scan
         tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         let mut state = predictive_maintenance::PredictiveState::new();
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut first_event_logged = false;
         loop {
             interval.tick().await;
             let alerts = predictive_maintenance::run_predictive_scan(&mut state);
             if !alerts.is_empty() {
                 tracing::info!(target: "predictive-maint", count = alerts.len(), "Predictive scan: {} alerts", alerts.len());
+                for alert in &alerts {
+                    let fleet_event = predictive_maintenance::alert_to_fleet_event(alert, &pred_node_id);
+                    let _ = pred_fleet_tx.send(fleet_event);
+                }
+                if !first_event_logged {
+                    tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: first_event");
+                    first_event_logged = true;
+                }
             }
         }
     });
-    tracing::info!(target: LOG_TARGET, "Predictive maintenance started (5-min scan)");
+    tracing::info!(target: LOG_TARGET, "Predictive maintenance started (5-min scan + fleet event broadcast)");
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────
     tokio::spawn(async {
