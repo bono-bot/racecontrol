@@ -1033,7 +1033,7 @@ async fn main() -> Result<()> {
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
     // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
     tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe(), fleet_bus.sender());
-    tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge active");
+    tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge, FleetEvent broadcast active");
 
     // ─── MMA-11: Daily Self-Health-Check ────────────────────────────────────────
     // Runs a synthetic self-test on startup and every 24 hours to verify MMA infrastructure.
