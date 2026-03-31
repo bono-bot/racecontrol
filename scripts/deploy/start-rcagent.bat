@@ -11,6 +11,26 @@ del /Q GRACEFUL_RELAUNCH 1>/dev/null 2>/dev/null
 del /Q rcagent-restart-sentinel.txt 1>/dev/null 2>/dev/null
 del /Q OTA_DEPLOYING 1>/dev/null 2>/dev/null
 
+rem --- MMA 5-model consensus + adversarial review: Edge session restore prevention (2026-03-31) ---
+rem Disable Startup Boost (pre-spawns Edge carrying session state)
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v StartupBoostEnabled /t REG_DWORD /d 0 /f 1>/dev/null 2>/dev/null
+rem Disable background mode (keeps Edge alive after last window closes)
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v BackgroundModeEnabled /t REG_DWORD /d 0 /f 1>/dev/null 2>/dev/null
+rem Hide "Restore pages" dialog on crash recovery
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v HideRestoreDialogEnabled /t REG_DWORD /d 1 /f 1>/dev/null 2>/dev/null
+rem Suppress Edge First Run Experience in dedicated profile
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v HideFirstRunExperience /t REG_DWORD /d 1 /f 1>/dev/null 2>/dev/null
+rem Kill any lingering Edge processes before session data cleanup
+taskkill /F /IM msedge.exe /T 1>/dev/null 2>/dev/null
+taskkill /F /IM msedgewebview2.exe /T 1>/dev/null 2>/dev/null
+rem Wipe dedicated Edge profile session data (prevents --app window restoration)
+if exist "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Sessions" rd /s /q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Sessions" 1>/dev/null 2>/dev/null
+if exist "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Session Storage" rd /s /q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Session Storage" 1>/dev/null 2>/dev/null
+del /Q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Current Session" 1>/dev/null 2>/dev/null
+del /Q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Current Tabs" 1>/dev/null 2>/dev/null
+del /Q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Last Session" 1>/dev/null 2>/dev/null
+del /Q "%LOCALAPPDATA%\RacingPoint\EdgeProfile\Default\Last Tabs" 1>/dev/null 2>/dev/null
+
 rem --- Enforce power settings (prevents ConspitLink flicker regression) ---
 powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 1>/dev/null 2>/dev/null
 powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>/dev/null 2>/dev/null

@@ -765,6 +765,10 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn launch_browser(&mut self) {
+        // Never launch Edge during tests — prevents browser opening on dev machines
+        #[cfg(test)]
+        { return; }
+
         // POS-01: auxiliary devices never launch the lock screen browser
         if self.browser_disabled {
             return;
@@ -999,6 +1003,13 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn close_browser(&mut self) {
+        // Never kill Edge during tests — prevents closing dev machine browser
+        #[cfg(test)]
+        {
+            self.browser_process = None;
+            return;
+        }
+
         if let Some(ref mut child) = self.browser_process {
             let _ = child.kill();
             let _ = child.wait();
