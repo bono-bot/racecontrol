@@ -290,6 +290,69 @@ pub fn auto_clear_maintenance_mode(max_age_secs: u64) -> bool {
     false
 }
 
+/// MAINT-02 fix: Auto-clear MAINTENANCE_MODE using JSON `timestamp_epoch` instead of file mtime.
+/// This prevents the infinite-lock bug where file operations refresh mtime, resetting the 30-min clock.
+/// Falls back to file mtime if JSON is unreadable (legacy plain-text files).
+/// Returns true if it was cleared.
+pub fn auto_clear_maintenance_mode_json(max_age_secs: u64) -> bool {
+    let path = Path::new(MAINTENANCE_MODE_FILE);
+    if !path.is_file() {
+        return false;
+    }
+
+    // Try JSON timestamp_epoch first (preferred, immune to mtime refresh)
+    let elapsed_secs = match std::fs::read_to_string(path) {
+        Ok(content) => {
+            // Try parsing as JSON with timestamp_epoch
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(epoch) = parsed.get("timestamp_epoch").and_then(|v| v.as_u64()) {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    now.saturating_sub(epoch)
+                } else {
+                    // JSON but no timestamp_epoch — fall back to mtime
+                    file_mtime_age_secs(path)
+                }
+            } else {
+                // Not JSON (legacy plain-text) — fall back to mtime
+                file_mtime_age_secs(path)
+            }
+        }
+        Err(_) => file_mtime_age_secs(path),
+    };
+
+    if elapsed_secs >= max_age_secs {
+        tracing::info!(
+            "Auto-clearing MAINTENANCE_MODE (JSON age: {}s, max: {}s) — MAINT-02",
+            elapsed_secs,
+            max_age_secs
+        );
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::error!("Failed to remove MAINTENANCE_MODE: {}", e);
+            return false;
+        }
+        // Also reset rollback state
+        let mut state = RollbackState::load();
+        state.reset();
+        state.save();
+        return true;
+    }
+
+    false
+}
+
+/// Helper: get file mtime age in seconds (fallback for non-JSON sentinel files).
+fn file_mtime_age_secs(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.elapsed().ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Reset rollback state on confirmed healthy agent.
 /// Call this when health poll succeeds after a rollback.
 pub fn confirm_healthy() {

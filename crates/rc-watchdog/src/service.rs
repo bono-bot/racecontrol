@@ -85,9 +85,35 @@ pub fn sentry_breadcrumb_active(breadcrumb_path: &str, grace_secs: u64) -> bool 
     }
 }
 
-/// Check if rc-agent.exe is currently running via tasklist.
-/// Returns true if running, or true on error (conservative: assume running if can't check).
+/// Check if rc-agent.exe is currently running.
+/// Uses two methods: tasklist process check AND HTTP health endpoint.
+/// Only returns false if BOTH checks confirm rc-agent is not running.
+/// This prevents false "dead" detection when system services (sshd, etc.) restart
+/// and briefly disrupt tasklist command execution. (MMA 4-model consensus fix MAINT-01)
 fn is_rc_agent_running() -> bool {
+    // Method 1: Process presence via tasklist
+    let process_alive = is_rc_agent_process_present();
+
+    // If process check says running, trust it immediately (fast path)
+    if process_alive {
+        return true;
+    }
+
+    // Method 2: HTTP health check as fallback (MAINT-01 fix)
+    // tasklist may fail during system events (sshd restart, WMI hiccup)
+    // but rc-agent's HTTP server keeps responding
+    let health_alive = is_rc_agent_health_responsive();
+    if health_alive {
+        tracing::info!("tasklist says rc-agent not running, but health endpoint responds — agent is alive (MAINT-01)");
+        return true;
+    }
+
+    // Both checks confirm rc-agent is dead
+    false
+}
+
+/// Check rc-agent process via tasklist (original method).
+fn is_rc_agent_process_present() -> bool {
     let mut cmd = std::process::Command::new("tasklist");
     cmd.args(["/NH", "/FI", "IMAGENAME eq rc-agent.exe"]);
 
@@ -103,9 +129,26 @@ fn is_rc_agent_running() -> bool {
             output_contains_agent(&stdout)
         }
         Err(e) => {
-            tracing::warn!("Failed to run tasklist: {} — assuming rc-agent is NOT running", e);
-            false // Return false on error so watchdog can attempt restart
+            tracing::warn!("Failed to run tasklist: {} — deferring to health check (MAINT-01)", e);
+            false // tasklist failed, will check health endpoint next
         }
+    }
+}
+
+/// Quick HTTP health check against rc-agent's /health endpoint (MAINT-01).
+/// Uses a short timeout (2s) since this is called every poll cycle.
+fn is_rc_agent_health_responsive() -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match client.get("http://127.0.0.1:8090/health").send() {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
     }
 }
 
@@ -201,10 +244,16 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
 
         poll_cycle = poll_cycle.wrapping_add(1);
 
-        // SW-07: Auto-clear MAINTENANCE_MODE if stale
+        // SW-07 + MAINT-02/MAINT-03 fix: Check MAINTENANCE_MODE using JSON timestamp
+        // (not file mtime). rc-sentry is the primary owner for clearing; rc-watchdog
+        // clears as a fallback using the same JSON timestamp source to avoid time drift.
         if rollback_manager::is_maintenance_mode() {
-            if rollback_manager::auto_clear_maintenance_mode(MAINTENANCE_AUTO_CLEAR_SECS) {
-                tracing::info!("MAINTENANCE_MODE auto-cleared after {}s", MAINTENANCE_AUTO_CLEAR_SECS);
+            if rollback_manager::auto_clear_maintenance_mode_json(MAINTENANCE_AUTO_CLEAR_SECS) {
+                tracing::info!("MAINTENANCE_MODE auto-cleared (JSON timestamp, {}s threshold)", MAINTENANCE_AUTO_CLEAR_SECS);
+            } else {
+                tracing::debug!("MAINTENANCE_MODE active — skipping restart cycle");
+                std::thread::sleep(POLL_INTERVAL);
+                continue;
             }
         }
 
