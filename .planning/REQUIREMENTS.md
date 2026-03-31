@@ -8,8 +8,8 @@
 - [ ] **PRO-01**: Anomaly detection triggers immediate diagnosis — no waiting for next 5-min scan cycle
 - [ ] **PRO-02**: Diagnosis result triggers immediate fix application — no human approval queue for Tier 1-3
 - [ ] **PRO-03**: Fix verification runs immediately after application (< 30 seconds)
-- [ ] **PRO-04**: Every resolved issue (all tiers) recorded in KB with problem signature, fix action, verification result, and timestamp
-- [ ] **PRO-05**: KB lookup happens BEFORE any AI model call — if problem was solved before, apply instantly ($0)
+- [x] **PRO-04**: Every resolved issue (all tiers) recorded in KB with problem signature, fix action, verification result, and timestamp
+- [x] **PRO-05**: KB lookup happens BEFORE any AI model call — if problem was solved before, apply instantly ($0)
 - [ ] **PRO-06**: Event-driven pipeline (not polling) — diagnostic engine emits events the moment anomaly crosses threshold
 
 ## Autonomous Game Launch Fix (GAME)
@@ -78,8 +78,8 @@
 | PRO-01 | Phase 273 | Pending |
 | PRO-02 | Phase 273 | Pending |
 | PRO-03 | Phase 273 | Pending |
-| PRO-04 | Phase 273 | Pending |
-| PRO-05 | Phase 273 | Pending |
+| PRO-04 | Phase 273 | Complete |
+| PRO-05 | Phase 273 | Complete |
 | PRO-06 | Phase 273 | Pending |
 | SAFE-01 | Phase 273 | Pending |
 | SAFE-02 | Phase 273 | Pending |

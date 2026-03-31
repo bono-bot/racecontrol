@@ -42,9 +42,9 @@ Close all action loops in Meshed Intelligence so the venue self-heals end-to-end
   5. Per-action circuit breaker trips at 40% fail rate with 2-minute cooldown, and every executor action carries an idempotency key (node + rule_version + incident_fingerprint)
 **Plans**: 4 plans
 Plans:
-- [ ] 273-01-PLAN.md — Event bus & FleetEvent types + broadcast wiring
-- [ ] 273-02-PLAN.md — Safety guardrails (blast radius, circuit breaker, idempotency)
-- [ ] 273-03-PLAN.md — KB-first gate & solution recording
+- [x] 273-01-PLAN.md — Event bus & FleetEvent types + broadcast wiring
+- [x] 273-02-PLAN.md — Safety guardrails (blast radius, circuit breaker, idempotency)
+- [x] 273-03-PLAN.md — KB-first gate & solution recording
 - [ ] 273-04-PLAN.md — Immediate fix & 30-second verification loop
 **UI hint**: no
 
@@ -175,7 +175,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 273. Event Pipeline & Safety Foundation | 0/4 | Planned | - |
+| 273. Event Pipeline & Safety Foundation | 3/4 | In Progress|  |
 | 274. WhatsApp Escalation | 0/TBD | Not started | - |
 | 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
 | 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |
