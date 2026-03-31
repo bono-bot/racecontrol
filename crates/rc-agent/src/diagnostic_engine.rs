@@ -680,11 +680,13 @@ fn check_pos_kiosk_escape() -> Option<DiagnosticTrigger> {
             return None;
         }
 
-        // Look up the process name
+        // Look up the process name — MMA Step 4 fix (3/3 consensus):
+        // Only refresh the target PID, not all processes (avoids 200-500ms stall on POS)
         let mut sys = System::new();
-        sys.refresh_processes(ProcessesToUpdate::All, false);
+        let target_pid = Pid::from_u32(fg_pid);
+        sys.refresh_processes(ProcessesToUpdate::Some(&[target_pid]), false);
         let fg_name = sys
-            .process(Pid::from_u32(fg_pid))
+            .process(target_pid)
             .map(|p| p.name().to_string_lossy().to_lowercase().to_string())
             .unwrap_or_else(|| format!("pid-{}", fg_pid));
 

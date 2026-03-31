@@ -75,6 +75,10 @@ async fn check_ws_connection_drift(state: &AppState) {
 }
 
 /// MMA consensus (3/4): Detect ghost sessions — DB says active but pod is disconnected.
+/// NOTE: Intentional non-atomic snapshot — reads active_timers then agent_senders
+/// sequentially. TOCTOU window is acceptable for a 60s diagnostic that only logs
+/// warnings (MMA Step 4: 3/3 adversarial models agreed). Do NOT "fix" by holding
+/// both locks simultaneously — that risks deadlock with the WS handler.
 async fn check_session_split_brain(state: &AppState) {
     // Get active billing sessions from timers
     let active_sessions: Vec<(String, String)> = {
@@ -105,27 +109,36 @@ async fn check_session_split_brain(state: &AppState) {
     }
 }
 
-/// MMA consensus (3/4): Check DB responsiveness with a lightweight probe.
+/// MMA consensus (3/4): Check DB responsiveness with a write probe.
+/// MMA Step 4 fix (Sonnet severity 4): SELECT 1 only measures read path.
+/// Now uses INSERT+DELETE on a health_check table to measure actual write latency.
 async fn check_db_health(state: &AppState) {
+    // Ensure health_check table exists (idempotent)
+    let _ = sqlx::query("CREATE TABLE IF NOT EXISTS server_health_probe (id INTEGER PRIMARY KEY, ts TEXT)")
+        .execute(&state.db)
+        .await;
+
     let start = std::time::Instant::now();
-    let result = sqlx::query_scalar::<_, i64>("SELECT 1")
-        .fetch_one(&state.db)
+    let ts = chrono::Utc::now().to_rfc3339();
+    let write_result = sqlx::query("INSERT OR REPLACE INTO server_health_probe (id, ts) VALUES (1, ?)")
+        .bind(&ts)
+        .execute(&state.db)
         .await;
     let latency_ms = start.elapsed().as_millis();
 
-    match result {
+    match write_result {
         Ok(_) => {
             if latency_ms > 500 {
                 tracing::warn!(target: LOG_TARGET,
                     latency_ms, "DB write latency HIGH — billing transactions may timeout"
                 );
             } else {
-                tracing::debug!(target: LOG_TARGET, latency_ms, "DB health OK");
+                tracing::debug!(target: LOG_TARGET, latency_ms, "DB write health OK");
             }
         }
         Err(e) => {
             tracing::error!(target: LOG_TARGET,
-                error = %e, "DB health check FAILED — database may be corrupted or unreachable"
+                error = %e, "DB write probe FAILED — database may be corrupted or unreachable"
             );
         }
     }
