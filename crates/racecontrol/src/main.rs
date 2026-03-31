@@ -953,8 +953,8 @@ async fn main() -> anyhow::Result<()> {
         }))
         // Redirects: common wrong URLs → correct destinations
         // Staff/POS might type these directly — redirect to the right app
-        .route("/admin", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/admin/") }))
-        .route("/admin/", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/admin/") }))
+        .route("/admin", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/") }))
+        .route("/admin/", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/") }))
         .route("/pos", get(|| async { axum::response::Redirect::permanent("/billing") }))
         .route("/dashboard", get(|| async { axum::response::Redirect::permanent("/billing") }))
         .route("/staff", get(|| async { axum::response::Redirect::permanent("/kiosk/staff") }))
