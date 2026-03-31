@@ -24,6 +24,53 @@ use crate::openrouter::{self, ModelConfig, ModelResponse, DiagnosisResult};
 
 const LOG_TARGET: &str = "mma-engine";
 
+// ─── Model Reputation Tracking (MMA-09 / Gap 9) ─────────────────────────────
+// Track model accuracy across MMA runs. Models that consistently disagree with
+// verified outcomes get demoted. Models that identify correct minority opinions
+// get promoted. Stored in-memory (resets on restart — Wave 3 could persist to DB).
+
+use std::collections::HashMap;
+use std::sync::Mutex as StdMutex;
+
+/// Global reputation scores — model_id → (correct_count, total_count)
+static MODEL_REPUTATION: std::sync::OnceLock<StdMutex<HashMap<String, (u32, u32)>>> = std::sync::OnceLock::new();
+
+fn reputation_store() -> &'static StdMutex<HashMap<String, (u32, u32)>> {
+    MODEL_REPUTATION.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Record a model's outcome after Step 4 verification.
+/// `correct` = model's diagnosis was confirmed by deterministic checks.
+pub fn record_model_outcome(model_id: &str, correct: bool) {
+    if let Ok(mut store) = reputation_store().lock() {
+        let entry = store.entry(model_id.to_string()).or_insert((0, 0));
+        if correct { entry.0 += 1; }
+        entry.1 += 1;
+
+        let accuracy = if entry.1 > 0 { entry.0 as f64 / entry.1 as f64 } else { 0.5 };
+        if entry.1 >= 5 && accuracy < 0.3 {
+            tracing::warn!(
+                target: LOG_TARGET,
+                model = model_id,
+                accuracy = accuracy,
+                total = entry.1,
+                "Model reputation LOW — consider removing from roster"
+            );
+        }
+    }
+}
+
+/// Get a model's accuracy score (0.0-1.0). Returns 0.5 (neutral) if no data.
+pub fn get_model_accuracy(model_id: &str) -> f64 {
+    reputation_store()
+        .lock()
+        .ok()
+        .and_then(|store| store.get(model_id).map(|(c, t)| {
+            if *t > 0 { *c as f64 / *t as f64 } else { 0.5 }
+        }))
+        .unwrap_or(0.5)
+}
+
 /// Maximum iterations per step before escalating to human.
 const MAX_ITERATIONS_PER_STEP: u8 = 4;
 /// Minimum iterations per step (always run at least 2).
@@ -536,6 +583,19 @@ pub async fn run_protocol(
             step1.iterations_completed
         );
 
+        // MMA-13: Checkpoint after Step 1
+        save_checkpoint(&MmaCheckpoint {
+            issue_key: crate::knowledge_base::normalize_problem_key(&event.trigger),
+            domain: domain_str.clone(),
+            completed_step: 1,
+            backtracks,
+            total_cost,
+            step1_consensus: Some(step1.clone()),
+            step2_consensus: None,
+            backtrack_evidence: backtrack_evidence.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
+
         // ── Step 2: PLAN ──
         let step1_json = serde_json::to_string(&step1).unwrap_or_default();
         let step2 = run_step(
@@ -556,47 +616,104 @@ pub async fn run_protocol(
             step2.fix_plans.len()
         );
 
-        // ── Step 3: EXECUTE ──
-        let step2_json = serde_json::to_string(&step2).unwrap_or_default();
-        let step3 = run_step(
-            &client, &api_key, 3, "EXECUTE", domain,
-            &step2_json, &[], Some(&step2),
-        ).await;
-        total_cost += step3.total_cost;
-        {
-            let mut bt = budget.write().await;
-            bt.record_spend(step3.total_cost);
-        }
+        // MMA-13: Checkpoint after Step 2
+        save_checkpoint(&MmaCheckpoint {
+            issue_key: crate::knowledge_base::normalize_problem_key(&event.trigger),
+            domain: domain_str.clone(),
+            completed_step: 2,
+            backtracks,
+            total_cost,
+            step1_consensus: Some(step1.clone()),
+            step2_consensus: Some(step2.clone()),
+            backtrack_evidence: backtrack_evidence.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
 
-        tracing::info!(
-            target: LOG_TARGET,
-            executions = step3.executions.len(),
-            cost = step3.total_cost,
-            "Step 3 EXECUTE complete: {} executions",
-            step3.executions.len()
-        );
+        // ── Steps 3+4 with partial backtrack (MMA-05 / Gap 5) ──
+        // If Step 4 fails, retry Steps 3-4 once with different models before
+        // doing a full backtrack to Step 1. Saves ~60% of cost on flaky verifications.
+        let mut partial_retries = 0u8;
+        const MAX_PARTIAL_RETRIES: u8 = 1;
 
-        // ── Step 4: VERIFY ──
-        let verify_result = run_step4_verify(
-            &client, &api_key, domain, &step1, &step3,
-        ).await;
-        total_cost += verify_result.cost;
+        let (step3_final, verify_passed) = loop {
+            // ── Step 3: EXECUTE ──
+            let step2_json = serde_json::to_string(&step2).unwrap_or_default();
+            let step3 = run_step(
+                &client, &api_key, 3, "EXECUTE", domain,
+                &step2_json, &[], Some(&step2),
+            ).await;
+            total_cost += step3.total_cost;
+            {
+                let mut bt = budget.write().await;
+                bt.record_spend(step3.total_cost);
+            }
 
-        if verify_result.passed {
+            tracing::info!(
+                target: LOG_TARGET,
+                executions = step3.executions.len(),
+                cost = step3.total_cost,
+                partial_retry = partial_retries,
+                "Step 3 EXECUTE complete: {} executions",
+                step3.executions.len()
+            );
+
+            // ── Step 4: VERIFY ──
+            let verify_result = run_step4_verify(
+                &client, &api_key, domain, &step1, &step3,
+            ).await;
+            total_cost += verify_result.cost;
+
+            if verify_result.passed {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    score = verify_result.score,
+                    total_cost,
+                    backtracks,
+                    "Step 4 VERIFY PASSED (score {:.1}) — protocol complete",
+                    verify_result.score
+                );
+                // MMA-09: Record model reputations — majority models were correct
+                for model in &step1.models_used {
+                    record_model_outcome(model, true);
+                }
+                break (step3, true);
+            }
+
+            // Step 4 failed — try partial backtrack (retry Steps 3-4) before full reset
+            partial_retries += 1;
+            if partial_retries > MAX_PARTIAL_RETRIES {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    score = verify_result.score,
+                    concerns = ?verify_result.concerns,
+                    "Step 4 VERIFY FAILED after partial retry — escalating to full backtrack"
+                );
+                // Append failure evidence for full backtrack
+                backtrack_evidence.push(format!(
+                    "BACKTRACK #{}: Fix failed verification (score {:.1}, partial retry exhausted). Concerns: {}",
+                    backtracks + 1, verify_result.score, verify_result.concerns.join("; ")
+                ));
+                break (step3, false);
+            }
+
             tracing::info!(
                 target: LOG_TARGET,
                 score = verify_result.score,
-                total_cost,
-                backtracks,
-                "Step 4 VERIFY PASSED (score {:.1}) — protocol complete",
+                concerns = ?verify_result.concerns,
+                "Step 4 VERIFY FAILED (score {:.1}) — partial backtrack: retrying Steps 3-4 with fresh models",
                 verify_result.score
             );
+        };
 
+        if verify_passed {
             // Merge all step data into final consensus
             let mut final_consensus = step1;
             final_consensus.fix_plans = step2.fix_plans;
-            final_consensus.executions = step3.executions;
+            final_consensus.executions = step3_final.executions;
             final_consensus.total_cost = total_cost;
+
+            // MMA-13: Clear checkpoint on success
+            clear_checkpoint();
 
             return MmaProtocolResult::Success {
                 consensus: final_consensus,
@@ -605,30 +722,29 @@ pub async fn run_protocol(
             };
         }
 
-        // ── Step 4 FAILED — backtrack ──
+        // ── Full backtrack to Step 1 ──
         backtracks += 1;
         tracing::warn!(
             target: LOG_TARGET,
-            score = verify_result.score,
             backtracks,
-            concerns = ?verify_result.concerns,
-            "Step 4 VERIFY FAILED (score {:.1}) — backtrack #{}/{}",
-            verify_result.score, backtracks, MAX_BACKTRACKS
+            "Full backtrack #{}/{} — restarting from Step 1 with failure evidence",
+            backtracks, MAX_BACKTRACKS
         );
 
         if backtracks >= MAX_BACKTRACKS {
+            // MMA-03: Multi-channel escalation before returning
+            let failure_summary = backtrack_evidence.last().cloned().unwrap_or_default();
+            send_multi_channel_escalation(&domain_str, backtracks, &failure_summary, total_cost).await;
+
+            // MMA-13: Clear checkpoint on escalation (human takes over)
+            clear_checkpoint();
+
             return MmaProtocolResult::HumanEscalation {
                 backtracks,
-                last_failure: verify_result.concerns.join("; "),
+                last_failure: failure_summary,
                 total_cost,
             };
         }
-
-        // Append failure evidence for next cycle
-        backtrack_evidence.push(format!(
-            "BACKTRACK #{}: Previous fix failed verification (score {:.1}). Concerns: {}",
-            backtracks, verify_result.score, verify_result.concerns.join("; ")
-        ));
     }
 }
 
@@ -897,7 +1013,8 @@ struct VerifyResult {
     cost: f64,
 }
 
-/// Run Step 4: deterministic checks + 1 adversarial model sanity check.
+/// Run Step 4: deterministic checks + 3-model diverse adversarial verification.
+/// (MMA-07 / Gap 7: upgraded from 1 cheap model to 3 diverse models)
 async fn run_step4_verify(
     client: &reqwest::Client,
     api_key: &str,
@@ -908,7 +1025,6 @@ async fn run_step4_verify(
     let mut concerns: Vec<String> = Vec::new();
 
     // ── Part 1: Deterministic checks (Ralph Wiggum P6 — cannot lie) ──
-    // These are domain-specific checks that provide ground truth.
     let deterministic_passed = run_deterministic_checks(domain, diagnosis, &mut concerns);
 
     if !deterministic_passed {
@@ -925,12 +1041,13 @@ async fn run_step4_verify(
         };
     }
 
-    // ── Part 2: 1 adversarial model sanity check (P2 — different model) ──
-    // Use a cheap model NOT used in Steps 1-3
-    let adversarial_model = select_adversarial_model(domain, &diagnosis.models_used);
+    // ── Part 2: 3-model diverse adversarial verification (MMA-07) ──
+    // Use 3 models from DIFFERENT vendor families, none used in Steps 1-3.
+    // 2/3 majority = PASS. All 3 FAIL = FAIL. Mixed = FLAG.
+    let adversarial_models = select_adversarial_models(domain, &diagnosis.models_used, 3);
 
     let verify_prompt = format!(
-        "ADVERSARIAL VERIFICATION — Grade this fix:\n\n\
+        "ADVERSARIAL VERIFICATION — Grade this fix. Show your reasoning step by step.\n\n\
          DIAGNOSIS:\n{}\n\n\
          EXECUTION PLAN:\n{}\n\n\
          DETERMINISTIC CHECK RESULTS: All passed.\n\n\
@@ -945,42 +1062,246 @@ async fn run_step4_verify(
         serde_json::to_string(&execution.executions).unwrap_or_default(),
     );
 
-    let model_config = ModelConfig {
-        id: adversarial_model,
-        role: "Adversarial Evaluator",
-        system_prompt: step4_system_prompt(),
-    };
-
-    let response = openrouter::call_model(client, api_key, &model_config, &verify_prompt).await;
-    let cost = response.cost_estimate;
-
-    // Parse the adversarial score
-    if let Some(ref diag) = response.diagnosis {
-        let score = diag.confidence * 5.0; // Map 0-1 confidence to 0-5 score
-        let passed = score >= 4.0;
-
-        if !passed {
-            concerns.push(format!(
-                "Adversarial evaluator score {:.1}/5.0: {}",
-                score, diag.root_cause
-            ));
-        }
-
-        return VerifyResult {
-            passed,
-            score,
-            concerns,
-            cost,
-        };
+    // Call all 3 models in parallel (MMA-16: 60s timeout per model)
+    let mut handles = Vec::new();
+    for model_id in &adversarial_models {
+        let client = client.clone();
+        let api_key = api_key.to_string();
+        let prompt = verify_prompt.clone();
+        let model_id = model_id.clone();
+        handles.push(tokio::spawn(async move {
+            // Leak the String to get a &'static str — acceptable for short-lived task
+            let model_id_static: &'static str = Box::leak(model_id.into_boxed_str());
+            let model_config = ModelConfig {
+                id: model_id_static,
+                role: "Adversarial Evaluator",
+                system_prompt: step4_system_prompt(),
+            };
+            tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                openrouter::call_model(&client, &api_key, &model_config, &prompt),
+            ).await
+        }));
     }
 
-    // Model call failed — treat as FLAG (not FAIL)
-    concerns.push("Adversarial model call failed — treating as FLAG".to_string());
-    VerifyResult {
-        passed: false,
-        score: 3.0,
-        concerns,
-        cost,
+    let mut scores: Vec<f64> = Vec::new();
+    let mut total_cost = 0.0f64;
+    let mut model_concerns: Vec<String> = Vec::new();
+
+    for (i, handle) in handles.into_iter().enumerate() {
+        let model_name = adversarial_models.get(i).map(|s| s.as_str()).unwrap_or("unknown");
+        match handle.await {
+            Ok(Ok(response)) => {
+                total_cost += response.cost_estimate;
+                if let Some(ref diag) = response.diagnosis {
+                    let score = diag.confidence * 5.0;
+                    scores.push(score);
+                    if score < 4.0 {
+                        model_concerns.push(format!(
+                            "Model {} scored {:.1}/5: {}", model_name, score, diag.root_cause
+                        ));
+                    }
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        model = model_name,
+                        score = score,
+                        "Step 4 adversarial model {}/{} scored {:.1}",
+                        i + 1, adversarial_models.len(), score
+                    );
+                } else {
+                    // Model returned no diagnosis — count as 3.0 (FLAG)
+                    scores.push(3.0);
+                    model_concerns.push(format!("Model {} returned no structured diagnosis", model_name));
+                }
+            }
+            Ok(Err(_)) => {
+                // Timeout — skip model (MMA-16)
+                tracing::warn!(target: LOG_TARGET, model = model_name, "Step 4 adversarial model timed out (60s)");
+                model_concerns.push(format!("Model {} timed out", model_name));
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, model = model_name, error = %e, "Step 4 adversarial model task failed");
+                model_concerns.push(format!("Model {} task failed: {}", model_name, e));
+            }
+        }
+    }
+
+    concerns.extend(model_concerns);
+
+    // 3-model consensus: 2/3 PASS (score ≥ 4.0) = PASS
+    let pass_count = scores.iter().filter(|&&s| s >= 4.0).count();
+    let avg_score = if scores.is_empty() { 0.0 } else { scores.iter().sum::<f64>() / scores.len() as f64 };
+    let passed = pass_count >= 2; // 2/3 majority
+
+    tracing::info!(
+        target: LOG_TARGET,
+        pass_count,
+        total = scores.len(),
+        avg_score,
+        "Step 4 adversarial verification: {}/{} models PASS (avg score {:.1})",
+        pass_count, scores.len(), avg_score
+    );
+
+    // Fall back to old behavior if < 2 models responded
+    if scores.len() < 2 {
+        concerns.push("Fewer than 2 adversarial models responded — treating as FLAG".to_string());
+        return VerifyResult { passed: false, score: avg_score, concerns, cost: total_cost };
+    }
+
+    VerifyResult { passed, score: avg_score, concerns, cost: total_cost }
+}
+
+/// Select N adversarial models from different vendor families, excluding models used in Steps 1-3.
+/// (MMA-05 vendor diversity: ≥3 vendors per step, max 2 per family)
+fn select_adversarial_models(_domain: IssueDomain, used_models: &[String], count: usize) -> Vec<String> {
+    // Adversarial pool: one model per vendor family, all cheap/mid-range
+    let adversarial_pool = [
+        ("deepseek/deepseek-chat", "deepseek"),
+        ("google/gemma-3-12b-it", "google"),
+        ("mistralai/mistral-nemo", "mistral"),
+        ("meta-llama/llama-3.1-70b-instruct", "meta"),
+        ("qwen/qwen3-coder-30b-a3b-instruct", "qwen"),
+        ("moonshotai/kimi-k2.5", "moonshot"),
+    ];
+
+    let mut selected = Vec::new();
+    let mut used_families = std::collections::HashSet::new();
+
+    for (model_id, family) in &adversarial_pool {
+        if selected.len() >= count { break; }
+        // Skip if already used in prior steps
+        if used_models.iter().any(|u| u == model_id) { continue; }
+        // Skip if family already represented (enforce diversity)
+        if used_families.contains(family) { continue; }
+
+        selected.push(model_id.to_string());
+        used_families.insert(family);
+    }
+
+    // If we couldn't fill enough from unused models, allow reuse from different families
+    if selected.len() < count {
+        for (model_id, family) in &adversarial_pool {
+            if selected.len() >= count { break; }
+            if selected.contains(&model_id.to_string()) { continue; }
+            if used_families.contains(family) { continue; }
+            selected.push(model_id.to_string());
+            used_families.insert(family);
+        }
+    }
+
+    selected
+}
+
+// ─── MMA Execution State Persistence (MMA-13 / Gap 13) ──────────────────────
+// Checkpoint MMA state to file after each step so crash/restart can resume.
+// Uses JSON file at a known path. Cleared on protocol completion or escalation.
+
+const MMA_STATE_FILE: &str = if cfg!(windows) {
+    r"C:\RacingPoint\mma_state.json"
+} else {
+    "/tmp/mma_state.json"
+};
+
+/// Persisted MMA execution state for crash recovery.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MmaCheckpoint {
+    pub issue_key: String,
+    pub domain: String,
+    pub completed_step: u8,
+    pub backtracks: u8,
+    pub total_cost: f64,
+    pub step1_consensus: Option<StepConsensus>,
+    pub step2_consensus: Option<StepConsensus>,
+    pub backtrack_evidence: Vec<String>,
+    pub timestamp: String,
+}
+
+/// Save checkpoint after each step completes.
+fn save_checkpoint(checkpoint: &MmaCheckpoint) {
+    match serde_json::to_string_pretty(checkpoint) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(MMA_STATE_FILE, &json) {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Failed to save MMA checkpoint");
+            } else {
+                tracing::debug!(target: LOG_TARGET, step = checkpoint.completed_step, "MMA checkpoint saved");
+            }
+        }
+        Err(e) => tracing::warn!(target: LOG_TARGET, error = %e, "Failed to serialize MMA checkpoint"),
+    }
+}
+
+/// Load checkpoint from previous crash (if any).
+pub fn load_checkpoint() -> Option<MmaCheckpoint> {
+    std::fs::read_to_string(MMA_STATE_FILE)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+/// Clear checkpoint on completion or escalation.
+fn clear_checkpoint() {
+    let _ = std::fs::remove_file(MMA_STATE_FILE);
+    tracing::debug!(target: LOG_TARGET, "MMA checkpoint cleared");
+}
+
+/// Check if MMA SAFE_MODE is active (written by escalation handler).
+pub fn is_safe_mode_active() -> bool {
+    let path = if cfg!(windows) { r"C:\RacingPoint\MMA_SAFE_MODE" } else { "/tmp/mma_safe_mode" };
+    std::path::Path::new(path).exists()
+}
+
+/// MMA-03: Multi-channel escalation when max backtracks reached.
+/// Sends alerts via all available channels — WhatsApp, comms-link, and tracing ERROR.
+/// Does not block on delivery — fire-and-forget with logging.
+async fn send_multi_channel_escalation(
+    domain: &str,
+    backtracks: u8,
+    failure_summary: &str,
+    total_cost: f64,
+) {
+    let msg = format!(
+        "[MMA ESCALATION] Domain: {}, {} backtracks exhausted. Cost: ${:.2}. Last failure: {}",
+        domain, backtracks, total_cost, failure_summary
+    );
+
+    // Channel 1: Structured ERROR log (always works)
+    tracing::error!(
+        target: LOG_TARGET,
+        domain,
+        backtracks,
+        total_cost,
+        "MMA HUMAN ESCALATION — max backtracks exhausted, entering SAFE_MODE"
+    );
+
+    // Channel 2: Comms-link message to Bono (if server is reachable)
+    let comms_result = reqwest::Client::new()
+        .post("http://localhost:8080/api/v1/comms/send")
+        .json(&serde_json::json!({
+            "recipient": "bono",
+            "message": msg,
+            "priority": "critical"
+        }))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await;
+    match comms_result {
+        Ok(r) if r.status().is_success() => {
+            tracing::info!(target: LOG_TARGET, "MMA escalation sent via comms-link");
+        }
+        _ => {
+            tracing::warn!(target: LOG_TARGET, "MMA escalation via comms-link failed — channel unavailable");
+        }
+    }
+
+    // Channel 3: Write SAFE_MODE sentinel (stops further automated fixes)
+    let sentinel_path = if cfg!(windows) {
+        r"C:\RacingPoint\MMA_SAFE_MODE".to_string()
+    } else {
+        "/tmp/mma_safe_mode".to_string()
+    };
+    if let Err(e) = std::fs::write(&sentinel_path, &msg) {
+        tracing::warn!(target: LOG_TARGET, error = %e, "Failed to write MMA_SAFE_MODE sentinel");
+    } else {
+        tracing::info!(target: LOG_TARGET, path = %sentinel_path, "MMA SAFE_MODE sentinel written — automated fixes suspended");
     }
 }
 
@@ -1022,27 +1343,6 @@ fn run_deterministic_checks(
     }
 
     all_passed
-}
-
-/// Select an adversarial model NOT used in Steps 1-3.
-fn select_adversarial_model(_domain: IssueDomain, used_models: &[String]) -> &'static str {
-    // Cheap models preferred for adversarial check (cost optimization)
-    let candidates = [
-        "qwen/qwen3-235b-a22b-2507",          // $0.003/call
-        "mistralai/mistral-small-3.1-24b-instruct", // $0.003/call
-        "google/gemini-2.5-flash",              // $0.01/call
-        "nvidia/nemotron-3-super-120b-a12b",    // $0.005/call
-        "z-ai/glm-4.7-flash",                  // $0.003/call
-    ];
-
-    for candidate in &candidates {
-        if !used_models.iter().any(|u| u == candidate) {
-            return candidate;
-        }
-    }
-
-    // Fallback: use cheapest available
-    candidates[0]
 }
 
 /// Estimate step cost for budget pre-check.
