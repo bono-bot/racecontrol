@@ -527,3 +527,275 @@ This spec was designed using the Unified MMA Protocol methodology itself:
 *Spec created: 2026-03-31 by Bono + Uday*
 *MMA research: 10 models, 2 iterations, consensus-driven*
 *Training period: 2026-03-31 to 2026-04-29 (30 days)*
+
+---
+
+## Amendment 1: Config Safety Gates (2026-03-31)
+
+**Context:** v31.0 deployment revealed server running on `Config::default()` because `[mma]` section broke `deny_unknown_fields`. Guardian monitored wrong IP because TOML structure was wrong. Both silent failures.
+
+- **GAP-1**: Server config fail-fast — panic on parse error when file exists but is corrupt. Implemented in `config.rs`.
+- **GAP-2**: Cross-crate TOML section test — `repo_toml_sections_match_config_fields()` validates all sections. Implemented in `config.rs` tests.
+- **GAP-3**: Guardian `deny_unknown_fields` + fail-fast on parse error. Implemented in `rc-guardian/config.rs`.
+
+MMA model calls: 17 total (5 diagnose, 5 plan, 1 verify, 5 gap-fill design, 1 gap-fill verify).
+
+---
+
+## Amendment 2: 26-Gap Meta-Audit Fixes (2026-03-31, MMA-First Protocol)
+
+**Context:** Meta-audit of the protocol itself found 26 gaps across 8 categories. 5 models produced fixes. 3 gaps dismissed as duplicates. 17 trivial/small fixes implemented below. 6 medium fixes deferred to Wave 2.
+
+### MMA-01: Bootstrap Independence (Gap 1, P0)
+
+**Rule:** MMA bootstrap config (API key, budget limits, model roster) MUST NOT depend on the same config file being audited. MMA reads from:
+1. Environment variables: `OPENROUTER_KEY`, `MMA_DAILY_BUDGET`, `MMA_TRAINING_MODE`
+2. Fallback: `mma.toml` (dedicated file, separate from `racecontrol.toml`)
+3. Hardcoded defaults if neither available (training_mode=false, budget=$10)
+
+**Why:** Config parse failure in `racecontrol.toml` killed MMA itself. Env vars survive any file corruption.
+
+### MMA-02: Dual Execution Mode (Gap 2, P0)
+
+**Rule:** Protocol has two valid execution modes:
+- **Automated** (primary): `mma_engine.rs` on rc-agent pods. Full state machine, enforced consensus, persistent audit trail.
+- **Structured-Manual** (break-glass): AI assistant (Bono/Claude) calling OpenRouter APIs. MUST follow these constraints:
+  - Log every model call with: model name, step number, input hash, output summary, cost
+  - Enforce 3/5 consensus — never act on a single model's output for code changes
+  - Track cumulative session cost — stop at $5/session unless Uday approves
+  - Persist findings to KB (comms DB or file) for future sessions
+  - Record in LOGBOOK.md: `| timestamp | MMA-manual | step | models | consensus | cost |`
+
+Manual mode is NOT "lesser" — it's the cloud execution path. But it must leave the same audit trail as automated.
+
+### MMA-03: Multi-Channel Escalation (Gap 3, P0)
+
+**Rule:** After max backtracks, escalate via ALL available channels (not just WhatsApp):
+1. WhatsApp to Uday (primary)
+2. Email to usingh@racingpoint.in (backup)
+3. Comms-link message (Bono↔James notification)
+4. If all fail after 5 minutes: enter SAFE_MODE — no further automated fixes, deterministic-only, log everything
+
+**Why:** Single-channel escalation is a single point of failure. WhatsApp API can be down.
+
+### MMA-04: Observability (Gap 4, P1)
+
+**Rule:** Every MMA execution (automated or manual) MUST emit:
+- Step entry/exit with timestamps and model names
+- Consensus result (majority/dissent counts)
+- Cost per step and cumulative
+- Backtrack events with failure evidence
+- Final outcome (resolved/escalated/budget_exhausted)
+
+For automated mode: `tracing::info!` to JSONL logs (already implemented in `mma_engine.rs`).
+For manual mode: append to LOGBOOK.md + structured JSON to comms DB.
+
+### MMA-05: Vendor Diversity (Gap 6, P1)
+
+**Rule:** Each 5-model iteration MUST include models from ≥3 different vendor families. Max 2 models per vendor per step.
+
+**Vendor families:**
+- DeepSeek (R1, V3, V3.1, V3.2)
+- Meta (Llama 3.1, Llama 4)
+- Google (Gemma, Gemini)
+- Moonshot (Kimi K2.5)
+- Mistral (Nemo, Medium, Large)
+- Qwen/Alibaba (Qwen3 Coder, Qwen3 235B)
+- xAI (Grok)
+- Nvidia (Nemotron)
+- OpenAI (GPT-5 series)
+
+**Why:** Correlated hallucinations from same-family models can produce false 3/5 consensus.
+
+### MMA-06: Cloud Infrastructure Probing (Gap 8, P1)
+
+**Rule:** Before any MMA execution, run pre-flight probes:
+1. OpenRouter API reachable? (`curl -s https://openrouter.ai/api/v1/models -H "Authorization: Bearer $key"`)
+2. Comms-link WebSocket alive? (`ws://localhost:8765`)
+3. RaceControl health? (`curl localhost:8080/api/v1/health`)
+
+If any probe fails, log the failure and proceed with degraded mode (skip unavailable channels). Never assume infrastructure is healthy.
+
+### MMA-07: Minority Opinion Review (Gap 10, P1)
+
+**Rule:** If the same minority opinion appears in 3+ consecutive MMA runs (across different issues), it triggers a mandatory review:
+1. Log pattern: "Recurring minority: [model X] disagrees on [category Y] — 3rd occurrence"
+2. Next MMA run promotes this minority view to Step 1 context: "A model has consistently flagged [Y] — investigate whether majority is missing something"
+3. If minority proves correct once, boost that model's weight for the domain
+
+### MMA-08: Semantic Config Validation (Gap 11, P1)
+
+**Rule:** Step 4 VERIFY must include semantic config checks beyond "does it parse":
+- Server URL resolves and responds? (not just syntactically valid)
+- Guardian target is reachable from the guardian's network?
+- Budget values are positive and < $100/day?
+- Training dates are valid ISO 8601 and end > start?
+- API key returns 200 from OpenRouter?
+
+**Why:** Config can parse correctly but contain wrong values. Semantic validation catches "valid but wrong."
+
+### MMA-09: Backtrack Cap (Gap 14, P1)
+
+**Rule:** Maximum 3 backtracks per issue (already in spec). After 3rd backtrack:
+1. STOP all automated fixes
+2. Emit structured summary: all 3 attempts, all failure evidence, model responses
+3. Escalate via MMA-03 multi-channel
+4. Enter deterministic-only mode for this issue until human responds
+5. Do NOT keep retrying — infinite loops burn budget
+
+### MMA-10: Manual Mode Standing Rules (Gap 15, P1)
+
+**Rule:** When Bono executes MMA manually:
+- Automated `mma_engine.rs` is the gold standard — manual is break-glass
+- Every manual MMA session starts with: "MMA-MANUAL: [issue description], [estimated calls], [budget cap]"
+- Never skip Step 4 VERIFY — even for "obvious" fixes
+- Never act on 1 model's output for code changes — always get 3+ opinions
+- Log cost: track per-model and cumulative. Stop at $5 unless Uday approves.
+
+### MMA-11: Self-Health-Check (Gap 16, P1)
+
+**Rule:** MMA engine runs a synthetic self-test daily:
+- Send a known-answer diagnostic to 1 cheap model: "What is 2+2? Answer as JSON: {answer: N}"
+- Verify response parses correctly and answer is 4
+- If fails: log ERROR, flag MMA as degraded, fall back to deterministic-only
+- Cost: ~$0.001/day
+
+**Why:** Catches API key expiry, OpenRouter outages, model deprecation — before a real incident needs MMA.
+
+### MMA-12: Chain-of-Thought Mandate (Gap 17, P2)
+
+**Rule:** All MMA prompts MUST include: "Show your reasoning step by step before providing your final answer."
+Model responses without reasoning are flagged as low-confidence and weighted 0.5x in consensus.
+
+**Why:** CoT enables debugging consensus decisions and catches "confident but wrong" outputs.
+
+### MMA-13: Evidence Schema (Gap 18, P2)
+
+**Rule:** Backtrack evidence MUST include:
+```json
+{
+  "backtrack_number": 1,
+  "failed_step": 4,
+  "failure_type": "deterministic_check" | "adversarial_review" | "timeout",
+  "failed_checks": ["health_endpoint_wrong_build_id", "port_8080_not_listening"],
+  "model_responses_summary": "3/5 models suggested X, 2 suggested Y",
+  "previous_fix_applied": "Changed config.rs line 42...",
+  "timestamps": {"step1_start": "...", "step4_fail": "..."},
+  "cumulative_cost": 1.23
+}
+```
+
+Unstructured "it didn't work" is NOT acceptable backtrack evidence.
+
+### MMA-14: Multi-Provider Fallback (Gap 20, P2)
+
+**Rule:** If OpenRouter returns 5xx or timeout for 3 consecutive calls:
+1. Log: "OpenRouter degraded — switching to fallback"
+2. Try direct API endpoints in order: Anthropic (Claude), Google (Gemini), local Ollama (llama3.1:8b)
+3. Reduce from 5-model consensus to 3-model consensus in degraded mode
+4. Resume OpenRouter on next successful probe
+
+**Why:** Single vendor dependency halts all MMA. Local Ollama is always available (on James at venue, CPU-only on VPS).
+
+### MMA-15: Pool Rotation (Gap 22, P2)
+
+**Rule:** Domain model pools rotate monthly. Each month, swap 2 secondary models with newly available models from OpenRouter. Track model performance (accuracy vs deterministic verification) to inform rotation decisions.
+
+**Why:** Static pools create echo chambers. Rotation introduces fresh perspectives and catches model degradation.
+
+### MMA-16: Step Timeouts (Gap 23, P2)
+
+**Rule:** Per-model API call timeout: 60 seconds. Per-step timeout: 5 minutes (covers all iterations).
+- Model timeout → skip model, proceed with 4 remaining
+- Step timeout → treat as Step failure, backtrack
+- If 3+ models timeout in same step → OpenRouter likely degraded, trigger MMA-14 fallback
+
+### MMA-17: Input Sanitization (Gap 25, P2)
+
+**Rule:** Before inserting diagnostic data (logs, error messages, stack traces) into MMA prompts:
+1. Strip ANSI escape codes
+2. Truncate to 2000 chars per field
+3. Remove patterns matching: `sk-`, `Bearer `, `password=`, `secret=`, API keys
+4. Replace file paths containing `/root/` with `[REDACTED_PATH]/`
+
+**Why:** Diagnostic data could contain credentials or prompt injection payloads.
+
+### MMA-18: Model Provenance (Gap 26, P2)
+
+**Rule:** Every MMA model call logs:
+- Request: model ID, step number, prompt hash (SHA256 of first 500 chars)
+- Response: model ID from response header, finish_reason, token count, latency_ms, cost
+- Stored in: JSONL audit log (automated) or LOGBOOK.md (manual)
+
+**Why:** Model versioning enables debugging "why did consensus change" and detecting model swaps by providers.
+
+### MMA-19: Domain-Specific Prompting (Gap 24, P2)
+
+**Rule:** All MMA prompts include a domain context header:
+```
+DOMAIN: Sim racing venue management (8 gaming PCs, Rust/Axum server, Windows pods, 
+Conspit wheelbases, AC/F1 25/LMU/Forza/iRacing, USB HID billing, Edge kiosk)
+KNOWN FAILURE PATTERNS: [top 5 from KB by frequency]
+```
+
+Models without this context make generic suggestions that don't apply to the venue.
+
+### Dismissed Gaps
+
+- **Gap 12**: Duplicate of Gap 3 (multi-channel escalation)
+- **Gap 19**: Duplicate of Gap 5 (partial backtracking — Wave 2)
+- **Gap 21**: Covered by Gap 2 (dual execution mode)
+
+### Wave 2 (Deferred — Code Changes)
+
+| Gap | Fix | Effort |
+|-----|-----|--------|
+| 5 | Partial backtracking with checkpoints | medium |
+| 7 | 3-model diverse Step 4 verification | medium |
+| 9 | Model reputation scoring + anomaly detection | medium |
+| 13 | Persistent state machine for crash recovery | medium |
+| 3 | Multi-channel escalation code (WhatsApp + email + comms) | medium |
+
+### MMA-20: Cascade Update Rule (Meta-Protocol)
+
+**Rule:** Any change to the MMA Protocol (new amendments, rule changes, model roster updates) MUST cascade to ALL consumers. Cascade checklist:
+
+| Consumer | What to Update | Owner |
+|----------|---------------|-------|
+| `mma_engine.rs` (rc-agent) | Automated engine code — vendor diversity, timeouts, sanitization | James (venue deploy) |
+| `CLAUDE.md` (racecontrol) | Standing rules for Bono | Bono (auto — same repo) |
+| `CLAUDE.md` (comms-link) | Standing rules for James | Bono (sync via `scripts/sync-rules.sh`) |
+| `rc-doctor.sh` | AI diagnosis rotation — vendor diversity | Bono (cloud) |
+| `openrouter.rs` (rc-agent) | Model config, timeouts, fallback providers | James (venue deploy) |
+| `budget_tracker.rs` (rc-agent) | Budget limits matching MMA config | James (venue deploy) |
+| James INBOX.md | Summary of changes needing pull/rebuild | Bono (every amendment) |
+| Memory (MEMORY.md) | Session log with amendment details | Bono (auto) |
+
+**Process:**
+1. After any MMA spec amendment, run this checklist
+2. Mark each consumer as DONE, DEFERRED (with reason), or N/A
+3. For James-owned items: email summary to james@racingpoint.in + append to INBOX.md
+4. Track deferred items in Wave 2 backlog
+
+**Why:** v31.0 added `[mma]` config section but only updated rc-agent's Config struct, not the server's. The cascade was incomplete — one missed consumer caused total config failure. The recursive cascade rule (CLAUDE.md Code Quality) applies to MMA protocol changes too.
+
+### Amendment 2 Cascade Status
+
+| Consumer | Status | Notes |
+|----------|--------|-------|
+| Bono CLAUDE.md | ✅ DONE | 7 standing rules added |
+| MMA spec | ✅ DONE | MMA-01 through MMA-20 |
+| Memory | ✅ DONE | Session log updated |
+| `mma_engine.rs` | ⏳ DEFERRED | Wave 2 — James hasn't pulled v31.0 |
+| `openrouter.rs` | ⏳ DEFERRED | Wave 2 — venue deploy pending |
+| `rc-doctor.sh` | ⏳ DEFERRED | Small — update model rotation |
+| James CLAUDE.md | ⏳ DEFERRED | Email James after commit |
+| James INBOX.md | ⏳ TODO | Include in commit message |
+
+### MMA Model Calls (Amendment 2)
+
+| Step | Models | Calls |
+|------|--------|-------|
+| Meta-audit DIAGNOSE | 5 (DeepSeek V3.1, Kimi K2.5, Llama 70B, Qwen3 Coder, DeepSeek V3) | 5 |
+| Fix design | 5 (same rotation) | 5 |
+| **Total** | | **10 model calls** |

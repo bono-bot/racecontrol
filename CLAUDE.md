@@ -299,6 +299,23 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Audit the MONITOR, not just the MONITORED.** Every audit must verify that meta-monitoring systems (rc-watchdog, auto-detect pipeline, escalation engine) are: (1) **process running** (`tasklist`), (2) **scheduled task registered** (`schtasks /Query`), (3) **output fresh** (log recency < 5 min for watchdog, < 26h for auto-detect). Checking only the state file or code existence is proxy verification — the same class of bug as "health passes but blanking is broken." Phase 67 enforces this in Tier 1.
   _Why: 2026-03-26 — rc-watchdog died at 18:14 IST, both CommsLink-DaemonWatchdog and AutoDetect-Daily scheduled tasks were never registered, and self_patch was disabled. The audit's phase 10 checked watchdog-state.json (PASS — stale file existed) and phase 66 checked scripts existed (PASS — code was there). Neither detected that zero healing or detection was actually running. All autonomous self-debugging was silently dead._
 
+### MMA Protocol Standing Rules (Amendment 2, 2026-03-31)
+
+- **MMA bootstrap is env-only.** API key (`OPENROUTER_KEY`), budget limits (`MMA_DAILY_BUDGET`), and training mode (`MMA_TRAINING_MODE`) read from environment variables FIRST, then `mma.toml`, then hardcoded defaults. NEVER depend on `racecontrol.toml` for MMA core config.
+  _Why: v31.0 — `racecontrol.toml` parse failure killed MMA itself. Bootstrap paradox._
+- **Manual MMA requires structured logging.** Every manual MMA session by Bono/Claude MUST log: model name, step number, cost, consensus result. Never act on 1 model for code changes — always 3+. Track cost, stop at $5/session unless Uday approves. Append to LOGBOOK.md: `| timestamp | MMA-manual | step | models | consensus | cost |`
+  _Why: Manual MMA left no audit trail. 5/5 models flagged "automation theater."_
+- **Vendor diversity: ≥3 vendors per 5-model step.** Max 2 models from same family. Families: DeepSeek, Meta, Google, Moonshot, Mistral, Qwen, xAI, Nvidia, OpenAI.
+  _Why: Correlated hallucinations from same family produce false consensus._
+- **Never skip Step 4 VERIFY.** Even for "obvious" fixes. Deterministic checks first, then adversarial model. Include semantic config validation (URLs resolve, values reasonable, API keys valid).
+  _Why: Config parsed correctly but contained wrong values. Semantic validation catches "valid but wrong."_
+- **Sanitize diagnostic data before MMA prompts.** Strip ANSI codes, truncate to 2000 chars, remove `sk-`, `Bearer`, `password=`, `secret=`, redact `/root/` paths.
+  _Why: Diagnostic data could contain credentials or prompt injection payloads._
+- **Step timeouts: 60s per model, 5min per step.** Model timeout → skip and proceed with 4. Step timeout → backtrack. 3+ timeouts → provider degraded, switch to fallback.
+  _Why: No timeouts = hung protocol burns budget silently._
+- **Multi-channel escalation after max backtracks.** WhatsApp + email + comms-link. If all fail after 5min → SAFE_MODE (deterministic-only, no automated fixes).
+  _Why: Single-channel escalation is single point of failure._
+
 ### Debugging
 
 - **Cross-Process Recovery Awareness** — independent recovery systems (self_monitor, rc-sentry watchdog, server pod_monitor/WoL, scheduler wake) can fight each other. When adding or modifying any auto-recovery, auto-restart, or auto-wake logic, verify it won't cascade with the others.

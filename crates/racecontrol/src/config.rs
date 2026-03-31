@@ -754,10 +754,17 @@ impl Config {
                             }
                         }
                         Err(e) => {
-                            // COV-03: VerificationError includes first 3 lines of file for SSH banner diagnosis
-                            let msg = format!("[config_parse] field=config_parse source={} error={} fallback=Config::default() — config file parse failed via verification chain", path_display, e);
+                            // GAP-1 FIX (MMA 5/5 consensus): File exists but parse failed → PANIC.
+                            // Silent fallback to Config::default() caused server to run with
+                            // empty config for ALL settings (v31.0 incident).
+                            let msg = format!(
+                                "[FATAL] Config file '{}' exists but failed to parse: {}\n\
+                                 Fix the config file and restart. The server will NOT run on defaults \
+                                 when a config file is present but invalid.",
+                                path_display, e
+                            );
                             eprintln!("{}", msg);
-                            tracing::warn!(target: "state", field = "config_parse", source = %path_display, error = %e, fallback = "Config::default()", "config file parse failed via verification chain — possible SSH banner corruption");
+                            panic!("{}", msg);
                         }
                     }
                 }
@@ -1355,5 +1362,43 @@ name = "Test Venue"
             "process_guard.allowed has only {} entries — expected 100+, possible data loss",
             config.process_guard.allowed.len()
         );
+    }
+
+    /// GAP-2 FIX (MMA 5/5 consensus): Cross-crate TOML section compatibility.
+    /// Extracts all top-level [section] headers from racecontrol.toml and verifies
+    /// each one is a known field in the Config struct.
+    #[test]
+    fn repo_toml_sections_match_config_fields() {
+        let toml_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../racecontrol.toml");
+        let content = std::fs::read_to_string(toml_path)
+            .expect("racecontrol.toml must exist at repo root");
+
+        let top_level_sections: Vec<&str> = content
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                trimmed.starts_with('[')
+                    && !trimmed.starts_with("[[")
+                    && !trimmed.contains('.')
+            })
+            .map(|line| line.trim().trim_start_matches('[').trim_end_matches(']').trim())
+            .collect();
+
+        // IMPORTANT: When adding a new field to Config, add it here too.
+        let known_fields = [
+            "venue", "server", "database", "cloud", "pods", "branding",
+            "integrations", "ai_debugger", "ac_server", "auth", "watchdog",
+            "bono", "gmail", "monitoring", "alerting", "process_guard",
+            "cafe", "billing", "mma",
+        ];
+
+        for section in &top_level_sections {
+            assert!(
+                known_fields.contains(section),
+                "racecontrol.toml has section [{}] which is NOT in Config struct. \
+                 Add `#[serde(default)] pub {}: {}Config` to Config.",
+                section, section, section
+            );
+        }
     }
 }

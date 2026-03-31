@@ -4,7 +4,9 @@ use serde::Deserialize;
 use tracing::info;
 
 /// Configuration for the external guardian.
+/// GAP-3: deny_unknown_fields catches wrong TOML structure at parse time.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GuardianConfig {
     /// RaceControl server health URL (Tailscale preferred)
     #[serde(default = "default_server_url")]
@@ -132,7 +134,12 @@ impl GuardianConfig {
                     match toml::from_str(&contents) {
                         Ok(c) => break 'load c,
                         Err(e) => {
-                            tracing::warn!(path, error = %e, "Failed to parse config file, using defaults");
+                            // GAP-3 FIX: File exists but parse failed → FATAL.
+                            anyhow::bail!(
+                                "[FATAL] Config file '{}' exists but failed to parse: {}\n\
+                                 Fix the config file and restart.",
+                                path, e
+                            );
                         }
                     }
                 }
@@ -260,5 +267,18 @@ mod tests {
         let config: GuardianConfig = toml::from_str("").expect("parse empty toml");
         assert_eq!(config.server_url, "http://100.125.108.37:8080/api/v1/health");
         assert_eq!(config.dead_man_threshold, 3);
+    }
+
+    /// GAP-3: Nested TOML sections MUST be rejected by deny_unknown_fields.
+    #[test]
+    fn nested_toml_sections_rejected() {
+        let bad_toml = r#"
+            [server]
+            health_url = "http://localhost:8080/health"
+            [ssh]
+            user = "root"
+        "#;
+        let result: Result<GuardianConfig, _> = toml::from_str(bad_toml);
+        assert!(result.is_err(), "Nested TOML sections should be rejected");
     }
 }
