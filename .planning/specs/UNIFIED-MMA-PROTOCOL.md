@@ -278,7 +278,45 @@ Output ONLY valid JSON array of plans.
 
 **Goal:** Select and apply the best solution from consensus plans.
 
-**Model Pool:** Biased toward coders (cheaper/faster models — Grok Code Fast, Qwen3 Coder).
+**Prompt Template:**
+```
+CONTEXT:
+[Fleet context + Step 1 consensus + Step 2 consensus]
+
+FIX PLANS (from Step 2 consensus):
+[majority plans array]
+
+TASK — STEP 3: EXECUTE
+Review these fix plans and select the BEST solution for each problem.
+Show your reasoning step by step.
+
+For EACH selected solution, provide:
+1. problem_id: Which problem this fixes
+2. selected_plan_index: Which plan from Step 2 you chose
+3. implementation: The exact command, config change, or code to apply
+4. execution_order: Priority order (fix critical issues first)
+5. expected_outcome: What should change after applying this fix
+6. confidence: 0.0-1.0 (how confident are you this will work?)
+
+Prefer:
+- deterministic fixes over config changes
+- config changes over code changes
+- Smallest reversible change that solves the problem
+
+Output ONLY valid JSON array of executions.
+```
+
+**Model Pool (biased toward coders — cost optimization):**
+
+| Slot | Role | Models |
+|------|------|--------|
+| 1 | Code Expert (required) | Grok Code Fast, DeepSeek V3.2, Qwen3 Coder |
+| 2 | Code Expert 2 (required) | Mercury Coder, GPT-5.1 Codex Mini |
+| 3 | SRE/Ops (required) | MiMo v2 Flash, Nemotron 3 Super |
+| 4-5 | Fast/Cheap models | Qwen3 235B 2507, Gemini 2.5 Flash |
+| 6-10 | Pool reserves | Remaining models |
+
+**Cost optimization (Gemini Iter 2 insight):** Step 3 prioritizes speed + code quality over deep reasoning. Use cheaper/faster models here. Save expensive reasoning models (R1, Gemini Pro, GPT-5.4) for Steps 1 and 4.
 
 **MMA-16: Step Timeouts:** 60s per model call, 5min per step. Model timeout → skip, proceed with 4. Step timeout → backtrack.
 
@@ -615,6 +653,31 @@ Model selection per issue domain. Based on MMA research consensus (10 models, 2 
 | Day 30 | 95% | 1 | $0.80-$2 |
 | **30-day total** | | | **$150-$400** |
 
+**Note:** MMA-First Protocol estimated $800-$1,200 for 30 days. The 4-step convergence engine is 3-5x cheaper because: (1) actual per-model costs are $0.003-$0.05 vs estimated $0.86, (2) Step 3 uses cheap/fast models, (3) Step 4 is mostly deterministic ($0). The $150-$400 range is the validated estimate.
+
+### Per-Model Cost Table
+
+| Model | Cost/call (est.) | Category |
+|-------|-----------------|----------|
+| Qwen3 235B 2507 | $0.003 | Budget |
+| Nemotron 3 Super | $0.005 | Budget |
+| MiMo v2 Flash | $0.004 | Budget |
+| Grok 4.1 Fast | $0.006 | Budget |
+| Mistral Medium 3.1 | $0.008 | Budget |
+| Llama 4 Maverick | $0.008 | Budget |
+| DeepSeek V3.2 | $0.008 | Mid |
+| GPT-5.4 Nano | $0.012 | Mid |
+| Mercury Coder | $0.010 | Mid |
+| Grok Code Fast | $0.015 | Mid |
+| ERNIE 4.5 | $0.015 | Mid |
+| GPT-5 Mini | $0.020 | Mid |
+| GLM 4.7 | $0.020 | Premium |
+| Mistral Large 2512 | $0.025 | Mid |
+| DeepSeek R1 0528 | $0.028 | Premium |
+| Kimi K2.5 | $0.030 | Premium |
+| MiMo v2 Pro | $0.050 | Premium |
+| Gemini 2.5 Pro | $0.110 | Expensive |
+
 **Manual mode (MMA-10):** $5/session cap unless Uday approves.
 
 ### Production Mode Budget (Day 31+)
@@ -640,6 +703,25 @@ MMA config reads from env vars first (`OPENROUTER_KEY`, `MMA_DAILY_BUDGET`), the
 ### MMA-02: Dual Execution Mode
 - **Automated** (primary): `mma_engine.rs` on rc-agent pods.
 - **Structured-Manual** (break-glass): Bono/Claude calling OpenRouter. Must log every call, enforce 3/5 consensus, track cost.
+
+### MMA-06: Pre-Flight Infrastructure Probing
+
+Before ANY MMA execution (automated or manual), run pre-flight probes:
+1. **OpenRouter API reachable?** `curl -s -o /dev/null -w "%{http_code}" https://openrouter.ai/api/v1/models -H "Authorization: Bearer $key"` → expect 200
+2. **Comms-link WebSocket alive?** `ws://localhost:8765` ping → expect pong within 5s
+3. **RaceControl health?** `curl -s localhost:8080/api/v1/health` → expect `{"status":"ok"}`
+
+If any probe fails: log the failure, proceed with degraded mode (skip unavailable channels). Never assume infrastructure is healthy. If OpenRouter fails pre-flight, trigger MMA-14 fallback immediately (don't waste the first model call discovering it).
+
+### MMA-11: Daily Self-Health-Check
+
+MMA engine runs a synthetic self-test daily (cron or startup):
+- Send a known-answer diagnostic to 1 cheap model: `"What is 2+2? Answer as JSON: {answer: N}"`
+- Verify: response parses as JSON AND answer == 4
+- If fails: log ERROR, flag MMA as degraded, fall back to deterministic-only
+- Cost: ~$0.001/day
+
+Catches: API key expiry, OpenRouter outages, model deprecation, response format changes — all before a real incident needs MMA and fails silently.
 
 ### MMA-03: Multi-Channel Escalation
 After max backtracks: WhatsApp + email + comms-link. If all fail after 5min → SAFE_MODE sentinel (no automated fixes).
