@@ -65,7 +65,8 @@ fn default_startup_log() -> String { r"C:\RacingPoint\rc-agent-startup.log".to_s
 fn default_stderr_log() -> String { r"C:\RacingPoint\rc-agent-stderr.log".to_string() }
 
 /// Mesh configuration — connects rc-sentry to Bono comms-link hub via Tailscale.
-#[derive(Debug, Clone, Deserialize)]
+/// P1-03: Manual Debug impl redacts PSK to prevent credential leaks in logs.
+#[derive(Clone, Deserialize)]
 pub struct MeshConfig {
     /// Enable mesh connectivity (default: false until configured)
     #[serde(default)]
@@ -98,6 +99,19 @@ fn default_mesh_node_id() -> String {
 fn default_mesh_role() -> String { "pod".to_string() }
 fn default_mesh_hub_url() -> String { "ws://100.70.177.44:8765".to_string() }
 fn default_mesh_heartbeat_secs() -> u64 { 15 }
+
+impl std::fmt::Debug for MeshConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeshConfig")
+            .field("enabled", &self.enabled)
+            .field("node_id", &self.node_id)
+            .field("role", &self.role)
+            .field("hub_url", &self.hub_url)
+            .field("psk", &if self.psk.is_empty() { "(empty)" } else { "[REDACTED]" })
+            .field("heartbeat_secs", &self.heartbeat_secs)
+            .finish()
+    }
+}
 
 impl Default for MeshConfig {
     fn default() -> Self {
