@@ -214,6 +214,9 @@ async fn run_supervised(
     let mut inflight_incidents: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut first_event_processed = false;
 
+    // SAFE-01/02/03: Safety guardrails — blast radius, per-action circuit breaker, idempotency
+    let safety = rc_common::safety::SafetyGuardrails::new();
+
     loop {
         tokio::select! {
             // ── Autonomous diagnostic events ──
@@ -234,7 +237,47 @@ async fn run_supervised(
 
                 tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, ts = %event.timestamp, "Received diagnostic event");
 
+                // SAFE-01/02/03: Pre-flight safety check before applying any fix.
+                // Build idempotency key from trigger + build_id as incident fingerprint.
+                let action_type = format!("{:?}", std::mem::discriminant(&event.trigger));
+                let incident_fp = make_dedup_key(&event.trigger);
+                let fix_id = format!("auto-{}-{}", incident_fp, event.timestamp);
+                let node_id = event.build_id;
+
+                let safety_guard = safety.pre_check(
+                    &fix_id,
+                    &action_type,
+                    node_id,         // target = this pod
+                    node_id,         // node_id
+                    "v1",            // rule_version — tier engine v1
+                    &incident_fp,
+                );
+
+                let _guard = match safety_guard {
+                    Ok(guard) => guard,
+                    Err(reason) => {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            trigger = ?event.trigger,
+                            reason = %reason,
+                            "Safety guardrail blocked fix — skipping"
+                        );
+                        continue;
+                    }
+                };
+
                 let result = run_tiers(&event, &mut circuit_breaker, &budget).await;
+
+                // Record circuit breaker outcome for per-action tracking
+                match &result {
+                    TierResult::Fixed { .. } => {
+                        safety.circuit_breaker.record_success(&action_type);
+                    }
+                    TierResult::FailedToFix { .. } => {
+                        safety.circuit_breaker.record_failure(&action_type);
+                    }
+                    _ => {} // NotApplicable and Stub don't affect breaker state
+                }
 
                 // Log to shared DiagnosticLog for /events/recent endpoint
                 let entry = tier_result_to_log_entry(&event, &result, None, "autonomous");
