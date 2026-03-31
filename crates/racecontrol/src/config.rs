@@ -37,7 +37,28 @@ pub struct Config {
     pub cafe: CafeConfig,
     #[serde(default)]
     pub billing: BillingConfig,
+    #[serde(default)]
+    pub mma: MmaConfig,
 }
+
+/// MMA-First Protocol config (v29.0+) — 30-day AI training period settings
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct MmaConfig {
+    #[serde(default)]
+    pub training_mode: bool,
+    pub training_start: Option<String>,
+    pub training_end: Option<String>,
+    #[serde(default = "default_daily_budget_pod")]
+    pub daily_budget_pod: f64,
+    #[serde(default = "default_daily_budget_server")]
+    pub daily_budget_server: f64,
+    #[serde(default = "default_daily_budget_pos")]
+    pub daily_budget_pos: f64,
+}
+
+fn default_daily_budget_pod() -> f64 { 15.0 }
+fn default_daily_budget_server() -> f64 { 25.0 }
+fn default_daily_budget_pos() -> f64 { 8.0 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
 /// Uses OAuth2 refresh_token flow — no external script needed.
@@ -790,6 +811,7 @@ impl Config {
             process_guard: ProcessGuardConfig::default(),
             cafe: CafeConfig::default(),
             billing: BillingConfig::default(),
+            mma: MmaConfig::default(),
         }
     }
 
