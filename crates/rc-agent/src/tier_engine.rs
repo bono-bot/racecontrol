@@ -187,13 +187,14 @@ pub fn spawn(
     diag_log: DiagnosticLog,
     staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
+    fleet_bus_tx: tokio::sync::broadcast::Sender<rc_common::fleet_event::FleetEvent>,
 ) {
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events + staff requests");
 
         // C2: Supervisor wraps the inner loop — restarts on panic
-        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx).await;
+        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx).await;
 
         tracing::warn!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
     });
@@ -206,6 +207,7 @@ async fn run_supervised(
     diag_log: DiagnosticLog,
     mut staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
+    fleet_bus_tx: tokio::sync::broadcast::Sender<rc_common::fleet_event::FleetEvent>,
 ) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
@@ -282,6 +284,82 @@ async fn run_supervised(
                 // Log to shared DiagnosticLog for /events/recent endpoint
                 let entry = tier_result_to_log_entry(&event, &result, None, "autonomous");
                 diag_log.push(entry).await;
+
+                // ── 273-03: Universal KB recording + FleetEvent emission ──
+                {
+                    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+                    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+                    let env_fp = knowledge_base::fingerprint_env(event.build_id);
+                    let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+                    let trigger_str = make_dedup_key(&event.trigger);
+
+                    match &result {
+                        TierResult::Fixed { tier, action } => {
+                            // Record every fix in KB — builds institutional memory
+                            if let Ok(kb) = KnowledgeBase::open(KB_PATH) {
+                                let diag_method = match *tier {
+                                    1 => Some("deterministic"),
+                                    2 => Some("kb_cached"),
+                                    3 => Some("scanner_enumeration"),
+                                    4 => Some("consensus_5model"),
+                                    _ => None,
+                                };
+                                if let Err(e) = kb.record_resolution(
+                                    &problem_key,
+                                    &problem_hash,
+                                    &format!("{:?}", event.trigger),
+                                    action,
+                                    match *tier {
+                                        1 => "deterministic",
+                                        2 => "kb_cached",
+                                        _ => "model_suggested",
+                                    },
+                                    *tier,
+                                    "verified_pass",
+                                    event.build_id,
+                                    diag_method,
+                                ) {
+                                    tracing::warn!(target: LOG_TARGET, error = %e, "Failed to record resolution in KB");
+                                }
+                            }
+                            // Emit FleetEvent::FixApplied
+                            let _ = fleet_bus_tx.send(rc_common::fleet_event::FleetEvent::FixApplied {
+                                node_id: event.build_id.to_string(),
+                                tier: *tier,
+                                action: action.clone(),
+                                trigger: trigger_str,
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
+                        TierResult::FailedToFix { tier, reason } => {
+                            // Record failures too — KB tracks what DOESN'T work
+                            if let Ok(kb) = KnowledgeBase::open(KB_PATH) {
+                                if let Err(e) = kb.record_resolution(
+                                    &problem_key,
+                                    &problem_hash,
+                                    &format!("{:?}", event.trigger),
+                                    reason,
+                                    "failed",
+                                    *tier,
+                                    "verified_fail",
+                                    event.build_id,
+                                    None,
+                                ) {
+                                    tracing::warn!(target: LOG_TARGET, error = %e, "Failed to record failure in KB");
+                                }
+                            }
+                            // Emit FleetEvent::FixFailed
+                            let _ = fleet_bus_tx.send(rc_common::fleet_event::FleetEvent::FixFailed {
+                                node_id: event.build_id.to_string(),
+                                tier: *tier,
+                                reason: reason.clone(),
+                                trigger: trigger_str,
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
+                        _ => {} // NotApplicable and Stub don't affect KB
+                    }
+                }
 
                 match &result {
                     TierResult::Fixed { tier, action } => {

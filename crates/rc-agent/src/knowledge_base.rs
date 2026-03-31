@@ -550,6 +550,109 @@ impl KnowledgeBase {
         Ok(())
     }
 
+    // ─── Plan 273-03: Universal Solution Recording ─────────────────────────────
+
+    /// Record a resolution in the KB — simpler API for the tier engine main loop.
+    ///
+    /// If a solution with the same `problem_hash` already exists:
+    ///   - increments `success_count` or `fail_count` based on `verification_result`
+    ///   - recalculates `confidence` = success / (success + fail)
+    ///   - updates `updated_at`
+    /// If no solution exists:
+    ///   - inserts a new row with initial confidence based on verification
+    ///
+    /// Called after EVERY TierResult::Fixed and TierResult::FailedToFix.
+    pub fn record_resolution(
+        &self,
+        problem_key: &str,
+        problem_hash: &str,
+        symptoms: &str,
+        fix_action: &str,
+        fix_type: &str,       // "deterministic", "kb_cached", "model_suggested"
+        tier: u8,
+        verification_result: &str,  // "verified_pass", "verified_fail", "not_verified"
+        node_id: &str,
+        diagnosis_method: Option<&str>,
+    ) -> anyhow::Result<()> {
+        // Skip periodic — routine health checks don't produce actionable solutions
+        if problem_key == "periodic" {
+            tracing::debug!(target: LOG_TARGET, "Skipping record_resolution for periodic problem_key");
+            return Ok(());
+        }
+
+        // Check if solution with this hash already exists
+        let existing_id: Option<String> = self.conn
+            .query_row(
+                "SELECT id FROM solutions WHERE problem_hash = ?1 LIMIT 1",
+                params![problem_hash],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(ref id) = existing_id {
+            // Update existing: bump counts and recalculate confidence
+            let is_success = verification_result == "verified_pass";
+            self.record_outcome(id, is_success)?;
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = tier,
+                action = fix_action,
+                hash = problem_hash,
+                verification = verification_result,
+                "KB recorded (update): tier={} action={} hash={} verification={}",
+                tier, fix_action, problem_hash, verification_result
+            );
+        } else {
+            // Insert new solution
+            let confidence = if verification_result == "verified_pass" { 1.0 } else { 0.5 };
+            let now = chrono::Utc::now().to_rfc3339();
+            let solution = Solution {
+                id: uuid::Uuid::new_v4().to_string(),
+                problem_key: problem_key.to_string(),
+                problem_hash: problem_hash.to_string(),
+                symptoms: symptoms.to_string(),
+                environment: "{}".to_string(),
+                root_cause: fix_action.to_string(),
+                fix_action: fix_action.to_string(),
+                fix_type: fix_type.to_string(),
+                success_count: if verification_result == "verified_pass" { 1 } else { 0 },
+                fail_count: if verification_result == "verified_fail" { 1 } else { 0 },
+                confidence,
+                cost_to_diagnose: 0.0,
+                models_used: None,
+                source_node: node_id.to_string(),
+                created_at: now.clone(),
+                updated_at: now,
+                version: 1,
+                ttl_days: 90,
+                tags: Some(format!("[\"{}\",\"tier_{}\"]", problem_key, tier)),
+                diagnosis_method: diagnosis_method.map(|s| s.to_string()),
+                fix_permanence: if tier <= 2 { "workaround".to_string() } else { "permanent".to_string() },
+                recurrence_count: 0,
+                permanent_fix_id: None,
+                last_recurrence: None,
+                permanent_attempt_at: None,
+            };
+            self.store_solution(&solution)?;
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = tier,
+                action = fix_action,
+                hash = problem_hash,
+                verification = verification_result,
+                "KB recorded (new): tier={} action={} hash={} verification={}",
+                tier, fix_action, problem_hash, verification_result
+            );
+        }
+        Ok(())
+    }
+
+    /// Lookup a solution by problem_hash (alias for `lookup()` for Plan 273-03 API clarity).
+    /// Returns the highest-confidence solution filtered to confidence >= HIGH_CONFIDENCE_THRESHOLD.
+    pub fn lookup_by_hash(&self, problem_hash: &str) -> anyhow::Result<Option<Solution>> {
+        self.lookup(problem_hash)
+    }
+
     /// Q4: Check whether this solution should trigger a permanent fix search.
     /// Returns true when: fix_permanence is "workaround" AND recurrence_count >= 3
     /// AND no permanent fix attempt in the last 7 days.
