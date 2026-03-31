@@ -86,6 +86,54 @@ pub enum TierResult {
     Stub { tier: u8, note: &'static str },
 }
 
+// ─── MMA-First Protocol: Q1-Q4 Decision Types (v31.0) ───────────────────────
+
+/// Decision returned by the Q1-Q4 protocol gate.
+#[derive(Debug)]
+enum MmaDecision {
+    /// Q1 hit: permanent fix with high confidence — apply and done.
+    ApplyPermanentFix {
+        solution: crate::knowledge_base::Solution,
+    },
+    /// Q1 hit: workaround found — apply immediately, then Q4 in background.
+    ApplyWorkaroundThenQ4 {
+        solution: crate::knowledge_base::Solution,
+    },
+    /// Q2: another pod is already diagnosing this — wait.
+    WaitForFleet {
+        experiment_node: String,
+    },
+    /// Q3: invoke full 5-model MMA diagnosis.
+    InvokeMma,
+    /// No MMA needed — deterministic fix only or not worth the cost.
+    SkipMma {
+        reason: String,
+    },
+}
+
+/// Structured diagnosis response from MMA (v31.0).
+/// All 5 models must return this structure. The consensus builder
+/// merges them into one MmaDiagnosis for KB storage.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MmaDiagnosis {
+    /// WHY it happened — the actual root cause, not symptoms
+    pub root_cause: String,
+    /// What to do NOW (may be a workaround)
+    pub immediate_fix: String,
+    /// What prevents recurrence — the permanent solution
+    pub permanent_fix: String,
+    /// Determines auto-apply vs escalate
+    pub fix_type: rc_common::mesh_types::FixType,
+    /// How to confirm the fix worked
+    pub verification: String,
+    /// Standing rule, config, or code change to prevent recurrence
+    pub prevention: Option<String>,
+    /// Model consensus confidence (0.0-1.0)
+    pub confidence: f64,
+    /// true for Hardware, CodeChange — requires human intervention
+    pub requires_human: bool,
+}
+
 /// C1: Circuit breaker state for OpenRouter calls
 struct CircuitBreaker {
     consecutive_failures: u32,
@@ -426,6 +474,15 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
             format!("PosBillingApiError_{}", endpoint)
         }
         DiagnosticTrigger::TaskbarVisible => "TaskbarVisible".to_string(),
+        // MMA-First Protocol triggers (v31.0)
+        DiagnosticTrigger::GameMidSessionCrash { exit_code, .. } => {
+            format!("GameMidSessionCrash_{}", exit_code.unwrap_or(-1))
+        }
+        DiagnosticTrigger::PostSessionAnalysis { .. } => "PostSessionAnalysis".to_string(),
+        DiagnosticTrigger::PreShiftAudit => "PreShiftAudit".to_string(),
+        DiagnosticTrigger::DeployVerification { new_build_id } => {
+            format!("DeployVerification_{}", new_build_id)
+        }
     }
 }
 
@@ -470,43 +527,268 @@ fn tier_result_to_log_entry(
     }
 }
 
-/// Run all 5 tiers in sequence for a single DiagnosticEvent.
+/// MMA-First Protocol: Q1-Q4 decision gate (v31.0).
 ///
-/// PRODUCTION ORDER: Deterministic → KB → Single Model → 4-Model Parallel → Human
-/// Cheapest/fastest tiers first. Model tiers only for real anomalies.
+/// Determines whether to invoke MMA for a given diagnostic event.
+/// Replaces the old linear Tier 2 KB lookup with a 4-question protocol:
+/// - Q1: Has this EXACT problem been solved before? (two-tier KB lookup)
+/// - Q2: Is someone ALREADY diagnosing this? (fleet dedup via experiments table)
+/// - Q3: Is this novel and worth an MMA call? (training mode = always yes)
+/// - Q4: Should we search for a permanent fix? (background, after Q1 workaround)
+fn mma_decision(event: &DiagnosticEvent) -> MmaDecision {
+    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+    let env_fp = knowledge_base::fingerprint_env(event.build_id);
+    let exact_hash = knowledge_base::compute_exact_hash(&problem_key, &env_fp);
+    let stable_hash = knowledge_base::compute_stable_hash(&problem_key, &env_fp);
+
+    let kb = match KnowledgeBase::open(KB_PATH) {
+        Ok(kb) => kb,
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, error = %e, "KB unavailable — proceeding to MMA");
+            return MmaDecision::InvokeMma;
+        }
+    };
+
+    // ── Q1: Has this EXACT problem been solved before? ──
+    match kb.lookup_two_tier(&exact_hash, &stable_hash) {
+        Ok(Some(solution)) => {
+            if solution.fix_permanence == "permanent" && solution.confidence >= 0.9 {
+                // Permanent fix with high confidence — apply and done
+                tracing::info!(
+                    target: LOG_TARGET,
+                    problem_key = %problem_key,
+                    confidence = solution.confidence,
+                    fix = %solution.fix_action,
+                    "Q1 HIT: permanent fix (confidence {:.0}%)",
+                    solution.confidence * 100.0
+                );
+                return MmaDecision::ApplyPermanentFix { solution };
+            }
+            // Workaround found — apply immediately, Q4 may fire in background
+            tracing::info!(
+                target: LOG_TARGET,
+                problem_key = %problem_key,
+                permanence = %solution.fix_permanence,
+                recurrence = solution.recurrence_count,
+                fix = %solution.fix_action,
+                "Q1 HIT: workaround (recurrence #{}) — applying, Q4 may follow",
+                solution.recurrence_count + 1
+            );
+            return MmaDecision::ApplyWorkaroundThenQ4 { solution };
+        }
+        Ok(None) => {
+            tracing::debug!(target: LOG_TARGET, problem_key = %problem_key, "Q1 MISS: no KB match");
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "Q1: KB lookup error — proceeding to Q2");
+        }
+    }
+
+    // ── Q2: Is someone ALREADY diagnosing this? ──
+    match kb.get_open_experiment(&problem_key) {
+        Ok(Some(exp)) => {
+            tracing::info!(
+                target: LOG_TARGET,
+                problem_key = %problem_key,
+                exp_node = %exp.node,
+                "Q2: open experiment found on {} — waiting instead of duplicate diagnosis",
+                exp.node
+            );
+            return MmaDecision::WaitForFleet { experiment_node: exp.node };
+        }
+        Ok(None) => {
+            tracing::debug!(target: LOG_TARGET, "Q2: no open experiment — proceeding to Q3");
+        }
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, error = %e, "Q2: experiment check failed — proceeding");
+        }
+    }
+
+    // ── Q3: Is this novel and worth an MMA call? ──
+    let mma_config = crate::config::load_config()
+        .map(|c| c.mma)
+        .unwrap_or_default();
+
+    if mma_config.is_training_active() {
+        // TRAINING MODE: MMA for everything the KB can't permanently solve
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_key = %problem_key,
+            "Q3 TRAINING MODE: invoking full 5-model MMA (Tier 1 during training)"
+        );
+        return MmaDecision::InvokeMma;
+    }
+
+    // PRODUCTION MODE: only MMA for novel issues
+    // Check if billing is active (revenue justifies the cost)
+    if event.pod_state.billing_active {
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_key = %problem_key,
+            "Q3 PRODUCTION: billing active — revenue justifies MMA"
+        );
+        return MmaDecision::InvokeMma;
+    }
+
+    // Check if this is truly novel (never seen this problem_key at all)
+    match kb.solution_count() {
+        Ok(count) if count == 0 => {
+            // Empty KB — everything is novel
+            return MmaDecision::InvokeMma;
+        }
+        _ => {}
+    }
+
+    // Not billing, not training, KB exists but no match — skip MMA, use deterministic only
+    MmaDecision::SkipMma {
+        reason: format!("Production mode: no billing active, KB miss for '{}'", problem_key),
+    }
+}
+
+/// Run the MMA-First Protocol for a single DiagnosticEvent.
+///
+/// v31.0 PROTOCOL ORDER:
+///   1. Tier 1 deterministic (always runs — free, instant)
+///   2. Q1-Q4 decision gate (KB lookup, fleet dedup, training/production gate)
+///   3. If MMA: full 5-model parallel diagnosis
+///   4. If Q1 workaround: apply + spawn Q4 background permanent fix search
+///   5. Tier 5 human escalation (if all else fails)
 async fn run_tiers(
     event: &DiagnosticEvent,
     circuit_breaker: &mut CircuitBreaker,
     budget: &Arc<RwLock<BudgetTracker>>,
 ) -> TierResult {
     // ── Short-circuit: Periodic events with no anomaly don't need model diagnosis ──
-    // The diagnostic_engine always emits Periodic. If that's the ONLY trigger type
-    // (no WsDisconnect, ProcessCrash, etc.), Tier 1 deterministic is sufficient.
-    // This prevents burning ~$0.05/call every 5 min on "everything is fine" responses.
     let is_periodic_only = matches!(event.trigger, DiagnosticTrigger::Periodic);
 
-    // ── Tier 1: Deterministic fixes (always runs) ──
+    // ── Tier 1: Deterministic fixes (always runs — free, instant) ──
     let t1 = tier1_deterministic(event).await;
     if matches!(t1, TierResult::Fixed { .. }) {
-        return t1;
+        // In training mode, even Tier 1 fixes still fall through to MMA
+        // for root cause analysis — but only if they're NOT periodic
+        let mma_config = crate::config::load_config()
+            .map(|c| c.mma)
+            .unwrap_or_default();
+        if !mma_config.is_training_active() || is_periodic_only {
+            return t1;
+        }
+        // Training mode: Tier 1 fixed it, but we still want MMA to analyze WHY
+        // so the KB captures the permanent fix, not just the band-aid
+        tracing::info!(
+            target: LOG_TARGET,
+            trigger = ?event.trigger,
+            "Training mode: Tier 1 fix applied, but continuing to MMA for root cause analysis"
+        );
     }
 
-    // Periodic-only events: Tier 1 handled cleanup (MAINTENANCE_MODE, orphans, SSH keys).
-    // No need to escalate to model tiers — return early.
+    // Periodic-only events: cleanup only, no model tiers needed
     if is_periodic_only {
         tracing::debug!(target: LOG_TARGET, "Periodic scan complete — no anomaly, skipping model tiers");
         return TierResult::NotApplicable { tier: 1 };
     }
 
-    // ── Tier 2: Knowledge Base lookup ──
-    let t2 = tier2_kb_lookup(event);
-    if matches!(t2, TierResult::Fixed { .. }) {
-        return t2;
+    // ── Q1-Q4: MMA-First Protocol decision gate ──
+    let decision = mma_decision(event);
+
+    match decision {
+        MmaDecision::ApplyPermanentFix { solution } => {
+            // Q1 hit: permanent fix — apply and done
+            if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                let _ = kb.record_outcome(&solution.id, true);
+                let _ = kb.increment_recurrence(&solution.id);
+            }
+            return TierResult::Fixed {
+                tier: 2,
+                action: format!("Q1 permanent fix ({:.0}%): {}", solution.confidence * 100.0, solution.fix_action),
+            };
+        }
+
+        MmaDecision::ApplyWorkaroundThenQ4 { solution } => {
+            // Q1 hit: workaround — apply immediately
+            if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                let _ = kb.record_outcome(&solution.id, true);
+                let _ = kb.increment_recurrence(&solution.id);
+
+                // Q4: Should we search for a permanent fix in the background?
+                if kb.should_trigger_q4(&solution) {
+                    let sol_id = solution.id.clone();
+                    let problem_key = solution.problem_key.clone();
+                    let fix_action = solution.fix_action.clone();
+                    let recurrence = solution.recurrence_count;
+                    let budget_clone = budget.clone();
+
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        problem_key = %problem_key,
+                        recurrence = recurrence,
+                        "Q4: spawning background permanent fix search (workaround applied {} times)",
+                        recurrence
+                    );
+
+                    // Fire-and-forget: customer already unblocked by workaround
+                    tokio::spawn(async move {
+                        run_q4_permanent_fix_search(
+                            &sol_id, &problem_key, &fix_action, recurrence,
+                            &budget_clone,
+                        ).await;
+                    });
+                }
+            }
+
+            return TierResult::Fixed {
+                tier: 2,
+                action: format!(
+                    "Q1 workaround (recurrence #{}): {}",
+                    solution.recurrence_count + 1,
+                    solution.fix_action
+                ),
+            };
+        }
+
+        MmaDecision::WaitForFleet { experiment_node } => {
+            // Q2: another pod is diagnosing — wait up to 120s, then recheck KB
+            tracing::info!(
+                target: LOG_TARGET,
+                node = %experiment_node,
+                "Q2: waiting 120s for fleet experiment result from {}",
+                experiment_node
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+
+            // Recheck KB after waiting
+            let recheck = mma_decision(event);
+            match recheck {
+                MmaDecision::ApplyPermanentFix { solution } | MmaDecision::ApplyWorkaroundThenQ4 { solution } => {
+                    if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                        let _ = kb.record_outcome(&solution.id, true);
+                    }
+                    return TierResult::Fixed {
+                        tier: 2,
+                        action: format!("Q2 fleet result: {}", solution.fix_action),
+                    };
+                }
+                _ => {
+                    // Fleet didn't produce a result in time — fall through to MMA
+                    tracing::info!(target: LOG_TARGET, "Q2: fleet experiment timed out — invoking MMA");
+                }
+            }
+        }
+
+        MmaDecision::InvokeMma => {
+            // Q3: proceed to MMA diagnosis below
+        }
+
+        MmaDecision::SkipMma { reason } => {
+            tracing::debug!(target: LOG_TARGET, reason = %reason, "Q3: skipping MMA");
+            return TierResult::NotApplicable { tier: 3 };
+        }
     }
 
-    // ── Staggered startup: delay first model call by pod_number × 2s ──
-    // Prevents thundering herd when all 8 pods restart simultaneously.
-    // Uses a one-shot static flag so only the very first call is delayed.
+    // ── Unified MMA Protocol: 4-Step Convergence Engine (v31.0) ──
+
+    // Staggered startup: delay first model call by pod_number × 2s
     {
         use std::sync::atomic::{AtomicBool, Ordering};
         static STARTUP_DELAYED: AtomicBool = AtomicBool::new(false);
@@ -516,65 +798,272 @@ async fn run_tiers(
                 tracing::info!(
                     target: LOG_TARGET,
                     pod = cfg.pod.number, delay_ms,
-                    "Staggered startup: delaying first model call"
+                    "Staggered startup: delaying first MMA call"
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
         }
     }
 
-    // ── Tier 3: Single Model (Qwen3) — only for real anomalies ──
     // C1: Check circuit breaker before model calls
     if circuit_breaker.is_open() {
-        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping model tiers");
-    } else {
-        // C3: Budget pre-check
-        {
-            let mut bt = budget.write().await;
-            if !bt.can_spend(TIER3_ESTIMATED_COST) {
-                tracing::info!(target: LOG_TARGET, tier = 3u8, "Budget ceiling — skipping model tiers");
-            } else {
-                drop(bt); // release lock before async call
-                let t3 = tier3_single_model(event).await;
-                match &t3 {
-                    TierResult::Fixed { .. } => {
-                        circuit_breaker.record_success();
-                        let mut bt = budget.write().await;
-                        bt.record_spend(TIER3_ESTIMATED_COST);
-                        return t3;
-                    }
-                    TierResult::FailedToFix { .. } => {
-                        circuit_breaker.record_failure();
-                    }
-                    _ => {}
-                }
-
-                // ── Tier 4: 4-Model Parallel — escalate if single model failed ──
-                {
-                    let mut bt = budget.write().await;
-                    if bt.can_spend(TIER4_ESTIMATED_COST) {
-                        drop(bt);
-                        let t4 = tier4_multi_model(event).await;
-                        match &t4 {
-                            TierResult::Fixed { .. } => {
-                                circuit_breaker.record_success();
-                                let mut bt = budget.write().await;
-                                bt.record_spend(TIER4_ESTIMATED_COST);
-                                return t4;
-                            }
-                            TierResult::FailedToFix { .. } => {
-                                circuit_breaker.record_failure();
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
+        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping MMA");
+        return tier5_human_escalation(event);
     }
 
-    // ── Tier 5: Human escalation ──
-    tier5_human_escalation(event)
+    // Run the full 4-step Unified MMA Protocol
+    tracing::info!(
+        target: LOG_TARGET,
+        trigger = ?event.trigger,
+        "Q3 authorized: launching Unified MMA Protocol (4-step convergence engine)"
+    );
+
+    let protocol_result = crate::mma_engine::run_protocol(event, budget).await;
+
+    match protocol_result {
+        crate::mma_engine::MmaProtocolResult::Success { consensus, total_cost, backtracks } => {
+            circuit_breaker.record_success();
+            tracing::info!(
+                target: LOG_TARGET,
+                findings = consensus.majority_findings.len(),
+                plans = consensus.fix_plans.len(),
+                executions = consensus.executions.len(),
+                cost = total_cost,
+                backtracks,
+                "Unified MMA Protocol SUCCEEDED — {} findings, {} plans, {} executions (${:.2}, {} backtracks)",
+                consensus.majority_findings.len(),
+                consensus.fix_plans.len(),
+                consensus.executions.len(),
+                total_cost,
+                backtracks
+            );
+
+            // Store in KB with full provenance
+            if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                let problem_key = crate::knowledge_base::normalize_problem_key(&event.trigger);
+                let env_fp = crate::knowledge_base::fingerprint_env(event.build_id);
+                let stable_hash = crate::knowledge_base::compute_stable_hash(&problem_key, &env_fp);
+
+                let root_cause = consensus.majority_findings.first()
+                    .map(|f| f.description.clone())
+                    .unwrap_or_else(|| "MMA protocol found no specific root cause".to_string());
+                let fix_action = consensus.executions.first()
+                    .map(|e| e.implementation.clone())
+                    .unwrap_or_else(|| consensus.fix_plans.first()
+                        .map(|p| p.actions.join("; "))
+                        .unwrap_or_default());
+                let fix_type = consensus.fix_plans.first()
+                    .map(|p| p.fix_type.clone())
+                    .unwrap_or_else(|| "deterministic".to_string());
+
+                let solution = crate::knowledge_base::Solution {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    problem_key: problem_key.clone(),
+                    problem_hash: stable_hash,
+                    symptoms: serde_json::to_string(&consensus).unwrap_or_default(),
+                    environment: serde_json::to_string(&env_fp).unwrap_or_default(),
+                    root_cause: root_cause.clone(),
+                    fix_action: fix_action.clone(),
+                    fix_type: format!("mma_protocol_{}", fix_type),
+                    success_count: 1,
+                    fail_count: 0,
+                    confidence: consensus.majority_findings.first()
+                        .map(|f| f.confidence).unwrap_or(0.8),
+                    cost_to_diagnose: total_cost,
+                    models_used: serde_json::to_string(&consensus.models_used).ok(),
+                    source_node: format!("pod_{}", event.build_id),
+                    created_at: event.timestamp.clone(),
+                    updated_at: event.timestamp.clone(),
+                    version: 1,
+                    ttl_days: 365,
+                    tags: Some(format!("[\"mma_protocol\",\"{}\"]", problem_key)),
+                    diagnosis_method: Some("unified_mma_4step".to_string()),
+                    fix_permanence: "permanent".to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
+                };
+                let _ = kb.store_solution(&solution);
+            }
+
+            return TierResult::Fixed {
+                tier: 4,
+                action: format!(
+                    "MMA Protocol (${:.2}, {} backtracks): {}",
+                    total_cost, backtracks,
+                    consensus.majority_findings.first()
+                        .map(|f| f.description.as_str())
+                        .unwrap_or("resolved")
+                ),
+            };
+        }
+
+        crate::mma_engine::MmaProtocolResult::BudgetExhausted { step, spent } => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                step, spent,
+                "MMA Protocol: budget exhausted at step {} (${:.2} spent)",
+                step, spent
+            );
+            return tier5_human_escalation(event);
+        }
+
+        crate::mma_engine::MmaProtocolResult::HumanEscalation { backtracks, last_failure, total_cost } => {
+            circuit_breaker.record_failure();
+            tracing::warn!(
+                target: LOG_TARGET,
+                backtracks,
+                cost = total_cost,
+                failure = %last_failure,
+                "MMA Protocol: max backtracks ({}) — human escalation",
+                backtracks
+            );
+            return TierResult::FailedToFix {
+                tier: 4,
+                reason: format!(
+                    "MMA Protocol exhausted {} backtracks (${:.2}): {}",
+                    backtracks, total_cost, last_failure
+                ),
+            };
+        }
+
+        crate::mma_engine::MmaProtocolResult::ApiUnavailable { reason } => {
+            tracing::warn!(target: LOG_TARGET, reason = %reason, "MMA Protocol: API unavailable");
+            return tier5_human_escalation(event);
+        }
+    }
+}
+
+// ─── Q4: Background Permanent Fix Search (v31.0) ────────────────────────────
+// Runs async after Q1 applies a workaround. Customer already unblocked.
+// Goal: find WHY the workaround works and what prevents recurrence.
+
+async fn run_q4_permanent_fix_search(
+    workaround_id: &str,
+    problem_key: &str,
+    workaround_action: &str,
+    recurrence_count: i64,
+    budget: &Arc<RwLock<BudgetTracker>>,
+) {
+    use crate::openrouter;
+    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+
+    // Mark that we're attempting a permanent fix search (cooldown)
+    if let Ok(kb) = KnowledgeBase::open(KB_PATH) {
+        let _ = kb.mark_permanent_attempt(workaround_id);
+    }
+
+    // Budget check — Q4 uses full 5-model MMA ($4.30)
+    {
+        let mut bt = budget.write().await;
+        if !bt.can_spend(TIER4_ESTIMATED_COST) {
+            tracing::info!(
+                target: LOG_TARGET,
+                problem_key = %problem_key,
+                "Q4: budget ceiling — deferring permanent fix search"
+            );
+            return;
+        }
+        bt.record_spend(TIER4_ESTIMATED_COST);
+    }
+
+    let api_key = match openrouter::get_api_key() {
+        Some(k) => k,
+        None => {
+            tracing::debug!(target: LOG_TARGET, "Q4: OPENROUTER_KEY not set — skipping");
+            return;
+        }
+    };
+
+    // Q4-specific prompt: ask WHY the workaround works and find permanent fix
+    let q4_symptoms = format!(
+        "CONTEXT: This is a Q4 permanent fix search.\n\
+         Problem: {}\n\
+         Workaround applied {} times: \"{}\"\n\
+         The workaround works every time, but the issue keeps recurring.\n\n\
+         TASK:\n\
+         1. WHY does \"{}\" fix it? What state was corrupted?\n\
+         2. WHAT causes that corruption in the first place?\n\
+         3. HOW to prevent the corruption from occurring?\n\
+         4. Provide a PERMANENT FIX that eliminates recurrence.\n\n\
+         CRITICAL: \"Restart\" or \"kill process\" is NOT a permanent fix.\n\
+         Explain the root cause mechanism and how to prevent it.",
+        problem_key, recurrence_count, workaround_action, workaround_action
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let responses = openrouter::tier4_diagnose_parallel(&client, &api_key, &q4_symptoms).await;
+    let total_cost = openrouter::total_cost(&responses);
+
+    if let Some(consensus) = openrouter::find_consensus(&responses) {
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_key = %problem_key,
+            root_cause = %consensus.root_cause,
+            confidence = consensus.confidence,
+            cost = total_cost,
+            "Q4: permanent fix found — linking to workaround"
+        );
+
+        // Store the permanent fix as a new solution
+        if let Ok(kb) = KnowledgeBase::open(KB_PATH) {
+            let env_fp = knowledge_base::fingerprint_env(crate::BUILD_ID);
+            let stable_hash = knowledge_base::compute_stable_hash(problem_key, &env_fp);
+            let perm_id = uuid::Uuid::new_v4().to_string();
+            let models_used: Vec<String> = responses.iter().map(|r| r.model_id.clone()).collect();
+
+            let permanent_solution = knowledge_base::Solution {
+                id: perm_id.clone(),
+                problem_key: problem_key.to_string(),
+                problem_hash: stable_hash,
+                symptoms: q4_symptoms.clone(),
+                environment: serde_json::to_string(&env_fp).unwrap_or_default(),
+                root_cause: consensus.root_cause.clone(),
+                fix_action: consensus.fix_action.clone(),
+                fix_type: "model_diagnosed".to_string(),
+                success_count: 0,
+                fail_count: 0,
+                confidence: consensus.confidence,
+                cost_to_diagnose: total_cost,
+                models_used: serde_json::to_string(&models_used).ok(),
+                source_node: format!("q4_permanent_{}", crate::BUILD_ID),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                version: 1,
+                ttl_days: 365,
+                tags: Some(format!("[\"q4_permanent\",\"{}\"]", problem_key)),
+                diagnosis_method: Some("q4_permanent_fix_search".to_string()),
+                fix_permanence: "permanent".to_string(),
+                recurrence_count: 0,
+                permanent_fix_id: None,
+                last_recurrence: None,
+                permanent_attempt_at: None,
+            };
+
+            if kb.store_solution(&permanent_solution).is_ok() {
+                // Link the workaround to the permanent fix
+                let _ = kb.link_permanent_fix(workaround_id, &perm_id);
+                tracing::info!(
+                    target: LOG_TARGET,
+                    workaround = %workaround_id,
+                    permanent = %perm_id,
+                    "Q4: workaround linked to permanent fix — future Q1 lookups will return permanent solution"
+                );
+            }
+        }
+    } else {
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_key = %problem_key,
+            cost = total_cost,
+            "Q4: no consensus for permanent fix — will retry in 7 days"
+        );
+    }
 }
 
 // ─── Tier 1: Deterministic (DIAG-02) ────────────────────────────────────────
@@ -798,6 +1287,13 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
         DiagnosticTrigger::PosNetworkDown { .. }
         | DiagnosticTrigger::PosBillingApiError { .. } => {
             tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing issue — no Tier 1 fix, escalating");
+        }
+        // MMA-First Protocol triggers — no deterministic fix, escalate to MMA
+        DiagnosticTrigger::GameMidSessionCrash { .. }
+        | DiagnosticTrigger::PostSessionAnalysis { .. }
+        | DiagnosticTrigger::PreShiftAudit
+        | DiagnosticTrigger::DeployVerification { .. } => {
+            tracing::info!(target: LOG_TARGET, trigger = ?trigger, "MMA-First trigger — no Tier 1 deterministic fix, escalating to MMA");
         }
     }
 
@@ -1093,11 +1589,15 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
 
     let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
     let env_fp = knowledge_base::fingerprint_env(event.build_id);
-    let symptoms = openrouter::format_symptoms(
+    let base_symptoms = openrouter::format_symptoms(
         &format!("{:?}", event.trigger),
         &problem_key,
         &serde_json::to_string(&env_fp).unwrap_or_default(),
         &format!("build_id={}", event.build_id),
+    );
+    // MMA-First: enrich with trigger-specific context bundle
+    let symptoms = openrouter::enrich_with_context_bundle(
+        &base_symptoms, &event.trigger, &event.pod_state,
     );
 
     // Reuse a single client (T5 concern — avoid per-call client creation)
@@ -1115,6 +1615,8 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                 root_cause = %diag.root_cause, confidence = diag.confidence,
                 cost = response.cost_estimate, "Tier 3: Qwen3 diagnosis"
             );
+            // MMA-First: classify fix permanence based on model response
+            let permanence = if diag.permanent_fix.is_some() { "permanent" } else { "workaround" };
             if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
                 let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
                 let solution = knowledge_base::Solution {
@@ -1136,6 +1638,11 @@ async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
                     version: 1, ttl_days: 90,
                     tags: Some(format!("[\"{}\"]", problem_key)),
                     diagnosis_method: Some("scanner_enumeration".to_string()),
+                    fix_permanence: permanence.to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
                 };
                 let _ = kb.store_solution(&solution);
             }
@@ -1166,11 +1673,15 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
 
     let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
     let env_fp = knowledge_base::fingerprint_env(event.build_id);
-    let symptoms = openrouter::format_symptoms(
+    let base_symptoms = openrouter::format_symptoms(
         &format!("{:?}", event.trigger),
         &problem_key,
         &serde_json::to_string(&env_fp).unwrap_or_default(),
         &format!("build_id={}", event.build_id),
+    );
+    // MMA-First: enrich with trigger-specific context bundle
+    let symptoms = openrouter::enrich_with_context_bundle(
+        &base_symptoms, &event.trigger, &event.pod_state,
     );
 
     tracing::info!(target: LOG_TARGET, tier = 4u8, "Tier 4: 5-model parallel (~$4)");
@@ -1190,34 +1701,68 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
                 root_cause = %consensus.root_cause, confidence = consensus.confidence,
                 cost = total_cost, "Tier 4: consensus found"
             );
+            // MMA-First: classify fix permanence and type from consensus
+            let permanence = if consensus.permanent_fix.is_some() { "permanent" } else { "workaround" };
+            let fix_type_class = consensus.fix_type_class.as_deref().unwrap_or("deterministic");
+
+            // MMA-First: route by fix_type_class
+            let requires_human = matches!(fix_type_class, "code_change" | "hardware");
+            if requires_human {
+                tracing::info!(
+                    target: LOG_TARGET, tier = 4u8,
+                    fix_type = fix_type_class,
+                    "MMA-First: fix requires human intervention — storing but NOT auto-applying"
+                );
+            }
+
             if let Ok(kb) = knowledge_base::KnowledgeBase::open(knowledge_base::KB_PATH) {
                 let problem_hash = knowledge_base::compute_problem_hash(&problem_key, &env_fp);
+                // MMA-First: use stable hash for permanent fixes (survive deploys)
+                let store_hash = if permanence == "permanent" {
+                    knowledge_base::compute_stable_hash(&problem_key, &env_fp)
+                } else {
+                    problem_hash
+                };
                 let models_used: Vec<String> = responses.iter().map(|r| r.model_id.clone()).collect();
                 let solution = knowledge_base::Solution {
                     id: uuid::Uuid::new_v4().to_string(),
                     problem_key: problem_key.clone(),
-                    problem_hash,
+                    problem_hash: store_hash,
                     symptoms: symptoms.clone(),
                     environment: serde_json::to_string(&env_fp).unwrap_or_default(),
                     root_cause: consensus.root_cause.clone(),
-                    fix_action: consensus.fix_action.clone(),
-                    fix_type: "model_diagnosed".to_string(),
-                    success_count: 1, fail_count: 0,
+                    fix_action: if let Some(ref pf) = consensus.permanent_fix {
+                        pf.clone()
+                    } else {
+                        consensus.fix_action.clone()
+                    },
+                    fix_type: format!("model_diagnosed_{}", fix_type_class),
+                    success_count: if requires_human { 0 } else { 1 },
+                    fail_count: 0,
                     confidence: consensus.confidence,
                     cost_to_diagnose: total_cost,
                     models_used: serde_json::to_string(&models_used).ok(),
                     source_node: format!("pod_{}", event.build_id),
                     created_at: event.timestamp.clone(),
                     updated_at: event.timestamp.clone(),
-                    version: 1, ttl_days: 90,
-                    tags: Some(format!("[\"{}\"]", problem_key)),
+                    version: 1, ttl_days: if permanence == "permanent" { 365 } else { 90 },
+                    tags: Some(format!("[\"{}\",\"{}\"]", problem_key, fix_type_class)),
                     diagnosis_method: Some("consensus_5model".to_string()),
+                    fix_permanence: permanence.to_string(),
+                    recurrence_count: 0,
+                    permanent_fix_id: None,
+                    last_recurrence: None,
+                    permanent_attempt_at: None,
                 };
                 let _ = kb.store_solution(&solution);
             }
             return TierResult::Fixed {
                 tier: 4,
-                action: format!("5-model (${:.2}): {}", total_cost, consensus.root_cause),
+                action: format!(
+                    "5-model {} (${:.2}): {}{}",
+                    permanence, total_cost, consensus.root_cause,
+                    if requires_human { " [REQUIRES HUMAN]" } else { "" }
+                ),
             };
         }
     }

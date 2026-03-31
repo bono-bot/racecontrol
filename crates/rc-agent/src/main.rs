@@ -37,6 +37,7 @@ mod process_guard;
 mod self_monitor;
 mod sentinel_watcher;
 mod self_test;
+mod mma_engine;
 mod tier_engine;
 mod sims;
 mod startup_log;

@@ -193,13 +193,26 @@ pub const MODELS: [ModelConfig; 5] = [
     },
 ];
 
-/// Structured response from an OpenRouter model diagnosis
+/// Structured response from an OpenRouter model diagnosis.
+/// MMA-First Protocol (v31.0) adds permanent_fix, verification, and fix_type.
+/// These are optional for backward compatibility with Tier 3 single-model calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagnosisResult {
     pub root_cause: String,
     pub confidence: f64,
     pub fix_action: String,
     pub risk_level: String,
+    /// MMA-First: What prevents this issue from recurring (permanent solution).
+    /// "restart" is never acceptable here — must be a root cause fix.
+    #[serde(default)]
+    pub permanent_fix: Option<String>,
+    /// MMA-First: How to verify the fix worked.
+    #[serde(default)]
+    pub verification: Option<String>,
+    /// MMA-First: Classification for routing — "deterministic", "config", "code_change", "hardware".
+    /// Determines auto-apply vs escalate to human.
+    #[serde(default)]
+    pub fix_type_class: Option<String>,
 }
 
 /// Response from a single model call
@@ -655,9 +668,115 @@ pub fn format_symptoms(
          Pod State: {}\n\n\
          Analyze this event using your specialized methodology. \
          Consider: sentinel files, process state, session context, recovery cascade, resource exhaustion. \
-         What is the root cause and what is the safest fix action?",
+         What is the root cause and what is the safest fix action?\n\n\
+         --- MMA-FIRST PROTOCOL (v31.0) ---\n\
+         CRITICAL: You MUST provide ALL of these in your JSON response:\n\
+         1. root_cause — the ACTUAL cause, not symptoms, not \"restart fixed it\"\n\
+         2. fix_action — what to do NOW (may be a workaround)\n\
+         3. permanent_fix — what PREVENTS recurrence. \"Restart\" is NOT acceptable.\n\
+            If restarting fixes it, explain WHY restarting fixes it and what config/code change prevents it.\n\
+         4. verification — how to CONFIRM the fix worked\n\
+         5. fix_type_class — one of: \"deterministic\" (auto-apply), \"config\" (auto-apply), \
+            \"code_change\" (escalate to James), \"hardware\" (alert staff)\n\
+         6. confidence — your confidence 0.0-1.0\n\
+         7. risk_level — \"safe\" or \"caution\" or \"dangerous\"\n\n\
+         Output ONLY valid JSON with these fields.",
         FLEET_CONTEXT, trigger, problem_key, environment, pod_state_summary
     )
+}
+
+/// Enrich symptom string with trigger-specific context bundle.
+/// Called before MMA diagnosis to provide models with rich, structured data
+/// instead of the generic `{:?}` trigger dump.
+pub fn enrich_with_context_bundle(
+    base_symptoms: &str,
+    trigger: &crate::diagnostic_engine::DiagnosticTrigger,
+    pod_state: &crate::failure_monitor::FailureMonitorState,
+) -> String {
+    use crate::diagnostic_engine::DiagnosticTrigger;
+
+    let context = match trigger {
+        DiagnosticTrigger::GameMidSessionCrash { exit_code, session_duration_secs } => {
+            format!(
+                "--- CONTEXT BUNDLE: GAME MID-SESSION CRASH ---\n\
+                 Exit code: {:?}\n\
+                 Session duration at crash: {}s\n\
+                 Billing was active: {}\n\
+                 This is revenue-critical — customer was in the middle of a paid session.",
+                exit_code, session_duration_secs, pod_state.billing_active
+            )
+        }
+        DiagnosticTrigger::PostSessionAnalysis { session_quality_pct } => {
+            format!(
+                "--- CONTEXT BUNDLE: POST-SESSION ANALYSIS ---\n\
+                 Session quality score: {}%\n\
+                 This is a lightweight analysis — only escalate if quality < 70%.",
+                session_quality_pct
+            )
+        }
+        DiagnosticTrigger::PreShiftAudit => {
+            "--- CONTEXT BUNDLE: PRE-SHIFT AUDIT ---\n\
+             This is a comprehensive morning health check before venue opens.\n\
+             Check ALL systems: GPU temp, disk space, network, process state, config freshness.\n\
+             Identify any drift from baseline healthy state."
+                .to_string()
+        }
+        DiagnosticTrigger::DeployVerification { new_build_id } => {
+            format!(
+                "--- CONTEXT BUNDLE: DEPLOY VERIFICATION ---\n\
+                 New build_id: {}\n\
+                 Verify: binary running, health endpoint correct build_id, \
+                 no new crashes in first 60s, all endpoints responding.",
+                new_build_id
+            )
+        }
+        DiagnosticTrigger::GameLaunchFail => {
+            "--- CONTEXT BUNDLE: GAME LAUNCH FAILURE ---\n\
+             Check: orphan game processes, race.ini corruption, Content Manager state, \
+             disk space, Steam client, serde field mismatch (ai_difficulty vs ai_level), \
+             car/track not installed, process guard blocking game exe."
+                .to_string()
+        }
+        DiagnosticTrigger::ProcessCrash { process_name } => {
+            format!(
+                "--- CONTEXT BUNDLE: PROCESS CRASH ---\n\
+                 Crashed process: {}\n\
+                 Check: WerFault dumps, parent PID, crash frequency in last hour, \
+                 memory pressure, handle count, DLL dependency.",
+                process_name
+            )
+        }
+        DiagnosticTrigger::DisplayMismatch { expected_edge_count, actual_edge_count } => {
+            format!(
+                "--- CONTEXT BUNDLE: DISPLAY/BLANKING ISSUE ---\n\
+                 Expected Edge processes: {}, Actual: {}\n\
+                 Check: lock screen state, NVIDIA Surround, resolution, \
+                 Session 0 vs Session 1 (edge_process_count=0 in Session 0).",
+                expected_edge_count, actual_edge_count
+            )
+        }
+        DiagnosticTrigger::WsDisconnect { disconnected_secs } => {
+            format!(
+                "--- CONTEXT BUNDLE: WEBSOCKET DISCONNECT ---\n\
+                 Disconnected for: {}s\n\
+                 Check: server reachability (ping + HTTP), network adapter state, \
+                 reconnect backoff status, concurrent reconnection storms.",
+                disconnected_secs
+            )
+        }
+        DiagnosticTrigger::HealthCheckFail => {
+            "--- CONTEXT BUNDLE: HEALTH CHECK FAILURE ---\n\
+             Check: port binding (netstat), CPU/memory usage, \
+             disk I/O, process running but not responding (hung)."
+                .to_string()
+        }
+        _ => {
+            // Generic context for other triggers
+            format!("--- CONTEXT BUNDLE ---\nTrigger: {:?}", trigger)
+        }
+    };
+
+    format!("{}\n\n{}", base_symptoms, context)
 }
 
 /// Extract a DiagnosisResult JSON from model response text.
@@ -756,6 +875,9 @@ mod tests {
                 confidence: 0.85,
                 fix_action: "delete file".to_string(),
                 risk_level: "safe".to_string(),
+                permanent_fix: None,
+                verification: None,
+                fix_type_class: None,
             }),
             raw_text: String::new(),
             cost_estimate: 0.05,
@@ -775,6 +897,9 @@ mod tests {
                 confidence: 0.3,
                 fix_action: "unknown".to_string(),
                 risk_level: "caution".to_string(),
+                permanent_fix: None,
+                verification: None,
+                fix_type_class: None,
             }),
             raw_text: String::new(),
             cost_estimate: 0.05,
@@ -821,6 +946,9 @@ mod tests {
                     confidence: 0.8,
                     fix_action: "delete sentinel".to_string(),
                     risk_level: "safe".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 0.05,
@@ -834,6 +962,9 @@ mod tests {
                     confidence: 0.9,
                     fix_action: "clear MAINTENANCE_MODE".to_string(),
                     risk_level: "safe".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 0.43,
@@ -847,6 +978,9 @@ mod tests {
                     confidence: 0.6,
                     fix_action: "restart network stack".to_string(),
                     risk_level: "caution".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 0.16,
@@ -872,6 +1006,9 @@ mod tests {
                     confidence: 0.75,
                     fix_action: "clean logs".to_string(),
                     risk_level: "safe".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 0.05,
@@ -885,6 +1022,9 @@ mod tests {
                     confidence: 0.65,
                     fix_action: "reset backoff".to_string(),
                     risk_level: "safe".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 0.43,
@@ -898,6 +1038,9 @@ mod tests {
                     confidence: 0.55,
                     fix_action: "fix config".to_string(),
                     risk_level: "safe".to_string(),
+                    permanent_fix: None,
+                    verification: None,
+                    fix_type_class: None,
                 }),
                 raw_text: String::new(),
                 cost_estimate: 1.65,

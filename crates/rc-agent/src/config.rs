@@ -49,9 +49,107 @@ pub struct AgentConfig {
     /// AC EVO shared memory telemetry feature flag (HARD-05). Off by default until anti-cheat status confirmed at v1.0.
     #[serde(default)]
     pub ac_evo_telemetry_enabled: bool,
+    /// MMA-First Protocol config (v31.0). Controls training mode, budget caps, and tier ordering.
+    #[serde(default)]
+    pub mma: MmaConfig,
 }
 
 pub(crate) fn default_auto_end_orphan_session_secs() -> u64 { 300 }
+
+// ─── MMA-First Protocol Config (v31.0) ────────────────────────────────────
+
+fn default_daily_budget_pod() -> f64 { 10.0 }
+fn default_daily_budget_server() -> f64 { 20.0 }
+fn default_daily_budget_pos() -> f64 { 5.0 }
+
+/// MMA-First Protocol configuration.
+/// During the 30-day training period, MMA 5-model diagnosis is Tier 1
+/// for all unresolved issues, rapidly populating the fleet KB.
+/// After training_end, the system auto-flips to production mode (KB-first).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MmaConfig {
+    /// When true AND today is within [training_start, training_end], MMA is Tier 1.
+    #[serde(default)]
+    pub training_mode: bool,
+    /// ISO 8601 date when training period began (e.g. "2026-03-30").
+    #[serde(default)]
+    pub training_start: Option<String>,
+    /// ISO 8601 date when training period ends (e.g. "2026-04-29").
+    /// After this date, system auto-flips to production mode regardless of training_mode flag.
+    #[serde(default)]
+    pub training_end: Option<String>,
+    /// Daily budget per pod during training (default $15, production $10).
+    #[serde(default = "default_daily_budget_pod")]
+    pub daily_budget_pod: f64,
+    /// Daily budget for server node during training (default $25, production $20).
+    #[serde(default = "default_daily_budget_server")]
+    pub daily_budget_server: f64,
+    /// Daily budget for POS terminal during training (default $8, production $5).
+    #[serde(default = "default_daily_budget_pos")]
+    pub daily_budget_pos: f64,
+}
+
+impl Default for MmaConfig {
+    fn default() -> Self {
+        Self {
+            training_mode: false,
+            training_start: None,
+            training_end: None,
+            daily_budget_pod: default_daily_budget_pod(),
+            daily_budget_server: default_daily_budget_server(),
+            daily_budget_pos: default_daily_budget_pos(),
+        }
+    }
+}
+
+impl MmaConfig {
+    /// Returns true if the training period is currently active.
+    /// Training is active when: training_mode is true AND today is within [start, end].
+    /// If training_end has passed, returns false regardless of the flag (auto-flip).
+    pub fn is_training_active(&self) -> bool {
+        if !self.training_mode {
+            return false;
+        }
+
+        let today = chrono::Utc::now().date_naive();
+
+        // Check training_end — if past, training is over (auto-flip)
+        if let Some(ref end_str) = self.training_end {
+            if let Ok(end_date) = chrono::NaiveDate::parse_from_str(end_str, "%Y-%m-%d") {
+                if today > end_date {
+                    return false;
+                }
+            }
+        }
+
+        // Check training_start — if not yet reached, training hasn't begun
+        if let Some(ref start_str) = self.training_start {
+            if let Ok(start_date) = chrono::NaiveDate::parse_from_str(start_str, "%Y-%m-%d") {
+                if today < start_date {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Returns the appropriate daily budget based on node type and training status.
+    pub fn daily_budget_for_node(&self, node_type: &crate::config::NodeType) -> f64 {
+        if self.is_training_active() {
+            match node_type {
+                NodeType::Pod => self.daily_budget_pod,
+                NodeType::Pos => self.daily_budget_pos,
+            }
+        } else {
+            // Production defaults
+            match node_type {
+                NodeType::Pod => 10.0,
+                NodeType::Pos => 5.0,
+            }
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct KioskConfig {
@@ -510,6 +608,7 @@ mod tests {
             process_guard: ProcessGuardConfig::default(),
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
             ac_evo_telemetry_enabled: false,
+            mma: MmaConfig::default(),
         }
     }
 

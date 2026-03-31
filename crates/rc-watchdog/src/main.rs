@@ -3,12 +3,17 @@
 //! With --service flag: Windows SYSTEM service monitoring rc-agent on pods.
 //! Without --service flag: James monitor mode (persistent daemon, checks every 2min).
 
+mod binary_validator;
 mod bono_alert;
 mod failure_state;
+mod health_poller;
 mod james_monitor;
+mod mma_diagnosis;
 mod reporter;
+mod rollback_manager;
 mod service;
 mod session;
+mod survival_reporter;
 
 use std::ffi::OsString;
 use tracing_subscriber::prelude::*;

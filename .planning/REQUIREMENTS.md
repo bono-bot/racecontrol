@@ -56,17 +56,40 @@
 - [ ] **EG-09**: GUARDIAN_ACTING coordination — shared state via comms-link WS prevents James and Bono guardians from acting simultaneously
 - [ ] **EG-10**: New rc-guardian crate — standalone binary for Bono VPS (Linux target), deployed via pm2/systemd
 
-## Unified MMA Protocol (MP)
+## Unified MMA Protocol (MP) — 4-Step Convergence Engine
 
-- [ ] **MP-01**: 5-model roster via OpenRouter — Scanner, Reasoner, Code Expert, SRE/Ops, Security with role-based prompts
-- [ ] **MP-02**: Fact-checker role — one model cross-references all findings against standing rules before action
-- [ ] **MP-03**: Dual reasoning mode — non-thinking models (architecture bugs) + thinking model variants (execution-path bugs) in same session
-- [ ] **MP-04**: Cost guard — check remaining daily budget before launching MMA session, abort if insufficient
-- [ ] **MP-05**: Structured finding taxonomy — P0/P1/P2 severity, finding type, affected component, recommended action
-- [ ] **MP-06**: Unified Protocol v3.1 integration — MMA sessions include Quality Gate + E2E + Standing Rules checks
-- [ ] **MP-07**: Training-period model selection flag — tag sessions as training=true during 30-day window, use top-tier models
-- [ ] **MP-08**: Per-pod child API keys via OpenRouter management API — $10/day cap per pod, provisioned at deploy time
-- [ ] **MP-09**: Model validation gate — require >90% agreement benchmark between top-tier and candidate cheap models before switching
+**Spec:** `.planning/specs/UNIFIED-MMA-PROTOCOL.md`
+**Designed via MMA:** 10 models, 2 iterations, consensus-driven (2026-03-31)
+
+### 4-Step Protocol Core
+- [ ] **MP-01**: Step 1 DIAGNOSE — 5 models × N iterations (min 2), consensus on all problems with evidence, assumptions, disproof criteria
+- [ ] **MP-02**: Step 2 PLAN — 5 models × N iterations (min 2), consensus on fix plans with risk analysis, rollback strategy, verification steps
+- [ ] **MP-03**: Step 3 EXECUTE — 5 models × N iterations (min 2), consensus on best solution, apply fix
+- [ ] **MP-04**: Step 4 VERIFY — deterministic checks (P6 Ralph Wiggum) + 1 adversarial model sanity check (P2, different model from Steps 1-3)
+- [ ] **MP-05**: Backtracking — ANY Step 4 failure triggers full backtrack to Step 1 with failure evidence appended. Max 3 backtracks → human escalation
+- [ ] **MP-06**: Different models per backtrack (fresh perspective, P2 adversarial principle)
+
+### Consensus Engine
+- [ ] **MP-07**: 3/5 majority consensus logic — findings with <3/5 agreement rejected or re-iterated
+- [ ] **MP-08**: StepConsensus JSON schema — majority findings, dissenting opinions (capped 2-3), problem IDs, assumptions[], verification_steps[], per-model confidence_scores[]
+- [ ] **MP-09**: Convergence detection — iteration N adds <2 semantically new findings vs N-1 (semantic dedup, not string match)
+- [ ] **MP-10**: Max 4 iterations per step, then human escalation via WhatsApp
+
+### Model Management
+- [ ] **MP-11**: Domain roster mapping — 6 domains (Rust, Frontend, Windows, Network, Security, Hardware) → 10-model pool each with primary/secondary tiers
+- [ ] **MP-12**: Step-level model pools — Step 1 biased toward reasoners, Step 2 toward architects, Step 3 toward coders, Step 4 uses 1 cheap model
+- [ ] **MP-13**: Stratified shuffle — each iteration of 5 MUST include ≥1 reasoner + ≥1 code expert + ≥1 SRE. Remaining 2 randomized from pool
+- [ ] **MP-14**: 10 unique paid models per step, shuffled/randomized between iterations within that step
+
+### Cost & Budget
+- [ ] **MP-15**: Cost guard — budget pre-check before each step, abort if insufficient
+- [ ] **MP-16**: Training mode — Q3 always yes, all issues get full 4-step protocol (2026-03-31 to 2026-04-29)
+- [ ] **MP-17**: Cost-tiered model strategy — expensive models (R1, Gemini Pro) reserved for Steps 1+4, cheap/fast models for Step 3
+
+### Integration
+- [ ] **MP-18**: Q1-Q4 gate integration — full 4-step protocol fires when Q3 authorizes MMA
+- [ ] **MP-19**: Step-specific prompt templates (diagnose/plan/execute — fundamentally different prompts)
+- [ ] **MP-20**: 4-criterion rubric scoring in Step 4 (Root Cause Accuracy 35%, Fix Completeness 25%, Verification Evidence 25%, Side Effect Safety 15%)
 
 ## v31.x Requirements (Deferred)
 
@@ -109,6 +132,17 @@
 | MP-07 | Phase 268 | Pending |
 | MP-08 | Phase 268 | Pending |
 | MP-09 | Phase 268 | Pending |
+| MP-10 | Phase 268 | Pending |
+| MP-11 | Phase 268 | Pending |
+| MP-12 | Phase 268 | Pending |
+| MP-13 | Phase 268 | Pending |
+| MP-14 | Phase 268 | Pending |
+| MP-15 | Phase 268 | Pending |
+| MP-16 | Phase 268 | Pending |
+| MP-17 | Phase 268 | Pending |
+| MP-18 | Phase 268 | Pending |
+| MP-19 | Phase 268 | Pending |
+| MP-20 | Phase 268 | Pending |
 | SW-01 | Phase 269 | Pending |
 | SW-02 | Phase 269 | Pending |
 | SW-03 | Phase 269 | Pending |
@@ -147,10 +181,10 @@
 | EG-10 | Phase 271 | Pending |
 
 **Coverage:**
-- v31.0 requirements: 45 total
-- Mapped to phases: 45
+- v31.0 requirements: 56 total (SF:5 + MP:20 + SW:14 + FH:12 + EG:10)
+- Mapped to phases: 56 (267:5 + 268:20 + 269:14 + 270:12 + 271:10)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-03-30 — traceability populated after roadmap creation*
+*Last updated: 2026-03-31 — MP requirements expanded from 9 to 20 after MMA research (10 models, 2 iterations)*

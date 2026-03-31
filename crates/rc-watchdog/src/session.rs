@@ -1,6 +1,4 @@
-use anyhow;
 use std::path::Path;
-use tracing;
 
 /// Spawn start-rcagent.bat in the active interactive Session 1 from a SYSTEM service context.
 ///

@@ -84,6 +84,20 @@ pub enum DiagnosticTrigger {
     /// Taskbar was found visible when it should be hidden (kiosk mode active).
     /// This indicates explorer.exe restarted and ShowWindow(SW_HIDE) was lost.
     TaskbarVisible,
+
+    // ─── MMA-First Protocol Triggers (v31.0) ──────────────────────────────────
+    /// Game crashed mid-session (process exited while billing was active).
+    /// Rich context: exit code, session duration, game/track/car at time of crash.
+    GameMidSessionCrash { exit_code: Option<i32>, session_duration_secs: u64 },
+    /// Post-session quality analysis — lightweight MMA call after session ends.
+    /// Evaluates session quality (micro-stutters, telemetry gaps, FPS drops).
+    /// Quality score as integer percentage (0-100) to maintain Eq derive.
+    PostSessionAnalysis { session_quality_pct: u8 },
+    /// Pre-shift health audit — comprehensive check before venue opens.
+    /// Runs full MMA diagnosis on each pod's overnight health state.
+    PreShiftAudit,
+    /// Post-deploy verification — validates new binary after OTA deploy.
+    DeployVerification { new_build_id: String },
 }
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.

@@ -46,6 +46,8 @@ pub enum FixType {
     CodeChange,
     /// Requires human intervention.
     Manual,
+    /// Physical hardware intervention needed (replace/clean/reconfigure).
+    Hardware,
 }
 
 // ─── Diagnosis Tier ─────────────────────────────────────────────────────────

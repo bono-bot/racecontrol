@@ -3618,6 +3618,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-guardian"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rc-installer"
 version = "0.1.0"
 
@@ -3695,10 +3712,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "hex",
  "rc-common",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "tokio",
  "toml 0.8.23",
  "tracing",
  "tracing-appender",
