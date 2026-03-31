@@ -3,7 +3,7 @@ cd /d C:\RacingPoint
 set RUST_BACKTRACE=1
 
 rem --- v3.0 MMA-01: Bootstrap env vars (read FIRST, before any config) ---
-set OPENROUTER_KEY=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
+set OPENROUTER_KEY=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
 
 rem --- v3.0: Clear stale sentinels (prevents stuck pods) ---
 del /Q MAINTENANCE_MODE 1>/dev/null 2>/dev/null

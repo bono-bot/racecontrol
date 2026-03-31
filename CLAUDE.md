@@ -348,7 +348,7 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 **How to run (James — OpenRouter):**
 ```bash
 cd ~/racingpoint/racecontrol
-export OPENROUTER_KEY="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"
+export OPENROUTER_KEY="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"
 
 # Codebase audit (7 batches):
 MODEL="deepseek/deepseek-r1-0528" node scripts/multi-model-audit.js &
