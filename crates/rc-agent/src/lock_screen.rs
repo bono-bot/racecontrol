@@ -52,6 +52,124 @@ fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
     (0, 0, 1920, 1080)
 }
 
+/// MMA 5-model consensus (2026-03-31): Clean Edge session restore data from
+/// a dedicated profile directory. Removes SNSS/SNSS.bak files that cause --app
+/// windows to persist across restarts, and clears the "Sessions" folder.
+fn clean_edge_session_data(profile_dir: &str) {
+    let sessions_dir = std::path::Path::new(profile_dir).join("Default").join("Sessions");
+    if sessions_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| {
+                    let e = ext.to_string_lossy().to_lowercase();
+                    e == "snss" || e == "bak"
+                }) || path.file_name().map_or(false, |n| {
+                    let name = n.to_string_lossy().to_lowercase();
+                    name.starts_with("session") || name.starts_with("tabs")
+                }) {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+    // Also clean top-level Session files
+    let default_dir = std::path::Path::new(profile_dir).join("Default");
+    for name in &["Current Session", "Current Tabs", "Last Session", "Last Tabs"] {
+        let p = default_dir.join(name);
+        if p.exists() { let _ = std::fs::remove_file(&p); }
+    }
+
+    // Delete Session Storage/ directory
+    let session_storage = default_dir.join("Session Storage");
+    if session_storage.exists() {
+        let _ = std::fs::remove_dir_all(&session_storage);
+    }
+
+    // Patch Preferences to prevent crash recovery path restoring --app windows.
+    // When Edge is killed via taskkill (not graceful close), exit_type="Crashed"
+    // triggers crash recovery which restores ALL window types including --app.
+    let prefs_path = default_dir.join("Preferences");
+    if prefs_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&prefs_path) {
+            // Handle both compact and spaced JSON variants (Chromium varies formatting)
+            let patched = content
+                .replace("\"exit_type\":\"Crashed\"", "\"exit_type\":\"Normal\"")
+                .replace("\"exit_type\": \"Crashed\"", "\"exit_type\": \"Normal\"")
+                .replace("\"exited_cleanly\":false", "\"exited_cleanly\":true")
+                .replace("\"exited_cleanly\": false", "\"exited_cleanly\": true");
+            let patched = remove_json_key(&patched, "app_window_placement");
+            if patched != content {
+                let _ = std::fs::write(&prefs_path, &patched);
+                tracing::info!(target: LOG_TARGET, "Patched Edge Preferences (exit_type/app_window_placement)");
+            }
+        }
+    }
+}
+
+/// Remove a JSON key and its value using simple string matching.
+/// Used to strip app_window_placement from Edge Preferences.
+fn remove_json_key(json: &str, key: &str) -> String {
+    let pattern = format!("\"{}\":", key);
+    let Some(start) = json.find(&pattern) else {
+        return json.to_string();
+    };
+    // Walk backwards to consume preceding comma/whitespace
+    let mut remove_start = start;
+    while remove_start > 0 {
+        let c = json.as_bytes()[remove_start - 1];
+        if c == b',' || c == b' ' || c == b'\n' || c == b'\r' || c == b'\t' {
+            remove_start -= 1;
+        } else {
+            break;
+        }
+    }
+    // Walk forward past the value
+    let after_colon = start + pattern.len();
+    let rest = &json[after_colon..];
+    let trimmed = rest.trim_start();
+    let value_start = after_colon + (rest.len() - trimmed.len());
+    let remove_end = match trimmed.as_bytes().first() {
+        Some(b'"') => {
+            let mut i = 1;
+            let bytes = trimmed.as_bytes();
+            while i < bytes.len() {
+                if bytes[i] == b'"' && (i == 0 || bytes[i - 1] != b'\\') {
+                    break;
+                }
+                i += 1;
+            }
+            value_start + i + 1
+        }
+        Some(b'{') | Some(b'[') => {
+            let open = trimmed.as_bytes()[0];
+            let close = if open == b'{' { b'}' } else { b']' };
+            let mut depth = 1;
+            let mut i = 1;
+            let bytes = trimmed.as_bytes();
+            while i < bytes.len() && depth > 0 {
+                if bytes[i] == open { depth += 1; }
+                if bytes[i] == close { depth -= 1; }
+                i += 1;
+            }
+            value_start + i
+        }
+        _ => {
+            let end = trimmed.find(|c: char| c == ',' || c == '}' || c == ']')
+                .unwrap_or(trimmed.len());
+            value_start + end
+        }
+    };
+    // Consume trailing comma if present
+    let mut final_end = remove_end;
+    let remaining = &json[final_end..];
+    let remaining_trimmed = remaining.trim_start();
+    if remaining_trimmed.starts_with(',') {
+        final_end = final_end + (remaining.len() - remaining_trimmed.len()) + 1;
+    }
+    format!("{}{}", &json[..remove_start], &json[final_end..])
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// Current lock screen state.
@@ -679,6 +797,17 @@ impl LockScreenManager {
             "msedge.exe",
         ];
 
+        // MMA 5-model consensus + Gemini adversarial review (2026-03-31):
+        // Use dedicated Edge profile under %LOCALAPPDATA% to prevent --app window
+        // session restore. Default profile's SNSS files persist --app windows across
+        // restarts even with --inprivate and --disable-session-crashed-bubble.
+        // %LOCALAPPDATA% avoids C:\ProgramData ACL issues for non-admin pod users.
+        let edge_profile_dir = std::env::var("LOCALAPPDATA")
+            .map(|la| format!(r"{}\RacingPoint\EdgeProfile", la))
+            .unwrap_or_else(|_| r"C:\Users\User\AppData\Local\RacingPoint\EdgeProfile".to_string());
+        clean_edge_session_data(&edge_profile_dir);
+        let user_data_dir_arg = format!("--user-data-dir={}", edge_profile_dir);
+
         // Query virtual screen bounds to cover multi-monitor / surround setups
         // (e.g. triple 2560x1440 = 7680x1440 virtual desktop)
         let (vx, vy, vw, vh) = get_virtual_screen_bounds();
@@ -698,6 +827,7 @@ impl LockScreenManager {
         for edge_path in &edge_paths {
             let mut args: Vec<&str> = vec![
                 &app_url,
+                &user_data_dir_arg,
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-notifications",
@@ -2440,6 +2570,30 @@ mod tests {
         manager.dismiss_countdown_warning();
         let w = manager.countdown_warning.lock().unwrap();
         assert!(w.is_none(), "Dismissing warning must clear the state");
+    }
+
+    #[test]
+    fn test_remove_json_key_string_value() {
+        let json = r#"{"exit_type":"Normal","app_window_placement":"some_data","other":"val"}"#;
+        let result = remove_json_key(json, "app_window_placement");
+        assert!(!result.contains("app_window_placement"));
+        assert!(result.contains("exit_type"));
+        assert!(result.contains("other"));
+    }
+
+    #[test]
+    fn test_remove_json_key_object_value() {
+        let json = r#"{"browser":{"app_window_placement":{"x":0,"y":0},"other":true}}"#;
+        let result = remove_json_key(&json, "app_window_placement");
+        assert!(!result.contains("app_window_placement"));
+        assert!(result.contains("other"));
+    }
+
+    #[test]
+    fn test_remove_json_key_missing() {
+        let json = r#"{"exit_type":"Normal"}"#;
+        let result = remove_json_key(json, "app_window_placement");
+        assert_eq!(result, json);
     }
 }
 

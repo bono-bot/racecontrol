@@ -316,6 +316,11 @@ pub async fn call_model(
     model: &ModelConfig,
     symptoms: &str,
 ) -> ModelResponse {
+    let start_time = std::time::Instant::now();
+
+    // MMA-17: Sanitize prompt input before sending to models
+    let symptoms = sanitize_mma_prompt(symptoms);
+
     let request_body = serde_json::json!({
         "model": model.id,
         "messages": [
@@ -480,6 +485,9 @@ pub async fn call_model(
 
         let diagnosis = extract_diagnosis(&raw_text);
 
+        // MMA-18: Model provenance logging — full traceability per call
+        let prompt_tokens = chat_resp.usage.as_ref().and_then(|u| u.prompt_tokens).unwrap_or(0);
+        let completion_tokens = chat_resp.usage.as_ref().and_then(|u| u.completion_tokens).unwrap_or(0);
         tracing::info!(
             target: LOG_TARGET,
             model = model.id,
@@ -487,7 +495,10 @@ pub async fn call_model(
             has_diagnosis = diagnosis.is_some(),
             cost = cost_estimate,
             retries = attempt,
-            "OpenRouter model responded"
+            prompt_tokens = prompt_tokens,
+            completion_tokens = completion_tokens,
+            latency_ms = start_time.elapsed().as_millis() as u64,
+            "MMA-18 provenance: model responded"
         );
 
         return ModelResponse {
@@ -848,6 +859,90 @@ fn extract_diagnosis(text: &str) -> Option<DiagnosisResult> {
 pub fn total_cost(responses: &[ModelResponse]) -> f64 {
     responses.iter().map(|r| r.cost_estimate).sum()
 }
+
+// ─── MMA-17: Input Sanitization ─────────────────────────────────────────────
+
+/// Sanitize text before including it in MMA prompts (MMA-17).
+/// Removes ANSI escape sequences, redacts API keys/passwords/Bearer tokens,
+/// strips /root/ paths, and truncates to 2000 chars.
+pub fn sanitize_mma_prompt(input: &str) -> String {
+    let mut sanitized = String::with_capacity(input.len());
+
+    // Strip ANSI escape codes: ESC[...m
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            i += 2;
+            while i < bytes.len() && !bytes[i].is_ascii_alphabetic() { i += 1; }
+            if i < bytes.len() { i += 1; }
+        } else {
+            sanitized.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    // Redact sk-/sk_ API keys (20+ chars after prefix)
+    let mut result = String::with_capacity(sanitized.len());
+    let chars: Vec<char> = sanitized.chars().collect();
+    let mut j = 0;
+    while j < chars.len() {
+        if j + 3 < chars.len()
+            && chars[j].to_ascii_lowercase() == 's'
+            && chars[j + 1].to_ascii_lowercase() == 'k'
+            && (chars[j + 2] == '-' || chars[j + 2] == '_')
+        {
+            let start = j;
+            j += 3;
+            let mut token_len = 0;
+            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '-' || chars[j] == '_') {
+                j += 1;
+                token_len += 1;
+            }
+            if token_len >= 20 {
+                result.push_str("[REDACTED_KEY]");
+            } else {
+                for c in &chars[start..j] { result.push(*c); }
+            }
+        } else {
+            result.push(chars[j]);
+            j += 1;
+        }
+    }
+    sanitized = result;
+
+    // Redact "Bearer <token>"
+    let lower = sanitized.to_lowercase();
+    if let Some(pos) = lower.find("bearer ") {
+        let after = pos + 7;
+        let end = sanitized[after..].find(|c: char| c.is_whitespace())
+            .map(|p| after + p).unwrap_or(sanitized.len());
+        if end > after { sanitized.replace_range(after..end, "[REDACTED]"); }
+    }
+
+    // Redact "password=" values
+    let lower = sanitized.to_lowercase();
+    if let Some(pos) = lower.find("password=") {
+        let after = pos + 9;
+        let end = sanitized[after..].find(|c: char| c.is_whitespace())
+            .map(|p| after + p).unwrap_or(sanitized.len());
+        if end > after { sanitized.replace_range(after..end, "[REDACTED]"); }
+    }
+
+    // Redact /root/ paths
+    sanitized = sanitized.replace("/root/", "/[REDACTED_PATH]/");
+
+    // Truncate to 2000 chars
+    if sanitized.len() > 2000 {
+        sanitized.truncate(2000);
+        sanitized.push_str("\n[TRUNCATED]");
+    }
+
+    sanitized
+}
+
+// ─── MMA-17: Input Sanitization ─────────────────────────────────────────────
+// Strip ANSI codes, truncate to 2000 chars, redact secrets before sending to models.
 
 #[cfg(test)]
 mod tests {

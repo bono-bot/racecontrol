@@ -48,3 +48,16 @@ enabled = true
 ollama_url = "http://192.168.1.100:11434"
 ollama_model = "qwen2.5-coder:14b"
 # anthropic_api_key = "sk-ant-..."
+
+# ─── MMA-First Protocol (Unified MMA Protocol v3.0) ──────────────────────────
+# Training mode: MMA 5-model diagnosis is Tier 1 for all unresolved issues.
+# After training_end, auto-flips to production mode (KB-first, MMA only for novel issues).
+# Budget is raised during training to rapidly populate the fleet knowledge base.
+
+[mma]
+training_mode = true
+training_start = "2026-03-31"
+training_end = "2026-04-29"
+daily_budget_pod = 15.0      # Production: $10
+daily_budget_server = 25.0   # Production: $20
+daily_budget_pos = 8.0       # Production: $5

@@ -1024,6 +1024,23 @@ async fn main() -> Result<()> {
     tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe());
     tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge active");
 
+    // ─── MMA-11: Daily Self-Health-Check ────────────────────────────────────────
+    // Runs a synthetic self-test on startup and every 24 hours to verify MMA infrastructure.
+    tokio::spawn(async {
+        tracing::info!(target: "state", task = "mma_self_test", event = "lifecycle", "lifecycle: started");
+        // Initial delay: 90s after boot (let system stabilize)
+        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+        loop {
+            let passed = mma_engine::run_daily_self_test().await;
+            if !passed {
+                tracing::warn!(target: "mma-engine", "MMA-11: daily self-test FAILED — MMA operating in degraded mode");
+            }
+            // Sleep 24 hours until next test
+            tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+        }
+    });
+    tracing::info!(target: LOG_TARGET, "MMA-11 daily self-test scheduled (90s startup delay + 24h interval)");
+
     // ─── Mesh Heartbeat (GAP-10: periodic KB digest for server fleet view) ─────────
     {
         let hb_tx = ws_exec_result_tx.clone();
