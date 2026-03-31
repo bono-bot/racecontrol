@@ -953,15 +953,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/fleet", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
         .route("/cameras", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
         .route("/book", get(|| async { axum::response::Redirect::permanent("/kiosk/book") }))
-        // Health check at root
-        .route("/", get(|| async {
-            axum::Json(serde_json::json!({
-                "name": "RaceControl",
-                "status": "running",
-                "version": env!("CARGO_PKG_VERSION"),
-                "portal": "/portal",
-            }))
-        }))
+        // Root → portal directory page (so 192.168.31.23 shows all links)
+        .route("/", get(|| async { axum::response::Redirect::temporary("/portal") }))
         // Static file serving for cafe item images
         .nest_service("/static/cafe-images", tower_http::services::ServeDir::new("./data/cafe-images"))
         // Reverse proxy: kiosk UI + Next.js assets → localhost:3300
