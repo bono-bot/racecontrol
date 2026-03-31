@@ -1,0 +1,1110 @@
+=== EBITDA CALCULATION ===
+    }
+    Ok(results)
+}
+
+/// Compute EBITDA summary across a date range.
+pub async fn get_ebitda_summary(
+    pool: &SqlitePool,
+    start_date: &str,
+    end_date: &str,
+) -> anyhow::Result<EbitdaSummary> {
+    let metrics = query_business_metrics(pool, start_date, end_date).await?;
+    let days = metrics.len() as u32;
+
+    let mut total_revenue: i64 = 0;
+    let mut total_expenses: i64 = 0;
+    let mut best_day: Option<(String, i64)> = None;
+    let mut worst_day: Option<(String, i64)> = None;
+
+    for m in &metrics {
+        let day_rev = m.revenue_gaming_paise + m.revenue_cafe_paise + m.revenue_other_paise;
+        let day_exp = m.expense_rent_paise
+            + m.expense_utilities_paise
+            + m.expense_salaries_paise
+            + m.expense_maintenance_paise
+            + m.expense_other_paise;
+        let day_ebitda = day_rev - day_exp;
+        total_revenue += day_rev;
+        total_expenses += day_exp;
+
+        let date_str = m.date.format("%Y-%m-%d").to_string();
+        match &best_day {
+            Some((_, best_val)) if day_ebitda <= *best_val => {}
+            _ => best_day = Some((date_str.clone(), day_ebitda)),
+        }
+        match &worst_day {
+            Some((_, worst_val)) if day_ebitda >= *worst_val => {}
+            _ => worst_day = Some((date_str, day_ebitda)),
+        }
+    }
+
+    let ebitda = total_revenue - total_expenses;
+    let avg_daily = if days > 0 { ebitda / days as i64 } else { 0 };
+
+    Ok(EbitdaSummary {
+        total_revenue_paise: total_revenue,
+        total_expenses_paise: total_expenses,
+        ebitda_paise: ebitda,
+        days,
+        avg_daily_ebitda_paise: avg_daily,
+        best_day: best_day.map(|(d, _)| d),
+        worst_day: worst_day.map(|(d, _)| d),
+    })
+}
+
+#[derive(sqlx::FromRow)]
+struct BusinessMetricsRow {
+    date: String,
+    revenue_gaming_paise: i64,
+    revenue_cafe_paise: i64,
+    revenue_other_paise: i64,
+    expense_rent_paise: i64,
+    expense_utilities_paise: i64,
+    expense_salaries_paise: i64,
+    expense_maintenance_paise: i64,
+    expense_other_paise: i64,
+    sessions_count: i64,
+    occupancy_rate_pct: f64,
+    peak_occupancy_pct: f64,
+}
+
+// ===========================================================================
+// Phase 13 (v29.0): HR employee database
+// ===========================================================================
+
+/// Create the employees and attendance tables.
+pub async fn init_hr_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS employees (
+            id TEXT PRIMARY KEY,
+// ---
+=== PAYROLL CALCULATION ===
+//! stored in the main `racecontrol.db` alongside billing/session data.
+
+use crate::maintenance_models::{
+    AttendanceRecord, ComponentType, DailyBusinessMetrics, EbitdaSummary, Employee,
+    EmployeePayroll, MaintenanceEvent, MaintenanceEventType, MaintenanceSummary, MaintenanceTask,
+    PayrollSummary, ResolutionMethod, Severity, StaffRole, TaskStatus,
+};
+use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Table creation
+// ---------------------------------------------------------------------------
+
+/// Create the maintenance tables if they don't already exist.
+pub async fn init_maintenance_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS maintenance_events (
+            id TEXT PRIMARY KEY,
+            pod_id INTEGER,
+            event_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            component TEXT NOT NULL,
+            description TEXT NOT NULL,
+            detected_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution_method TEXT,
+            source TEXT NOT NULL,
+            correlation_id TEXT,
+            revenue_impact_paise INTEGER,
+            customers_affected INTEGER,
+            downtime_minutes INTEGER,
+            cost_estimate_paise INTEGER,
+            assigned_staff_id TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}'
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_maint_events_pod ON maintenance_events(pod_id)",
+    )
+    .execute(pool)
+    .await?;
+--
+// ===========================================================================
+// Phase 17 (v29.0): Payroll & labor cost
+// ===========================================================================
+
+/// Calculate monthly payroll by joining employees and attendance_records.
+pub async fn calculate_monthly_payroll(
+    pool: &SqlitePool,
+    year: i32,
+    month: u32,
+) -> anyhow::Result<PayrollSummary> {
+    let start_date = format!("{:04}-{:02}-01", year, month);
+    // P1: Use exclusive upper bound (first day of next month) to avoid including
+    // entries from the next month when the date field is a string-compared YYYY-MM-DD.
+    // "YYYY-MM-31" would include next-month entries for months with < 31 days
+    // because string comparison: "2024-03-01" > "2024-02-31" (doesn't exist but sorts after Feb).
+    // Using < next_month_start is always correct regardless of days in month.
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1u32)
+    } else {
+        (year, month + 1)
+    };
+    let next_month_start = format!("{:04}-{:02}-01", next_year, next_month);
+
+    let rows = sqlx::query_as::<_, PayrollRow>(
+        "SELECT e.id AS employee_id, e.name, e.hourly_rate_paise,
+                COALESCE(SUM(a.hours_worked), 0) AS total_hours
+         FROM employees e
+         LEFT JOIN attendance_records a
+             ON a.employee_id = e.id
+             AND a.date >= ?1 AND a.date < ?2
+         WHERE e.is_active = 1
+         GROUP BY e.id
+         ORDER BY e.name ASC",
+    )
+    .bind(&start_date)
+    .bind(&next_month_start)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total_hours = 0.0f64;
+    let mut total_paise = 0i64;
+    let mut by_employee = Vec::with_capacity(rows.len());
+
+    for row in rows {
+        // P1: Compute wages in integer paise to avoid f64 accumulation.
+        // hours_worked is stored as f64 (minutes/60); convert back to whole minutes
+        // then do integer-only multiplication: minutes * rate_paise / 60.
+        let worked_minutes = (row.total_hours * 60.0).round() as i64;
+        let emp_total = worked_minutes.max(0) * row.hourly_rate_paise / 60;
+        total_hours += row.total_hours;
+--
+            rate_paise: row.hourly_rate_paise,
+            total_paise: emp_total,
+        });
+    }
+
+    Ok(PayrollSummary {
+        year,
+        month,
+        total_hours,
+        total_paise,
+        by_employee,
+    })
+}
+
+// ===========================================================================
+// Phase 21 (v29.0): Maintenance KPIs
+// ===========================================================================
+
+/// Maintenance KPI metrics
+#[derive(Debug, serde::Serialize)]
+pub struct MaintenanceKPIs {
+    pub period_days: u32,
+    pub total_events: u32,
+    pub total_tasks: u32,
+    pub mttr_minutes: f64,        // Mean Time To Repair
+    pub mtbf_hours: f64,          // Mean Time Between Failures
+    pub self_heal_rate: f64,      // % of issues auto-resolved
+    pub prediction_accuracy: f64, // % of predictive alerts that preceded actual failure
+    pub false_positive_rate: f64, // % of alerts that were false positives
+    pub downtime_minutes: u32,    // Total downtime in period
+    pub tasks_completed: u32,
+    pub tasks_open: u32,
+}
+
+/// Calculate maintenance KPIs for the given number of days.
+pub async fn calculate_kpis(pool: &SqlitePool, days: u32) -> anyhow::Result<MaintenanceKPIs> {
+    let since = Utc::now() - chrono::Duration::days(days as i64);
+    let since_str = since.to_rfc3339();
+
+    // Total events in period
+    let (total_events,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_events WHERE detected_at >= ?1",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+// ---
+=== DYNAMIC PRICING ===
+//! v29.0 Phase 19: Dynamic pricing recommendations based on demand + psychology (v14.0).
+//! All recommendations require admin approval — never auto-apply.
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PricingRecommendation {
+    pub date: String,
+    pub current_price_paise: i64,
+    pub recommended_price_paise: i64,
+    pub change_pct: f32,
+    pub reason: String,
+    pub confidence: f32,
+    pub requires_approval: bool, // always true
+}
+
+/// Generate pricing recommendations based on forecasted demand
+pub fn recommend_pricing(
+    forecast_occupancy_pct: f32,
+    current_price_paise: i64,
+    is_peak: bool,
+    is_weekend: bool,
+) -> PricingRecommendation {
+    let mut change_pct: f32 = 0.0;
+    let mut reason = String::new();
+
+    // High demand (>80% occupancy) — suggest premium
+    if forecast_occupancy_pct > 80.0 {
+        change_pct = if is_peak { 15.0 } else { 10.0 };
+        reason = format!(
+            "High forecasted demand ({:.0}% occupancy)",
+            forecast_occupancy_pct
+        );
+    }
+    // Low demand (<30% occupancy) — suggest discount
+    else if forecast_occupancy_pct < 30.0 {
+        change_pct = if is_weekend { -10.0 } else { -15.0 };
+        reason = format!(
+            "Low forecasted demand ({:.0}% occupancy) — discount to drive traffic",
+            forecast_occupancy_pct
+        );
+    }
+    // Normal demand — no change
+    else {
+        reason = format!(
+            "Normal demand ({:.0}% occupancy) — no change recommended",
+            forecast_occupancy_pct
+        );
+    }
+
+    // P1-4: Integer arithmetic for money — avoid f64 rounding errors.
+    // change_pct is in whole percent (e.g. 15.0 = 15%). Convert to basis points for integer math.
+    let change_bp = (change_pct * 100.0).round() as i64; // e.g. 15.0% → 1500 basis points
+    // MMA-R1: Use checked arithmetic to prevent overflow on large prices
+    let recommended = current_price_paise
+        .checked_mul(change_bp)
+        .and_then(|v| v.checked_div(10000))
+        .and_then(|delta| current_price_paise.checked_add(delta))
+        .unwrap_or(current_price_paise); // on overflow, keep current price
+
+    PricingRecommendation {
+        date: chrono::Utc::now().to_rfc3339(),
+        current_price_paise,
+        recommended_price_paise: recommended,
+        change_pct,
+        reason,
+        confidence: if forecast_occupancy_pct > 0.0 {
+            0.5
+        } else {
+            0.1
+        },
+        requires_approval: true, // ALWAYS true — never auto-apply pricing
+    }
+}
+// ---
+=== PRICING BRIDGE ===
+//! v29.0 Phase 32: Dynamic pricing write-through to POS/kiosk/PWA.
+//! Prices computed by dynamic_pricing.rs are proposed → approved → applied to all channels.
+
+use serde::{Serialize, Deserialize};
+use sqlx::SqlitePool;
+use chrono::Utc;
+
+const LOG_TARGET: &str = "pricing-bridge";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PricingProposal {
+    pub id: String,
+    pub proposed_at: String,
+    pub current_price_paise: i64,
+    pub proposed_price_paise: i64,
+    pub change_pct: f32,
+    pub reason: String,
+    pub status: String,  // "pending", "approved", "rejected", "applied"
+    pub approved_by: Option<String>,
+    pub applied_at: Option<String>,
+}
+
+/// Initialize pricing tables
+pub async fn init_pricing_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pricing_proposals (
+            id TEXT PRIMARY KEY,
+            proposed_at TEXT NOT NULL,
+            current_price_paise INTEGER NOT NULL,
+            proposed_price_paise INTEGER NOT NULL,
+            change_pct REAL,
+            reason TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            approved_by TEXT,
+            applied_at TEXT
+        )"
+    ).execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pricing_status ON pricing_proposals(status)")
+        .execute(pool).await?;
+    tracing::info!(target: LOG_TARGET, "Pricing tables initialized");
+    Ok(())
+}
+
+/// Create a pricing proposal
+pub async fn create_proposal(pool: &SqlitePool, current: i64, proposed: i64, change_pct: f32, reason: &str) -> anyhow::Result<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO pricing_proposals (id, proposed_at, current_price_paise, proposed_price_paise, change_pct, reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+    )
+    .bind(&id).bind(Utc::now().to_rfc3339()).bind(current).bind(proposed).bind(change_pct).bind(reason)
+    .execute(pool).await?;
+    tracing::info!(target: LOG_TARGET, id = %id, current, proposed, "Pricing proposal created");
+    Ok(id)
+}
+
+/// Approve a pricing proposal (admin action)
+pub async fn approve_proposal(pool: &SqlitePool, proposal_id: &str, approved_by: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE pricing_proposals SET status = 'approved', approved_by = ?1 WHERE id = ?2 AND status = 'pending'")
+        .bind(approved_by).bind(proposal_id).execute(pool).await?;
+    tracing::info!(target: LOG_TARGET, id = %proposal_id, approved_by, "Pricing proposal approved");
+    Ok(())
+}
+
+/// Apply approved pricing (push to billing config)
+/// MMA-R1: Use transaction to ensure all-or-nothing atomicity
+pub async fn apply_approved_pricing(pool: &SqlitePool) -> anyhow::Result<u32> {
+    let approved: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT id, proposed_price_paise FROM pricing_proposals WHERE status = 'approved'"
+    ).fetch_all(pool).await?;
+
+    if approved.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tx = pool.begin().await?;
+    let now = Utc::now().to_rfc3339();
+
+    for (id, _price) in &approved {
+        // Mark as applied (actual price push to billing config would go here)
+        sqlx::query("UPDATE pricing_proposals SET status = 'applied', applied_at = ?1 WHERE id = ?2")
+            .bind(&now).bind(id).execute(&mut *tx).await?;
+    }
+
+    tx.commit().await?;
+    let applied = approved.len() as u32;
+
+    tracing::info!(target: LOG_TARGET, applied, "Pricing proposals applied to billing config");
+    Ok(applied)
+}
+// ---
+=== BUSINESS AGGREGATOR ===
+//! v29.0 Phase 26: Auto-aggregate revenue from billing_fsm, cafe, wallet into daily_business_metrics.
+//! Runs hourly to keep the EBITDA dashboard populated with real data.
+
+use chrono::{NaiveDate, Utc};
+use sqlx::SqlitePool;
+
+use crate::maintenance_models::DailyBusinessMetrics;
+use crate::maintenance_store;
+
+const LOG_TARGET: &str = "biz-aggregator";
+
+/// Aggregate today's revenue from billing sessions, cafe orders, and wallet transactions.
+pub async fn aggregate_daily_revenue(pool: &SqlitePool, date: NaiveDate) -> anyhow::Result<()> {
+    let date_str = date.format("%Y-%m-%d").to_string();
+
+    // MMA-R1: Propagate DB errors instead of swallowing with unwrap_or(0)
+    // Gaming revenue: sum of wallet_debit_paise from completed/ended_early billing sessions today
+    let gaming: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(wallet_debit_paise), 0) FROM billing_sessions \
+         WHERE DATE(ended_at) = ?1 AND status IN ('completed', 'ended_early')",
+    )
+    .bind(&date_str)
+    .fetch_one(pool)
+    .await?;
+
+    // Cafe revenue: sum from confirmed cafe orders
+    let cafe: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(total_paise), 0) FROM cafe_orders \
+         WHERE DATE(created_at) = ?1 AND status = 'confirmed'",
+    )
+    .bind(&date_str)
+    .fetch_one(pool)
+    .await?;
+
+    // Session count (completed + ended_early)
+    let sessions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_sessions \
+         WHERE DATE(ended_at) = ?1 AND status IN ('completed', 'ended_early')",
+    )
+    .bind(&date_str)
+    .fetch_one(pool)
+    .await?;
+
+    // Occupancy: approximate — sessions per pod per operating hour window (12h day)
+    let total_pods = 8.0f32;
+    let operating_hours = 12.0f32;
+    let occupancy = if sessions > 0 {
+        (sessions as f32 / (total_pods * operating_hours) * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    // Build a DailyBusinessMetrics struct, preserving any existing expense data
+    let existing = maintenance_store::query_business_metrics(pool, &date_str, &date_str).await;
+    let base = existing
+        .ok()
+        .and_then(|v| v.into_iter().next())
+        .unwrap_or(DailyBusinessMetrics {
+            date,
+            revenue_gaming_paise: 0,
+            revenue_cafe_paise: 0,
+            revenue_other_paise: 0,
+            expense_rent_paise: 0,
+            expense_utilities_paise: 0,
+            expense_salaries_paise: 0,
+            expense_maintenance_paise: 0,
+            expense_other_paise: 0,
+            sessions_count: 0,
+            occupancy_rate_pct: 0.0,
+            peak_occupancy_pct: 0.0,
+        });
+
+    let metrics = DailyBusinessMetrics {
+        date,
+        revenue_gaming_paise: gaming,
+        revenue_cafe_paise: cafe,
+        revenue_other_paise: base.revenue_other_paise,
+        expense_rent_paise: base.expense_rent_paise,
+        expense_utilities_paise: base.expense_utilities_paise,
+        expense_salaries_paise: base.expense_salaries_paise,
+        expense_maintenance_paise: base.expense_maintenance_paise,
+        expense_other_paise: base.expense_other_paise,
+        // MMA-R1: Use try_from instead of `as` for safe narrowing
+        sessions_count: u32::try_from(sessions.max(0)).unwrap_or(0),
+        occupancy_rate_pct: occupancy,
+        peak_occupancy_pct: occupancy.max(base.peak_occupancy_pct),
+    };
+
+    maintenance_store::upsert_daily_metrics(pool, &date_str, &metrics).await?;
+
+    tracing::info!(
+        target: LOG_TARGET,
+        date = %date_str,
+        gaming,
+        cafe,
+        sessions,
+        "Daily revenue aggregated"
+    );
+    Ok(())
+}
+
+/// Spawn hourly aggregation task.
+pub fn spawn_business_aggregator(pool: SqlitePool) {
+    tokio::spawn(async move {
+        tracing::info!(target: LOG_TARGET, "Business aggregator started (1h interval)");
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let today = Utc::now().date_naive();
+            if let Err(e) = aggregate_daily_revenue(&pool, today).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Revenue aggregation failed");
+            }
+        }
+    });
+}
+// ---
+=== ESCALATION LOGIC ===
+//! v29.0 Phase 15: 3-tier escalation workflow for maintenance alerts.
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum EscalationTier {
+    Auto,       // Tier 1: auto-fix, log only
+    Technician, // Tier 2: notify staff on duty
+    Manager,    // Tier 3: escalate to Uday
+}
+
+/// Determine escalation tier based on severity and attempt count.
+pub fn determine_escalation(
+    severity: &str,
+    auto_fix_attempts: u32,
+    is_recurring: bool,
+) -> EscalationTier {
+    if severity == "Critical" {
+        return EscalationTier::Manager;
+    }
+    if auto_fix_attempts == 0 && !is_recurring && severity != "High" {
+        return EscalationTier::Auto;
+    }
+    if auto_fix_attempts <= 2 || severity == "High" {
+        return EscalationTier::Technician;
+    }
+    EscalationTier::Manager
+}
+
+/// Format WhatsApp alert message based on tier.
+pub fn format_alert_message(
+    tier: &EscalationTier,
+    pod_id: u8,
+    component: &str,
+    description: &str,
+    severity: &str,
+) -> String {
+    let prefix = match tier {
+        EscalationTier::Auto => return String::new(), // no message for auto-fix
+        EscalationTier::Technician => "\u{26a0}\u{fe0f} MAINTENANCE ALERT",
+        EscalationTier::Manager => "\u{1f6a8} CRITICAL ESCALATION",
+    };
+    format!(
+        "{}\nPod: {}\nComponent: {}\nSeverity: {}\n{}\n\nAction required.",
+        prefix, pod_id, component, severity, description
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_critical_always_manager() {
+        assert_eq!(
+            determine_escalation("Critical", 0, false),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_first_attempt_low_is_auto() {
+        assert_eq!(
+            determine_escalation("Low", 0, false),
+            EscalationTier::Auto
+        );
+        assert_eq!(
+            determine_escalation("Medium", 0, false),
+            EscalationTier::Auto
+        );
+    }
+
+    #[test]
+    fn test_high_is_technician() {
+        assert_eq!(
+            determine_escalation("High", 0, false),
+            EscalationTier::Technician
+        );
+    }
+
+    #[test]
+    fn test_recurring_escalates() {
+        assert_eq!(
+            determine_escalation("Medium", 0, true),
+            EscalationTier::Technician
+        );
+    }
+
+    #[test]
+    fn test_many_attempts_escalates_to_manager() {
+        assert_eq!(
+            determine_escalation("Medium", 3, false),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_auto_tier_empty_message() {
+        let msg = format_alert_message(&EscalationTier::Auto, 1, "GPU", "Temp high", "Low");
+        assert!(msg.is_empty());
+    }
+
+    #[test]
+    fn test_technician_message_format() {
+        let msg = format_alert_message(
+            &EscalationTier::Technician,
+            3,
+            "Cooling",
+            "Fan RPM low",
+            "High",
+        );
+        assert!(msg.contains("MAINTENANCE ALERT"));
+        assert!(msg.contains("Pod: 3"));
+        assert!(msg.contains("Cooling"));
+    }
+
+    #[test]
+    fn test_manager_message_format() {
+        let msg = format_alert_message(
+            &EscalationTier::Manager,
+            5,
+            "GPU",
+            "GPU memory errors",
+            "Critical",
+        );
+        assert!(msg.contains("CRITICAL ESCALATION"));
+        assert!(msg.contains("Pod: 5"));
+    }
+}
+// ---
+=== ALERT ENGINE ===
+//! v29.0 Phase 30: Business alert engine — monitors financial KPIs and triggers alerts.
+
+use serde::Serialize;
+use chrono::{Utc, Datelike, Timelike};
+
+const LOG_TARGET: &str = "alert-engine";
+
+#[derive(Debug, Clone, Serialize)]
+pub enum AlertChannel { WhatsApp, Dashboard, Both }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BusinessAlert {
+    pub alert_type: String,
+    pub severity: String,
+    pub message: String,
+    pub channel: AlertChannel,
+    pub timestamp: String,
+    pub value: f64,
+    pub threshold: f64,
+}
+
+/// Check business KPIs and generate alerts
+pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert> {
+    let mut alerts = Vec::new();
+    let today = Utc::now().date_naive().to_string();
+
+    // Check: Revenue today vs 7-day average (>30% drop = alert)
+    // MMA-R1: DB columns are INTEGER — query as i64, not f64 (was runtime type mismatch)
+    let today_rev: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0_i64);
+
+    let avg_rev: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(AVG(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= date('now', '-7 days')"
+    ).fetch_one(pool).await.unwrap_or(0_i64);
+
+    if avg_rev > 0 && today_rev * 10 < avg_rev * 7 {
+        let drop_pct = if avg_rev > 0 { ((avg_rev - today_rev) * 100) / avg_rev } else { 0 };
+        alerts.push(BusinessAlert {
+            alert_type: "RevenueDropAlert".into(),
+            severity: "High".into(),
+            message: format!("Revenue today ₹{:.0} is {}% below 7-day average ₹{:.0}", today_rev as f64 / 100.0, drop_pct, avg_rev as f64 / 100.0),
+            channel: AlertChannel::Both,
+            timestamp: Utc::now().to_rfc3339(),
+            value: today_rev as f64, threshold: avg_rev as f64 * 0.7,
+        });
+    }
+
+    // Check: Occupancy below 40% during peak hours
+    // IST = UTC + 5:30 — compute correctly via chrono Duration to avoid modular arithmetic bugs
+    let now_ist = Utc::now() + chrono::Duration::minutes(330);
+    let hour = now_ist.hour();
+    let is_peak = hour >= 16 && hour < 22;
+    if is_peak {
+        // MMA-R1: occupancy_rate_pct is REAL in DB — f64 is correct here
+        let occ: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(occupancy_rate_pct, 0.0) FROM daily_business_metrics WHERE date = ?1"
+        ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+
+        if occ > 0.0 && occ < 40.0 {
+            alerts.push(BusinessAlert {
+                alert_type: "LowOccupancyAlert".into(),
+                severity: "Medium".into(),
+                message: format!("Peak hour occupancy {:.0}% (threshold: 40%)", occ),
+                channel: AlertChannel::Dashboard,
+                timestamp: Utc::now().to_rfc3339(),
+                value: occ, threshold: 40.0,
+            });
+        }
+    }
+
+    // Check: Maintenance costs exceeding 20% of revenue this month
+    let month_start = format!("{}-{:02}-01", Utc::now().year(), Utc::now().month());
+    // MMA-R1: DB columns are INTEGER — query as i64, not f64
+    let maint_cost: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(expense_maintenance_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0_i64);
+
+    let month_rev: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0_i64);
+
+    if month_rev > 0 && maint_cost * 5 > month_rev {
+        let cost_pct = if month_rev > 0 { (maint_cost * 100) / month_rev } else { 0 };
+        alerts.push(BusinessAlert {
+            alert_type: "MaintenanceCostAlert".into(),
+            severity: "High".into(),
+            message: format!("Maintenance costs ₹{:.0} are {}% of revenue ₹{:.0}", maint_cost as f64 / 100.0, cost_pct, month_rev as f64 / 100.0),
+            channel: AlertChannel::WhatsApp,
+            timestamp: Utc::now().to_rfc3339(),
+            value: maint_cost as f64, threshold: month_rev as f64 * 0.2,
+        });
+    }
+
+    for alert in &alerts {
+        tracing::warn!(target: LOG_TARGET, alert_type = %alert.alert_type, severity = %alert.severity, "Business alert: {}", alert.message);
+    }
+
+    alerts
+}
+
+/// Spawn periodic business alert checker (every 30 min).
+/// Accepts AppState to dispatch alerts to WhatsApp and dashboard channels.
+pub fn spawn_alert_checker(state: std::sync::Arc<crate::state::AppState>) {
+    let pool = state.db.clone();
+    let config = state.config.clone();
+    tokio::spawn(async move {
+        // Wait 5 min for system to stabilize
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let alerts = check_business_alerts(&pool).await;
+            for alert in &alerts {
+                // Dispatch to WhatsApp for WhatsApp/Both channels
+                if matches!(alert.channel, AlertChannel::WhatsApp | AlertChannel::Both) {
+                    let msg = format!("[{}] {}: {}", alert.severity, alert.alert_type, alert.message);
+                    crate::whatsapp_alerter::send_whatsapp(&config, &msg).await;
+                }
+                // Dashboard channel alerts are logged for now (dashboard WS picks them up via tracing)
+                if matches!(alert.channel, AlertChannel::Dashboard | AlertChannel::Both) {
+                    tracing::info!(target: LOG_TARGET,
+                        alert_type = %alert.alert_type,
+                        severity = %alert.severity,
+                        channel = "dashboard",
+                        "Dashboard alert: {}", alert.message
+                    );
+                }
+            }
+        }
+    });
+}
+// ---
+=== FEEDBACK LOOP ===
+//! v29.0 Phase 28: Feedback loop — tracks prediction accuracy, maintenance outcomes,
+//! and feeds results back to improve future predictions.
+
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use sqlx::SqlitePool;
+
+const LOG_TARGET: &str = "feedback-loop";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionOutcome {
+    pub prediction_id: String,
+    pub prediction_type: String, // "anomaly", "rul", "demand"
+    pub predicted_at: DateTime<Utc>,
+    pub predicted_value: f64,
+    pub actual_value: Option<f64>,
+    pub was_accurate: Option<bool>,
+    pub lead_time_hours: Option<f64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FeedbackMetrics {
+    pub total_predictions: u32,
+    pub accurate_predictions: u32,
+    pub precision: f64,
+    pub recall: f64,
+    pub mean_lead_time_hours: f64,
+    pub false_positive_rate: f64,
+    pub period_days: u32,
+}
+
+/// Initialize feedback tables.
+pub async fn init_feedback_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS prediction_outcomes (
+            id TEXT PRIMARY KEY,
+            prediction_type TEXT NOT NULL,
+            predicted_at TEXT NOT NULL,
+            predicted_value REAL,
+            actual_value REAL,
+            was_accurate INTEGER,
+            lead_time_hours REAL,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS admin_overrides (
+            id TEXT PRIMARY KEY,
+            recommendation_id TEXT,
+            recommendation_type TEXT NOT NULL,
+            original_action TEXT NOT NULL,
+            final_action TEXT NOT NULL,
+            overridden_by TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_outcomes_type ON prediction_outcomes(prediction_type)")
+        .execute(pool)
+        .await?;
+
+    tracing::info!(target: LOG_TARGET, "Feedback tables initialized");
+    Ok(())
+}
+
+/// Record a prediction outcome.
+pub async fn record_outcome(pool: &SqlitePool, outcome: &PredictionOutcome) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO prediction_outcomes \
+         (id, prediction_type, predicted_at, predicted_value, actual_value, was_accurate, lead_time_hours, notes) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )
+    .bind(&outcome.prediction_id)
+    .bind(&outcome.prediction_type)
+    .bind(outcome.predicted_at.to_rfc3339())
+    .bind(outcome.predicted_value)
+    .bind(outcome.actual_value)
+    .bind(outcome.was_accurate.map(|b| b as i32))
+    .bind(outcome.lead_time_hours)
+    .bind(&outcome.notes)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record admin override for feedback learning.
+pub async fn record_override(
+    pool: &SqlitePool,
+    recommendation_id: &str,
+    rec_type: &str,
+    original: &str,
+    final_action: &str,
+    overridden_by: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO admin_overrides \
+         (id, recommendation_id, recommendation_type, original_action, final_action, overridden_by, reason) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(&id)
+    .bind(recommendation_id)
+    .bind(rec_type)
+    .bind(original)
+    .bind(final_action)
+    .bind(overridden_by)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+    tracing::info!(target: LOG_TARGET, rec_type, "Admin override recorded");
+    Ok(())
+}
+
+/// Calculate feedback metrics for a period.
+pub async fn calculate_feedback_metrics(
+    pool: &SqlitePool,
+    days: u32,
+) -> anyhow::Result<FeedbackMetrics> {
+    let since = (Utc::now() - chrono::Duration::days(days as i64)).to_rfc3339();
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let accurate: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1 AND was_accurate = 1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let false_pos: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1 AND was_accurate = 0",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let avg_lead: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(AVG(lead_time_hours), 0) FROM prediction_outcomes \
+         WHERE created_at > ?1 AND was_accurate = 1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0.0);
+
+    let precision = if total > 0 {
+        accurate as f64 / total as f64
+    } else {
+        0.0
+    };
+    let fpr = if total > 0 {
+        false_pos as f64 / total as f64
+    } else {
+        0.0
+    };
+
+    Ok(FeedbackMetrics {
+        total_predictions: total as u32,
+        accurate_predictions: accurate as u32,
+        precision,
+        recall: precision, // simplified — need separate tracking of missed failures
+        mean_lead_time_hours: avg_lead,
+        false_positive_rate: fpr,
+        period_days: days,
+    })
+}
+// ---
+=== ALL ENUM DEFINITIONS ===
+pub enum MaintenanceEventType {
+    SelfHealAttempted,
+    Tier1FixApplied,
+    PodHealerIntervention,
+    AIDiagnosisCompleted,
+    PredictiveAlert,
+--
+pub enum Severity {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+--
+pub enum ComponentType {
+    GPU,
+    CPU,
+    Memory,
+    Storage,
+    Network,
+--
+pub enum ResolutionMethod {
+    AutoHealed(String),
+    ManualFix(String),
+    PartReplacement(String),
+    SoftwareUpdate(String),
+    Restart,
+--
+pub enum TaskStatus {
+    Open,
+    Assigned,
+    InProgress,
+    PendingValidation,
+    Completed,
+--
+pub enum StaffRole {
+    Manager,
+    Technician,
+    FrontDesk,
+    GameMaster,
+    Cashier,
+// ---
+=== ENUM SERIALIZATION (insert paths) ===
+/// Insert a new maintenance event.
+pub async fn insert_event(pool: &SqlitePool, event: &MaintenanceEvent) -> anyhow::Result<()> {
+    let event_type_str = serde_json::to_string(&event.event_type)?;
+    let severity_str = serde_json::to_string(&event.severity)?;
+    let component_str = serde_json::to_string(&event.component)?;
+    let resolution_str = event
+        .resolution_method
+        .as_ref()
+        .map(|r| serde_json::to_string(r))
+        .transpose()?;
+    let metadata_str = serde_json::to_string(&event.metadata)?;
+
+    sqlx::query(
+--
+        // severity
+        let sev: Severity = serde_json::from_str(&row.severity).unwrap_or(Severity::Medium);
+        let sev_label = serde_json::to_string(&sev).unwrap_or_default().replace('"', "");
+        *by_severity.entry(sev_label).or_default() += 1;
+
+--
+        let etype: MaintenanceEventType = serde_json::from_str(&row.event_type)
+            .unwrap_or(MaintenanceEventType::SelfHealAttempted);
+        let type_label = serde_json::to_string(&etype).unwrap_or_default().replace('"', "");
+        *by_type.entry(type_label).or_default() += 1;
+
+--
+/// Insert a new maintenance task.
+pub async fn insert_task(pool: &SqlitePool, task: &MaintenanceTask) -> anyhow::Result<()> {
+    let component_str = serde_json::to_string(&task.component)?;
+    let status_str = serde_json::to_string(&task.status)?.replace('"', "");
+    let before_str = task
+        .before_metrics
+        .as_ref()
+        .map(|v| serde_json::to_string(v))
+        .transpose()?;
+    let after_str = task
+        .after_metrics
+        .as_ref()
+        .map(|v| serde_json::to_string(v))
+        .transpose()?;
+
+--
+        let task = row_to_task(row)?;
+        if let Some(filter) = status_filter {
+            let status_str = serde_json::to_string(&task.status)?.replace('"', "");
+            if status_str != filter {
+                continue;
+--
+    new_status: &TaskStatus,
+) -> anyhow::Result<bool> {
+// ---
+=== ENUM DESERIALIZATION (read paths) ===
+    for row in &rows {
+        // severity
+        let sev: Severity = serde_json::from_str(&row.severity).unwrap_or(Severity::Medium);
+        let sev_label = serde_json::to_string(&sev).unwrap_or_default().replace('"', "");
+        *by_severity.entry(sev_label).or_default() += 1;
+
+        // type
+        let etype: MaintenanceEventType = serde_json::from_str(&row.event_type)
+            .unwrap_or(MaintenanceEventType::SelfHealAttempted);
+        let type_label = serde_json::to_string(&etype).unwrap_or_default().replace('"', "");
+--
+        // Self-heal
+        if let Some(ref rm) = row.resolution_method {
+            if let Ok(ResolutionMethod::AutoHealed(_)) = serde_json::from_str(rm) {
+                self_heal_count += 1;
+            }
+--
+        id: Uuid::parse_str(&row.id)?,
+        pod_id,
+        event_type: serde_json::from_str(&row.event_type)?,
+        severity: serde_json::from_str(&row.severity)?,
+        component: serde_json::from_str(&row.component)?,
+        description: row.description,
+        detected_at,
+--
+            .resolution_method
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
+        source: row.source,
+--
+        cost_estimate_paise: row.cost_estimate_paise,
+        assigned_staff_id: row.assigned_staff_id,
+        metadata: serde_json::from_str(&row.metadata)?,
+    })
+}
+--
+        description: row.description,
+        pod_id,
+        component: serde_json::from_str(&row.component)?,
+        priority,
+        status: serde_json::from_str(&status_json)?,
+        created_at,
+        due_by,
+--
+            .before_metrics
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
+        after_metrics: row

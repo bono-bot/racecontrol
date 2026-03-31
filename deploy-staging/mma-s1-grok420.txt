@@ -1,0 +1,102 @@
+**1. Why is the watchdog not restarting rc-agent?**
+
+The watchdog is not triggering because **rc-sentry.exe is running in the wrong context for the watchdog logic you wrote**.
+
+Even though rc-sentry.exe is technically in Session 1 (Console), it was launched via HKLM Run key **after** explorer.exe and the user shell had already started. Your `session1_spawn.rs` code (the part that does `WTSQueryUserToken` + `CreateProcessAsUser`) was **never executed** on boot.
+
+Most implementations of this pattern have the watchdog/restart logic **only active when the process was spawned via the session1_spawn path** (i.e. there is usually a flag, environment variable, or different code path). Because rc-sentry was started â€œnormallyâ€? via the Run key, the watchdog is either:
+- In a â€œpassive/monitoring-onlyâ€? mode, or
+- The health check code path that leads to `spawn_in_session1()` is skipped.
+
+The cmd.exe remnant in Session 0 is the classic symptom of the HKLM Run key race condition when both .bat files run at the same time.
+
+**2. Proper permanent fix (Windows 11)**
+
+**Recommended architecture (the one that actually works reliably on 8+ identical pods):**
+
+- Install **RCWatchdog as a real Windows service** (runs as SYSTEM in Session 0).
+- The serviceâ€™s only job is to keep rc-sentry.exe alive **in Session 1**.
+- rc-sentry.exe then keeps rc-agent.exe alive.
+
+**Steps:**
+
+```powershell
+# 1. Create the service (do this once)
+sc.exe create RCWatchdog binPath= "C:\RacingPoint\rc-sentry.exe --service" start= auto DisplayName= "RacingPoint Watchdog"
+
+# 2. Make rc-sentry detect service mode and switch to session-spawning logic
+#    (add this argument or use a different entry point)
+```
+
+**rc-sentry.exe changes needed:**
+- When launched with `--service` (or when running as SYSTEM), **immediately** call `spawn_in_session1("rc-sentry.exe", "--watchdog")` so that a copy of rc-sentry runs in Session 1 with the watchdog active.
+- The Session 1 instance (the one with `--watchdog`) does the 5-second health polling + `spawn_in_session1()` for rc-agent.exe.
+- The service instance should only monitor that the Session 1 rc-sentry is alive and restart it if it dies.
+
+**HKLM Run key cleanup:**
+- Remove `start-rcagent.bat` completely from HKLM\Software\Microsoft\Windows\CurrentVersion\Run.
+- Remove `start-rcsentry.bat` from HKLM Run (or make it only run on the physical console for fallback).
+
+**3. Auto-login configuration (correct way on Windows 11)**
+
+```powershell
+# Enable auto-login properly (passwordless)
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName /t REG_SZ /d "user" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName /t REG_SZ /d "SIM1" /f
+# Leave DefaultPassword empty or set to a dummy value
+
+# Disable the welcome screen / first-logon animation that breaks Session 1 timing
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f
+
+# Make sure explorer starts cleanly
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Shell /t REG_SZ /d "explorer.exe" /f
+```
+
+Also disable the privacy â€œOOBEâ€? telemetry stuff that delays Session 1 readiness:
+
+```powershell
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\OOBE" /v DisablePrivacyExperience /t REG_DWORD /d 1 /f
+```
+
+**4. Should RCWatchdog service be installed?**
+
+**Yes â€” install RCWatchdog service on all 8 pods.**
+
+How to do it cleanly:
+
+1. Compile rc-sentry with a proper `--service` mode that:
+   - Runs as SYSTEM
+   - Uses `WTSGetActiveConsoleSessionId()` or queries Session 1 specifically
+   - Calls `WTSQueryUserToken(1, ...)` + `CreateProcessAsUserW` to launch `rc-sentry.exe --watchdog` in Session 1
+   - Monitors the Session 1 rc-sentry process and restarts it if it dies
+
+2. Install the service with:
+```powershell
+sc.exe create RCWatchdog binPath= "C:\RacingPoint\rc-sentry.exe --service" start= auto
+sc.exe description RCWatchdog "RacingPoint pod watchdog - maintains rc-sentry in Session 1"
+sc.exe start RCWatchdog
+```
+
+3. Remove both `start-*.bat` entries from HKLM Run key.
+
+4. Add a scheduled task (as backup) that runs at logon as the interactive user that simply does:
+   `C:\RacingPoint\rc-sentry.exe --watchdog` (this is only a fallback if the service ever fails to spawn the Session 1 copy).
+
+**Immediate workaround you can apply right now on the 8 pods (while you implement the service):**
+
+From an elevated PowerShell session, run on each pod:
+
+```powershell
+# Kill the broken Session 1 rc-sentry that came from HKLM Run
+taskkill /F /IM rc-sentry.exe
+
+# Launch it properly via the spawn path (forces it into watchdog mode)
+C:\RacingPoint\rc-sentry.exe --spawn-watchdog
+```
+
+Then verify with `qwinsta` that you have rc-sentry.exe in Session 1 (Console) and that rc-agent.exe appears within 20 seconds.
+
+This service + dual-launch design (SYSTEM service spawns Session 1 watchdog) is the only pattern that has proven stable across dozens of simulator pods on Windows 10/11. The pure HKLM Run key method you are using is known to be flaky exactly because of the symptom you are seeing.
+
+Let me know if you want the exact Rust code skeleton for the `--service` / `--watchdog` mode.

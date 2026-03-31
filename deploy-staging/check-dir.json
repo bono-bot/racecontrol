@@ -1,0 +1,1 @@
+{"cmd":"echo HELLO & dir C:\\RacingPoint\\rc-agent*.exe","timeout_ms":5000}

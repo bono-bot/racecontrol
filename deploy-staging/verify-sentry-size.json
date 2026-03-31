@@ -1,0 +1,1 @@
+{"cmd":"for %f in (C:\\RacingPoint\\rc-sentry-new.exe) do echo SIZE=%~zf","timeout_ms":5000}

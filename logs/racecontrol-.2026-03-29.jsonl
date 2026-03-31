@@ -1,0 +1,2 @@
+{"timestamp":"2026-03-29T12:55:34.018720Z","level":"INFO","fields":{"message":"SQLite WAL mode VERIFIED active (busy_timeout=5000ms, synchronous=NORMAL)"},"target":"racecontrol_crate::db"}
+{"timestamp":"2026-03-29T12:55:34.130285Z","level":"INFO","fields":{"message":"Phase 88: Migrating track_records to add sim_type to PRIMARY KEY"},"target":"racecontrol_crate::db"}

@@ -1,0 +1,46 @@
+```json
+[
+  {
+    "id": "MAINT-01",
+    "severity": "P1",
+    "title": "False crash detection on system service restarts",
+    "root_cause": "Watchdog/sentry misinterpreted sshd service restart as rc-agent crashes due to lack of process-specific crash detection",
+    "permanent_fix": "Implement PID tracking in crash detection to distinguish between rc-agent termination and system events"
+  },
+  {
+    "id": "MAINT-02",
+    "severity": "P1",
+    "title": "Auto-clear mechanism failure",
+    "root_cause": "Race condition between rc-sentry (using JSON timestamp) and rc-watchdog (using file mtime) for maintenance mode clearance",
+    "permanent_fix": "Standardize on file mtime checks only, implement file locking during clearance operations"
+  },
+  {
+    "id": "MAINT-03",
+    "severity": "P2",
+    "title": "Lack of watchdog service verification",
+    "root_cause": "No heartbeat monitoring or status verification of rc-watchdog Windows service",
+    "permanent_fix": "Implement watchdog service health checks in rc-sentry with fallback clearance capability"
+  },
+  {
+    "id": "MAINT-04",
+    "severity": "P2",
+    "title": "Non-atomic sentinel operations",
+    "root_cause": "File operations on MAINTENANCE_MODE sentinel lack transactional guarantees",
+    "permanent_fix": "Implement atomic file operations using Windows API CreateFile with FILE_FLAG_WRITE_THROUGH"
+  },
+  {
+    "id": "MAINT-05",
+    "severity": "P3",
+    "title": "Inadequate crash type differentiation",
+    "root_cause": "Single maintenance mode path for both legitimate crashes and false positives",
+    "permanent_fix": "Implement tiered maintenance mode with different TTLs based on crash cause classification"
+  },
+  {
+    "id": "MAINT-06",
+    "severity": "P3",
+    "title": "Missing system event correlation",
+    "root_cause": "No integration with Windows Event Log for system change awareness",
+    "permanent_fix": "Add Windows Event Log monitoring to detect and filter known maintenance events"
+  }
+]
+```

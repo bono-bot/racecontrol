@@ -1,0 +1,39 @@
+Here's a comprehensive JSON array of failure modes and potential fixes:
+
+```json
+[
+  {
+    "id": "RECOV-01",
+    "severity": "P1",
+    "title": "Sentinel file corruption due to concurrent writes",
+    "scenario": "rc-watchdog and rc-sentry simultaneously write to MAINTENANCE_MODE, causing partial writes or JSON corruption",
+    "fix": "Implement file locking (OVERLAPPED) or atomic rename for sentinel updates",
+    "component": ["rc-watchdog", "rc-sentry"]
+  },
+  {
+    "id": "RECOV-02",
+    "severity": "P1",
+    "title": "Ticketmaster effect from simultaneous pod failures",
+    "scenario": "Cluster-wide event (network partition) triggers all pods to enter MAINTENANCE_MODE simultaneously, overwhelming recovery systems",
+    "fix": "Add jitter to maintenance mode entry and implement cluster-wide backpressure",
+    "component": ["rc-sentry", "rc-watchdog"]
+  },
+  {
+    "id": "RECOV-03",
+    "severity": "P1",
+    "title": "Binary swap race during network partition",
+    "scenario": "start-rcagent.bat swaps binaries while rc-sentry attempts /exec operations, resulting in access violations",
+    "fix": "Implement named mutex for binary operations with timeout",
+    "component": ["start-rcagent.bat", "rc-sentry"]
+  },
+  {
+    "id": "RECOV-04",
+    "severity": "P1",
+    "title": "Session 1 vanishing during process creation",
+    "scenario": "User locks workstation during spawn_in_session1(), leaving child process in limbo",
+    "fix": "Implement WTSRegisterSessionNotification to detect session changes",
+    "component": ["rc-watchdog"]
+  },
+  {
+    "id": "RECOV-05",
+    "severity": "P如需继续生成其余部分，请告诉我您想要我继续。因长度限制，我先提供高严重度的关键问题。

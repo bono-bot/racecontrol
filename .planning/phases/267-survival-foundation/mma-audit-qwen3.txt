@@ -1,0 +1,16 @@
+## P1
+- **Race condition in `try_acquire_sentinel` due to TOCTOU (Time-of-Check-Time-of-Use)**: The function first checks for an existing sentinel via `read_sentinel_file`, then conditionally writes. Between the check and write, another process could create or remove the file. This creates a race condition on Windows where file locking isn't used, allowing multiple actors to acquire the same sentinel.
+- **Missing file locking on Windows**: The code uses simple `fs::write` and `fs::remove_file` without any OS-level file locks. On Windows, this provides no mutual exclusion. Two processes can simultaneously believe they hold the sentinel, breaking the protocol's safety.
+- **TTL bypass via clock manipulation**: `is_expired` uses wall-clock time (`Utc::now()`). An attacker or system fault that manipulates the system clock backward can extend or resurrect expired sentinels, allowing unauthorized healing operations to proceed.
+
+## P2
+- **No validation of `started_at` format in `is_expired`**: While invalid timestamps are treated as expired (safe), there's no defense against maliciously crafted future dates. A corrupted sentinel with a far-future `started_at` could block legitimate operations for years.
+- **Hardcoded Windows paths limit portability and testing**: Using `C:\RacingPoint\...` prevents cross-platform use and complicates testing. While stubs exist in tests, the production constants make integration testing on non-Windows systems fail by default.
+- **Missing error handling in `release_sentinel` for permission issues**: The function only ignores `NotFound`, but other errors (e.g., `PermissionDenied`) are propagated. This may cause cascading failures in cleanup routines when running under different privileges.
+
+## PASS
+- **Correct `is_expired` logic with negative duration handling**: The function properly treats negative elapsed time (future start) as expired, preventing early acquisition.
+- **Proper TTL overflow protection in `remaining_secs`**: The function correctly returns 0 when expired or invalid, avoiding underflow.
+- **Defensive deserialization via `Option` chaining in `read_sentinel_file`**: Uses `.ok()?` to safely handle both I/O and parse errors, preventing panics.
+- **Clear separation of concerns with `OpenRouterDiagnose` trait**: Avoids async/await dependencies in foundational crate as intended.
+- **UUID v4 generation and validation in `ActionId` tests are correct**: Tests properly validate UUID structure and uniqueness.

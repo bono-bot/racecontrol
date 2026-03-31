@@ -1,0 +1,1 @@
+{"cmd":"cd /d C:\\RacingPoint && taskkill /F /IM rc-agent.exe 2>nul & ping -n 3 127.0.0.1 >nul & if exist rc-agent-prev.exe del rc-agent-prev.exe & if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe & ren rc-agent-684abd32.exe rc-agent.exe & echo SWAP_OK","timeout_ms":15000}

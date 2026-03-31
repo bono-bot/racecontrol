@@ -1,0 +1,594 @@
+Below is an audit-style breakdown of each failure with:
+
+- **Root cause**
+- **Pattern class** â€” whether this is a one-off or a recurring failure mode category
+- **Permanent code / infrastructure fix** â€” automatable, idempotent, Windows/Git Bash compatible
+
+Then Iâ€™ll summarize the **cross-cutting concerns** and what the deploy system should look like after fixes.
+
+---
+
+# Problem 1: Pods falsely reported as â€œpowered offâ€?
+
+## Root cause
+The liveness detection logic was brittle:
+
+- `ping -c 1 -W 1`
+- `curl --connect-timeout 2`
+
+This assumed:
+- network reachability within 1 second
+- service readiness immediately after power-on
+- a single failed probe means â€œoffâ€?
+
+But the pods take **30â€“120s to boot**, so the check was really testing â€œresponding right nowâ€? rather than â€œpowered on / becoming available.â€? The AI then made an inference (â€œvenue closed, pods offâ€?) from insufficient evidence and stopped retrying.
+
+## Pattern class
+**Yes â€” recurring pattern class.**
+
+This is a classic **distributed-system readiness / transient boot-state misclassification** issue:
+
+- short timeouts
+- single-sample health checks
+- no retry with backoff
+- no distinction between:
+  - host powered off
+  - host booting
+  - network stack up but service not started
+  - service listening but app not ready
+
+This will recur anywhere hosts boot slowly or have variable startup timing.
+
+## Permanent code / infrastructure fix
+
+### 1) Replace binary â€œup/downâ€? logic with a state machine
+Deploy code should classify targets into explicit states, e.g.:
+
+- `UNREACHABLE`
+- `BOOTING`
+- `HOST_UP_SERVICE_DOWN`
+- `SERVICE_READY`
+- `AUTH_FAILED`
+- `DEPLOYING`
+- `FAILED`
+
+Do **not** conclude â€œpowered offâ€? from one failed ping/curl.
+
+### 2) Add a bounded wait-for-readiness function
+Implement a retry loop tuned for your environment:
+
+- total wait window: e.g. **180s**
+- retry interval: **5s**
+- separate probes:
+  - ICMP or TCP connect to confirm host/network
+  - HTTP health endpoint on rc-sentry
+- require multiple failures before final classification
+
+Example behavior:
+- 0â€“180s: â€œbooting / waitingâ€?
+- if host becomes pingable but sentry not ready: â€œhost up, sentry startingâ€?
+- only after the whole window expires mark as unavailable
+
+### 3) Use TCP/HTTP readiness as primary, not just ping
+ICMP is often noisy/unreliable. Better:
+
+- TCP connect to `:8091`
+- then GET `/health` or equivalent
+- rc-sentry should expose a cheap readiness endpoint returning structured JSON
+
+Example response:
+```json
+{
+  "status": "ready",
+  "version": "1.2.3",
+  "service": "rc-sentry"
+}
+```
+
+### 4) Make â€œbootingâ€? an expected state in deploy orchestration
+If user says pods are being powered on, deploy should enter a **wait phase**, not abort.
+
+### 5) Add deploy policy guardrails
+The deploy agent should not be allowed to infer business context like â€œvenue closedâ€? from network failures. That belongs to explicit operator input or a dedicated venue-state API.
+
+---
+
+# Problem 2: HTTP staging server started from wrong directory
+
+## Root cause
+This command was shell-fragile in Git Bash:
+
+```bash
+cd /c/Users/bono/racingpoint/deploy-staging && python -m http.server 18889 &
+```
+
+The backgrounding behavior caused the Python server to serve from the wrong working directory (repo root instead of staging dir). As a result:
+
+- pods fetched the wrong path
+- server returned 404 or HTML error page
+- deploy pipeline did not validate content type / size / checksum
+- bad download was only caught manually
+
+So there are really **two** root causes:
+1. **wrong process working directory due to shell semantics**
+2. **no artifact integrity validation after download**
+
+## Pattern class
+**Yes â€” recurring pattern class.**
+
+This is a **process-launch / working-directory ambiguity + artifact validation failure** pattern.
+
+Any shell-based deploy that relies on current directory and backgrounds a server is prone to this, especially across Git Bash / Windows command semantics.
+
+## Permanent code / infrastructure fix
+
+### 1) Stop relying on `cd && ... &` for server root
+Use a server launch method that explicitly binds the served directory.
+
+For Python 3, use:
+
+```bash
+python -m http.server 18889 --directory /c/Users/bono/racingpoint/deploy-staging
+```
+
+That removes dependence on current working directory.
+
+If Git Bash backgrounding is still unreliable on Windows, launch via PowerShell or `Start-Process` with explicit working directory:
+
+```powershell
+Start-Process python -ArgumentList '-m http.server 18889 --directory C:\Users\bono\racingpoint\deploy-staging' -PassThru
+```
+
+### 2) Better: replace ad hoc Python server with a deploy artifact server
+Permanent infra fix:
+- run a small dedicated artifact service on James machine or VPS
+- artifacts stored by version/build id
+- immutable URLs, e.g.:
+  - `/artifacts/race-control/<build-id>/race-control.exe`
+- endpoint returns checksum metadata
+
+This removes all shell-working-directory hazards.
+
+### 3) Add preflight verification before any pod deploy
+Before telling pods to download, the deploy controller must validate the URL:
+
+- HTTP 200 required
+- `Content-Length` within expected range
+- optional `Content-Type` sanity
+- fetch checksum or compute hash
+- compare against local built artifact hash
+
+Example preflight:
+- local built binary SHA256 = X
+- HEAD/GET on staging URL
+- verify server content SHA256 = X
+
+### 4) Add post-download validation on pod
+rc-sentry should verify:
+- status code is 200
+- downloaded byte count matches expected
+- SHA256 matches expected
+- reject HTML/text payloads
+
+This is key. A 335-byte HTML file should never be accepted as a binary candidate.
+
+### 5) Make artifact URLs content-addressed
+Use names like:
+```text
+race-control_<build-id>_<sha256>.exe
+```
+Then both humans and code can detect mismatches immediately.
+
+---
+
+# Problem 3: Sentry service key mismatch
+
+## Root cause
+Authentication material drifted:
+
+- server `racecontrol.toml` had one key
+- pods had a different `RCSENTRY_SERVICE_KEY`
+
+There is no deploy-time enforced source of truth, so secrets/config diverged over time. The first indication was runtime `unauthorized`.
+
+## Pattern class
+**Yes â€” recurring pattern class.**
+
+This is classic **configuration drift / secret drift**.
+
+Any environment with:
+- duplicated config values
+- no central authority
+- no convergence mechanism
+will repeat this issue.
+
+## Permanent code / infrastructure fix
+
+### 1) Establish a single source of truth for the service key
+The key must live in exactly one authoritative place, e.g.:
+
+- a central config repo with generated outputs
+- a secrets manager
+- a signed env/config bundle distributed to all nodes
+
+Do not hand-edit server and pod configs independently.
+
+### 2) Make deploy enforce configuration convergence before rollout
+Add a pre-deploy step that checks every targetâ€™s effective key fingerprint.
+
+Example:
+- deploy controller asks each rc-sentry for auth config fingerprint or version
+- compares to desired config
+- if mismatch, deploy first updates config, restarts rc-sentry if needed, then continues
+
+Do not discover auth drift only by failed binary execution requests.
+
+### 3) Version and distribute config as code
+Store desired configuration in source control or a generated artifact:
+
+- `env.production.json` or templated config bundle
+- contains key references, not ad hoc machine-local edits
+- deployment tool pushes the same resolved config to:
+  - server
+  - pods
+  - POS
+  - VPS as needed
+
+### 4) Add a dedicated auth health endpoint / preflight auth check
+Before rollout, the deploy controller should perform a cheap authenticated no-op call to every target. If auth fails:
+- classify as `AUTH_FAILED`
+- stop before attempting binary swaps
+
+### 5) Rotate keys through controlled rollout logic
+If key changes are required, support a dual-key overlap window:
+- current key
+- next key
+Then rotate all nodes safely, remove old key after convergence.
+
+This prevents mass lockout during deploy.
+
+---
+
+# Problem 4: Server binary swap â€” watchdog restarted old binary
+
+## Root cause
+The deploy performed a file swap while an external watchdog/scheduler was still actively managing the process. That created a race:
+
+1. new binary copied in
+2. old/current names manipulated
+3. schtasks used to start process
+4. watchdog detected process state and restarted old binary or otherwise interfered
+5. server came up reporting old `build_id`
+
+So the swap was not **atomic at the service-management level** even if the file rename sequence looked reasonable. The process supervisorâ€™s desired state was not coordinated with the deploy transaction.
+
+## Pattern class
+**Yes â€” recurring pattern class.**
+
+This is a **service supervisor / watchdog race during in-place binary replacement** issue.
+
+Common in systems where:
+- one thing deploys binaries
+- another thing restarts them
+- no lock/maintenance mode exists
+
+## Permanent code / infrastructure fix
+
+### 1) Make deploy go through one owner of process lifecycle
+The deploy system and the watchdog must not compete.
+
+Permanent fix options, in order of preference:
+
+#### Preferred: use a proper Windows service manager
+Run race control as a Windows Service managed by SCM/NSSM/WinSW, and deploy via a controlled stop-update-start sequence.
+
+Deploy flow:
+1. stop service
+2. wait for process fully exited
+3. replace binary/artifact directory
+4. start service
+5. verify reported build_id
+
+No parallel watchdog behavior.
+
+#### If watchdog must remain:
+Add a **maintenance/deploy mode** handshake
+Before swap:
+- set a sentinel like `deploy.lock` or maintenance flag recognized by watchdog
+- watchdog suppresses restarts while lock is present
+- deploy stops process, swaps binary, starts new one, verifies build id
+- clears lock
+
+The watchdog must explicitly honor this.
+
+### 2) Use versioned release directories, not in-place binary renames
+Instead of renaming individual exe files in the live folder, deploy releases like:
+
+```text
+C:\racecontrol\releases\20260329-153012\
+C:\racecontrol\current -> points to selected release
+```
+
+On Windows, if symlinks are undesirable, use:
+- config file pointing to active release
+- service wrapper configured to launch current release path
+
+Then deploy becomes:
+1. copy new release to new directory
+2. stop service
+3. update pointer/config to new release
+4. start service
+5. verify build_id
+6. rollback by repointing if needed
+
+This is much safer and idempotent.
+
+### 3) Require positive post-start identity verification
+After restart:
+- query server `/version` or build_id endpoint
+- if build_id != expected, deploy is failed
+- automatically stop and rollback or retry
+
+This should be mandatory, not manual.
+
+### 4) Add process ownership checks
+The deploy controller should verify:
+- which PID is running
+- executable path of that PID
+- command line / file hash if possible
+
+Not just â€œservice is running,â€? but â€œcorrect binary is running.â€?
+
+### 5) Move from schtasks start hack to deterministic service control
+`schtasks` is a weak substitute for app lifecycle management here. Use:
+- Windows Service
+- NSSM
+- WinSW
+- or a custom launcher that supports maintenance locks and release selection
+
+---
+
+# Problem 5: PowerShell script LF line endings
+
+## Root cause
+A `.ps1` script was written with Unix LF line endings, and PowerShell on Windows parsed it incorrectly, producing a `missing terminator` error. The deploy pipeline assumed text output tooling would produce Windows-compatible PowerShell scripts, but no normalization or encoding policy was enforced.
+
+This is also likely tied to how the script was generated by the â€œWrite toolâ€? rather than authored/stored through a Windows-aware path.
+
+## Pattern class
+**Yes â€” recurring pattern class.**
+
+This is a **cross-platform text generation / newline / encoding incompatibility** issue.
+
+It will recur any time:
+- scripts are generated on Unix-ish tooling
+- executed on Windows PowerShell
+- line endings/encoding are not normalized
+
+## Permanent code / infrastructure fix
+
+### 1) Stop generating ad hoc `.ps1` files with uncontrolled formatting
+Prefer one of these:
+
+#### Best:
+Use `powershell -EncodedCommand ...`
+For short automation steps, avoid temp script files entirely.
+
+#### Or:
+Store checked-in `.ps1` templates in repo with enforced CRLF and known encoding.
+
+#### Or:
+Generate scripts through a Windows-aware writer that explicitly sets:
+- CRLF line endings
+- UTF-8 with BOM if needed for compatibility, or a tested encoding standard
+
+### 2) Enforce line ending policy in repo
+Add `.gitattributes` rules for PowerShell:
+
+```gitattributes
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+```
+
+This ensures checked-in scripts normalize correctly.
+
+### 3) Add deploy-side normalization before execution
+If a script is transferred/generated dynamically, normalize it before execution:
+
+- convert LF â†’ CRLF
+- set expected encoding
+- optionally run a syntax parse check first
+
+This is idempotent and automatable.
+
+### 4) Add script lint/parse validation in pipeline
+Before running:
+```powershell
+[System.Management.Automation.Language.Parser]::ParseFile(...)
+```
+or equivalent syntax check.
+
+That catches malformed scripts before remote execution.
+
+### 5) Prefer structured remote commands over temp script files
+Since you already have rc-sentry, extend it to accept structured operations rather than shelling out generated script blobs. Example:
+- download file
+- verify hash
+- stop process
+- swap release
+- start service
+
+That reduces dependence on fragile script text generation entirely.
+
+---
+
+# Cross-cutting concerns
+
+These problems are not isolated. They point to a few systemic weaknesses.
+
+## 1) No explicit deploy state model
+The pipeline seems to infer state from ad hoc command outcomes. That causes:
+- booting mistaken for down
+- auth mismatch discovered late
+- wrong binary served not detected
+- old binary restart not recognized until manual inspection
+
+### Fix
+Implement a real deploy state machine with explicit phases:
+
+1. build artifact
+2. publish artifact
+3. verify artifact availability + checksum
+4. verify target reachability
+5. verify target auth/config convergence
+6. place target in maintenance
+7. deploy release
+8. restart via single owner
+9. verify running build_id/hash
+10. clear maintenance
+11. report success/failure per node
+
+---
+
+## 2) Missing end-to-end artifact identity verification
+The system trusted:
+- local build output
+- ad hoc HTTP server
+- remote download
+- restart result
+
+without a cryptographic identity check across the chain.
+
+### Fix
+Every deploy should carry:
+- `build_id`
+- SHA256
+- byte size
+
+And every stage should validate them:
+- build output
+- staging server
+- rc-sentry download
+- running process version/build_id
+
+---
+
+## 3) Too much shell fragility
+Git Bash + Windows + backgrounding + inline scripting is a high-friction mix.
+
+### Fix
+Reduce shell dependence:
+- use explicit process-launch APIs
+- use PowerShell `Start-Process` or native service tools on Windows
+- move deploy logic into rc-sentry or a dedicated controller
+- avoid shell semantics for critical path operations
+
+---
+
+## 4) No configuration convergence guarantees
+Secrets and config drift are being found at runtime.
+
+### Fix
+Treat config as versioned, centrally managed deploy artifacts.
+Preflight must validate:
+- auth key fingerprint
+- rc-sentry version
+- expected environment/config version
+
+---
+
+## 5) No supervisor coordination / no transactional deploy
+Binary replacement is happening outside the process managerâ€™s control.
+
+### Fix
+Use one lifecycle authority plus deploy lock/maintenance semantics. Release directories + controlled restart + verification + rollback.
+
+---
+
+## 6) Weak observability and validation
+Several failures were only detected manually:
+- wrong served directory
+- HTML instead of binary
+- old build after restart
+
+### Fix
+Emit structured logs and machine-readable status at each step:
+- download URL
+- HTTP status
+- byte count
+- SHA256
+- auth result
+- PID
+- exe path
+- running build_id
+
+And fail fast automatically when expectations mismatch.
+
+---
+
+# Recommended permanent architecture
+
+A durable solution for this environment would be:
+
+## On James machine or VPS
+Run a small **artifact publisher** instead of ad hoc `python -m http.server`:
+- immutable artifact paths
+- checksum endpoint
+- metadata endpoint
+
+## In rc-sentry
+Add first-class operations:
+- `/health`
+- `/auth-check`
+- `/download-and-verify`
+- `/enter-maintenance`
+- `/deploy-release`
+- `/start-service`
+- `/running-version`
+- `/exit-maintenance`
+
+Each should return structured JSON.
+
+## On server/pods
+Use:
+- release directories
+- one lifecycle manager
+- maintenance lock respected by watchdog
+- build_id/version endpoint
+
+## In deploy controller
+Implement:
+- retry/backoff readiness checks for 30â€“120s boot windows
+- preflight auth/config convergence
+- artifact checksum validation
+- post-start version verification
+- idempotent re-run behavior
+
+---
+
+# Concise per-problem summary
+
+## 1. False â€œpowered offâ€?
+- **Root cause:** one-shot, short-timeout probes misclassified booting pods as down.
+- **Pattern:** recurring readiness/transient-state bug.
+- **Permanent fix:** retry/backoff stateful readiness checks over 180s; distinguish booting vs down; no assumption-based aborts.
+
+## 2. HTTP server wrong directory
+- **Root cause:** Git Bash backgrounding made Python server serve wrong cwd; no artifact validation.
+- **Pattern:** recurring shell cwd/process-launch + missing integrity checks.
+- **Permanent fix:** explicit `--directory`; preferably dedicated artifact server; mandatory URL/content-length/SHA256 verification before and after download.
+
+## 3. Service key mismatch
+- **Root cause:** secret/config drift between server and pods.
+- **Pattern:** recurring configuration drift.
+- **Permanent fix:** single source of truth for key; deploy-time config convergence and auth preflight; versioned config distribution.
+
+## 4. Old binary restarted by watchdog
+- **Root cause:** deploy and watchdog raced over process lifecycle during swap.
+- **Pattern:** recurring supervisor/deploy coordination failure.
+- **Permanent fix:** one owner of lifecycle; maintenance lock; Windows service manager; versioned release directories; verify running build_id after start.
+
+## 5. Power

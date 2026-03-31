@@ -1,0 +1,246 @@
+
+---CONTENT---
+```json
+[
+  {
+    "ID": "RECOV-01",
+    "Severity": "P1",
+    "Title": "Race Condition: Concurrent Write to MAINTENANCE_MODE Sentinel",
+    "Failure Scenario": "rc-watchdog and rc-sentry both detect a failure simultaneously and attempt to write the MAINTENANCE_MODE sentinel file. One process overwrites the other's JSON timestamp. When auto-clear runs, only one clears, leaving the other stale. The remaining process may re-enter maintenance mode incorrectly, blocking pod recovery indefinitely.",
+    "Permanent Fix": "Use atomic file write with exclusive file lock: write to a temporary file in the same directory, then atomic move/rename with exclusive access. Use named mutex (`CreateMutexW`) named `MAINTENANCE_MODE_MUTEX` to serialize access across processes.",
+    "Binary": "rc-watchdog, rc-sentry"
+  },
+  {
+    "ID": "RECOV-02",
+    "Severity": "P1",
+    "Title": "Sentinel File Deletion Race in start-rcagent.bat Causes False Recovery Suppression",
+    "Failure Scenario": "start-rcagent.bat deletes MAINTENANCE_MODE but rc-sentry recreates it immediately afterward due to its own restart tracker state. rc-watchdog sees MAINTENANCE_MODE and skips agent spawn, even though system was just booted cleanly. Pod remains in limbo.",
+    "Permanent Fix": "Replace file-based sentinels with registry keys under `HKEY_LOCAL_MACHINE\\SOFTWARE\\rc-recovery\\` using `RegSetValueEx` with synchronization via mutex. Registry operations are atomic and better suited for inter-process coordination on Windows.",
+    "Binary": "rc-sentry, rc-watchdog, start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-03",
+    "Severity": "P1",
+    "Title": "Binary Swap Is Not Atomic and Susceptible to Power Failure Corruption",
+    "Failure Scenario": "During binary swap in start-rcagent.bat, if power fails between deleting old binary and copying new one, system boots with no rc-agent.exe. No fallback mechanism exists.",
+    "Permanent Fix": "Implement A/B binary layout: maintain `rc-agent-v1.exe`, `rc-agent-v2.exe`, and a symlink or launcher that reads `active_version` registry key. Swap by updating key + moving files without deletion until success. Use transactional NTFS (TxF) if available, otherwise fallback to atomic rename pattern.",
+    "Binary": "start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-04",
+    "Severity": "P1",
+    "Title": "Session 1 Token Invalid or Missing During spawn_in_session1()",
+    "Failure Scenario": "User logs out, screen locked, or RDP session disconnected. `WTSQueryUserToken` returns ERROR_NONE_MAPPED. spawn_in_session1 fails silently. rc-agent never starts.",
+    "Permanent Fix": "Add retry logic with fallback: On spawn failure, attempt to restart via `winlogon`-triggered task (via `schtasks /run`) or use `LogonUser` with service account + `CreateProcessAsUser`. Log error and trigger fallback healing via rc-sentry.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-05",
+    "Severity": "P1",
+    "Title": "Clock Drift Causes Incorrect MAINTENANCE_MODE Expiry",
+    "Failure Scenario": "System clock drifts forward or backward >30 minutes. JSON epoch in MAINTENANCE_MODE is interpreted incorrectly. Mode expires too early or lingers for hours, allowing uncontrolled restart attempts.",
+    "Permanent Fix": "Use monotonic time for internal tracking (e.g., `GetTickCount64`). When writing MAINTENANCE_MODE, record both `realtime_epoch` and `boottime_ticks`. On read, validate against current boot session via `NtQuerySystemInformation(SystemBootTime)` to reject stale timestamps from prior boots.",
+    "Binary": "rc-watchdog, rc-sentry"
+  },
+  {
+    "ID": "RECOV-06",
+    "Severity": "P1",
+    "Title": "File Handle Leak in rc-watchdog on Failed spawn_in_session1",
+    "Failure Scenario": "WTSQueryUserToken succeeds, returns `HANDLE hToken`, but CreateProcessAsUserW fails. Token handle is not closed (CloseHandle missing). After ~2k restarts, system runs out of handles and crashes.",
+    "Permanent Fix": "Wrap token handle in RAII style (Rust `Drop` trait). Always `CloseHandle` in scope or on error. Use `scopeguard` or `defer!` macro to guarantee cleanup.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-07",
+    "Severity": "P1",
+    "Title": "rc-sentry /exec Endpoint Enables Recursive Self-Destruction",
+    "Failure Scenario": "Malicious or buggy orchestration sends `/exec kill rc-sentry`. rc-sentry kills itself, leaving watchdog unassisted. rc-watchdog may fail to detect due to 5s polling delay. Pod has no fallback.",
+    "Permanent Fix": "Whitelist allowed commands in /exec. Disallow killing rc-sentry or rc-watchdog. Use Windows Job Objects to isolate spawned processes and prevent `TerminateProcess` on self.",
+    "Binary": "rc-sentry"
+  },
+  {
+    "ID": "RECOV-08",
+    "Severity": "P1",
+    "Title": "Antivirus Quarantines Newly Swapped rc-agent.exe on Startup",
+    "Failure Scenario": "SHA256 changes on update. AV flags new binary as suspicious. start-rcagent.bat swaps in new binary but it's immediately quarantined. rc-watchdog fails health check and loops spawn.",
+    "Permanent Fix": "Sign all binaries with code-signing certificate. Add delay after copy + check `C:\\ProgramData\\Microsoft\\Windows Defender\\Quarantine\\` or WMI `AntivirusProduct` status. Submit hashes to AV allowlist via API (if available).",
+    "Binary": "start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-09",
+    "Severity": "P1",
+    "Title": "Windows Update Reboot Interrupts Binary Swap",
+    "Failure Scenario": "Windows Update forces reboot during start-rcagent.bat execution. Partial binary swap leaves corrupted exe. Post-reboot spawn fails, no fallback version exists.",
+    "Permanent Fix": "Disable automatic reboots via Group Policy or `NoAutoRebootWithLoggedOnUsers`. Schedule updates during maintenance windows. Use robust A/B binary layout to ensure at least one valid version always exists.",
+    "Binary": "start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-10",
+    "Severity": "P2",
+    "Title": "rc-sentry and rc-watchdog Both Trigger Maintenance Mode on Boot Storm",
+    "Failure Scenario": "All pods reboot simultaneously. Rapid restarts trigger both rc-watchdog and rc-sentry RestartTracker thresholds. Double-trigger causes prolonged maintenance windows beyond intended.",
+    "Permanent Fix": "Global cooldown: when entering maintenance mode, write `LAST_MAINT_TRIGGER={source}` and enforce 5-minute cooldown before re-entry. Reset after 30 mins of stability.",
+    "Binary": "rc-watchdog, rc-sentry"
+  },
+  {
+    "ID": "RECOV-11",
+    "Severity": "P2",
+    "Title": "Disk Full Causes Sentinel Write Failure and Recovery Deadlock",
+    "Failure Scenario": "Disk is full. rc-sentry cannot write MAINTENANCE_MODE. RestartTracker continues retrying. rc-watchdog sees no sentinel, attempts spawn, fails due to no disk space (cannot write logs, temp files). Loop repeats.",
+    "Permanent Fix": "Pre-flight check: before any sentinel write, verify ≥100MB free. If not, log event and halt restart attempts for 10m. Trigger disk cleanup job.",
+    "Binary": "rc-sentry, rc-watchdog"
+  },
+  {
+    "ID": "RECOV-12",
+    "Severity": "P2",
+    "Title": "Windows Service Stop Command Ignored Due to Thread Starvation",
+    "Failure Scenario": "rc-watchdog main loop spins at 5s interval but is stuck in I/O (e.g., network hang on HTTP check). SERVICE_CONTROL_STOP never processed. `net stop` hangs, blocking updates.",
+    "Permanent Fix": "Use async runtime (e.g., Tokio) with bounded timeout on all I/O. Poll service control via `RegisterServiceCtrlHandlerEx` on separate thread or via timer.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-13",
+    "Severity": "P2",
+    "Title": "Tailscale or Network Down Causes False rc-agent Health Failure",
+    "Failure Scenario": "Tailscale disconnects. rc-agent /health reports unhealthy due to disconnected WebSocket. rc-sentry kills rc-agent. Network flapping causes continuous cycle.",
+    "Permanent Fix": "Split health checks: network-dependent (WS) and local liveness (process + HTTP server). Only act on local liveness. Delegate network healing to separate daemon.",
+    "Binary": "rc-sentry"
+  },
+  {
+    "ID": "RECOV-14",
+    "Severity": "P2",
+    "Title": "Concurrent start-rcagent.bat Execution Causes Bloatware Kill Contention",
+    "Failure Scenario": "Multiple users or scripts run start-rcagent.bat simultaneously. Taskkill commands race, missing processes. Some bloatware survives, consumes resources.",
+    "Permanent Fix": "Acquire named mutex at start of batch script using `powershell -c \"try { [System.Threading.Mutex]::OpenExisting('RC_AGENT_BOOT') } catch { exit 1 }\"` or create one. Exit if already held.",
+    "Binary": "start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-15",
+    "Severity": "P2",
+    "Title": "HANDLE Leak in Sentinel Watcher (notify lib)",
+    "Failure Scenario": "rc-agent uses notify to watch sentinel directory. On Windows, `ReadDirectoryChangesW` handles are not closed properly on error or reload. After days, handles exhaust, crash.",
+    "Permanent Fix": "Ensure `Watcher::new()` drops cleanly. Use scoped watchers and wrap in `Arc<Mutex<>>` with explicit shutdown. Add periodic health check on watcher thread.",
+    "Binary": "rc-agent"
+  },
+  {
+    "ID": "RECOV-16",
+    "Severity": "P2",
+    "Title": "rc-sentry Fails to Clear MAINTENANCE_MODE on JSON Parse Error",
+    "Failure Scenario": "Corrupted MAINTENANCE_MODE JSON (truncated, invalid UTF-16). rc-sentry crashes in loop, cannot clear. rc-watchdog sees sentinel and refuses spawn.",
+    "Permanent Fix": "Wrap JSON read in `try_parse_with_recovery()` that on failure, backs up file, clears sentinel, logs error, and proceeds. Idempotent clear on any parse fail.",
+    "Binary": "rc-sentry"
+  },
+  {
+    "ID": "RECOV-17",
+    "Severity": "P2",
+    "Title": "Power Settings Reset on Windows Update or Driver Change",
+    "Failure Scenario": "Windows Update reinstalls GPU drivers, resets power plan to 'Balanced'. GPU clock throttles. Game performance tanks. start-rcagent.bat not re-run.",
+    "Permanent Fix": "rc-watchdog runs powercfg check every 10m. Enforce plan by GUID, not name. Persist via scheduled task on 'power plan change' WMI event.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-18",
+    "Severity": "P2",
+    "Title": "Cascading Pod Failures Due to Network Storm",
+    "Failure Scenario": "One pod's reboot triggers broadcast storm (ARP, SSDP). Switch CPU spikes. Other pods lose network, fail health checks, all enter recovery. Overload central services.",
+    "Permanent Fix": "Add jitter to health check intervals (5s ± 2s). Throttle maximum concurrent pod reboots cluster-wide via coordinator (etcd/zk).",
+    "Binary": "rc-sentry, rc-watchdog"
+  },
+  {
+    "ID": "RECOV-19",
+    "Severity": "P2",
+    "Title": "rc-agent Binary Swap While in Use Causes ACCESS_DENIED",
+    "Failure Scenario": "start-rcagent.bat tries to overwrite rc-agent.exe while rc-watchdog is reading it for SHA256. Access denied. Swap fails. No agent started.",
+    "Permanent Fix": "Copy new binary to `rc-agent-new.exe`, rename old to `rc-agent-old.exe`, then rename new to `rc-agent.exe`. Delete old after success.",
+    "Binary": "start-rcagent.bat"
+  },
+  {
+    "ID": "RECOV-20",
+    "Severity": "P2",
+    "Title": "rc-watchdog Ignores rc-agent Crash if HTTP Check Is Skipped Due to Grace Period",
+    "Failure Scenario": "rc-agent crashes right after rc-watchdog's HTTP health check. Next check is 5s away. But crash occurred during 30s self-grace window. rc-watchdog ignores crash because it assumes graceful exit.",
+    "Permanent Fix": "Track rc-agent PID. On next poll, if PID missing and no GRACEFUL_RELAUNCH sentinel, treat as crash regardless of grace window.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-21",
+    "Severity": "P3",
+    "Title": "Sentinel File Name Case Sensitivity on Case-Preserving Filesystem",
+    "Failure Scenario": "One component writes `maintenance_mode`, another checks `MAINTENANCE_MODE`. On NTFS, files are preserved in case but compared case-insensitively. However, tools like PowerShell or WSL may create conflicting variants.",
+    "Permanent Fix": "Canonicalize sentinel names to uppercase. Validate on read. Reject unexpected casing.",
+    "Binary": "rc-watchdog, rc-sentry, rc-agent"
+  },
+  {
+    "ID": "RECOV-22",
+    "Severity": "P1",
+    "Title": "rc-sentry Misinterprets Partial HTTP Response as Health Failure",
+    "Failure Scenario": "rc-agent is slow (GC, IO), takes >2s to respond. rc-sentry HTTP client times out at 1s. Counts as failure. After 3, triggers kill. Causes thrashing under load.",
+    "Permanent Fix": "Set HTTP timeout to 10s. Add backoff between polls. Only count consecutive failures if response is 5xx or connection refused (not timeout).",
+    "Binary": "rc-sentry"
+  },
+  {
+    "ID": "RECOV-23",
+    "Severity": "P2",
+    "Title": "Binary SHA256 Mismatch Check Fails on Memory-Mapped Executable",
+    "Failure Scenario": "rc-agent.exe is memory-mapped during hash check. File is locked. rc-watchdog fails to read, assumes corruption, triggers rollback. Unnecessary rollback occurs.",
+    "Permanent Fix": "Use `CreateFile` with `FILE_SHARE_READ | FILE_SHARE_WRITE` and retry on `ERROR_SHARING_VIOLATION`. Fallback to version resource or digital signature hash if file lock persists.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-24",
+    "Severity": "P1",
+    "Title": "MMA Diagnosis Loop During Actual Maintenance",
+    "Failure Scenario": "rc-watchdog enters MMA diagnosis after 3 restarts. But system is in scheduled maintenance with MAINTENANCE_MODE set. MMA runs anyway, interferes with ops.",
+    "Permanent Fix": "Skip MMA diagnosis if MAINTENANCE_MODE exists and is valid (timestamp within 30 min). Respect maintenance state.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-25",
+    "Severity": "P2",
+    "Title": "rc-agent Fails to Report Sentinel Change Due to Notify Queue Overflow",
+    "Failure Scenario": "High-frequency sentinel changes (debugging) overflow OS notify buffer. Changes are lost. rc-agent server state is stale.",
+    "Permanent Fix": "Use recursive polling fallback every 10s if notify indicates overflow. Log overflow events.",
+    "Binary": "rc-agent"
+  },
+  {
+    "ID": "RECOV-26",
+    "Severity": "P2",
+    "Title": "Orphaned rc-agent Instance After spawn_in_session1() Race",
+    "Failure Scenario": "rc-watchdog spawns rc-agent. Before it fully starts, another watchdog cycle begins and spawns a second instance. Two agents run, corrupting state.",
+    "Permanent Fix": "Use named mutex (`RC_AGENT_INSTANCE`) acquired by rc-agent on startup. Exit immediately if held.",
+    "Binary": "rc-agent"
+  },
+  {
+    "ID": "RECOV-27",
+    "Severity": "P1",
+    "Title": "Windows Service Host Crashes, Taking Down rc-watchdog and rc-sentry",
+    "Failure Scenario": "svchost.exe hosting rc-watchdog crashes (bug, AV, exploit). Both services terminate. No recovery agent remains.",
+    "Permanent Fix": "Run rc-watchdog as standalone executable under LocalSystem, not shared svchost. Use `--service` mode and register via `sc create type= own`.",
+    "Binary": "rc-watchdog"
+  },
+  {
+    "ID": "RECOV-28",
+    "Severity": "P2",
+    "Title": "Time Skew Between JSON TTL and System Clock After Wake from Hibernate",
+    "Failure Scenario": "Pod resumes from hibernation. System clock jumps forward 2 hours. rc-watchdog reads MAINTENANCE_MODE with timestamp now in 'past', but it was written pre-hibernate. Incorrectly clears it.",
+    "Permanent Fix": "Use boot-unique ID (stored in registry on boot) to tag MAINTENANCE_MODE. On read, if boot ID differs, ignore sentinel.",
+    "Binary": "rc-watchdog, rc-sentry"
+  },
+  {
+    "ID": "RECOV-29",
+    "Severity": "P3",
+    "Title": "Unlocalized Error Messages in Sentinel Files Corrupt JSON",
+    "Failure Scenario": "rc-sentry writes error message in French or with emoji. JSON becomes invalid. Parser fails. Sentinel not cleared.",
+    "Permanent Fix": "Serialize only structured data. No free-form strings in JSON. Use error codes mapped to messages on read.",
+    "Binary": "rc-sentry"
+  },
+  {
+    "ID": "RECOV-30",
+    "Severity": "P2",
+    "Title": "rc-agent HTTP Server Fails to Bind, Blocking Health Check",
+    "Failure Scenario": "Port 8090 is held by leftover process. rc-agent fails to start HTTP server. rc-watchdog detects no health endpoint, tries to respawn endlessly.",
+    "Permanent Fix": "On startup, rc-agent kills any process holding :8090. Use `netstat -ano | findstr` + `taskkill`. Retry bind 3 times.",
+    "Binary": "rc-agent"
+  }
+]
+```

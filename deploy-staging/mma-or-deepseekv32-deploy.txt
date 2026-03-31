@@ -1,0 +1,325 @@
+Based on the deploy pipeline audit, here are the root causes, pattern classifications, and permanent fixes for each problem:
+
+## **Problem 1: Pods falsely reported as 'powered off'**
+**Root Cause**: Inadequate boot detection with fixed 1-second timeout and no retry logic. AI assumed DOWN = powered off instead of DOWN = booting.
+**Pattern Class**: Insufficient state detection with false assumption cascading.
+**Permanent Fix**:
+```python
+# deploy.py - Boot readiness checker
+import asyncio
+import aiohttp
+from typing import List
+
+async def wait_for_pod_boot(pod_ip: str, max_wait: int = Discover this) -> bool:
+    """Exponential backoff with status validation"""
+    retries = 0
+    base_delay = 2
+    max_retries = 30  # ~120 seconds max
+    
+    while retries < max_retries:
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Check both connectivity AND service readiness
+                async with session.get(
+                    f"http://{pod_ip}:8091/health",
+                    timeout=aiohttp.ClientTimeout(total=3)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('status') == 'ready':  # Add health endpoint
+                            return True
+        except:
+            pass
+            
+        await asyncio.sleep(base_delay * (2 ** min(retries, 4)))
+        retries += 1
+    
+    return False
+
+async def verify_all_pods_ready(pod_ips: List[str]):
+    """Parallel boot detection with progress reporting"""
+    tasks = [wait_for_pod_boot(ip) for ip in pod_ips]
+    results = await asyncio.gather(*tasks)
+    
+    if not all(results):
+        raise DeploymentError("Pods failed to boot within timeout")
+```
+
+## **Problem 2: HTTP staging server wrong directory**
+**Root Cause**: Git Bash backgrounding (`&`) causing `cd` to only affect subshell, not server process.
+**Pattern Class**: Shell scripting race condition with environment isolation.
+**Permanent Fix**:
+```python
+# serve.py - Directory-locked HTTP server
+import http.server
+import socketserver
+import os
+from pathlib import Path
+import sys
+
+class DirectoryLockedHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP handler locked to specific directory"""
+    def __init__(self, *args, **kwargs):
+        self.base_directory = kwargs.pop('base_directory')
+        super().__init__(*args, **kwargs)
+    
+    def translate_path(self, path):
+        path = super().translate_path(path)
+        relpath = os.path.relpath(path, os.getcwd())
+        return os.path.join(self.base_directory, relpath)
+
+def serve_from_directory(directory: Path, port: int):
+    """Start HTTP server explicitly rooted at directory"""
+    os.chdir(directory)  # Explicit directory change
+    
+    handler = lambda *args: DirectoryLockedHTTPHandler(
+        *args, 
+        base_directory=str(directory)
+    )
+    
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        print(f"Serving {directory} at port {port}")
+        httpd.serve_forever()
+
+# Automated deployment script usage:
+if __name__ == "__main__":
+    staging_dir = Path(__file__).parent / "deploy-staging"
+    serve_from_directory(staging_dir, 18889)
+```
+
+## **Problem 3: Sentry service key mismatch**
+**Root Cause**: No single source of truth for keys, manual updates causing drift.
+**Pattern Class**: Configuration synchronization failure.
+**Permanent Fix**:
+```python
+# key_manager.py - Centralized key management
+import secrets
+import json
+from cryptography.fernet import Fernet
+from pathlib import Path
+
+class ServiceKeyManager:
+    SINGLE_SOURCE = Path("/mnt/shared/config/service_keys.json")
+    
+    @classmethod
+    def generate_or_load_keys(cls, force_regenerate: bool = False):
+        """Central key generation/retrieval"""
+        if cls.SINGLE_SOURCE.exists() and not force_regenerate:
+            with open(cls.SINGLE_SOURCE) as f:
+                return json.load(f)
+        
+        keys = {
+            "rc_sentry": secrets.token_hex(16),
+            "race_control": secrets.token_hex(16),
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Encrypt and store
+        cipher = Fernet(os.environ['CONFIG_KEY'])
+        encrypted = cipher.encrypt(json.dumps(keys).encode())
+        
+        cls.SINGLE_SOURCE.parent.mkdir(exist_ok=True)
+        cls.SINGLE_SOURCE.write_bytes(encrypted)
+        
+        return keys
+    
+    @classmethod
+    def deploy_keys_to_pods(cls, pod_ips: List[str]):
+        """Push keys to all pods simultaneously"""
+        keys = cls.generate_or_load_keys()
+        
+        for pod_ip in pod_ips:
+            deploy_pod_config(pod_ip, {
+                "RCSENTRY_SERVICE_KEY": keys["rc_sentry"],
+                "RACE_CONTROL_KEY": keys["race_control"]
+            })
+```
+
+## **Problem 4: Server binary swap - watchdog interference**
+**Root Cause**: Atomic swap failure with watchdog detecting incomplete state and restarting old binary.
+**Pattern Class**: Non-atomic deployment with monitoring interference.
+**Permanent Fix**:
+```powershell
+# deploy-server.ps1 - Atomic binary swap with watchdog coordination
+function Deploy-ServerBinary {
+    param(
+        [string]$BinaryPath,
+        [string]$TargetDir = "C:\racingpoint\server"
+    )
+    
+    $watchdogService = "RacingWatchdog"
+    $currentBinary = Join-Path $TargetDir "server-current.exe"
+    $newBinary = Join-Path $TargetDir "server-new.exe"
+    $oldBinary = Join-Path $TargetDir "server-old.exe"
+    
+    # 1. Stop watchdog FIRST
+    Stop-Service $watchdogService -Force
+    
+    # 2. Atomic three-way swap
+    [System.IO.File]::Move($currentBinary, $oldBinary, $true)
+    Copy-Item $BinaryPath $newBinary
+    [System.IO.File]::Move($newBinary, $currentBinary, $true)
+    
+    # 3. Clear watchdog sentinel
+    $sentinel = Join-Path $TargetDir "watchdog.lock"
+    if (Test-Path $sentinel) { Remove-Item $sentinel }
+    
+    # 4. Start with new binary
+    Start-Process $currentBinary -WorkingDirectory $TargetDir
+    
+    # 5. Restart watchdog AFTER successful start
+    Start-Service $watchdogService
+    
+    # 6. Verify new binary is running
+    $process = Get-Process | Where-Object { $_.Path -eq $currentBinary }
+    if (-not $process) {
+        throw "New binary failed to start"
+    }
+}
+```
+
+## **Problem 5: PowerShell LF line endings**
+**Root Cause**: Cross-platform line ending mismatch (Unix LF vs Windows CRLF).
+**Pattern Class**: Development environment/OS incompatibility.
+**Permanent Fix**:
+```yaml
+# .gitattributes - Enforce Windows line endings for PowerShell
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# pre-commit hook (/.git/hooks/pre-commit)
+#!/bin/bash
+# Convert PS1 files to CRLF on commit
+find . -name "*.ps1" -exec dos2unix -k {} \;
+```
+
+```powershell
+# ps1-validator.ps1 - Pre-deployment validation
+function Test-PowerShellScript {
+    param([string]$ScriptPath)
+    
+    $content = Get-Content -Raw $ScriptPath
+    if ($content -match "[^\r]\n") {
+        Write-Warning "Script $ScriptPath has Unix line endings"
+        # Auto-convert
+        $content -replace "(?<!\r)\n", "`r`n" | Set-Content $ScriptPath
+    }
+    
+    # Test parse
+    $errors = $null
+    [System.Management.Automation.PSParser]::Tokenize($content, [ref]$errors)
+    if ($errors.Count -gt 0) {
+        throw "PowerShell syntax error: $($errors[0].Message)"
+    }
+}
+```
+
+## **Cross-Cutting Concerns & Unified Solutions**
+
+### **1. Centralized Deployment Orchestrator**
+```python
+# deploy-orchestrator.py
+class DeploymentOrchestrator:
+    def __init__(self):
+        self.state = PersistentStateDB()  # SQLite for idempotence tracking
+        self.artifact_server = ArtifactServer()
+        self.key_manager = ServiceKeyManager()
+    
+    async def full_deploy(self, version: str):
+        # Idempotent deployment with state machine
+        if self.state.is_version_deployed(version):
+            return
+        
+        await self.artifact_server.ensure_running()
+        await self.key_manager.sync_keys()
+        await self.wait_for_pods_ready()
+        await self.deploy_to_pods(version)
+        await self.deploy_to_server(version)
+        await self.verify_deployment()
+        self.state.mark_deployed(version)
+```
+
+### **2. Immutable Artifact Registry**
+```python
+# artifact-registry.py
+class ArtifactRegistry:
+    REGISTRY_PATH = Path("/mnt/shared/artifacts")
+    
+    def store_artifact(self, binary: bytes, metadata: dict):
+        artifact_id = hashlib.sha256(binary).hexdigest()[:16]
+        path = self.REGISTRY_PATH / artifact_id
+        
+        with open(path, 'wb') as f:
+            f.write(binary)
+        
+        # Store metadata separately
+        meta_path = path.with_suffix('.json')
+        meta_path.write_text(json.dumps(metadata))
+        
+        return artifact_id
+    
+    def serve_artifact(self, artifact_id: str):
+        return self.REGISTRY_PATH / artifact_id
+```
+
+### **3. Unified Health & Readiness System**
+```go
+// rc-sentry enhancement - Add proper health endpoints
+func (s *Sentry) AddHealthEndpoints() {
+    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        status := s.GetStatus()  // Returns: "booting", "ready", "deploying"
+        json.NewEncoder(w).Encode(map[string]interface{}{
+            "status": status,
+            "build_id": s.buildID,
+            "service": "rc-sentry",
+            "boot_time": s.bootTime,
+        })
+    })
+    
+    http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+        if s.GetStatus() == "ready" {
+            w.WriteHeader(200)
+        } else {
+            w.WriteHeader(503)
+        }
+    })
+}
+```
+
+### **4. Deployment Validation Pipeline**
+```python
+# validation-pipeline.py
+class DeploymentValidator:
+    VALIDATIONS = [
+        LineEndingValidation(),
+        KeyConsistencyValidation(),
+        BinaryIntegrityValidation(),
+        ServiceHealthValidation(),
+        WatchdogCoordinationValidation()
+    ]
+    
+    def run_pre_deploy(self):
+        for validation in self.VALIDATIONS:
+            if not validation.run():
+                raise DeploymentValidationError(validation.name)
+```
+
+## **Infrastructure Improvements**
+
+1. **Shared Configuration Volume**: Mount `/mnt/shared/config` read-only to all pods and server for key/version synchronization.
+
+2. **Deployment State Database**: SQLite database tracking deployment states, versions, and last known good configurations.
+
+3. **Binary Integrity Verification**: SHA-256 checksums required for all binary transfers with automatic validation.
+
+4. **Watchdog Coordination Protocol**: Formal API between deployer and watchdog for handoff during updates.
+
+5. **Pod Boot Progress API**: Each pod exposes `/boot-progress` endpoint returning 0-100% during boot sequence.
+
+These fixes eliminate the recurring patterns by:
+- Removing timeout assumptions with proper boot detection
+- Eliminating shell race conditions with explicit directory locking
+- Centralizing configuration to prevent drift
+- Making swaps atomic with watchdog coordination
+- Enforcing platform-specific line endings in version control

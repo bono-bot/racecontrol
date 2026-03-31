@@ -40,7 +40,12 @@ Close all action loops in Meshed Intelligence so the venue self-heals end-to-end
   3. Every resolved issue (all tiers) is recorded in KB with problem signature, fix action, verification result, and timestamp -- KB lookup runs before any AI model call
   4. No more than 2 of 10 nodes are under simultaneous autonomous fix at any time (blast radius limiter enforced via DashMap + RAII FixGuard)
   5. Per-action circuit breaker trips at 40% fail rate with 2-minute cooldown, and every executor action carries an idempotency key (node + rule_version + incident_fingerprint)
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 273-01-PLAN.md — Event bus & FleetEvent types + broadcast wiring
+- [ ] 273-02-PLAN.md — Safety guardrails (blast radius, circuit breaker, idempotency)
+- [ ] 273-03-PLAN.md — KB-first gate & solution recording
+- [ ] 273-04-PLAN.md — Immediate fix & 30-second verification loop
 **UI hint**: no
 
 ### Phase 274: WhatsApp Escalation
@@ -170,7 +175,7 @@ Close all action loops in Meshed Intelligence so the venue self-heals end-to-end
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 273. Event Pipeline & Safety Foundation | 0/TBD | Not started | - |
+| 273. Event Pipeline & Safety Foundation | 0/4 | Planned | - |
 | 274. WhatsApp Escalation | 0/TBD | Not started | - |
 | 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
 | 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |

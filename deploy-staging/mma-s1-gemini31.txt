@@ -1,0 +1,66 @@
+Here is the debugging analysis and the step-by-step resolution for your racing simulator pods. 
+
+### 1. Why is the watchdog not restarting rc-agent despite it being down?
+**Root Cause:** A Windows Process Privilege Failure (`ERROR_PRIVILEGE_NOT_HELD`). 
+
+Because `rc-sentry.exe` was launched via the `HKLM\...\Run` key, it is currently running in **Session 1** under the context of the interactive user (`SIM1\user`). 
+
+However, your `session1_spawn.rs` code relies on `WTSQueryUserToken` and `CreateProcessAsUser`. Under Windows security boundaries, **only processes running as `SYSTEM` (Session 0)** possess the necessary `SE_TCB_NAME` (Act as part of the operating system) and `SE_ASSIGNPRIMARYTOKEN_NAME` privileges required to successfully execute these APIs. The watchdog is likely polling, detecting the failure, attempting the spawn, failing silently due to lack of privileges, and looping endlessly.
+
+### 2. What is the proper permanent fix?
+You must separate the architectural layers. Applications that need to *spawn* other apps across sessions using `WTSQueryUserToken` must be Windows Services.
+
+1. **Remove both batch scripts from the HKLM Run Key.** Relying on the Run key causes race conditions with Windows Explorer rendering, which is likely why `rc-agent` missed its initial startup.
+2. **Setup `rc-sentry.exe` as a SYSTEM Windows Service (Session 0).** 
+3. **Let the Service handle `rc-agent`.** When the pod boots, `rc-sentry` will start immediately in Session 0. Once auto-login completes and Session 1 is created, the `rc-sentry` watchdog will detect `rc-agent` is missing and securely "reach down" into Session 1 to spawn it correctly.
+
+### 3. How should auto-login be configured?
+Relying on a passwordless account without explicit registry keys is fragile; Windows Updates or network policy changes can break it. You must explicitly configure `AutoAdminLogon` in the registry.
+
+Ensure the user has a password assigned, then set the following registry values under:
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
+
+*   `AutoAdminLogon` (String): `"1"`
+*   `DefaultUserName` (String): `"user"`
+*   `DefaultDomainName` (String): `"SIM1"` *(or the local hostname)*
+*   `DefaultPassword` (String): `"[The Password]"`
+
+### 4. Should the RCWatchdog Windows service be installed? How?
+**Yes.** This is exactly how `rc-sentry.exe` is designed to be deployed. Because you have 8 pods and the `/exec` endpoint blocks the word `start` (and SSH state doesn't persist), we will use standard Windows Commands to create the service, set it to delayed auto-boot, and then simply reboot the pods to bypass the word blocklist.
+
+Execute the following commands across your 8 pods (you can wrap this in a `.bat` or send them sequentially via `/exec`):
+
+**Step A: Cleanup the broken HKLM Run state**
+```cmd
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v StartRCAgent /f
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v StartRCSentry /f
+```
+*(Note: Replace `StartRCAgent` / `StartRCSentry` with the exact naming of the registry values if they differ).*
+
+**Step B: Configure explicit Auto-Login**
+```cmd
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d "1" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName /t REG_SZ /d "user" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName /t REG_SZ /d "SIM1" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /t REG_SZ /d "YOUR_PASSWORD_HERE" /f
+```
+
+**Step C: Create the Windows Service (Session 0, SYSTEM)**
+*Note: The space after `binPath=` is required by `sc.exe` syntax.*
+```cmd
+sc create RCWatchdog binPath= "C:\RacingPoint\rc-sentry.exe" start= delayed-auto obj= LocalSystem DisplayName= "Racing Point Sentry Watchdog"
+```
+*(Using `delayed-auto` ensures Windows has fully booted and initiated the auto-login process prior to `rc-sentry` entering its 5-second polling loop).*
+
+**Step D: Reboot to bypass the "start" keyword block**
+Because you cannot send `net start` or `sc start` via the blocked `/exec` endpoint, you can utilize the `start= delayed-auto` logic by simply forcing a restart.
+```cmd
+shutdown /r /t 0
+```
+
+**What to expect on reboot:**
+1. Windows boots and auto-logs in `SIM1\user` to Session 1 cleanly.
+2. `RCWatchdog` (`rc-sentry.exe`) launches in Session 0 as SYSTEM.
+3. The watchdog checks for `rc-agent` health, sees it missing.
+4. Because it is running in Session 0 as SYSTEM, `WTSQueryUserToken` succeeds.
+5. `rc-agent.exe` gracefully pops up on the screen in Session 1.

@@ -1,0 +1,3203 @@
+//! Phase 2 (v29.0): Maintenance event data models.
+//!
+//! Core types for the unified maintenance event system — tracking self-heal
+//! attempts, staff interventions, predictive alerts, component RUL, and
+//! business metrics.  All monetary values use `_paise: i64`.
+
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum MaintenanceEventType {
+    SelfHealAttempted,
+    Tier1FixApplied,
+    PodHealerIntervention,
+    AIDiagnosisCompleted,
+    PredictiveAlert,
+    StaffMaintenanceScheduled,
+    StaffMaintenanceCompleted,
+    PartReplaced,
+    SoftwareUpdateApplied,
+    EmergencyShutdown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[serde(rename_all = "PascalCase")]
+pub enum Severity {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum ComponentType {
+    GPU,
+    CPU,
+    Memory,
+    Storage,
+    Network,
+    PowerSupply,
+    Cooling,
+    Peripherals,
+    Software,
+    OS,
+    Game,
+    ForceFeedback,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum ResolutionMethod {
+    AutoHealed(String),
+    ManualFix(String),
+    PartReplacement(String),
+    SoftwareUpdate(String),
+    Restart,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum TaskStatus {
+    Open,
+    Assigned,
+    InProgress,
+    PendingValidation,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum StaffRole {
+    Manager,
+    Technician,
+    FrontDesk,
+    GameMaster,
+    Cashier,
+}
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceEvent {
+    pub id: Uuid,
+    pub pod_id: Option<u8>,
+    pub event_type: MaintenanceEventType,
+    pub severity: Severity,
+    pub component: ComponentType,
+    pub description: String,
+    pub detected_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolution_method: Option<ResolutionMethod>,
+    pub source: String,
+    pub correlation_id: Option<Uuid>,
+    pub revenue_impact_paise: Option<i64>,
+    pub customers_affected: Option<u32>,
+    pub downtime_minutes: Option<u32>,
+    pub cost_estimate_paise: Option<i64>,
+    pub assigned_staff_id: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceTask {
+    pub id: Uuid,
+    pub title: String,
+    pub description: String,
+    pub pod_id: Option<u8>,
+    pub component: ComponentType,
+    pub priority: u8,
+    pub status: TaskStatus,
+    pub created_at: DateTime<Utc>,
+    pub due_by: Option<DateTime<Utc>>,
+    pub assigned_to: Option<String>,
+    pub source_event_id: Option<Uuid>,
+    pub before_metrics: Option<serde_json::Value>,
+    pub after_metrics: Option<serde_json::Value>,
+    pub cost_estimate_paise: Option<i64>,
+    pub actual_cost_paise: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceSummary {
+    pub total_events: u32,
+    pub by_severity: std::collections::HashMap<String, u32>,
+    pub by_type: std::collections::HashMap<String, u32>,
+    pub mttr_minutes: f64,
+    pub self_heal_rate: f64,
+    pub open_tasks: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Employee {
+    pub id: Uuid,
+    pub name: String,
+    pub role: StaffRole,
+    pub skills: Vec<String>,
+    pub hourly_rate_paise: i64,
+    pub phone: String,
+    pub is_active: bool,
+    pub face_enrollment_id: Option<String>,
+    pub hired_at: NaiveDate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyBusinessMetrics {
+    pub date: NaiveDate,
+    pub revenue_gaming_paise: i64,
+    pub revenue_cafe_paise: i64,
+    pub revenue_other_paise: i64,
+    pub expense_rent_paise: i64,
+    pub expense_utilities_paise: i64,
+    pub expense_salaries_paise: i64,
+    pub expense_maintenance_paise: i64,
+    pub expense_other_paise: i64,
+    pub sessions_count: u32,
+    pub occupancy_rate_pct: f32,
+    pub peak_occupancy_pct: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentRUL {
+    pub pod_id: u8,
+    pub component: ComponentType,
+    pub component_name: String,
+    pub rul_hours: f32,
+    pub rul_confidence: f32,
+    pub degradation_rate_per_day: f64,
+    pub last_updated: DateTime<Utc>,
+    pub method: String,
+    pub explanation: String,
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 (v29.0): Business intelligence
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EbitdaSummary {
+    pub total_revenue_paise: i64,
+    pub total_expenses_paise: i64,
+    pub ebitda_paise: i64,
+    pub days: u32,
+    pub avg_daily_ebitda_paise: i64,
+    pub best_day: Option<String>,
+    pub worst_day: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14 (v29.0): Attendance tracking
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceRecord {
+    pub id: Uuid,
+    pub employee_id: Uuid,
+    pub date: NaiveDate,
+    pub clock_in: Option<String>,
+    pub clock_out: Option<String>,
+    pub source: String,
+    pub hours_worked: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Phase 17 (v29.0): Payroll & labor cost
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayrollSummary {
+    pub year: i32,
+    pub month: u32,
+    pub total_hours: f64,
+    pub total_paise: i64,
+    pub by_employee: Vec<EmployeePayroll>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeePayroll {
+    pub employee_id: String,
+    pub name: String,
+    pub hours_worked: f64,
+    pub rate_paise: i64,
+    pub total_paise: i64,
+}
+// ---
+//! Phase 2 (v29.0): Maintenance event & task persistence (SQLite).
+//!
+//! CRUD operations for `maintenance_events` and `maintenance_tasks` tables,
+//! stored in the main `racecontrol.db` alongside billing/session data.
+
+use crate::maintenance_models::{
+    AttendanceRecord, ComponentType, DailyBusinessMetrics, EbitdaSummary, Employee,
+    EmployeePayroll, MaintenanceEvent, MaintenanceEventType, MaintenanceSummary, MaintenanceTask,
+    PayrollSummary, ResolutionMethod, Severity, StaffRole, TaskStatus,
+};
+use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Table creation
+// ---------------------------------------------------------------------------
+
+/// Create the maintenance tables if they don't already exist.
+pub async fn init_maintenance_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS maintenance_events (
+            id TEXT PRIMARY KEY,
+            pod_id INTEGER,
+            event_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            component TEXT NOT NULL,
+            description TEXT NOT NULL,
+            detected_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution_method TEXT,
+            source TEXT NOT NULL,
+            correlation_id TEXT,
+            revenue_impact_paise INTEGER,
+            customers_affected INTEGER,
+            downtime_minutes INTEGER,
+            cost_estimate_paise INTEGER,
+            assigned_staff_id TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}'
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_maint_events_pod ON maintenance_events(pod_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_maint_events_detected ON maintenance_events(detected_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS maintenance_tasks (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            pod_id INTEGER,
+            component TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 3,
+            status TEXT NOT NULL DEFAULT 'Open',
+            created_at TEXT NOT NULL,
+            due_by TEXT,
+            assigned_to TEXT,
+            source_event_id TEXT,
+            before_metrics TEXT,
+            after_metrics TEXT,
+            cost_estimate_paise INTEGER,
+            actual_cost_paise INTEGER
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_maint_tasks_status ON maintenance_tasks(status)",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("Maintenance tables initialized");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Events — insert / query / summary
+// ---------------------------------------------------------------------------
+
+/// Insert a new maintenance event.
+pub async fn insert_event(pool: &SqlitePool, event: &MaintenanceEvent) -> anyhow::Result<()> {
+    let event_type_str = serde_json::to_string(&event.event_type)?;
+    let severity_str = serde_json::to_string(&event.severity)?;
+    let component_str = serde_json::to_string(&event.component)?;
+    let resolution_str = event
+        .resolution_method
+        .as_ref()
+        .map(|r| serde_json::to_string(r))
+        .transpose()?;
+    let metadata_str = serde_json::to_string(&event.metadata)?;
+
+    sqlx::query(
+        "INSERT INTO maintenance_events
+            (id, pod_id, event_type, severity, component, description,
+             detected_at, resolved_at, resolution_method, source,
+             correlation_id, revenue_impact_paise, customers_affected,
+             downtime_minutes, cost_estimate_paise, assigned_staff_id, metadata)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+    )
+    .bind(event.id.to_string())
+    .bind(event.pod_id.map(|p| p as i64))
+    .bind(&event_type_str)
+    .bind(&severity_str)
+    .bind(&component_str)
+    .bind(&event.description)
+    .bind(event.detected_at.to_rfc3339())
+    .bind(event.resolved_at.map(|t| t.to_rfc3339()))
+    .bind(&resolution_str)
+    .bind(&event.source)
+    .bind(event.correlation_id.map(|u| u.to_string()))
+    .bind(event.revenue_impact_paise)
+    .bind(event.customers_affected.map(|c| c as i64))
+    .bind(event.downtime_minutes.map(|d| d as i64))
+    .bind(event.cost_estimate_paise)
+    .bind(&event.assigned_staff_id)
+    .bind(&metadata_str)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Query maintenance events with optional filters.
+pub async fn query_events(
+    pool: &SqlitePool,
+    pod_id: Option<u8>,
+    since: Option<DateTime<Utc>>,
+    limit: u32,
+) -> anyhow::Result<Vec<MaintenanceEvent>> {
+    // Build a simple dynamic query — SQLite doesn't have great dynamic support
+    // in sqlx, so we use a broad query and filter in Rust for simplicity.
+    let rows = sqlx::query_as::<_, EventRow>(
+        "SELECT id, pod_id, event_type, severity, component, description,
+                detected_at, resolved_at, resolution_method, source,
+                correlation_id, revenue_impact_paise, customers_affected,
+                downtime_minutes, cost_estimate_paise, assigned_staff_id, metadata
+         FROM maintenance_events
+         ORDER BY detected_at DESC
+         LIMIT ?1",
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await?;
+
+    let mut events = Vec::with_capacity(rows.len());
+    for row in rows {
+        let evt = row_to_event(row)?;
+        // Apply optional filters
+        if let Some(pid) = pod_id {
+            if evt.pod_id != Some(pid) {
+                continue;
+            }
+        }
+        if let Some(ref s) = since {
+            if evt.detected_at < *s {
+                continue;
+            }
+        }
+        events.push(evt);
+    }
+    Ok(events)
+}
+
+/// Get a summary of maintenance events (last 24h by default).
+pub async fn get_summary(pool: &SqlitePool) -> anyhow::Result<MaintenanceSummary> {
+    let since = Utc::now() - chrono::Duration::hours(24);
+
+    let rows = sqlx::query_as::<_, EventRow>(
+        "SELECT id, pod_id, event_type, severity, component, description,
+                detected_at, resolved_at, resolution_method, source,
+                correlation_id, revenue_impact_paise, customers_affected,
+                downtime_minutes, cost_estimate_paise, assigned_staff_id, metadata
+         FROM maintenance_events
+         WHERE detected_at >= ?1
+         ORDER BY detected_at DESC
+         LIMIT 5000",
+    )
+    .bind(since.to_rfc3339())
+    .fetch_all(pool)
+    .await?;
+
+    let total_events = rows.len() as u32;
+    let mut by_severity = std::collections::HashMap::<String, u32>::new();
+    let mut by_type = std::collections::HashMap::<String, u32>::new();
+    let mut resolved_count = 0u32;
+    let mut total_ttrs = 0f64;
+    let mut self_heal_count = 0u32;
+
+    for row in &rows {
+        // severity
+        let sev: Severity = serde_json::from_str(&row.severity).unwrap_or(Severity::Medium);
+        let sev_label = serde_json::to_string(&sev).unwrap_or_default().replace('"', "");
+        *by_severity.entry(sev_label).or_default() += 1;
+
+        // type
+        let etype: MaintenanceEventType = serde_json::from_str(&row.event_type)
+            .unwrap_or(MaintenanceEventType::SelfHealAttempted);
+        let type_label = serde_json::to_string(&etype).unwrap_or_default().replace('"', "");
+        *by_type.entry(type_label).or_default() += 1;
+
+        // MTTR
+        if let (Some(det), Some(res)) = (&row.detected_at_str, &row.resolved_at_str) {
+            if let (Ok(d), Ok(r)) = (
+                DateTime::parse_from_rfc3339(det),
+                DateTime::parse_from_rfc3339(res),
+            ) {
+                let mins = (r - d).num_minutes() as f64;
+                if mins >= 0.0 {
+                    total_ttrs += mins;
+                    resolved_count += 1;
+                }
+            }
+        }
+
+        // Self-heal
+        if let Some(ref rm) = row.resolution_method {
+            if let Ok(ResolutionMethod::AutoHealed(_)) = serde_json::from_str(rm) {
+                self_heal_count += 1;
+            }
+        }
+    }
+
+    let mttr_minutes = if resolved_count > 0 {
+        total_ttrs / resolved_count as f64
+    } else {
+        0.0
+    };
+    let self_heal_rate = if total_events > 0 {
+        self_heal_count as f64 / total_events as f64
+    } else {
+        0.0
+    };
+
+    // Open tasks
+    let open_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_tasks WHERE status IN ('Open','Assigned','InProgress')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    Ok(MaintenanceSummary {
+        total_events,
+        by_severity,
+        by_type,
+        mttr_minutes,
+        self_heal_rate,
+        open_tasks: open_row.0 as u32,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Tasks — insert / query / update
+// ---------------------------------------------------------------------------
+
+/// Insert a new maintenance task.
+pub async fn insert_task(pool: &SqlitePool, task: &MaintenanceTask) -> anyhow::Result<()> {
+    let component_str = serde_json::to_string(&task.component)?;
+    let status_str = serde_json::to_string(&task.status)?.replace('"', "");
+    let before_str = task
+        .before_metrics
+        .as_ref()
+        .map(|v| serde_json::to_string(v))
+        .transpose()?;
+    let after_str = task
+        .after_metrics
+        .as_ref()
+        .map(|v| serde_json::to_string(v))
+        .transpose()?;
+
+    sqlx::query(
+        "INSERT INTO maintenance_tasks
+            (id, title, description, pod_id, component, priority, status,
+             created_at, due_by, assigned_to, source_event_id,
+             before_metrics, after_metrics, cost_estimate_paise, actual_cost_paise)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+    )
+    .bind(task.id.to_string())
+    .bind(&task.title)
+    .bind(&task.description)
+    .bind(task.pod_id.map(|p| p as i64))
+    .bind(&component_str)
+    .bind(task.priority as i64)
+    .bind(&status_str)
+    .bind(task.created_at.to_rfc3339())
+    .bind(task.due_by.map(|t| t.to_rfc3339()))
+    .bind(&task.assigned_to)
+    .bind(task.source_event_id.map(|u| u.to_string()))
+    .bind(&before_str)
+    .bind(&after_str)
+    .bind(task.cost_estimate_paise)
+    .bind(task.actual_cost_paise)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Query maintenance tasks with optional status filter.
+pub async fn query_tasks(
+    pool: &SqlitePool,
+    status_filter: Option<&str>,
+    limit: u32,
+) -> anyhow::Result<Vec<MaintenanceTask>> {
+    let rows = sqlx::query_as::<_, TaskRow>(
+        "SELECT id, title, description, pod_id, component, priority, status,
+                created_at, due_by, assigned_to, source_event_id,
+                before_metrics, after_metrics, cost_estimate_paise, actual_cost_paise
+         FROM maintenance_tasks
+         ORDER BY priority ASC, created_at DESC
+         LIMIT ?1",
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await?;
+
+    let mut tasks = Vec::with_capacity(rows.len());
+    for row in rows {
+        let task = row_to_task(row)?;
+        if let Some(filter) = status_filter {
+            let status_str = serde_json::to_string(&task.status)?.replace('"', "");
+            if status_str != filter {
+                continue;
+            }
+        }
+        tasks.push(task);
+    }
+    Ok(tasks)
+}
+
+/// Update the status of a maintenance task.
+pub async fn update_task_status(
+    pool: &SqlitePool,
+    task_id: Uuid,
+    new_status: &TaskStatus,
+) -> anyhow::Result<bool> {
+    let status_str = serde_json::to_string(new_status)?.replace('"', "");
+    let result = sqlx::query(
+        "UPDATE maintenance_tasks SET status = ?1 WHERE id = ?2",
+    )
+    .bind(&status_str)
+    .bind(task_id.to_string())
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Internal row types (sqlx::FromRow)
+// ---------------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct EventRow {
+    id: String,
+    pod_id: Option<i64>,
+    event_type: String,
+    severity: String,
+    component: String,
+    description: String,
+    #[sqlx(rename = "detected_at")]
+    detected_at_str: Option<String>,
+    #[sqlx(rename = "resolved_at")]
+    resolved_at_str: Option<String>,
+    resolution_method: Option<String>,
+    source: String,
+    correlation_id: Option<String>,
+    revenue_impact_paise: Option<i64>,
+    customers_affected: Option<i64>,
+    downtime_minutes: Option<i64>,
+    cost_estimate_paise: Option<i64>,
+    assigned_staff_id: Option<String>,
+    metadata: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct TaskRow {
+    id: String,
+    title: String,
+    description: String,
+    pod_id: Option<i64>,
+    component: String,
+    priority: i64,
+    status: String,
+    #[sqlx(rename = "created_at")]
+    created_at_str: Option<String>,
+    #[sqlx(rename = "due_by")]
+    due_by_str: Option<String>,
+    assigned_to: Option<String>,
+    source_event_id: Option<String>,
+    before_metrics: Option<String>,
+    after_metrics: Option<String>,
+    cost_estimate_paise: Option<i64>,
+    actual_cost_paise: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------
+// Row → model conversions
+// ---------------------------------------------------------------------------
+
+fn row_to_event(row: EventRow) -> anyhow::Result<MaintenanceEvent> {
+    // P1-2: Log warning on date parse fallback instead of silent Utc::now()
+    let detected_at = match row.detected_at_str.as_deref() {
+        Some(s) => match DateTime::parse_from_rfc3339(s) {
+            Ok(d) => d.with_timezone(&Utc),
+            Err(e) => {
+                tracing::warn!(
+                    "maintenance_store: detected_at parse failed for event {}: '{}' — {}. Using Utc::now() fallback.",
+                    row.id, s, e
+                );
+                Utc::now()
+            }
+        },
+        None => {
+            tracing::warn!(
+                "maintenance_store: detected_at is NULL for event {}. Using Utc::now() fallback.",
+                row.id
+            );
+            Utc::now()
+        }
+    };
+
+    let resolved_at = row
+        .resolved_at_str
+        .as_deref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&Utc));
+
+    Ok(MaintenanceEvent {
+        id: Uuid::parse_str(&row.id)?,
+        // P1-1: Safe narrowing cast — clamp pod_id to 1-8 range
+        pod_id: row.pod_id.and_then(|p| {
+            u8::try_from(p.clamp(0, 255)).ok().map(|v| v.clamp(1, 8))
+        }),
+        event_type: serde_json::from_str(&row.event_type)?,
+        severity: serde_json::from_str(&row.severity)?,
+        component: serde_json::from_str(&row.component)?,
+        description: row.description,
+        detected_at,
+        resolved_at,
+        resolution_method: row
+            .resolution_method
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
+        source: row.source,
+        correlation_id: row
+            .correlation_id
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()?,
+        revenue_impact_paise: row.revenue_impact_paise,
+        // P1-1: Safe narrowing cast for customers_affected
+        customers_affected: row.customers_affected.map(|c| {
+            u32::try_from(c.max(0)).unwrap_or(u32::MAX)
+        }),
+        // P1-1: Safe narrowing cast for downtime_minutes
+        downtime_minutes: row.downtime_minutes.map(|d| {
+            u32::try_from(d.max(0)).unwrap_or(u32::MAX)
+        }),
+        cost_estimate_paise: row.cost_estimate_paise,
+        assigned_staff_id: row.assigned_staff_id,
+        metadata: serde_json::from_str(&row.metadata)?,
+    })
+}
+
+fn row_to_task(row: TaskRow) -> anyhow::Result<MaintenanceTask> {
+    // P1-2: Log warning on date parse fallback instead of silent Utc::now()
+    let created_at = match row.created_at_str.as_deref() {
+        Some(s) => match DateTime::parse_from_rfc3339(s) {
+            Ok(d) => d.with_timezone(&Utc),
+            Err(e) => {
+                tracing::warn!(
+                    "maintenance_store: created_at parse failed for task {}: '{}' — {}. Using Utc::now() fallback.",
+                    row.id, s, e
+                );
+                Utc::now()
+            }
+        },
+        None => {
+            tracing::warn!(
+                "maintenance_store: created_at is NULL for task {}. Using Utc::now() fallback.",
+                row.id
+            );
+            Utc::now()
+        }
+    };
+
+    let due_by = row
+        .due_by_str
+        .as_deref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&Utc));
+
+    // Wrap status string in quotes for JSON deserialization of enum variant
+    let status_json = format!("\"{}\"", row.status);
+
+    Ok(MaintenanceTask {
+        id: Uuid::parse_str(&row.id)?,
+        title: row.title,
+        description: row.description,
+        // P1-1: Safe narrowing cast — clamp pod_id to 1-8 range
+        pod_id: row.pod_id.and_then(|p| {
+            u8::try_from(p.clamp(0, 255)).ok().map(|v| v.clamp(1, 8))
+        }),
+        component: serde_json::from_str(&row.component)?,
+        // P1-1: Safe narrowing cast — clamp priority to 0-100
+        priority: u8::try_from(row.priority.clamp(0, 100)).unwrap_or(50),
+        status: serde_json::from_str(&status_json)?,
+        created_at,
+        due_by,
+        assigned_to: row.assigned_to,
+        source_event_id: row
+            .source_event_id
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()?,
+        before_metrics: row
+            .before_metrics
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
+        after_metrics: row
+            .after_metrics
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
+        cost_estimate_paise: row.cost_estimate_paise,
+        actual_cost_paise: row.actual_cost_paise,
+    })
+}
+
+// ===========================================================================
+// Phase 11 (v29.0): Business metrics — tables, upsert, query, EBITDA
+// ===========================================================================
+
+/// Create the daily_business_metrics table.
+pub async fn init_business_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS daily_business_metrics (
+            date TEXT PRIMARY KEY,
+            revenue_gaming_paise INTEGER DEFAULT 0,
+            revenue_cafe_paise INTEGER DEFAULT 0,
+            revenue_other_paise INTEGER DEFAULT 0,
+            expense_rent_paise INTEGER DEFAULT 0,
+            expense_utilities_paise INTEGER DEFAULT 0,
+            expense_salaries_paise INTEGER DEFAULT 0,
+            expense_maintenance_paise INTEGER DEFAULT 0,
+            expense_other_paise INTEGER DEFAULT 0,
+            sessions_count INTEGER DEFAULT 0,
+            occupancy_rate_pct REAL DEFAULT 0,
+            peak_occupancy_pct REAL DEFAULT 0
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("Business metrics tables initialized");
+    Ok(())
+}
+
+/// Upsert (insert-or-replace) daily business metrics for a given date.
+pub async fn upsert_daily_metrics(
+    pool: &SqlitePool,
+    date: &str,
+    metrics: &DailyBusinessMetrics,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO daily_business_metrics
+            (date, revenue_gaming_paise, revenue_cafe_paise, revenue_other_paise,
+             expense_rent_paise, expense_utilities_paise, expense_salaries_paise,
+             expense_maintenance_paise, expense_other_paise,
+             sessions_count, occupancy_rate_pct, peak_occupancy_pct)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+         ON CONFLICT(date) DO UPDATE SET
+            revenue_gaming_paise = excluded.revenue_gaming_paise,
+            revenue_cafe_paise = excluded.revenue_cafe_paise,
+            revenue_other_paise = excluded.revenue_other_paise,
+            expense_rent_paise = excluded.expense_rent_paise,
+            expense_utilities_paise = excluded.expense_utilities_paise,
+            expense_salaries_paise = excluded.expense_salaries_paise,
+            expense_maintenance_paise = excluded.expense_maintenance_paise,
+            expense_other_paise = excluded.expense_other_paise,
+            sessions_count = excluded.sessions_count,
+            occupancy_rate_pct = excluded.occupancy_rate_pct,
+            peak_occupancy_pct = excluded.peak_occupancy_pct",
+    )
+    .bind(date)
+    .bind(metrics.revenue_gaming_paise)
+    .bind(metrics.revenue_cafe_paise)
+    .bind(metrics.revenue_other_paise)
+    .bind(metrics.expense_rent_paise)
+    .bind(metrics.expense_utilities_paise)
+    .bind(metrics.expense_salaries_paise)
+    .bind(metrics.expense_maintenance_paise)
+    .bind(metrics.expense_other_paise)
+    .bind(metrics.sessions_count as i64)
+    .bind(metrics.occupancy_rate_pct as f64)
+    .bind(metrics.peak_occupancy_pct as f64)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Query daily business metrics between two dates (inclusive).
+pub async fn query_business_metrics(
+    pool: &SqlitePool,
+    start_date: &str,
+    end_date: &str,
+) -> anyhow::Result<Vec<DailyBusinessMetrics>> {
+    let rows = sqlx::query_as::<_, BusinessMetricsRow>(
+        "SELECT date, revenue_gaming_paise, revenue_cafe_paise, revenue_other_paise,
+                expense_rent_paise, expense_utilities_paise, expense_salaries_paise,
+                expense_maintenance_paise, expense_other_paise,
+                sessions_count, occupancy_rate_pct, peak_occupancy_pct
+         FROM daily_business_metrics
+         WHERE date >= ?1 AND date <= ?2
+         ORDER BY date ASC",
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .fetch_all(pool)
+    .await?;
+
+    let mut results = Vec::with_capacity(rows.len());
+    for row in rows {
+        let date = chrono::NaiveDate::parse_from_str(&row.date, "%Y-%m-%d")
+            .unwrap_or_else(|_| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+        results.push(DailyBusinessMetrics {
+            date,
+            revenue_gaming_paise: row.revenue_gaming_paise,
+            revenue_cafe_paise: row.revenue_cafe_paise,
+            revenue_other_paise: row.revenue_other_paise,
+            expense_rent_paise: row.expense_rent_paise,
+            expense_utilities_paise: row.expense_utilities_paise,
+            expense_salaries_paise: row.expense_salaries_paise,
+            expense_maintenance_paise: row.expense_maintenance_paise,
+            expense_other_paise: row.expense_other_paise,
+            sessions_count: row.sessions_count as u32,
+            occupancy_rate_pct: row.occupancy_rate_pct as f32,
+            peak_occupancy_pct: row.peak_occupancy_pct as f32,
+        });
+    }
+    Ok(results)
+}
+
+/// Compute EBITDA summary across a date range.
+pub async fn get_ebitda_summary(
+    pool: &SqlitePool,
+    start_date: &str,
+    end_date: &str,
+) -> anyhow::Result<EbitdaSummary> {
+    let metrics = query_business_metrics(pool, start_date, end_date).await?;
+    let days = metrics.len() as u32;
+
+    let mut total_revenue: i64 = 0;
+    let mut total_expenses: i64 = 0;
+    let mut best_day: Option<(String, i64)> = None;
+    let mut worst_day: Option<(String, i64)> = None;
+
+    for m in &metrics {
+        let day_rev = m.revenue_gaming_paise + m.revenue_cafe_paise + m.revenue_other_paise;
+        let day_exp = m.expense_rent_paise
+            + m.expense_utilities_paise
+            + m.expense_salaries_paise
+            + m.expense_maintenance_paise
+            + m.expense_other_paise;
+        let day_ebitda = day_rev - day_exp;
+        total_revenue += day_rev;
+        total_expenses += day_exp;
+
+        let date_str = m.date.format("%Y-%m-%d").to_string();
+        match &best_day {
+            Some((_, best_val)) if day_ebitda <= *best_val => {}
+            _ => best_day = Some((date_str.clone(), day_ebitda)),
+        }
+        match &worst_day {
+            Some((_, worst_val)) if day_ebitda >= *worst_val => {}
+            _ => worst_day = Some((date_str, day_ebitda)),
+        }
+    }
+
+    let ebitda = total_revenue - total_expenses;
+    let avg_daily = if days > 0 { ebitda / days as i64 } else { 0 };
+
+    Ok(EbitdaSummary {
+        total_revenue_paise: total_revenue,
+        total_expenses_paise: total_expenses,
+        ebitda_paise: ebitda,
+        days,
+        avg_daily_ebitda_paise: avg_daily,
+        best_day: best_day.map(|(d, _)| d),
+        worst_day: worst_day.map(|(d, _)| d),
+    })
+}
+
+#[derive(sqlx::FromRow)]
+struct BusinessMetricsRow {
+    date: String,
+    revenue_gaming_paise: i64,
+    revenue_cafe_paise: i64,
+    revenue_other_paise: i64,
+    expense_rent_paise: i64,
+    expense_utilities_paise: i64,
+    expense_salaries_paise: i64,
+    expense_maintenance_paise: i64,
+    expense_other_paise: i64,
+    sessions_count: i64,
+    occupancy_rate_pct: f64,
+    peak_occupancy_pct: f64,
+}
+
+// ===========================================================================
+// Phase 13 (v29.0): HR employee database
+// ===========================================================================
+
+/// Create the employees and attendance tables.
+pub async fn init_hr_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS employees (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            skills TEXT DEFAULT '[]',
+            hourly_rate_paise INTEGER DEFAULT 0,
+            phone TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            face_enrollment_id TEXT,
+            hired_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Phase 14: attendance_records
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS attendance_records (
+            id TEXT PRIMARY KEY,
+            employee_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            clock_in TEXT,
+            clock_out TEXT,
+            source TEXT DEFAULT 'manual',
+            hours_worked REAL DEFAULT 0,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(date)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance_records(employee_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("HR + attendance tables initialized");
+    Ok(())
+}
+
+/// Insert a new employee.
+pub async fn insert_employee(pool: &SqlitePool, employee: &Employee) -> anyhow::Result<()> {
+    // P2: Validate employee ID is a non-empty UUID-format string.
+    let id_str = employee.id.to_string();
+    if id_str.is_empty() || id_str == "00000000-0000-0000-0000-000000000000" {
+        anyhow::bail!("insert_employee: invalid employee id '{}'", id_str);
+    }
+
+    let role_str = serde_json::to_string(&employee.role)?.replace('"', "");
+    let skills_str = serde_json::to_string(&employee.skills)?;
+
+    sqlx::query(
+        "INSERT INTO employees
+            (id, name, role, skills, hourly_rate_paise, phone, is_active, face_enrollment_id, hired_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+    )
+    .bind(employee.id.to_string())
+    .bind(&employee.name)
+    .bind(&role_str)
+    .bind(&skills_str)
+    .bind(employee.hourly_rate_paise)
+    .bind(&employee.phone)
+    .bind(employee.is_active as i64)
+    .bind(&employee.face_enrollment_id)
+    .bind(employee.hired_at.format("%Y-%m-%d").to_string())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// List employees, optionally filtering to active-only.
+pub async fn list_employees(
+    pool: &SqlitePool,
+    active_only: bool,
+) -> anyhow::Result<Vec<Employee>> {
+    let rows = if active_only {
+        sqlx::query_as::<_, EmployeeRow>(
+            "SELECT id, name, role, skills, hourly_rate_paise, phone, is_active, face_enrollment_id, hired_at
+             FROM employees WHERE is_active = 1 ORDER BY name ASC",
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, EmployeeRow>(
+            "SELECT id, name, role, skills, hourly_rate_paise, phone, is_active, face_enrollment_id, hired_at
+             FROM employees ORDER BY name ASC",
+        )
+        .fetch_all(pool)
+        .await?
+    };
+
+    rows.into_iter().map(row_to_employee).collect()
+}
+
+/// Get a single employee by ID.
+pub async fn get_employee(
+    pool: &SqlitePool,
+    id: &str,
+) -> anyhow::Result<Option<Employee>> {
+    let row = sqlx::query_as::<_, EmployeeRow>(
+        "SELECT id, name, role, skills, hourly_rate_paise, phone, is_active, face_enrollment_id, hired_at
+         FROM employees WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        Some(r) => Ok(Some(row_to_employee(r)?)),
+        None => Ok(None),
+    }
+}
+
+/// Update an employee's fields. Only non-None fields are changed.
+/// P1-5: Uses explicit column-by-column parameterized queries — no dynamic SQL construction.
+pub async fn update_employee(
+    pool: &SqlitePool,
+    id: &str,
+    name: Option<&str>,
+    role: Option<&StaffRole>,
+    skills: Option<&[String]>,
+    hourly_rate_paise: Option<i64>,
+    phone: Option<&str>,
+    is_active: Option<bool>,
+    face_enrollment_id: Option<&str>,
+) -> anyhow::Result<bool> {
+    let mut any_updated = false;
+
+    if let Some(n) = name {
+        let r = sqlx::query("UPDATE employees SET name = ?1 WHERE id = ?2")
+            .bind(n).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(r) = role {
+        let role_str = serde_json::to_string(r)?.replace('"', "");
+        let r = sqlx::query("UPDATE employees SET role = ?1 WHERE id = ?2")
+            .bind(&role_str).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(s) = skills {
+        let skills_str = serde_json::to_string(s)?;
+        let r = sqlx::query("UPDATE employees SET skills = ?1 WHERE id = ?2")
+            .bind(&skills_str).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(rate) = hourly_rate_paise {
+        let r = sqlx::query("UPDATE employees SET hourly_rate_paise = ?1 WHERE id = ?2")
+            .bind(rate).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(p) = phone {
+        let r = sqlx::query("UPDATE employees SET phone = ?1 WHERE id = ?2")
+            .bind(p).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(a) = is_active {
+        let r = sqlx::query("UPDATE employees SET is_active = ?1 WHERE id = ?2")
+            .bind(if a { 1i64 } else { 0i64 }).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+    if let Some(f) = face_enrollment_id {
+        let r = sqlx::query("UPDATE employees SET face_enrollment_id = ?1 WHERE id = ?2")
+            .bind(f).bind(id).execute(pool).await?;
+        if r.rows_affected() > 0 { any_updated = true; }
+    }
+
+    Ok(any_updated)
+}
+
+#[derive(sqlx::FromRow)]
+struct EmployeeRow {
+    id: String,
+    name: String,
+    role: String,
+    skills: String,
+    hourly_rate_paise: i64,
+    phone: String,
+    is_active: i64,
+    face_enrollment_id: Option<String>,
+    hired_at: String,
+}
+
+fn row_to_employee(row: EmployeeRow) -> anyhow::Result<Employee> {
+    let role_json = format!("\"{}\"", row.role);
+    let role: StaffRole = serde_json::from_str(&role_json)?;
+    let skills: Vec<String> = serde_json::from_str(&row.skills).unwrap_or_default();
+    let hired_at = chrono::NaiveDate::parse_from_str(&row.hired_at, "%Y-%m-%d")
+        .unwrap_or_else(|_| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+
+    Ok(Employee {
+        id: Uuid::parse_str(&row.id)?,
+        name: row.name,
+        role,
+        skills,
+        hourly_rate_paise: row.hourly_rate_paise,
+        phone: row.phone,
+        is_active: row.is_active != 0,
+        face_enrollment_id: row.face_enrollment_id,
+        hired_at,
+    })
+}
+
+// ===========================================================================
+// Phase 14 (v29.0): Attendance tracking
+// ===========================================================================
+
+/// Record a clock-in/clock-out attendance entry.
+pub async fn record_attendance(
+    pool: &SqlitePool,
+    employee_id: &str,
+    date: &str,
+    clock_in: Option<&str>,
+    clock_out: Option<&str>,
+    source: &str,
+) -> anyhow::Result<()> {
+    // P2: Validate employee_id is a non-empty, UUID-like string.
+    if employee_id.trim().is_empty() {
+        anyhow::bail!("record_attendance: employee_id must not be empty");
+    }
+    // Validate date is non-empty (basic guard — full format validation happens at the API layer).
+    if date.trim().is_empty() {
+        anyhow::bail!("record_attendance: date must not be empty");
+    }
+
+    let id = Uuid::new_v4().to_string();
+
+    // P2-1 + P2-4: Compute hours_worked in whole minutes (integer) to avoid f64 drift.
+    // Handle overnight shifts where clock_out < clock_in by adding 24h.
+    let hours = match (clock_in, clock_out) {
+        (Some(ci), Some(co)) => {
+            let t_in = chrono::NaiveTime::parse_from_str(ci, "%H:%M");
+            let t_out = chrono::NaiveTime::parse_from_str(co, "%H:%M");
+            match (t_in, t_out) {
+                (Ok(i), Ok(o)) => {
+                    let mut total_minutes = (o - i).num_minutes();
+                    // P2-1: overnight shift — clock_out before clock_in means next day
+                    if total_minutes < 0 {
+                        total_minutes += 24 * 60;
+                    }
+                    // P2-4: integer minutes → hours only for storage (avoids f64 accumulation)
+                    total_minutes as f64 / 60.0
+                }
+                (Err(e), _) => {
+                    tracing::warn!(
+                        "record_attendance: clock_in parse failed for employee '{}' on '{}': '{}' — {}. Defaulting hours_worked to 0.",
+                        employee_id, date, ci, e
+                    );
+                    0.0
+                }
+                (_, Err(e)) => {
+                    tracing::warn!(
+                        "record_attendance: clock_out parse failed for employee '{}' on '{}': '{}' — {}. Defaulting hours_worked to 0.",
+                        employee_id, date, co, e
+                    );
+                    0.0
+                }
+            }
+        }
+        _ => 0.0,
+    };
+
+    sqlx::query(
+        "INSERT INTO attendance_records
+            (id, employee_id, date, clock_in, clock_out, source, hours_worked)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+    )
+    .bind(&id)
+    .bind(employee_id)
+    .bind(date)
+    .bind(clock_in)
+    .bind(clock_out)
+    .bind(source)
+    .bind(hours)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Query attendance records by date and/or employee.
+pub async fn query_attendance(
+    pool: &SqlitePool,
+    date: Option<&str>,
+    employee_id: Option<&str>,
+) -> anyhow::Result<Vec<AttendanceRecord>> {
+    let rows = match (date, employee_id) {
+        // P2-2: All query branches have LIMIT to prevent unbounded result sets
+        (Some(d), Some(eid)) => {
+            sqlx::query_as::<_, AttendanceRow>(
+                "SELECT id, employee_id, date, clock_in, clock_out, source, hours_worked
+                 FROM attendance_records WHERE date = ?1 AND employee_id = ?2
+                 ORDER BY clock_in ASC
+                 LIMIT 1000",
+            )
+            .bind(d)
+            .bind(eid)
+            .fetch_all(pool)
+            .await?
+        }
+        (Some(d), None) => {
+            sqlx::query_as::<_, AttendanceRow>(
+                "SELECT id, employee_id, date, clock_in, clock_out, source, hours_worked
+                 FROM attendance_records WHERE date = ?1
+                 ORDER BY clock_in ASC
+                 LIMIT 1000",
+            )
+            .bind(d)
+            .fetch_all(pool)
+            .await?
+        }
+        (None, Some(eid)) => {
+            sqlx::query_as::<_, AttendanceRow>(
+                "SELECT id, employee_id, date, clock_in, clock_out, source, hours_worked
+                 FROM attendance_records WHERE employee_id = ?1
+                 ORDER BY date DESC, clock_in ASC
+                 LIMIT 1000",
+            )
+            .bind(eid)
+            .fetch_all(pool)
+            .await?
+        }
+        (None, None) => {
+            sqlx::query_as::<_, AttendanceRow>(
+                "SELECT id, employee_id, date, clock_in, clock_out, source, hours_worked
+                 FROM attendance_records
+                 ORDER BY date DESC, clock_in ASC
+                 LIMIT 500",
+            )
+            .fetch_all(pool)
+            .await?
+        }
+    };
+
+    rows.into_iter().map(row_to_attendance).collect()
+}
+
+#[derive(sqlx::FromRow)]
+struct AttendanceRow {
+    id: String,
+    employee_id: String,
+    date: String,
+    clock_in: Option<String>,
+    clock_out: Option<String>,
+    source: String,
+    hours_worked: f64,
+}
+
+fn row_to_attendance(row: AttendanceRow) -> anyhow::Result<AttendanceRecord> {
+    let date = chrono::NaiveDate::parse_from_str(&row.date, "%Y-%m-%d")
+        .unwrap_or_else(|_| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+    Ok(AttendanceRecord {
+        id: Uuid::parse_str(&row.id)?,
+        employee_id: Uuid::parse_str(&row.employee_id)?,
+        date,
+        clock_in: row.clock_in,
+        clock_out: row.clock_out,
+        source: row.source,
+        // P2: Clamp negative DB values — guard against corrupt/legacy rows.
+        hours_worked: row.hours_worked.max(0.0),
+    })
+}
+
+// ===========================================================================
+// Phase 17 (v29.0): Payroll & labor cost
+// ===========================================================================
+
+/// Calculate monthly payroll by joining employees and attendance_records.
+pub async fn calculate_monthly_payroll(
+    pool: &SqlitePool,
+    year: i32,
+    month: u32,
+) -> anyhow::Result<PayrollSummary> {
+    let start_date = format!("{:04}-{:02}-01", year, month);
+    // P1: Use exclusive upper bound (first day of next month) to avoid including
+    // entries from the next month when the date field is a string-compared YYYY-MM-DD.
+    // "YYYY-MM-31" would include next-month entries for months with < 31 days
+    // because string comparison: "2024-03-01" > "2024-02-31" (doesn't exist but sorts after Feb).
+    // Using < next_month_start is always correct regardless of days in month.
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1u32)
+    } else {
+        (year, month + 1)
+    };
+    let next_month_start = format!("{:04}-{:02}-01", next_year, next_month);
+
+    let rows = sqlx::query_as::<_, PayrollRow>(
+        "SELECT e.id AS employee_id, e.name, e.hourly_rate_paise,
+                COALESCE(SUM(a.hours_worked), 0) AS total_hours
+         FROM employees e
+         LEFT JOIN attendance_records a
+             ON a.employee_id = e.id
+             AND a.date >= ?1 AND a.date < ?2
+         WHERE e.is_active = 1
+         GROUP BY e.id
+         ORDER BY e.name ASC",
+    )
+    .bind(&start_date)
+    .bind(&next_month_start)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total_hours = 0.0f64;
+    let mut total_paise = 0i64;
+    let mut by_employee = Vec::with_capacity(rows.len());
+
+    for row in rows {
+        // P1: Compute wages in integer paise to avoid f64 accumulation.
+        // hours_worked is stored as f64 (minutes/60); convert back to whole minutes
+        // then do integer-only multiplication: minutes * rate_paise / 60.
+        let worked_minutes = (row.total_hours * 60.0).round() as i64;
+        let emp_total = worked_minutes.max(0) * row.hourly_rate_paise / 60;
+        total_hours += row.total_hours;
+        total_paise += emp_total;
+        by_employee.push(EmployeePayroll {
+            employee_id: row.employee_id,
+            name: row.name,
+            hours_worked: row.total_hours,
+            rate_paise: row.hourly_rate_paise,
+            total_paise: emp_total,
+        });
+    }
+
+    Ok(PayrollSummary {
+        year,
+        month,
+        total_hours,
+        total_paise,
+        by_employee,
+    })
+}
+
+// ===========================================================================
+// Phase 21 (v29.0): Maintenance KPIs
+// ===========================================================================
+
+/// Maintenance KPI metrics
+#[derive(Debug, serde::Serialize)]
+pub struct MaintenanceKPIs {
+    pub period_days: u32,
+    pub total_events: u32,
+    pub total_tasks: u32,
+    pub mttr_minutes: f64,        // Mean Time To Repair
+    pub mtbf_hours: f64,          // Mean Time Between Failures
+    pub self_heal_rate: f64,      // % of issues auto-resolved
+    pub prediction_accuracy: f64, // % of predictive alerts that preceded actual failure
+    pub false_positive_rate: f64, // % of alerts that were false positives
+    pub downtime_minutes: u32,    // Total downtime in period
+    pub tasks_completed: u32,
+    pub tasks_open: u32,
+}
+
+/// Calculate maintenance KPIs for the given number of days.
+pub async fn calculate_kpis(pool: &SqlitePool, days: u32) -> anyhow::Result<MaintenanceKPIs> {
+    let since = Utc::now() - chrono::Duration::days(days as i64);
+    let since_str = since.to_rfc3339();
+
+    // Total events in period
+    let (total_events,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_events WHERE detected_at >= ?1",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    // Total tasks in period
+    let (total_tasks,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_tasks WHERE created_at >= ?1",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    // MTTR: average (resolved_at - detected_at) for resolved events
+    let mttr_row: Option<(f64,)> = sqlx::query_as(
+        "SELECT AVG((julianday(resolved_at) - julianday(detected_at)) * 1440) \
+         FROM maintenance_events \
+         WHERE detected_at >= ?1 AND resolved_at IS NOT NULL",
+    )
+    .bind(&since_str)
+    .fetch_optional(pool)
+    .await?;
+    let mttr_minutes = mttr_row.and_then(|(v,)| if v.is_nan() { None } else { Some(v) }).unwrap_or(0.0);
+
+    // Self-heal count (resolution_method contains "AutoHealed")
+    let (self_heal_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_events \
+         WHERE detected_at >= ?1 AND resolution_method LIKE '%AutoHealed%'",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    let self_heal_rate = if total_events > 0 {
+        self_heal_count as f64 / total_events as f64
+    } else {
+        0.0
+    };
+
+    // Total downtime
+    let downtime_row: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(downtime_minutes), 0) FROM maintenance_events WHERE detected_at >= ?1",
+    )
+    .bind(&since_str)
+    .fetch_optional(pool)
+    .await?;
+    let downtime_minutes = downtime_row.map(|(v,)| v as u32).unwrap_or(0);
+
+    // MTBF: total hours in period / number of failure events
+    let total_hours = days as f64 * 24.0;
+    let mtbf_hours = if total_events > 0 {
+        total_hours / total_events as f64
+    } else {
+        total_hours // no failures = entire period is MTBF
+    };
+
+    // Tasks completed vs open
+    let (tasks_completed,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_tasks \
+         WHERE created_at >= ?1 AND status IN ('Completed', 'Verified')",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    // P1: Include PendingValidation in open tasks — tasks awaiting validation are
+    // still "open" (not yet completed/cancelled/failed). Omitting it caused those
+    // tasks to disappear from both tasks_open and tasks_completed counts.
+    let (tasks_open,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM maintenance_tasks \
+         WHERE created_at >= ?1 AND status IN ('Open', 'Assigned', 'InProgress', 'PendingValidation')",
+    )
+    .bind(&since_str)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    Ok(MaintenanceKPIs {
+        period_days: days,
+        total_events: total_events as u32,
+        total_tasks: total_tasks as u32,
+        mttr_minutes,
+        mtbf_hours,
+        self_heal_rate,
+        prediction_accuracy: 0.0, // requires ground truth data — placeholder
+        false_positive_rate: 0.0, // requires labeled alert data — placeholder
+        downtime_minutes,
+        tasks_completed: tasks_completed as u32,
+        tasks_open: tasks_open as u32,
+    })
+}
+
+// ===========================================================================
+// Phase 29 (v29.0): HR <-> Scheduler Auto-Assignment
+// ===========================================================================
+
+/// Auto-assign a maintenance task to the best available technician.
+///
+/// Finds active employees with role 'Technician' or 'Manager' whose skills
+/// match the task's component, then picks the one with the fewest open tasks.
+/// Returns the assigned employee ID, or None if no suitable employee found.
+pub async fn auto_assign_task(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> anyhow::Result<Option<String>> {
+    // Get task component (stored as JSON-serialized string)
+    let component: Option<String> = sqlx::query_scalar(
+        "SELECT component FROM maintenance_tasks WHERE id = ?1",
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let component = match component {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+
+    // Find available active employees (Technician or Manager roles)
+    let employees = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, name, skills FROM employees \
+         WHERE is_active = 1 AND (role = 'Technician' OR role = 'Manager') LIMIT 20",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Find best match: employee with matching skill and lowest current task load
+    let mut best_id: Option<String> = None;
+    let mut best_load = i64::MAX;
+
+    // Normalize component for matching — strip JSON quotes if present
+    let component_lower = component.to_lowercase().replace('"', "");
+
+    for (emp_id, _name, skills_json) in &employees {
+        let skills: Vec<String> = serde_json::from_str(skills_json).unwrap_or_default();
+        let has_skill = skills
+            .iter()
+            .any(|s| s.to_lowercase().contains(&component_lower))
+            || skills
+                .iter()
+                .any(|s| s.to_lowercase() == "general");
+
+        if has_skill || skills.is_empty() {
+            // Count open tasks for this employee
+            let load: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM maintenance_tasks \
+                 WHERE assigned_to = ?1 AND status NOT IN ('Completed', 'Failed', 'Cancelled')",
+            )
+            .bind(emp_id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
+
+            if load < best_load {
+                best_load = load;
+                best_id = Some(emp_id.clone());
+            }
+        }
+    }
+
+    if let Some(ref emp_id) = best_id {
+        sqlx::query(
+            "UPDATE maintenance_tasks SET assigned_to = ?1, status = 'Assigned' WHERE id = ?2",
+        )
+        .bind(emp_id)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        tracing::info!(target: "maint-store", task_id, employee_id = %emp_id, "Task auto-assigned");
+    }
+
+    Ok(best_id)
+}
+
+#[derive(sqlx::FromRow)]
+struct PayrollRow {
+    employee_id: String,
+    name: String,
+    hourly_rate_paise: i64,
+    total_hours: f64,
+}
+// ---
+//! Phase 5 (v29.0): Rule-based anomaly detection engine for hardware telemetry.
+//!
+//! Runs server-side, scanning the `hardware_telemetry` table every 60 seconds.
+//! Each rule defines a metric, threshold, direction, sustained-violation window,
+//! and cooldown. Alerts are logged via tracing and returned for API consumption.
+
+use chrono::{DateTime, Datelike, Timelike, Utc};
+use serde::Serialize;
+use sqlx::SqlitePool;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::maintenance_models::ComponentRUL;
+
+// ─── Rule & Alert Types ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnomalyRule {
+    pub name: String,
+    pub component: String,
+    pub severity: String,
+    pub metric_name: String,
+    pub threshold: f64,
+    pub above: bool,
+    pub min_sustained_minutes: u32,
+    pub cooldown_minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnomalyAlert {
+    pub rule_name: String,
+    pub pod_id: String,
+    pub component: String,
+    pub severity: String,
+    pub metric_name: String,
+    pub current_value: f64,
+    pub threshold: f64,
+    pub sustained_minutes: u32,
+    pub detected_at: DateTime<Utc>,
+    pub message: String,
+}
+
+// ─── Default Rules (14-model MMA consensus) ───────────────────────────────────
+
+pub fn default_rules() -> Vec<AnomalyRule> {
+    vec![
+        AnomalyRule {
+            name: "GPU Overheat".into(),
+            component: "GPU".into(),
+            severity: "High".into(),
+            metric_name: "gpu_temp_celsius".into(),
+            threshold: 85.0,
+            above: true,
+            min_sustained_minutes: 5,
+            cooldown_minutes: 30,
+        },
+        AnomalyRule {
+            name: "GPU Critical Temp".into(),
+            component: "GPU".into(),
+            severity: "Critical".into(),
+            metric_name: "gpu_temp_celsius".into(),
+            threshold: 92.0,
+            above: true,
+            min_sustained_minutes: 2,
+            cooldown_minutes: 60,
+        },
+        AnomalyRule {
+            name: "Disk Health Warning".into(),
+            component: "Storage".into(),
+            severity: "Medium".into(),
+            metric_name: "disk_smart_health_pct".into(),
+            threshold: 80.0,
+            above: false,
+            min_sustained_minutes: 60,
+            cooldown_minutes: 1440,
+        },
+        AnomalyRule {
+            name: "Disk Health Critical".into(),
+            component: "Storage".into(),
+            severity: "Critical".into(),
+            metric_name: "disk_smart_health_pct".into(),
+            threshold: 50.0,
+            above: false,
+            min_sustained_minutes: 10,
+            cooldown_minutes: 1440,
+        },
+        AnomalyRule {
+            name: "High CPU Usage".into(),
+            component: "CPU".into(),
+            severity: "Medium".into(),
+            metric_name: "cpu_usage_pct".into(),
+            threshold: 95.0,
+            above: true,
+            min_sustained_minutes: 10,
+            cooldown_minutes: 15,
+        },
+        AnomalyRule {
+            name: "Memory Pressure".into(),
+            component: "Memory".into(),
+            severity: "High".into(),
+            metric_name: "memory_usage_pct".into(),
+            threshold: 95.0,
+            above: true,
+            min_sustained_minutes: 5,
+            cooldown_minutes: 15,
+        },
+        AnomalyRule {
+            name: "Network Latency Spike".into(),
+            component: "Network".into(),
+            severity: "Medium".into(),
+            metric_name: "network_latency_ms".into(),
+            threshold: 100.0,
+            above: true,
+            min_sustained_minutes: 2,
+            cooldown_minutes: 10,
+        },
+        AnomalyRule {
+            name: "Handle Leak".into(),
+            component: "Software".into(),
+            severity: "High".into(),
+            metric_name: "process_handle_count".into(),
+            threshold: 10000.0,
+            above: true,
+            min_sustained_minutes: 10,
+            cooldown_minutes: 60,
+        },
+        AnomalyRule {
+            name: "Disk Space Critical".into(),
+            component: "Storage".into(),
+            severity: "Critical".into(),
+            metric_name: "disk_usage_pct".into(),
+            threshold: 95.0,
+            above: true,
+            min_sustained_minutes: 5,
+            cooldown_minutes: 60,
+        },
+        AnomalyRule {
+            name: "GPU Power Anomaly".into(),
+            component: "GPU".into(),
+            severity: "Medium".into(),
+            metric_name: "gpu_power_watts".into(),
+            threshold: 250.0,
+            above: true,
+            min_sustained_minutes: 5,
+            cooldown_minutes: 30,
+        },
+    ]
+}
+
+// ─── Engine State ─────────────────────────────────────────────────────────────
+
+pub struct EngineState {
+    /// (pod_id, rule_name) -> last alert time
+    last_alert: HashMap<(String, String), DateTime<Utc>>,
+    /// (pod_id, rule_name) -> first violation time (for sustained check)
+    first_violation: HashMap<(String, String), DateTime<Utc>>,
+    /// Recent alerts kept for API access (capped at 200)
+    recent_alerts: Vec<AnomalyAlert>,
+}
+
+impl EngineState {
+    fn new() -> Self {
+        Self {
+            last_alert: HashMap::new(),
+            first_violation: HashMap::new(),
+            recent_alerts: Vec::new(),
+        }
+    }
+
+    /// Return a snapshot of recent alerts for API consumers.
+    pub fn recent_alerts(&self) -> &[AnomalyAlert] {
+        &self.recent_alerts
+    }
+}
+
+// ─── Telemetry Row ────────────────────────────────────────────────────────────
+
+/// One row from hardware_telemetry (latest per pod).
+#[derive(Debug)]
+struct HwRow {
+    pod_id: String,
+    gpu_temp_celsius: Option<f64>,
+    cpu_temp_celsius: Option<f64>,
+    gpu_power_watts: Option<f64>,
+    disk_smart_health_pct: Option<i64>,
+    process_handle_count: Option<i64>,
+    cpu_usage_pct: Option<f64>,
+    memory_usage_pct: Option<f64>,
+    disk_usage_pct: Option<f64>,
+    network_latency_ms: Option<i64>,
+}
+
+impl HwRow {
+    /// Look up a metric value by column name. Returns None if the column is NULL.
+    fn metric_value(&self, name: &str) -> Option<f64> {
+        match name {
+            "gpu_temp_celsius" => self.gpu_temp_celsius,
+            "cpu_temp_celsius" => self.cpu_temp_celsius,
+            "gpu_power_watts" => self.gpu_power_watts,
+            "disk_smart_health_pct" => self.disk_smart_health_pct.map(|v| v as f64),
+            "process_handle_count" => self.process_handle_count.map(|v| v as f64),
+            "cpu_usage_pct" => self.cpu_usage_pct,
+            "memory_usage_pct" => self.memory_usage_pct,
+            "disk_usage_pct" => self.disk_usage_pct,
+            "network_latency_ms" => self.network_latency_ms.map(|v| v as f64),
+            _ => None,
+        }
+    }
+}
+
+// ─── Scan Function ────────────────────────────────────────────────────────────
+
+/// Run one anomaly-detection pass over the latest hardware telemetry data.
+///
+/// Returns any newly fired alerts (respecting sustained-violation windows and
+/// per-rule cooldowns).
+pub async fn run_anomaly_scan(
+    pool: &SqlitePool,
+    state: &Arc<RwLock<EngineState>>,
+    rules: &[AnomalyRule],
+) -> Vec<AnomalyAlert> {
+    let now = Utc::now();
+    let cutoff = (now - chrono::Duration::seconds(60)).to_rfc3339();
+
+    // Fetch the latest row per pod within the last 60 seconds.
+    // P1-3: Use subquery to reliably get the row with MAX(collected_at) per pod.
+    // The old GROUP BY + HAVING MAX pattern is nondeterministic in SQLite.
+    let rows: Result<Vec<HwRow>, sqlx::Error> = sqlx::query(
+        "SELECT
+            pod_id,
+            gpu_temp_celsius,
+            cpu_temp_celsius,
+            gpu_power_watts,
+            disk_smart_health_pct,
+            process_handle_count,
+            cpu_usage_pct,
+            memory_usage_pct,
+            disk_usage_pct,
+            network_latency_ms
+        FROM hardware_telemetry
+        WHERE collected_at > ?1
+          AND (pod_id, collected_at) IN (
+              SELECT pod_id, MAX(collected_at)
+              FROM hardware_telemetry
+              WHERE collected_at > ?1
+              GROUP BY pod_id
+          )"
+    )
+    .bind(&cutoff)
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|r| {
+                use sqlx::Row;
+                HwRow {
+                    pod_id: r.get("pod_id"),
+                    gpu_temp_celsius: r.get("gpu_temp_celsius"),
+                    cpu_temp_celsius: r.get("cpu_temp_celsius"),
+                    gpu_power_watts: r.get("gpu_power_watts"),
+                    disk_smart_health_pct: r.get("disk_smart_health_pct"),
+                    process_handle_count: r.get("process_handle_count"),
+                    cpu_usage_pct: r.get("cpu_usage_pct"),
+                    memory_usage_pct: r.get("memory_usage_pct"),
+                    disk_usage_pct: r.get("disk_usage_pct"),
+                    network_latency_ms: r.get("network_latency_ms"),
+                }
+            })
+            .collect()
+    });
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Anomaly scan: failed to query hardware_telemetry: {}", e);
+            return Vec::new();
+        }
+    };
+
+    let mut alerts = Vec::new();
+    let mut guard = state.write().await;
+
+    for row in &rows {
+        for rule in rules {
+            let key = (row.pod_id.clone(), rule.name.clone());
+
+            let value = match row.metric_value(&rule.metric_name) {
+                Some(v) => v,
+                None => {
+                    // Metric is NULL — clear any tracked violation (sensor offline).
+                    guard.first_violation.remove(&key);
+                    continue;
+                }
+            };
+
+            let violated = if rule.above {
+                value > rule.threshold
+            } else {
+                value < rule.threshold
+            };
+
+            if !violated {
+                // No violation — clear tracked first-violation time.
+                guard.first_violation.remove(&key);
+                continue;
+            }
+
+            // Track sustained violation start.
+            let first = *guard
+                .first_violation
+                .entry(key.clone())
+                .or_insert(now);
+
+            let sustained_secs = (now - first).num_seconds().max(0) as u32;
+            let sustained_min = sustained_secs / 60;
+
+            if sustained_min < rule.min_sustained_minutes {
+                // Not yet sustained long enough.
+                continue;
+            }
+
+            // Check cooldown.
+            if let Some(last) = guard.last_alert.get(&key) {
+                let since_last = (now - *last).num_seconds().max(0) as u32;
+                if since_last < rule.cooldown_minutes * 60 {
+                    continue;
+                }
+            }
+
+            // Fire alert.
+            let direction = if rule.above { "above" } else { "below" };
+            let message = format!(
+                "{} on pod {}: {} is {:.1} ({} threshold {:.1}) for {}+ minutes",
+                rule.name, row.pod_id, rule.metric_name, value, direction, rule.threshold, sustained_min
+            );
+
+            let alert = AnomalyAlert {
+                rule_name: rule.name.clone(),
+                pod_id: row.pod_id.clone(),
+                component: rule.component.clone(),
+                severity: rule.severity.clone(),
+                metric_name: rule.metric_name.clone(),
+                current_value: value,
+                threshold: rule.threshold,
+                sustained_minutes: sustained_min,
+                detected_at: now,
+                message: message.clone(),
+            };
+
+            guard.last_alert.insert(key.clone(), now);
+            // Reset first_violation so the sustained window restarts after cooldown.
+            guard.first_violation.remove(&key);
+
+            match rule.severity.as_str() {
+                "Critical" => tracing::error!("ANOMALY [{}]: {}", rule.severity, message),
+                "High" => tracing::warn!("ANOMALY [{}]: {}", rule.severity, message),
+                _ => tracing::info!("ANOMALY [{}]: {}", rule.severity, message),
+            }
+
+            alerts.push(alert);
+        }
+    }
+
+    // Store alerts for API access (cap at 200).
+    if !alerts.is_empty() {
+        guard.recent_alerts.extend(alerts.clone());
+        let len = guard.recent_alerts.len();
+        if len > 200 {
+            guard.recent_alerts.drain(..len - 200);
+        }
+    }
+
+    alerts
+}
+
+// ─── Background Scanner ──────────────────────────────────────────────────────
+
+/// Spawn a background tokio task that runs anomaly detection every 60 seconds.
+///
+/// Returns the shared engine state handle for API access.
+/// If `availability_map` is provided, anomaly alerts will update pod availability
+/// via the self-healing orchestrator.
+pub fn spawn_anomaly_scanner(pool: SqlitePool) -> Arc<RwLock<EngineState>> {
+    spawn_anomaly_scanner_with_healing(pool, None)
+}
+
+/// Spawn anomaly scanner with optional self-healing integration.
+/// When a PodAvailabilityMap is provided, detected anomalies automatically
+/// update pod availability state for kiosk/PWA consumers.
+pub fn spawn_anomaly_scanner_with_healing(
+    pool: SqlitePool,
+    availability_map: Option<crate::self_healing::PodAvailabilityMap>,
+) -> Arc<RwLock<EngineState>> {
+    let state = Arc::new(RwLock::new(EngineState::new()));
+    let state_clone = Arc::clone(&state);
+    let rules = default_rules();
+
+    tokio::spawn(async move {
+        tracing::info!(
+            "v29.0 Phase 5: Anomaly scanner started ({} rules, 60s interval, healing={})",
+            rules.len(),
+            availability_map.is_some(),
+        );
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // Skip the immediate first tick — let telemetry accumulate.
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+            let alerts = run_anomaly_scan(&pool, &state_clone, &rules).await;
+            if !alerts.is_empty() {
+                tracing::info!(
+                    "Anomaly scan: {} new alert(s) detected",
+                    alerts.len()
+                );
+
+                // Wire anomaly alerts to self-healing availability map
+                if let Some(ref avail_map) = availability_map {
+                    for alert in &alerts {
+                        let pod_num: u8 = alert.pod_id
+                            .trim_start_matches("pod_")
+                            .trim_start_matches("pod")
+                            .parse()
+                            .unwrap_or(0);
+                        if pod_num > 0 {
+                            let action = crate::self_healing::recommend_action(
+                                &alert.rule_name,
+                                &alert.severity,
+                                pod_num,
+                            );
+                            crate::self_healing::apply_action(avail_map, &action).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    state
+}
+
+// ─── Phase 6: Failure Pattern Correlation ───────────────────────────────────
+
+/// Multi-metric failure pattern — correlates multiple metrics to detect
+/// complex failure modes that single-threshold rules miss.
+#[derive(Debug, Clone, Serialize)]
+pub struct FailurePattern {
+    pub name: String,
+    pub component: String,
+    pub conditions: Vec<PatternCondition>,
+    pub min_matching: usize,
+    pub lookback_minutes: u32,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PatternCondition {
+    pub metric_name: String,
+    pub threshold: f64,
+    pub above: bool,
+}
+
+/// Alert fired when a failure pattern matches.
+#[derive(Debug, Clone, Serialize)]
+pub struct PatternAlert {
+    pub pattern_name: String,
+    pub pod_id: String,
+    pub component: String,
+    pub matched_conditions: Vec<String>,
+    pub confidence: f32,
+    pub detected_at: DateTime<Utc>,
+    pub message: String,
+}
+
+pub fn default_patterns() -> Vec<FailurePattern> {
+    vec![
+        FailurePattern {
+            name: "GPU Thermal Throttle".into(),
+            component: "GPU".into(),
+            conditions: vec![
+                PatternCondition { metric_name: "gpu_temp_celsius".into(), threshold: 80.0, above: true },
+                PatternCondition { metric_name: "gpu_power_watts".into(), threshold: 200.0, above: true },
+                PatternCondition { metric_name: "gpu_usage_pct".into(), threshold: 50.0, above: false },
+            ],
+            min_matching: 2,
+            lookback_minutes: 15,
+            confidence: 0.75,
+        },
+        FailurePattern {
+            name: "Memory Exhaustion Cascade".into(),
+            component: "Memory".into(),
+            conditions: vec![
+                PatternCondition { metric_name: "memory_usage_pct".into(), threshold: 90.0, above: true },
+                PatternCondition { metric_name: "process_handle_count".into(), threshold: 5000.0, above: true },
+                PatternCondition { metric_name: "cpu_usage_pct".into(), threshold: 80.0, above: true },
+            ],
+            min_matching: 2,
+            lookback_minutes: 10,
+            confidence: 0.7,
+        },
+        FailurePattern {
+            name: "Storage Degradation".into(),
+            component: "Storage".into(),
+            conditions: vec![
+                PatternCondition { metric_name: "disk_usage_pct".into(), threshold: 90.0, above: true },
+                PatternCondition { metric_name: "disk_smart_health_pct".into(), threshold: 70.0, above: false },
+            ],
+            min_matching: 2,
+            lookback_minutes: 60,
+            confidence: 0.8,
+        },
+    ]
+}
+
+/// Check failure patterns against recent telemetry data within each pattern's
+/// lookback window. Returns alerts for any patterns where enough conditions match.
+pub async fn check_patterns(
+    pool: &SqlitePool,
+    patterns: &[FailurePattern],
+) -> Vec<PatternAlert> {
+    let now = Utc::now();
+    let mut alerts = Vec::new();
+
+    // We need per-pattern lookback windows, so use the maximum and filter per-pattern.
+    let max_lookback = patterns.iter().map(|p| p.lookback_minutes).max().unwrap_or(60);
+    let cutoff = (now - chrono::Duration::minutes(max_lookback as i64)).to_rfc3339();
+
+    // P1-3: Use subquery for deterministic latest-per-pod selection.
+    let rows: Result<Vec<HwRow>, sqlx::Error> = sqlx::query(
+        "SELECT
+            pod_id,
+            gpu_temp_celsius,
+            cpu_temp_celsius,
+            gpu_power_watts,
+            disk_smart_health_pct,
+            process_handle_count,
+            cpu_usage_pct,
+            memory_usage_pct,
+            disk_usage_pct,
+            network_latency_ms
+        FROM hardware_telemetry
+        WHERE collected_at > ?1
+          AND (pod_id, collected_at) IN (
+              SELECT pod_id, MAX(collected_at)
+              FROM hardware_telemetry
+              WHERE collected_at > ?1
+              GROUP BY pod_id
+          )"
+    )
+    .bind(&cutoff)
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|r| {
+                use sqlx::Row;
+                HwRow {
+                    pod_id: r.get("pod_id"),
+                    gpu_temp_celsius: r.get("gpu_temp_celsius"),
+                    cpu_temp_celsius: r.get("cpu_temp_celsius"),
+                    gpu_power_watts: r.get("gpu_power_watts"),
+                    disk_smart_health_pct: r.get("disk_smart_health_pct"),
+                    process_handle_count: r.get("process_handle_count"),
+                    cpu_usage_pct: r.get("cpu_usage_pct"),
+                    memory_usage_pct: r.get("memory_usage_pct"),
+                    disk_usage_pct: r.get("disk_usage_pct"),
+                    network_latency_ms: r.get("network_latency_ms"),
+                }
+            })
+            .collect()
+    });
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Pattern check: failed to query hardware_telemetry: {}", e);
+            return Vec::new();
+        }
+    };
+
+    for row in &rows {
+        for pattern in patterns {
+            let mut matched: Vec<String> = Vec::new();
+
+            for cond in &pattern.conditions {
+                if let Some(val) = row.metric_value(&cond.metric_name) {
+                    let hit = if cond.above { val > cond.threshold } else { val < cond.threshold };
+                    if hit {
+                        let direction = if cond.above { "above" } else { "below" };
+                        matched.push(format!(
+                            "{} = {:.1} ({} {:.1})",
+                            cond.metric_name, val, direction, cond.threshold
+                        ));
+                    }
+                }
+            }
+
+            if matched.len() >= pattern.min_matching {
+                let message = format!(
+                    "Pattern '{}' detected on pod {} ({}/{} conditions): {}",
+                    pattern.name,
+                    row.pod_id,
+                    matched.len(),
+                    pattern.conditions.len(),
+                    matched.join("; ")
+                );
+
+                tracing::warn!("PATTERN ALERT: {}", message);
+
+                alerts.push(PatternAlert {
+                    pattern_name: pattern.name.clone(),
+                    pod_id: row.pod_id.clone(),
+                    component: pattern.component.clone(),
+                    matched_conditions: matched,
+                    confidence: pattern.confidence,
+                    detected_at: now,
+                    message,
+                });
+            }
+        }
+    }
+
+    alerts
+}
+
+// ─── Phase 7: Remaining Useful Life (RUL) Estimation ────────────────────────
+
+/// Calculate RUL for a component using linear trend extrapolation.
+///
+/// Uses `get_metric_trend` from telemetry_store to get the slope. If the trend
+/// is declining, calculates when the metric will hit the failure threshold.
+pub async fn calculate_rul(
+    pool: &SqlitePool,
+    pod_id: &str,
+    component: &str,
+    metric_name: &str,
+    failure_threshold: f64,
+) -> Option<ComponentRUL> {
+    let trend = match crate::telemetry_store::get_metric_trend(pool, pod_id, metric_name, 30).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(
+                "RUL: failed to get trend for {}:{} on pod {}: {}",
+                component, metric_name, pod_id, e
+            );
+            return None;
+        }
+    };
+
+    if trend.data_points < 3 {
+        // Not enough data for meaningful extrapolation.
+        return None;
+    }
+
+    // P2: Guard against near-zero rate to avoid infinity/NaN in division.
+    // A rate < 0.001/day means the component is effectively stable — RUL is undefined.
+    if trend.rate_per_day.abs() < 0.001 {
+        return None;
+    }
+
+    // Only calculate RUL when trending toward failure.
+    // For "health" metrics (declining is bad), trend must be "declining".
+    // For "usage" metrics (rising is bad), trend must be "rising".
+    let is_declining_health = trend.trend == "declining" && trend.rate_per_day < 0.0;
+    let is_rising_usage = trend.trend == "rising" && trend.rate_per_day > 0.0;
+
+    let rul_hours = if is_declining_health {
+        // Metric declining toward failure_threshold (e.g., disk health dropping toward 0)
+        let gap = trend.current_value - failure_threshold;
+        if gap <= 0.0 {
+            // Already past failure threshold
+            0.0
+        } else {
+            (gap / trend.rate_per_day.abs()) * 24.0
+        }
+    } else if is_rising_usage {
+        // Metric rising toward failure_threshold (e.g., disk usage rising toward 95%)
+        let gap = failure_threshold - trend.current_value;
+        if gap <= 0.0 {
+            0.0
+        } else {
+            (gap / trend.rate_per_day.abs()) * 24.0
+        }
+    } else {
+        // Stable or trending away from failure — no RUL concern
+        return None;
+    };
+
+    // Parse pod_id number
+    let pod_num: u8 = pod_id
+        .trim_start_matches("pod")
+        .trim_start_matches("pod-")
+        .parse()
+        .unwrap_or(0);
+
+    // Map component string to ComponentType
+    let component_type = match component {
+        "GPU" => crate::maintenance_models::ComponentType::GPU,
+        "CPU" => crate::maintenance_models::ComponentType::CPU,
+        "Memory" => crate::maintenance_models::ComponentType::Memory,
+        "Storage" => crate::maintenance_models::ComponentType::Storage,
+        "Network" => crate::maintenance_models::ComponentType::Network,
+        "Cooling" => crate::maintenance_models::ComponentType::Cooling,
+        "Software" => crate::maintenance_models::ComponentType::Software,
+        _ => crate::maintenance_models::ComponentType::Software,
+    };
+
+    Some(ComponentRUL {
+        pod_id: pod_num,
+        component: component_type,
+        component_name: format!("{}:{}", component, metric_name),
+        rul_hours: rul_hours as f32,
+        rul_confidence: trend.confidence as f32,
+        degradation_rate_per_day: trend.rate_per_day,
+        last_updated: Utc::now(),
+        method: "linear_trend_extrapolation".into(),
+        explanation: format!(
+            "{} on pod {} is {} at {:.1}/day (current: {:.1}, threshold: {:.1}, ~{:.0}h remaining)",
+            metric_name, pod_id, trend.trend, trend.rate_per_day, trend.current_value, failure_threshold, rul_hours
+        ),
+    })
+}
+
+// ─── Phase 16: Pre-Maintenance Automated Checks ─────────────────────────────
+
+/// Pre-maintenance check results — validate system state before starting work
+#[derive(Debug, Clone, Serialize)]
+pub struct PreMaintenanceCheck {
+    pub pod_id: u8,
+    pub checks_passed: bool,
+    pub has_active_session: bool,
+    pub recent_backup: bool,
+    pub pod_reachable: bool,
+    pub messages: Vec<String>,
+}
+
+/// Run pre-maintenance validation before starting a maintenance task
+pub async fn run_pre_checks(
+    pod_id: u8,
+    state: &std::sync::Arc<crate::state::AppState>,
+) -> PreMaintenanceCheck {
+    let mut check = PreMaintenanceCheck {
+        pod_id,
+        checks_passed: true,
+        has_active_session: false,
+        recent_backup: true, // assume true until we can verify
+        pod_reachable: false,
+        messages: Vec::new(),
+    };
+
+    // Check if pod has active billing session
+    let pods = state.pods.read().await;
+    if let Some(pod) = pods.values().find(|p| p.number == pod_id as u32) {
+        check.pod_reachable = true;
+        if pod.billing_session_id.is_some() {
+            check.has_active_session = true;
+            check.checks_passed = false;
+            check.messages.push(format!(
+                "Pod {} has active billing session — defer maintenance",
+                pod_id
+            ));
+        }
+    } else {
+        check.messages.push(format!(
+            "Pod {} not connected — cannot verify state",
+            pod_id
+        ));
+        check.checks_passed = false;
+    }
+
+    check
+}
+
+// ─── Phase 10: Business-Aware Priority Scoring ──────────────────────────────
+
+/// Calculate priority 1-100 weighted by business context.
+/// GPT-4.1 death spiral fix: use EXPECTED revenue, not actual.
+pub fn calculate_priority(severity: &str, _pod_id: u8, is_peak: bool, has_active_session: bool) -> u8 {
+    let base = match severity {
+        "Critical" => 80,
+        "High" => 60,
+        "Medium" => 40,
+        _ => 20,
+    };
+    let peak_factor = if is_peak { 1.5 } else { 1.0 };
+    let session_factor = if has_active_session { 1.4 } else { 1.0 };
+    let score = (base as f64 * peak_factor * session_factor).min(100.0);
+    score as u8
+}
+
+/// Check if the current IST time is within peak hours.
+/// Peak: 4pm-10pm IST (weekdays), 11am-10pm IST (weekends).
+pub fn is_peak_hours() -> bool {
+    let now = Utc::now() + chrono::Duration::hours(5) + chrono::Duration::minutes(30);
+    let hour = now.hour();
+    let weekday = now.weekday();
+    match weekday {
+        chrono::Weekday::Sat | chrono::Weekday::Sun => hour >= 11 && hour < 22,
+        _ => hour >= 16 && hour < 22,
+    }
+}
+// ---
+//! v29.0 Phase 27: Self-healing orchestration — connects anomaly detection to recovery actions.
+
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+const LOG_TARGET: &str = "self-heal-orch";
+
+#[derive(Debug, Clone, Serialize)]
+pub enum HealingAction {
+    RestartPod(u8),
+    RestartGameProcess(u8, String),
+    ClearDiskSpace(u8),
+    KillOrphanProcesses(u8),
+    MarkPodDegraded(u8),
+    MarkPodUnavailable(u8),
+    EscalateToStaff(u8, String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HealingOutcome {
+    pub action: String,
+    pub pod_id: u8,
+    pub success: bool,
+    pub before_value: Option<f64>,
+    pub after_value: Option<f64>,
+    pub timestamp: DateTime<Utc>,
+    pub notes: String,
+}
+
+/// Map an anomaly alert to a healing action.
+pub fn recommend_action(rule_name: &str, severity: &str, pod_id: u8) -> HealingAction {
+    match (rule_name, severity) {
+        ("Handle Leak", _) => HealingAction::KillOrphanProcesses(pod_id),
+        ("Disk Space Critical", _) => HealingAction::ClearDiskSpace(pod_id),
+        ("GPU Critical Temp", _) => HealingAction::MarkPodUnavailable(pod_id),
+        ("GPU Overheat", _) => HealingAction::MarkPodDegraded(pod_id),
+        ("Memory Pressure", "Critical") => HealingAction::RestartPod(pod_id),
+        (_, "Critical") => HealingAction::EscalateToStaff(pod_id, rule_name.to_string()),
+        (_, "High") => HealingAction::MarkPodDegraded(pod_id),
+        _ => HealingAction::EscalateToStaff(pod_id, format!("{} ({})", rule_name, severity)),
+    }
+}
+
+/// Pod availability state for kiosk/PWA/POS.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum PodAvailability {
+    Available,
+    Degraded { reason: String },
+    MaintenanceHold { until: Option<String>, reason: String },
+    Unavailable { reason: String },
+}
+
+/// Thread-safe map of pod_id -> availability state.
+pub type PodAvailabilityMap = Arc<RwLock<HashMap<u8, PodAvailability>>>;
+
+/// Create a new availability map with all 8 pods set to Available.
+pub fn new_availability_map() -> PodAvailabilityMap {
+    let mut map = HashMap::new();
+    for pod_id in 1..=8 {
+        map.insert(pod_id, PodAvailability::Available);
+    }
+    Arc::new(RwLock::new(map))
+}
+
+/// Update pod availability based on healing action.
+pub async fn apply_action(map: &PodAvailabilityMap, action: &HealingAction) {
+    let mut m = map.write().await;
+    match action {
+        HealingAction::MarkPodDegraded(id) => {
+            m.insert(
+                *id,
+                PodAvailability::Degraded {
+                    reason: "Anomaly detected".into(),
+                },
+            );
+            tracing::warn!(target: LOG_TARGET, pod = id, "Pod marked DEGRADED");
+        }
+        HealingAction::MarkPodUnavailable(id) => {
+            m.insert(
+                *id,
+                PodAvailability::Unavailable {
+                    reason: "Critical anomaly".into(),
+                },
+            );
+            tracing::error!(target: LOG_TARGET, pod = id, "Pod marked UNAVAILABLE");
+        }
+        _ => {}
+    }
+}
+
+/// Clear pod state back to available (after successful recovery validation).
+pub async fn mark_available(map: &PodAvailabilityMap, pod_id: u8) {
+    let mut m = map.write().await;
+    m.insert(pod_id, PodAvailability::Available);
+    tracing::info!(target: LOG_TARGET, pod = pod_id, "Pod marked AVAILABLE");
+}
+// ---
+//! v29.0 Phase 28: Feedback loop — tracks prediction accuracy, maintenance outcomes,
+//! and feeds results back to improve future predictions.
+
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use sqlx::SqlitePool;
+
+const LOG_TARGET: &str = "feedback-loop";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionOutcome {
+    pub prediction_id: String,
+    pub prediction_type: String, // "anomaly", "rul", "demand"
+    pub predicted_at: DateTime<Utc>,
+    pub predicted_value: f64,
+    pub actual_value: Option<f64>,
+    pub was_accurate: Option<bool>,
+    pub lead_time_hours: Option<f64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FeedbackMetrics {
+    pub total_predictions: u32,
+    pub accurate_predictions: u32,
+    pub precision: f64,
+    pub recall: f64,
+    pub mean_lead_time_hours: f64,
+    pub false_positive_rate: f64,
+    pub period_days: u32,
+}
+
+/// Initialize feedback tables.
+pub async fn init_feedback_tables(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS prediction_outcomes (
+            id TEXT PRIMARY KEY,
+            prediction_type TEXT NOT NULL,
+            predicted_at TEXT NOT NULL,
+            predicted_value REAL,
+            actual_value REAL,
+            was_accurate INTEGER,
+            lead_time_hours REAL,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS admin_overrides (
+            id TEXT PRIMARY KEY,
+            recommendation_id TEXT,
+            recommendation_type TEXT NOT NULL,
+            original_action TEXT NOT NULL,
+            final_action TEXT NOT NULL,
+            overridden_by TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_outcomes_type ON prediction_outcomes(prediction_type)")
+        .execute(pool)
+        .await?;
+
+    tracing::info!(target: LOG_TARGET, "Feedback tables initialized");
+    Ok(())
+}
+
+/// Record a prediction outcome.
+pub async fn record_outcome(pool: &SqlitePool, outcome: &PredictionOutcome) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO prediction_outcomes \
+         (id, prediction_type, predicted_at, predicted_value, actual_value, was_accurate, lead_time_hours, notes) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )
+    .bind(&outcome.prediction_id)
+    .bind(&outcome.prediction_type)
+    .bind(outcome.predicted_at.to_rfc3339())
+    .bind(outcome.predicted_value)
+    .bind(outcome.actual_value)
+    .bind(outcome.was_accurate.map(|b| b as i32))
+    .bind(outcome.lead_time_hours)
+    .bind(&outcome.notes)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record admin override for feedback learning.
+pub async fn record_override(
+    pool: &SqlitePool,
+    recommendation_id: &str,
+    rec_type: &str,
+    original: &str,
+    final_action: &str,
+    overridden_by: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO admin_overrides \
+         (id, recommendation_id, recommendation_type, original_action, final_action, overridden_by, reason) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(&id)
+    .bind(recommendation_id)
+    .bind(rec_type)
+    .bind(original)
+    .bind(final_action)
+    .bind(overridden_by)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+    tracing::info!(target: LOG_TARGET, rec_type, "Admin override recorded");
+    Ok(())
+}
+
+/// Calculate feedback metrics for a period.
+pub async fn calculate_feedback_metrics(
+    pool: &SqlitePool,
+    days: u32,
+) -> anyhow::Result<FeedbackMetrics> {
+    let since = (Utc::now() - chrono::Duration::days(days as i64)).to_rfc3339();
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let accurate: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1 AND was_accurate = 1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let false_pos: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE created_at > ?1 AND was_accurate = 0",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let avg_lead: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(AVG(lead_time_hours), 0) FROM prediction_outcomes \
+         WHERE created_at > ?1 AND was_accurate = 1",
+    )
+    .bind(&since)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0.0);
+
+    let precision = if total > 0 {
+        accurate as f64 / total as f64
+    } else {
+        0.0
+    };
+    let fpr = if total > 0 {
+        false_pos as f64 / total as f64
+    } else {
+        0.0
+    };
+
+    Ok(FeedbackMetrics {
+        total_predictions: total as u32,
+        accurate_predictions: accurate as u32,
+        precision,
+        recall: precision, // simplified — need separate tracking of missed failures
+        mean_lead_time_hours: avg_lead,
+        false_positive_rate: fpr,
+        period_days: days,
+    })
+}
+// ---
+//! v29.0 Phase 30: Business alert engine — monitors financial KPIs and triggers alerts.
+
+use serde::Serialize;
+use chrono::{Utc, Datelike, Timelike};
+
+const LOG_TARGET: &str = "alert-engine";
+
+#[derive(Debug, Clone, Serialize)]
+pub enum AlertChannel { WhatsApp, Dashboard, Both }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BusinessAlert {
+    pub alert_type: String,
+    pub severity: String,
+    pub message: String,
+    pub channel: AlertChannel,
+    pub timestamp: String,
+    pub value: f64,
+    pub threshold: f64,
+}
+
+/// Check business KPIs and generate alerts
+pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert> {
+    let mut alerts = Vec::new();
+    let today = Utc::now().date_naive().to_string();
+
+    // Check: Revenue today vs 7-day average (>30% drop = alert)
+    let today_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+
+    let avg_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(AVG(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= date('now', '-7 days')"
+    ).fetch_one(pool).await.unwrap_or(0.0);
+
+    if avg_rev > 0.0 && today_rev < avg_rev * 0.7 {
+        alerts.push(BusinessAlert {
+            alert_type: "RevenueDropAlert".into(),
+            severity: "High".into(),
+            message: format!("Revenue today ₹{:.0} is {:.0}% below 7-day average ₹{:.0}", today_rev/100.0, (1.0 - today_rev/avg_rev)*100.0, avg_rev/100.0),
+            channel: AlertChannel::Both,
+            timestamp: Utc::now().to_rfc3339(),
+            value: today_rev, threshold: avg_rev * 0.7,
+        });
+    }
+
+    // Check: Occupancy below 40% during peak hours
+    // IST = UTC + 5:30 — compute correctly via chrono Duration to avoid modular arithmetic bugs
+    let now_ist = Utc::now() + chrono::Duration::minutes(330);
+    let hour = now_ist.hour();
+    let is_peak = hour >= 16 && hour < 22;
+    if is_peak {
+        let occ: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(occupancy_rate_pct, 0) FROM daily_business_metrics WHERE date = ?1"
+        ).bind(&today).fetch_one(pool).await.unwrap_or(0.0);
+
+        if occ > 0.0 && occ < 40.0 {
+            alerts.push(BusinessAlert {
+                alert_type: "LowOccupancyAlert".into(),
+                severity: "Medium".into(),
+                message: format!("Peak hour occupancy {:.0}% (threshold: 40%)", occ),
+                channel: AlertChannel::Dashboard,
+                timestamp: Utc::now().to_rfc3339(),
+                value: occ, threshold: 40.0,
+            });
+        }
+    }
+
+    // Check: Maintenance costs exceeding 20% of revenue this month
+    let month_start = format!("{}-{:02}-01", Utc::now().year(), Utc::now().month());
+    let maint_cost: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(expense_maintenance_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+
+    let month_rev: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(revenue_gaming_paise + revenue_cafe_paise), 0) FROM daily_business_metrics WHERE date >= ?1"
+    ).bind(&month_start).fetch_one(pool).await.unwrap_or(0.0);
+
+    if month_rev > 0.0 && maint_cost > month_rev * 0.2 {
+        alerts.push(BusinessAlert {
+            alert_type: "MaintenanceCostAlert".into(),
+            severity: "High".into(),
+            message: format!("Maintenance costs ₹{:.0} are {:.0}% of revenue ₹{:.0}", maint_cost/100.0, maint_cost/month_rev*100.0, month_rev/100.0),
+            channel: AlertChannel::WhatsApp,
+            timestamp: Utc::now().to_rfc3339(),
+            value: maint_cost, threshold: month_rev * 0.2,
+        });
+    }
+
+    for alert in &alerts {
+        tracing::warn!(target: LOG_TARGET, alert_type = %alert.alert_type, severity = %alert.severity, "Business alert: {}", alert.message);
+    }
+
+    alerts
+}
+
+/// Spawn periodic business alert checker (every 30 min).
+/// Accepts AppState to dispatch alerts to WhatsApp and dashboard channels.
+pub fn spawn_alert_checker(state: std::sync::Arc<crate::state::AppState>) {
+    let pool = state.db.clone();
+    let config = state.config.clone();
+    tokio::spawn(async move {
+        // Wait 5 min for system to stabilize
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let alerts = check_business_alerts(&pool).await;
+            for alert in &alerts {
+                // Dispatch to WhatsApp for WhatsApp/Both channels
+                if matches!(alert.channel, AlertChannel::WhatsApp | AlertChannel::Both) {
+                    let msg = format!("[{}] {}: {}", alert.severity, alert.alert_type, alert.message);
+                    crate::whatsapp_alerter::send_whatsapp(&config, &msg).await;
+                }
+                // Dashboard channel alerts are logged for now (dashboard WS picks them up via tracing)
+                if matches!(alert.channel, AlertChannel::Dashboard | AlertChannel::Both) {
+                    tracing::info!(target: LOG_TARGET,
+                        alert_type = %alert.alert_type,
+                        severity = %alert.severity,
+                        channel = "dashboard",
+                        "Dashboard alert: {}", alert.message
+                    );
+                }
+            }
+        }
+    });
+}
+// ---
+//! v29.0 Phase 15: 3-tier escalation workflow for maintenance alerts.
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum EscalationTier {
+    Auto,       // Tier 1: auto-fix, log only
+    Technician, // Tier 2: notify staff on duty
+    Manager,    // Tier 3: escalate to Uday
+}
+
+/// Determine escalation tier based on severity and attempt count.
+pub fn determine_escalation(
+    severity: &str,
+    auto_fix_attempts: u32,
+    is_recurring: bool,
+) -> EscalationTier {
+    if severity == "Critical" {
+        return EscalationTier::Manager;
+    }
+    if auto_fix_attempts == 0 && !is_recurring && severity != "High" {
+        return EscalationTier::Auto;
+    }
+    if auto_fix_attempts <= 2 || severity == "High" {
+        return EscalationTier::Technician;
+    }
+    EscalationTier::Manager
+}
+
+/// Format WhatsApp alert message based on tier.
+pub fn format_alert_message(
+    tier: &EscalationTier,
+    pod_id: u8,
+    component: &str,
+    description: &str,
+    severity: &str,
+) -> String {
+    let prefix = match tier {
+        EscalationTier::Auto => return String::new(), // no message for auto-fix
+        EscalationTier::Technician => "\u{26a0}\u{fe0f} MAINTENANCE ALERT",
+        EscalationTier::Manager => "\u{1f6a8} CRITICAL ESCALATION",
+    };
+    format!(
+        "{}\nPod: {}\nComponent: {}\nSeverity: {}\n{}\n\nAction required.",
+        prefix, pod_id, component, severity, description
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_critical_always_manager() {
+        assert_eq!(
+            determine_escalation("Critical", 0, false),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_first_attempt_low_is_auto() {
+        assert_eq!(
+            determine_escalation("Low", 0, false),
+            EscalationTier::Auto
+        );
+        assert_eq!(
+            determine_escalation("Medium", 0, false),
+            EscalationTier::Auto
+        );
+    }
+
+    #[test]
+    fn test_high_is_technician() {
+        assert_eq!(
+            determine_escalation("High", 0, false),
+            EscalationTier::Technician
+        );
+    }
+
+    #[test]
+    fn test_recurring_escalates() {
+        assert_eq!(
+            determine_escalation("Medium", 0, true),
+            EscalationTier::Technician
+        );
+    }
+
+    #[test]
+    fn test_many_attempts_escalates_to_manager() {
+        assert_eq!(
+            determine_escalation("Medium", 3, false),
+            EscalationTier::Manager
+        );
+    }
+
+    #[test]
+    fn test_auto_tier_empty_message() {
+        let msg = format_alert_message(&EscalationTier::Auto, 1, "GPU", "Temp high", "Low");
+        assert!(msg.is_empty());
+    }
+
+    #[test]
+    fn test_technician_message_format() {
+        let msg = format_alert_message(
+            &EscalationTier::Technician,
+            3,
+            "Cooling",
+            "Fan RPM low",
+            "High",
+        );
+        assert!(msg.contains("MAINTENANCE ALERT"));
+        assert!(msg.contains("Pod: 3"));
+        assert!(msg.contains("Cooling"));
+    }
+
+    #[test]
+    fn test_manager_message_format() {
+        let msg = format_alert_message(
+            &EscalationTier::Manager,
+            5,
+            "GPU",
+            "GPU memory errors",
+            "Critical",
+        );
+        assert!(msg.contains("CRITICAL ESCALATION"));
+        assert!(msg.contains("Pod: 5"));
+    }
+}
+// ---
+//! v29.0 Phase 35: Unified data collector — cross-domain snapshots for AI consumption.
+//! Also wires RUL triggers and occupancy data.
+
+use serde::Serialize;
+use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
+
+const LOG_TARGET: &str = "data-collector";
+
+/// Cross-domain venue snapshot for AI analysis.
+#[derive(Debug, Clone, Serialize)]
+pub struct VenueSnapshot {
+    pub timestamp: DateTime<Utc>,
+    pub pod_count_online: u8,
+    pub pod_count_degraded: u8,
+    pub pod_count_unavailable: u8,
+    pub active_sessions: u32,
+    pub occupancy_pct: f32,
+    pub revenue_today_paise: i64,
+    pub open_maintenance_tasks: u32,
+    pub critical_alerts_active: u32,
+    pub staff_on_duty: u32,
+    pub avg_gpu_temp: Option<f32>,
+    pub avg_network_latency: Option<f32>,
+}
+
+/// Collect a venue-wide snapshot from the main DB.
+pub async fn collect_venue_snapshot(pool: &SqlitePool) -> VenueSnapshot {
+    let today = Utc::now().date_naive().to_string();
+
+    let revenue: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0);
+
+    let open_tasks: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM maintenance_tasks WHERE status IN ('Open', 'Assigned', 'InProgress')"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    let critical_alerts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM maintenance_events WHERE severity = 'Critical' AND resolved_at IS NULL AND detected_at > datetime('now', '-1 hour')"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    let staff: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM employees WHERE is_active = 1"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    VenueSnapshot {
+        timestamp: Utc::now(),
+        pod_count_online: 8, // TODO: query from fleet health
+        pod_count_degraded: 0,
+        pod_count_unavailable: 0,
+        active_sessions: 0, // TODO: query from billing_fsm
+        occupancy_pct: 0.0,
+        revenue_today_paise: revenue,
+        open_maintenance_tasks: open_tasks as u32,
+        critical_alerts_active: critical_alerts as u32,
+        staff_on_duty: staff as u32,
+        avg_gpu_temp: None,
+        avg_network_latency: None,
+    }
+}
+
+/// Check RUL thresholds and auto-create maintenance tasks for components nearing failure.
+pub async fn check_rul_thresholds(
+    pool: &SqlitePool,
+    telem_pool: &SqlitePool,
+) -> anyhow::Result<u32> {
+    // Get daily aggregates for health-related metrics in last day
+    let metrics: Vec<(String, String, f64)> = sqlx::query_as(
+        "SELECT pod_id, metric_name, avg_val FROM telemetry_aggregates \
+         WHERE period_hours = 24 AND period_start > datetime('now', '-1 day') \
+         AND metric_name IN ('disk_smart_health_pct', 'gpu_temp_celsius') \
+         ORDER BY pod_id"
+    ).fetch_all(telem_pool).await.unwrap_or_default();
+
+    let mut tasks_created = 0u32;
+
+    for (pod_id_str, metric, value) in &metrics {
+        let should_create = match metric.as_str() {
+            "disk_smart_health_pct" if *value < 70.0 => {
+                Some(("Storage", format!("Disk health at {:.0}% — schedule replacement", value)))
+            }
+            "gpu_temp_celsius" if *value > 85.0 => {
+                Some(("Cooling", format!("GPU avg temp {:.0}°C — check cooling system", value)))
+            }
+            _ => None,
+        };
+
+        if let Some((component, title)) = should_create {
+            // Check if a task already exists for this pod/component
+            let pod_num = pod_id_str.replace("pod_", "").parse::<i64>().unwrap_or(0);
+            let existing: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM maintenance_tasks WHERE pod_id = ?1 AND component LIKE ?2 AND status NOT IN ('Completed', 'Failed', 'Cancelled')"
+            )
+            .bind(pod_num)
+            .bind(format!("%{}%", component))
+            .fetch_one(pool).await.unwrap_or(0);
+
+            if existing == 0 {
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO maintenance_tasks (id, title, description, pod_id, component, priority, status, created_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'Open', ?7)"
+                )
+                .bind(&id).bind(&title).bind(&title)
+                .bind(pod_num)
+                .bind(component)
+                .bind(70i64) // High priority for RUL-triggered tasks
+                .bind(&now)
+                .execute(pool).await?;
+
+                tracing::warn!(target: LOG_TARGET, pod = %pod_id_str, component, "RUL threshold triggered — maintenance task created");
+                tasks_created += 1;
+            }
+        }
+    }
+
+    Ok(tasks_created)
+}
+
+/// Spawn periodic data collection + RUL check (every 15 min).
+pub fn spawn_data_collector(pool: SqlitePool, telem_pool: SqlitePool) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(180)).await; // wait 3 min for startup
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(900));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tracing::info!(target: LOG_TARGET, "Data collector started (15-min interval)");
+        loop {
+            interval.tick().await;
+            let snapshot = collect_venue_snapshot(&pool).await;
+            tracing::debug!(target: LOG_TARGET,
+                revenue = snapshot.revenue_today_paise,
+                tasks = snapshot.open_maintenance_tasks,
+                alerts = snapshot.critical_alerts_active,
+                "Venue snapshot collected"
+            );
+
+            if let Err(e) = check_rul_thresholds(&pool, &telem_pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "RUL threshold check failed");
+            }
+        }
+    });
+}
+// ---
+//! v29.0 Phase 34: Ollama HTTP client for AI diagnosis.
+//! Calls local Ollama on James machine (192.168.31.27:11434).
+
+use serde::{Serialize, Deserialize};
+
+const LOG_TARGET: &str = "ollama";
+const OLLAMA_URL: &str = "http://192.168.31.27:11434/api/generate";
+const DEFAULT_MODEL: &str = "qwen2.5:3b";
+const FALLBACK_MODEL: &str = "llama3.1:8b";
+const TIMEOUT_SECS: u64 = 30;
+
+#[derive(Serialize)]
+struct OllamaRequest {
+    model: String,
+    prompt: String,
+    stream: bool,
+}
+
+#[derive(Deserialize)]
+struct OllamaResponse {
+    response: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    done: bool,
+}
+
+/// Send a diagnosis prompt to Ollama and get structured response.
+pub async fn diagnose(prompt: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
+        .build()?;
+
+    // Try primary model first
+    match call_ollama(&client, DEFAULT_MODEL, prompt).await {
+        Ok(response) => {
+            tracing::info!(target: LOG_TARGET, model = DEFAULT_MODEL, len = response.len(), "Ollama diagnosis complete");
+            Ok(response)
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, model = DEFAULT_MODEL, error = %e, "Primary model failed, trying fallback");
+            // Fallback to larger model
+            match call_ollama(&client, FALLBACK_MODEL, prompt).await {
+                Ok(response) => {
+                    tracing::info!(target: LOG_TARGET, model = FALLBACK_MODEL, len = response.len(), "Fallback diagnosis complete");
+                    Ok(response)
+                }
+                Err(e2) => {
+                    tracing::error!(target: LOG_TARGET, error = %e2, "Both Ollama models failed");
+                    Err(anyhow::anyhow!("Ollama unavailable: primary={}, fallback={}", e, e2))
+                }
+            }
+        }
+    }
+}
+
+async fn call_ollama(client: &reqwest::Client, model: &str, prompt: &str) -> anyhow::Result<String> {
+    let req = OllamaRequest {
+        model: model.to_string(),
+        prompt: prompt.to_string(),
+        stream: false,
+    };
+
+    let resp = client.post(OLLAMA_URL)
+        .json(&req)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("Ollama returned {}", resp.status()));
+    }
+
+    let body: OllamaResponse = resp.json().await?;
+    Ok(body.response)
+}
+
+/// Check if Ollama is reachable.
+pub async fn health_check() -> bool {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build();
+
+    match client {
+        Ok(c) => c.get("http://192.168.31.27:11434/api/tags")
+            .send().await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}

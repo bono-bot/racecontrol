@@ -1,0 +1,360 @@
+# Deploy Pipeline Audit — Root Cause Analysis & Permanent Fixes
+
+---
+
+## Problem 1: False "Powered Off" Detection
+
+### Root Cause
+The probe logic conflated **transient unavailability** (boot in progress, 30–120s window) with **permanent absence**. Single-shot probes with 1-second timeouts have no statistical validity against a system with a known 30–120s startup window. The AI's inference chain (`no response → off → abort`) treated absence of evidence as evidence of absence.
+
+### Pattern Class
+**Impatient Liveness Check** — a recurring class wherever infrastructure probes are used to gate deploy decisions without accounting for known startup latency. Same pattern kills CI/CD pipelines that probe containers before they're healthy.
+
+### Permanent Fix
+
+Replace all pod reachability checks with a retry-with-backoff probe that understands the boot envelope:
+
+```bash
+#!/usr/bin/env bash
+# scripts/wait_for_pod.sh
+# Usage: wait_for_pod.sh <ip> [max_wait_seconds]
+# Exit 0 = pod reachable, Exit 1 = genuinely unreachable after full wait
+
+set -euo pipefail
+
+POD_IP="${1:?Pod IP required}"
+MAX_WAIT="${2:-150}"          # 150s > worst-case 120s boot
+PROBE_INTERVAL=10             # seconds between attempts
+CONNECT_TIMEOUT=3             # per-attempt TCP timeout
+ELAPSED=0
+ATTEMPT=0
+
+probe_pod() {
+    # Two-layer check: ICMP first (cheap), then HTTP (authoritative)
+    # HTTP check hits rc-sentry's /health endpoint — proves process is up
+    ping -n 1 -w 3000 "${POD_IP}" >nul 2>&1 && \
+    curl --silent \
+         --connect-timeout "${CONNECT_TIMEOUT}" \
+         --max-time 5 \
+         --fail \
+         "http://${POD_IP}:8091/health" >nul 2>&1
+}
+
+echo "[probe] Waiting for pod ${POD_IP} (max ${MAX_WAIT}s, ${PROBE_INTERVAL}s interval)"
+
+while [ "${ELAPSED}" -lt "${MAX_WAIT}" ]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    
+    if probe_pod; then
+        echo "[probe] Pod ${POD_IP} UP after ${ELAPSED}s (attempt ${ATTEMPT})"
+        exit 0
+    fi
+    
+    echo "[probe] Attempt ${ATTEMPT}: ${POD_IP} not ready yet (${ELAPSED}s elapsed)"
+    sleep "${PROBE_INTERVAL}"
+    ELAPSED=$((ELAPSED + PROBE_INTERVAL))
+done
+
+echo "[probe] FAIL: ${POD_IP} did not become reachable within ${MAX_WAIT}s"
+echo "[probe] This may indicate a genuine hardware/network problem — investigate manually"
+exit 1
+```
+
+```bash
+# scripts/wait_for_all_pods.sh
+#!/usr/bin/env bash
+# Probes all pods in parallel; reports which ones failed vs. timed out
+
+set -euo pipefail
+
+PODS=(
+    "192.168.1.11"
+    "192.168.1.12"
+    "192.168.1.13"
+    "192.168.1.14"
+    "192.168.1.15"
+    "192.168.1.16"
+    "192.168.1.17"
+    "192.168.1.18"
+)
+
+MAX_WAIT="${1:-150}"
+RESULTS_DIR="$(mktemp -d)"
+PIDS=()
+
+for pod in "${PODS[@]}"; do
+    (
+        if bash scripts/wait_for_pod.sh "${pod}" "${MAX_WAIT}"; then
+            echo "UP" > "${RESULTS_DIR}/${pod}"
+        else
+            echo "DOWN" > "${RESULTS_DIR}/${pod}"
+        fi
+    ) &
+    PIDS+=($!)
+done
+
+# Wait for all probes to finish
+for pid in "${PIDS[@]}"; do
+    wait "${pid}" || true
+done
+
+# Collect results — do NOT abort on partial failure
+FAILED=()
+for pod in "${PODS[@]}"; do
+    status=$(cat "${RESULTS_DIR}/${pod}")
+    if [ "${status}" != "UP" ]; then
+        FAILED+=("${pod}")
+        echo "[probe] WARNING: ${pod} did not respond"
+    fi
+done
+
+rm -rf "${RESULTS_DIR}"
+
+if [ ${#FAILED[@]} -gt 0 ]; then
+    echo "[probe] ${#FAILED[@]} pod(s) unreachable: ${FAILED[*]}"
+    echo "[probe] Proceeding with reachable pods only — review failed pods manually"
+    # Export for calling script to skip failed pods
+    export UNREACHABLE_PODS="${FAILED[*]}"
+    exit 0   # Not a fatal error — partial deploy is better than no deploy
+fi
+
+echo "[probe] All ${#PODS[@]} pods reachable"
+```
+
+Add `/health` to rc-sentry so the HTTP probe is authoritative:
+
+```go
+// In rc-sentry main.go — add alongside existing exec handler
+http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprintf(w, `{"status":"ok","version":"%s"}`, buildVersion)
+})
+```
+
+---
+
+## Problem 2: HTTP Staging Server Served Wrong Directory
+
+### Root Cause
+`cd dir && python ... &` in Git Bash **does not behave as expected**. The `&` forks a subshell, but the `cd` applies to the current shell process. The backgrounded Python process inherits the **pre-cd working directory** from the shell's fork state. This is a POSIX shell subtlety: `cd` is a shell builtin affecting the current process; backgrounding creates a fork before the builtin completes reliably across shell implementations. The result is a silently wrong server that returns 335-byte HTML error pages which look superficially like network responses.
+
+### Pattern Class
+**Silent Wrong-Directory Serving** — a class of bugs where a server starts successfully but serves the wrong tree. The 404/HTML-vs-binary issue is only detectable by content inspection, not by process liveness. Appears anywhere `cd && background_server` is used in deploy scripts.
+
+### Permanent Fix
+
+Never rely on shell `cd` state for a backgrounded process. Use explicit working directory:
+
+```bash
+#!/usr/bin/env bash
+# scripts/start_staging_server.sh
+# Starts the HTTP staging server with guaranteed working directory
+# Idempotent: kills any existing server on the port first
+
+set -euo pipefail
+
+STAGING_DIR="/c/Users/bono/racingpoint/deploy-staging"
+STAGING_PORT=18889
+BINARY_NAME="raceclient.exe"           # adjust to actual artifact name
+MIN_BINARY_SIZE_BYTES=10000000         # 10MB floor — catches HTML error pages
+
+# ── Validate directory and binary exist before starting ───────────────────────
+if [ ! -d "${STAGING_DIR}" ]; then
+    echo "[staging] ERROR: Staging directory does not exist: ${STAGING_DIR}"
+    exit 1
+fi
+
+if [ ! -f "${STAGING_DIR}/${BINARY_NAME}" ]; then
+    echo "[staging] ERROR: Binary not found: ${STAGING_DIR}/${BINARY_NAME}"
+    exit 1
+fi
+
+actual_size=$(stat -c%s "${STAGING_DIR}/${BINARY_NAME}" 2>/dev/null || echo 0)
+if [ "${actual_size}" -lt "${MIN_BINARY_SIZE_BYTES}" ]; then
+    echo "[staging] ERROR: Binary too small (${actual_size} bytes) — likely a corrupt or placeholder file"
+    exit 1
+fi
+
+# ── Kill any existing server on this port (idempotent) ────────────────────────
+existing_pid=$(lsof -ti :"${STAGING_PORT}" 2>/dev/null || true)
+if [ -n "${existing_pid}" ]; then
+    echo "[staging] Killing existing server PID ${existing_pid} on :${STAGING_PORT}"
+    kill "${existing_pid}" 2>/dev/null || true
+    sleep 1
+fi
+
+# ── Start server with explicit -d flag (no cd dependency) ─────────────────────
+# python -m http.server supports --directory only in Python 3.7+
+# This is the ONLY correct way to background with a guaranteed directory
+python -m http.server "${STAGING_PORT}" \
+    --directory "${STAGING_DIR}" \
+    --bind 0.0.0.0 \
+    > /tmp/staging_server.log 2>&1 &
+
+SERVER_PID=$!
+echo "${SERVER_PID}" > /tmp/staging_server.pid
+echo "[staging] Server PID ${SERVER_PID} started, waiting for it to bind..."
+
+sleep 2
+
+# ── Verify server is serving the correct content ──────────────────────────────
+if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+    echo "[staging] ERROR: Server process died immediately. Log:"
+    cat /tmp/staging_server.log
+    exit 1
+fi
+
+# Fetch just the headers + first bytes to confirm it's not an error page
+http_code=$(curl --silent \
+                 --head \
+                 --connect-timeout 3 \
+                 --output /dev/null \
+                 --write-out "%{http_code}" \
+                 "http://127.0.0.1:${STAGING_PORT}/${BINARY_NAME}")
+
+if [ "${http_code}" != "200" ]; then
+    echo "[staging] ERROR: Server returned HTTP ${http_code} for ${BINARY_NAME} — wrong directory?"
+    echo "[staging] Killing server and aborting"
+    kill "${SERVER_PID}" 2>/dev/null || true
+    exit 1
+fi
+
+# Verify reported content-length matches expected binary size
+content_length=$(curl --silent \
+                      --head \
+                      --connect-timeout 3 \
+                      "http://127.0.0.1:${STAGING_PORT}/${BINARY_NAME}" \
+                 | grep -i content-length \
+                 | awk '{print $2}' \
+                 | tr -d '[:space:]')
+
+if [ -z "${content_length}" ] || [ "${content_length}" -lt "${MIN_BINARY_SIZE_BYTES}" ]; then
+    echo "[staging] ERROR: Content-Length ${content_length} is below minimum ${MIN_BINARY_SIZE_BYTES}"
+    echo "[staging] Server is likely serving HTML error page instead of binary"
+    kill "${SERVER_PID}" 2>/dev/null || true
+    exit 1
+fi
+
+echo "[staging] VERIFIED: Server PID ${SERVER_PID} serving ${BINARY_NAME} (${content_length} bytes) on :${STAGING_PORT}"
+```
+
+Also add download verification on the **pod side** in rc-sentry before any swap:
+
+```go
+// In rc-sentry's download handler — verify before accepting
+func verifyDownload(path string, expectedMinBytes int64) error {
+    info, err := os.Stat(path)
+    if err != nil {
+        return fmt.Errorf("stat failed: %w", err)
+    }
+    if info.Size() < expectedMinBytes {
+        return fmt.Errorf("file too small: got %d bytes, expected at least %d — possible HTML error page", 
+            info.Size(), expectedMinBytes)
+    }
+    // Optional: verify PE header magic bytes for .exe
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+    magic := make([]byte, 2)
+    if _, err := f.Read(magic); err != nil {
+        return err
+    }
+    if magic[0] != 'M' || magic[1] != 'Z' {
+        return fmt.Errorf("file does not have MZ (PE) header — not a valid Windows binary")
+    }
+    return nil
+}
+```
+
+---
+
+## Problem 3: Service Key Mismatch (No Single Source of Truth)
+
+### Root Cause
+The service key existed in **two independent locations** — `racecontrol.toml` on the server and `RCSENTRY_SERVICE_KEY` environment variable on pods — with no mechanism to enforce they match at deploy time. Key drift is guaranteed when either side is updated independently. The system only discovered the mismatch at runtime on unauthorized requests.
+
+### Pattern Class
+**Split Secret State** — a recurring infrastructure class. Any secret or shared credential stored in N places without a canonical source will eventually drift. Common in: API keys across config files, TLS certs vs. pinned hashes, feature flags in multiple stores.
+
+### Permanent Fix
+
+Establish a **single canonical key file** checked into the deploy repo (or secrets store), with validation at deploy time, before any pod communication is attempted.
+
+```bash
+# secrets/sentry.key  — single file, one line, the key
+# This file IS the source of truth. Server config and pod env both READ from it.
+# If using git: add to .gitignore and distribute via secure channel (or secrets manager)
+```
+
+```bash
+#!/usr/bin/env bash
+# scripts/lib/keys.sh — sourced by all deploy scripts
+# Loads the canonical key and validates it matches live server config
+
+set -euo pipefail
+
+KEY_FILE="${DEPLOY_ROOT}/secrets/sentry.key"
+SERVER_CONFIG="${DEPLOY_ROOT}/config/racecontrol.toml"
+
+load_and_validate_key() {
+    if [ ! -f "${KEY_FILE}" ]; then
+        echo "[keys] ERROR: Canonical key file not found: ${KEY_FILE}"
+        echo "[keys] Run: scripts/generate_key.sh to create it"
+        exit 1
+    fi
+
+    SENTRY_KEY=$(tr -d '[:space:]' < "${KEY_FILE}")
+
+    if [ -z "${SENTRY_KEY}" ]; then
+        echo "[keys] ERROR: Key file is empty"
+        exit 1
+    fi
+
+    # Validate server config uses same key
+    config_key=$(grep -E '^[[:space:]]*service_key' "${SERVER_CONFIG}" \
+                 | head -1 \
+                 | sed 's/.*=\s*"\(.*\)".*/\1/' \
+                 | tr -d '[:space:]')
+
+    if [ "${config_key}" != "${SENTRY_KEY}" ]; then
+        echo "[keys] ERROR: Key mismatch detected BEFORE deploy:"
+        echo "[keys]   canonical: ${SENTRY_KEY:0:8}..."
+        echo "[keys]   server cfg: ${config_key:0:8}..."
+        echo "[keys] Fix: run scripts/sync_key.sh to rewrite server config from canonical key"
+        exit 1
+    fi
+
+    echo "[keys] Key validated: ${SENTRY_KEY:0:8}... (matches server config)"
+    export SENTRY_KEY
+}
+```
+
+```bash
+#!/usr/bin/env bash
+# scripts/sync_key.sh
+# Rewrites both server config and pod env from canonical key
+# Run this whenever key needs to rotate — it becomes the deploy procedure
+
+set -euo pipefail
+
+DEPLOY_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "${DEPLOY_ROOT}/scripts/lib/keys.sh"
+
+KEY_FILE="${DEPLOY_ROOT}/secrets/sentry.key"
+SERVER_CONFIG="${DEPLOY_ROOT}/config/racecontrol.toml"
+POD_ENV_TEMPLATE="${DEPLOY_ROOT}/config/pod_env.template"
+
+# Rotate if requested
+if [ "${1:-}" == "--rotate" ]; then
+    new_key=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "${new_key}" > "${KEY_FILE}"
+    echo "[sync_key] New key generated: ${new_key:0:8}..."
+fi
+
+SENTRY_KEY=$(tr -d '[:space:]' < "${KEY_FILE}")
+
+# ── Rewrite server config ─────────────────────────────────────────────────────
+# Uses a temp file + atomic rename to avoid half

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "MAINT-01",
+    "severity": "P1",
+    "title": "Process tree monitoring misidentifies system service restarts as application crashes",
+    "root_cause": "The crash detection logic likely monitors the process tree or port availability without distinguishing between intentional service restarts (sshd) and actual rc-agent failures. When sshd restarts, it may terminate child processes or cause temporary port conflicts that the watchdog misinterprets as rc-agent crashes.",
+    "permanent_fix": "Implement differential crash detection: 1) Monitor rc-agent's health endpoint (8090) with HTTP heartbeats instead of process presence. 2) Track only rc-agent.exe process exits with specific exit codes. 3) Add exclusion list for system service PIDs. 4) Use Windows Job Objects to isolate rc-agent process tree from system services."
+  },
+  {
+    "id": "MAINT-02",
+    "severity": "P1", 
+    "title": "Dual auto-clear mechanisms create race condition and lock contention",
+    "root_cause": "Both rc-sentry (via JSON timestamp) and rc-watchdog (via file mtime) attempt to clear MAINTENANCE_MODE, but they use different time sources and deletion methods. This creates a race where: 1) One might delete while the other is reading, causing file-not-found errors. 2) mtime changes on write could reset the watchdog's age calculation. 3) Both might attempt restart simultaneously causing port conflicts.",
+    "permanent_fix": "Unify clearing authority: 1) Make rc-watchdog (Windows service) the SOLE owner of MAINTENANCE_MODE lifecycle. 2) Remove check_and_clear_maintenance() from rc-sentry. 3) Use atomic file operations with retry logic. 4) Implement file locking with timeout for all MAINTENANCE_MODE accesses."
+  },
+  {
+    "id": "MAINT-03",
+    "severity": "P1",
+    "title": "Windows service watchdog may not be running or has stale state",
+    "root_cause": "As a Windows service, rc-watchdog could: 1) Be in STOPPED state after Windows Update. 2) Have crashed without recovery. 3) Have its poll loop blocked by file system locks. 4) Be running but with corrupted internal state preventing maintenance clearance.",
+    "permanent_fix": "1) Implement watchdog self-monitoring with separate recovery mechanism. 2) Add service health endpoint (port 8092) with external monitoring. 3) Configure Windows service recovery options (restart after 1 min). 4) Add heartbeat file written by watchdog that sentries can check."
+  },
+  {
+    "id": "MAINT-04", 
+    "severity": "P2",
+    "title": "Time source inconsistency between JSON timestamp and file mtime",
+    "root_cause": "rc-sentry uses JSON timestamp_epoch (system clock) while rc-watchdog uses file mtime (filesystem clock). These can diverge due to: 1) System time synchronization (NTP). 2) Filesystem timestamp granularity (FAT32 vs NTFS). 3) Timezone handling differences. 4) Write operations updating mtime unexpectedly.",
+    "permanent_fix": "Standardize on single time source: 1) Always use file mtime as source of truth. 2) Write MAINTENANCE_MODE with CreateFile with FILE_WRITE_ATTRIBUTES to control mtime explicitly. 3) Or embed mtime in JSON and validate consistency. 4) Use UTC everywhere."
+  },
+  {
+    "id": "MAINT-05",
+    "severity": "P2", 
+    "title": "Missing crash differentiation and graduated response system",
+    "root_cause": "All failures are treated equally (3 restarts = maintenance). There's no distinction between: 1) Clean exit codes. 2) Port conflicts. 3) Resource exhaustion. 4) External service disruptions. This causes overreaction to transient issues.",
+    "permanent_fix": "Implement graduated response: Level 1: Single restart → log only. Level 2: 2 restarts in 10min → alert. Level 3: 3 restarts with specific exit codes → maintenance. Level 4: External events (sshd, Windows Update) → ignore. Use exit code 0xE0000001 for 'external disruption'."
+  },
+  {
+    "id": "MAINT-06",
+    "severity": "P2",
+    "title": "No fleet coordination or staged recovery",
+    "root_cause": "All 8 pods entered maintenance simultaneously and would attempt recovery simultaneously, risking coordinated failures (thundering herd on shared resources).",
+    "permanent_fix": "1) Add random jitter to auto-clear timers (30min ± random 5min). 2) Implement distributed lock via Redis/DB for fleet-wide maintenance mode. 3) Stagger pod restarts with exponential backoff. 4) Add pod-specific ID to maintenance context for coordination."
+  },
+  {
+    "id": "MAINT-07",
+    "severity": "P3",
+    "title": "Sentinel file can be orphaned by process crashes during write",
+    "root_cause": "If enter_maintenance_mode() crashes mid-write (serde_json fails, disk full), it could leave corrupted/partial MAINTENANCE_MODE file that auto-clear logic can't parse.",
+    "permanent_fix": "1) Write to temp file then atomic rename. 2) Add JSON schema validation on read. 3) Fallback: If JSON parse fails, check mtime and clear after extended timeout (60min). 4) Add checksum to maintenance file."
+  },
+  {
+    "id": "MAINT-08",
+    "severity": "P3",
+    "title": "No manual override mechanism for emergency recovery",
+    "root_cause": "When auto-clear fails, operators have no clean way to exit maintenance mode without SSH access (which might be broken).",
+    "permanent_fix": "1) Add Windows named pipe command interface (\\.\pipe\rc-control). 2) Emergency hotkey via shared memory flag. 3) HTTP endpoint on sentry/watchdog for manual clear. 4) Graceful degradation: After 2 hours in maintenance, force clear regardless of conditions."
+  }
+]

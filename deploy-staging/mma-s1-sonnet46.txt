@@ -1,0 +1,384 @@
+# Racing Simulator Pod Deployment Debug Analysis
+
+## Question 1: Why Is the Watchdog Not Restarting rc-agent?
+
+### Root Cause: WTSQueryUserToken Requires SYSTEM Privileges
+
+This is the core architectural failure. Let me trace the exact execution path:
+
+```
+Boot sequence:
+  Windows AutoLogin â†’ Session 1 created â†’ explorer.exe spawns
+  HKLM\Run executes start-rcsentry.bat
+  rc-sentry.exe launches as USER (SIM1\user) in Session 1
+  
+Watchdog fires after 15s:
+  spawn_in_session1() called
+  WTSQueryUserToken(1, &token) â†’ ERROR_PRIVILEGE_NOT_HELD (1314)
+  CreateProcessAsUser never called
+  rc-agent never starts
+  Loop repeats every 5s... forever
+```
+
+### Why WTSQueryUserToken Fails Here
+
+```
+WTSQueryUserToken() requirements (MSDN explicit):
+  - Caller MUST be running as LocalSystem (SYSTEM)
+  - Caller MUST have SE_TCB_NAME privilege ("Act as part of OS")
+  - These are NOT grantable to standard user accounts
+  
+rc-sentry running as SIM1\user in Session 1:
+  â†’ No SE_TCB_NAME
+  â†’ WTSQueryUserToken returns FALSE
+  â†’ GetLastError() = 1314 (ERROR_PRIVILEGE_NOT_HELD)
+  â†’ spawn_in_session1() silently fails or logs error nobody sees
+```
+
+### Secondary Issues Compounding the Problem
+
+```
+Issue 1: Session 0 cmd.exe remnant
+  HKLM Run key race condition:
+  start-rcagent.bat ran before Session 1 was fully ready
+  â†’ cmd.exe landed in Session 0 (no GUI)
+  â†’ rc-agent.exe may have tried to start in Session 0 and failed
+  â†’ Or start-rcagent.bat itself is the cmd.exe visible in Session 0
+  â†’ Either way, that instance is dead/invisible to users
+
+Issue 2: rc-sentry health polling target
+  If rc-agent health endpoint is localhost:XXXX
+  AND rc-agent never started
+  â†’ Health check gets ECONNREFUSED
+  â†’ Watchdog counts failures correctly
+  â†’ But restart fails silently (privilege issue above)
+  â†’ No escalation, no alerting, infinite retry loop
+
+Issue 3: No RCWatchdog Service
+  The INTENDED architecture requires a Windows Service running as SYSTEM
+  That service CAN call WTSQueryUserToken legitimately
+  Without it, spawn_in_session1() is architecturally broken from Session 1 context
+```
+
+### Proof of Diagnosis
+
+```powershell
+# Run this on any affected pod to confirm:
+# Check rc-sentry's actual token privileges
+$proc = Get-Process rc-sentry
+$handle = $proc.Handle  
+
+# Simpler: check who owns the process
+Get-Process rc-sentry | Select-Object Name, SessionId, UserName
+
+# Expected broken output:
+# Name       SessionId  UserName
+# rc-sentry  1          SIM1\user   â†? NOT SYSTEM, WTSQueryUserToken will fail
+
+# Check for error logs
+Get-Content "C:\RacingPoint\logs\rc-sentry*.log" -Tail 50 | 
+    Select-String "WTS|spawn|token|privilege|1314|session"
+```
+
+---
+
+## Question 2: Proper Permanent Fix
+
+### The Fix Architecture
+
+```
+CORRECT ARCHITECTURE:
+                                          
+  [RCWatchdog Service]  â†?â”€â”€ runs as SYSTEM in Session 0
+         â”‚
+         â”œâ”€â”€ Has SE_TCB_NAME privilege
+         â”œâ”€â”€ CAN call WTSQueryUserToken(1, &token) âœ“
+         â”œâ”€â”€ CAN call CreateProcessAsUser() âœ“
+         â”œâ”€â”€ Polls rc-agent health every 5s
+         â””â”€â”€ Spawns rc-agent.exe in Session 1 on failure
+                                          
+  [rc-sentry.exe]  â†?â”€â”€ stays in Session 1, handles OTHER duties
+         â”‚
+         â””â”€â”€ Remove spawn_in_session1() responsibility
+             OR keep as secondary mechanism (it won't work but harmless)
+                                          
+  [rc-agent.exe]  â†?â”€â”€ runs in Session 1, GUI visible
+         â””â”€â”€ Started by RCWatchdog Service via WTSQueryUserToken
+```
+
+### Step-by-Step Implementation
+
+#### Step 2.1: Install RCWatchdog as Windows Service on All 8 Pods
+
+```powershell
+# Run as Administrator on each pod (or via deployment script)
+
+# Method A: Using sc.exe (most reliable)
+sc.exe create "RCWatchdog" `
+    binPath= "C:\RacingPoint\rc-watchdog.exe" `
+    start= auto `
+    obj= LocalSystem `
+    DisplayName= "RacingPoint Watchdog Service"
+
+# Set description
+sc.exe description "RCWatchdog" "Monitors and restarts rc-agent in Session 1"
+
+# Configure failure recovery - restart service itself if it crashes
+sc.exe failure "RCWatchdog" `
+    reset= 86400 `
+    actions= restart/5000/restart/10000/restart/30000
+
+# Set service to restart on failure (GUI method equivalent)
+sc.exe failureflag "RCWatchdog" 1
+
+# Start it
+sc.exe start "RCWatchdog"
+
+# Verify
+sc.exe query "RCWatchdog"
+Get-Service "RCWatchdog" | Select-Object Name, Status, StartType
+```
+
+```powershell
+# Method B: Using New-Service PowerShell cmdlet
+New-Service -Name "RCWatchdog" `
+    -BinaryPathName "C:\RacingPoint\rc-watchdog.exe" `
+    -DisplayName "RacingPoint Watchdog Service" `
+    -StartupType Automatic `
+    -Description "Monitors and restarts rc-agent in Session 1"
+
+# Must set to run as SYSTEM (New-Service defaults to LocalSystem but verify)
+sc.exe config "RCWatchdog" obj= "LocalSystem" type= own
+```
+
+#### Step 2.2: Required rc-watchdog.exe Service Code Pattern
+
+```rust
+// rc-watchdog service - runs as SYSTEM, Session 0
+// This is what spawn_in_session1 SHOULD be called from
+
+use windows_sys::Win32::System::RemoteDesktop::WTSQueryUserToken;
+use windows_sys::Win32::Security::DuplicateTokenEx;
+use windows_sys::Win32::System::Threading::CreateProcessAsUserW;
+
+fn spawn_agent_in_session1() -> Result<(), Error> {
+    unsafe {
+        // Step 1: Get active console session ID
+        // Don't hardcode 1 - get it dynamically
+        let session_id = WTSGetActiveConsoleSessionId();
+        // Returns 0xFFFFFFFF if no session - handle this
+        if session_id == 0xFFFFFFFF {
+            return Err(Error::NoActiveSession);
+        }
+        
+        // Step 2: Get user token FOR that session
+        // THIS LINE requires SYSTEM privileges - works from service, 
+        // fails from user process
+        let mut user_token: HANDLE = 0;
+        let result = WTSQueryUserToken(session_id, &mut user_token);
+        if result == 0 {
+            let err = GetLastError();
+            log::error!("WTSQueryUserToken failed: {}", err);
+            // err == 1314 means we're not SYSTEM - architectural bug
+            return Err(Error::TokenFailed(err));
+        }
+        
+        // Step 3: Duplicate token (best practice)
+        let mut dup_token: HANDLE = 0;
+        DuplicateTokenEx(
+            user_token,
+            TOKEN_ALL_ACCESS,
+            null_mut(),
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut dup_token
+        );
+        
+        // Step 4: Get environment block for the user
+        let mut env_block: *mut c_void = null_mut();
+        CreateEnvironmentBlock(&mut env_block, dup_token, 0);
+        
+        // Step 5: Launch in Session 1 with user's environment
+        let mut si: STARTUPINFOW = zeroed();
+        si.cb = size_of::<STARTUPINFOW>() as u32;
+        si.lpDesktop = wide_string("winsta0\\default"); // CRITICAL
+        
+        let mut pi: PROCESS_INFORMATION = zeroed();
+        
+        CreateProcessAsUserW(
+            dup_token,
+            wide_string("C:\\RacingPoint\\rc-agent.exe").as_ptr(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            0,        // bInheritHandles = FALSE
+            CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE,
+            env_block,
+            wide_string("C:\\RacingPoint\\").as_ptr(),
+            &si,
+            &mut pi
+        );
+        
+        // Cleanup
+        DestroyEnvironmentBlock(env_block);
+        CloseHandle(dup_token);
+        CloseHandle(user_token);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        
+        Ok(())
+    }
+}
+
+// Health check loop - runs in service worker thread
+fn watchdog_loop() {
+    let mut consecutive_failures: u32 = 0;
+    
+    loop {
+        thread::sleep(Duration::from_secs(5));
+        
+        match check_agent_health() {
+            Ok(_) => {
+                consecutive_failures = 0;
+            }
+            Err(e) => {
+                consecutive_failures += 1;
+                log::warn!("rc-agent health failure #{}: {}", consecutive_failures, e);
+                
+                if consecutive_failures >= 3 {
+                    log::error!("rc-agent down - attempting Session 1 spawn");
+                    match spawn_agent_in_session1() {
+                        Ok(_) => {
+                            consecutive_failures = 0;
+                            thread::sleep(Duration::from_secs(10)); // grace period
+                        }
+                        Err(e) => {
+                            log::error!("Spawn failed: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Step 2.3: Fix the HKLM Run Key Race Condition
+
+```powershell
+# REMOVE start-rcagent.bat from Run key - let service handle it
+# Keep only rc-sentry in Run key for its OTHER functions
+
+$runKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+
+# Remove the broken direct-launch approach
+Remove-ItemProperty -Path $runKey -Name "StartRCAgent" -ErrorAction SilentlyContinue
+
+# Verify what remains
+Get-ItemProperty -Path $runKey
+
+# start-rcsentry.bat can stay IF rc-sentry has other duties
+# BUT remove spawn_in_session1 responsibility from it
+# OR just remove both and let the service handle everything
+```
+
+#### Step 2.4: Handle the Immediate Problem (10 Minutes Down, All 8 Pods)
+
+```powershell
+# Immediate remediation script - run on all 8 pods simultaneously
+# Works because rc-sentry /exec is available (just blocks 'start')
+
+# Option A: Use rc-sentry /exec with direct binary path (no 'start' keyword)
+# POST to http://podN:8091/exec with:
+# {"cmd": "C:\\RacingPoint\\rc-agent.exe", "args": []}
+# Note: This starts in wrong session context but gets things running
+
+# Option B: PowerShell remoting if enabled
+$pods = 1..8 | ForEach-Object { "pod$_" }  # adjust hostnames
+
+Invoke-Command -ComputerName $pods -ScriptBlock {
+    # Kill orphaned cmd.exe in Session 0 first
+    Get-Process cmd | Where-Object { $_.SessionId -eq 0 } | Stop-Process -Force
+    
+    # Start rc-agent directly (will run in your remoting session context)
+    # This is a temp fix - service install below is the real fix
+    $proc = Start-Process -FilePath "C:\RacingPoint\rc-agent.exe" `
+        -WorkingDirectory "C:\RacingPoint\" `
+        -PassThru
+    Write-Host "Started rc-agent PID: $($proc.Id) on $env:COMPUTERNAME"
+}
+
+# Option C: If you have interactive access to any pod
+# Just double-click rc-agent.exe - it runs in your Session 1 immediately
+# Then deploy the service fix properly
+```
+
+---
+
+## Question 3: Auto-Login Configuration
+
+### Why "Logged In Without AutoAdminLogon" Is Dangerous
+
+```
+Current state: AutoAdminLogon NOT set, but pods logged in
+This means:
+  - Someone manually logged in post-setup (common)
+  - Or DefaultPassword="" works (passwordless, risky)
+  - After reboot/crash: Windows MAY stop at login screen
+  - rc-sentry starts (HKLM Run = user-dependent = BROKEN if no login)
+  - No login = No Session 1 = WTSQueryUserToken fails ALWAYS
+  - Even the fixed watchdog service can't help if nobody is logged in
+  
+CRITICAL: Session 1 only exists when a user is interactively logged in
+```
+
+### Correct AutoAdminLogon Configuration
+
+```powershell
+# Run as Administrator - configure proper autologin
+
+$winlogon = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+
+# Core autologin settings
+Set-ItemProperty -Path $winlogon -Name "AutoAdminLogon"    -Value "1"
+Set-ItemProperty -Path $winlogon -Name "DefaultDomainName" -Value "SIM1"    # or "." for local
+Set-ItemProperty -Path $winlogon -Name "DefaultUserName"   -Value "user"
+Set-ItemProperty -Path $winlogon -Name "DefaultPassword"   -Value "YourPassword"
+# For passwordless: leave DefaultPassword as empty string ""
+
+# Critical: Remove this if it exists - it overrides AutoAdminLogon
+Remove-ItemProperty -Path $winlogon -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+
+# Disable lock screen (prevents Session 1 disruption)
+$personalization = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"
+New-Item -Path $personalization -Force | Out-Null
+Set-ItemProperty -Path $personalization -Name "NoLockScreen" -Value 1
+
+# Disable CTRL+ALT+DEL requirement
+Set-ItemProperty -Path $winlogon -Name "DisableCAD" -Value 1
+
+# Prevent screensaver from locking session
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "ScreenSaveActive" -Value "0"
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "ScreenSaverIsSecure" -Value "0"
+
+# Verify
+Get-ItemProperty -Path $winlogon | 
+    Select-Object AutoAdminLogon, DefaultUserName, DefaultDomainName
+
+# Set power plan to High Performance (prevent sleep breaking Session 1)
+powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+powercfg /change standby-timeout-ac 0
+powercfg /change monitor-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
+
+### Security Note for Venue Environment
+
+```powershell
+# AutoAdminLogon stores password in PLAINTEXT in registry
+# For a closed venue LAN with dedicated sim PCs this is acceptable
+# Mitigations:
+#   1. Use a dedicated local account (not domain admin)
+#   2. Restrict network access to pods
+#   3. Consider Autologon.exe from Sysinternals (encrypts with LSA secret)
+#      - Still not

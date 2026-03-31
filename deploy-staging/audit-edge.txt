@@ -1,0 +1,793 @@
+=== ALL TABLE CREATIONS ===
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs:        "CREATE TABLE IF NOT EXISTS maintenance_events (
+crates/racecontrol/src/maintenance_store.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/maintenance_store.rs-            pod_id INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            event_type TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            severity TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            component TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            description TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            detected_at TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            resolved_at TEXT,
+crates/racecontrol/src/maintenance_store.rs-            resolution_method TEXT,
+crates/racecontrol/src/maintenance_store.rs-            source TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            correlation_id TEXT,
+crates/racecontrol/src/maintenance_store.rs-            revenue_impact_paise INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            customers_affected INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            downtime_minutes INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            cost_estimate_paise INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            assigned_staff_id TEXT,
+crates/racecontrol/src/maintenance_store.rs-            metadata TEXT NOT NULL DEFAULT '{}'
+crates/racecontrol/src/maintenance_store.rs-        )",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+--
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs:        "CREATE TABLE IF NOT EXISTS maintenance_tasks (
+crates/racecontrol/src/maintenance_store.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/maintenance_store.rs-            title TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            description TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            pod_id INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            component TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            priority INTEGER NOT NULL DEFAULT 3,
+crates/racecontrol/src/maintenance_store.rs-            status TEXT NOT NULL DEFAULT 'Open',
+crates/racecontrol/src/maintenance_store.rs-            created_at TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            due_by TEXT,
+crates/racecontrol/src/maintenance_store.rs-            assigned_to TEXT,
+crates/racecontrol/src/maintenance_store.rs-            source_event_id TEXT,
+crates/racecontrol/src/maintenance_store.rs-            before_metrics TEXT,
+crates/racecontrol/src/maintenance_store.rs-            after_metrics TEXT,
+crates/racecontrol/src/maintenance_store.rs-            cost_estimate_paise INTEGER,
+crates/racecontrol/src/maintenance_store.rs-            actual_cost_paise INTEGER
+crates/racecontrol/src/maintenance_store.rs-        )",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+crates/racecontrol/src/maintenance_store.rs-    .await?;
+crates/racecontrol/src/maintenance_store.rs-
+--
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs:        "CREATE TABLE IF NOT EXISTS daily_business_metrics (
+crates/racecontrol/src/maintenance_store.rs-            date TEXT PRIMARY KEY,
+crates/racecontrol/src/maintenance_store.rs-            revenue_gaming_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            revenue_cafe_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            revenue_other_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            expense_rent_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            expense_utilities_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            expense_salaries_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            expense_maintenance_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            expense_other_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            sessions_count INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            occupancy_rate_pct REAL DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            peak_occupancy_pct REAL DEFAULT 0
+crates/racecontrol/src/maintenance_store.rs-        )",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+crates/racecontrol/src/maintenance_store.rs-    .await?;
+crates/racecontrol/src/maintenance_store.rs-
+crates/racecontrol/src/maintenance_store.rs-    tracing::info!("Business metrics tables initialized");
+crates/racecontrol/src/maintenance_store.rs-    Ok(())
+crates/racecontrol/src/maintenance_store.rs-}
+--
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs:        "CREATE TABLE IF NOT EXISTS employees (
+crates/racecontrol/src/maintenance_store.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/maintenance_store.rs-            name TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            role TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            skills TEXT DEFAULT '[]',
+crates/racecontrol/src/maintenance_store.rs-            hourly_rate_paise INTEGER DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            phone TEXT DEFAULT '',
+crates/racecontrol/src/maintenance_store.rs-            is_active INTEGER DEFAULT 1,
+crates/racecontrol/src/maintenance_store.rs-            face_enrollment_id TEXT,
+crates/racecontrol/src/maintenance_store.rs-            hired_at TEXT NOT NULL
+crates/racecontrol/src/maintenance_store.rs-        )",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+crates/racecontrol/src/maintenance_store.rs-    .await?;
+crates/racecontrol/src/maintenance_store.rs-
+crates/racecontrol/src/maintenance_store.rs-    // Phase 14: attendance_records
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs:        "CREATE TABLE IF NOT EXISTS attendance_records (
+crates/racecontrol/src/maintenance_store.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/maintenance_store.rs-            employee_id TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            date TEXT NOT NULL,
+crates/racecontrol/src/maintenance_store.rs-            clock_in TEXT,
+crates/racecontrol/src/maintenance_store.rs-            clock_out TEXT,
+crates/racecontrol/src/maintenance_store.rs-            source TEXT DEFAULT 'manual',
+crates/racecontrol/src/maintenance_store.rs-            hours_worked REAL DEFAULT 0,
+crates/racecontrol/src/maintenance_store.rs-            FOREIGN KEY (employee_id) REFERENCES employees(id)
+crates/racecontrol/src/maintenance_store.rs-        )",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+crates/racecontrol/src/maintenance_store.rs-    .await?;
+crates/racecontrol/src/maintenance_store.rs-
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+crates/racecontrol/src/maintenance_store.rs-        "CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(date)",
+crates/racecontrol/src/maintenance_store.rs-    )
+crates/racecontrol/src/maintenance_store.rs-    .execute(pool)
+crates/racecontrol/src/maintenance_store.rs-    .await?;
+crates/racecontrol/src/maintenance_store.rs-
+crates/racecontrol/src/maintenance_store.rs-    sqlx::query(
+--
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query(
+crates/racecontrol/src/telemetry_store.rs:        "CREATE TABLE IF NOT EXISTS telemetry_samples (
+crates/racecontrol/src/telemetry_store.rs-            lap_id TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            offset_ms INTEGER NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            speed REAL,
+crates/racecontrol/src/telemetry_store.rs-            throttle REAL,
+crates/racecontrol/src/telemetry_store.rs-            brake REAL,
+crates/racecontrol/src/telemetry_store.rs-            steering REAL,
+crates/racecontrol/src/telemetry_store.rs-            gear INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            rpm INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            pos_x REAL,
+crates/racecontrol/src/telemetry_store.rs-            pos_y REAL,
+crates/racecontrol/src/telemetry_store.rs-            pos_z REAL,
+crates/racecontrol/src/telemetry_store.rs-            pod_id TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            sampled_at TEXT NOT NULL
+crates/racecontrol/src/telemetry_store.rs-        )"
+crates/racecontrol/src/telemetry_store.rs-    ).execute(&pool).await?;
+crates/racecontrol/src/telemetry_store.rs-
+crates/racecontrol/src/telemetry_store.rs-    // Indexes for common queries
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_lap ON telemetry_samples(lap_id)")
+crates/racecontrol/src/telemetry_store.rs-        .execute(&pool).await?;
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_lap_offset ON telemetry_samples(lap_id, offset_ms)")
+--
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query(
+crates/racecontrol/src/telemetry_store.rs:        "CREATE TABLE IF NOT EXISTS hardware_telemetry (
+crates/racecontrol/src/telemetry_store.rs-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+crates/racecontrol/src/telemetry_store.rs-            pod_id TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            collected_at TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            gpu_temp_celsius REAL,
+crates/racecontrol/src/telemetry_store.rs-            cpu_temp_celsius REAL,
+crates/racecontrol/src/telemetry_store.rs-            gpu_power_watts REAL,
+crates/racecontrol/src/telemetry_store.rs-            vram_usage_mb INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            disk_smart_health_pct INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            disk_power_on_hours INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            game_crashes_last_hour INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            windows_critical_errors TEXT,
+crates/racecontrol/src/telemetry_store.rs-            process_handle_count INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            system_uptime_secs INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            cpu_usage_pct REAL,
+crates/racecontrol/src/telemetry_store.rs-            gpu_usage_pct REAL,
+crates/racecontrol/src/telemetry_store.rs-            memory_usage_pct REAL,
+crates/racecontrol/src/telemetry_store.rs-            disk_usage_pct REAL,
+crates/racecontrol/src/telemetry_store.rs-            network_latency_ms INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            usb_device_count INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            fan_speeds_rpm TEXT
+--
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query(
+crates/racecontrol/src/telemetry_store.rs:        "CREATE TABLE IF NOT EXISTS telemetry_aggregates (
+crates/racecontrol/src/telemetry_store.rs-            pod_id TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            metric_name TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            period_start TEXT NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            period_hours INTEGER NOT NULL,
+crates/racecontrol/src/telemetry_store.rs-            min_val REAL,
+crates/racecontrol/src/telemetry_store.rs-            max_val REAL,
+crates/racecontrol/src/telemetry_store.rs-            avg_val REAL,
+crates/racecontrol/src/telemetry_store.rs-            std_dev REAL,
+crates/racecontrol/src/telemetry_store.rs-            sample_count INTEGER,
+crates/racecontrol/src/telemetry_store.rs-            had_active_session INTEGER DEFAULT 0,
+crates/racecontrol/src/telemetry_store.rs-            was_peak_hours INTEGER DEFAULT 0,
+crates/racecontrol/src/telemetry_store.rs-            PRIMARY KEY (pod_id, metric_name, period_start, period_hours)
+crates/racecontrol/src/telemetry_store.rs-        )"
+crates/racecontrol/src/telemetry_store.rs-    ).execute(&pool).await?;
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_agg_pod_metric ON telemetry_aggregates(pod_id, metric_name)")
+crates/racecontrol/src/telemetry_store.rs-        .execute(&pool).await?;
+crates/racecontrol/src/telemetry_store.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_agg_period ON telemetry_aggregates(period_start)")
+crates/racecontrol/src/telemetry_store.rs-        .execute(&pool).await?;
+crates/racecontrol/src/telemetry_store.rs-
+crates/racecontrol/src/telemetry_store.rs-    tracing::info!("Telemetry DB initialized at {}", db_path);
+--
+crates/racecontrol/src/feedback_loop.rs-    sqlx::query(
+crates/racecontrol/src/feedback_loop.rs:        "CREATE TABLE IF NOT EXISTS prediction_outcomes (
+crates/racecontrol/src/feedback_loop.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/feedback_loop.rs-            prediction_type TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            predicted_at TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            predicted_value REAL,
+crates/racecontrol/src/feedback_loop.rs-            actual_value REAL,
+crates/racecontrol/src/feedback_loop.rs-            was_accurate INTEGER,
+crates/racecontrol/src/feedback_loop.rs-            lead_time_hours REAL,
+crates/racecontrol/src/feedback_loop.rs-            notes TEXT DEFAULT '',
+crates/racecontrol/src/feedback_loop.rs-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+crates/racecontrol/src/feedback_loop.rs-        )",
+crates/racecontrol/src/feedback_loop.rs-    )
+crates/racecontrol/src/feedback_loop.rs-    .execute(pool)
+crates/racecontrol/src/feedback_loop.rs-    .await?;
+crates/racecontrol/src/feedback_loop.rs-
+crates/racecontrol/src/feedback_loop.rs-    sqlx::query(
+crates/racecontrol/src/feedback_loop.rs:        "CREATE TABLE IF NOT EXISTS admin_overrides (
+crates/racecontrol/src/feedback_loop.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/feedback_loop.rs-            recommendation_id TEXT,
+crates/racecontrol/src/feedback_loop.rs-            recommendation_type TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            original_action TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            final_action TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            overridden_by TEXT NOT NULL,
+crates/racecontrol/src/feedback_loop.rs-            reason TEXT DEFAULT '',
+crates/racecontrol/src/feedback_loop.rs-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+crates/racecontrol/src/feedback_loop.rs-        )",
+crates/racecontrol/src/feedback_loop.rs-    )
+crates/racecontrol/src/feedback_loop.rs-    .execute(pool)
+crates/racecontrol/src/feedback_loop.rs-    .await?;
+crates/racecontrol/src/feedback_loop.rs-
+crates/racecontrol/src/feedback_loop.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_outcomes_type ON prediction_outcomes(prediction_type)")
+crates/racecontrol/src/feedback_loop.rs-        .execute(pool)
+crates/racecontrol/src/feedback_loop.rs-        .await?;
+crates/racecontrol/src/feedback_loop.rs-
+crates/racecontrol/src/feedback_loop.rs-    tracing::info!(target: LOG_TARGET, "Feedback tables initialized");
+crates/racecontrol/src/feedback_loop.rs-    Ok(())
+crates/racecontrol/src/feedback_loop.rs-}
+--
+crates/racecontrol/src/pricing_bridge.rs-    sqlx::query(
+crates/racecontrol/src/pricing_bridge.rs:        "CREATE TABLE IF NOT EXISTS pricing_proposals (
+crates/racecontrol/src/pricing_bridge.rs-            id TEXT PRIMARY KEY,
+crates/racecontrol/src/pricing_bridge.rs-            proposed_at TEXT NOT NULL,
+crates/racecontrol/src/pricing_bridge.rs-            current_price_paise INTEGER NOT NULL,
+crates/racecontrol/src/pricing_bridge.rs-            proposed_price_paise INTEGER NOT NULL,
+crates/racecontrol/src/pricing_bridge.rs-            change_pct REAL,
+crates/racecontrol/src/pricing_bridge.rs-            reason TEXT,
+crates/racecontrol/src/pricing_bridge.rs-            status TEXT NOT NULL DEFAULT 'pending',
+crates/racecontrol/src/pricing_bridge.rs-            approved_by TEXT,
+crates/racecontrol/src/pricing_bridge.rs-            applied_at TEXT
+crates/racecontrol/src/pricing_bridge.rs-        )"
+crates/racecontrol/src/pricing_bridge.rs-    ).execute(pool).await?;
+crates/racecontrol/src/pricing_bridge.rs-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pricing_status ON pricing_proposals(status)")
+crates/racecontrol/src/pricing_bridge.rs-        .execute(pool).await?;
+crates/racecontrol/src/pricing_bridge.rs-    tracing::info!(target: LOG_TARGET, "Pricing tables initialized");
+crates/racecontrol/src/pricing_bridge.rs-    Ok(())
+crates/racecontrol/src/pricing_bridge.rs-}
+crates/racecontrol/src/pricing_bridge.rs-
+crates/racecontrol/src/pricing_bridge.rs-/// Create a pricing proposal
+crates/racecontrol/src/pricing_bridge.rs-pub async fn create_proposal(pool: &SqlitePool, current: i64, proposed: i64, change_pct: f32, reason: &str) -> anyhow::Result<String> {
+crates/racecontrol/src/pricing_bridge.rs-    let id = uuid::Uuid::new_v4().to_string();
+// ---
+=== INIT ORDER IN MAIN.RS ===
+    // Initialize database
+    let pool = db::init_pool(&config.database.path).await?;
+
+    // Extract monitoring/email config before config is moved into AppState
+    let error_rate_email_enabled = config.monitoring.error_rate_email_enabled;
+    let email_script_for_alerter = config.watchdog.email_script_path.clone();
+
+--
+        );
+        match racecontrol_crate::telemetry_store::init_telemetry_db(&telem_path).await {
+            Ok(telem_pool) => {
+                let writer_tx = racecontrol_crate::telemetry_store::spawn_writer(
+                    telem_pool.clone(), None,
+                );
+                let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+                inner.telemetry_writer_tx = Some(writer_tx);
+                inner.telemetry_db = Some(telem_pool.clone());
+                racecontrol_crate::telemetry_store::spawn_maintenance_scheduler(telem_pool.clone());
+                // v29.0 Phase 5: Rule-based anomaly detection on hardware telemetry
+                // Wire to self-healing availability map so anomalies update pod state
+                let _anomaly_state = racecontrol_crate::maintenance_engine::spawn_anomaly_scanner_with_healing(
+                    telem_pool,
+                    Some(inner.pod_availability.clone()),
+                );
+                tracing::info!("Telemetry persistence enabled: {}", telem_path);
+            }
+--
+    // Phase 2 (v29.0): Initialize maintenance event tables in main DB
+    if let Err(e) = racecontrol_crate::maintenance_store::init_maintenance_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize maintenance tables: {e}");
+    }
+
+    // Phase 11 (v29.0): Initialize business metrics tables
+    if let Err(e) = racecontrol_crate::maintenance_store::init_business_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize business metrics tables: {e}");
+    }
+
+    // Phase 13-14 (v29.0): Initialize HR + attendance tables
+    if let Err(e) = racecontrol_crate::maintenance_store::init_hr_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize HR tables: {e}");
+    }
+
+--
+        let agg_db = Arc::get_mut(&mut state).expect("no other Arc refs yet").db.clone();
+        racecontrol_crate::business_aggregator::spawn_business_aggregator(agg_db);
+    }
+
+    // Phase 28 (v29.0): Initialize feedback loop tables (prediction outcomes, admin overrides)
+    if let Err(e) = racecontrol_crate::feedback_loop::init_feedback_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize feedback tables: {e}");
+    }
+
+    // Phase 30 (v29.0): Initialize pricing proposal tables
+    if let Err(e) = racecontrol_crate::pricing_bridge::init_pricing_tables(
+        &Arc::get_mut(&mut state).expect("no other Arc refs yet").db,
+    ).await {
+        tracing::error!("Failed to initialize pricing tables: {e}");
+    }
+
+--
+        let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+        let rating_tx = racecontrol_crate::driver_rating::spawn_rating_worker(inner.db.clone());
+        inner.rating_tx = Some(rating_tx);
+        let backfill_db = inner.db.clone();
+        tokio::spawn(async move {
+            racecontrol_crate::driver_rating::backfill_ratings(backfill_db).await;
+        });
+--
+    // Wired to WhatsApp + dashboard alert delivery
+    racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
+
+    // Spawn error rate alerter task — sends to both James and Uday on error spikes
+    if error_rate_email_enabled {
+        let email_script = email_script_for_alerter;
+        let recipients = vec![
+--
+    // Spawn wallet reconciliation background task (FATM-12: every 30 minutes)
+    billing::spawn_reconciliation_job(state.clone());
+
+    // BILL-03: Spawn PWA game request TTL cleanup task (every 60 seconds)
+    billing::spawn_cleanup_expired_game_requests(state.clone());
+
+    // FATM-08: Spawn coupon TTL expiry task (every 60s, 120s initial delay)
+    billing::spawn_coupon_ttl_expiry_job(state.clone());
+
+    // Spawn data retention background task (LEGAL-08: daily, 1-hour initial delay)
+    // Anonymizes drivers inactive for > pii_inactive_months (default 24 months).
+    // Financial records are never touched (Income Tax Act: 8-year retention).
+    {
+--
+        tokio::spawn(async move {
+            api::routes::spawn_data_retention_job(retention_state).await;
+// ---
+=== CLOUD SYNC EXTENSION ===
+}
+
+/// Spawn the cloud sync background task.
+/// v29.0 Phase 33: Extended cloud sync for maintenance/HR/analytics data.
+/// Syncs maintenance events, KPIs, and business metrics to cloud.
+pub async fn sync_maintenance_data(pool: &sqlx::SqlitePool, _cloud_url: &str) -> anyhow::Result<()> {
+    // Collect unsync'd maintenance events (uses high-water mark: last 1 hour)
+    // Actual HTTP push uses existing cloud sync infra via the main spawn() loop.
+    let recent_events: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT id, event_type, severity, detected_at FROM maintenance_events \
+         WHERE detected_at > datetime('now', '-1 hour') \
+         ORDER BY detected_at DESC LIMIT 100"
+    ).fetch_all(pool).await?;
+
+    if !recent_events.is_empty() {
+        tracing::info!(target: "cloud-sync", count = recent_events.len(), "Maintenance events ready for cloud sync");
+    }
+
+    // Collect HR/staff snapshot
+    let active_staff: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM employees WHERE is_active = 1"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    // Collect today's business metrics
+    let today = chrono::Utc::now().date_naive().to_string();
+    let revenue: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0);
+
+    tracing::debug!(
+        target: "cloud-sync",
+        maintenance_events = recent_events.len(),
+        active_staff,
+        revenue_today_paise = revenue,
+        "Extended cloud sync data collected"
+    );
+--
+                    }
+                }
+            }
+
+            // v29.0 Phase 33: Extended maintenance/HR/analytics sync (piggyback on existing cycle)
+            if let Err(e) = sync_maintenance_data(&state.db, &api_url).await {
+                tracing::warn!(target: "cloud-sync", error = %e, "Extended maintenance sync failed");
+            }
+        }
+    });
+}
+
+/// Push sync deltas via the comms-link relay (localhost HTTP).
+/// In relay mode, only pushes are needed — the other side pushes to us independently
+/// via the /sync/push endpoint (called by comms-link when it receives WS sync_push).
+///
+/// ## Anti-loop protection
+///
+/// Sync loops are prevented by the `_push` timestamp in `sync_state`:
+/// 1. After a successful push (relay or HTTP), `update_push_state()` records the current time.
+/// 2. The next `collect_push_payload()` call queries `WHERE created_at > last_push` (or `updated_at >`).
+/// 3. When the OTHER side pushes data to us via `/sync/push` (routes.rs), that handler does NOT
+///    call `update_push_state()` — it only upserts received data into the DB.
+/// 4. The received data has timestamps older than "now", and since our `_push` was updated after
+///    our last outbound push, the received data's timestamps fall before `_push` and won't be
+///    re-collected in our next push cycle.
+///
+/// This means: Cloud pushes to Venue -> Venue receives via /sync/push -> Venue's own push cycle
+/// won't re-push that data because its timestamps are older than Venue's `_push` marker.
+/// The same logic works in reverse (Venue -> Cloud).
+async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
+    let relay_url = state
+        .config
+        .cloud
+        .comms_link_url
+        .as_ref()
+// ---
+=== SELF HEALING (pod states) ===
+//! v29.0 Phase 27: Self-healing orchestration — connects anomaly detection to recovery actions.
+
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+const LOG_TARGET: &str = "self-heal-orch";
+
+#[derive(Debug, Clone, Serialize)]
+pub enum HealingAction {
+    RestartPod(u8),
+    RestartGameProcess(u8, String),
+    ClearDiskSpace(u8),
+    KillOrphanProcesses(u8),
+    MarkPodDegraded(u8),
+    MarkPodUnavailable(u8),
+    EscalateToStaff(u8, String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HealingOutcome {
+    pub action: String,
+    pub pod_id: u8,
+    pub success: bool,
+    pub before_value: Option<f64>,
+    pub after_value: Option<f64>,
+    pub timestamp: DateTime<Utc>,
+    pub notes: String,
+}
+
+/// Map an anomaly alert to a healing action.
+pub fn recommend_action(rule_name: &str, severity: &str, pod_id: u8) -> HealingAction {
+    match (rule_name, severity) {
+        ("Handle Leak", _) => HealingAction::KillOrphanProcesses(pod_id),
+        ("Disk Space Critical", _) => HealingAction::ClearDiskSpace(pod_id),
+        ("GPU Critical Temp", _) => HealingAction::MarkPodUnavailable(pod_id),
+        ("GPU Overheat", _) => HealingAction::MarkPodDegraded(pod_id),
+        ("Memory Pressure", "Critical") => HealingAction::RestartPod(pod_id),
+        (_, "Critical") => HealingAction::EscalateToStaff(pod_id, rule_name.to_string()),
+        (_, "High") => HealingAction::MarkPodDegraded(pod_id),
+        _ => HealingAction::EscalateToStaff(pod_id, format!("{} ({})", rule_name, severity)),
+    }
+}
+
+/// Pod availability state for kiosk/PWA/POS.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum PodAvailability {
+    Available,
+    Degraded { reason: String },
+    MaintenanceHold { until: Option<String>, reason: String },
+    Unavailable { reason: String },
+}
+
+/// Thread-safe map of pod_id -> availability state.
+pub type PodAvailabilityMap = Arc<RwLock<HashMap<u8, PodAvailability>>>;
+
+/// Create a new availability map with all 8 pods set to Available.
+pub fn new_availability_map() -> PodAvailabilityMap {
+    let mut map = HashMap::new();
+    for pod_id in 1..=8 {
+        map.insert(pod_id, PodAvailability::Available);
+    }
+    Arc::new(RwLock::new(map))
+}
+
+/// Update pod availability based on healing action.
+pub async fn apply_action(map: &PodAvailabilityMap, action: &HealingAction) {
+    let mut m = map.write().await;
+    match action {
+        HealingAction::MarkPodDegraded(id) => {
+            m.insert(
+                *id,
+                PodAvailability::Degraded {
+                    reason: "Anomaly detected".into(),
+                },
+            );
+            tracing::warn!(target: LOG_TARGET, pod = id, "Pod marked DEGRADED");
+        }
+        HealingAction::MarkPodUnavailable(id) => {
+            m.insert(
+                *id,
+                PodAvailability::Unavailable {
+                    reason: "Critical anomaly".into(),
+                },
+            );
+            tracing::error!(target: LOG_TARGET, pod = id, "Pod marked UNAVAILABLE");
+        }
+        _ => {}
+    }
+}
+
+/// Clear pod state back to available (after successful recovery validation).
+pub async fn mark_available(map: &PodAvailabilityMap, pod_id: u8) {
+    let mut m = map.write().await;
+    m.insert(pod_id, PodAvailability::Available);
+    tracing::info!(target: LOG_TARGET, pod = pod_id, "Pod marked AVAILABLE");
+}
+// ---
+=== DATA COLLECTOR (edge cases) ===
+//! v29.0 Phase 35: Unified data collector — cross-domain snapshots for AI consumption.
+//! Also wires RUL triggers and occupancy data.
+
+use serde::Serialize;
+use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
+
+const LOG_TARGET: &str = "data-collector";
+
+/// Cross-domain venue snapshot for AI analysis.
+#[derive(Debug, Clone, Serialize)]
+pub struct VenueSnapshot {
+    pub timestamp: DateTime<Utc>,
+    pub pod_count_online: u8,
+    pub pod_count_degraded: u8,
+    pub pod_count_unavailable: u8,
+    pub active_sessions: u32,
+    pub occupancy_pct: f32,
+    pub revenue_today_paise: i64,
+    pub open_maintenance_tasks: u32,
+    pub critical_alerts_active: u32,
+    pub staff_on_duty: u32,
+    pub avg_gpu_temp: Option<f32>,
+    pub avg_network_latency: Option<f32>,
+}
+
+/// Collect a venue-wide snapshot from the main DB.
+pub async fn collect_venue_snapshot(pool: &SqlitePool) -> VenueSnapshot {
+    let today = Utc::now().date_naive().to_string();
+
+    let revenue: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(revenue_gaming_paise + revenue_cafe_paise, 0) FROM daily_business_metrics WHERE date = ?1"
+    ).bind(&today).fetch_one(pool).await.unwrap_or(0);
+
+    let open_tasks: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM maintenance_tasks WHERE status IN ('Open', 'Assigned', 'InProgress')"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    // MMA-R1: severity is stored as JSON string '"Critical"', not bare 'Critical'.
+    // Also use RFC3339 cutoff for consistent timestamp comparison.
+    let cutoff = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let critical_alerts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM maintenance_events WHERE severity = '\"Critical\"' AND resolved_at IS NULL AND detected_at > ?1"
+    ).bind(&cutoff).fetch_one(pool).await.unwrap_or(0);
+
+    let staff: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM employees WHERE is_active = 1"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    VenueSnapshot {
+        timestamp: Utc::now(),
+        pod_count_online: 8, // TODO: query from fleet health
+        pod_count_degraded: 0,
+        pod_count_unavailable: 0,
+        active_sessions: 0, // TODO: query from billing_fsm
+        occupancy_pct: 0.0,
+        revenue_today_paise: revenue,
+        // MMA-R1: Use try_from instead of `as` for safe narrowing
+        open_maintenance_tasks: u32::try_from(open_tasks.max(0)).unwrap_or(0),
+        critical_alerts_active: u32::try_from(critical_alerts.max(0)).unwrap_or(0),
+        staff_on_duty: u32::try_from(staff.max(0)).unwrap_or(0),
+        avg_gpu_temp: None,
+        avg_network_latency: None,
+    }
+}
+
+/// Check RUL thresholds and auto-create maintenance tasks for components nearing failure.
+pub async fn check_rul_thresholds(
+    pool: &SqlitePool,
+    telem_pool: &SqlitePool,
+) -> anyhow::Result<u32> {
+    // Get daily aggregates for health-related metrics in last day
+    let metrics: Vec<(String, String, f64)> = sqlx::query_as(
+        "SELECT pod_id, metric_name, avg_val FROM telemetry_aggregates \
+         WHERE period_hours = 24 AND period_start > datetime('now', '-1 day') \
+         AND metric_name IN ('disk_smart_health_pct', 'gpu_temp_celsius') \
+         ORDER BY pod_id"
+    ).fetch_all(telem_pool).await.unwrap_or_default();
+
+    let mut tasks_created = 0u32;
+
+    for (pod_id_str, metric, value) in &metrics {
+        let should_create = match metric.as_str() {
+            "disk_smart_health_pct" if *value < 70.0 => {
+                Some(("Storage", format!("Disk health at {:.0}% — schedule replacement", value)))
+            }
+            "gpu_temp_celsius" if *value > 85.0 => {
+                Some(("Cooling", format!("GPU avg temp {:.0}°C — check cooling system", value)))
+            }
+            _ => None,
+        };
+
+        if let Some((component, title)) = should_create {
+            // MMA-R1: Validate pod_id instead of defaulting to 0 (phantom tasks)
+            let pod_num = match pod_id_str
+                .strip_prefix("pod_")
+                .and_then(|s| s.parse::<i64>().ok())
+                .filter(|&p| (1..=8).contains(&p))
+            {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(target: LOG_TARGET, pod = %pod_id_str, "Invalid pod_id in RUL check — skipping");
+                    continue;
+                }
+            };
+            // MMA-R1: Use exact JSON-quoted match instead of LIKE (which fails for JSON strings)
+            let component_json = format!("\"{}\"", component);
+            let existing: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM maintenance_tasks WHERE pod_id = ?1 AND component = ?2 AND status NOT IN ('Completed', 'Failed', 'Cancelled')"
+            )
+            .bind(pod_num)
+            .bind(&component_json)
+            .fetch_one(pool).await.unwrap_or(0);
+
+            if existing == 0 {
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO maintenance_tasks (id, title, description, pod_id, component, priority, status, created_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'Open', ?7)"
+                )
+                .bind(&id).bind(&title).bind(&title)
+                .bind(pod_num)
+                .bind(component)
+                .bind(70i64) // High priority for RUL-triggered tasks
+                .bind(&now)
+                .execute(pool).await?;
+
+                tracing::warn!(target: LOG_TARGET, pod = %pod_id_str, component, "RUL threshold triggered — maintenance task created");
+                tasks_created += 1;
+            }
+        }
+    }
+
+    Ok(tasks_created)
+}
+
+/// Spawn periodic data collection + RUL check (every 15 min).
+pub fn spawn_data_collector(pool: SqlitePool, telem_pool: SqlitePool) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(180)).await; // wait 3 min for startup
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(900));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tracing::info!(target: LOG_TARGET, "Data collector started (15-min interval)");
+        loop {
+            interval.tick().await;
+            let snapshot = collect_venue_snapshot(&pool).await;
+            tracing::debug!(target: LOG_TARGET,
+                revenue = snapshot.revenue_today_paise,
+                tasks = snapshot.open_maintenance_tasks,
+                alerts = snapshot.critical_alerts_active,
+                "Venue snapshot collected"
+            );
+
+            if let Err(e) = check_rul_thresholds(&pool, &telem_pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "RUL threshold check failed");
+            }
+        }
+    });
+}
+// ---
+=== ANOMALY SCANNER (error handling) ===
+
+    // We need per-pattern lookback windows, so use the maximum and filter per-pattern.
+    let max_lookback = patterns.iter().map(|p| p.lookback_minutes).max().unwrap_or(60);
+    let cutoff = (now - chrono::Duration::minutes(max_lookback as i64)).to_rfc3339();
+
+    // P1-3: Use subquery for deterministic latest-per-pod selection.
+    let rows: Result<Vec<HwRow>, sqlx::Error> = sqlx::query(
+        "SELECT
+            pod_id,
+            gpu_temp_celsius,
+            cpu_temp_celsius,
+            gpu_power_watts,
+            disk_smart_health_pct,
+--
+        .trim_start_matches("pod-")
+        .parse()
+        .unwrap_or(0);
+
+    // Map component string to ComponentType
+    let component_type = match component {
+        "GPU" => crate::maintenance_models::ComponentType::GPU,
+        "CPU" => crate::maintenance_models::ComponentType::CPU,
+        "Memory" => crate::maintenance_models::ComponentType::Memory,
+        "Storage" => crate::maintenance_models::ComponentType::Storage,
+        "Network" => crate::maintenance_models::ComponentType::Network,
+        "Cooling" => crate::maintenance_models::ComponentType::Cooling,
+        "Software" => crate::maintenance_models::ComponentType::Software,
+// ---
+=== STATE.RS (AppState fields) ===
+    /// Updated by anomaly scanner via self-healing orchestration.
+    pub pod_availability: crate::self_healing::PodAvailabilityMap,
+    /// Phase 253: Sender for driver rating computation requests.
+    /// None until rating worker is spawned in main.rs.
+    pub rating_tx: Option<mpsc::Sender<crate::driver_rating::RatingRequest>>,
+--
+            display_heartbeats: RwLock::new(HashMap::new()),
+            pod_availability: crate::self_healing::new_availability_map(),
+            rating_tx: None,           // Initialized after AppState::new() in main.rs
+            telemetry_writer_tx: None, // Initialized after AppState::new() in main.rs
+            telemetry_db: None,        // Initialized after AppState::new() in main.rs
+// ---
+=== EVENT LOOP GAME-AWARE GUARD ===
+    pub(crate) kiosk_interval: tokio::time::Interval,
+    pub(crate) overlay_topmost_interval: tokio::time::Interval,
+    pub(crate) maintenance_retry_interval: tokio::time::Interval,
+    pub(crate) browser_watchdog_interval: tokio::time::Interval,
+    /// v29.0: Extended hardware telemetry collection (60s interval)
+    pub(crate) hw_telemetry_interval: tokio::time::Interval,
+    pub(crate) idle_health_interval: tokio::time::Interval,
+    pub(crate) idle_health_fail_count: u32,
+    pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+    pub(crate) blank_timer_armed: bool,
+    pub(crate) crash_recovery: CrashRecoveryState,
+    pub(crate) launch_state: LaunchState,
+    pub(crate) last_launch_args_stored: Option<String>,
+    pub(crate) current_driver_name: Option<String>,
+    pub(crate) last_ffb_percent: u8,
+    pub(crate) last_ffb_preset: String,
+    pub(crate) session_max_speed_kmh: f32,
+    pub(crate) session_race_position: Option<u32>,
+    pub(crate) ws_connect_time: tokio::time::Instant,
+    /// 30s grace period after game exit — delays AcStatus::Off to prevent session fragmentation
+    pub(crate) exit_grace_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+--
+            game_check_interval: tokio::time::interval(Duration::from_secs(2)),
+            kiosk_interval: tokio::time::interval(Duration::from_secs(5)),
+            overlay_topmost_interval: tokio::time::interval(Duration::from_secs(10)),
+            maintenance_retry_interval: tokio::time::interval(Duration::from_secs(30)),
+            browser_watchdog_interval: tokio::time::interval(Duration::from_secs(30)),
+            hw_telemetry_interval: tokio::time::interval(Duration::from_secs(60)),
+            idle_health_interval: tokio::time::interval(Duration::from_secs(60)),
+            idle_health_fail_count: 0,
+            blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
+            blank_timer_armed: false,
+            crash_recovery: CrashRecoveryState::Idle,
+            launch_state: LaunchState::Idle,
+            last_launch_args_stored: None,
+            current_driver_name: None,
+            last_ffb_percent: 70,
+            last_ffb_preset: "medium".to_string(),
+            session_max_speed_kmh: 0.0,
+            session_race_position: None,
+            ws_connect_time: tokio::time::Instant::now(),
+            exit_grace_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
+            exit_grace_armed: false,
+--
+            }
+
+            // ─── v29.0: Extended Hardware Telemetry (60s) ──────────────────────
+            // MMA MITIGATION (4/5 consensus): Skip GPU-heavy nvidia-smi during active
+            // gaming sessions to prevent 50-200ms frame drops. Non-GPU metrics still collected.
+            _ = conn.hw_telemetry_interval.tick() => {
+                let gaming_active = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed)
+                    && state.heartbeat_status.game_running.load(std::sync::atomic::Ordering::Relaxed);
+                let telem = if gaming_active {
+                    crate::predictive_maintenance::collect_hardware_telemetry_no_gpu()
+                } else {
+                    crate::predictive_maintenance::collect_hardware_telemetry()
+                };
+                let msg = rc_common::protocol::AgentMessage::ExtendedTelemetry {
+                    pod_id: state.pod_info.id.clone(),
+                    gpu_temp_celsius: telem.gpu_temp_celsius,
+                    cpu_temp_celsius: telem.cpu_temp_celsius,
+                    gpu_power_watts: telem.gpu_power_watts,
+                    vram_usage_mb: telem.vram_usage_mb,
+                    fan_speeds_rpm: telem.fan_speeds_rpm,
+                    disk_smart_health_pct: telem.disk_smart_health_pct,
+                    disk_power_on_hours: telem.disk_power_on_hours,
+                    game_crashes_last_hour: telem.game_crashes_last_hour,
+                    windows_critical_errors: telem.windows_critical_errors,
+                    process_handle_count: telem.process_handle_count,

@@ -1,0 +1,62 @@
+
+---CONTENT---
+```json
+[
+  {
+    "id": "MAINT-01",
+    "severity": "P1",
+    "title": "False Positive Crash Detection Due to sshd Restart Triggering Agent Restart Detection",
+    "root_cause": "rc-sentry and rc-watchdog use process liveness heuristics (e.g., PID disappearance or heartbeat loss) to infer rc-agent crashes. A system-wide sshd restart caused temporary service disruption or process group termination that was misinterpreted as three rapid rc-agent crashes within 10 minutes. This occurred because crash detection does not differentiate between agent-initiated restarts, external process kills, or system service churn.",
+    "permanent_fix": "Enhance crash detection logic to classify restarts by source. Integrate Windows Event Log monitoring for service state changes and distinguish between self-reported agent restarts (via heartbeat 'graceful_shutdown' flag), unexpected process exits (using exit codes and crash dumps), and external termination (e.g., parent process or session shutdown). Only unexplained or abnormal terminations should count toward the 3-in-10-min threshold. Additionally, implement a cooldown window after known system events (e.g., SSH/service restarts) to suppress false triggers."
+  },
+  {
+    "id": "MAINT-02",
+    "severity": "P1",
+    "title": "Inconsistent Maintenance Mode Auto-Clear Due to Timestamp vs. Mtime Confusion",
+    "root_cause": "rc-watchdog uses file modification time (mtime) to determine if MAINTENANCE_MODE should be cleared, while rc-sentry uses the JSON 'timestamp_epoch' field inside the file. These can diverge due to file system caching, system clock adjustments, or write delays. After 30+ minutes, rc-watchdog may have skipped clearing because mtime was inaccurate, while rc-sentry’s poll loop may not have run or failed to clear due to process instability or resource starvation.",
+    "permanent_fix": "Standardize on the JSON 'timestamp_epoch' as the authoritative TTL source. Modify rc-watchdog to read and parse the timestamp_epoch field instead of relying on mtime. Both daemons must use monotonic time checks based on the embedded timestamp. Introduce a shared utility crate for maintenance mode handling to enforce consistency across binaries."
+  },
+  {
+    "id": "MAINT-03",
+    "severity": "P1",
+    "title": "Race Condition Between rc-sentry and rc-watchdog on Maintenance Mode Clear",
+    "root_cause": "Both rc-sentry and rc-watchdog independently attempt to clear MAINTENANCE_MODE and restart rc-agent. If both detect the TTL expiry simultaneously, they may race to delete the file and invoke restart logic, potentially leading to double-restart attempts or file access conflicts. Worse, one may clear the file while the other fails mid-operation, leaving inconsistent state.",
+    "permanent_fix": "Centralize maintenance mode clearance logic in rc-watchdog (as the Windows service, it's more reliable). Disable auto-clear in rc-sentry. Instead, rc-sentry can signal state changes but defer TTL-based management to rc-watchdog. Use a named mutex (e.g., 'RacingPoint_MaintClear_Mutex') to serialize access during clear operations. Ensure only one component is responsible for restart execution."
+  },
+  {
+    "id": "MAINT-04",
+    "severity": "P2",
+    "title": "rc-watchdog Service May Not Be Running or Is Unresponsive After System Events",
+    "root_cause": "Windows services like rc-watchdog can fail to start or hang after system-level restarts (e.g., sshd or update-triggered session reload). If the watchdog service is not actively polling, auto-clear and recovery cannot occur. The current design relies on its continuous operation, but no health reporting exists to verify this.",
+    "permanent_fix": "Configure rc-watchdog as a delayed-auto-start service with recovery actions (restart on failure) via sc config. Add a health endpoint on port 8091 (rc-sentry) that proxies rc-watchdog liveness. Monitor this from external fleet ops tooling and trigger service restarts via GPO or script if unresponsive. Log service startup and shutdown events via Event Tracing for Windows (ETW)."
+  },
+  {
+    "id": "MAINT-05",
+    "severity": "P2",
+    "title": "rc-sentry May Not Run or Be Killed During System Instability",
+    "root_cause": "Although rc-sentry is independent, it runs as a user-mode process and may be terminated during system events like session resets or service bulk restarts. If it’s not managed as a service, its survival is not guaranteed, rendering its auto-clear and monitoring loop ineffective.",
+    "permanent_fix": "Convert rc-sentry into a non-interactive Windows service (or run under Windows Session 0 via SrvAny-style wrapper). Ensure both rc-agent and rc-sentry are managed by the Service Control Manager (SCM) for lifecycle resilience. Alternatively, have rc-watchdog spawn and monitor rc-sentry as a child process if it must remain separate."
+  },
+  {
+    "id": "MAINT-06",
+    "severity": "P3",
+    "title": "Missing Fallback Manual Exit Mechanism for Maintenance Mode",
+    "root_cause": "There is no documented or automated escape hatch (e.g., WOL_SENT, admin API call, file sentinel) that forces immediate exit from maintenance mode in case of stuck state. Operators must manually delete the file, which is error-prone and not scalable across 8+ pods.",
+    "permanent_fix": "Introduce multiple override sentinels: (1) WOL_SENT file to trigger immediate clear, (2) an admin HTTP endpoint on rc-sentry (POST /admin/exit-maintenance) authenticated via local-only or IP-locked access, and (3) a fleet command via secure channel. Ensure all override methods are logged and alert on activation."
+  },
+  {
+    "id": "MAINT-07",
+    "severity": "P2",
+    "title": "No TTL Enforcement Redundancy or Fallback Timer",
+    "root_cause": "Auto-clear depends solely on periodic polling in rc-sentry (60s) and rc-watchdog (5s). If both daemons stall or crash before clearing, maintenance mode persists indefinitely despite the intended 30-minute TTL. There is no ‘hard’ timeout enforced by the OS or filesystem.",
+    "permanent_fix": "Implement a persistent, time-based job queue using Windows Task Scheduler: on entering maintenance mode, schedule a one-time task to run rc-agent-recover.exe --clear-maintenance after 30 minutes. This task survives process restarts and acts as a last-resort fallback. Task creation should be idempotent and canceled on normal exit."
+  },
+  {
+    "id": "MAINT-08",
+    "severity": "P3",
+    "title": "Diagnostic Context Insufficient for Root Cause Analysis",
+    "root_cause": "The 'diagnostic_context' field is a raw string without schema or structured data (e.g., recent log lines, exit codes, system load). This makes post-mortem analysis difficult and led to confusion about why crashes were attributed to 'unknown' cause.",
+    "permanent_fix": "Enhance MaintenanceModePayload with structured diagnostic fields: last_exit_code, last_signal, system_uptime_at_crash, related_system_events (e.g., service restarts nearby), and rc-agent log snippet (last 5 lines). Serialize as JSON and include in alerts for faster diagnosis."
+  }
+]
+```

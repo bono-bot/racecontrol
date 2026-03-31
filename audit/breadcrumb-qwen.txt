@@ -1,0 +1,20 @@
+```json
+[
+  {
+    "id": "BUG-001",
+    "severity": "Critical",
+    "title": "Breadcrumb Deadlock Between rc-sentry and rc-watchdog",
+    "root_cause": "rc-sentry writes a restart breadcrumb both before and after spawning rc-agent, which rc-watchdog observes during its grace period. Because rc-sentry rewrites the breadcrumb during crash handling (while the FSM is in Cooldown), rc-watchdog interprets this as an active recovery attempt and indefinitely defers its own restart action. This creates a deadlock where only rc-sentry attempts restarts, but it does so via a flawed script (Bug 2), and rc-watchdog never intervenes despite being the more reliable restart manager.",
+    "permanent_fix": "Remove breadcrumb writes from rc-sentry's restart_service(). Instead, adopt a shared coordination mechanism (e.g., atomic timestamp file or registry key) written ONLY by rc-watchdog during its own restart attempts. rc-sentry should limit itself to health observation and Tier 1 remediations (e.g., killing stuck processes) without initiating spawns. Alternatively, if rc-sentry must spawn, it should signal intent without mimicking rc-watchdog's breadcrumb semantics. Synchronize state using a single source of truth for 'restart in progress' to prevent overlapping, misinterpreted signals.",
+    "binary": "rc-sentry.exe"
+  },
+  {
+    "id": "BUG-002",
+    "severity": "Critical",
+    "title": "start-rcagent.bat Causes rc-agent Kill Cycle Due to Aggressive taskkill and Polling Hysteresis Mismatch",
+    "root_cause": "start-rcagent.bat unconditionally kills any rc-agent.exe process before starting a new instance. rc-sentry's health check polls every 5s with a hysteresis threshold of 3 (15s total), but rc-agent takes 2–5s to initialize and may not respond immediately. rc-sentry's next poll often catches rc-agent in 'starting' state, marks it as Suspect, and after three polls (15s) triggers another restart before the prior instance finishes initializing. This causes the batch script to kill a still-starting rc-agent, creating a boot-loop. The POST_CRASH_COOLDOWN is not respected because rc-sentry bypasses the watchdog's FSM and directly invokes the kill-start cycle.",
+    "permanent_fix": "Replace start-rcagent.bat with a compiled Rust launcher (e.g., rc-launcher.exe) that: (1) skips killing if no rc-agent is truly running, (2) waits for graceful exit or enforces timeout, (3) waits for rc-agent to signal 'healthy' via IPC or HTTP before exiting, (4) respects a global cooldown period via filesystem lock or registry. Integrate this launcher into rc-watchdog only, and disable rc-sentry from direct spawn calls. Align hysteresis and cooldown logic across components to prevent premature restarts.",
+    "binary": "start-rcagent.bat"
+  }
+]
+```

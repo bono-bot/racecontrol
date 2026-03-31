@@ -1,0 +1,16 @@
+An audit of the Phase 267 Survival Foundation Rust code follows.
+
+## P1
+- **(Race Condition) TOCTOU race condition in `try_acquire_sentinel` allows multiple actors to acquire the same lock.** The `try_acquire_sentinel` function implements a "Time-of-check to time-of-use" (TOCTOU) vulnerability. The logic first checks for the existence and validity of a sentinel file and *then* proceeds to write a new one. Two processes can race and both find that the existing sentinel is expired (or absent), leading both to believe they have acquired the lock.
+    - **Scenario:**
+        1. Process A calls `try_acquire_sentinel`. It reads the file and finds it is expired.
+        2. The OS scheduler swaps to Process B.
+        3. Process B calls `try_acquire_sentinel`. It also reads the file and finds it is expired.
+        4. Process B proceeds to write a new sentinel file and returns `Ok(true)`.
+        5. The OS scheduler swaps back to Process A.
+        6. Process A, having already completed its check, proceeds to overwrite the sentinel file written by Process B and also returns `Ok(true)`.
+    - **Impact:** The mutual exclusion guarantee of the sentinel is violated. Two different survival layers could start "healing" actions simultaneously, potentially leading to system instability, data corruption, or conflicting recovery operations.
+    - **Recommendation:** File-based locking must use atomic operations. For a simple lock, use `std::fs::OpenOptions::new().write(true).create_new(true).open(path)`. This operation is atomic and will fail if the file already exists. Given the need to overwrite *expired* sentinels, a more robust platform-specific approach is required. On Windows, use the `LockFileEx` function from the Win32 API (via crates like `windows-sys` or `fs2`) to acquire an exclusive lock on the file handle *before* reading its contents. The lock should be held until the new file is written and closed.
+
+- **(TTL Bypass) Sentinel TTL can be bypassed by setting the system clock backwards.** The `is_expired` and `remaining_secs` functions rely on `chrono::Utc::now()`, which uses the system's wall-clock time. If the system clock is set to a time in the past (either maliciously or due to an NTP sync error), an expired sentinel can become valid again.
+    - **Impact:** This can cause a persistent denial-of-service. A healing action that has timed out

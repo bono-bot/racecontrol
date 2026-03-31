@@ -1,0 +1,69 @@
+{
+  "results": [
+    {
+      "test": "Browser launch (local Chromium)",
+      "status": "PASS"
+    },
+    {
+      "test": "Login with PIN",
+      "status": "PASS"
+    },
+    {
+      "test": "Billing page H1 visible",
+      "status": "PASS"
+    },
+    {
+      "test": "Billing page pods visible (8 pods)",
+      "status": "PASS"
+    },
+    {
+      "test": "Start Session modal opens",
+      "status": "PASS"
+    },
+    {
+      "test": "Custom 404 page shows \"404\" heading",
+      "status": "PASS"
+    },
+    {
+      "test": "Custom 404 shows redirect text",
+      "status": "PASS"
+    },
+    {
+      "test": "Custom 404 has \"Go to Billing Now\" button",
+      "status": "PASS"
+    },
+    {
+      "test": "Custom 404 auto-redirects to /billing",
+      "status": "PASS"
+    },
+    {
+      "test": "Sidebar nav to /pods",
+      "status": "PASS"
+    },
+    {
+      "test": "Sidebar nav to /drivers",
+      "status": "PASS"
+    },
+    {
+      "test": "Sidebar nav to /billing",
+      "status": "PASS"
+    },
+    {
+      "test": "All 25 routes return 200",
+      "status": "PASS"
+    },
+    {
+      "test": "Static chunks OK (5/5 verified)",
+      "status": "PASS"
+    },
+    {
+      "test": "Console errors",
+      "status": "FAIL",
+      "reason": "1 errors: Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "timestamp": "2026-03-29T09:47:26.361Z"
+}

@@ -1,0 +1,1 @@
+{"cmd":"schtasks /Create /TN TempStartRCAgent /TR \"C:\\RacingPoint\\start-rcagent.bat\" /SC ONCE /ST 00:00 /F /IT 2>nul & schtasks /Run /TN TempStartRCAgent 2>nul & echo TRIGGERED","timeout_ms":10000}

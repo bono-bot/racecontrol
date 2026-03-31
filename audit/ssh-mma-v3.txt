@@ -1,0 +1,86 @@
+Here's a comprehensive JSON diagnosis of your SSH connectivity issues, including Windows-specific considerations:
+
+```json
+[
+  {
+    "id": "SSH-01",
+    "severity": "P2",
+    "title": "Post-Quantum Algorithm Warning",
+    "root_cause": "Version mismatch between client (OpenSSH 10.2p1) and server (OpenSSH_for_Windows 9.5p2). Client supports PQ KEX but server doesn't.",
+    "risk": "No immediate operational impact, but exposes to future quantum computing threats. Warning spam disrupts script output parsing.",
+    "fix": "1) Upgrade servers to OpenSSH 10.2p1+ 2) Add 'KexAlgorithms curve25519-sha256@libssh.org' to sshd_config to suppress warning"
+  },
+  {
+    "id": "SSH-02",
+    "severity": "P1",
+    "title": "Exit Code 255 Masking Real Errors",
+    "root_cause": "Windows default shell (cmd.exe) fails to properly translate Unix tool commands, but SSH reports generic connection error instead of command failure.",
+    "risk": "Critical debugging obstacle - masks actual command failures as connection drops.",
+    "fix": "1) Set DefaultShell to PowerShell via registry 2) Use Win32 equivalents (Get-Content -TotalCount 5 instead of head) 3) Install Windows-native GNU tools"
+  },
+  {
+    "id": "SSH-03",
+    "severity": "P1",
+    "title": "Silent Connection Drops",
+    "root_cause": "Missing TCP keepalives (ClientAliveInterval) and default MaxSessions=10.",
+    "risk": "Data corruption during file transfers and failed automation jobs.",
+    "fix": "Add to sshd_config:\nClientAliveInterval 30\nClientAliveCountMax 3\nMaxSessions 100"
+  },
+  {
+    "id": "SSH-04",
+    "severity": "P2",
+    "title": "Windows Shell Environment Mismatch",
+    "root_cause": "Default cmd.exe shell lacks Unix tool compatibility and proper error signaling.",
+    "risk": "Automation scripts fail unpredictably when crossing Windows/Unix boundaries.",
+    "fix": "1) HKEY_LOCAL_MACHINE\\SOFTWARE\\OpenSSH DefaultShell=C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\n2) Set DefaultShellCommandOption -NoProfile -ExecutionPolicy RemoteSigned"
+  },
+  {
+    "id": "SSH-05",
+    "severity": "P3",
+    "title": "Default sshd_config Hardening",
+    "root_cause": "Stock configuration lacks Windows-specific security optimizations.",
+    "risk": "Potential privilege escalation and reduced audit capabilities.",
+    "fix": "Add:\nMatch Group administrators\n   AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys\nLogLevel VERBOSE\nPermitUserEnvironment no"
+  },
+  {
+    "id": "SSH-06",
+    "severity": "P2",
+    "title": "Windows Path Resolution Issues",
+    "root_cause": "Default cmd.exe handles paths differently than Unix shells (spaces, slashes).",
+    "risk": "Commands fail when paths contain spaces or mixed slash directions.",
+    "fix": "1) Always quote paths 2) Use PowerShell as default shell 3) Set MSYS_NO_PATHCONV=1 in environment"
+  },
+  {
+    "id": "SSH-07",
+    "severity": "P1",
+    "title": "Tailscale MTU Fragmentation",
+    "root_cause": "Default MTU (1280) in Tailscale overlay may conflict with LAN MTU (1500).",
+    "risk": "SSH sessions stall during large file transfers or binary streams.",
+    "fix": "1) Add to client config: Host *.tailscale.net\n  IPQoS 0x00\n  ServerAliveInterval 30\n2) Adjust MTU: netsh interface ipv4 set subinterface <ID> mtu=1400"
+  },
+  {
+    "id": "SSH-08",
+    "severity": "P2",
+    "title": "Windows Service Permissions",
+    "root_cause": "sshd service runs under SYSTEM account by default, causing permission issues.",
+    "risk": "File operations fail due to strict ACLs on ProgramData directories.",
+    "fix": "1) icacls \"C:\\ProgramData\\ssh\" /grant \"NT SERVICE\\sshd:(RX)\"\n2) Restart sshd service"
+  }
+]
+```
+
+### Windows-Specific Gotchas:
+1. **Service Dependencies**: sshd service requires "Base Filtering Engine" (BFE) running
+2. **Firewall Rules**: Windows Defender creates separate rules for public/private networks
+3. **HomeDir Resolution**: OpenSSH on Windows maps `~` to `$env:USERPROFILE` inconsistently
+4. **EOL Handling**: Windows CRLF vs Unix LF causes script failures
+5. **Key Permissions**: `administrators_authorized_keys` requires stricter ACLs than regular keys
+
+### Minimal Fix Set:
+1. ClientAliveInterval + MaxSessions (prevents drops)
+2. DefaultShell to PowerShell (fixes exit codes)
+3. KexAlgorithms specification (removes PQ warning)
+4. Tailscale MTU adjustment (for overlay network)
+5. Service permissions (fixes key access)
+
+Would you like me to elaborate on any particular remediation strategy?

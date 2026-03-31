@@ -1,0 +1,14 @@
+## P1
+- **Race condition in sentinel acquisition**: `try_acquire_sentinel` has a TOCTOU vulnerability. After checking for an expired sentinel, another process could acquire the sentinel before the write occurs, leading to multiple concurrent holders. Use atomic file operations (e.g., `File::create_new` with fallback to locked overwrite) to prevent this.
+- **Missing directory creation**: Sentinel paths assume `C:\RacingPoint` exists. If missing, `std::fs::write` fails. Create parent directories in `try_acquire_sentinel` using `std::fs::create_dir_all`.
+- **Windows file locking bypass**: No exclusive locking during sentinel file operations. Concurrent processes could read/write simultaneously. Use `fs2::FileExt` advisory locks or Windows-specific `File::lock_exclusive` during read/write operations.
+
+## P2
+- **TTL bypass via unvalidated timestamps**: `is_expired()` treats unparseable timestamps as expired. An attacker could write invalid timestamps to force expiration. Log errors and treat unparseable timestamps as expired but record the anomaly.
+- **Error swallowing in sentinel helpers**: `read_sentinel_file` discards all errors (permissions, corruption). Log errors via `tracing::warn!` and return `None` to maintain behavior but improve debuggability.
+- **No sentinel write retries**: Transient I/O errors during `std::fs::write` cause acquisition failure. Add retry logic with exponential backoff for `write` operations.
+
+## PASS
+- **Correct TTL handling for clock skew**: `is_expired()` correctly handles negative durations (system clock skew) by treating them as expired.
+- **Graceful sentinel release**: `release_sentinel()` properly handles missing files with `ErrorKind::NotFound` check.
+- **ActionId uniqueness**: UUIDv4 generation and display impls are correctly implemented.

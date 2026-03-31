@@ -1,0 +1,125 @@
+Here is the audit report for the deployment pipeline. 
+
+### Problem 1: Pods falsely reported as 'powered off'
+*   **Root Cause:** The pipeline expects an instantaneous state resolution (Online vs Offline) and uses aggressive network timeouts (1-2s). It fails to account for the physical reality of Windows OS boot times (30-120s) and network stack initialization.
+*   **Pattern Class:** **Lack of Synchronization / Brittleness.** Failing to wait for asynchronous state transitions (booting) to complete before advancing or aborting.
+*   **Permanent Fix:** Replace the static ping check with an intelligent polling loop that utilizes exponential backoff or a hard maximum wait time (e.g., 150 seconds). Instead of ICMP (`ping`), poll the actual `rc-sentry` health endpoint to verify application-layer readiness.
+*   **Code Implementation (Git Bash):**
+    ```bash
+    check_pod_ready() {
+      local POD_IP=$1
+      local MAX_WAIT=150
+      local ELAPSED=0
+      
+      echo "Waiting for Pod $POD_IP to boot..."
+      while [ $ELAPSED -lt $MAX_WAIT ]; do
+        # HTTP 200 check - redirects stderr, fast timeout
+        if curl -s -f -m 2 "http://${POD_IP}:8091/health" > /dev/null; then
+          echo "Pod $POD_IP is ONLINE."
+          return 0
+        fi
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
+      done
+      
+      echo "ERROR: Pod $POD_IP failed to boot within ${MAX_WAIT}s."
+      return 1
+    }
+    ```
+
+### Problem 2: HTTP staging server started from wrong directory
+*   **Root Cause:** In certain shell scopes context (like Bash `-c` execution or inline automation), `cd dir && cmd &` can result in the directory change not persisting or affecting the backgrounded process correctly. Furthermore, the pipeline trusted the download payload without verifying the size or hash, leading to deploying 335-byte HTML 404 pages.
+*   **Pattern Class:** **Silent Failure / Missing Validation.** Not verifying the integrity of artifacts during hand-offs.
+*   **Permanent Fix:** Bind the Python HTTP server directly to the directory using the `--directory` flag (idempotent/shell-agnostic). Add a strict checksum or size validation on the downloaded payload before allowing `rc-sentry` to swap it.
+*   **Code Implementation:**
+    *Server Start:*
+    ```bash
+    # Deterministic directory, regardless of current working dir
+    python -m http.server 18889 --directory /c/Users/bono/racingpoint/deploy-staging &
+    ```
+    *Pod Download Validation (sent via rc-sentry exec):*
+    ```powershell
+    Invoke-WebRequest -Uri "http://192.168.1.27:18889/pod-binary.exe" -OutFile "C:\temp\pod-binary.exe"
+    $fileInfo = Get-Item "C:\temp\pod-binary.exe"
+    if ($fileInfo.Length -lt 10MB) {
+        Write-Error "Download failed: File is suspiciously small ($($fileInfo.Length) bytes). 404 intercepted?"
+        exit 1
+    }
+    # Proceed to swap safely...
+    ```
+
+### Problem 3: Sentry service key mismatch
+*   **Root Cause:** Configuration drift. Both the server and the pods have persistent, manually managed configuration files (`racecontrol.toml` and Environment Variables respectively). There is no Single Source of Truth enforced at deploy time.
+*   **Pattern Class:** **Configuration Drift / Secret Mismanagement.**
+*   **Permanent Fix:** Treat configuration as heavily as code. Implement a "pre-flight" configuration synchronization step. Before sending the upgrade command, use `rc-sentry` (with the *old* key, since it's currently running) to push a `.env` file containing the *new* expected key, and update the Server's `.toml` via SCP.
+*   **Code Implementation (Git Bash Deploy Script):**
+    ```bash
+    SHARED_SENTRY_KEY="<pull from secure vault / deploy machine .env>"
+
+    # 1. Update Server Config
+    ssh user@server "sed -i 's/^key = .*/key = \"$SHARED_SENTRY_KEY\"/' /path/to/racecontrol.toml"
+
+    # 2. Update Pod Configs dynamically
+    for IP in "${POD_IP_LIST[@]}"; do
+       # Push new key to Pod's .env file via existing sentry connection
+       curl -X POST http://${IP}:8091/exec \
+            -H "Authorization: Bearer $OLD_SENTRY_KEY" \
+            -d '{"cmd": "powershell", "args": ["Set-Content -Path C:\rc-sentry\.env -Value \"RCSENTRY_SERVICE_KEY='$SHARED_SENTRY_KEY'\""]}'
+       # Restart rc-sentry service to apply new key
+       curl -X POST http://${IP}:8091/exec -H "Authorization: Bearer $OLD_SENTRY_KEY" -d '{"cmd": "net", "args": ["stop", "rc-sentry", "&&", "net", "start", "rc-sentry"]}'
+    done
+    ```
+
+### Problem 4: Server binary swap - watchdog restarted old binary
+*   **Root Cause:** The pipeline did not pause overlapping lifecycle managers (the watchdog) while performing file mutation. Windows locks running `.exe` files, so standard practice is to rename them, but a running watchdog will detect the "missing" current `.exe` and eagerly launch the renamed old process or fail the system.
+*   **Pattern Class:** **Concurrency Condition / Uncoordinated Mutability.** Modifying state over an active control loop.
+*   **Permanent Fix:** Disable the watchdog task *before* terminating the app, perform the swap, clear process remnants, start the new binary, and then re-enable the watchdog. 
+*   **Code Implementation (Atomic Swap over SSH/SCP):**
+    ```bat
+    :: Save as deploy_server.bat and execute via SSH
+    @echo off
+    echo Disabling Watchdog...
+    schtasks /Change /TN "WatchdogTask" /Disable
+
+    echo Killing current server...
+    taskkill /F /IM rc-server.exe /T
+
+    echo Swapping binaries...
+    if exist current-server.exe move /Y current-server.exe prev-server.exe
+    move /Y newly-downloaded-server.exe current-server.exe
+
+    echo Starting new server...
+    schtasks /Run /TN "ServerTask"
+
+    echo Re-enabling Watchdog...
+    schtasks /Change /TN "WatchdogTask" /Enable
+    ```
+
+### Problem 5: PowerShell script LF line endings
+*   **Root Cause:** Unix tools (Git Bash, Python, nano) natively use `\n` (LF) for line breaks, while legacy/standard Windows PowerShell interpreters often require `\r\n` (CRLF) for correct parsing of script blocks (`.ps1`). LF-only files cause early parser termination on Windows.
+*   **Pattern Class:** **Cross-Platform Impedance Mismatch.** Environment encoding boundaries breaking code logic.
+*   **Permanent Fix:** Bypass `.ps1` file execution entirely for deployment commands by passing scripts as Base64 encoded strings, OR enforce cross-platform line endings via a `.gitattributes` or an in-line conversion step. Base64 is the most robust, idempotent solution for heterogeneous pipelines.
+*   **Code Implementation (Base64 approach):**
+    ```bash
+    # On the deployment machine (James .27):
+    SCRIPT_CONTENT=$(cat my_script.ps1)
+    # Convert script to UTF-16LE, then base64 encode it for powershell -EncodedCommand
+    ENCODED=$(echo -n "$SCRIPT_CONTENT" | iconv -t UTF-16LE | base64 -w 0)
+
+    # Execute securely on the target without worrying about files or line endings
+    curl -X POST http://${POD_IP}:8091/exec \
+         -H "Authorization: Bearer $SENTRY_KEY" \
+         -d '{"cmd": "powershell", "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", "'"$ENCODED"'"]}'
+    ```
+
+---
+
+### Cross-Cutting Architectural Concerns
+
+By auditing the 5 failures collectively, underlying systemic issues emerge that require higher-level attention:
+
+1.  **Trust-but-Verify Missing (Blind Pipelines):** 
+    *   *Issue:* Steps execute blindly based on exit codes from unrelated tools (e.g., ping). The pipeline assumed pinging meant failure (P1), assumed a download backgrounded properly (P2), and assumed an SCP drop meant a successful update (P4). 
+    *   *Action:* Adopt **Assertion-Based Progression**. A stage should not be marked complete until the target *asserts* the correct state (e.g., querying the HTTP `/health` endpoint for the correct `build_id`).
+2.  **OS Impedance Defaults:** 
+    *   *Issue:* Using Git Bash on Windows to manage native Windows Pods creates continuous friction (LF vs

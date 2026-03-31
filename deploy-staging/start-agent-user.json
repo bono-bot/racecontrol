@@ -1,0 +1,1 @@
+{"cmd":"schtasks /Create /TN TempRCAgent2 /TR \"C:\\RacingPoint\\rc-agent.exe\" /SC ONCE /ST 00:00 /F /RU user /RP \"\" 2>&1 & schtasks /Run /TN TempRCAgent2 2>&1 & echo DONE","timeout_ms":10000}

@@ -1,0 +1,87 @@
+```json
+[
+  {
+    "id": "SSH-01",
+    "severity": "P3",
+    "title": "Post-quantum key exchange warning on every connection",
+    "root_cause": "Client (OpenSSH 10.2p1) supports post-quantum key exchange algorithms (e.g., sntrup761x25519-sha512) while servers (OpenSSH 9.5p2) do not. The client falls back to classical algorithms but warns due to its default 'UpdateHostKeys' behavior and strict security posture.",
+    "risk": "No operational break, but warning noise corrupts command output parsing in scripts, logs, and CI/CD pipelines. Potential security risk if quantum computing advances make current key exchanges vulnerable ('store now, decrypt later').",
+    "fix": "Option A: Suppress warning on client side by adding `-o LogLevel=ERROR` or setting `LogLevel ERROR` in ~/.ssh/config. Option B: Upgrade servers to OpenSSH ≥9.9 (which includes post-quantum support). Option C: Disable warning on client by adding `-o UpdateHostKeys=no` (disables host key learning) or `-o KexAlgorithms=curve25519-sha256` (forces classical algorithm without warning)."
+  },
+  {
+    "id": "SSH-02",
+    "severity": "P2",
+    "title": "Exit code 255 misrepresents remote command failures",
+    "root_cause": "When remote command execution fails in OpenSSH (e.g., command not found in cmd.exe), the SSH server returns exit code 255 (SSH connection error) instead of the actual cmd.exe error code. This is OpenSSH behavior for protocol-level command failures.",
+    "risk": "Automation scripts cannot distinguish between SSH connection failures (network/auth) and remote command syntax errors. Debugging is harder; scripts may retry unnecessarily or fail to handle real connection drops.",
+    "fix": "Option A: On client, wrap remote commands to capture stderr and translate exit codes. Example: `ssh server 'command || echo $? >&2'` and parse. Option B: Use PowerShell as remote shell (set `DefaultShell` to PowerShell) which may return more granular exit codes. Option C: Implement client-side script that checks SSH exit code: if 255, assume command error; else handle accordingly."
+  },
+  {
+    "id": "SSH-03",
+    "severity": "P2",
+    "title": "No keepalive configured, leading to silent connection drops",
+    "root_cause": "Server sshd_config has `ClientAliveInterval 0` (default) and client has no `ServerAliveInterval`. TCP idle timeouts (NAT/firewalls) can terminate idle connections during long-running operations.",
+    "risk": "Long-running commands (builds, file copies) fail silently, leaving processes orphaned on server. Automation reliability decreases; requires manual reconnection.",
+    "fix": "On server sshd_config: `ClientAliveInterval 60` (send keepalive every 60 seconds) and `ClientAliveCountMax 3` (disconnect after 3 missed). On client: set `ServerAliveInterval 60` in ~/.ssh/config. For fleet, deploy via configuration management (Ansible, DSC)."
+  },
+  {
+    "id": "SSH-04",
+    "severity": "P2",
+    "title": "OpenSSH version mismatch and default shell misconfiguration",
+    "root_cause": "Client uses OpenSSH 10.2p1 (latest) while servers use 9.5p2. Feature mismatches (post-quantum, ciphers). Default shell is cmd.exe (set by system), but no registry `DefaultShell` key exists in `HKLM\\SOFTWARE\\OpenSSH`.",
+    "risk": "Cipher/kex negotiation may fall back to less optimal algorithms. cmd.exe limitations (no Unix tools, poor scripting) cause command failures and confusion. Future compatibility issues as client updates.",
+    "fix": "1. Align OpenSSH versions if possible (upgrade servers to 10.x). 2. Set `DefaultShell` to PowerShell: `New-ItemProperty -Path "HKLM:\\SOFTWARE\\OpenSSH" -Name DefaultShell -Value "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -PropertyType String -Force`. 3. Ensure server sshd_config has `Subsystem sftp` updated if shell changes."
+  },
+  {
+    "id": "SSH-05",
+    "severity": "P2",
+    "title": "Untuned sshd_config with default security and performance settings",
+    "root_cause": "sshd_config is nearly default: no `MaxSessions` tuning, no `ClientAliveInterval`, no `Banner` suppression, no `Match` blocks for automation, and `AuthorizedKeysFile` split between user and ProgramData locations.",
+    "risk": "Performance bottlenecks (MaxSessions too low for parallel automation), security gaps (admin keys in multiple locations), noisy banners, and inconsistent key authentication across user types.",
+    "fix": "Audit and tune sshd_config: `MaxSessions 50` (for automation), `ClientAliveInterval 60`, `Banner none`, `AuthorizedKeysFile .ssh/authorized_keys` (unify location). Use `Match` blocks to grant specific permissions (e.g., port forwarding) for automation users. Deploy via template."
+  },
+  {
+    "id": "SSH-06",
+    "severity": "P2",
+    "title": "Windows-specific SSH server quirks and command interpretation",
+    "root_cause": "OpenSSH for Windows has behavioral differences: command execution via cmd.exe (not POSIX shell), path separators (backslash), environment variables, and lack of common Unix tools (head, grep, awk). The server's `sshd` runs as SYSTEM with different privileges.",
+    "risk": "Scripts written for Unix SSH fail unexpectedly. Privilege escalation risks if service account permissions are misconfigured. Logging and audit trails may be incomplete.",
+    "fix": "1. Use PowerShell as remote shell (see SSH-04). 2. For complex scripts, transfer .ps1 files and execute with `powershell -File`. 3. Ensure OpenSSH service runs with minimal privileges (not as LocalSystem if possible). 4. Install Windows Subsystem for Linux (WSL) on servers for Unix tool compatibility."
+  },
+  {
+    "id": "SSH-07",
+    "severity": "P1",
+    "title": "Split AuthorizedKeysFile configuration risks authentication failures",
+    "root_cause": "Admin keys stored in `C:\\ProgramData\\ssh\\administrators_authorized_keys` (by Windows OpenSSH default) while non-admin keys in `%USERPROFILE%\\.ssh\\authorized_keys`. If permissions on ProgramData path are wrong, admin authentication fails.",
+    "risk": "Admins locked out if key file permissions change or service account cannot read ProgramData. Inconsistent key management leads to access issues during audits or onboarding.",
+    "fix": "Unify key storage: Either store all keys in user profiles (requires admin users to have profiles) or use centralized `AuthorizedKeysCommand` for LDAP/AD lookup. Fix permissions on `administrators_authorized_keys`: `icacls "C:\\ProgramData\\ssh\\administrators_authorized_keys" /inheritance:r /grant "SYSTEM:F" "Administrators:F"`."
+  },
+  {
+    "id": "SSH-08",
+    "severity": "P2",
+    "title": "Network overlay (Tailscale) MTU and NAT traversal issues",
+    "root_cause": "Tailscale uses WireGuard with overhead (MTU 1280 default). SSH over overlay may fragment if LAN MTU is 1500, causing performance degradation or drops. NAT traversal (via DERP relays) adds latency.",
+    "risk": "Slow file transfers, intermittent connectivity, and false timeouts. Long-running connections may break if Tailscale NAT mappings expire.",
+    "fix": "1. Set Tailscale MTU to 1420 (common for VPN) via `--mtu` flag. 2. Ensure direct peer connections (avoid DERP) by allowing UDP port 41641. 3. In sshd_config, set `IPQoS none` to avoid SSH QoS conflicting with Tailscale."
+  },
+  {
+    "id": "SSH-09",
+    "severity": "P2",
+    "title": "Client-side Git Bash environment misconfiguration",
+    "root_cause": "Git Bash uses MSYS2, which has its own SSH client configuration (e.g., /etc/ssh/ssh_config) and may override ~/.ssh/config. Terminal line endings (CRLF vs LF) can cause issues with remote command execution.",
+    "risk": "Commands fail due to path translation (e.g., /c/Windows vs C:\\Windows), line endings, or environment variables. SSH agent forwarding may not work as expected.",
+    "fix": "1. Use Windows-native OpenSSH client (outside Git Bash) for scripting. 2. In Git Bash, set `alias ssh=\"winpty ssh\"` to handle TTY. 3. Convert scripts to use `ssh -T` (disable TTY) and explicitly escape backslashes. 4. Ensure HOME is set correctly in Git Bash to locate keys."
+  },
+  {
+    "id": "SSH-10",
+    "severity": "P1",
+    "title": "Missing firewall and security group rules for SSH",
+    "root_cause": "Windows Firewall may block SSH (port 22) on LAN or Tailscale interfaces. Tailscale ACLs might restrict subnet access.",
+    "risk": "Complete connection failures after updates or reboots. Intermittent access leads to 'phantom' drops.",
+    "fix": "1. Windows Firewall: `New-NetFirewallRule -DisplayName \"OpenSSH-Server-In-TCP\" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow`. 2. Tailscale ACLs: allow `*:22` from `autogroup:members` to servers. 3. Ensure sshd binds to all interfaces (`ListenAddress 0.0.0.0`)."
+  }
+]
+```
+
+### Additional Windows-Specific Gotchas
+- **Service Identity**: sshd runs as `SYSTEM` by default; ensure `C:\ProgramData\ssh\` permissions allow it to

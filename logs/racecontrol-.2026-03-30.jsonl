@@ -1,0 +1,4 @@
+{"timestamp":"2026-03-30T08:10:07.786703Z","level":"INFO","fields":{"message":"SQLite WAL mode VERIFIED active (busy_timeout=5000ms, synchronous=NORMAL)"},"target":"racecontrol_crate::db"}
+{"timestamp":"2026-03-30T08:10:07.897498Z","level":"INFO","fields":{"message":"Mesh intelligence tables initialized"},"target":"racecontrol_crate::fleet_kb"}
+{"timestamp":"2026-03-30T08:10:08.008956Z","level":"INFO","fields":{"message":"Database migrations complete"},"target":"racecontrol_crate::db"}
+{"timestamp":"2026-03-30T08:10:08.008988Z","level":"INFO","fields":{"message":"Database initialized at ./data/racecontrol.db"},"target":"racecontrol_crate::db"}

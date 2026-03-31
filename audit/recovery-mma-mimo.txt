@@ -1,0 +1,31 @@
+```json
+[
+  {
+    "id": "RECOV-01",
+    "severity": "P1",
+    "title": "MAINTENANCE_MODE infinite lock due to rc-sentry mtime logic not fixed",
+    "failure_scenario": "1. rc-sentry writes MAINTENANCE_MODE using old mtime-based auto-clear logic (not JSON timestamp). 2. rc-watchdog reads the file expecting JSON timestamp_epoch. 3. JSON parsing fails, so rc-watchdog cannot determine TTL. 4. rc-watchdog treats it as permanent maintenance. 5. Pod stays in maintenance forever.",
+    "permanent_fix": "Update rc-sentry to use same JSON timestamp_epoch format as rc-watchdog. Add validation: if MAINTENANCE_MODE exists but isn't valid JSON, treat as corrupted and delete it.",
+    "binary": "rc-sentry"
+  },
+  {
+    "id": "RECOV-02",
+    "severity": "P1",
+    "title": "Session 1 token invalidation during CreateProcessAsUserW",
+    "failure_scenario": "1. rc-watchdog calls WTSQueryUserToken for Session 1. 2. User locks screen or RDP disconnects between token query and CreateProcessAsUserW. 3. Token becomes invalid, CreateProcessAsUserW fails. 4. rc-watchdog marks as failed spawn attempt. 5. After 3 failures, enters maintenance mode unnecessarily.",
+    "permanent_fix": "Check token validity immediately before CreateProcessAsUserW. If invalid, retry WTSQueryUserToken. Implement retry loop with timeout before counting as failed spawn.",
+    "binary": "rc-watchdog"
+  },
+  {
+    "id": "RECOV-03",
+    "severity": "P1",
+    "title": "Sentinel file corruption during concurrent writes",
+    "failure_scenario": "1. rc-sentry writes MAINTENANCE_MODE JSON. 2. Simultaneously, rc-watchdog reads the file. 3. Windows file locking not enforced, watchdog reads partial write. 4. JSON parse fails, watchdog assumes no maintenance. 5. Watchdog spawns agent while sentry still thinks in maintenance, causing conflicting actions.",
+    "permanent_fix": "Implement atomic writes: write to temp file, then rename. Use FILE_SHARE_READ only when writing. Add file locking with CreateFile with exclusive access for writes.",
+    "binary": "rc-sentry, rc-watchdog"
+  },
+  {
+    "id": "RECOV-04",
+    "severity": "P1",
+    "title": "Binary swap race with running rc-agent",
+    "failure_scenario": "1. start-rcagent.bat begins binary swap. 2. rc-agent.exe is still running (slow termination). 3. Attempt to delete/replace rc-agent.exe fails (file locked). 4. Bat script continues and tries to start non-existent or old binary. 5. Agent fails to start

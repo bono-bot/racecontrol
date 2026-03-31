@@ -1,0 +1,142 @@
+**Problem 1: Pods falsely reported as 'powered off'**
+
+**Root Cause**: AI used `ping -c 1 -W 1` + `curl --connect-timeout 2` with **no retries** and treated any failure as "permanently off". During cold boot the network interface comes up much later than the machine being powered on, so a single 1-second probe fails.
+
+**Recurring Pattern?**: Yes — "brittle reachability + over-confident state machine".
+
+**Permanent Fix**:
+```bash
+# In deploy tools / rc-sentry client
+function is_pod_ready() {
+    local ip=$1
+    for i in {1..40}; do          # ~2 minutes total
+        if ping -c 1 -W 2 "$ip" >/dev/null && \
+           curl --connect-timeout 4 --max-time 6 "http://$ip:8091/ping" -s -o /dev/null; then
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+```
+Replace all "one-shot ping/curl + assume dead" logic with the above. Add exponential back-off or at least fixed 3s sleep. Never conclude "venue closed" from a single failed probe during known boot windows.
+
+---
+
+**Problem 2: HTTP staging server started from wrong directory**
+
+**Root Cause**: Git Bash `cd foo && cmd &` does **not** propagate the directory change to the backgrounded process. The `&` forks before `cd` completes in that shell.
+
+**Recurring Pattern?**: Yes — "Git Bash backgrounding + cd" anti-pattern (very common).
+
+**Permanent Fix**:
+```bash
+# Option A - explicit subshell (best)
+(cd /c/Users/bono/racingpoint/deploy-staging && python -m http.server 18889) &
+
+# Option B - use PowerShell or a small wrapper
+powershell -Command "Start-Process -NoNewWindow python -ArgumentList '-m','http.server','18889' -WorkingDirectory 'C:\Users\bono\racingpoint\deploy-staging'"
+```
+Add a pre-flight check on the staging server:
+```bash
+curl -s -o /dev/null -w "%{size_download}" http://james:18889/latest/racingpod.exe | grep -E '^[0-9]{7,}$' || { echo "Staging server serving wrong dir or empty"; kill %1; exit 1; }
+```
+
+---
+
+**Problem 3: Sentry service key mismatch**
+
+**Root Cause**: Two independent sources of truth (`racecontrol.toml` on server + `RCSENTRY_SERVICE_KEY` env on pods) that are never compared at deploy time. No single source of truth, no checksum step.
+
+**Recurring Pattern?**: Yes — "configuration drift between control plane and data plane".
+
+**Permanent Fix**:
+1. Make `racecontrol.toml` the **single source**.
+2. During deploy, the staging server or James machine extracts the key:
+   ```toml
+   RCSENTRY_SERVICE_KEY=$(awk -F'"' '/service_key/ {print $2}' racecontrol.toml)
+   ```
+3. Inject it into the pod environment **at every deploy** via rc-sentry:
+   ```bash
+   rc-sentry --host $pod set-env RCSENTRY_SERVICE_KEY="$RCSENTRY_SERVICE_KEY"
+   rc-sentry --host $pod restart
+   ```
+4. Add a mandatory pre-deploy check that queries one pod and validates it matches the toml key.
+
+---
+
+**Problem 4: Server binary swap - watchdog restarted old binary**
+
+**Root Cause**: The watchdog is watching the binary path / build_id and restarts the moment it sees the old binary still running or the build_id not updated. The rename + schtasks sequence has a race window.
+
+**Recurring Pattern?**: Yes — "live binary swap without proper hand-off / sentinel".
+
+**Permanent Fix** (idempotent, atomic as possible on Windows):
+```powershell
+# swap.ps1 - run via schtasks or directly from Git Bash via powershell -File
+$binary   = "C:\racingpoint\racing-server.exe"
+$prev     = "C:\racingpoint\racing-server.prev.exe"
+$new      = "C:\staging\racing-server.exe"
+
+# 1. Kill watchdog first
+Stop-Process -Name "watchdog" -Force -ErrorAction SilentlyContinue
+
+# 2. Atomic swap
+Move-Item $binary $prev -Force
+Move-Item $new $binary -Force
+
+# 3. Clear any "restart needed" sentinel the watchdog uses
+Remove-Item "C:\racingpoint\sentinel\*" -ErrorAction SilentlyContinue
+
+# 4. Start new version
+Start-Process $binary -NoNewWindow
+
+# 5. Restart watchdog
+Start-Process "C:\racingpoint\watchdog.exe"
+```
+Add a `build_id` HTTP endpoint that the watchdog polls instead of watching the binary timestamp.
+
+---
+
+**Problem 5: PowerShell script LF line endings**
+
+**Root Cause**: File was written by a tool that emits Unix LF. PowerShell parser (pre-7) treats the entire file as one line when it sees LF only and chokes on missing CRLF terminators.
+
+**Recurring Pattern?**: Yes — "line ending hell on Windows".
+
+**Permanent Fix**:
+- Enforce `.ps1` files as **CRLF** in `.gitattributes`:
+  ```
+  *.ps1 text eol=crlf
+  ```
+- Add a pre-deploy hook or Git Bash alias that does:
+  ```bash
+  git ls-files '*.ps1' | xargs -I{} unix2dos -q "{}" 2>/dev/null || true
+  ```
+- Or ship all PowerShell scripts through a small wrapper that forces CRLF:
+  ```bash
+  powershell -Command "Set-Content -Path deploy.ps1 -Encoding UTF8 -Value (Get-Content -Raw -Path deploy.ps1 -Encoding UTF8)"
+  ```
+
+---
+
+### Cross-Cutting Concerns (Systemic Issues)
+
+1. **Git Bash is the wrong primary automation surface** on Windows for anything involving backgrounding, cwd, or file semantics. Heavy use of `powershell.exe -File` or a small Go/Rust deploy orchestrator is needed.
+
+2. **No deployment lock / sentinel / version manifest**. Every component must report its exact build_id and config hash on `/status`.
+
+3. **Lack of atomic swap + health-check-wait pattern**. Every binary swap must follow: stop watchers → atomic rename → start new → wait-for-healthy → clean up.
+
+4. **No configuration reconciliation loop**. Keys, paths, versions must be declaratively pushed from James machine every deploy.
+
+5. **Observability is terrible** — no central deploy log, no build_id visibility across all 10 machines, no automated rollback.
+
+**Recommended Long-Term Architecture**:
+- Single declarative deploy manifest (JSON or TOML) on James.
+- A small Go deploy agent (replaces most rc-sentry + bash).
+- All components expose `/status` with `build_id`, `config_hash`, `uptime`.
+- Deploy script is idempotent and can be re-run safely.
+- Use proper Windows service management (`sc.exe` or NSSM) instead of schtasks + watchdog where possible.
+
+These five fixes + the cross-cutting changes will make the pipeline actually reliable instead of "works when James is watching".

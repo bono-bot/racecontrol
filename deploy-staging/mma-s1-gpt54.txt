@@ -1,0 +1,278 @@
+1. Why the watchdog is not restarting `rc-agent`
+   
+Because `rc-sentry` is running in the wrong context.
+
+The restart path you described depends on `session1_spawn.rs`, which uses:
+
+- `WTSQueryUserToken`
+- `CreateProcessAsUser`
+
+That pattern is meant for a process running as **SYSTEM / service context in Session 0**, spawning a child into the interactive user session (Session 1 / Console).
+
+Right now `rc-sentry.exe` is running in **Session 1**, started from the HKLM `Run` key. In that state:
+
+- it is **not** acting as a service
+- it likely does **not** have the privileges needed for the watchdog restart path
+- the watchdog may be polling health but the actual restart branch fails or is skipped
+- if the code assumes â€œservice in Session 0 spawning into active console session,â€? it may simply not work correctly when already running inside Session 1
+
+Most likely root cause:
+- `rc-sentry` watchdog restart logic was designed to run from the **RCWatchdog Windows Service**, not from a user-started copy launched via HKLM Run.
+- Since there is **no RCWatchdog service installed**, you have only the interactive `rc-sentry`, and that is not sufficient to reliably relaunch `rc-agent`.
+
+The `cmd.exe` in Session 0 is another clue that startup is currently messy:
+- HKLM Run launches are racing or partially failing
+- one startup path is leaving remnants in Session 0
+- but nothing authoritative is managing `rc-agent`
+
+So the answer is:
+
+- The watchdog is not restarting `rc-agent` because `rc-sentry` is running as a **user process in Session 1**, not as the intended **service/SYSTEM launcher in Session 0**.
+- The Session 1 copy is not a reliable replacement for the service-based watchdog/spawn mechanism.
+
+---
+
+2. Proper permanent fix
+
+Yes: install and use the **RCWatchdog Windows service** on all pods, and stop relying on HKLM Run to launch both binaries.
+
+Correct design for Windows 11 should be:
+
+- **Windows auto-logon** ensures an interactive user session exists after boot
+- **RCWatchdog service** runs as **LocalSystem** in Session 0 at boot
+- service starts `rc-sentry`
+- `rc-sentry` watchdog monitors `rc-agent`
+- when `rc-agent` is missing/crashed, `rc-sentry` uses `WTSQueryUserToken + CreateProcessAsUser` to launch it into **Session 1**
+- if `rc-agent` crashes later, watchdog restarts it the same way
+
+What to change:
+
+## Remove HKLM Run dependence for `rc-sentry`
+Do not start `rc-sentry` from:
+- `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
+- startup batch files tied to user logon
+
+That is the wrong lifetime/context for a watchdog.
+
+## Do not depend on HKLM Run for `rc-agent`
+If `rc-agent` needs to be in Session 1, it should be launched by the watchdog/service stack, not directly by Run keys.
+
+HKLM Run is fragile because:
+- it only runs after logon
+- timing races with Explorer/userinit are common
+- it gives you a user-context process, not a privileged launcher
+- crash recovery is poor
+
+## Install RCWatchdog as an auto-start service
+Service should be:
+- Startup type: **Automatic**
+- Logon: **LocalSystem**
+- Recovery: restart on first/second/subsequent failures
+
+Then have that service own `rc-sentry` and the Session 1 spawning logic.
+
+---
+
+3. How auto-login should be configured
+
+You need a guaranteed interactive session after boot, so yes, configure **real AutoAdminLogon** explicitly.
+
+Your current state is risky:
+- machines auto-logged in â€œsomehowâ€?
+- `AutoAdminLogon` is not set
+- behavior may break after updates, GPO changes, password changes, or boot timing changes
+
+For Windows 11, configure these registry values:
+
+Path:
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
+
+Set:
+
+- `AutoAdminLogon` = `"1"`
+- `DefaultUserName` = `"user"`  or the correct local/domain username
+- `DefaultDomainName` = `"SIM1"` or machine name/domain as appropriate
+- `DefaultPassword` = `"<password>"`
+
+If using a local account, `DefaultDomainName` is usually the computer name.
+If using a domain-style account, set the actual domain/workgroup context correctly.
+
+Also strongly recommended:
+
+- `ForceAutoLogon` = `"1"`  
+  Helps continue auto-logon after logoff.
+
+If these pods are passwordless accounts today, fix that. Windows auto-logon is most reliable with:
+- a known dedicated venue account
+- non-expiring password
+- password stored in Winlogon for auto-logon
+
+Why this matters:
+- `WTSQueryUserToken` needs an active interactive session
+- no user session = nowhere to spawn `rc-agent`
+- if auto-logon fails, the watchdog can run but cannot launch GUI agent properly
+
+Also disable anything that breaks automatic console sign-in:
+- â€œUsers must enter a username and password...â€? misconfiguration
+- policies requiring Ctrl+Alt+Del at logon
+- first-logon/privacy dialogs
+- post-update blockers
+
+Operationally, after boot you should always see:
+- `explorer.exe` in Session 1 / Console
+- venue user logged in
+- then watchdog spawns `rc-agent` into that session
+
+---
+
+4. Should RCWatchdog service be installed on all pods?
+
+Yes. Absolutely.
+
+For this architecture, the service is the permanent fix.
+
+Without it, you are relying on:
+- logon timing
+- user-context startup
+- batch files
+- Session 1 processes trying to do service-like recovery
+
+That is exactly why all 8 pods are stuck in the same bad state.
+
+## What should be installed on every pod
+On each pod:
+
+1. Install **RCWatchdog** as a Windows service
+2. Set startup type to **Automatic**
+3. Run as **LocalSystem**
+4. Configure service recovery to restart automatically
+5. Remove/disable HKLM Run startup for `rc-sentry`
+6. Remove/disable HKLM Run startup for `rc-agent`
+7. Configure Winlogon AutoAdminLogon for the dedicated sim user
+8. Reboot and validate
+
+## Example service install approaches
+
+Depends on how your package provides it.
+
+### If the executable supports self-install
+Common patterns:
+- `rc-watchdog.exe install`
+- `rc-watchdog.exe --service install`
+
+### Using `sc.exe`
+Example:
+
+```bat
+sc create RCWatchdog binPath= "C:\RacingPoint\rc-watchdog.exe" start= auto obj= LocalSystem
+sc description RCWatchdog "Racing Point watchdog service"
+sc failure RCWatchdog reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc start RCWatchdog
+```
+
+Important:
+- spaces after `binPath=` and `start=` are required in `sc`
+- verify exact binary/service name from your package
+
+### Using PowerShell
+If needed:
+
+```powershell
+New-Service -Name "RCWatchdog" `
+  -BinaryPathName "C:\RacingPoint\rc-watchdog.exe" `
+  -DisplayName "RCWatchdog" `
+  -StartupType Automatic
+Start-Service RCWatchdog
+```
+
+If credentials are needed, use LocalSystem or the intended service account. Prefer **LocalSystem** for `WTSQueryUserToken`.
+
+## After install, verify
+Use:
+
+```bat
+sc qc RCWatchdog
+sc query RCWatchdog
+tasklist /v | findstr /i "rc-watchdog rc-sentry rc-agent"
+query session
+```
+
+Expected:
+- `RCWatchdog` running as service
+- service process in Session 0
+- interactive user logged into Session 1 Console
+- `rc-agent.exe` running in Session 1
+- `rc-sentry` managed by service architecture, not HKLM Run
+
+---
+
+Recommended exact remediation plan for all 8 pods
+
+## A. Configure proper auto-logon
+Set:
+
+```bat
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName /t REG_SZ /d user /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName /t REG_SZ /d SIM1 /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /t REG_SZ /d YOUR_PASSWORD /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v ForceAutoLogon /t REG_SZ /d 1 /f
+```
+
+Replace values appropriately.
+
+## B. Remove HKLM Run startup entries
+Delete entries for:
+- `start-rcagent.bat`
+- `start-rcsentry.bat`
+
+Example:
+
+```bat
+reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v start-rcagent /f
+reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v start-rcsentry /f
+```
+
+Use the actual value names.
+
+## C. Install RCWatchdog service
+Example:
+
+```bat
+sc create RCWatchdog binPath= "C:\RacingPoint\rc-watchdog.exe" start= auto obj= LocalSystem
+sc failure RCWatchdog reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc start RCWatchdog
+```
+
+## D. Reboot
+After reboot, verify:
+- login occurred automatically
+- Session 1 exists with `explorer.exe`
+- `RCWatchdog` is running
+- `rc-agent.exe` appears in Session 1 within watchdog timeout window
+
+## E. Validate crash recovery
+Kill `rc-agent.exe` manually and confirm restart in ~15â€“20s.
+
+---
+
+Short answers
+
+1. Why isnâ€™t watchdog restarting `rc-agent`?
+- Because `rc-sentry` is running from HKLM Run in Session 1, not as the intended SYSTEM/service-based launcher in Session 0. The watchdog restart path using `WTSQueryUserToken + CreateProcessAsUser` is not operating correctly in this context.
+
+2. Proper permanent fix?
+- Install **RCWatchdog** as a Windows service on every pod, run it as **LocalSystem**, remove HKLM Run startup for both binaries, and let the service-based watchdog launch/relaunch `rc-agent` into Session 1.
+
+3. How should auto-login be configured?
+- Explicitly configure Winlogon `AutoAdminLogon=1` with `DefaultUserName`, `DefaultDomainName`, and `DefaultPassword`, preferably with `ForceAutoLogon=1`, so Session 1 always exists after boot.
+
+4. Should RCWatchdog service be installed on all pods? How?
+- Yes, on all 8 pods. Install as an **Automatic** Windows service running as **LocalSystem**, configure restart-on-failure, then reboot and verify Session 1 spawning works.
+
+If you want, I can also give you a one-shot PowerShell remediation script for all 8 pods that:
+- sets AutoAdminLogon
+- removes Run keys
+- installs RCWatchdog
+- sets service recovery
+- reboots safely.

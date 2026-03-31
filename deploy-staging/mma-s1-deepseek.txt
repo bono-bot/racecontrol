@@ -1,0 +1,267 @@
+## 1. Why is the watchdog not restarting rc-agent?
+
+**Most Likely Root Cause:** The watchdog logic in rc-sentry is likely checking for rc-agent in **Session 0** instead of Session 1, or its health check is failing silently.
+
+**Debugging Steps & Immediate Checks:**
+
+### Check rc-sentry's watchdog configuration:
+```cmd
+# From Session 1 console (or via SSH with interactive flag):
+tasklist /v | findstr "rc-agent rc-sentry"
+netstat -ano | findstr 8091
+```
+
+### Check rc-sentry logs:
+```cmd
+# Look for logs in:
+C:\RacingPoint\rc-sentry.log
+C:\ProgramData\RacingPoint\logs\
+Event Viewer -> Applications and Services Logs -> RacingPoint
+```
+
+### Quick diagnostic script (run in Session 1):
+```cmd
+@echo off
+echo [%date% %time%] Checking processes:
+tasklist /fi "imagename eq rc-agent.exe" /fo csv
+echo.
+echo Checking rc-sentry port:
+netstat -ano | findstr :8091
+echo.
+echo Checking watchdog file writes:
+dir C:\RacingPoint\watchdog*.log 2>nul
+echo.
+echo Session of rc-sentry:
+qwinsta | findstr "rc-sentry"
+```
+
+**Probable Issues:**
+1. **Watchdog health check misconfigured** - Might be checking wrong PID or wrong port
+2. **Session 1 token acquisition failing** - `WTSQueryUserToken` might fail if Session 1 isn't in "active" state
+3. **rc-sentry started with insufficient privileges** - HKLM Run key runs as logged-in user, not LocalSystem
+4. **Race condition at boot** - rc-sentry starts before explorer.exe is fully ready
+
+---
+
+## 2. Proper Permanent Fix for Auto-start & Recovery
+
+**Solution: Install rc-sentry as a Windows Service with Session 1 launch capability**
+
+Create `install-rcsentry-service.bat`:
+```batch
+@echo off
+set SERVICE_NAME=RCSentry
+set BIN_PATH=C:\RacingPoint\rc-sentry.exe
+set DISPLAY_NAME="RC Sentry Watchdog Service"
+
+:: Create the service with auto-start
+sc create %SERVICE_NAME% binPath= "%BIN_PATH%" start= auto DisplayName= %DISPLAY_NAME%
+sc config %SERVICE_NAME% obj= LocalSystem
+sc config %SERVICE_NAME% type= own type= interact
+
+:: Set recovery actions
+sc failure %SERVICE_NAME% reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc failureflag %SERVICE_NAME% 1
+
+:: Enable service interact with desktop (Windows 11 still supports for Session 0 GUI)
+sc config %SERVICE_NAME% type= interact type= own
+
+:: Start the service
+sc start %SERVICE_NAME%
+
+:: Remove problematic HKLM Run entries
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v "start-rcagent" /f
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v "start-rcsentry" /f
+
+echo Service installed. Reboot to test.
+```
+
+**Enhanced rc-sentry Service Design:**
+Modify `session1_spawn.rs` to include fallback logic:
+```rust
+fn spawn_in_session1() -> Result<()> {
+    // First try to get active console session
+    let mut session_id = WTSGetActiveConsoleSessionId();
+    
+    // If no console session, find first logged-on user session
+    if session_id == 0xFFFFFFFF {
+        let sessions = enumerate_sessions()?;
+        if let Some(user_session) = sessions.iter().find(|s| s.is_user_logged_on()) {
+            session_id = user_session.id;
+        } else {
+            // Wait and retry - explorer might not be ready
+            std::thread::sleep(Duration::from_secs(10));
+            return spawn_in_session1(); // Recursive retry with limit
+        }
+    }
+    
+    // Get token and create process
+    let token = WTSQueryUserToken(session_id)?;
+    create_process_as_user(token, "C:\\RacingPoint\\rc-agent.exe")?;
+    
+    Ok(())
+}
+```
+
+**Add rc-agent auto-restart via Windows Service recovery:**
+Create `rc-agent-wrapper.exe` or use NSSM:
+```batch
+:: Using NSSM (Non-Sucking Service Manager)
+nssm install RCAgent "C:\RacingPoint\rc-agent.exe"
+nssm set RCAgent AppDirectory "C:\RacingPoint"
+nssm set RCAgent Start SERVICE_AUTO_START
+nssm set RCAgent ObjectName LocalSystem
+nssm set RCAgent AppExit Default Restart
+nssm set RCAgent AppRestartDelay 5000
+```
+
+---
+
+## 3. Auto-Login Configuration for Session 1 Availability
+
+**Create `configure-autologin.reg`:**
+```registry
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon]
+"AutoAdminLogon"="1"
+"DefaultUserName"="SIM1\\user"
+"DefaultPassword"=""
+"DefaultDomainName"="SIM1"
+"ForceAutoLogon"="1"
+"AutoLogonCount"=dword:000186a0  ; 100,000 logons
+
+; Disable secure attention sequence (Ctrl+Alt+Del)
+"DisableCAD"=dword:00000001
+
+; Ensure explorer starts
+"Shell"="explorer.exe"
+"Userinit"="C:\\Windows\\system32\\userinit.exe,"
+
+; Prevent lock screen
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Personalization]
+"NoLockScreen"=dword:00000001
+```
+
+**Additional PowerShell hardening script:**
+```powershell
+# Disable sleep, hibernate, screen timeout
+powercfg -change -standby-timeout-ac 0
+powercfg -change -hibernate-timeout-ac 0
+powercfg -change -monitor-timeout-ac 0
+
+# Disable Windows Update automatic restarts
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /t REG_DWORD /d 2 /f
+
+# Disable lock screen
+New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization" -Name NoLockScreen -Value 1 -PropertyType DWord -Force
+```
+
+---
+
+## 4. Should RCWatchdog Windows Service Be Installed?
+
+**YES, with this architecture:**
+
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”?
+â”‚                   Windows Service Layer                  â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚  RCWatchdog Service (Session 0, LocalSystem)            â”‚
+â”‚  - Monitors rc-sentry process                           â”‚
+â”‚  - Restarts rc-sentry if dead                           â”‚
+â”‚  - Writes to Event Log                                   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                            â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”?
+â”‚                 User Session Layer (Session 1)          â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚  rc-sentry.exe (User context)                           â”‚
+â”‚  - Watches rc-agent                                      â”‚
+â”‚  - Uses WTSQueryUserToken for Session 1 launch          â”‚
+â”‚  - Port 8091 for health/control                         â”‚
+â”‚                                                         â”‚
+â”‚  rc-agent.exe (User context)                            â”‚
+â”‚  - Main GUI application                                 â”‚
+â”‚  - Racing simulator interface                           â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+**Installation script for RCWatchdog Service:**
+```batch
+@echo off
+:: Compile or place watchdog service binary
+set WATCHDOG_SRC=@"
+using System.ServiceProcess;
+using System.Diagnostics;
+
+public class RCWatchdog : ServiceBase {
+    private Process sentryProcess;
+    
+    protected override void OnStart(string[] args) {
+        StartSentry();
+        StartMonitoring();
+    }
+    
+    private void StartSentry() {
+        // Launch rc-sentry in Session 1 using WinAPI
+        // P/Invoke to WTSQueryUserToken + CreateProcessAsUser
+    }
+    
+    private void StartMonitoring() {
+        System.Timers.Timer timer = new System.Timers.Timer(10000);
+        timer.Elapsed += (s, e) => CheckProcesses();
+        timer.Start();
+    }
+    
+    private void CheckProcesses() {
+        if (sentryProcess.HasExited) {
+            EventLog.WriteEntry("RCWatchdog", "rc-sentry died, restarting", EventLogEntryType.Warning);
+            StartSentry();
+        }
+    }
+}
+"@
+
+powershell -Command "Add-Type -TypeDefinition '%WATCHDOG_SRC%' -OutputAssembly 'C:\RacingPoint\RCWatchdog.exe' -OutputType ConsoleApplication"
+
+sc create RCWatchdog binPath= "C:\RacingPoint\RCWatchdog.exe" start= auto
+sc description RCWatchdog "Monitors and maintains Racing Simulator components"
+```
+
+**Alternative: Use AlwaysUp (commercial) or FireDaemon (commercial)**
+These tools can run any app as a service with session isolation and auto-restart.
+
+---
+
+## **Immediate Remediation Steps:**
+
+1. **First, manually test rc-sentry's watchdog:**
+   ```cmd
+   # Kill rc-agent if somehow running
+   taskkill /f /im rc-agent.exe
+   
+   # Check if rc-sentry restarts it within 15s
+   # Monitor with:
+   powershell "while(1) {Get-Process rc-agent -ErrorAction SilentlyContinue | ft; sleep 2}"
+   ```
+
+2. **If no restart, manually trigger via rc-sentry API:**
+   ```powershell
+   Invoke-RestMethod -Uri "http://localhost:8091/restart-agent" -Method POST
+   ```
+
+3. **Temporary workaround - Scheduled task that runs in Session 1:**
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "C:\RacingPoint\rc-agent.exe"
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+   $principal = New-ScheduledTaskPrincipal -UserId "SIM1\user" -LogonType Interactive
+   Register-ScheduledTask -TaskName "RC Agent AutoStart" -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
+   ```
+
+4. **Add logging to rc-sentry's watchdog:**
+   Modify watchdog to write to `C:\RacingPoint\watchdog.log` on each health check and spawn attempt.
+
+**Final Recommendation:** Implement the Windows Service solution (#2) with proper auto-login configuration (#3). This removes dependency on HKLM Run keys and provides reliable Session 1 process management with full monitoring capabilities.

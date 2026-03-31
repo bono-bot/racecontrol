@@ -1,0 +1,44 @@
+```json
+[
+  {
+    "id": 1,
+    "severity": "Critical",
+    "title": "Breadcrumb Deadlock",
+    "root_cause": "rc-sentry and rc-watchdog enter an infinite loop where rc-sentry writes breadcrumbs that rc-watchdog sees, causing it to defer its own restart indefinitely.",
+    "permanent_fix": "Modify the breadcrumb mechanism to include timestamps and type information (restart vs. spawn). rc-watchdog should ignore breadcrumbs older than a certain threshold or of a specific type to break the loop.",
+    "binary": "rc-sentry, rc-watchdog"
+  },
+  {
+    "id": 2,
+    "severity": "Critical",
+    "title": "Bat Kill Cycle",
+    "root_cause": "start-rcagent.bat kills rc-agent before starting a new hydrological resulting in a race engine where rc-agent is killed during initialization due to rc-sentry's restart calls.",
+    "permanent_fix": "Remove the taskkill command from start-rcagent.bat or modify it to only kill instances not started by the current user or session. Also, ensure rc-sentry respects the POST_CRASH_COOLDOWN period before attempting another restart.",
+    "binary": "rc-agent, start-rcagent.bat"
+  },
+  {
+    "id": 3,
+    "severity": "Medium",
+    "title": "Pod 1 Works Due to Different User Name",
+    "root_cause": "Pod 1 works because the user name 'SIM 1' includes a space, possibly causing different path handling or escaping behaviors that prevent the race conditions seen in other pods.",
+    "permanent_fix": "Standardize the user names across all pods to ensure consistent behavior or investigate and apply the same handling that makes Pod 1 work to all other pods.",
+    "binary": "N/A"
+  },
+  {
+    "id": 4,
+    "severity": "High",
+    "title": "FSM Cooldown Not Respected During Handle Crash",
+    "permanent_fix": "Ensure the crash handler honors the POST_CRASH_COOLDOWN by preventing any restarts until the cooldown period has fully elapsed, even if the breadcrumb is written during handle_crash().",
+    "root_cause": "The FSM cooldown period is not fully respected because the breadcrumb written during handle_crash() causes rc-watchdog to defer its restart.",
+    "binary": "rc-sentry"
+  },
+  {
+    "id": 5,
+    "severity": "Low",
+    "title": "Role of rc-sentry in Restarts",
+    "permanent_fix": "Reevaluate rc-sentry's role to focus on Tier 1 fixes and leave actual restarts to rc-watchdog, ensuring a clear separation of responsibilities and avoiding overlapping actions.",
+    "root_cause": "rc-sentry and rc-watchdog overlapping responsibilities lead to race conditions and infinite loops.",
+    "binary": "rc-sentry, rc-watchdog"
+  }
+]
+```

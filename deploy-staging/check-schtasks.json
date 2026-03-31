@@ -1,0 +1,1 @@
+{"cmd":"schtasks /Query /TN StartRCAgent 2>&1 || echo NO_TASK","timeout_ms":5000}

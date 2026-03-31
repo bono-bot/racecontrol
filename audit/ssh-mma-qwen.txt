@@ -1,0 +1,102 @@
+
+---CONTENT---
+```json
+[
+  {
+    "id": "SSH-01",
+    "severity": "P3",
+    "title": "Post-Quantum Key Exchange Warning on Every Connection",
+    "root_cause": "Client (OpenSSH 10.2p1) supports and prioritizes post-quantum key exchange (e.g., sntrup761x25519-sha512), but servers (OpenSSH_for_Windows 9.5p2) do not support PQ KEX algorithms. The client detects lack of PQ usage and emits warning. This is cosmetic, not a functional failure.",
+    "risk": "High noise in automation scripts; complicates output parsing (e.g., grep, JSON, XML). May cause false alarms in monitoring or CI/CD logs. Does not impact security or connectivity.",
+    "fix": "Downgrade client KEX preference via SSH config: add 'Host *.lan\n    KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org' to ~/.ssh/config to suppress PQ negotiation. Alternatively, suppress warnings using LogLevel QUIET in client config (if acceptable). Upgrade servers when PQ-enabled Windows OpenSSH becomes available."
+  },
+  {
+    "id": "SSH-02",
+    "severity": "P2",
+    "title": "Command Exit Code 255 Masks Real Failure",
+    "root_cause": "When executing shell pipelines like 'dir | head -5', the non-existent Unix tool (e.g., head) fails in cmd.exe. The SSH server returns exit status 1 for the failed command, but due to how OpenSSH_for_Windows handles shell execution in cmd.exe and pipe failures, the overall session returns 255 (generic SSH error) instead of preserving the actual cmd.exe error level.",
+    "risk": "Breaks automation reliability: scripts cannot distinguish between SSH connection failure and command failure. Leads to incorrect error handling, retry logic, or false outage detection.",
+    "fix": "Use full Windows equivalents: replace 'head' with 'more', use PowerShell: `ssh server \"powershell \\\"dir | Select-Object -First 5\\\"\"`. Alternatively, wrap commands in error-preserving shell blocks: `ssh server \"(dir | findstr /n \\\"^\\\" | findstr \"^[1-5]:\") 2>&1\"`. Consider defaulting to PowerShell via registry: set `HKEY_LOCAL_MACHINE\\SOFTWARE\\OpenSSH\\DefaultShell` = \"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"."
+  },
+  {
+    "id": "SSH-03",
+    "severity": "P1",
+    "title": "No SSH Keepalive Leads to Silent Connection Drops",
+    "root_cause": "sshd_config has ClientAliveInterval=0 (default), so no active keepalive is sent. Long-running commands or idle periods may hit intermediate NAT, firewall, or Tailscale TCP idle timeouts (~5-30 mins), causing abrupt TCP disconnects.",
+    "risk": "Critical for reliability: long builds, file transfers, or remote scripting can fail silently. Users lose session context, data may be corrupted, and automation cannot recover. Especially dangerous over Tailscale or unstable LANs.",
+    "fix": "Set `ClientAliveInterval 60` and `ClientAliveCountMax 3` in sshd_config on all servers. Restart sshd service. Optionally, set `ServerAliveInterval 60` in client ~/.ssh/config for proactive detection."
+  },
+  {
+    "id": "SSH-04",
+    "severity": "P2",
+    "title": "OpenSSH Version Mismatch and Downlevel Server",
+    "root_cause": "Client (10.2p1) is newer than all servers (9.5p2). Servers lack PQ KEX support, modern ciphers, and may negotiate suboptimal algorithms. Server version is not end-of-life but has known limitations vs. latest OpenSSH.",
+    "risk": "Missed performance and security improvements (e.g., chacha20-poly1305, PQ readiness). Blocks use of new client features. Increases attack surface if vulnerabilities exist in older server code. May impact future compliance.",
+    "fix": "Upgrade OpenSSH on all Windows servers to latest available version (e.g., via Windows Update or manual install). Ensure OpenSSH is managed via 'Manage Optional Features' or PowerShell: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` (if available). Maintain version parity where possible."
+  },
+  {
+    "id": "SSH-05",
+    "severity": "P2",
+    "title": "Poorly Tuned sshd_config with Default Settings",
+    "root_cause": "sshd_config relies entirely on defaults: no MaxSessions tuning, no keepalive, no banners, no user/group Match rules, and split authorized keys storage (admin vs non-admin). This leads to inconsistent behavior and missed optimization.",
+    "risk": "Limits scalability (e.g., multiplexed sessions). Insecure defaults (e.g., admin keys in ProgramData). Poor auditability. Hard to enforce policies (e.g., automation keys with restricted shells). Banner leaks OS/version info.",
+    "fix": "Standardize sshd_config across fleet: set MaxSessions 20, ClientAliveInterval 60, disable banner (Banner none), set AuthorizedKeysFile for all users if needed, and add Match block for automation users to restrict commands or enable logging."
+  },
+  {
+    "id": "SSH-06",
+    "severity": "P3",
+    "title": "Default Shell is cmd.exe Without Unix Tools",
+    "root_cause": "DefaultShell registry key not set; falls back to cmd.exe. cmd.exe lacks built-in Unix utilities (head, grep, awk), causing pipeline failures when scripts assume POSIX tools.",
+    "risk": "Incompatibility with common devops patterns. Users write scripts that work locally (in Git Bash) but fail remotely. Increases cognitive load and debugging time.",
+    "fix": "Set DefaultShell to PowerShell: `New-ItemProperty -Path \"HKLM:\\SOFTWARE\\OpenSSH\" -Name DefaultShell -Value \"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -PropertyType String -Force`. Educate users to use PowerShell or install WSL2 on target nodes if Unix tools are required."
+  },
+  {
+    "id": "SSH-07",
+    "severity": "P1",
+    "title": "Inconsistent AuthorizedKeysFile Handling for Admin Users",
+    "root_cause": "On Windows, OpenSSH treats administrator accounts differently: authorized keys must be placed in C:\\ProgramData\\ssh\\administrators_authorized_keys with strict permissions (owner: Administrators, perms: 600). If not set, admin users cannot authenticate even with correct key in user profile.",
+    "risk": "Authentication failures for admin accounts despite correct key setup. Users misconfigure permissions, leading to silent rejections. Security logs may not clearly indicate cause.",
+    "fix": "Ensure administrators_authorized_keys exists with correct ACLs. Run: `icacls \"C:\\ProgramData\\ssh\\administrators_authorized_keys\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"`. Validate via `Get-Acl` and test as admin user."
+  },
+  {
+    "id": "SSH-08",
+    "severity": "P2",
+    "title": "Tailscale + LAN Dual Interface May Cause Route/Binding Confusion",
+    "root_cause": "Servers have dual interfaces: LAN (192.168.31.x) and Tailscale (100.x.x.x). sshd binds to all interfaces by default, but firewall rules or routing may differ. NAT/traversal issues may affect reliability based on which IP is used.",
+    "risk": "Connection succeeds over LAN but fails over Tailscale (or vice versa). Firewalls may block one path. Script portability suffers if IP choice is hardcoded.",
+    "fix": "Ensure sshd listens on all interfaces (default). Use hostnames or Tailscale DNS (e.g., server-1.tailnet-123.ts.net) instead of IPs. Confirm Windows Firewall allows SSH on both private and domain profiles. Test connectivity across both paths."
+  },
+  {
+    "id": "SSH-09",
+    "severity": "P3",
+    "title": "StrictHostKeyChecking=no Masks Man-in-the-Middle Risk",
+    "root_cause": "Client disables host key verification via config or command-line. This suppresses warnings for unknown or changed host keys, enabling potential MITM attacks on SSH connections.",
+    "risk": "Security downgrade: allows impersonation of servers, credential or data interception. Acceptable in trusted LAN only if physical/network access is secured.",
+    "fix": "Remove StrictHostKeyChecking=no. Pre-populate known_hosts with server fingerprints via automation. Use SSHFP DNS records or certificate-based authentication for scalable trust."
+  },
+  {
+    "id": "SSH-10",
+    "severity": "P2",
+    "title": "Lack of SSH Multiplexing and Connection Reuse",
+    "root_cause": "No ControlMaster/ControlPath configuration in client SSH config. Each command creates a new TCP and SSH handshake, increasing latency and resource use.",
+    "risk": "Slower scripting performance, higher CPU on servers, slower feedback loop. Increased chance of hitting connection limits during automation bursts.",
+    "fix": "Enable multiplexing in ~/.ssh/config: `Host *\n    ControlMaster auto\n    ControlPath ~/.ssh/sockets/%r@%h:%p\n    ControlPersist 600`. Create ~/.ssh/sockets directory. Reduces latency and server load."
+  },
+  {
+    "id": "SSH-11",
+    "severity": "P1",
+    "title": "Missing or Misconfigured Windows Services and Recovery",
+    "root_cause": "OpenSSH SSH Server (sshd) may be set to manual start or lack recovery actions on failure. Windows service crashes or hangs are not self-healing.",
+    "risk": "Server becomes unreachable via SSH after service crash, reboot, or update. Requires physical or out-of-band access to restore. Breaks remote management SLA.",
+    "fix": "Set sshd service to Automatic (Delayed Start). Configure recovery: `sc failure sshd actions= restart/60000/restart/60000/""/60000` and `sc config sshd reset= 86400`. Use Group Policy or script to enforce."
+  },
+  {
+    "id": "SSH-12",
+    "severity": "P2",
+    "title": "Windows Antivirus or Defender Interfering with SSH",
+    "root_cause": "Defender or third-party AV may block sshd.exe on launch, or quarantine authorized_keys due to 'suspicious' SSH key content. May also interfere with socket files or ProgramData paths.",
+    "risk": "Intermittent SSH failures after reboot or file edit. Keys removed silently. Service fails to start. Hard to diagnose without checking AV logs.",
+    "fix": "Add exclusions in Windows Defender: paths C:\\ProgramData\\ssh\\, C:\\Users\\*\\.ssh\\, process sshd.exe, and folder ~/.ssh/sockets if used. Monitor Event Viewer > Windows Logs > Application for AV blocks."
+  }
+]
+```
