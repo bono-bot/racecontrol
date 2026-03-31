@@ -440,21 +440,21 @@ impl VerifyStep for StepHealthPoll {
     }
 }
 
-/// Restart the monitored service via Session 1 spawn (primary) or schtasks (fallback).
+/// DELEGATED TO RC-WATCHDOG (MMA 4-model consensus: BUG-001 + BUG-002).
 ///
-/// Primary path (SPAWN-03): WTSQueryUserToken + CreateProcessAsUser launches rc-agent
-/// directly in the interactive desktop session. This is required because rc-sentry runs
-/// as SYSTEM (Session 0) and std::process::Command targets Session 0 where GUI windows
-/// cannot be displayed.
+/// rc-sentry no longer restarts rc-agent. This eliminates:
+/// 1. Breadcrumb deadlock: sentry wrote breadcrumbs that blocked watchdog forever
+/// 2. Bat kill cycle: start-rcagent.bat kills rc-agent on every invocation,
+///    causing 15s hysteresis → re-trigger → infinite kill/start loop
 ///
-/// Fallback: schtasks via run_cmd_sync (cmd.exe /C) if no active console session exists
-/// (e.g., before user login at boot).
+/// rc-watchdog (Windows service) is the SOLE restart authority.
+/// rc-sentry's role: detect crashes, apply Tier 1 cleanup fixes, alert staff.
 pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
         return CrashDiagResult {
-            fix_type: "restart".to_string(),
-            detail: "service restarted".to_string(),
+            fix_type: "restart_delegated".to_string(),
+            detail: "restart delegated to rc-watchdog (MMA consensus)".to_string(),
             success: true,
         };
     }
@@ -462,183 +462,27 @@ pub fn restart_service() -> CrashDiagResult {
     {
         let cfg = sentry_config::load();
 
-        // Breadcrumb: confirm restart_service() was reached (H5 diagnostic)
-        let _ = std::fs::write(
-            r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
-            format!("restart_service entered at {:?}\n", std::time::SystemTime::now()),
-        );
+        // BUG-001 fix: Do NOT write breadcrumb, do NOT spawn rc-agent.
+        // rc-watchdog will detect rc-agent is dead and spawn it in Session 1.
+        // We only log that we're delegating.
+        tracing::info!(target: LOG_TARGET,
+            "restart_service() DELEGATED to rc-watchdog (BUG-001/BUG-002 fix). \
+             rc-sentry no longer spawns rc-agent to prevent breadcrumb deadlock + bat kill cycle.");
+
+        // Clean up any stale breadcrumb from previous versions
+        let _ = std::fs::remove_file(r"C:\RacingPoint\sentry-restart-breadcrumb.txt");
 
         // Primary path: Session 1 spawn (SPAWN-03)
         // Uses WTSQueryUserToken + CreateProcessAsUser to launch in interactive desktop.
         // Falls back to schtasks if no active console session (e.g., before user login).
-        let bat_path = std::path::Path::new(&cfg.start_script);
-        // Track spawn method for COV-05 chain
-        let spawn_method_name: String;
-        let spawn_succeeded: bool;
-
-        match crate::session1_spawn::spawn_in_session1(bat_path) {
-            Ok(()) => {
-                spawn_method_name = "session1".to_string();
-                spawn_succeeded = true;
-                tracing::info!(target: LOG_TARGET,
-                    "Session 1 spawn succeeded — verifying {} starts...",
-                    cfg.service_name
-                );
-            }
-            Err(reason) => {
-                tracing::warn!(target: LOG_TARGET,
-                    "Session 1 spawn failed: {} — falling back to schtasks",
-                    reason
-                );
-                // Fall through to schtasks path
-                let create_cmd = format!(
-                    "schtasks /Create /TN StartRCAgent /TR \"{}\" /SC ONCE /ST 00:00 /F /RU SYSTEM",
-                    cfg.start_script
-                );
-                let create = rc_common::exec::run_cmd_sync(
-                    &create_cmd,
-                    Duration::from_secs(10),
-                    4096,
-                );
-                if create.exit_code != 0 {
-                    tracing::error!(target: LOG_TARGET,
-                        "schtasks /Create failed: exit={} stderr={}",
-                        create.exit_code, create.stderr
-                    );
-                    return CrashDiagResult {
-                        fix_type: "restart".to_string(),
-                        detail: format!("both Session 1 spawn and schtasks create failed: {}", create.stderr),
-                        success: false,
-                    };
-                }
-                let run = rc_common::exec::run_cmd_sync(
-                    "schtasks /Run /TN StartRCAgent",
-                    Duration::from_secs(10),
-                    4096,
-                );
-                if run.exit_code != 0 {
-                    tracing::error!(target: LOG_TARGET,
-                        "schtasks /Run failed: exit={} stderr={}",
-                        run.exit_code, run.stderr
-                    );
-                    return CrashDiagResult {
-                        fix_type: "restart".to_string(),
-                        detail: format!("Session 1 failed ({}), schtasks /Run also failed: {}", reason, run.stderr),
-                        success: false,
-                    };
-                }
-                spawn_method_name = "schtasks".to_string();
-                spawn_succeeded = true;
-                tracing::info!(target: LOG_TARGET,
-                    "schtasks /Run succeeded (fallback) — verifying {} starts...",
-                    cfg.service_name
-                );
-            }
-        }
-
-        // COV-05: Spawn verification chain — wraps spawn + PID liveness + health check
-        let chain = ColdVerificationChain::new("spawn_verification");
-
-        // Step 1: Record spawn success
-        match chain.execute_step(&StepSpawnOk, (spawn_succeeded, spawn_method_name.clone())) {
-            Ok(_method) => {
-                tracing::info!(target: LOG_TARGET, "COV-05: spawn step passed (method={})", spawn_method_name);
-            }
-            Err(e) => {
-                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: spawn step reported failure");
-                return CrashDiagResult {
-                    fix_type: "restart".to_string(),
-                    detail: format!("COV-05: spawn failed: {}", e),
-                    success: false,
-                };
-            }
-        }
-
-        // Step 2: PID liveness check (500ms wait + tasklist)
-        let pid_ok = chain.execute_step(&StepPidLiveness, cfg.process_name.clone()).is_ok();
-        if !pid_ok {
-            tracing::warn!(target: LOG_TARGET,
-                "COV-05: PID liveness failed for {} — retrying spawn once (method={})",
-                cfg.process_name, spawn_method_name
-            );
-
-            // Retry spawn once using the same method that originally succeeded
-            let retry_ok = if spawn_method_name == "session1" {
-                let bat_path = std::path::Path::new(&cfg.start_script);
-                match crate::session1_spawn::spawn_in_session1(bat_path) {
-                    Ok(()) => true,
-                    Err(e) => {
-                        tracing::error!(target: LOG_TARGET, "COV-05: retry spawn via session1 failed: {}", e);
-                        false
-                    }
-                }
-            } else if spawn_method_name == "schtasks" {
-                let run = rc_common::exec::run_cmd_sync(
-                    "schtasks /Run /TN StartRCAgent",
-                    Duration::from_secs(10),
-                    4096,
-                );
-                if run.exit_code != 0 {
-                    tracing::error!(target: LOG_TARGET, "COV-05: retry spawn via schtasks failed: {}", run.stderr);
-                    false
-                } else {
-                    true
-                }
-            } else {
-                tracing::warn!(target: LOG_TARGET, "COV-05: unknown spawn method '{}' — skipping retry", spawn_method_name);
-                false
-            };
-
-            if retry_ok {
-                tracing::info!(target: LOG_TARGET, "COV-05: retry spawn succeeded — re-checking PID liveness");
-                // Re-check PID liveness after retry
-                match chain.execute_step(&StepPidLiveness, cfg.process_name.clone()) {
-                    Ok(_) => {
-                        tracing::info!(target: LOG_TARGET, "COV-05: PID liveness passed after retry for {}", cfg.process_name);
-                    }
-                    Err(e) => {
-                        tracing::error!(target: LOG_TARGET, error = %e, "COV-05: PID liveness still failed after retry — proceeding to health poll");
-                    }
-                }
-            }
-        } else {
-            tracing::info!(target: LOG_TARGET, "COV-05: PID liveness check passed for {}", cfg.process_name);
-        }
-
-        // Step 3: Health endpoint poll (10s) — replaces direct verify_service_started() call
-        let verified = match chain.execute_step(
-            &StepHealthPoll { health_addr: cfg.health_addr.clone() },
-            cfg.process_name.clone(),
-        ) {
-            Ok(healthy) => healthy,
-            Err(e) => {
-                tracing::error!(target: LOG_TARGET, error = %e, "COV-05: health endpoint not responding — spawn may have silently failed");
-                false
-            }
-        };
-
-        // Write breadcrumb AFTER chain completes
-        let _ = std::fs::write(
-            r"C:\RacingPoint\sentry-restart-breadcrumb.txt",
-            format!(
-                "restart_service: spawn ok ({}), verified={} at {:?}\n",
-                spawn_method_name,
-                verified,
-                std::time::SystemTime::now()
-            ),
-        );
-
         CrashDiagResult {
-            fix_type: "restart".to_string(),
-            detail: if verified {
-                format!("{} restarted ({}) and verified via COV-05 chain (spawn_ok + pid_liveness + health_poll)", cfg.service_name, spawn_method_name)
-            } else {
-                format!(
-                    "{} restart attempted ({}) but COV-05 health check failed after {}s",
-                    cfg.service_name, spawn_method_name, SPAWN_VERIFY_TIMEOUT.as_secs()
-                )
-            },
-            success: verified,
+            fix_type: "restart_delegated".to_string(),
+            detail: format!(
+                "{} restart delegated to rc-watchdog (BUG-001/BUG-002). \
+                 Sentry role: Tier 1 fixes only. Watchdog role: Session 1 spawn.",
+                cfg.service_name
+            ),
+            success: true, // Report success so crash handler doesn't escalate
         }
     }
 }
@@ -1356,15 +1200,15 @@ mod tests {
     #[test]
     fn restart_service_returns_mock() {
         let r = restart_service();
-        assert_eq!(r.fix_type, "restart");
+        assert_eq!(r.fix_type, "restart_delegated");
         assert!(r.success);
     }
 
-    /// SPAWN-03: mock path verifies Session 1 spawn wiring does not break the test mock.
+    /// BUG-001/BUG-002: restart is now delegated to rc-watchdog.
     #[test]
     fn restart_service_mock_succeeds() {
         let r = restart_service();
-        assert_eq!(r.fix_type, "restart");
+        assert_eq!(r.fix_type, "restart_delegated");
         assert!(r.success);
     }
 
@@ -1412,7 +1256,7 @@ mod tests {
         assert!(result.server_reachable); // mock check_server_reachable returns true
         assert!(result.fix_results.iter().any(|r| r.fix_type == "zombie_kill"));
         assert!(result.fix_results.iter().any(|r| r.fix_type == "port_wait"));
-        assert!(result.fix_results.iter().any(|r| r.fix_type == "restart"));
+        assert!(result.fix_results.iter().any(|r| r.fix_type == "restart_delegated"));
     }
 
     #[test]
