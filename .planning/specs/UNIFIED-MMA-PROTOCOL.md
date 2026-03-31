@@ -1,7 +1,8 @@
-# Unified MMA Protocol v1.0
+# Unified MMA Protocol v2.0
 
-**Author:** Bono + Uday (MMA-researched: 10 models, 2 iterations)
+**Author:** Bono + Uday (MMA-researched: 10 models, 2 iterations + 26-gap meta-audit)
 **Date:** 2026-03-31
+**Version:** v2.0 (renamed from MMA-First Protocol. Supersedes v1.0)
 **Status:** SPEC — approved by Uday
 **Affects:** v31.0 Phase 268, tier_engine.rs, openrouter.rs, knowledge_base.rs
 **Supersedes:** MMA-FIRST-PROTOCOL.md (Q1-Q4 gate remains, this defines what happens INSIDE Q3)
@@ -542,7 +543,7 @@ MMA model calls: 17 total (5 diagnose, 5 plan, 1 verify, 5 gap-fill design, 1 ga
 
 ---
 
-## Amendment 2: 26-Gap Meta-Audit Fixes (2026-03-31, MMA-First Protocol)
+## Amendment 2: 26-Gap Meta-Audit Fixes (2026-03-31, Unified MMA Protocol v2.0)
 
 **Context:** Meta-audit of the protocol itself found 26 gaps across 8 categories. 5 models produced fixes. 3 gaps dismissed as duplicates. 17 trivial/small fixes implemented below. 6 medium fixes deferred to Wave 2.
 
