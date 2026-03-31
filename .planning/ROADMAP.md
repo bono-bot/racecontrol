@@ -1,102 +1,117 @@
-# Roadmap: v31.0 Autonomous Survival System
+# Roadmap: v32.0 Autonomous Meshed Intelligence
 
 ## Milestone Goal
 
-No single system failure can kill the healing brain. Three independent survival layers — pod watchdog, server fleet healer, and external guardian — operate autonomously using a shared Unified MMA Protocol to detect, diagnose, and repair failures without human intervention.
+Close all action loops in Meshed Intelligence so the venue self-heals end-to-end: anomaly detected -> diagnosed -> fixed -> verified -> permanent fix encoded in KB -> cascaded to fleet -> never debug the same issue twice. Event-driven pipeline (not polling) with runaway prevention guardrails.
 
 ## Phases
 
-- [x] **Phase 267: Survival Foundation** - Shared types, sentinel coordination, recovery protocol for all 5 existing healers (completed 2026-03-30)
-- [ ] **Phase 268: Unified MMA Protocol** - 5-model OpenRouter roster with fact-checker, dual reasoning, cost guard, per-pod keys
-- [ ] **Phase 269: Layer 1 Smart Watchdog** - Binary SHA256 + PE validation, rollback depth tracking, MMA diagnosis in watchdog
-- [ ] **Phase 270: Layer 2 Server Fleet Healer** - SSH diagnostic runner, fleet-pattern detection, autonomous Tier 1 repair with canary
-- [ ] **Phase 271: Layer 3 External Guardian** - External server health polling, graduated restart, WhatsApp escalation from Bono VPS
-- [ ] **Phase 272: Integration & MMA Audit** - Cross-layer coordination smoke test + Unified Protocol v3.1 MMA audit of all v31.0 code
+**Phase Numbering:** Continues from v31.0 (ended at Phase 272). Start at 273.
+
+**Parallelism Map:**
+- Phase 273 (Foundation) and Phase 274 (Escalation) run SEQUENTIALLY first
+- Phases 275, 276, 277 run IN PARALLEL after 273+274 complete
+- Phase 278 (KB Hardening) runs after 273 + at least one of {275, 276, 277}
+- Phase 279 (Weekly Report & Audit) runs last after all others complete
+
+```
+273 ──> 274 ──┬──> 275 (Game) ────────┐
+              ├──> 276 (Pred+CX) ─────┤──> 278 (KB) ──> 279 (Report+Audit)
+              └──> 277 (Rev+Rep) ─────┘
+```
+
+- [ ] **Phase 273: Event Pipeline & Safety Foundation** - Event bus, proactive pipeline, blast radius limiter, circuit breakers, idempotency
+- [ ] **Phase 274: WhatsApp Escalation** - Tier 5 WhatsApp alerts via Bono VPS Evolution API with dedup and fallback
+- [ ] **Phase 275: Autonomous Game Launch Fix** - Game launch failure -> diagnosis -> fix -> retry -> KB encode -> fleet cascade
+- [ ] **Phase 276: Predictive Alerts & Experience Scoring** - Predictive alerts fed into tier engine + per-pod experience scoring with auto-flag/remove
+- [ ] **Phase 277: Revenue Protection & Model Reputation** - Billing/game mismatch detection + model accuracy auto-demotion/promotion
+- [ ] **Phase 278: KB Hardening Pipeline** - Promotion ladder: Observed -> Shadow -> Canary -> Quorum -> Deterministic Rule
+- [ ] **Phase 279: Weekly Report & Integration Audit** - Weekly KPI report to Uday via WhatsApp + full MMA audit of v32.0
 
 ## Phase Details
 
-### Phase 267: Survival Foundation
-**Goal**: All 5 existing recovery systems coordinate via shared sentinel protocol and structured types so they cannot fight each other over the same patient
-**Depends on**: Nothing (foundation phase)
-**Requirements**: SF-01, SF-02, SF-03, SF-04, SF-05
+### Phase 273: Event Pipeline & Safety Foundation
+**Goal**: All anomaly detection and fix application flows through an event-driven pipeline with safety guardrails that prevent runaway autonomous actions
+**Depends on**: Nothing (foundation phase for v32.0)
+**Requirements**: PRO-01, PRO-02, PRO-03, PRO-04, PRO-05, PRO-06, SAFE-01, SAFE-02, SAFE-03
 **Success Criteria** (what must be TRUE):
-  1. HEAL_IN_PROGRESS sentinel is checked by rc-sentry, RCWatchdog, self_monitor, pod_monitor, and WoL before acting — all 5 systems refuse to act when a sentinel with valid TTL exists
-  2. Server grants heal leases with TTL via POST /api/v1/pods/{id}/heal-lease and the healer renews while working — expired lease frees the pod within TTL seconds
-  3. Every cross-layer operation log entry carries the same action_id, traceable end-to-end from diagnosis to rollback
-  4. SurvivalReport, HealLease, BinaryManifest, DiagnosisContext structs exist in rc-common and compile cleanly across all crates
-  5. OTA_DEPLOYING and HEAL_IN_PROGRESS sentinel checks are present in all existing recovery code paths
-**Plans**: 3 plans
-Plans:
-- [x] 267-01-PLAN.md — Survival types, sentinel protocol, and OpenRouter trait in rc-common
-- [x] 267-02-PLAN.md — Server heal-lease endpoints and LeaseManager
-- [x] 267-03-PLAN.md — Retrofit all 5 recovery systems with sentinel checks
-**UI hint**: no
-
-### Phase 268: Unified MMA Protocol
-**Goal**: A reusable 5-model MMA protocol is available as a library that any layer can invoke for diagnosis, with cost guardrails, structured findings, and fallback to deterministic rules when OpenRouter is unreachable
-**Depends on**: Phase 267
-**Requirements**: MP-01, MP-02, MP-03, MP-04, MP-05, MP-06, MP-07, MP-08, MP-09
-**Success Criteria** (what must be TRUE):
-  1. An MMA session invocation returns structured findings with P0/P1/P2 severity, finding type, affected component, and recommended action — one model acts as fact-checker cross-referencing against standing rules before any action recommendation is finalized
-  2. Both non-thinking and thinking model variants are used in the same session — non-thinking for architecture bugs, thinking variants for execution-path bugs
-  3. MMA session refuses to start when daily budget is exhausted, and daily spend survives process reboot (persisted to budget_state.json)
-  4. When OpenRouter returns 3 consecutive failures, the protocol falls back to a deterministic rule engine and logs the fallback clearly
-  5. Per-pod child API keys exist with $10/day caps and sessions tagged training=true during the 30-day training window
-**Plans**: 3 plans
-Plans:
-- [ ] 268-01-PLAN.md — rc-mma crate foundation: types, 5-model roster, budget persistence, config
-- [ ] 268-02-PLAN.md — MMA session engine: parallel model calls, fact-checker, dual reasoning, fallback
-- [ ] 268-03-PLAN.md — Per-pod key provisioning, model validation gate, training flag
-**UI hint**: no
-
-### Phase 269: Layer 1 Smart Watchdog
-**Goal**: rc-watchdog validates the rc-agent binary before every launch, auto-rolls back to the previous binary on failure, and invokes the Unified MMA Protocol when it detects a restart loop — all without blocking the main service poll loop
-**Depends on**: Phase 268
-**Requirements**: SW-01, SW-02, SW-03, SW-04, SW-05, SW-06, SW-07, SW-08, SW-09, SW-10, SW-11, SW-12, SW-13, SW-14
-**Success Criteria** (what must be TRUE):
-  1. rc-watchdog refuses to launch rc-agent.exe if SHA256 does not match release-manifest.toml, or if PE header is not valid x86_64 Windows PE — the refusal is logged and a survival report is sent to the server
-  2. A new binary that fails the health poll within 30 seconds is automatically replaced by rc-agent-prev.exe and the rollback is logged with depth counter; after 3 consecutive rollback failures the watchdog escalates to Layer 2 ("both binaries bad")
-  3. When >2 launch failures occur within 10 minutes, a Unified MMA session is triggered from a dedicated async runtime thread — the main service poll loop is not blocked during the MMA call
-  4. MAINTENANCE_MODE is auto-cleared after a clean binary + clean health poll sequence — it is never written by the watchdog during its own MMA diagnostic cycle
-  5. Staff receives a WhatsApp alert after any rollback event, and MMA_DIAGNOSING sentinel prevents a second concurrent diagnosis session
+  1. When a diagnostic scan detects an anomaly crossing threshold, a FleetEvent is emitted within 1 second (not waiting for next 5-min cycle) and the tier engine receives it via mpsc channel
+  2. Tier 1-3 fixes are applied automatically without human approval, and verification runs within 30 seconds of application confirming fix or escalating
+  3. Every resolved issue (all tiers) is recorded in KB with problem signature, fix action, verification result, and timestamp -- KB lookup runs before any AI model call
+  4. No more than 2 of 10 nodes are under simultaneous autonomous fix at any time (blast radius limiter enforced via DashMap + RAII FixGuard)
+  5. Per-action circuit breaker trips at 40% fail rate with 2-minute cooldown, and every executor action carries an idempotency key (node + rule_version + incident_fingerprint)
 **Plans**: TBD
 **UI hint**: no
 
-### Phase 270: Layer 2 Server Fleet Healer
-**Goal**: The server can SSH into dark pods, run structured diagnostic scripts, detect fleet-wide failure patterns, and dispatch autonomous Tier 1 repairs with canary rollout and billing safety enforcement
-**Depends on**: Phase 267
-**Requirements**: FH-01, FH-02, FH-03, FH-04, FH-05, FH-06, FH-07, FH-08, FH-09, FH-10, FH-11, FH-12
+### Phase 274: WhatsApp Escalation
+**Goal**: Tier 5 escalations and critical alerts reach Uday's WhatsApp within 30 seconds via Bono VPS Evolution API, with deduplication preventing alert fatigue
+**Depends on**: Phase 273
+**Requirements**: ESC-01, ESC-02, ESC-03, ESC-04
 **Success Criteria** (what must be TRUE):
-  1. Server can SSH into a pod that is not responding to rc-agent HTTP and return structured diagnostic JSON (tasklist, netstat, Event Log patterns) mapped to a symptom schema
-  2. When the same failure pattern appears on 3 or more pods within 5 minutes, a single shared MMA session is launched instead of 8 parallel sessions
-  3. Autonomous repair is dispatched only when confidence >= 0.8 AND fix_type is deterministic or config — no autonomous code_change repairs; every SSH command and response is logged to incident_log with action_id
-  4. Fixes are applied to Pod 8 first, verified (build_id match AND edge_process_count > 0), then to 3 pods, then remaining — a pod with an active billing session is never restarted
-  5. Layer 1 watchdog survival reports are ingested and stored by survival_coordinator, and the new POST /api/v1/pods/{id}/survival-report endpoint returns 200 for authenticated watchdog requests
+  1. A Tier 5 escalation sends a WhatsApp message to Uday containing severity, pod/service ID, issue summary, AI actions tried, and a clickable dashboard link
+  2. The same incident ID is suppressed for 30 minutes after first alert -- no duplicate messages for the same ongoing issue
+  3. If WhatsApp send fails (Evolution API down, VPS unreachable), the alert falls back to comms-link INBOX.md entry within 60 seconds
+  4. WhatsApp messages are routed through Bono VPS Evolution API (POST /message/sendText/:instance) with apikey auth -- never direct from venue
 **Plans**: TBD
 **UI hint**: no
 
-### Phase 271: Layer 3 External Guardian
-**Goal**: rc-guardian running on Bono VPS monitors the venue server every 60 seconds, detects deadness via 3 consecutive misses, attempts graduated restart, escalates to WhatsApp when unsafe or stuck, and coordinates with James to avoid simultaneous guardian actions
-**Depends on**: Phase 267
-**Requirements**: EG-01, EG-02, EG-03, EG-04, EG-05, EG-06, EG-07, EG-08, EG-09, EG-10
+### Phase 275: Autonomous Game Launch Fix
+**Goal**: A customer whose game fails to launch sees recovery within 60 seconds -- diagnosis, fix, retry, and if deterministic fix works, the solution is encoded in KB and cascaded to all pods
+**Depends on**: Phase 273, Phase 274
+**Requirements**: GAME-01, GAME-02, GAME-03, GAME-04, GAME-05
 **Success Criteria** (what must be TRUE):
-  1. rc-guardian (new Linux crate) polls /api/v1/health every 60 seconds from Bono VPS and correctly distinguishes dead (connection refused), busy (200 but slow), and unreachable (timeout) — 3 consecutive missed polls declare server dead
-  2. Graduated restart executes: soft restart (schtasks /Run /TN StartRCTemp) first, hard restart (taskkill + start) if soft fails, then report-only escalation — billing safety check blocks restart when active_billing_sessions > 0
-  3. Staff receives a WhatsApp alert when restart is blocked by active sessions, when hard restart is triggered, or when all restart attempts fail
-  4. GUARDIAN_ACTING state is shared via comms-link WS — James and Bono guardians do not act simultaneously on the same server restart
-  5. Guardian sends a heartbeat to James via comms-link every 6 hours and on every triggered event, and pm2/systemd keeps rc-guardian alive on the VPS
+  1. A game launch failure triggers immediate diagnosis and the customer sees the game recover (or a clear escalation message) within 60 seconds
+  2. After a fix is applied, the system auto-retries launch up to 2 times with clean state reset between attempts
+  3. If deterministic fix fails after retries, the system escalates to Tier 3/4 MMA for AI diagnosis without further customer wait
+  4. Every successful game launch fix is encoded in KB with problem signature, and cascaded via mesh gossip to all pods + POS for fleet pre-immunization
 **Plans**: TBD
 **UI hint**: no
 
-### Phase 272: Integration & MMA Audit
-**Goal**: All three survival layers coordinate correctly under simulated failure scenarios, and the entire v31.0 codebase passes a Unified Protocol v3.1 MMA audit with zero P1 findings
-**Depends on**: Phase 269, Phase 270, Phase 271
-**Requirements**: (no new requirements — cross-layer integration gate)
+### Phase 276: Predictive Alerts & Experience Scoring
+**Goal**: Predictive alerts drive proactive action (not just logging), and every pod has a live experience score that auto-flags degraded pods and removes critically broken ones from rotation
+**Depends on**: Phase 273, Phase 274
+**Requirements**: PRED-10, PRED-11, PRED-12, CX-05, CX-06, CX-07, CX-08
 **Success Criteria** (what must be TRUE):
-  1. A simulated pod crash loop triggers Layer 1 MMA diagnosis, Layer 1 reports to Layer 2 via survival-report endpoint, and Layer 2 dispatches a canary fix — all three layers log the same action_id throughout the incident
-  2. A simulated server outage triggers Layer 3 dead-man detection, graduated restart attempt, and WhatsApp escalation — Layer 2 SSH repair and Layer 3 Guardian restart do not conflict (GUARDIAN_ACTING sentinel prevents double-act)
-  3. Unified MMA Protocol audit of all v31.0 code produces zero P1 findings on the final iteration (convergence)
-  4. All Unified Protocol v3.1 gates pass: Quality Gate (comms-link run-all.sh), E2E round-trip, Standing Rules compliance, and MMA consensus
+  1. Predictive alerts are converted to FleetEvent and processed by the tier engine -- high-severity predictions trigger immediate pre-emptive fix, low-severity defer to session gap
+  2. Predictive alerts that lead to successful pre-emptive fixes are recorded in KB with the prediction-to-fix mapping
+  3. Each pod has an experience score (0-100) calculated every 5 minutes from diagnostic scan data, visible at /api/v1/fleet/health as experience_score per pod
+  4. A pod scoring below 80% is auto-flagged for maintenance in fleet status; a pod scoring below 50% is auto-removed from customer rotation and triggers a WhatsApp alert to Uday
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 277: Revenue Protection & Model Reputation
+**Goal**: Billing-game mismatches are caught and resolved automatically, and AI models that consistently fail are removed from the MMA roster while high-performers are promoted
+**Depends on**: Phase 273, Phase 274
+**Requirements**: REV-01, REV-02, REV-03, REP-01, REP-02
+**Success Criteria** (what must be TRUE):
+  1. A game running without an active billing session triggers an immediate staff alert (revenue leak detected)
+  2. A billing session that ends while a game is still active triggers a grace period followed by auto-end of the game process
+  3. Pod recovery during peak hours (12-22 IST) is prioritized over off-peak recovery in the tier engine queue
+  4. Models with accuracy below 30% across 5+ runs are automatically removed from the MMA roster; models with accuracy above 90% across 10+ runs are promoted to higher priority
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 278: KB Hardening Pipeline
+**Goal**: Fixes that prove themselves across multiple pods and contexts automatically graduate from observed anomalies to deterministic Tier 1 rules that cost $0 and apply instantly forever
+**Depends on**: Phase 273, and at least one of {Phase 275, Phase 276, Phase 277} (needs real fix data flowing)
+**Requirements**: KB-01, KB-02, KB-03, KB-04, KB-05
+**Success Criteria** (what must be TRUE):
+  1. A newly recorded fix enters the promotion ladder at Observed status and progresses through Shadow -> Canary -> Quorum -> Deterministic Rule based on success criteria
+  2. Shadow mode runs the candidate fix alongside the existing pipeline for 1 week or 25 applications (whichever comes first), logging only -- no customer impact
+  3. Canary deploys the candidate fix on Pod 8 first and verifies success before any other pod receives it
+  4. After 3+ successes across 2+ different pods, the fix is promoted to Tier 1 as a typed Rule struct with matchers, actions, verifier, and TTL -- applied instantly at $0 cost
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 279: Weekly Report & Integration Audit
+**Goal**: Uday receives a weekly intelligence report summarizing fleet health and AI effectiveness, and the entire v32.0 codebase passes MMA audit with zero P1 findings
+**Depends on**: Phase 274, Phase 275, Phase 276, Phase 277, Phase 278
+**Requirements**: RPT-01, RPT-02, RPT-03
+**Success Criteria** (what must be TRUE):
+  1. Every Sunday at midnight IST, a weekly report is auto-generated containing: uptime %, auto-resolution rate, MTTR, top 3 issues, AI budget spent, and KB growth metrics
+  2. The report is sent to Uday via WhatsApp as a text summary with an attached chart image (via Evolution API /message/sendMedia)
+  3. Unified MMA Protocol audit of all v32.0 code produces zero P1 findings on the final iteration (convergence)
+  4. All Unified Protocol v3.1 gates pass: Quality Gate, E2E round-trip, Standing Rules compliance, and MMA consensus
 **Plans**: TBD
 **UI hint**: no
 
@@ -104,72 +119,67 @@ Plans:
 
 | Requirement | Phase |
 |-------------|-------|
-| SF-01 | 267 |
-| SF-02 | 267 |
-| SF-03 | 267 |
-| SF-04 | 267 |
-| SF-05 | 267 |
-| MP-01 | 268 |
-| MP-02 | 268 |
-| MP-03 | 268 |
-| MP-04 | 268 |
-| MP-05 | 268 |
-| MP-06 | 268 |
-| MP-07 | 268 |
-| MP-08 | 268 |
-| MP-09 | 268 |
-| SW-01 | 269 |
-| SW-02 | 269 |
-| SW-03 | 269 |
-| SW-04 | 269 |
-| SW-05 | 269 |
-| SW-06 | 269 |
-| SW-07 | 269 |
-| SW-08 | 269 |
-| SW-09 | 269 |
-| SW-10 | 269 |
-| SW-11 | 269 |
-| SW-12 | 269 |
-| SW-13 | 269 |
-| SW-14 | 269 |
-| FH-01 | 270 |
-| FH-02 | 270 |
-| FH-03 | 270 |
-| FH-04 | 270 |
-| FH-05 | 270 |
-| FH-06 | 270 |
-| FH-07 | 270 |
-| FH-08 | 270 |
-| FH-09 | 270 |
-| FH-10 | 270 |
-| FH-11 | 270 |
-| FH-12 | 270 |
-| EG-01 | 271 |
-| EG-02 | 271 |
-| EG-03 | 271 |
-| EG-04 | 271 |
-| EG-05 | 271 |
-| EG-06 | 271 |
-| EG-07 | 271 |
-| EG-08 | 271 |
-| EG-09 | 271 |
-| EG-10 | 271 |
+| PRO-01 | 273 |
+| PRO-02 | 273 |
+| PRO-03 | 273 |
+| PRO-04 | 273 |
+| PRO-05 | 273 |
+| PRO-06 | 273 |
+| SAFE-01 | 273 |
+| SAFE-02 | 273 |
+| SAFE-03 | 273 |
+| ESC-01 | 274 |
+| ESC-02 | 274 |
+| ESC-03 | 274 |
+| ESC-04 | 274 |
+| GAME-01 | 275 |
+| GAME-02 | 275 |
+| GAME-03 | 275 |
+| GAME-04 | 275 |
+| GAME-05 | 275 |
+| PRED-10 | 276 |
+| PRED-11 | 276 |
+| PRED-12 | 276 |
+| CX-05 | 276 |
+| CX-06 | 276 |
+| CX-07 | 276 |
+| CX-08 | 276 |
+| REV-01 | 277 |
+| REV-02 | 277 |
+| REV-03 | 277 |
+| REP-01 | 277 |
+| REP-02 | 277 |
+| KB-01 | 278 |
+| KB-02 | 278 |
+| KB-03 | 278 |
+| KB-04 | 278 |
+| KB-05 | 278 |
+| RPT-01 | 279 |
+| RPT-02 | 279 |
+| RPT-03 | 279 |
 
-**Coverage:** 45/45 v1 requirements mapped. No orphans.
+**Coverage:** 38/38 v1 requirements mapped. No orphans.
 
 ## Progress
 
+**Execution Order:**
+- Sequential: 273 -> 274
+- Parallel group: {275, 276, 277} (all three simultaneously after 274)
+- Sequential: 278 (after 273 + at least one parallel phase)
+- Sequential: 279 (after all others)
+
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 267. Survival Foundation | 3/3 | Complete    | 2026-03-30 |
-| 268. Unified MMA Protocol | 0/3 | In progress | - |
-| 269. Layer 1 Smart Watchdog | 0/TBD | Not started | - |
-| 270. Layer 2 Server Fleet Healer | 0/TBD | Not started | - |
-| 271. Layer 3 External Guardian | 0/TBD | Not started | - |
-| 272. Integration & MMA Audit | 0/TBD | Not started | - |
+| 273. Event Pipeline & Safety Foundation | 0/TBD | Not started | - |
+| 274. WhatsApp Escalation | 0/TBD | Not started | - |
+| 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
+| 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |
+| 277. Revenue Protection & Model Reputation | 0/TBD | Not started | - |
+| 278. KB Hardening Pipeline | 0/TBD | Not started | - |
+| 279. Weekly Report & Integration Audit | 0/TBD | Not started | - |
 
 ---
-*Roadmap created: 2026-03-30*
-*Milestone: v31.0 Autonomous Survival System*
-*Phase range: 267-272*
-*v30.0 ended at Phase 266*
+*Roadmap created: 2026-04-01*
+*Milestone: v32.0 Autonomous Meshed Intelligence*
+*Phase range: 273-279*
+*v31.0 ended at Phase 272*

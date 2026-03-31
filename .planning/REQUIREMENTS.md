@@ -1,7 +1,7 @@
 # Requirements: v32.0 Autonomous Meshed Intelligence
 
 **Defined:** 2026-04-01
-**Core Value:** Close all action loops — diagnose → fix → permanent fix → cascade → never debug the same issue twice
+**Core Value:** Close all action loops — diagnose -> fix -> permanent fix -> cascade -> never debug the same issue twice
 
 ## Proactive Immediate Resolution (PRO)
 
@@ -42,7 +42,7 @@
 
 ## KB Hardening Pipeline (KB)
 
-- [ ] **KB-01**: Promotion ladder: Observed → Shadow → Canary → Quorum → Deterministic Rule
+- [ ] **KB-01**: Promotion ladder: Observed -> Shadow -> Canary -> Quorum -> Deterministic Rule
 - [ ] **KB-02**: Shadow mode — new rule executes alongside but logs only for 1 week or 25 applications
 - [ ] **KB-03**: Canary — apply on Pod 8 first, verify before fleet
 - [ ] **KB-04**: Quorum — 3+ successes across 2+ pods triggers promotion to Tier 1
@@ -55,9 +55,9 @@
 
 ## Revenue Protection (REV)
 
-- [ ] **REV-01**: Detect game running without active billing session → alert staff
-- [ ] **REV-02**: Detect billing session ended but game still active → grace period → auto-end game
-- [ ] **REV-03**: Pod down during peak hours (12-22 IST) → prioritize recovery
+- [ ] **REV-01**: Detect game running without active billing session -> alert staff
+- [ ] **REV-02**: Detect billing session ended but game still active -> grace period -> auto-end game
+- [ ] **REV-03**: Pod down during peak hours (12-22 IST) -> prioritize recovery
 
 ## Weekly Fleet Report (RPT)
 
@@ -68,14 +68,51 @@
 ## Runaway Prevention (SAFE)
 
 - [ ] **SAFE-01**: Blast radius limiter — max 2 of 10 nodes under simultaneous autonomous fix
-- [ ] **SAFE-02**: Per-action circuit breaker — 40% fail rate → open → 2-min cooldown
+- [ ] **SAFE-02**: Per-action circuit breaker — 40% fail rate -> open -> 2-min cooldown
 - [ ] **SAFE-03**: Idempotency keys on every executor action (node + rule_version + incident_fingerprint)
 
 ## Traceability
 
-| REQ | Phase |
-|-----|-------|
-| (filled by roadmap) | |
+| REQ | Phase | Status |
+|-----|-------|--------|
+| PRO-01 | Phase 273 | Pending |
+| PRO-02 | Phase 273 | Pending |
+| PRO-03 | Phase 273 | Pending |
+| PRO-04 | Phase 273 | Pending |
+| PRO-05 | Phase 273 | Pending |
+| PRO-06 | Phase 273 | Pending |
+| SAFE-01 | Phase 273 | Pending |
+| SAFE-02 | Phase 273 | Pending |
+| SAFE-03 | Phase 273 | Pending |
+| ESC-01 | Phase 274 | Pending |
+| ESC-02 | Phase 274 | Pending |
+| ESC-03 | Phase 274 | Pending |
+| ESC-04 | Phase 274 | Pending |
+| GAME-01 | Phase 275 | Pending |
+| GAME-02 | Phase 275 | Pending |
+| GAME-03 | Phase 275 | Pending |
+| GAME-04 | Phase 275 | Pending |
+| GAME-05 | Phase 275 | Pending |
+| PRED-10 | Phase 276 | Pending |
+| PRED-11 | Phase 276 | Pending |
+| PRED-12 | Phase 276 | Pending |
+| CX-05 | Phase 276 | Pending |
+| CX-06 | Phase 276 | Pending |
+| CX-07 | Phase 276 | Pending |
+| CX-08 | Phase 276 | Pending |
+| REV-01 | Phase 277 | Pending |
+| REV-02 | Phase 277 | Pending |
+| REV-03 | Phase 277 | Pending |
+| REP-01 | Phase 277 | Pending |
+| REP-02 | Phase 277 | Pending |
+| KB-01 | Phase 278 | Pending |
+| KB-02 | Phase 278 | Pending |
+| KB-03 | Phase 278 | Pending |
+| KB-04 | Phase 278 | Pending |
+| KB-05 | Phase 278 | Pending |
+| RPT-01 | Phase 279 | Pending |
+| RPT-02 | Phase 279 | Pending |
+| RPT-03 | Phase 279 | Pending |
 
 ## Future Requirements (deferred)
 
