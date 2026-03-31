@@ -473,6 +473,12 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PosBillingApiError { endpoint, .. } => {
             format!("PosBillingApiError_{}", endpoint)
         }
+        DiagnosticTrigger::PosWifiDegraded { rssi_dbm, .. } => {
+            format!("PosWifiDegraded_{}dBm", rssi_dbm)
+        }
+        DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
+            format!("PosKioskEscaped_{}", foreground_process)
+        }
         DiagnosticTrigger::TaskbarVisible => "TaskbarVisible".to_string(),
         // MMA-First Protocol triggers (v31.0)
         DiagnosticTrigger::GameMidSessionCrash { exit_code, .. } => {
@@ -1283,10 +1289,15 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                 }
             }
         }
-        // PosNetworkDown / PosBillingApiError: log + escalate (no safe Tier 1 fix)
+        // PosNetworkDown / PosBillingApiError / PosWifiDegraded: log + escalate (no safe Tier 1 fix)
         DiagnosticTrigger::PosNetworkDown { .. }
-        | DiagnosticTrigger::PosBillingApiError { .. } => {
-            tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing issue — no Tier 1 fix, escalating");
+        | DiagnosticTrigger::PosBillingApiError { .. }
+        | DiagnosticTrigger::PosWifiDegraded { .. } => {
+            tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing/WiFi issue — no Tier 1 fix, escalating");
+        }
+        // POS kiosk escape: log + alert staff (Tier 1 can't fix foreground window takeover)
+        DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
+            tracing::warn!(target: LOG_TARGET, foreground = %foreground_process, "POS kiosk escape — non-Edge window in foreground, alerting staff");
         }
         // MMA-First Protocol triggers — no deterministic fix, escalate to MMA
         DiagnosticTrigger::GameMidSessionCrash { .. }

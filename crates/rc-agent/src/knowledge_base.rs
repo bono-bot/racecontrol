@@ -651,6 +651,10 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
             // MMA P2 fix: sanitize endpoint — may contain colons, slashes, query params
             format!("pos_billing_api_error:{}", sanitize_kb_key_component(endpoint))
         }
+        DiagnosticTrigger::PosWifiDegraded { rssi_dbm, .. } => format!("pos_wifi_degraded:{rssi_dbm}"),
+        DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
+            format!("pos_kiosk_escaped:{}", sanitize_kb_key_component(foreground_process))
+        }
         DiagnosticTrigger::TaskbarVisible => "taskbar_visible".to_string(),
         // MMA-First Protocol triggers (v31.0)
         DiagnosticTrigger::GameMidSessionCrash { .. } => "game_mid_session_crash".to_string(),

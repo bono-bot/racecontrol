@@ -122,6 +122,8 @@ pub fn classify_domain(trigger: &DiagnosticTrigger) -> IssueDomain {
         DiagnosticTrigger::ErrorSpike { .. }
         | DiagnosticTrigger::PreFlightFailed { .. }
         | DiagnosticTrigger::PosKioskDown { .. }
+        | DiagnosticTrigger::PosWifiDegraded { .. }
+        | DiagnosticTrigger::PosKioskEscaped { .. }
         | DiagnosticTrigger::Periodic => IssueDomain::RustBackend,
     }
 }
