@@ -32,6 +32,29 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
+## Current Milestone: v32.0 Autonomous Meshed Intelligence
+
+**Goal:** Close all action loops in Meshed Intelligence so the venue self-heals end-to-end: diagnose → fix → permanent fix → cascade to fleet → never debug the same issue twice.
+
+**Target features:**
+- Autonomous game launch fix + cascade — diagnose launch failure, apply fix, auto-retry (2x with clean state reset), encode permanent fix as Tier 1 deterministic check (KB hardening), cascade solution via mesh gossip to all pods + POS
+- Predictive alert → action pipeline — connect predictive_maintenance alerts to diagnostic engine → tier engine (currently log-only, no action taken)
+- Experience scoring integration — wire experience_score.rs into main loop, feed scores to fleet health API, auto-flag/remove low-scoring pods
+- Tier 5 WhatsApp escalation — complete the stub via Bono VPS Evolution API
+- Enhanced night ops + MMA — full MMA diagnostic step, auto-fix application, morning readiness report to Uday
+- Model reputation auto-demotion — promote from log-only warning to actual roster removal when accuracy < 30%
+- Revenue protection triggers — game running without billing, session ended but game active, pod down during peak hours
+- Weekly fleet intelligence report — automated report to Uday (auto-resolution rate, MTTR, top issues, budget, KB growth)
+- KB hardening pipeline — solutions succeeding 3+ times across 2+ pods auto-promote to Tier 1 deterministic checks ($0 forever)
+
+**Constraints:**
+- All modules already exist as files — this is wiring + enhancement, not greenfield
+- v31.0 built MMA engine, tier engine, mesh gossip, KB — this milestone makes them fully autonomous
+- Budget controls ($5-20/day per node) already enforced — no new cost risks
+- WhatsApp escalation goes through Bono VPS Evolution API (not direct)
+- Cascade is recursive per standing rules — fix one pod → gossip to fleet → verify on each pod
+- KB promotion lifecycle exists (Discovered → Candidate → Fleet-Verified → Hardened) but "Hardened" doesn't generate Tier 1 code yet
+
 ## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
 
 **Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer (checking infrastructure not the consuming service), Count vs Health (counting items without verifying they work), Missing Config Validation (env vars/credentials unchecked), Missing Dashboard/UI Check (backend passes but user page untested), Missing Cross-Service Dependency (services checked independently but dependency chain unverified).
@@ -322,6 +345,25 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 ## Active Milestone: v9.0 Tooling & Automation Research
 
 **Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations — Claude Code skills, MCP servers, deployment automation, and monitoring/alerting.
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd:transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+Last updated: 2026-04-01
 
 ## Planned Milestone: v13.0 Multi-Game Launcher
 

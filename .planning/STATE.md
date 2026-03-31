@@ -1,82 +1,52 @@
 ---
 gsd_state_version: 1.0
-milestone: v31.0
-milestone_name: milestone
-status: executing
-stopped_at: Completed 267-03-PLAN.md — all 5 recovery systems sentinel-aware (SF-05)
-last_updated: "2026-03-30T14:53:22.302Z"
-last_activity: 2026-03-30 -- Phase 268 execution started
+milestone: v32.0
+milestone_name: Autonomous Meshed Intelligence
+status: defining_requirements
+stopped_at: null
+last_updated: "2026-04-01"
+last_activity: 2026-04-01 -- Milestone v32.0 started
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 3
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
 ## Current Position
 
-Phase: 268 (Unified MMA Protocol) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 268
-Last activity: 2026-03-30 -- Phase 268 execution started
-
-Progress: [░░░░░░░░░░] 0%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-01 — Milestone v32.0 started
 
 ## Project Reference
 
-**Milestone:** v31.0 Autonomous Survival System — 3-Layer MI Independence
-**Core value:** No single system failure can kill the healing brain — 3 independent survival layers with Unified MMA Protocol
-**Phase range:** 267-272
-**Roadmap:** .planning/ROADMAP-v31.md
-**Requirements:** .planning/REQUIREMENTS.md
+**Milestone:** v32.0 Autonomous Meshed Intelligence
+**Core value:** Close all action loops — diagnose → fix → permanent fix → cascade → never debug same issue twice
+**Roadmap:** .planning/ROADMAP.md (pending)
+**Requirements:** .planning/REQUIREMENTS.md (pending)
 
 See: .planning/PROJECT.md (project context)
 See: UNIFIED-PROTOCOL.md (operations protocol v3.1)
-
-## Phase Index
-
-| # | Phase | Requirements | Status |
-|---|-------|-------------|--------|
-| 267 | Survival Foundation | SF-01..SF-05 | Not started |
-| 268 | Unified MMA Protocol | MP-01..MP-09 | Not started |
-| 269 | Layer 1 Smart Watchdog | SW-01..SW-14 | Not started |
-| 270 | Layer 2 Server Fleet Healer | FH-01..FH-12 | Not started |
-| 271 | Layer 3 External Guardian | EG-01..EG-10 | Not started |
-| 272 | Integration & MMA Audit | (cross-layer gate) | Not started |
 
 ## Accumulated Context
 
 ### Key Architectural Decisions
 
-- **Build order is strict:** Foundation (267) → MMA Protocol (268) → Layer 1 (269) and Layer 2 (270) and Layer 3 (271) in parallel → Integration (272). Layer 1/2/3 all depend on 267 and 268.
-- **OpenRouter client trait in rc-common only** — trait definition, no reqwest dependency. Implementation lives in higher layers to avoid circular deps.
-- **rc-watchdog has NO tokio runtime** — Phase 269 must create Runtime::new() for async OpenRouter calls. Never use reqwest::blocking in the main watchdog poll loop.
-- **rc-guardian is a new Linux crate** — separate binary for Bono VPS, NOT an extension of rc-watchdog. Target: x86_64-unknown-linux-musl or gnu.
-- **goblin crate with `features = ["pe"]` only** — do not enable default features (avoids pulling in Mach-O/ELF parsers).
-- **HEAL_IN_PROGRESS sentinel** defined in rc-common (Phase 267) BEFORE any healing logic in later phases.
-- **Layer 2 SSH diagnostic runner** is the prerequisite for ALL autonomous remote repair (FH-01 must ship before FH-05).
+- **All modules exist as files** — this milestone wires dead code and closes action loops, not greenfield
+- **v31.0 built the foundation** — MMA engine (4-step convergence), tier engine (5-tier), mesh gossip, KB, budget tracker
+- **KB promotion lifecycle** — Discovered → Candidate → Fleet-Verified → Hardened. "Hardened" needs to generate Tier 1 code
+- **WhatsApp via Bono VPS Evolution API** — not direct from pods
+- **Budget controls enforced** — $5-20/day per node, circuit breaker on OpenRouter failures
+- **Cascade is recursive** — fix → gossip → verify → if config/bat needed, cascade that too
+- **User wants parallel phase execution** — use Unified MMA Protocol to plan and execute multiple phases simultaneously where dependencies allow
+- **Verify after execution** — every phase must be verified before declaring done
 
-### Key Risks From Research
+### From v31.0 (carried forward)
 
-- Windows SYSTEM context (Session 0) HTTP: certificate validation may fail for watchdog direct reporting (SW-06) — test on real hardware
-- MAINTENANCE_MODE lockout: watchdog must NOT write it during MMA cycle; only read and escalate to Layer 2
-- Rollback loop: depth counter in rollback-state.json required before rollback code ships (SW-04 before SW-03)
-- Split-brain guardians: GUARDIAN_ACTING via comms-link WS must be implemented before EG-03 (restart) ships
-- Budget persistence: budget_state.json must be written on every OpenRouter call, not just at session end
-
-### Blockers/Concerns
-
-None yet. Research is complete, architecture is clear.
-
-## Session Continuity
-
-Stopped at: Completed 267-03-PLAN.md — all 5 recovery systems sentinel-aware (SF-05)
-Next action: Run /gsd:plan-phase 267 to begin Survival Foundation planning.
-
-Ship gate reminder (Unified Protocol v3.1):
-
-1. Quality Gate: `cd comms-link && COMMS_PSK="..." bash test/run-all.sh`
-2. E2E: live exec + chain + health round-trip (REALTIME mode)
-3. Standing Rules: auto-push, Bono synced, watchdog, rules categorized
-4. Multi-Model AI Audit: all consensus P1s fixed, P2s triaged
+- **OpenRouter client trait in rc-common only** — trait definition, no reqwest dependency
+- **rc-watchdog has NO tokio runtime** — must create Runtime::new() for async calls
+- **rc-guardian is a separate Linux crate** — for Bono VPS
+- **HEAL_IN_PROGRESS sentinel** defined in rc-common
