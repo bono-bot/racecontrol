@@ -3,6 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-03-31 22:36 IST | James | 9b6225e9 | feat: expand Meshed Intelligence diagnosis to POS (/diagnosis), PWA (/staff/diagnosis), kiosk mesh browser. MMA 8-model audit (5 DIAGNOSE + 3 VERIFY). 2 P1 fixes: PWA auth token isolation + server-side middleware. 7 files, +1511 lines. |
+
 ---
 
 ## Cause Elimination Template
