@@ -489,6 +489,48 @@ export interface DebugActivityData {
   }[];
 }
 
+// --- Mesh Intelligence Solution Types ---
+export interface MeshSolution {
+  id: string;
+  problem_key: string;
+  problem_hash: string;
+  root_cause: string;
+  fix_type: string;
+  status: string;
+  success_count: number;
+  fail_count: number;
+  confidence: number;
+  cost_to_diagnose: number;
+  diagnosis_tier: string;
+  source_node: string;
+  created_at: string;
+  updated_at: string;
+  tags?: string[];
+}
+
+export interface MeshStats {
+  total_solutions: number;
+  candidates: number;
+  fleet_verified: number;
+  hardened: number;
+  total_incidents: number;
+  total_cost: number;
+  avg_confidence: number;
+}
+
+export interface MeshIncident {
+  id: string;
+  node: string;
+  problem_key: string;
+  severity: string;
+  cost: number;
+  resolution?: string;
+  time_to_resolve_secs?: number;
+  resolved_by_tier?: string;
+  detected_at: string;
+  resolved_at?: string;
+}
+
 // --- Venue Shutdown ---
 export interface VenueShutdownResponse {
   status: "shutting_down" | "blocked" | "error" | "fallback_bono";

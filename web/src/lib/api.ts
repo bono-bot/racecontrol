@@ -1071,6 +1071,191 @@ export interface AcCar {
   class: string;
 }
 
+// ─── Mesh Intelligence / Diagnosis Types ─────────────────────────────────────
+
+export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";
+
+export interface PodHealth {
+  pod_id: string;
+  pod_number: number;
+  seconds_since_heartbeat: number;
+  health: DebugHealthColor;
+  status: string;
+}
+
+export interface PlaybookStep {
+  step_number: number;
+  action: string;
+  expected_result: string;
+  timeout_seconds: number;
+}
+
+export interface DebugPlaybook {
+  id: string;
+  category: string;
+  title: string;
+  steps: PlaybookStep[];
+}
+
+export interface DebugIncident {
+  id: string;
+  pod_id?: string;
+  category: string;
+  description: string;
+  status: string;
+  playbook_id?: string;
+  created_at: string;
+}
+
+export interface DebugDiagnosis {
+  diagnosis: string;
+  model: string;
+  incident_id: string;
+  playbook?: DebugPlaybook;
+  past_resolutions: {
+    resolution_text: string;
+    effectiveness: number;
+    created_at: string;
+  }[];
+}
+
+export interface PodDiagnosticEvent {
+  timestamp: string;
+  trigger: string;
+  tier: number;
+  outcome: string;
+  action: string;
+  root_cause: string;
+  fix_type: string;
+  confidence: number;
+  fix_applied: boolean;
+  problem_hash: string;
+  correlation_id?: string;
+  source: string;
+}
+
+export interface DebugActivityData {
+  pod_health: PodHealth[];
+  billing_events: {
+    id: string;
+    session_id: string;
+    event_type: string;
+    created_at: string;
+    pod_id?: string;
+  }[];
+  game_events: {
+    id: string;
+    pod_id: string;
+    event_type: string;
+    created_at: string;
+    error_message?: string;
+  }[];
+}
+
+export interface MeshSolution {
+  id: string;
+  problem_key: string;
+  problem_hash: string;
+  root_cause: string;
+  fix_type: string;
+  status: string;
+  success_count: number;
+  fail_count: number;
+  confidence: number;
+  cost_to_diagnose: number;
+  diagnosis_tier: string;
+  source_node: string;
+  created_at: string;
+  updated_at: string;
+  tags?: string[];
+}
+
+export interface MeshStats {
+  total_solutions: number;
+  candidates: number;
+  fleet_verified: number;
+  hardened: number;
+  total_incidents: number;
+  total_cost: number;
+  avg_confidence: number;
+}
+
+export interface MeshIncident {
+  id: string;
+  node: string;
+  problem_key: string;
+  severity: string;
+  cost: number;
+  resolution?: string;
+  time_to_resolve_secs?: number;
+  resolved_by_tier?: string;
+  detected_at: string;
+  resolved_at?: string;
+}
+
+// ─── Diagnosis API Methods ───────────────────────────────────────────────────
+
+export const diagnosisApi = {
+  debugActivity: (hours?: number) =>
+    fetchApi<DebugActivityData>(`/debug/activity${hours ? `?hours=${hours}` : ""}`),
+
+  debugPlaybooks: () =>
+    fetchApi<{ playbooks: DebugPlaybook[] }>("/debug/playbooks"),
+
+  createDebugIncident: (description: string, pod_id?: string) =>
+    fetchApi<{ incident: DebugIncident; playbook?: DebugPlaybook }>("/debug/incidents", {
+      method: "POST",
+      body: JSON.stringify({ description, pod_id }),
+    }),
+
+  listDebugIncidents: (status?: string) =>
+    fetchApi<{ incidents: DebugIncident[] }>(`/debug/incidents${status ? `?status=${status}` : ""}`),
+
+  diagnoseIncident: (incident_id: string) =>
+    fetchApi<DebugDiagnosis>("/debug/diagnose", {
+      method: "POST",
+      body: JSON.stringify({ incident_id }),
+    }),
+
+  resolveDebugIncident: (id: string, status: string, resolution_text?: string, effectiveness?: number) =>
+    fetchApi<{ ok: boolean }>(`/debug/incidents/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ status, resolution_text, effectiveness }),
+    }),
+
+  applyDebugFix: (incidentId: string, action: string, podId?: string) =>
+    fetchApi<{ ok: boolean; action?: string; output?: string; error?: string }>(
+      `/debug/incidents/${incidentId}/apply-fix`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action, pod_id: podId }),
+      }
+    ),
+
+  podDiagnosticEvents: (podId: string, limit?: number) =>
+    fetchApi<{ events: PodDiagnosticEvent[] }>(
+      `/debug/pod-events/${podId}${limit ? `?limit=${limit}` : ""}`
+    ),
+
+  meshSolutions: () =>
+    fetchApi<{ solutions: MeshSolution[] }>("/mesh/solutions"),
+
+  meshStats: () =>
+    fetchApi<MeshStats>("/mesh/stats"),
+
+  meshIncidents: () =>
+    fetchApi<{ incidents: MeshIncident[] }>("/mesh/incidents"),
+
+  meshDeployStatus: () =>
+    fetchApi<Record<string, unknown>>("/mesh/deploy-status"),
+
+  promoteSolution: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/mesh/solutions/${id}/promote`, { method: "POST" }),
+
+  retireSolution: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/mesh/solutions/${id}/retire`, { method: "POST" }),
+};
+
 export function defaultAcConfig(): AcLanSessionConfig {
   return {
     name: "RacingPoint LAN Race",

@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -331,6 +331,25 @@ export const api = {
     fetchApi<{ events: PodDiagnosticEvent[] }>(
       `/debug/pod-events/${podId}${limit ? `?limit=${limit}` : ""}`
     ),
+
+  // Mesh Intelligence — Solution Browser
+  meshSolutions: () =>
+    fetchApi<{ solutions: MeshSolution[] }>("/mesh/solutions"),
+
+  meshStats: () =>
+    fetchApi<MeshStats>("/mesh/stats"),
+
+  meshIncidents: () =>
+    fetchApi<{ incidents: MeshIncident[] }>("/mesh/incidents"),
+
+  meshDeployStatus: () =>
+    fetchApi<Record<string, unknown>>("/mesh/deploy-status"),
+
+  promoteSolution: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/mesh/solutions/${id}/promote`, { method: "POST" }),
+
+  retireSolution: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/mesh/solutions/${id}/retire`, { method: "POST" }),
 
   // Customer Self-Service (phone auth + booking)
   customerLogin: (phone: string) =>

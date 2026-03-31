@@ -1230,6 +1230,140 @@ export const publicApi = {
     fetch(`${API_BASE_URL}/cafe/promos/active`).then(r => r.json()) as Promise<ActivePromo[]>,
 };
 
+// ─── Mesh Intelligence / Diagnosis Types (read-only for PWA staff) ───────────
+
+export interface PodHealth {
+  pod_id: string;
+  pod_number: number;
+  seconds_since_heartbeat: number;
+  health: string;
+  status: string;
+}
+
+export interface DebugIncident {
+  id: string;
+  pod_id?: string;
+  category: string;
+  description: string;
+  status: string;
+  created_at: string;
+}
+
+export interface DebugActivityData {
+  pod_health: PodHealth[];
+  billing_events: { id: string; event_type: string; created_at: string; pod_id?: string }[];
+  game_events: { id: string; pod_id: string; event_type: string; created_at: string }[];
+}
+
+export interface MeshSolution {
+  id: string;
+  problem_key: string;
+  root_cause: string;
+  fix_type: string;
+  status: string;
+  success_count: number;
+  fail_count: number;
+  confidence: number;
+  cost_to_diagnose: number;
+  diagnosis_tier: string;
+  source_node: string;
+  created_at: string;
+  tags?: string[];
+}
+
+export interface MeshStats {
+  total_solutions: number;
+  candidates: number;
+  fleet_verified: number;
+  hardened: number;
+  total_incidents: number;
+  total_cost: number;
+  avg_confidence: number;
+}
+
+export interface PodDiagnosticEvent {
+  timestamp: string;
+  trigger: string;
+  tier: number;
+  outcome: string;
+  action: string;
+  root_cause: string;
+  fix_type: string;
+  confidence: number;
+  fix_applied: boolean;
+  source: string;
+}
+
+// ─── Staff fetch wrapper (uses sessionStorage staff token, NOT customer token) ───
+
+function getStaffToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem("pwa_staff_token");
+}
+
+async function fetchStaffApi<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const token = getStaffToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (res.status === 401) {
+      // Staff token expired — clear and force re-auth
+      sessionStorage.removeItem("pwa_staff_token");
+      sessionStorage.removeItem("pwa_staff_name");
+    }
+    throw new Error(`Staff API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  }
+
+  return res.json();
+}
+
+// Staff diagnosis API (read-only — no incident creation or fix application from PWA)
+// Uses fetchStaffApi which reads staff JWT from sessionStorage, NOT customer token
+export const staffDiagnosisApi = {
+  debugActivity: (hours?: number) =>
+    fetchStaffApi<DebugActivityData>(`/debug/activity${hours ? `?hours=${hours}` : ""}`),
+
+  listIncidents: (status?: string) =>
+    fetchStaffApi<{ incidents: DebugIncident[] }>(`/debug/incidents${status ? `?status=${status}` : ""}`),
+
+  podDiagnosticEvents: (podId: string, limit?: number) =>
+    fetchStaffApi<{ events: PodDiagnosticEvent[] }>(
+      `/debug/pod-events/${podId}${limit ? `?limit=${limit}` : ""}`
+    ),
+
+  meshSolutions: () =>
+    fetchStaffApi<{ solutions: MeshSolution[] }>("/mesh/solutions"),
+
+  meshStats: () =>
+    fetchStaffApi<MeshStats>("/mesh/stats"),
+};
+
+// Staff PIN validation for PWA staff mode
+// Uses regular fetchApi (no auth needed for PIN validation — rate-limited on backend)
+export const staffAuth = {
+  validatePin: (pin: string) =>
+    fetchApi<{ status?: string; error?: string; token?: string; staff_name?: string }>(
+      "/staff/validate-pin",
+      { method: "POST", body: JSON.stringify({ pin }) }
+    ),
+};
+
 export interface TerminalCommand {
   id: string;
   cmd: string;
