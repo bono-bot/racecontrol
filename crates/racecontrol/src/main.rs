@@ -947,6 +947,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/portal", get(|| async {
             axum::response::Html(include_str!("../../../assets/portal.html"))
         }))
+        // Status dashboard — visual UI for health + fleet + services
+        .route("/status", get(|| async {
+            axum::response::Html(include_str!("../../../assets/status.html"))
+        }))
         // Redirects: common wrong URLs → correct destinations
         // Staff/POS might type these directly — redirect to the right app
         .route("/admin", get(|| async { axum::response::Redirect::permanent("http://192.168.31.23:3201/admin/") }))

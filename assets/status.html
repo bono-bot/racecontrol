@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>System Status — Racing Point</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #0a0a0a;
+    color: #f0f0f0;
+    min-height: 100vh;
+  }
+  a { color: #E10600; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0a0a0a;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .header h1 span { color: #E10600; }
+  .header-tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #E10600;
+    border: 1px solid #E10600;
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+    color: #666;
+  }
+  .header-clock {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 13px;
+    color: #aaa;
+  }
+  .back-link { font-size: 13px; }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #E10600;
+    padding: 4px 10px;
+    border-left: 3px solid #E10600;
+    background: rgba(225, 6, 0, 0.06);
+    display: inline-block;
+    margin: 24px 0 12px;
+  }
+  .section-label:first-child { margin-top: 0; }
+
+  .server-card {
+    background: #161616;
+    border: 1px solid #222;
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 8px;
+  }
+  .server-name {
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .kv-grid {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .kv-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .kv-value {
+    font-size: 14px;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    color: #ccc;
+    margin-top: 2px;
+  }
+
+  .pod-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .pod-card {
+    background: #161616;
+    border: 1px solid #222;
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.15s;
+  }
+  .pod-card:hover { border-color: #333; }
+  .pod-card.offline { border-left: 3px solid #ef4444; }
+  .pod-card.online { border-left: 3px solid #22c55e; }
+  .pod-card.partial { border-left: 3px solid #f59e0b; }
+  .pod-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .pod-name {
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pod-ip {
+    font-size: 11px;
+    color: #555;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+  .pod-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .pod-detail {
+    font-size: 11px;
+    color: #777;
+  }
+  .pod-detail b { color: #aaa; font-weight: 600; }
+  .pod-badges {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .badge-ok { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+  .badge-warn { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-err { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+
+  .svc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .svc-card {
+    background: #161616;
+    border: 1px solid #222;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .svc-name {
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: capitalize;
+  }
+  .svc-latency {
+    font-size: 12px;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    color: #aaa;
+  }
+  .svc-meta {
+    font-size: 11px;
+    color: #666;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-ok { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+  .dot-warn { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+  .dot-err { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+  .dot-off { background: #444; }
+
+  .last-updated {
+    text-align: center;
+    font-size: 11px;
+    color: #333;
+    padding: 16px;
+    margin-top: 16px;
+  }
+
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #555;
+    font-size: 13px;
+    gap: 10px;
+  }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #333;
+    border-top-color: #E10600;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .footer {
+    text-align: center;
+    padding: 24px;
+    color: #2a2a2a;
+    font-size: 11px;
+    border-top: 1px solid #151515;
+    margin-top: 24px;
+  }
+
+  @media (max-width: 640px) {
+    .header { flex-direction: column; gap: 8px; }
+    .pod-grid { grid-template-columns: 1fr; }
+    .kv-grid { gap: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <h1>Racing <span>Point</span></h1>
+    <span class="header-tag">Status</span>
+  </div>
+  <div class="header-right">
+    <a href="/portal" class="back-link">&larr; Portal</a>
+    <div class="header-clock" id="clock">--:--:-- IST</div>
+  </div>
+</header>
+
+<div class="main">
+  <div class="section-label">Server</div>
+  <div id="server-section">
+    <div class="loading"><div class="spinner"></div>Loading server health...</div>
+  </div>
+
+  <div class="section-label">Services</div>
+  <div id="services-section">
+    <div class="loading"><div class="spinner"></div>Loading services...</div>
+  </div>
+
+  <div class="section-label">Fleet — Pods</div>
+  <div id="fleet-section">
+    <div class="loading"><div class="spinner"></div>Loading fleet status...</div>
+  </div>
+
+  <div class="last-updated" id="last-updated"></div>
+</div>
+
+<footer class="footer">
+  Racing Point eSports &amp; Cafe &mdash; Auto-refreshes every 15s
+</footer>
+
+<script>
+/* Safe DOM builder — no innerHTML, XSS-safe */
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'className') e.className = v;
+      else if (k === 'textContent') e.textContent = v;
+      else e.setAttribute(k, v);
+    }
+  }
+  if (children) {
+    for (const c of (Array.isArray(children) ? children : [children])) {
+      if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    }
+  }
+  return e;
+}
+
+function dot(cls) {
+  return el('span', { className: 'dot ' + cls });
+}
+
+const clockFmt = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+});
+function updateClock() {
+  document.getElementById('clock').textContent = clockFmt.format(new Date()) + ' IST';
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+function makeSignal(ms) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const c = new AbortController();
+  setTimeout(function() { c.abort(); }, ms);
+  return c.signal;
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return 'never';
+  var diff = Date.now() - new Date(isoStr).getTime();
+  if (diff < 0) return 'just now';
+  var s = Math.floor(diff / 1000);
+  if (s < 60) return s + 's ago';
+  var m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+function fmtUptime(secs) {
+  if (!secs && secs !== 0) return '\u2014';
+  if (secs < 60) return secs + 's';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm';
+  var h = Math.floor(secs / 3600);
+  var m = Math.floor((secs % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+function makeKV(label, value) {
+  var wrapper = el('div');
+  wrapper.appendChild(el('div', { className: 'kv-label', textContent: label }));
+  wrapper.appendChild(el('div', { className: 'kv-value', textContent: value }));
+  return wrapper;
+}
+
+function makeKVWithDot(label, value, ok) {
+  var wrapper = el('div');
+  wrapper.appendChild(el('div', { className: 'kv-label', textContent: label }));
+  var valEl = el('div', { className: 'kv-value' });
+  valEl.appendChild(dot(ok ? 'dot-ok' : 'dot-err'));
+  valEl.appendChild(document.createTextNode(' ' + value));
+  wrapper.appendChild(valEl);
+  return wrapper;
+}
+
+function renderServer(data) {
+  var section = document.getElementById('server-section');
+  section.textContent = '';
+
+  var card = el('div', { className: 'server-card' });
+  var isOk = data.status === 'ok';
+
+  var nameDiv = el('div', { className: 'server-name' });
+  nameDiv.appendChild(dot(isOk ? 'dot-ok' : 'dot-err'));
+  nameDiv.appendChild(document.createTextNode(' RaceControl'));
+  card.appendChild(nameDiv);
+
+  var kvGrid = el('div', { className: 'kv-grid' });
+  kvGrid.appendChild(makeKV('Status', data.status));
+  kvGrid.appendChild(makeKV('Build', data.build_id || '\u2014'));
+  kvGrid.appendChild(makeKV('Version', data.version || '\u2014'));
+  kvGrid.appendChild(makeKVWithDot('WhatsApp', data.whatsapp || '\u2014', data.whatsapp === 'ok'));
+  card.appendChild(kvGrid);
+
+  section.appendChild(card);
+}
+
+function renderServices(svcs) {
+  var section = document.getElementById('services-section');
+  section.textContent = '';
+
+  if (!svcs || Object.keys(svcs).length === 0) {
+    section.appendChild(el('div', { className: 'loading', textContent: 'No services registered' }));
+    return;
+  }
+
+  var grid = el('div', { className: 'svc-grid' });
+  for (var name of Object.keys(svcs)) {
+    var svc = svcs[name];
+    var isOk = svc.status === 'ok';
+    var card = el('div', { className: 'svc-card' });
+
+    var nameDiv = el('div', { className: 'svc-name' });
+    nameDiv.appendChild(dot(isOk ? 'dot-ok' : 'dot-err'));
+    nameDiv.appendChild(document.createTextNode(' ' + name));
+    card.appendChild(nameDiv);
+
+    card.appendChild(el('div', { className: 'svc-latency', textContent: svc.response_ms != null ? svc.response_ms + 'ms' : '\u2014' }));
+    card.appendChild(el('div', { className: 'svc-meta', textContent: svc.last_checked || '\u2014' }));
+    grid.appendChild(card);
+  }
+  section.appendChild(grid);
+}
+
+function renderFleet(pods) {
+  var section = document.getElementById('fleet-section');
+  section.textContent = '';
+
+  if (!pods || pods.length === 0) {
+    section.appendChild(el('div', { className: 'loading', textContent: 'No pods registered' }));
+    return;
+  }
+
+  var sorted = pods.slice().sort(function(a, b) { return a.pod_number - b.pod_number; });
+  var grid = el('div', { className: 'pod-grid' });
+
+  for (var i = 0; i < sorted.length; i++) {
+    var p = sorted[i];
+    var ws = p.ws_connected;
+    var http = p.http_reachable;
+    var cls = (ws && http) ? 'online' : (!ws && !http) ? 'offline' : 'partial';
+    var dotCls = cls === 'online' ? 'dot-ok' : cls === 'offline' ? 'dot-err' : 'dot-warn';
+
+    var card = el('div', { className: 'pod-card ' + cls });
+
+    // Header
+    var header = el('div', { className: 'pod-header' });
+    var nameDiv = el('div', { className: 'pod-name' });
+    nameDiv.appendChild(dot(dotCls));
+    nameDiv.appendChild(document.createTextNode(' Pod ' + p.pod_number));
+    header.appendChild(nameDiv);
+    header.appendChild(el('div', { className: 'pod-ip', textContent: p.ip_address || '' }));
+    card.appendChild(header);
+
+    // Details
+    var details = el('div', { className: 'pod-details' });
+    var items = [
+      ['WS', ws ? 'Connected' : 'Disconnected'],
+      ['HTTP', http ? 'Reachable' : 'Unreachable'],
+      ['Build', p.build_id || '\u2014'],
+      ['Uptime', fmtUptime(p.uptime_secs)],
+      ['Seen', timeAgo(p.last_seen)],
+      ['Crashes/hr', String(p.crashes_last_hour || 0)]
+    ];
+    for (var j = 0; j < items.length; j++) {
+      var d = el('div', { className: 'pod-detail' });
+      d.appendChild(el('b', { textContent: items[j][0] + ' ' }));
+      d.appendChild(document.createTextNode(items[j][1]));
+      details.appendChild(d);
+    }
+    card.appendChild(details);
+
+    // Badges
+    var badges = [];
+    if (p.crash_loop) badges.push(['Crash Loop', 'badge-err']);
+    if (p.in_maintenance || p.maintenance_flag) badges.push(['Maintenance', 'badge-warn']);
+    if (p.violation_count_24h > 0) badges.push([p.violation_count_24h + ' violations', 'badge-warn']);
+    if (p.active_sentinels) {
+      for (var k = 0; k < p.active_sentinels.length; k++) {
+        badges.push([p.active_sentinels[k], 'badge-warn']);
+      }
+    }
+    if (badges.length > 0) {
+      var badgeDiv = el('div', { className: 'pod-badges' });
+      for (var b = 0; b < badges.length; b++) {
+        badgeDiv.appendChild(el('span', { className: 'badge ' + badges[b][1], textContent: badges[b][0] }));
+      }
+      card.appendChild(badgeDiv);
+    }
+
+    grid.appendChild(card);
+  }
+  section.appendChild(grid);
+}
+
+var fetching = false;
+function refresh() {
+  if (fetching) return;
+  fetching = true;
+  Promise.allSettled([
+    fetch('/api/v1/health', { cache: 'no-store', signal: makeSignal(5000) }).then(function(r) { return r.json(); }),
+    fetch('/api/v1/fleet/health', { cache: 'no-store', signal: makeSignal(5000) }).then(function(r) { return r.json(); }),
+  ]).then(function(results) {
+    if (results[0].status === 'fulfilled') {
+      renderServer(results[0].value);
+    } else {
+      var s = document.getElementById('server-section');
+      s.textContent = '';
+      var card = el('div', { className: 'server-card' });
+      var nameDiv = el('div', { className: 'server-name' });
+      nameDiv.appendChild(dot('dot-err'));
+      nameDiv.appendChild(document.createTextNode(' Unreachable'));
+      card.appendChild(nameDiv);
+      s.appendChild(card);
+    }
+
+    if (results[1].status === 'fulfilled') {
+      var fleet = results[1].value;
+      renderServices(fleet.services || {});
+      renderFleet(fleet.pods || []);
+    } else {
+      document.getElementById('services-section').textContent = 'Failed to load services';
+      document.getElementById('fleet-section').textContent = 'Failed to load fleet';
+    }
+
+    var now = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      day: '2-digit', month: 'short', year: 'numeric'
+    }).format(new Date());
+    document.getElementById('last-updated').textContent = 'Last updated: ' + now + ' IST';
+    fetching = false;
+  });
+}
+
+refresh();
+var timer = setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible') {
+    refresh();
+    if (!timer) timer = setInterval(refresh, 15000);
+  } else {
+    clearInterval(timer);
+    timer = null;
+  }
+});
+</script>
+</body>
+</html>
