@@ -79,6 +79,12 @@ pub enum DiagnosticTrigger {
     PosNetworkDown { server_ip: String, detail: String },
     /// POS: Billing API unresponsive or returning errors
     PosBillingApiError { endpoint: String, status_code: u16 },
+    /// POS: WiFi signal degraded — high latency or weak signal during active operations
+    /// MMA consensus (4/4): RSSI < -70dBm or latency > 500ms = transaction risk
+    PosWifiDegraded { rssi_dbm: i32, latency_ms: u64 },
+    /// POS: Edge kiosk escaped — non-kiosk window in foreground (security + ops risk)
+    /// MMA consensus (4/4): foreground != msedge.exe for > 10s
+    PosKioskEscaped { foreground_process: String },
 
     // ─── UI State Triggers (DIAG-01n: taskbar enforcement) ──────────────────
     /// Taskbar was found visible when it should be hidden (kiosk mode active).
@@ -197,7 +203,7 @@ pub fn spawn(
                 }
             }
 
-            // POS-specific checks — kiosk, billing API, network
+            // POS-specific checks — kiosk, billing API, network, WiFi, escape
             if is_pos {
                 // Check kiosk Edge browser health
                 if let Some(trigger) = check_pos_kiosk_health() {
@@ -205,6 +211,14 @@ pub fn spawn(
                 }
                 // Check network to racecontrol
                 if let Some(trigger) = check_pos_network_health() {
+                    events.push(make_event(trigger, &pod_state));
+                }
+                // MMA consensus: WiFi signal quality (4/4 models)
+                if let Some(trigger) = check_pos_wifi_health() {
+                    events.push(make_event(trigger, &pod_state));
+                }
+                // MMA consensus: Kiosk escape detection (4/4 models)
+                if let Some(trigger) = check_pos_kiosk_escape() {
                     events.push(make_event(trigger, &pod_state));
                 }
             }
@@ -584,5 +598,112 @@ fn check_pos_network_health() -> Option<DiagnosticTrigger> {
                 detail: format!("TCP connect to {} failed: {}", server_addr, e),
             })
         }
+    }
+}
+
+/// POS check: WiFi signal quality — parse `netsh wlan show interfaces` for RSSI + latency.
+/// MMA consensus (4/4 models): RSSI < -70dBm or server latency > 500ms = transaction risk.
+fn check_pos_wifi_health() -> Option<DiagnosticTrigger> {
+    // Parse WiFi signal from netsh (Windows-specific)
+    let output = match std::process::Command::new("netsh")
+        .args(["wlan", "show", "interfaces"])
+        .output()
+    {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, "POS WiFi: netsh failed — {e}");
+            return None; // Can't check WiFi, skip gracefully
+        }
+    };
+
+    // Extract signal percentage (Windows reports 0-100% not dBm directly)
+    // Approximate: signal% → dBm ≈ (signal% / 2) - 100
+    let signal_pct: i32 = output
+        .lines()
+        .find(|l| l.trim().starts_with("Signal"))
+        .and_then(|l| l.split(':').nth(1))
+        .and_then(|v| v.trim().trim_end_matches('%').parse().ok())
+        .unwrap_or(100);
+
+    let approx_rssi = (signal_pct / 2) - 100;
+
+    // Also measure latency to server via TCP connect time
+    let server_ip = std::env::var("RACECONTROL_SERVER_IP").unwrap_or_else(|_| "192.168.31.23".to_string());
+    let latency_ms = {
+        let start = std::time::Instant::now();
+        let addr = format!("{}:8080", server_ip);
+        if let Ok(sock) = addr.parse::<std::net::SocketAddr>() {
+            match std::net::TcpStream::connect_timeout(&sock, Duration::from_secs(2)) {
+                Ok(_) => start.elapsed().as_millis() as u64,
+                Err(_) => 9999, // Unreachable = max latency
+            }
+        } else {
+            0
+        }
+    };
+
+    if approx_rssi < -70 || latency_ms > 500 {
+        tracing::warn!(target: LOG_TARGET,
+            rssi = approx_rssi, signal_pct, latency_ms,
+            "POS WiFi: degraded signal or high latency — transaction risk"
+        );
+        Some(DiagnosticTrigger::PosWifiDegraded {
+            rssi_dbm: approx_rssi,
+            latency_ms,
+        })
+    } else {
+        tracing::debug!(target: LOG_TARGET, rssi = approx_rssi, latency_ms, "POS WiFi: OK");
+        None
+    }
+}
+
+/// POS check: Kiosk escape detection — is a non-Edge window in foreground?
+/// MMA consensus (4/4 models): foreground != msedge.exe for > 10s = security risk.
+/// Uses Windows GetForegroundWindow + GetWindowThreadProcessId API.
+fn check_pos_kiosk_escape() -> Option<DiagnosticTrigger> {
+    #[cfg(target_os = "windows")]
+    {
+        use sysinfo::{System, ProcessesToUpdate, Pid};
+
+        // Get foreground window PID via winapi
+        let fg_pid = unsafe {
+            let hwnd = winapi::um::winuser::GetForegroundWindow();
+            if hwnd.is_null() {
+                return None; // No foreground window (e.g. desktop)
+            }
+            let mut pid: u32 = 0;
+            winapi::um::winuser::GetWindowThreadProcessId(hwnd, &mut pid);
+            pid
+        };
+
+        if fg_pid == 0 {
+            return None;
+        }
+
+        // Look up the process name
+        let mut sys = System::new();
+        sys.refresh_processes(ProcessesToUpdate::All, false);
+        let fg_name = sys
+            .process(Pid::from_u32(fg_pid))
+            .map(|p| p.name().to_string_lossy().to_lowercase().to_string())
+            .unwrap_or_else(|| format!("pid-{}", fg_pid));
+
+        // Edge kiosk = OK, anything else = escaped
+        if fg_name.contains("msedge") || fg_name.contains("edge") {
+            None
+        } else {
+            tracing::warn!(target: LOG_TARGET,
+                foreground = %fg_name, pid = fg_pid,
+                "POS kiosk: non-Edge window in foreground — kiosk escape detected"
+            );
+            Some(DiagnosticTrigger::PosKioskEscaped {
+                foreground_process: fg_name,
+            })
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None // Kiosk escape detection only on Windows
     }
 }

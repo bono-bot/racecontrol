@@ -328,6 +328,59 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 - **Audit the MONITOR, not just the MONITORED.** Every audit must verify that meta-monitoring systems (rc-watchdog, auto-detect pipeline, escalation engine) are: (1) **process running** (`tasklist`), (2) **scheduled task registered** (`schtasks /Query`), (3) **output fresh** (log recency < 5 min for watchdog, < 26h for auto-detect). Checking only the state file or code existence is proxy verification — the same class of bug as "health passes but blanking is broken." Phase 67 enforces this in Tier 1.
   _Why: 2026-03-26 — rc-watchdog died at 18:14 IST, both CommsLink-DaemonWatchdog and AutoDetect-Daily scheduled tasks were never registered, and self_patch was disabled. The audit's phase 10 checked watchdog-state.json (PASS — stale file existed) and phase 66 checked scripts existed (PASS — code was there). Neither detected that zero healing or detection was actually running. All autonomous self-debugging was silently dead._
 
+### Unified MMA Protocol v3.0 — Operational Reference
+
+**Full spec:** `.planning/specs/UNIFIED-MMA-PROTOCOL.md` (844 lines, approved by Uday)
+
+**When to run MMA:**
+- Before milestone ship (all models)
+- After security incident (Gemini + R1 + GPT-5.4 + Sonnet)
+- New crate/service (V3 + R1 + Gemini + Nemotron)
+- Cross-system bridge deploy (MANDATORY)
+- User requests "MMA audit" or "diagnose with MMA"
+
+**4-Step Convergence Engine (DIAGNOSE → PLAN → EXECUTE → VERIFY):**
+1. **DIAGNOSE:** 5 models identify ALL root causes (3/5 majority = consensus). Min 2 iterations.
+2. **PLAN:** 5 models design fix plans for consensus findings. JSON array with actions/risk/rollback.
+3. **EXECUTE:** Select best plan, apply smallest reversible change.
+4. **VERIFY:** Deterministic checks FIRST, then 3-model adversarial (different models from Steps 1-3). Score ≥4.0 = PASS.
+
+**How to run (James — OpenRouter):**
+```bash
+cd ~/racingpoint/racecontrol
+export OPENROUTER_KEY="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"
+
+# Codebase audit (7 batches):
+MODEL="deepseek/deepseek-r1-0528" node scripts/multi-model-audit.js &
+MODEL="deepseek/deepseek-chat-v3-0324" node scripts/multi-model-audit.js &
+MODEL="qwen/qwen3-235b-a22b-2507" node scripts/multi-model-audit.js &
+MODEL="google/gemini-2.5-pro-preview-03-25" node scripts/multi-model-audit.js &
+MODEL="xiaomi/mimo-v2-pro" node scripts/multi-model-audit.js &
+wait
+
+# Custom diagnostic prompt (curl):
+curl -s -m 120 https://openrouter.ai/api/v1/chat/completions \
+  -H "Authorization: Bearer $OPENROUTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(printf '%s' "$PROMPT" | jq -Rs --arg model "MODEL_ID" '{
+    "model": $model, "messages": [{"role":"user","content":.}], "max_tokens": 4000
+  }')"
+```
+
+**Model Pool (Step 1 — 10 models, stratified):**
+
+| Slot | Role (required) | Models |
+|------|-----------------|--------|
+| 1 | Reasoner | DeepSeek R1 0528, GPT-5.4 Nano, Kimi K2.5 |
+| 2 | Code Expert | DeepSeek V3.2, Grok Code Fast, Qwen3 Coder |
+| 3 | SRE/Ops | MiMo v2 Pro, Nemotron 3 Super, MiMo v2 Flash |
+| 4 | Domain Specialist | Varies by domain (see spec Part 8) |
+| 5 | Generalist | Qwen3 235B, Gemini 2.5 Flash, Mistral Medium |
+
+**Vendor diversity:** Each 5-model iteration MUST include ≥1 reasoner + ≥1 code expert + ≥1 SRE. Max 2 per vendor family. Min 3 vendor families.
+
+**Cost:** ~$2-5 per full audit (OpenRouter). Budget: $5/session unless Uday approves more.
+
 ### Unified MMA Protocol v3.0 Standing Rules (2026-03-31)
 
 - **MMA bootstrap is env-only.** API key (`OPENROUTER_KEY`), budget limits (`MMA_DAILY_BUDGET`), and training mode (`MMA_TRAINING_MODE`) read from environment variables FIRST, then `mma.toml`, then hardcoded defaults. NEVER depend on `racecontrol.toml` for MMA core config.
@@ -537,8 +590,8 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `UNIFIED-PROTOCOL.md` | Unified Operations Protocol v2.0 — all 147+ rules mapped to lifecycle phases (Plan→Create→Verify→Deploy→Ship→Debug→Audit) with Multi-Model AI Audit integration |
-| `audit/MULTI-MODEL-AUDIT-PROTOCOL.md` | Multi-Model AI Audit Protocol — 5 OpenRouter models, 7 batches, cross-model consensus |
+| `UNIFIED-PROTOCOL.md` | Unified Operations Protocol v3.0 — all 147+ rules mapped to lifecycle phases with MMA integration |
+| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
 | `.cargo\config.toml` | Static CRT build config |
 
 ---

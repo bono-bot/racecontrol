@@ -43,6 +43,7 @@ pub mod fleet_report;
 pub mod mesh_cloud_sync;
 pub mod mesh_handler;
 pub mod promotion;
+pub mod server_diagnostics;
 pub mod friends;
 pub mod game_launcher;
 pub mod input_validation;

@@ -3662,13 +3662,17 @@ name = "rc-sentry"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
+ "hmac",
  "rc-common",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "tungstenite 0.26.2",
  "winapi",
  "winres",
 ]

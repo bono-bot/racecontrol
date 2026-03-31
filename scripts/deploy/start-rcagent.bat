@@ -1,41 +1,57 @@
 @echo off
 cd /d C:\RacingPoint
+set RUST_BACKTRACE=1
+
+rem --- v3.0 MMA-01: Bootstrap env vars (read FIRST, before any config) ---
+set OPENROUTER_KEY=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
+
+rem --- v3.0: Clear stale sentinels (prevents stuck pods) ---
+del /Q MAINTENANCE_MODE 1>/dev/null 2>/dev/null
+del /Q GRACEFUL_RELAUNCH 1>/dev/null 2>/dev/null
+del /Q rcagent-restart-sentinel.txt 1>/dev/null 2>/dev/null
+del /Q OTA_DEPLOYING 1>/dev/null 2>/dev/null
 
 rem --- Enforce power settings (prevents ConspitLink flicker regression) ---
-powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 1>nul 2>nul
-powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>nul 2>nul
-powercfg /SETDCVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>nul 2>nul
-powercfg /SETACTIVE SCHEME_CURRENT 1>nul 2>nul
+powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 1>/dev/null 2>/dev/null
+powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>/dev/null 2>/dev/null
+powercfg /SETDCVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 1>/dev/null 2>/dev/null
+powercfg /SETACTIVE SCHEME_CURRENT 1>/dev/null 2>/dev/null
+
+rem --- Firewall rule ---
+netsh advfirewall firewall add rule name="RCAgent" dir=in action=allow protocol=TCP localport=8090 1>/dev/null 2>/dev/null
 
 rem --- Kill bloatware and prevent process multiplication ---
-taskkill /F /IM Variable_dump.exe 1>nul 2>nul
-taskkill /F /IM "Creative Cloud UI Helper.exe" 1>nul 2>nul
-taskkill /F /IM M365Copilot.exe 1>nul 2>nul
-taskkill /F /IM Copilot.exe 1>nul 2>nul
-taskkill /F /IM ollama.exe 1>nul 2>nul
-taskkill /F /IM ClockifyWindows.exe 1>nul 2>nul
-taskkill /F /IM OneDrive.exe 1>nul 2>nul
-taskkill /F /IM powershell.exe 1>nul 2>nul
-taskkill /F /IM ConspitLink2.0.exe 1>nul 2>nul
-taskkill /F /IM rc-agent.exe 1>nul 2>nul
-timeout /t 3 /nobreak 1>nul
+taskkill /F /IM Variable_dump.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM "Creative Cloud UI Helper.exe" 1>/dev/null 2>/dev/null
+taskkill /F /IM M365Copilot.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM Copilot.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM ollama.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM ClockifyWindows.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM OneDrive.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM powershell.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM ConspitLink2.0.exe 1>/dev/null 2>/dev/null
+taskkill /F /IM rc-agent.exe 1>/dev/null 2>/dev/null
+timeout /t 3 /nobreak 1>/dev/null
+
+rem --- Clean deprecated binary naming (pre-hash era) ---
+del /Q rc-agent-old.exe 1>/dev/null 2>/dev/null
+del /Q rc-agent-new.exe 1>/dev/null 2>/dev/null
+del /Q rc-agent-swap.exe 1>/dev/null 2>/dev/null
+del /Q rc-sentry-old.exe 1>/dev/null 2>/dev/null
+del /Q rc-sentry-new.exe 1>/dev/null 2>/dev/null
 
 rem --- Binary swap (hash-based versioning) ---
-rem Look for staged binary: rc-agent-<hash>.exe (8+ hex chars, not the running binary)
 set "STAGED="
 for /f "delims=" %%F in ('dir /B /O-D rc-agent-????????*.exe 2^>nul') do (
     if not "%%F"=="rc-agent.exe" (
         if not defined STAGED set "STAGED=%%F"
     )
 )
-if not defined STAGED goto :skip_swap
-rem Rename current binary to rc-agent-prev.exe (keep ONE rollback)
-del /Q rc-agent-prev.exe 1>nul 2>nul
-if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul
-timeout /t 1 /nobreak 1>nul
-if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul
-ren "%STAGED%" rc-agent.exe 1>nul
-:skip_swap
-
-rem --- Start ConspitLink singleton then rc-agent ---
-start /D C:\RacingPoint "" C:\RacingPoint\rc-agent.exe
+if not defined STAGED goto :start_agent
+del /Q rc-agent-prev.exe 1>/dev/null 2>/dev/null
+if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>/dev/null 2>/dev/null
+timeout /t 1 /nobreak 1>/dev/null
+if exist rc-agent.exe del /Q rc-agent.exe 1>/dev/null 2>/dev/null
+ren "%STAGED%" rc-agent.exe 1>/dev/null
+:start_agent
+start "" /D C:\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log

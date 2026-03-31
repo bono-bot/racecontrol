@@ -894,6 +894,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn Meshed Intelligence promotion pipeline (60s: promote candidates, detect patterns, expire stale)
     racecontrol_crate::promotion::spawn(state.clone());
 
+    // Spawn server self-diagnostics (MMA consensus: WS drift, split-brain, DB health — 60s interval)
+    racecontrol_crate::server_diagnostics::spawn(state.clone());
+
     // Spawn server-side process guard (monitors server .23 for unauthorized processes)
     process_guard::spawn_server_guard(state.clone());
 
