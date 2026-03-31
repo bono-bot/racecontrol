@@ -792,6 +792,44 @@ Models without this context make generic suggestions that don't apply to the ven
 | James CLAUDE.md | ⏳ DEFERRED | Email James after commit |
 | James INBOX.md | ⏳ TODO | Include in commit message |
 
+### MMA-21: Cloud ↔ Venue Environment Sync (Amendment 3, 2026-03-31)
+
+**Rule:** MMA Protocol operates in TWO environments that must stay in sync:
+
+| Environment | Execution Mode | Engine | Config | Owner |
+|-------------|---------------|--------|--------|-------|
+| **Cloud (Bono VPS)** | Structured-manual (MMA-02) | Bono/Claude calling OpenRouter | CLAUDE.md standing rules | Bono |
+| **Venue (Pods + Server)** | Automated (mma_engine.rs) | `tier_engine.rs` → `mma_engine.rs` | `racecontrol.toml` [mma] section | James |
+
+**Sync invariant:** Both environments MUST follow the same protocol rules. A fix that passes MMA on cloud must also pass on venue, and vice versa. Divergence means one environment accepts fixes the other would reject.
+
+**What must stay in sync:**
+
+| Component | Cloud Location | Venue Location | Sync Mechanism |
+|-----------|---------------|----------------|----------------|
+| Protocol rules | CLAUDE.md standing rules | `mma_engine.rs` constants + logic | Git push → James pull |
+| Model rosters | `reference_openrouter_key.md` | `mma_engine.rs` `get_model_pool()` | Git push → James pull |
+| Budget limits | Manual $5/session cap | `budget_tracker.rs` daily caps | Must match — verify on deploy |
+| Vendor diversity | CLAUDE.md "≥3 vendors" rule | `select_adversarial_models()` pool | Git push → James pull |
+| Step timeouts | CLAUDE.md "60s/5min" rule | `tokio::time::timeout(60s)` in code | Git push → James pull |
+| Consensus thresholds | CLAUDE.md "3/5 majority" rule | `CONSENSUS_RATIO` constant | Git push → James pull |
+| Backtrack limits | CLAUDE.md "max 3" rule | `MAX_BACKTRACKS` constant | Git push → James pull |
+| Escalation channels | CLAUDE.md multi-channel rule | `send_multi_channel_escalation()` | Git push → James pull |
+| Safe mode | Manual (Bono decides) | `MMA_SAFE_MODE` sentinel file | Independent per environment |
+| Reputation data | Not persisted (manual mode) | In-memory (resets on restart) | Independent — future: shared DB |
+
+**Process for MMA rule changes:**
+1. Change the spec (this file) — source of truth for both environments
+2. Update CLAUDE.md standing rules (affects cloud/manual)
+3. Update `mma_engine.rs` code (affects venue/automated)
+4. If ONLY standing rules changed (no code): email James summary, he applies on next session
+5. If code changed: commit + push. James pulls + rebuilds on next deploy cycle
+6. **VERIFY sync after deploy:** compare CLAUDE.md rule values against `mma_engine.rs` constants
+
+**Anti-pattern: "It works on cloud so it works on venue."** Cloud MMA is manual with human judgment. Venue MMA is automated with rigid consensus logic. A model that Bono "knows is right" and acts on with 1/5 agreement would be REJECTED by the automated engine (needs 3/5). The protocol must be the same — not "Bono mode" and "James mode."
+
+**Why:** v31.0 config incident was exactly this: cloud racecontrol.toml had `[mma]` section (for venue's rc-agent), but cloud's own Config struct didn't have the field. The change was made for one environment without verifying the other. The cascade rule (CLAUDE.md line 219) says "ALL ENVIRONMENTS" but was not enforced for MMA-specific changes.
+
 ### MMA Model Calls (Amendment 2)
 
 | Step | Models | Calls |

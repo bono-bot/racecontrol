@@ -315,6 +315,8 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
   _Why: No timeouts = hung protocol burns budget silently._
 - **Multi-channel escalation after max backtracks.** WhatsApp + email + comms-link. If all fail after 5min → SAFE_MODE (deterministic-only, no automated fixes).
   _Why: Single-channel escalation is single point of failure._
+- **Cloud ↔ Venue MMA sync is mandatory.** Every MMA rule change must be applied to BOTH environments: (1) CLAUDE.md standing rules (cloud/Bono manual), (2) `mma_engine.rs` constants/logic (venue/James automated). After any MMA amendment, verify: do CLAUDE.md rule values match `mma_engine.rs` constants? If they diverge, cloud accepts fixes venue rejects (or vice versa). See MMA-21 in spec for full sync table.
+  _Why: v31.0 — `[mma]` config added for venue's rc-agent but not for cloud's racecontrol. Change made for one environment without verifying the other._
 
 ### Debugging
 
