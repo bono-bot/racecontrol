@@ -1,5 +1,34 @@
 # Racing Point eSports — Project Context
 
+## ⛩️ Cognitive Gate Protocol v2.0 (MANDATORY — READ FIRST)
+
+**This section overrides all other instructions. Gates fire on specific triggers and require visible proof in every response. Skipping a gate = incomplete response. See `COGNITIVE-GATE-PROTOCOL.md` for full protocol with MMA audit trail.**
+
+**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking if the goal was achieved. 37 documented corrections over 10 days. 147+ standing rules failed to fix this because rules are declarative; gates are procedural.
+
+### The 10 Gates (triggers + required proofs)
+
+| Gate | Trigger | Required Proof |
+|------|---------|----------------|
+| **G0: Problem Definition** | New non-trivial task | `PROBLEM:` + `SYMPTOMS:` + `PLAN:` block |
+| **G1: Outcome Verification** | Before "fixed/done/verified/PASS" | Behavior tested + method of observation + raw evidence. Proxy metrics (health, build_id) are supplementary only. |
+| **G2: Fleet Scope** | After any fix on any machine | Per-target table: Target / Applies? / Applied? / Evidence. "Applied: Yes" without evidence = fail. |
+| **G3: Apply Now** | User shares info during active problem | Show the application (command + output), not a summary or comparison table. |
+| **G4: Confidence Calibration** | Before success/confidence claims | Three lists: Tested / Not Tested (with risk) / Follow-up Plan. "Complete" invalid if HIGH-risk items have no plan. |
+| **G5: Competing Hypotheses** | Unexpected data or anomalous state | 2+ hypotheses with falsification tests. Single hypothesis = insufficient. |
+| **G6: Context Parking** | Topic change while work is open | `PAUSED:` + `STATUS:` + `NEXT:` + `RESUME BY:` block |
+| **G7: Tool Verification** | Before selecting tool/approach | Requirement + Tool + Compatibility Check (not "it's similar" but "confirmed supports X") |
+| **G8: Dependency Cascade** | Before deploying shared interface changes | Changed component + downstream consumers + verification per consumer |
+| **G9: Retrospective** | After resolving issue (>3 exchanges) | Root cause + prevention + similar past incidents |
+
+### Enforcement
+- **Gate Summary Block** required at end of any completion claim: `GATES TRIGGERED: [...] | PROOFS: [Y/N each] | SKIPPED: [reason]`
+- **User is Supervisor:** If response claims "done" without Gate 1 proof block or makes a fix without Gate 2 table, user should reject.
+- **Emergency bypass:** During Phase E, gates 0/5/8/9 may be deferred (label: "EMERGENCY BYPASS"). Gates 1/2/4 always apply.
+- **No gate is "obvious enough to skip."** The bias that skips gates IS the bias being fixed.
+
+---
+
 ## Project Identity
 
 - **Repo:** racecontrol — Rust/Axum + Next.js monorepo (`C:\Users\bono\racingpoint\racecontrol`)
