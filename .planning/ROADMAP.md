@@ -54,7 +54,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
-| 291. KB Promotion Persistence | 0/? | Not started | - |
+| 291. KB Promotion Persistence | 0/3 | Not started | - |
 | 292. Model Reputation Persistence | 0/2 | Planned | - |
 | 293. Retrain Data Export | 0/1 | Planned | - |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
@@ -88,7 +88,10 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   4. A Quorum-stage rule requires success on 3+ distinct pods from 2+ distinct pod IDs before advancing to Hardened
   5. A Hardened rule is stored as a typed `Rule` struct (matchers, actions, verifier, TTL) and applied at $0 model cost
   6. The 6-hour cron evaluator runs, checks all candidate promotions, and advances or holds each based on their stage criteria
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 291-01-PLAN.md — kb_promotion_store.rs schema + KbPromotionStore wired into kb_hardening.rs for restart persistence + stage gates (KBPP-01, KBPP-02, KBPP-03, KBPP-04)
+- [ ] 291-02-PLAN.md — tier0_hardened_rule() in tier_engine.rs — Hardened rules applied at $0 cost before model tiers (KBPP-05)
+- [ ] 291-03-PLAN.md — 6-hour cron constant + promotion audit logging + integration tests (KBPP-06)
 
 ### Phase 292: Model Reputation Persistence
 **Goal**: Per-model accuracy and run counts are durable so the roster self-curates over rolling 7-day windows without requiring a human to intervene
@@ -127,4 +130,4 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ---
 
-*Last updated: 2026-04-01 — Phase 292 planned (2 plans, wave 1 + wave 2)*
+*Last updated: 2026-04-01 — Phase 291 planned (3 plans, wave 1 + wave 2)*
