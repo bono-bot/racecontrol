@@ -38,7 +38,7 @@
 
 - [x] **ALRT-01**: Alert rules are defined in racecontrol.toml under [alert_rules] section
 - [x] **ALRT-02**: Alert engine evaluates rules every 60 seconds against TSDB data
-- [ ] **ALRT-03**: Triggered alerts fire to existing WhatsApp alerter (Bono VPS Evolution API)
+- [x] **ALRT-03**: Triggered alerts fire to existing WhatsApp alerter (Bono VPS Evolution API)
 - [x] **ALRT-04**: Alert deduplication -- same alert suppressed for 30 minutes after first fire
 - [x] **ALRT-05**: Alert rules support threshold conditions (>, <, ==) on any metric name
 
@@ -93,7 +93,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | PROM-02 | Phase 288 | Complete |
 | ALRT-01 | Phase 289 | Complete |
 | ALRT-02 | Phase 289 | Complete |
-| ALRT-03 | Phase 289 | Pending |
+| ALRT-03 | Phase 289 | Complete |
 | ALRT-04 | Phase 289 | Complete |
 | ALRT-05 | Phase 289 | Complete |
 

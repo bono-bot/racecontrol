@@ -25,7 +25,7 @@ Make autonomous action loops observable and queryable with time-series depth -- 
 - [x] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution (completed 2026-04-01)
 - [x] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh (completed 2026-04-01)
 - [x] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility (completed 2026-04-01)
-- [ ] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup
+- [x] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup (completed 2026-04-01)
 
 ## Phase Details
 
@@ -98,11 +98,11 @@ Plans:
   3. Triggered alerts fire to WhatsApp via the existing Bono VPS Evolution API alerter
   4. Same alert is suppressed for 30 minutes after first fire (deduplication)
   5. Rules support threshold conditions (>, <, ==) on any metric name
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 289-01-PLAN.md — Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
-- [ ] 289-02-PLAN.md — Wire metric_alert_task into main.rs startup
+- [x] 289-02-PLAN.md — Wire metric_alert_task into main.rs startup
 
 ## Progress
 
@@ -115,4 +115,4 @@ Plans:
 | 286. Metrics Query API | 1/1 | Complete    | 2026-04-01 |
 | 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete    | 2026-04-01 |
-| 289. Metric Alert Thresholds | 1/2 | In Progress|  |
+| 289. Metric Alert Thresholds | 2/2 | Complete   | 2026-04-01 |
