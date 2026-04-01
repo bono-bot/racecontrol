@@ -25,6 +25,9 @@ use crate::diagnostic_engine::{DiagnosticEvent, DiagnosticTrigger};
 use crate::diagnostic_log::{DiagnosticLog, DiagnosticLogEntry};
 use rc_common::fleet_event::FleetEvent;
 
+#[path = "game_launch_retry.rs"]
+mod game_launch_retry;
+
 const LOG_TARGET: &str = "tier-engine";
 
 /// Staff-triggered diagnostic request — injected via WS handler
@@ -1637,23 +1640,31 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
             }
         }
         DiagnosticTrigger::GameLaunchFail => {
-            // Game Doctor: specialized 12-point diagnostic for game launch failures.
-            // This is revenue-critical — every failed launch costs billing time.
-            tracing::info!(target: LOG_TARGET, "Tier 1: invoking Game Doctor for launch failure");
-            let diagnosis = crate::game_doctor::diagnose_and_fix();
-            if diagnosis.fixed {
-                actions_taken.push(format!("Game Doctor: {}", diagnosis.detail));
-            } else if let Some(fix) = &diagnosis.fix_applied {
-                // Partial fix — some issues resolved but others remain
-                actions_taken.push(format!("Game Doctor (partial): fixes={}, remaining={}", fix, diagnosis.detail));
-            } else {
-                // No fix possible at Tier 1 — log cause for model tiers
-                tracing::info!(
-                    target: LOG_TARGET,
-                    cause = ?diagnosis.cause,
-                    "Game Doctor: no deterministic fix — escalating. Detail: {}",
-                    diagnosis.detail
-                );
+            // Game Launch Retry Orchestrator (Phase 275 — GAME-01..05):
+            // Runs Game Doctor up to 2 times with 5s backoff, bounded to 60s total.
+            // On success: KB recording + fleet cascade happen via the main loop's
+            //   universal KB recording (273-03) and FleetEvent emission.
+            // On failure: escalates to Tier 3/4 MMA via FailedToFix return.
+            tracing::info!(target: LOG_TARGET, "Tier 1: invoking game launch retry orchestrator");
+            let retry_result = game_launch_retry::retry_game_launch();
+
+            match retry_result {
+                game_launch_retry::RetryResult::Fixed { attempt, ref cause, ref fix } => {
+                    actions_taken.push(format!(
+                        "Game launch retry (attempt {}/2): cause={}, fix={}",
+                        attempt, cause, fix
+                    ));
+                }
+                game_launch_retry::RetryResult::EscalateToMma { attempts, ref causes } => {
+                    // All retries failed — don't add to actions_taken so Tier 3/4 handles it
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        attempts = attempts,
+                        causes = ?causes,
+                        "Game launch retry exhausted ({} attempts) — escalating to model tiers",
+                        attempts
+                    );
+                }
             }
         }
         DiagnosticTrigger::TaskbarVisible => {

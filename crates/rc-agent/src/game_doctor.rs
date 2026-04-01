@@ -32,6 +32,21 @@ pub struct GameDiagnosis {
     pub fix_applied: Option<String>,
     /// Whether the fix was successful
     pub fixed: bool,
+    /// Hint for retry orchestrator: what cleanup to perform between retries (GAME-02)
+    pub retry_hint: RetryHint,
+}
+
+/// Hint for the retry orchestrator on what cleanup to perform between retries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetryHint {
+    /// Kill orphan processes, then retry launch.
+    RetryAfterKill,
+    /// Reset config files (race.ini, gui.ini), then retry.
+    RetryAfterConfigReset,
+    /// Free disk space (temp files, logs), then retry.
+    RetryAfterDiskCleanup,
+    /// No deterministic retry possible — escalate immediately.
+    NoRetry,
 }
 
 /// Known game launch failure categories.
@@ -110,6 +125,7 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
                 detail: format!("OTA deploy in progress ({}s old) — cannot launch game during update", age),
                 fix_applied: None,
                 fixed: false,
+                retry_hint: RetryHint::RetryAfterKill,
             };
         }
     }
@@ -123,6 +139,7 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
             detail: "Assetto Corsa not installed — acs.exe not found in Steam directories".to_string(),
             fix_applied: None,
             fixed: false,
+            retry_hint: RetryHint::NoRetry,
         };
     }
     let ac_dir = ac_dir.expect("checked above");
@@ -321,21 +338,25 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
             detail: "All 12 pre-launch checks passed — escalating to model diagnosis".to_string(),
             fix_applied: None,
             fixed: false,
+            retry_hint: RetryHint::NoRetry,
         };
     }
 
     if total_issues == 0 && total_fixes > 0 {
         let fix_str = fixes.join("; ");
         tracing::info!(target: LOG_TARGET, "Game Doctor: {} issues fixed — {}", total_fixes, fix_str);
+        let cause = if total_fixes == 1 {
+            categorize_fix(&fixes[0])
+        } else {
+            GameFailureCause::MultipleIssues { count: total_fixes }
+        };
+        let hint = hint_for_cause(&cause);
         return GameDiagnosis {
-            cause: if total_fixes == 1 {
-                categorize_fix(&fixes[0])
-            } else {
-                GameFailureCause::MultipleIssues { count: total_fixes }
-            },
+            cause,
             detail: format!("Fixed {} issue(s): {}", total_fixes, fix_str),
             fix_applied: Some(fix_str),
             fixed: true,
+            retry_hint: hint,
         };
     }
 
@@ -348,15 +369,44 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
         total_issues, total_fixes, issue_str
     );
 
+    let cause = if total_issues == 1 {
+        categorize_issue(&issues[0])
+    } else {
+        GameFailureCause::MultipleIssues { count: total_issues }
+    };
+    let hint = hint_for_cause(&cause);
     GameDiagnosis {
-        cause: if total_issues == 1 {
-            categorize_issue(&issues[0])
-        } else {
-            GameFailureCause::MultipleIssues { count: total_issues }
-        },
+        cause,
         detail: format!("Issues: {}. Fixes applied: {}", issue_str, fix_str),
         fix_applied: if fixes.is_empty() { None } else { Some(fix_str) },
         fixed: false,
+        retry_hint: hint,
+    }
+}
+
+/// Map a GameFailureCause to a RetryHint for the retry orchestrator (GAME-02).
+pub fn hint_for_cause(cause: &GameFailureCause) -> RetryHint {
+    match cause {
+        GameFailureCause::OrphanAcsProcess { .. }
+        | GameFailureCause::OrphanCmProcess
+        | GameFailureCause::ContentManagerHung
+        | GameFailureCause::StaleGamePid
+        | GameFailureCause::MaintenanceModeBlocking
+        | GameFailureCause::OtaDeployBlocking
+        | GameFailureCause::MultipleIssues { .. } => RetryHint::RetryAfterKill,
+
+        GameFailureCause::RaceIniMissing
+        | GameFailureCause::RaceIniCorrupt
+        | GameFailureCause::GuiIniNotPatched
+        | GameFailureCause::AcConfigDirMissing => RetryHint::RetryAfterConfigReset,
+
+        GameFailureCause::DiskSpaceLow { .. } => RetryHint::RetryAfterDiskCleanup,
+
+        GameFailureCause::AcNotInstalled
+        | GameFailureCause::CarNotInstalled { .. }
+        | GameFailureCause::TrackNotInstalled { .. }
+        | GameFailureCause::TrackConfigMissing { .. }
+        | GameFailureCause::Unknown => RetryHint::NoRetry,
     }
 }
 

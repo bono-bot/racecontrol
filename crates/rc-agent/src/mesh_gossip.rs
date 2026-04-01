@@ -233,6 +233,46 @@ pub fn build_experiment_announce(
     }
 }
 
+/// Build an AgentMessage::MeshSolutionAnnounce for a game launch fix (GAME-05).
+/// Convenience wrapper that creates a minimal Solution and delegates to build_solution_announce.
+pub fn build_game_fix_announce(
+    cause: &str,
+    fix: &str,
+    confidence: f64,
+    node_id: &str,
+) -> AgentMessage {
+    let now = chrono::Utc::now().to_rfc3339();
+    let solution = Solution {
+        id: format!("game_fix_{}_{}", node_id, chrono::Utc::now().timestamp()),
+        problem_key: "game_launch_fail".to_string(),
+        problem_hash: format!("game_launch:{}", cause),
+        symptoms: "game launch failure".to_string(),
+        environment: "{}".to_string(),
+        root_cause: cause.to_string(),
+        fix_action: fix.to_string(),
+        fix_type: "deterministic".to_string(),
+        success_count: 1,
+        fail_count: 0,
+        confidence,
+        cost_to_diagnose: 0.0,
+        models_used: None,
+        source_node: node_id.to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+        version: 1,
+        ttl_days: 90,
+        tags: Some("[\"game_launch\", \"auto_retry\"]".to_string()),
+        diagnosis_method: Some("game_doctor_retry".to_string()),
+        fix_permanence: "workaround".to_string(),
+        recurrence_count: 0,
+        permanent_fix_id: None,
+        last_recurrence: None,
+        permanent_attempt_at: None,
+    };
+    // Use the node_id as build_id for game fixes (actual build_id not available here)
+    build_solution_announce(&solution, node_id)
+}
+
 /// Check if another node is already diagnosing this problem.
 /// MESH-05: First-responder rule.
 /// Returns true if we should SKIP diagnosis (another node is on it).
