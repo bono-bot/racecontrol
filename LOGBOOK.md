@@ -3,7 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-01 20:21 IST | James | a6b6a43c | docs(299): Phase 299 Policy Rules Engine � 3 plans (SQLite schema+CRUD API, eval engine+main.rs wiring, admin UI+sidebar) |
+| 2026-04-01 20:25 IST | James | eb9803c3 | docs(300-02): complete offsite-transfer + backup-status plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-04-01 20:25 IST | James | 81a3fd9f | feat(300-02): GET /api/v1/backup/status endpoint (staff JWT) + BackupStatus TS interface + admin Backup Status card |
+| 2026-04-01 20:25 IST | James | 021d2565 | feat(300-02): nightly SCP to Bono VPS (02-04 IST) with SHA256 verification, remote reachability every tick, no hardcoded IPs |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
