@@ -549,6 +549,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/maintenance/tasks/{id}", axum::routing::patch(maintenance_update_task))
         .route("/analytics/telemetry", get(analytics_telemetry))
         .route("/analytics/trends", get(analytics_trends))
+        // ─── Phase 300-02: Backup Status (staff-only — backup health is internal data) ──
+        .route("/backup/status", get(get_backup_status))
         // Merge role-gated sub-routers (SEC-04: manager+, superadmin-only groups)
         .merge(
             // ── Manager+ routes ─────────────────────────────────────────────
@@ -663,6 +665,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "build_id": BUILD_ID,
         "whatsapp": whatsapp_status,
     }))
+}
+
+// ─── Phase 300-02: Backup Status endpoint ────────────────────────────────────
+/// GET /api/v1/backup/status — returns current BackupStatus as JSON.
+///
+/// Staff JWT required (registered in staff_routes). Backup health data should not
+/// be visible to unauthenticated clients on venue WiFi.
+async fn get_backup_status(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Snapshot without holding lock across .await (standing rule: no lock held across .await)
+    let status = { state.backup_status.read().await.clone() };
+    Json(status)
 }
 
 /// Probe Evolution API health. Returns "ok", "unreachable", or "not_configured".

@@ -301,6 +301,19 @@ export type OtaStatusResponse =
   | DeployRecord
   | { state: "idle"; message: string };
 
+// ─── Phase 300-02: Backup Status ─────────────────────────────────────────────
+
+export interface BackupStatus {
+  last_backup_at: string | null;
+  last_backup_size_bytes: number | null;
+  last_backup_file: string | null;
+  remote_reachable: boolean;
+  last_remote_transfer_at: string | null;
+  last_checksum_match: boolean | null;
+  backup_count_local: number;
+  staleness_hours: number | null;
+}
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -596,6 +609,9 @@ export const api = {
     });
     return res.json() as Promise<{ ok?: boolean; version?: string; error?: string }>;
   },
+
+  // Phase 300-02: Backup Status — staff JWT required
+  backupStatus: () => fetchApi<BackupStatus>("/backup/status"),
 };
 
 interface GameLaunchEvent {

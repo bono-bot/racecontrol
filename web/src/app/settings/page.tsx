@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { AlertTriangle } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type BackupStatus } from "@/lib/api";
 
 export default function SettingsPage() {
   const [venue, setVenue] = useState<{
@@ -18,11 +18,13 @@ export default function SettingsPage() {
   } | null>(null);
   const [posLocked, setPosLocked] = useState<boolean | null>(null);
   const [posToggling, setPosToggling] = useState(false);
+  const [backup, setBackup] = useState<BackupStatus | null>(null);
 
   useEffect(() => {
     api.venue().then(setVenue).catch(() => {});
     api.health().then(setHealth).catch(() => {});
     api.getPosLockdown().then((r) => setPosLocked(r.locked)).catch(() => {});
+    api.backupStatus().then(setBackup).catch(() => {});
   }, []);
 
   const togglePosLockdown = async () => {
@@ -124,6 +126,56 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>POS terminal is restricted to billing only</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Backup Status */}
+        <div className="bg-rp-card border border-rp-border rounded-lg p-5">
+          <h2 className="text-sm font-medium text-neutral-400 mb-4">Backup Status</h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Last Backup</span>
+              <span className="text-neutral-300">{backup?.last_backup_at ?? "Never"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Size</span>
+              <span className="text-neutral-300 font-mono">
+                {backup?.last_backup_size_bytes != null
+                  ? `${(backup.last_backup_size_bytes / 1024 / 1024).toFixed(1)} MB`
+                  : "---"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Local Backups</span>
+              <span className="text-neutral-300">{backup?.backup_count_local ?? "---"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Remote (Bono VPS)</span>
+              <span className={backup?.remote_reachable ? "text-emerald-400" : "text-red-400"}>
+                {backup ? (backup.remote_reachable ? "Reachable" : "Unreachable") : "---"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Last Transfer</span>
+              <span className="text-neutral-300">{backup?.last_remote_transfer_at ?? "Never"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Checksum Match</span>
+              <span className={
+                backup?.last_checksum_match === true ? "text-emerald-400" :
+                backup?.last_checksum_match === false ? "text-red-400" :
+                "text-neutral-500"
+              }>
+                {backup?.last_checksum_match === true ? "OK" :
+                 backup?.last_checksum_match === false ? "MISMATCH" : "---"}
+              </span>
+            </div>
+            {backup?.staleness_hours != null && backup.staleness_hours > 2 && (
+              <div className="flex items-center gap-2 text-amber-400 mt-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Backup stale ({backup.staleness_hours.toFixed(1)}h)</span>
               </div>
             )}
           </div>
