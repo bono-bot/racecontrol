@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 15:40 IST | James | 990914f7 | fix(281/282): test assertions for PausedCrashRecovery FSM + missing playable_at/ready_delay_ms in test GameTracker constructors. 4 new FSM tests. 709 tests pass. |
 | 2026-04-01 15:31 IST | James | 1fe95f9f | feat: Phase 282 — sim_type on TelemetryFrame, playable_at + ready_delay_ms on GameLaunchInfo, ready_delay in launch_events DB |
 | 2026-04-01 15:31 IST | James | 7004f4f3 | docs: billing-launch-system-design.md — pseudocode, 3 flowcharts, spec mapping, FSM diagram |
 | 2026-04-01 15:31 IST | James | a314a6fb | docs: infrastructure-roadmap-v34-v37.md — 5 milestones, 25 phases, mermaid flowcharts |
