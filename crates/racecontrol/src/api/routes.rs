@@ -19,6 +19,7 @@ use crate::recovery;
 use crate::cafe;
 use crate::config_push;
 use crate::flags;
+use crate::policy_engine;
 use crate::preset_library;
 use crate::cafe_alerts;
 use crate::cafe_marketing;
@@ -558,6 +559,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/analytics/trends", get(analytics_trends))
         // ─── Phase 300-02: Backup Status (staff-only — backup health is internal data) ──
         .route("/backup/status", get(get_backup_status))
+        // ─── Phase 299: Policy Rules Engine ──────────────────────────────────
+        .route("/policy/rules", get(policy_engine::list_rules_handler).post(policy_engine::create_rule_handler))
+        .route("/policy/rules/{id}", put(policy_engine::update_rule_handler).delete(policy_engine::delete_rule_handler))
+        .route("/policy/eval-log", get(policy_engine::list_eval_log_handler))
         // Merge role-gated sub-routers (SEC-04: manager+, superadmin-only groups)
         .merge(
             // ── Manager+ routes ─────────────────────────────────────────────
