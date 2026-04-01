@@ -307,6 +307,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Driver rating history (staff-only — Phase 253)
         .route("/drivers/{id}/rating-history", get(staff_driver_rating_history))
+        // Phase 302: Event archive query API
+        .route("/events", get(get_events))
         // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/debug/activity", get(debug_activity))
@@ -21633,6 +21635,94 @@ pub async fn queue_expire_task(db: sqlx::SqlitePool) {
                 tracing::warn!("QUEUE: expire task error: {}", e);
             }
         }
+    }
+}
+
+// ─── Phase 302: Event archive query API ──────────────────────────────────────
+
+#[derive(Deserialize)]
+struct EventsQuery {
+    event_type: Option<String>,
+    pod: Option<String>,
+    from: Option<String>, // YYYY-MM-DD
+    to: Option<String>,   // YYYY-MM-DD
+    limit: Option<i64>,
+}
+
+/// GET /api/v1/events — Query system_events with optional filters.
+///
+/// All filter inputs are validated with character allowlists before SQL
+/// interpolation (no raw user data in query strings — standing rule compliance).
+/// Payload TEXT column is parsed back to JSON Value to avoid double-encoding.
+async fn get_events(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<EventsQuery>,
+) -> Json<Value> {
+    let mut query = String::from(
+        "SELECT id, event_type, source, pod, timestamp, payload FROM system_events WHERE 1=1",
+    );
+    let mut bind_values: Vec<String> = Vec::new();
+
+    if let Some(ref et) = q.event_type {
+        // Allow alphanumeric + underscore + dot (e.g. "billing.session_started")
+        if et.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+            query.push_str(" AND event_type = ?");
+            bind_values.push(et.clone());
+        }
+    }
+    if let Some(ref pod) = q.pod {
+        // Allow alphanumeric + hyphen + underscore (e.g. "pod_4", "pod-4")
+        if pod.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            query.push_str(" AND pod = ?");
+            bind_values.push(pod.clone());
+        }
+    }
+    if let Some(ref from) = q.from {
+        // Validate YYYY-MM-DD: exactly 10 chars, digits + hyphens only
+        if from.len() == 10 && from.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(timestamp) >= ?");
+            bind_values.push(from.clone());
+        }
+    }
+    if let Some(ref to) = q.to {
+        // Validate YYYY-MM-DD: exactly 10 chars, digits + hyphens only
+        if to.len() == 10 && to.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(timestamp) <= ?");
+            bind_values.push(to.clone());
+        }
+    }
+
+    let limit = q.limit.unwrap_or(200).min(1000);
+    query.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+    let mut qb = sqlx::query_as::<_, (String, String, String, Option<String>, String, String)>(&query);
+    for val in &bind_values {
+        qb = qb.bind(val);
+    }
+    qb = qb.bind(limit);
+
+    match qb.fetch_all(&state.db).await {
+        Ok(rows) => {
+            let events: Vec<Value> = rows
+                .into_iter()
+                .map(|(id, event_type, source, pod, timestamp, payload)| {
+                    // Parse payload TEXT back to JSON Value — avoids double-encoding (Pitfall 5)
+                    let payload_val: Value = serde_json::from_str(&payload)
+                        .unwrap_or_else(|_| Value::String(payload));
+                    json!({
+                        "id": id,
+                        "event_type": event_type,
+                        "source": source,
+                        "pod": pod,
+                        "timestamp": timestamp,
+                        "payload": payload_val,
+                    })
+                })
+                .collect();
+            let count = events.len();
+            Json(json!({ "events": events, "count": count }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
 
