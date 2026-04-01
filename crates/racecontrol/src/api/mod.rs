@@ -1,4 +1,5 @@
 pub mod metrics;
+pub mod metrics_query;
 pub mod routes;
 pub mod security;
 pub mod survival;
