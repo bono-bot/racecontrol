@@ -1,193 +1,118 @@
-# Roadmap: v32.0 Autonomous Meshed Intelligence
+# Roadmap: v34.0 Time-Series Metrics & Operational Dashboards
 
 ## Milestone Goal
 
-Close all action loops in Meshed Intelligence so the venue self-heals end-to-end: anomaly detected -> diagnosed -> fixed -> verified -> permanent fix encoded in KB -> cascaded to fleet -> never debug the same issue twice. Event-driven pipeline (not polling) with runaway prevention guardrails.
+Make autonomous action loops observable and queryable with time-series depth -- answer "what happened last Tuesday at 8pm" without grepping JSONL logs. SQLite TSDB with rollups, query API, Next.js dashboard, Prometheus export, and WhatsApp threshold alerts.
 
 ## Phases
 
-**Phase Numbering:** Continues from v31.0 (ended at Phase 272). Start at 273.
+**Phase Numbering:** Continues from v33.0 (ended at Phase 281). Start at 285 (per backlog allocation).
 
 **Parallelism Map:**
-- Phase 273 (Foundation) and Phase 274 (Escalation) run SEQUENTIALLY first
-- Phases 275, 276, 277 run IN PARALLEL after 273+274 complete
-- Phase 278 (KB Hardening) runs after 273 + at least one of {275, 276, 277}
-- Phase 279 (Weekly Report & Audit) runs last after all others complete
+- Phase 285 (Ring Buffer) runs FIRST (foundation)
+- Phase 286 (Query API) depends on 285
+- Phase 287 (Dashboard) depends on 286
+- Phase 288 (Prometheus) depends on 286 (can parallel with 287)
+- Phase 289 (Alerts) depends on 285 (can parallel with 286)
 
 ```
-273 ──> 274 ──┬──> 275 (Game) ────────┐
-              ├──> 276 (Pred+CX) ─────┤──> 278 (KB) ──> 279 (Report+Audit)
-              └──> 277 (Rev+Rep) ─────┘
+285 ──> 286 ──┬──> 287 (Dashboard)
+              └──> 288 (Prometheus)
+285 ──> 289 (Alerts)
 ```
 
-- [ ] **Phase 273: Event Pipeline & Safety Foundation** - Event bus, proactive pipeline, blast radius limiter, circuit breakers, idempotency
-- [ ] **Phase 274: WhatsApp Escalation** - Tier 5 WhatsApp alerts via Bono VPS Evolution API with dedup and fallback
-- [ ] **Phase 275: Autonomous Game Launch Fix** - Game launch failure -> diagnosis -> fix -> retry -> KB encode -> fleet cascade
-- [ ] **Phase 276: Predictive Alerts & Experience Scoring** - Predictive alerts fed into tier engine + per-pod experience scoring with auto-flag/remove
-- [ ] **Phase 277: Revenue Protection & Model Reputation** - Billing/game mismatch detection + model accuracy auto-demotion/promotion
-- [ ] **Phase 278: KB Hardening Pipeline** - Promotion ladder: Observed -> Shadow -> Canary -> Quorum -> Deterministic Rule
-- [ ] **Phase 279: Weekly Report & Integration Audit** - Weekly KPI report to Uday via WhatsApp + full MMA audit of v32.0
+- [ ] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion
+- [ ] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution
+- [ ] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh
+- [ ] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility
+- [ ] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup
 
 ## Phase Details
 
-### Phase 273: Event Pipeline & Safety Foundation
-**Goal**: All anomaly detection and fix application flows through an event-driven pipeline with safety guardrails that prevent runaway autonomous actions
-**Depends on**: Nothing (foundation phase for v32.0)
-**Requirements**: PRO-01, PRO-02, PRO-03, PRO-04, PRO-05, PRO-06, SAFE-01, SAFE-02, SAFE-03
+### Phase 285: Metrics Ring Buffer
+**Goal**: Server persistently stores time-series metric data with automatic rollups and bounded storage
+**Depends on**: Nothing (first phase)
+**Requirements**: TSDB-01, TSDB-02, TSDB-03, TSDB-04, TSDB-05, TSDB-06, TSDB-07
 **Success Criteria** (what must be TRUE):
-  1. When a diagnostic scan detects an anomaly crossing threshold, a FleetEvent is emitted within 1 second (not waiting for next 5-min cycle) and the tier engine receives it via mpsc channel
-  2. Tier 1-3 fixes are applied automatically without human approval, and verification runs within 30 seconds of application confirming fix or escalating
-  3. Every resolved issue (all tiers) is recorded in KB with problem signature, fix action, verification result, and timestamp -- KB lookup runs before any AI model call
-  4. No more than 2 of 10 nodes are under simultaneous autonomous fix at any time (blast radius limiter enforced via DashMap + RAII FixGuard)
-  5. Per-action circuit breaker trips at 40% fail rate with 2-minute cooldown, and every executor action carries an idempotency key (node + rule_version + incident_fingerprint)
-**Plans**: 4 plans
+  1. Server records CPU, GPU temp, FPS, billing revenue, WS connections, pod health score, and game session count at 1-minute resolution into SQLite
+  2. Raw samples older than 7 days are automatically purged without manual intervention
+  3. Hourly and daily rollups (min/max/avg/count) exist and are retained for 90 days
+  4. Metric ingestion does not introduce observable latency on the main server event loop (async/batched writes)
+  5. Storage is bounded -- disk usage does not grow indefinitely regardless of uptime duration
+**Plans**: TBD
+
 Plans:
-- [x] 273-01-PLAN.md — Event bus & FleetEvent types + broadcast wiring
-- [x] 273-02-PLAN.md — Safety guardrails (blast radius, circuit breaker, idempotency)
-- [x] 273-03-PLAN.md — KB-first gate & solution recording
-- [ ] 273-04-PLAN.md — Immediate fix & 30-second verification loop
-**UI hint**: no
+- [ ] 285-01: SQLite TSDB schema, ingestion, and rollup engine
+- [ ] 285-02: Background purge task and async write pipeline
 
-### Phase 274: WhatsApp Escalation
-**Goal**: Tier 5 escalations and critical alerts reach Uday's WhatsApp within 30 seconds via Bono VPS Evolution API, with deduplication preventing alert fatigue
-**Depends on**: Phase 273
-**Requirements**: ESC-01, ESC-02, ESC-03, ESC-04
+### Phase 286: Metrics Query API
+**Goal**: Operators can retrieve historical and current metric data via REST API
+**Depends on**: Phase 285
+**Requirements**: QAPI-01, QAPI-02, QAPI-03, QAPI-04, QAPI-05
 **Success Criteria** (what must be TRUE):
-  1. A Tier 5 escalation sends a WhatsApp message to Uday containing severity, pod/service ID, issue summary, AI actions tried, and a clickable dashboard link
-  2. The same incident ID is suppressed for 30 minutes after first alert -- no duplicate messages for the same ongoing issue
-  3. If WhatsApp send fails (Evolution API down, VPS unreachable), the alert falls back to comms-link INBOX.md entry within 60 seconds
-  4. WhatsApp messages are routed through Bono VPS Evolution API (POST /message/sendText/:instance) with apikey auth -- never direct from venue
-**Plans**: 2 plans
+  1. GET /api/v1/metrics/query returns time-series data filtered by metric name and time range
+  2. GET /api/v1/metrics/names returns the complete list of known metric names
+  3. GET /api/v1/metrics/snapshot returns the latest value for every metric in one call
+  4. Queries accept a pod filter parameter and return only that pod's data
+  5. API auto-selects resolution (raw < 24h, hourly < 7d, daily > 7d) without caller needing to specify
+**Plans**: TBD
+
 Plans:
-- [ ] 274-01-PLAN.md — Pod-side Tier 5 escalation via WS (EscalationPayload + tier5 wiring)
-- [ ] 274-02-PLAN.md — Server-side WhatsApp sender + dedup + fallback
-**UI hint**: no
+- [ ] 286-01: Query, names, and snapshot endpoints with auto-resolution
 
-### Phase 275: Autonomous Game Launch Fix
-**Goal**: A customer whose game fails to launch sees recovery within 60 seconds -- diagnosis, fix, retry, and if deterministic fix works, the solution is encoded in KB and cascaded to all pods
-**Depends on**: Phase 273, Phase 274
-**Requirements**: GAME-01, GAME-02, GAME-03, GAME-04, GAME-05
+### Phase 287: Metrics Dashboard
+**Goal**: Staff can visually monitor venue health trends through a browser dashboard
+**Depends on**: Phase 286
+**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, DASH-05
 **Success Criteria** (what must be TRUE):
-  1. A game launch failure triggers immediate diagnosis and the customer sees the game recover (or a clear escalation message) within 60 seconds
-  2. After a fix is applied, the system auto-retries launch up to 2 times with clean state reset between attempts
-  3. If deterministic fix fails after retries, the system escalates to Tier 3/4 MMA for AI diagnosis without further customer wait
-  4. Every successful game launch fix is encoded in KB with problem signature, and cascaded via mesh gossip to all pods + POS for fleet pre-immunization
+  1. Admin app has a /metrics page displaying sparkline charts for selected metrics
+  2. Staff can filter charts by individual pod using a pod selector
+  3. Staff can change time range (1h, 6h, 24h, 7d, 30d, custom) and charts update accordingly
+  4. Dashboard auto-refreshes every 30 seconds without manual reload
+  5. Current snapshot values appear as headline numbers above the charts
 **Plans**: TBD
-**UI hint**: no
+**UI hint**: yes
 
-### Phase 276: Predictive Alerts & Experience Scoring
-**Goal**: Predictive alerts drive proactive action (not just logging), and every pod has a live experience score that auto-flags degraded pods and removes critically broken ones from rotation
-**Depends on**: Phase 273, Phase 274
-**Requirements**: PRED-10, PRED-11, PRED-12, CX-05, CX-06, CX-07, CX-08
+Plans:
+- [ ] 287-01: Next.js /metrics page with charts, selectors, and auto-refresh
+
+### Phase 288: Prometheus Export
+**Goal**: Metrics are available in Prometheus exposition format for future monitoring tool compatibility
+**Depends on**: Phase 286
+**Requirements**: PROM-01, PROM-02
 **Success Criteria** (what must be TRUE):
-  1. Predictive alerts are converted to FleetEvent and processed by the tier engine -- high-severity predictions trigger immediate pre-emptive fix, low-severity defer to session gap
-  2. Predictive alerts that lead to successful pre-emptive fixes are recorded in KB with the prediction-to-fix mapping
-  3. Each pod has an experience score (0-100) calculated every 5 minutes from diagnostic scan data, visible at /api/v1/fleet/health as experience_score per pod
-  4. A pod scoring below 80% is auto-flagged for maintenance in fleet status; a pod scoring below 50% is auto-removed from customer rotation and triggers a WhatsApp alert to Uday
+  1. GET /api/v1/metrics/prometheus returns all current metrics in valid Prometheus exposition format
+  2. Endpoint works without any Prometheus server deployed -- zero additional infrastructure required
 **Plans**: TBD
-**UI hint**: no
 
-### Phase 277: Revenue Protection & Model Reputation
-**Goal**: Billing-game mismatches are caught and resolved automatically, and AI models that consistently fail are removed from the MMA roster while high-performers are promoted
-**Depends on**: Phase 273, Phase 274
-**Requirements**: REV-01, REV-02, REV-03, REP-01, REP-02
+Plans:
+- [ ] 288-01: Prometheus exposition format endpoint
+
+### Phase 289: Metric Alert Thresholds
+**Goal**: Operators receive WhatsApp alerts when metrics cross configured thresholds
+**Depends on**: Phase 285
+**Requirements**: ALRT-01, ALRT-02, ALRT-03, ALRT-04, ALRT-05
 **Success Criteria** (what must be TRUE):
-  1. A game running without an active billing session triggers an immediate staff alert (revenue leak detected)
-  2. A billing session that ends while a game is still active triggers a grace period followed by auto-end of the game process
-  3. Pod recovery during peak hours (12-22 IST) is prioritized over off-peak recovery in the tier engine queue
-  4. Models with accuracy below 30% across 5+ runs are automatically removed from the MMA roster; models with accuracy above 90% across 10+ runs are promoted to higher priority
+  1. Alert rules are defined in racecontrol.toml under [alert_rules] and parsed at startup
+  2. Alert engine evaluates rules every 60 seconds against live TSDB data
+  3. Triggered alerts fire to WhatsApp via the existing Bono VPS Evolution API alerter
+  4. Same alert is suppressed for 30 minutes after first fire (deduplication)
+  5. Rules support threshold conditions (>, <, ==) on any metric name
 **Plans**: TBD
-**UI hint**: no
 
-### Phase 278: KB Hardening Pipeline
-**Goal**: Fixes that prove themselves across multiple pods and contexts automatically graduate from observed anomalies to deterministic Tier 1 rules that cost $0 and apply instantly forever
-**Depends on**: Phase 273, and at least one of {Phase 275, Phase 276, Phase 277} (needs real fix data flowing)
-**Requirements**: KB-01, KB-02, KB-03, KB-04, KB-05
-**Success Criteria** (what must be TRUE):
-  1. A newly recorded fix enters the promotion ladder at Observed status and progresses through Shadow -> Canary -> Quorum -> Deterministic Rule based on success criteria
-  2. Shadow mode runs the candidate fix alongside the existing pipeline for 1 week or 25 applications (whichever comes first), logging only -- no customer impact
-  3. Canary deploys the candidate fix on Pod 8 first and verifies success before any other pod receives it
-  4. After 3+ successes across 2+ different pods, the fix is promoted to Tier 1 as a typed Rule struct with matchers, actions, verifier, and TTL -- applied instantly at $0 cost
-**Plans**: TBD
-**UI hint**: no
-
-### Phase 279: Weekly Report & Integration Audit
-**Goal**: Uday receives a weekly intelligence report summarizing fleet health and AI effectiveness, and the entire v32.0 codebase passes MMA audit with zero P1 findings
-**Depends on**: Phase 274, Phase 275, Phase 276, Phase 277, Phase 278
-**Requirements**: RPT-01, RPT-02, RPT-03
-**Success Criteria** (what must be TRUE):
-  1. Every Sunday at midnight IST, a weekly report is auto-generated containing: uptime %, auto-resolution rate, MTTR, top 3 issues, AI budget spent, and KB growth metrics
-  2. The report is sent to Uday via WhatsApp as a text summary with an attached chart image (via Evolution API /message/sendMedia)
-  3. Unified MMA Protocol audit of all v32.0 code produces zero P1 findings on the final iteration (convergence)
-  4. All Unified Protocol v3.1 gates pass: Quality Gate, E2E round-trip, Standing Rules compliance, and MMA consensus
-**Plans**: TBD
-**UI hint**: no
-
-## Coverage Map
-
-| Requirement | Phase |
-|-------------|-------|
-| PRO-01 | 273 |
-| PRO-02 | 273 |
-| PRO-03 | 273 |
-| PRO-04 | 273 |
-| PRO-05 | 273 |
-| PRO-06 | 273 |
-| SAFE-01 | 273 |
-| SAFE-02 | 273 |
-| SAFE-03 | 273 |
-| ESC-01 | 274 |
-| ESC-02 | 274 |
-| ESC-03 | 274 |
-| ESC-04 | 274 |
-| GAME-01 | 275 |
-| GAME-02 | 275 |
-| GAME-03 | 275 |
-| GAME-04 | 275 |
-| GAME-05 | 275 |
-| PRED-10 | 276 |
-| PRED-11 | 276 |
-| PRED-12 | 276 |
-| CX-05 | 276 |
-| CX-06 | 276 |
-| CX-07 | 276 |
-| CX-08 | 276 |
-| REV-01 | 277 |
-| REV-02 | 277 |
-| REV-03 | 277 |
-| REP-01 | 277 |
-| REP-02 | 277 |
-| KB-01 | 278 |
-| KB-02 | 278 |
-| KB-03 | 278 |
-| KB-04 | 278 |
-| KB-05 | 278 |
-| RPT-01 | 279 |
-| RPT-02 | 279 |
-| RPT-03 | 279 |
-
-**Coverage:** 38/38 v1 requirements mapped. No orphans.
+Plans:
+- [ ] 289-01: TOML alert rule config and evaluation engine
+- [ ] 289-02: WhatsApp integration and deduplication
 
 ## Progress
 
 **Execution Order:**
-- Sequential: 273 -> 274
-- Parallel group: {275, 276, 277} (all three simultaneously after 274)
-- Sequential: 278 (after 273 + at least one parallel phase)
-- Sequential: 279 (after all others)
+285 -> 286 + 289 (parallel) -> 287 + 288 (parallel)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 273. Event Pipeline & Safety Foundation | 3/4 | In Progress|  |
-| 274. WhatsApp Escalation | 0/2 | Not started | - |
-| 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
-| 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |
-| 277. Revenue Protection & Model Reputation | 0/TBD | Not started | - |
-| 278. KB Hardening Pipeline | 0/TBD | Not started | - |
-| 279. Weekly Report & Integration Audit | 0/TBD | Not started | - |
-
----
-*Roadmap created: 2026-04-01*
-*Milestone: v32.0 Autonomous Meshed Intelligence*
-*Phase range: 273-279*
-*v31.0 ended at Phase 272*
+| 285. Metrics Ring Buffer | 0/2 | Not started | - |
+| 286. Metrics Query API | 0/1 | Not started | - |
+| 287. Metrics Dashboard | 0/1 | Not started | - |
+| 288. Prometheus Export | 0/1 | Not started | - |
+| 289. Metric Alert Thresholds | 0/2 | Not started | - |

@@ -1,7 +1,7 @@
 # Requirements: v34.0 Time-Series Metrics & Operational Dashboards
 
 **Defined:** 2026-04-01
-**Core Value:** Make autonomous action loops observable and queryable with time-series depth — answer "what happened last Tuesday at 8pm" without grepping JSONL logs
+**Core Value:** Make autonomous action loops observable and queryable with time-series depth -- answer "what happened last Tuesday at 8pm" without grepping JSONL logs
 
 ## Metrics Storage (TSDB)
 
@@ -11,7 +11,7 @@
 - [ ] **TSDB-04**: Daily rollups computed and retained for 90 days
 - [ ] **TSDB-05**: Metrics captured include: CPU usage, GPU temperature, FPS, billing revenue, WS connection count, pod health score, game session count
 - [ ] **TSDB-06**: Metric ingestion does not block the main server event loop (async insert, batch if needed)
-- [ ] **TSDB-07**: Ring buffer behavior — storage is bounded, old data purged by cron/background task
+- [ ] **TSDB-07**: Ring buffer behavior -- storage is bounded, old data purged by cron/background task
 
 ## Metrics Query API (QAPI)
 
@@ -32,14 +32,14 @@
 ## Prometheus Export (PROM)
 
 - [ ] **PROM-01**: GET /api/v1/metrics/prometheus returns metrics in Prometheus exposition format
-- [ ] **PROM-02**: Endpoint is zero-cost — no Prometheus server required, just the format for future compatibility
+- [ ] **PROM-02**: Endpoint is zero-cost -- no Prometheus server required, just the format for future compatibility
 
 ## Alert Thresholds (ALRT)
 
 - [ ] **ALRT-01**: Alert rules are defined in racecontrol.toml under [alert_rules] section
 - [ ] **ALRT-02**: Alert engine evaluates rules every 60 seconds against TSDB data
 - [ ] **ALRT-03**: Triggered alerts fire to existing WhatsApp alerter (Bono VPS Evolution API)
-- [ ] **ALRT-04**: Alert deduplication — same alert suppressed for 30 minutes after first fire
+- [ ] **ALRT-04**: Alert deduplication -- same alert suppressed for 30 minutes after first fire
 - [ ] **ALRT-05**: Alert rules support threshold conditions (>, <, ==) on any metric name
 
 ## v2 Requirements
@@ -62,46 +62,46 @@ Deferred to future milestones. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| Prometheus server deployment | Venue-scale doesn't need it — SQLite TSDB + custom dashboard is sufficient |
+| Prometheus server deployment | Venue-scale doesn't need it -- SQLite TSDB + custom dashboard is sufficient |
 | Grafana | Custom Next.js dashboard is more maintainable and branded |
 | Real-time streaming (WebSocket metrics) | 30s polling is sufficient for dashboards; real-time is v32.0's domain |
-| Pod-side metric collection agent | Server already receives all data via WS — no agent needed |
+| Pod-side metric collection agent | Server already receives all data via WS -- no agent needed |
 | External TSDB (InfluxDB, TimescaleDB) | SQLite handles 8-pod venue scale; upgrade trigger is >100 metrics at >1Hz |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TSDB-01 | — | Pending |
-| TSDB-02 | — | Pending |
-| TSDB-03 | — | Pending |
-| TSDB-04 | — | Pending |
-| TSDB-05 | — | Pending |
-| TSDB-06 | — | Pending |
-| TSDB-07 | — | Pending |
-| QAPI-01 | — | Pending |
-| QAPI-02 | — | Pending |
-| QAPI-03 | — | Pending |
-| QAPI-04 | — | Pending |
-| QAPI-05 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| DASH-04 | — | Pending |
-| DASH-05 | — | Pending |
-| PROM-01 | — | Pending |
-| PROM-02 | — | Pending |
-| ALRT-01 | — | Pending |
-| ALRT-02 | — | Pending |
-| ALRT-03 | — | Pending |
-| ALRT-04 | — | Pending |
-| ALRT-05 | — | Pending |
+| TSDB-01 | Phase 285 | Pending |
+| TSDB-02 | Phase 285 | Pending |
+| TSDB-03 | Phase 285 | Pending |
+| TSDB-04 | Phase 285 | Pending |
+| TSDB-05 | Phase 285 | Pending |
+| TSDB-06 | Phase 285 | Pending |
+| TSDB-07 | Phase 285 | Pending |
+| QAPI-01 | Phase 286 | Pending |
+| QAPI-02 | Phase 286 | Pending |
+| QAPI-03 | Phase 286 | Pending |
+| QAPI-04 | Phase 286 | Pending |
+| QAPI-05 | Phase 286 | Pending |
+| DASH-01 | Phase 287 | Pending |
+| DASH-02 | Phase 287 | Pending |
+| DASH-03 | Phase 287 | Pending |
+| DASH-04 | Phase 287 | Pending |
+| DASH-05 | Phase 287 | Pending |
+| PROM-01 | Phase 288 | Pending |
+| PROM-02 | Phase 288 | Pending |
+| ALRT-01 | Phase 289 | Pending |
+| ALRT-02 | Phase 289 | Pending |
+| ALRT-03 | Phase 289 | Pending |
+| ALRT-04 | Phase 289 | Pending |
+| ALRT-05 | Phase 289 | Pending |
 
 **Coverage:**
 - v1 requirements: 24 total
-- Mapped to phases: 0
-- Unmapped: 24 ⚠️
+- Mapped to phases: 24
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-01*
-*Last updated: 2026-04-01 after initial definition*
+*Last updated: 2026-04-01 after roadmap creation*
