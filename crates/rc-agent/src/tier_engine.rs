@@ -414,13 +414,14 @@ pub fn spawn(
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
     ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
+    eval_store: std::sync::Arc<std::sync::Mutex<crate::model_eval_store::ModelEvalStore>>,
 ) {
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events + staff requests + FleetEvent broadcast");
 
         // C2: Supervisor wraps the inner loop — restarts on panic
-        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx, ws_msg_tx).await;
+        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx, ws_msg_tx, eval_store).await;
 
         tracing::warn!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
     });
@@ -435,6 +436,7 @@ async fn run_supervised(
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
     ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
+    eval_store: std::sync::Arc<std::sync::Mutex<crate::model_eval_store::ModelEvalStore>>,
 ) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
@@ -651,6 +653,87 @@ async fn run_supervised(
                     }
                     TierResult::NotApplicable { .. } => {
                         tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "No applicable tier for trigger");
+                    }
+                }
+
+                // EVAL-01: persist evaluation outcome to SQLite after every diagnosis.
+                // Records Fixed and FailedToFix outcomes; skips Stub/NotApplicable (no model call).
+                // Critical rule: no .await after eval_store.lock() — guard dropped in tight block.
+                {
+                    let (tier_num, fix_verified, action_str) = match &result {
+                        TierResult::Fixed { tier, action } => (*tier, true, action.clone()),
+                        TierResult::FailedToFix { tier, reason } => (*tier, false, reason.clone()),
+                        _ => (0u8, false, String::new()),
+                    };
+                    if tier_num > 0 {
+                        // Derive a model_id from tier number + action string (model_id is not
+                        // threaded through run_tiers; action strings encode the model for tier 3+).
+                        let model_id = match tier_num {
+                            1 => "tier1/deterministic".to_string(),
+                            2 => "tier2/kb_cached".to_string(),
+                            3 => {
+                                // Tier 3 action: "Qwen3 ($0.10): <root_cause>"
+                                if action_str.starts_with("Qwen3") {
+                                    "qwen/qwen3-235b-a22b:free".to_string()
+                                } else {
+                                    "tier3/single_model".to_string()
+                                }
+                            }
+                            4 => "tier4/mma_protocol".to_string(),
+                            _ => format!("tier{}/unknown", tier_num),
+                        };
+                        // Cost estimate: tiers 1-2 have no model cost, tier 3 uses TIER3, tier 4+ uses TIER4
+                        let cost_usd = match tier_num {
+                            1 | 2 => 0.0,
+                            3 => TIER3_ESTIMATED_COST,
+                            _ => TIER4_ESTIMATED_COST,
+                        };
+                        let trigger_name = format!("{:?}", &event.trigger)
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        let prediction_str: String = action_str.chars().take(500).collect();
+                        let outcome_str = if fix_verified { "fixed" } else { "failed_to_fix" };
+                        // Record in-memory reputation tracking (existing mma_engine function)
+                        crate::mma_engine::record_model_outcome(&model_id, fix_verified);
+                        let record = crate::model_eval_store::EvalRecord {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            model_id,
+                            pod_id: node_id.clone(),
+                            trigger_type: trigger_name,
+                            prediction: prediction_str,
+                            actual_outcome: outcome_str.to_string(),
+                            correct: fix_verified,
+                            cost_usd,
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        };
+                        match eval_store.lock() {
+                            Ok(store) => {
+                                if let Err(e) = store.insert(&record) {
+                                    tracing::warn!(
+                                        target: LOG_TARGET,
+                                        error = %e,
+                                        tier = tier_num,
+                                        "EVAL-01: failed to write evaluation record"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        target: LOG_TARGET,
+                                        tier = tier_num,
+                                        correct = fix_verified,
+                                        "EVAL-01: evaluation record written"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    target: LOG_TARGET,
+                                    error = %e,
+                                    "EVAL-01: eval_store mutex poisoned"
+                                );
+                            }
+                        }
                     }
                 }
 
