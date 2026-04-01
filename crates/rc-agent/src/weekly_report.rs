@@ -107,7 +107,8 @@ fn seconds_until_next_sunday_midnight_ist() -> u64 {
         .and_hms_opt(0, 0, 0)
         .expect("midnight is valid")
         .and_local_timezone(ist)
-        .unwrap();
+        .single()
+        .expect("IST is a fixed offset — no ambiguity");
 
     let secs = (target_midnight - now_ist).num_seconds().max(1) as u64;
     secs
