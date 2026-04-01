@@ -1604,18 +1604,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             status,
                             ..
                         } => {
+                            let pod_id_owned = pod_id.clone();
+                            let score = *total_score;
+                            let status_owned = status.clone();
                             tracing::debug!(
                                 target: "racecontrol::ws",
                                 pod_id = %pod_id,
-                                score = total_score,
+                                score = score,
                                 status = %status,
                                 "Received experience score report from pod"
                             );
                             let mut fleet = state.pod_fleet_health.write().await;
-                            // [Rule 1 - Bug] clone/deref borrowed match bindings for owned entry/Option
-                            let store = fleet.entry(pod_id.clone()).or_default();
-                            store.experience_score = Some(*total_score);
-                            store.experience_status = Some(status.clone());
+                            let store = fleet.entry(pod_id_owned).or_default();
+                            store.experience_score = Some(score);
+                            store.experience_status = Some(status_owned);
                         }
 
                         _ => { /* catch-all for future protocol additions */ }
