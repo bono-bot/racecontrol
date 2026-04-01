@@ -561,6 +561,7 @@ fn trigger_to_hypotheses(trigger: &DiagnosticTrigger) -> Vec<(String, String)> {
         DiagnosticTrigger::PosWifiDegraded { .. } => vec![
             ("Physical obstruction or interference".into(), "Check RSSI history for sudden drops vs gradual degradation".into()),
             ("Too many devices on the network".into(), "Check router connected device count".into()),
+            ("WiFi adapter power management reducing signal".into(), "Check Windows power plan and adapter power saving settings".into()),
         ],
         DiagnosticTrigger::PosKioskEscaped { .. } => vec![
             ("Notification popup stole foreground focus".into(), "Check for notification/toast windows".into()),
