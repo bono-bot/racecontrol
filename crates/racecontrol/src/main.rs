@@ -740,6 +740,10 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(target: "startup", "metric alert task spawned ({} rules)", state.config.alert_rules.len());
     }
 
+    // Spawn policy engine evaluation task (Phase 299 — re-loads rules each cycle from DB)
+    let policy_state = state.clone();
+    tokio::spawn(racecontrol_crate::policy_engine::policy_engine_task(policy_state));
+
     // Spawn notification outbox worker (UX-01: durable retry with exponential backoff)
     {
         let notif_state = state.clone();
