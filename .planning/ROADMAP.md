@@ -47,7 +47,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 - [x] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator (completed 2026-04-01)
 - [ ] **Phase 292: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
 - [x] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format (completed 2026-04-01)
-- [ ] **Phase 294: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends
+- [x] **Phase 294: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends (completed 2026-04-01)
 
 ### Progress Table
 
@@ -57,7 +57,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | 291. KB Promotion Persistence | 3/3 | Complete   | 2026-04-01 |
 | 292. Model Reputation Persistence | 1/2 | In Progress|  |
 | 293. Retrain Data Export | 1/1 | Complete   | 2026-04-01 |
-| 294. Intelligence Report v2 | 0/? | Not started | - |
+| 294. Intelligence Report v2 | 1/1 | Complete   | 2026-04-01 |
 
 ---
 
@@ -126,8 +126,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   2. The weekly report includes a count of KB rules that advanced promotion stage during the past week
   3. The weekly report includes a dollar figure for cost savings: number of Hardened-rule applications multiplied by estimated model call cost that would otherwise have been incurred
   4. The weekly report characterizes each model's accuracy trend as "improving", "declining", or "stable" based on the last two rolling weeks
-**Plans**: TBD
+**Plans**: 1 plan
+- [x] 294-01-PLAN.md — enhance weekly_report.rs with RPTV2 sections + main.rs wiring (RPTV2-01, RPTV2-02, RPTV2-03, RPTV2-04)
 
 ---
 
-*Last updated: 2026-04-01 — Phase 291 planned (3 plans, wave 1 + wave 2)*
+*Last updated: 2026-04-01 — Phase 294 complete (1 plan, v35.0 milestone complete)*

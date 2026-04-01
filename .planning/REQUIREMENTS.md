@@ -33,10 +33,10 @@
 
 ## Intelligence Report v2 (RPTV2)
 
-- [ ] **RPTV2-01**: Weekly report includes per-model accuracy rankings (not just aggregate MTTR)
-- [ ] **RPTV2-02**: Weekly report includes KB promotion count (how many rules advanced this week)
-- [ ] **RPTV2-03**: Weekly report includes cost savings from Tier 1 hardened rules ($0 vs estimated model cost)
-- [ ] **RPTV2-04**: Weekly report includes prediction accuracy trends (improving/declining/stable per model)
+- [x] **RPTV2-01**: Weekly report includes per-model accuracy rankings (not just aggregate MTTR)
+- [x] **RPTV2-02**: Weekly report includes KB promotion count (how many rules advanced this week)
+- [x] **RPTV2-03**: Weekly report includes cost savings from Tier 1 hardened rules ($0 vs estimated model cost)
+- [x] **RPTV2-04**: Weekly report includes prediction accuracy trends (improving/declining/stable per model)
 
 ## Traceability
 
@@ -58,10 +58,10 @@
 | TRAIN-01 | Phase 293 | Complete |
 | TRAIN-02 | Phase 293 | Complete |
 | TRAIN-03 | Phase 293 | Complete |
-| RPTV2-01 | Phase 294 | Pending |
-| RPTV2-02 | Phase 294 | Pending |
-| RPTV2-03 | Phase 294 | Pending |
-| RPTV2-04 | Phase 294 | Pending |
+| RPTV2-01 | Phase 294 | Complete |
+| RPTV2-02 | Phase 294 | Complete |
+| RPTV2-03 | Phase 294 | Complete |
+| RPTV2-04 | Phase 294 | Complete |
 
 ## Future Requirements (deferred)
 
