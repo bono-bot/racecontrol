@@ -145,13 +145,22 @@ pub fn promote_model(model_id: &str) {
 }
 
 /// Check if a model is demoted.
-fn is_demoted(model_id: &str) -> bool {
+pub fn is_demoted(model_id: &str) -> bool {
     demoted_store().lock().ok().map(|s| s.contains(model_id)).unwrap_or(false)
 }
 
 /// Check if a model is promoted.
-fn is_promoted(model_id: &str) -> bool {
+pub fn is_promoted(model_id: &str) -> bool {
     promoted_store().lock().ok().map(|s| s.contains(model_id)).unwrap_or(false)
+}
+
+/// Directly set accumulated counts for a model — used by model_reputation_store on boot load.
+/// Overwrites existing in-memory counts for that model.
+/// This is more efficient than calling `record_model_outcome()` N times on restart.
+pub fn set_model_counts(model_id: &str, correct: u32, total: u32) {
+    if let Ok(mut store) = reputation_store().lock() {
+        store.insert(model_id.to_string(), (correct, total));
+    }
 }
 
 /// Maximum iterations per step before escalating to human.

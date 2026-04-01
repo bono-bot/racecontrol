@@ -23,6 +23,7 @@ mod game_doctor;
 mod game_launch_retry;
 mod game_process;
 mod kb_hardening;
+mod kb_promotion_store;
 mod knowledge_base;
 mod model_eval_store;
 mod kiosk;
@@ -45,9 +46,11 @@ mod self_monitor;
 mod sentinel_watcher;
 mod weekly_report;
 mod eval_rollup;
+mod retrain_export;
 mod self_test;
 mod mma_engine;
 mod model_reputation;
+mod model_reputation_store;
 mod revenue_protection;
 mod tier_engine;
 mod sims;
@@ -1025,6 +1028,35 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ─── Model Reputation Store (MREP-01: persist accuracy and roster decisions) ──
+    let rep_store = match model_reputation_store::ModelReputationStore::open(
+        model_reputation_store::REP_DB_PATH,
+    ) {
+        Ok(s) => {
+            // MREP-01: restore in-memory reputation from SQLite before tier_engine starts
+            if let Err(e) = model_reputation_store::load_into_memory(&s) {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    error = %e,
+                    "Failed to load reputation from SQLite — starting fresh"
+                );
+            } else {
+                tracing::info!(target: LOG_TARGET, "Model reputation loaded from SQLite");
+            }
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                error = %e,
+                "Model reputation store init failed — using in-memory fallback"
+            );
+            let fallback = model_reputation_store::ModelReputationStore::open(":memory:")
+                .expect("in-memory rep store must open");
+            std::sync::Arc::new(std::sync::Mutex::new(fallback))
+        }
+    };
+
     // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
     // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
     // Plan 273-01: Also emits FleetEvents via broadcast for fan-out to multiple subscribers.
@@ -1116,12 +1148,29 @@ async fn main() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Mesh heartbeat started (5-min interval)");
     }
 
-    // ─── KB Hardening Promoter (5-min promotion ladder checks) ──────────────────
+    // ─── KB Promotion Store (SQLite-backed promotion ladder state — KBPP-01) ───────
+    let kb_promo_store = match crate::kb_promotion_store::KbPromotionStore::open(
+        crate::knowledge_base::KB_PATH,
+    ) {
+        Ok(s) => {
+            tracing::info!(target: LOG_TARGET, "KB promotion store ready");
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "KB promotion store failed — using in-memory fallback");
+            std::sync::Arc::new(std::sync::Mutex::new(
+                crate::kb_promotion_store::KbPromotionStore::open(":memory:")
+                    .expect("in-memory KB promo store must open"),
+            ))
+        }
+    };
+
+    // ─── KB Hardening Promoter (6-hour promotion ladder checks — KBPP-06) ────────
     {
         let kb_fleet_tx = fleet_bus.sender();
         let kb_node_id = format!("pod_{}", config.pod.number);
-        kb_hardening::spawn(kb_fleet_tx, kb_node_id);
-        tracing::info!(target: LOG_TARGET, "KB hardening promoter spawned (5-min interval)");
+        kb_hardening::spawn(kb_fleet_tx, kb_node_id, kb_promo_store);
+        tracing::info!(target: LOG_TARGET, "KB hardening promoter spawned (6-hour interval)");
     }
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
@@ -1191,9 +1240,11 @@ async fn main() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Revenue protection monitor started (10s poll, REV-01..03)");
     }
 
-    // ─── Model Reputation Sweep (REP-01..02: daily) ─────────────────────────────
+    // ─── Model Reputation Sweep (MREP-01..03: daily, 7-day window, persistent) ───
     {
         let rep_fleet_tx = fleet_bus.sender();
+        let rep_eval_store = eval_store.clone();
+        let rep_store_clone = rep_store.clone();
         tokio::spawn(async move {
             tracing::info!(target: "state", task = "model_reputation", event = "lifecycle", "lifecycle: started");
             tokio::time::sleep(std::time::Duration::from_secs(180)).await;
@@ -1201,11 +1252,19 @@ async fn main() -> Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-                model_reputation::run_reputation_sweep(&rep_fleet_tx);
-                tracing::info!(target: "model-reputation", "Daily reputation sweep complete");
+                // run_reputation_sweep is sync (rusqlite) — use block_in_place to avoid
+                // blocking the async runtime from within an async context.
+                tokio::task::block_in_place(|| {
+                    model_reputation::run_reputation_sweep(
+                        &rep_fleet_tx,
+                        rep_eval_store.clone(),
+                        rep_store_clone.clone(),
+                    );
+                });
+                tracing::info!(target: "model-reputation", "Daily reputation sweep complete (MREP-01..03)");
             }
         });
-        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, REP-01..02)");
+        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, MREP-01..03, 7-day window, persistent)");
     }
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────
@@ -1245,6 +1304,9 @@ async fn main() -> Result<()> {
     // ─── Model Eval Rollup (EVAL-02: weekly per-model accuracy rollup) ──────────
     eval_rollup::spawn(eval_store.clone());
     tracing::info!(target: LOG_TARGET, "Eval rollup cron started (Sunday midnight IST)");
+
+    retrain_export::spawn(eval_store.clone());
+    tracing::info!(target: LOG_TARGET, "Retrain export cron started (Sunday midnight IST)");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
