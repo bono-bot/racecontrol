@@ -127,7 +127,7 @@ Plans:
 **Milestone Goal:** Every pod runs from server-pushed config. No local TOML drift. Staff can edit, push, and automate config changes via admin UI and policy rules.
 
 - [x] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning (completed 2026-04-01)
-- [ ] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication
+- [x] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication (completed 2026-04-01)
 - [ ] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail
 - [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
 - [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
@@ -156,11 +156,11 @@ Plans:
   3. Changing a cold field (port, path, binary location) is marked as pending-restart and applied on next agent startup
   4. If the server is unreachable at pod boot, the pod loads its last-received local config and operates normally
   5. If the pushed config hash matches the pod's current config hash, the pod skips processing and logs "config unchanged"
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 296-01-PLAN.md -- pod_configs SQLite table, FullConfigPush WS message, store/retrieve/push functions, REST API, wired into Register handler
-- [ ] 296-02-PLAN.md -- Agent FullConfigPush handler: hash dedup, hot/cold field categorization, local persistence, server-config boot fallback
+- [x] 296-02-PLAN.md -- Agent FullConfigPush handler: hash dedup, hot/cold field categorization, local persistence, server-config boot fallback
 
 ### Phase 297: Config Editor UI
 **Goal**: Staff can view, edit, and push pod configuration from the admin app without touching files
@@ -293,7 +293,7 @@ Plans:
 | 290. Wire Metric Producers | 1/1 | Complete | 2026-04-01 |
 | 291. Dashboard API Wiring | 1/1 | Complete | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
-| 296. Server-Pushed Config | 1/2 | In Progress | - |
+| 296. Server-Pushed Config | 2/2 | Complete   | 2026-04-01 |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
 | 299. Policy Rules Engine | 0/TBD | Not started | - |
