@@ -66,6 +66,8 @@ pub struct Config {
     pub mma: MmaConfig,
     #[serde(default)]
     pub alert_rules: Vec<MetricAlertRule>,
+    #[serde(default)]
+    pub backup: BackupConfig,
 }
 
 /// Unified MMA Protocol v3.0 config (v31.0+) — 30-day AI training period settings
@@ -851,6 +853,7 @@ impl Config {
             billing: BillingConfig::default(),
             mma: MmaConfig::default(),
             alert_rules: Vec::new(),
+            backup: BackupConfig::default(),
         }
     }
 
@@ -914,6 +917,65 @@ impl Config {
                 tracing::info!("Overriding sync_hmac_key from RACECONTROL_SYNC_HMAC_KEY env var");
                 self.cloud.sync_hmac_key = Some(val);
             }
+        }
+    }
+}
+
+// ─── Backup Config (BACKUP-01, BACKUP-02) ────────────────────────────────────
+
+/// Configuration for the SQLite backup pipeline.
+/// All fields have serde defaults — no [backup] section needed in racecontrol.toml.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackupConfig {
+    /// Enable the backup pipeline (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory to store backup files (default: "./data/backups")
+    #[serde(default = "default_backup_dir")]
+    pub backup_dir: String,
+    /// How often to run backups in seconds (default: 3600 = 1 hour)
+    #[serde(default = "default_backup_interval_secs")]
+    pub interval_secs: u64,
+    /// Number of daily backup files to retain per database (default: 7)
+    #[serde(default = "default_daily_retain")]
+    pub daily_retain: usize,
+    /// Number of weekly backup files to retain per database (default: 4)
+    #[serde(default = "default_weekly_retain")]
+    pub weekly_retain: usize,
+    /// Enable remote backup transfer via rsync/scp (default: true)
+    #[serde(default = "default_true")]
+    pub remote_enabled: bool,
+    /// Remote host for backup transfers (default: Bono VPS)
+    #[serde(default = "default_remote_host")]
+    pub remote_host: String,
+    /// Remote path for backup storage (default: /root/racecontrol-backups)
+    #[serde(default = "default_remote_path")]
+    pub remote_path: String,
+    /// Hours without a successful backup before firing a WhatsApp alert (default: 2)
+    #[serde(default = "default_staleness_alert_hours")]
+    pub staleness_alert_hours: u64,
+}
+
+fn default_backup_dir() -> String { "./data/backups".to_string() }
+fn default_backup_interval_secs() -> u64 { 3600 }
+fn default_daily_retain() -> usize { 7 }
+fn default_weekly_retain() -> usize { 4 }
+fn default_remote_host() -> String { "root@100.70.177.44".to_string() }
+fn default_remote_path() -> String { "/root/racecontrol-backups".to_string() }
+fn default_staleness_alert_hours() -> u64 { 2 }
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            backup_dir: default_backup_dir(),
+            interval_secs: default_backup_interval_secs(),
+            daily_retain: default_daily_retain(),
+            weekly_retain: default_weekly_retain(),
+            remote_enabled: default_true(),
+            remote_host: default_remote_host(),
+            remote_path: default_remote_path(),
+            staleness_alert_hours: default_staleness_alert_hours(),
         }
     }
 }
