@@ -5,14 +5,24 @@
 //! Staleness alert: WhatsApp alert if no successful backup in staleness_alert_hours (default: 2h).
 //! Debounce: alert suppressed if already fired within 2 * staleness_alert_hours.
 //!
+//! Phase 300-02 additions:
+//! - Nightly SCP transfer to Bono VPS (02:00-04:00 IST window, once per day)
+//! - SHA256 local+remote checksum verification
+//! - Remote reachability checked every tick via `ssh ... echo ok`
+//! - BackupStatus updated with remote fields on every tick
+//!
 //! Standing rules compliance:
 //! - No .unwrap() — uses ? and if let Err(e)
 //! - No lock held across .await — clone/snapshot before async work
 //! - VACUUM INTO (not file copy) per locked decision
 //! - File paths: forward slashes in VACUUM INTO SQL string
+//! - StrictHostKeyChecking=no + BatchMode=yes on all ssh/scp (Pitfall 4)
+//! - No hardcoded IPs — uses config.backup.remote_host
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use sha2::Digest;
 
 use crate::state::AppState;
 use crate::state::BackupStatus;
@@ -56,10 +66,13 @@ pub fn spawn(state: Arc<AppState>) {
         let interval_secs = state.config.backup.interval_secs;
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
         let mut last_alert_fired: Option<Instant> = None;
+        // Track the IST date of the last successful remote transfer to ensure
+        // we only transfer once per day even if the server restarts during the nightly window.
+        let mut last_remote_transfer: Option<chrono::NaiveDate> = None;
 
         loop {
             interval.tick().await;
-            if let Err(e) = backup_tick(&state, &mut last_alert_fired).await {
+            if let Err(e) = backup_tick(&state, &mut last_alert_fired, &mut last_remote_transfer).await {
                 tracing::error!(target: LOG_TARGET, "backup_tick error: {}", e);
             }
         }
@@ -67,9 +80,12 @@ pub fn spawn(state: Arc<AppState>) {
 }
 
 /// One backup tick: create backups for both databases, rotate, update status, check staleness.
+/// Also checks remote reachability every tick, and transfers the daily racecontrol.db backup
+/// to Bono VPS once per day during the 02:00-04:00 IST window.
 async fn backup_tick(
     state: &Arc<AppState>,
     last_alert_fired: &mut Option<Instant>,
+    last_remote_transfer: &mut Option<chrono::NaiveDate>,
 ) -> anyhow::Result<()> {
     let backup_dir = state.config.backup.backup_dir.clone();
     let daily_retain = state.config.backup.daily_retain;
@@ -196,6 +212,221 @@ async fn backup_tick(
 
     // Check staleness and fire alert if needed
     check_staleness(state, last_alert_fired).await;
+
+    // Check remote reachability on every tick (non-nightly) so the dashboard
+    // always shows a current value even on ticks when we don't transfer.
+    check_remote_reachable(state).await;
+
+    // Nightly SCP transfer: racecontrol daily backup → Bono VPS (02:00-04:00 IST).
+    // Snapshot the latest daily backup file name (without holding the lock across .await).
+    let latest_backup_file = {
+        let status = state.backup_status.read().await;
+        status.last_backup_file.clone()
+    };
+    if let Some(ref filename) = latest_backup_file {
+        let backup_dir = state.config.backup.backup_dir.clone();
+        let backup_path = format!("{}/{}", backup_dir, filename);
+        if let Err(e) = transfer_to_remote(state, &backup_path, filename, last_remote_transfer).await {
+            tracing::error!(target: LOG_TARGET, "Nightly remote transfer failed: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Check whether the remote host (Bono VPS) is reachable via SSH and update BackupStatus.
+/// Called on every tick so the dashboard always reflects current connectivity.
+async fn check_remote_reachable(state: &Arc<AppState>) {
+    if !state.config.backup.remote_enabled {
+        return;
+    }
+    // Clone config values before async IO — do NOT hold RwLock guard across .await.
+    let remote_host = state.config.backup.remote_host.clone();
+
+    let result = tokio::process::Command::new("ssh")
+        .arg("-o").arg("StrictHostKeyChecking=no")
+        .arg("-o").arg("BatchMode=yes")
+        .arg("-o").arg("ConnectTimeout=10")
+        .arg(&remote_host)
+        .arg("echo ok")
+        .output()
+        .await;
+
+    let reachable = match result {
+        Ok(output) => output.status.success() && output.stdout.starts_with(b"ok"),
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, "SSH reachability check error: {}", e);
+            false
+        }
+    };
+
+    let mut status = state.backup_status.write().await;
+    status.remote_reachable = reachable;
+    if !reachable {
+        tracing::debug!(target: LOG_TARGET, "Bono VPS not reachable via SSH");
+    }
+}
+
+/// Transfer the most recent racecontrol daily backup to Bono VPS via SCP with SHA256 verification.
+///
+/// Transfer runs only:
+/// 1. When `config.backup.remote_enabled` is true
+/// 2. During the nightly window: IST hour 2 or 3 (02:00-03:59)
+/// 3. Once per day (tracked via `last_remote_transfer` NaiveDate)
+///
+/// Steps: mkdir -p remote_path → compute local SHA256 → SCP (120s timeout) → remote sha256sum → compare
+async fn transfer_to_remote(
+    state: &Arc<AppState>,
+    backup_path: &str,
+    filename: &str,
+    last_remote_transfer: &mut Option<chrono::NaiveDate>,
+) -> anyhow::Result<()> {
+    // Clone config values before any async IO.
+    let remote_enabled = state.config.backup.remote_enabled;
+    let remote_host = state.config.backup.remote_host.clone();
+    let remote_path = state.config.backup.remote_path.clone();
+
+    if !remote_enabled {
+        return Ok(());
+    }
+
+    // Check IST hour — only proceed during 02:00-03:59 IST.
+    use chrono::Timelike;
+    let now_ist = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
+    let ist_hour = now_ist.hour();
+    let today = now_ist.date_naive();
+
+    if ist_hour != 2 && ist_hour != 3 {
+        return Ok(());
+    }
+
+    // Check if already transferred today.
+    if *last_remote_transfer == Some(today) {
+        return Ok(());
+    }
+
+    tracing::info!(target: LOG_TARGET, "Starting nightly remote transfer: {} → {}:{}", filename, remote_host, remote_path);
+
+    // Step A: Ensure remote directory exists.
+    let mkdir = tokio::process::Command::new("ssh")
+        .arg("-o").arg("StrictHostKeyChecking=no")
+        .arg("-o").arg("BatchMode=yes")
+        .arg("-o").arg("ConnectTimeout=10")
+        .arg(&remote_host)
+        .arg(&format!("mkdir -p {}", remote_path))
+        .output()
+        .await;
+
+    if let Err(e) = mkdir {
+        let msg = format!("SSH mkdir failed: {}", e);
+        tracing::error!(target: LOG_TARGET, "{}", msg);
+        let mut status = state.backup_status.write().await;
+        status.remote_reachable = false;
+        return Err(anyhow::anyhow!(msg));
+    }
+
+    // Step B: Compute local SHA256.
+    let bytes = tokio::fs::read(backup_path).await?;
+    let local_checksum = hex::encode(sha2::Sha256::digest(&bytes));
+    tracing::debug!(target: LOG_TARGET, "Local SHA256: {}", local_checksum);
+
+    // Step C: SCP the file with 120s timeout.
+    let remote_dest = format!("{}:{}/{}", remote_host, remote_path, filename);
+    let scp_output = tokio::time::timeout(
+        Duration::from_secs(120),
+        tokio::process::Command::new("scp")
+            .arg("-o").arg("StrictHostKeyChecking=no")
+            .arg("-o").arg("BatchMode=yes")
+            .arg("-o").arg("ConnectTimeout=10")
+            .arg(backup_path)
+            .arg(&remote_dest)
+            .output(),
+    )
+    .await;
+
+    let scp_result = match scp_output {
+        Err(_timeout) => {
+            let msg = format!("SCP transfer timed out after 120s for {}", filename);
+            tracing::error!(target: LOG_TARGET, "{}", msg);
+            let mut status = state.backup_status.write().await;
+            status.remote_reachable = false;
+            return Err(anyhow::anyhow!(msg));
+        }
+        Ok(Err(e)) => {
+            let msg = format!("SCP spawn error: {}", e);
+            tracing::error!(target: LOG_TARGET, "{}", msg);
+            let mut status = state.backup_status.write().await;
+            status.remote_reachable = false;
+            return Err(anyhow::anyhow!(msg));
+        }
+        Ok(Ok(output)) => output,
+    };
+
+    if !scp_result.status.success() {
+        let stderr = String::from_utf8_lossy(&scp_result.stderr);
+        let msg = format!("SCP transfer failed for {}: {}", filename, stderr);
+        tracing::error!(target: LOG_TARGET, "{}", msg);
+        let mut status = state.backup_status.write().await;
+        status.remote_reachable = false;
+        return Err(anyhow::anyhow!(msg));
+    }
+
+    tracing::info!(target: LOG_TARGET, "SCP transfer complete: {}", filename);
+
+    // Step D: Remote SHA256 verification.
+    let verify_output = tokio::process::Command::new("ssh")
+        .arg("-o").arg("StrictHostKeyChecking=no")
+        .arg("-o").arg("BatchMode=yes")
+        .arg("-o").arg("ConnectTimeout=10")
+        .arg(&remote_host)
+        .arg(&format!("sha256sum {}/{}", remote_path, filename))
+        .output()
+        .await;
+
+    let checksums_match = match verify_output {
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "sha256sum SSH call failed: {}", e);
+            None
+        }
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // sha256sum output: "<64-char-hex>  <filename>"
+            let remote_checksum = stdout.split_whitespace().next().unwrap_or("").to_string();
+            let matched = remote_checksum.len() == 64 && remote_checksum == local_checksum;
+            tracing::info!(
+                target: LOG_TARGET,
+                "Checksum check — local: {} remote: {} match: {}",
+                local_checksum,
+                remote_checksum,
+                matched
+            );
+            if !matched {
+                let msg = format!(
+                    "[BACKUP] Remote checksum MISMATCH for {} — local: {} remote: {} | {}",
+                    filename,
+                    local_checksum,
+                    remote_checksum,
+                    crate::whatsapp_alerter::ist_now_string()
+                );
+                tracing::error!(target: LOG_TARGET, "{}", msg);
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+            Some(matched)
+        }
+    };
+
+    // Step E: Update BackupStatus.
+    let ist_now = crate::whatsapp_alerter::ist_now_string();
+    {
+        let mut status = state.backup_status.write().await;
+        status.remote_reachable = true;
+        status.last_remote_transfer_at = Some(ist_now);
+        status.last_checksum_match = checksums_match;
+    }
+
+    // Record that we transferred today so we don't re-transfer within the same nightly window.
+    *last_remote_transfer = Some(today);
+    tracing::info!(target: LOG_TARGET, "Nightly remote transfer complete for {}", filename);
 
     Ok(())
 }
