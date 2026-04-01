@@ -255,7 +255,11 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution
+- [ ] 301-02-PLAN.md -- Admin settings Sync Status panel (syncHealth API client + SyncStatusPanel component)
 
 ### Phase 302: Structured Event Archive
 **Goal**: Every significant system event is captured, queryable, and permanently archived off-server
