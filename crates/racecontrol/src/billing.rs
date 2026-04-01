@@ -462,6 +462,11 @@ pub struct WaitingForGameEntry {
     pub group_session_id: Option<String>,
     /// Game sim_type for per-game rate lookup. Set when AcStatus::Live received.
     pub sim_type: Option<rc_common::types::SimType>,
+    /// BILL-13: Pre-committed session data from kiosk staff path (FATM-01).
+    /// When Some, the DB record + wallet debit already committed. On Live, just activate
+    /// the in-memory timer via finalize_billing_start() — do NOT call start_billing_session().
+    /// When None (PIN auth path), start_billing_session() creates the DB record on Live.
+    pub pre_committed: Option<BillingStartData>,
 }
 
 // ─── MultiplayerBillingWait ─────────────────────────────────────────────────
@@ -555,6 +560,7 @@ pub async fn defer_billing_start(
         attempt: 1,
         group_session_id: group_session_id.clone(),
         sim_type: None,
+        pre_committed: None,
     };
     if group_session_id.is_some() {
         tracing::info!("Billing deferred to WaitingForGame for pod {} (multiplayer group)", pod_id);
@@ -563,6 +569,39 @@ pub async fn defer_billing_start(
     }
     state.billing.waiting_for_game.write().await.insert(pod_id, entry);
     Ok(())
+}
+
+/// BILL-13: Defer billing timer activation for kiosk staff path.
+/// The DB record + wallet debit are ALREADY committed (FATM-01 atomic tx).
+/// This puts the session into waiting_for_game with the pre-committed data.
+/// When AcStatus::Live arrives, finalize_billing_start() activates the timer
+/// without creating a duplicate DB record.
+pub async fn defer_billing_with_precommitted_session(
+    state: &Arc<AppState>,
+    pod_id: String,
+    data: BillingStartData,
+) {
+    let pod_id_normalized = normalize_pod_id(&pod_id).unwrap_or(pod_id);
+    let entry = WaitingForGameEntry {
+        pod_id: pod_id_normalized.clone(),
+        driver_id: data.driver_id.clone(),
+        pricing_tier_id: String::new(), // already committed in DB
+        custom_price_paise: None,
+        custom_duration_minutes: None,
+        staff_id: None,
+        split_count: Some(data.split_count),
+        split_duration_minutes: data.split_duration_minutes,
+        waiting_since: std::time::Instant::now(),
+        attempt: 1,
+        group_session_id: None,
+        sim_type: None,
+        pre_committed: Some(data),
+    };
+    tracing::info!(
+        "BILL-13: Billing deferred to WaitingForGame for pod {} (kiosk staff path, session pre-committed)",
+        pod_id_normalized
+    );
+    state.billing.waiting_for_game.write().await.insert(pod_id_normalized, entry);
 }
 
 /// Handle game status updates from the agent.
@@ -714,8 +753,69 @@ pub async fn handle_game_status_update(
                             remaining, group_id, wait.live_pods.len(), wait.expected_pods.len()
                         );
                     }
+                } else if let Some(pre_data) = entry.pre_committed {
+                    // ── BILL-13: Kiosk staff path — session already committed in DB ──
+                    // Wallet debit + DB INSERT already done in atomic tx (FATM-01).
+                    // Just activate the in-memory timer and update DB started_at to NOW.
+                    let delta_ms = entry.waiting_since.elapsed().as_millis() as i64;
+                    let sim_str = entry.sim_type.as_ref().map(|s| format!("{}", s));
+                    let session_id = pre_data.session_id.clone();
+                    let now = Utc::now();
+
+                    // Update DB started_at to game-live time (not staff-click time)
+                    let _ = sqlx::query(
+                        "UPDATE billing_sessions SET started_at = ?, status = 'active' WHERE id = ?",
+                    )
+                    .bind(now.to_rfc3339())
+                    .bind(&session_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("BILL-13: Failed to update started_at for session {}: {}", session_id, e));
+
+                    // Log billing_timer_started event
+                    let billing_start_iso = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                    let _ = sqlx::query(
+                        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata) VALUES (?, ?, 'billing_timer_started', 0, ?)",
+                    )
+                    .bind(uuid::Uuid::new_v4().to_string())
+                    .bind(&session_id)
+                    .bind(serde_json::json!({
+                        "billing_timer_started": true,
+                        "started_at": billing_start_iso,
+                        "pod_id": pod_id,
+                        "trigger": "game_live_signal",
+                        "deferred_from_kiosk": true,
+                        "wait_ms": delta_ms,
+                    }).to_string())
+                    .execute(&state.db)
+                    .await;
+
+                    // Activate in-memory timer with started_at = NOW (game-live time)
+                    let mut activated_data = pre_data;
+                    activated_data.started_at = now;
+                    finalize_billing_start(state, activated_data).await;
+
+                    tracing::info!(
+                        "BILL-13: Pre-committed billing activated on LIVE for pod {} (session {}, waited {}ms)",
+                        pod_id, session_id, delta_ms
+                    );
+
+                    // Record billing accuracy event (METRICS-03)
+                    let ba_event = crate::metrics::BillingAccuracyEvent {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        session_id,
+                        pod_id: pod_id.to_string(),
+                        sim_type: sim_str,
+                        event_type: "start".to_string(),
+                        launch_command_at: None,
+                        playable_signal_at: Some(billing_start_iso.clone()),
+                        billing_start_at: Some(billing_start_iso),
+                        delta_ms: Some(delta_ms),
+                        details: Some("kiosk_deferred".to_string()),
+                    };
+                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
                 } else {
-                    // ── Single-player: start billing immediately (existing behavior) ──
+                    // ── Single-player PIN auth path: start billing (existing behavior) ──
                     let delta_ms = entry.waiting_since.elapsed().as_millis() as i64;
                     let sim_str = entry.sim_type.as_ref().map(|s| format!("{}", s));
                     match start_billing_session(
@@ -867,22 +967,68 @@ pub async fn handle_game_status_update(
             // BILL-06: Insert cancelled_no_playable record — customer charged nothing
             let crashed_entry = state.billing.waiting_for_game.write().await.remove(pod_id);
             if let Some(crashed_entry) = crashed_entry {
-                let session_id = uuid::Uuid::new_v4().to_string();
-                let _ = sqlx::query(
-                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
-                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
-                )
-                .bind(&session_id)
-                .bind(pod_id)
-                .bind(&crashed_entry.driver_id)
-                .bind(&crashed_entry.pricing_tier_id)
-                .execute(&state.db)
-                .await
-                .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (game crash): {}", e));
-                tracing::warn!(
-                    "Session cancelled_no_playable: pod={} driver={} (game died before PlayableSignal)",
-                    pod_id, crashed_entry.driver_id
-                );
+                if let Some(pre_data) = &crashed_entry.pre_committed {
+                    // BILL-13: Kiosk path — DB record already exists, UPDATE it + refund wallet
+                    let pre_session_id = pre_data.session_id.clone();
+                    let pre_driver_id = pre_data.driver_id.clone();
+                    let _ = sqlx::query(
+                        "UPDATE billing_sessions SET status = 'cancelled_no_playable', ended_at = datetime('now'), driving_seconds = 0, total_paused_seconds = 0 WHERE id = ?",
+                    )
+                    .bind(&pre_session_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("BILL-13: Failed to cancel pre-committed session {}: {}", pre_session_id, e));
+
+                    // Refund the wallet debit — game never reached playable
+                    let debit_row: Option<(i64,)> = sqlx::query_as(
+                        "SELECT wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                    )
+                    .bind(&pre_session_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some((debit_paise,)) = debit_row {
+                        if debit_paise > 0 {
+                            let _ = crate::wallet::credit(
+                                state,
+                                &pre_driver_id,
+                                debit_paise,
+                                "refund_no_playable",
+                                Some(&pre_session_id),
+                                Some("Auto-refund: game never reached playable state"),
+                                None, // staff_id — system-initiated refund
+                            ).await
+                            .map_err(|e| tracing::error!("BILL-13: Failed to refund {}p for session {}: {}", debit_paise, pre_session_id, e));
+                            tracing::info!(
+                                "BILL-13: Refunded {}p for cancelled_no_playable session {} (pod={}, driver={})",
+                                debit_paise, pre_session_id, pod_id, pre_driver_id
+                            );
+                        }
+                    }
+                    tracing::warn!(
+                        "BILL-13: Pre-committed session cancelled_no_playable: pod={} session={} (game died before PlayableSignal)",
+                        pod_id, pre_session_id
+                    );
+                } else {
+                    // PIN auth path — no DB record exists yet, create cancelled_no_playable record
+                    let session_id = uuid::Uuid::new_v4().to_string();
+                    let _ = sqlx::query(
+                        "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
+                         VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
+                    )
+                    .bind(&session_id)
+                    .bind(pod_id)
+                    .bind(&crashed_entry.driver_id)
+                    .bind(&crashed_entry.pricing_tier_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (game crash): {}", e));
+                    tracing::warn!(
+                        "Session cancelled_no_playable: pod={} driver={} (game died before PlayableSignal)",
+                        pod_id, crashed_entry.driver_id
+                    );
+                }
             }
 
             // Clean up from multiplayer_waiting if pod was still waiting
@@ -5198,6 +5344,7 @@ mod tests {
             attempt: 1,
             group_session_id: None,
             sim_type: None,
+            pre_committed: None,
         };
         assert_eq!(entry.pod_id, "pod1");
         assert_eq!(entry.attempt, 1);
@@ -5316,6 +5463,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             });
         }
         // Simulate Live: remove from waiting_for_game
@@ -5348,6 +5496,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             };
             // Simulate time passing by using checked_sub
             entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
@@ -5378,6 +5527,7 @@ mod tests {
                 attempt: 2, // second attempt
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             };
             waiting.insert("p8".to_string(), entry);
         }
@@ -5447,6 +5597,7 @@ mod tests {
             attempt: 1,
             group_session_id: group_session_id.map(|s| s.to_string()),
         sim_type: None,
+        pre_committed: None,
         }
     }
 
@@ -6123,6 +6274,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             });
         }
 
@@ -6203,6 +6355,7 @@ mod tests {
                 attempt: 2, // Second attempt — this is the cancel threshold
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             };
             waiting.insert("pod-cnp".to_string(), entry);
         }
@@ -6264,6 +6417,7 @@ mod tests {
             attempt: 1,
             group_session_id: Some(group_id.to_string()),
             sim_type: None,
+            pre_committed: None,
         };
 
         {
@@ -6339,6 +6493,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+                pre_committed: None,
             });
         }
 

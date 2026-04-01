@@ -3620,13 +3620,14 @@ async fn start_billing(
         custom_price_paise.map(|p| p as i64)
     };
 
+    // BILL-13: Insert with 'waiting_for_game' status — timer activated on AcStatus::Live
     if let Err(e) = sqlx::query(
         "INSERT INTO billing_sessions \
          (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
           started_at, staff_id, split_count, split_duration_minutes, \
           wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key, \
           guardian_present, is_minor_session) \
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(driver_id)
@@ -3757,8 +3758,11 @@ async fn start_billing(
         }
     }
 
-    // ─── Post-commit: activate in-memory timer, notify agent, broadcast ───────
-    billing::finalize_billing_start(&state, billing::BillingStartData {
+    // ─── BILL-13: Defer timer activation until game reaches AcStatus::Live ─────
+    // Wallet debit + DB record already committed above (FATM-01).
+    // Timer starts only when PlayableSignal received — customer not charged for load screens.
+    let pod_id_for_defer = pod_id.clone();
+    billing::defer_billing_with_precommitted_session(&state, pod_id_for_defer, billing::BillingStartData {
         session_id: session_id.clone(),
         driver_id: driver_id.to_string(),
         driver_name,
@@ -3767,7 +3771,7 @@ async fn start_billing(
         allocated_seconds,
         split_count: final_split_count,
         split_duration_minutes,
-        started_at: now,
+        started_at: now, // placeholder — overwritten to game-live time on activation
     }).await;
 
     Json(json!({

@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
 | 2026-04-01 13:47 IST | James | 3b3e815c | fix: update MMA audit scripts — key recovery, model pool, budget tracking |
 | 2026-04-01 13:47 IST | James | edffcab0 | refactor: merge CGP v2.1 + Unified Protocol into CGP v3.0 (single source of truth) |

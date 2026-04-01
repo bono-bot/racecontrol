@@ -1862,6 +1862,7 @@ mod tests {
             attempt: 1,
             group_session_id: None,
             sim_type: None,
+            pre_committed: None,
         };
         state.billing.waiting_for_game.write().await.insert("pod_1".to_string(), entry);
 
