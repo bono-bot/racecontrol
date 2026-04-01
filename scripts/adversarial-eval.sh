@@ -26,9 +26,30 @@ if [ ! -f "$DIAGNOSIS_FILE" ]; then
 fi
 
 if [ -z "$OPENROUTER_KEY" ]; then
-  echo "ERROR: OPENROUTER_KEY not set"
-  exit 1
+  # Try loading from saved key file
+  SAVED_KEY=$(node -e "const k=require('./scripts/lib/openrouter-key-recovery').loadSavedKey();if(k)process.stdout.write(k)" 2>/dev/null || true)
+  if [ -n "$SAVED_KEY" ]; then
+    OPENROUTER_KEY="$SAVED_KEY"
+    echo "Loaded saved key from previous recovery"
+  else
+    echo "ERROR: OPENROUTER_KEY not set"
+    exit 1
+  fi
 fi
+
+# 401 recovery function — provisions new key via Node module
+recover_openrouter_key() {
+  echo "Attempting OpenRouter key recovery..."
+  NEW_KEY=$(node -e "require('./scripts/lib/openrouter-key-recovery').recoverKey().then(k=>{process.stdout.write(k);process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})" 2>&1)
+  if [ $? -eq 0 ] && [ -n "$NEW_KEY" ]; then
+    OPENROUTER_KEY="$NEW_KEY"
+    echo "Key recovered successfully"
+    return 0
+  else
+    echo "Key recovery failed: $NEW_KEY"
+    return 1
+  fi
+}
 
 # ─── Evaluator model selection (must differ from diagnostician) ────────────────
 select_evaluator() {
@@ -96,6 +117,22 @@ EVAL_RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" 
   -H "Authorization: Bearer ${OPENROUTER_KEY}" \
   -H "Content-Type: application/json" \
   -d @"$PAYLOAD_FILE")
+
+# Check for 401 and attempt recovery
+if echo "$EVAL_RESPONSE" | grep -qi '"code":401\|"status":401\|Unauthorized\|User not found'; then
+  echo "401 detected — key is dead. Attempting auto-recovery..."
+  if recover_openrouter_key; then
+    echo "Retrying with new key..."
+    EVAL_RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+      -H "Authorization: Bearer ${OPENROUTER_KEY}" \
+      -H "Content-Type: application/json" \
+      -d @"$PAYLOAD_FILE")
+  else
+    echo "FATAL: Key recovery failed. Get a new key from openrouter.ai/settings/keys"
+    rm -f "$PAYLOAD_FILE"
+    exit 1
+  fi
+fi
 
 rm -f "$PAYLOAD_FILE"
 

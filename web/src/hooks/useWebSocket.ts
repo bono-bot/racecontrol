@@ -21,6 +21,7 @@ export interface BillingWarning {
 
 export function useWebSocket() {
   const ws = useRef<WebSocket | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const [pods, setPods] = useState<Map<string, Pod>>(new Map());
   const [latestTelemetry, setLatestTelemetry] = useState<TelemetryFrame | null>(null);
@@ -50,6 +51,7 @@ export function useWebSocket() {
     const socket = new WebSocket(WS_URL);
 
     socket.onopen = () => {
+      reconnectAttemptRef.current = 0;
       setConnected(true);
       console.log("[RaceControl] Connected to server");
     };
@@ -234,8 +236,13 @@ export function useWebSocket() {
 
     socket.onclose = () => {
       setConnected(false);
-      console.log("[RaceControl] Disconnected, retrying in 3s...");
-      setTimeout(connect, 3000);
+      const attempt = reconnectAttemptRef.current;
+      const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30_000);
+      const jitter = Math.random() * baseDelay * 0.3;
+      const delay = Math.round(baseDelay + jitter);
+      reconnectAttemptRef.current = attempt + 1;
+      console.log(`[RaceControl] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1})...`);
+      setTimeout(connect, delay);
     };
 
     socket.onerror = () => {

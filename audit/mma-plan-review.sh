@@ -4,7 +4,22 @@
 
 set -euo pipefail
 
-OPENROUTER_KEY="${OPENROUTER_KEY:?Set OPENROUTER_KEY}"
+OPENROUTER_KEY="${OPENROUTER_KEY:-$(node -e "const k=require('./scripts/lib/openrouter-key-recovery').loadSavedKey();if(k)process.stdout.write(k)" 2>/dev/null || true)}"
+if [ -z "$OPENROUTER_KEY" ]; then echo "ERROR: Set OPENROUTER_KEY"; exit 1; fi
+
+# 401 recovery function
+recover_openrouter_key() {
+  echo ">>> Attempting OpenRouter key recovery..."
+  NEW_KEY=$(node -e "require('./scripts/lib/openrouter-key-recovery').recoverKey().then(k=>{process.stdout.write(k);process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})" 2>&1)
+  if [ $? -eq 0 ] && [ -n "$NEW_KEY" ]; then
+    OPENROUTER_KEY="$NEW_KEY"
+    echo ">>> Key recovered successfully"
+    return 0
+  else
+    echo ">>> Key recovery failed: $NEW_KEY"
+    return 1
+  fi
+}
 PLAN_FILE=".planning/phases/LEADERBOARD-TELEMETRY-PLAN.md"
 PLAN_CONTENT=$(cat "$PLAN_FILE" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 OUTPUT_DIR="audit/results/mma-plan-review-$(date +%Y-%m-%d)"
@@ -55,7 +70,55 @@ done
 
 echo ">>> Waiting for all 4 models to complete..."
 wait
-echo ">>> All 4 models done. Extracting findings..."
+echo ">>> All 4 models done."
+
+# Check for 401 in any response — retry failed models with recovered key
+NEEDS_RETRY=false
+for i in "${!SHORTS[@]}"; do
+  RAW="$OUTPUT_DIR/${SHORTS[$i]}-raw.json"
+  if [ -f "$RAW" ] && grep -qi '"code":401\|"status":401\|Unauthorized\|User not found' "$RAW" 2>/dev/null; then
+    echo ">>> ${SHORTS[$i]}: 401 detected — key is dead"
+    NEEDS_RETRY=true
+  fi
+done
+
+if $NEEDS_RETRY; then
+  if recover_openrouter_key; then
+    echo ">>> Retrying failed models with new key..."
+    for i in "${!SHORTS[@]}"; do
+      RAW="$OUTPUT_DIR/${SHORTS[$i]}-raw.json"
+      if [ -f "$RAW" ] && grep -qi '"code":401\|"status":401\|Unauthorized\|User not found' "$RAW" 2>/dev/null; then
+        MODEL="${MODELS[$i]}"
+        SHORT="${SHORTS[$i]}"
+        echo ">>> Retrying $SHORT ($MODEL)..."
+        REQUEST=$(cat <<ENDJSON
+{
+  "model": "$MODEL",
+  "max_tokens": 16000,
+  "temperature": 0.3,
+  "messages": [
+    {"role": "system", "content": "$SYSTEM_PROMPT"},
+    {"role": "user", "content": "Review this plan:\\n\\n$PLAN_CONTENT"}
+  ]
+}
+ENDJSON
+)
+        curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+          -H "Authorization: Bearer $OPENROUTER_KEY" \
+          -H "Content-Type: application/json" \
+          -H "HTTP-Referer: https://racingpoint.cloud" \
+          -d "$REQUEST" \
+          -o "$OUTPUT_DIR/${SHORT}-raw.json" &
+      fi
+    done
+    wait
+    echo ">>> Retry complete"
+  else
+    echo ">>> FATAL: Key recovery failed. Some results will be missing."
+  fi
+fi
+
+echo ">>> Extracting findings..."
 
 for SHORT in "${SHORTS[@]}"; do
   RAW="$OUTPUT_DIR/${SHORT}-raw.json"

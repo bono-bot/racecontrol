@@ -154,6 +154,7 @@ export default function StaffTerminal() {
   // When a sub-session completes and more splits remain, auto-open the setup wizard
   // for the same pod so staff can pick the next track/car.
   const [isSplitContinuation, setIsSplitContinuation] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
 
   useEffect(() => {
     if (pendingSplitContinuation) {
@@ -170,57 +171,75 @@ export default function StaffTerminal() {
 
   // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
-    if (!selectedPodId) return;
+    if (!selectedPodId || isLaunching) return;
+    setIsLaunching(true);
 
-    if (isSplitContinuation && pendingSplitContinuation) {
-      // Split continuation — no billing start, just continue the split
-      try {
-        const result = await api.continueSplit({
-          pod_id: selectedPodId,
-          sim_type: simType,
-          launch_args: launchArgs,
-        });
-        if (result.error) {
-          toastError(`Continue split failed: ${result.error}`);
-          return;
-        }
-      } catch (err) {
-        toastError(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
-        return;
-      }
-      setIsSplitContinuation(false);
-      clearPendingSplitContinuation();
-    } else {
-      // Normal billing start
-      const driver = wizard.state.selectedDriver;
-      const tier = wizard.state.selectedTier;
-      if (driver && tier) {
+    try {
+      if (isSplitContinuation && pendingSplitContinuation) {
+        // Split continuation — no billing start, just continue the split
         try {
-          const result = await api.startBilling({
+          const result = await api.continueSplit({
             pod_id: selectedPodId,
-            driver_id: driver.id,
-            pricing_tier_id: tier.id,
-            staff_id: staffId || undefined,
-            ...(wizard.state.splitCount > 1 && {
-              split_count: wizard.state.splitCount,
-              split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
-            }),
+            sim_type: simType,
+            launch_args: launchArgs,
           });
-
           if (result.error) {
-            toastError(`Billing failed: ${result.error}`);
+            toastError(`Continue split failed: ${result.error}`);
             return;
           }
         } catch (err) {
-          toastError(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+          toastError(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
+          return;
+        }
+        setIsSplitContinuation(false);
+        clearPendingSplitContinuation();
+      } else {
+        // Normal billing start
+        const driver = wizard.state.selectedDriver;
+        const tier = wizard.state.selectedTier;
+        if (driver && tier) {
+          try {
+            const result = await api.startBilling({
+              pod_id: selectedPodId,
+              driver_id: driver.id,
+              pricing_tier_id: tier.id,
+              staff_id: staffId || undefined,
+              ...(wizard.state.splitCount > 1 && {
+                split_count: wizard.state.splitCount,
+                split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
+              }),
+            });
+
+            if (result.error) {
+              toastError(`Billing failed: ${result.error}`);
+              return;
+            }
+          } catch (err) {
+            toastError(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+            return;
+          }
+        }
+
+        // Launch game — handle errors to avoid silent failure
+        try {
+          const launchResult = await api.launchGame(selectedPodId, simType, launchArgs);
+          if (!launchResult.ok) {
+            toastError(`Game launch failed: ${launchResult.error || "Unknown error"}`);
+            return;
+          }
+          if (launchResult.warning) {
+            toastError(launchResult.warning);
+          }
+        } catch (err) {
+          toastError(`Failed to launch game: ${err instanceof Error ? err.message : "Network error"}`);
           return;
         }
       }
-
-      await api.launchGame(selectedPodId, simType, launchArgs);
+      // Switch to live session view
+      setPanelMode("live_session");
+    } finally {
+      setIsLaunching(false);
     }
-    // Switch to live session view
-    setPanelMode("live_session");
   };
 
   const handleEndSession = (billingSessionId: string) => {
@@ -459,6 +478,7 @@ export default function StaffTerminal() {
               goNext={wizard.goNext}
               isFirstStep={wizard.isFirstStep}
               onLaunch={handleGameLaunch}
+              isLaunching={isLaunching}
               buildLaunchArgs={wizard.buildLaunchArgs}
               onCancel={closePanel}
             />

@@ -19,6 +19,7 @@ interface SetupWizardProps {
   goNext: () => boolean;
   isFirstStep: boolean;
   onLaunch: (simType: string, launchArgs: string) => void;
+  isLaunching?: boolean;
   buildLaunchArgs: () => string;
   onCancel: () => void;
 }
@@ -49,6 +50,7 @@ export function SetupWizard({
   goNext,
   isFirstStep,
   onLaunch,
+  isLaunching,
   buildLaunchArgs,
   onCancel,
 }: SetupWizardProps) {
@@ -1022,9 +1024,10 @@ export function SetupWizard({
             <button
               data-testid="launch-btn"
               onClick={handleLaunch}
+              disabled={isLaunching}
               className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              LAUNCH
+              {isLaunching ? "LAUNCHING..." : "LAUNCH"}
             </button>
           </div>
         )}

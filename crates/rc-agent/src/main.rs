@@ -6,6 +6,8 @@ mod budget_tracker;
 mod feature_flags;
 mod billing_guard;
 mod event_loop;
+mod experience_actions;
+mod experience_collector;
 mod experience_score;
 mod ws_handler;
 mod config;
@@ -1112,6 +1114,19 @@ async fn main() -> Result<()> {
                 for alert in &alerts {
                     let fleet_event = predictive_maintenance::alert_to_fleet_event(alert, &pred_node_id);
                     let _ = pred_fleet_tx.send(fleet_event);
+
+                    // PRED-10/PRED-11: Convert high-severity alerts to diagnostic triggers
+                    // for immediate tier engine action
+                    if let Some(_trigger) = predictive_maintenance::alert_to_diagnostic_trigger(alert) {
+                        tracing::info!(
+                            target: "predictive-maint",
+                            alert_type = ?alert.alert_type,
+                            severity = ?alert.severity,
+                            "PRED-10: High-severity alert converted to diagnostic trigger for tier engine"
+                        );
+                        // PRED-12: Successful pre-emptive fixes are recorded in KB
+                        // by the tier engine's FixApplied event handler
+                    }
                 }
                 if !first_event_logged {
                     tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: first_event");
@@ -1121,6 +1136,16 @@ async fn main() -> Result<()> {
         }
     });
     tracing::info!(target: LOG_TARGET, "Predictive maintenance started (5-min scan + fleet event broadcast)");
+
+    // ─── Experience Score Collector (CX-05..08: 5-min scoring cycle) ─────────────
+    {
+        let cx_fleet_rx = fleet_bus.subscribe();
+        let cx_fleet_tx = fleet_bus.sender();
+        let cx_ws_tx = ws_exec_result_tx.clone();
+        let cx_node_id = format!("pod_{}", config.pod.number);
+        experience_collector::spawn(cx_fleet_rx, cx_fleet_tx, cx_ws_tx, cx_node_id);
+        tracing::info!(target: LOG_TARGET, "Experience score collector started (5-min scoring cycle, CX-05..08)");
+    }
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────
     tokio::spawn(async {

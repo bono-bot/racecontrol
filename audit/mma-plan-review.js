@@ -6,7 +6,9 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const { recoverKey, is401Error, loadSavedKey } = require('../scripts/lib/openrouter-key-recovery');
+
+let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY'); process.exit(1); }
 
 const PLAN_FILE = path.join(__dirname, '..', '.planning', 'phases', 'LEADERBOARD-TELEMETRY-PLAN.md');
@@ -56,7 +58,7 @@ P3 = improvement opportunity, nice-to-have
 
 Be SPECIFIC. Reference technical details. Don't be vague.`;
 
-function callOpenRouter(model) {
+function callOpenRouter(model, keyRecovered = false) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model: model.id,
@@ -96,6 +98,16 @@ function callOpenRouter(model) {
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
+            if (is401Error(parsed.error) && !keyRecovered) {
+              console.error(`>>> [${model.short}] 401 — key is dead. Attempting auto-recovery...`);
+              recoverKey().then(newKey => {
+                OPENROUTER_KEY = newKey;
+                callOpenRouter(model, true).then(resolve).catch(reject);
+              }).catch(e => {
+                resolve({ model: model.short, error: `Key dead and recovery failed: ${e.message}`, findings: [] });
+              });
+              return;
+            }
             console.error(`>>> [${model.short}] API Error:`, parsed.error.message || parsed.error);
             resolve({ model: model.short, error: parsed.error.message || JSON.stringify(parsed.error), findings: [] });
             return;

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Customer Experience Scoring — per-pod quality score for Meshed Intelligence.
 //!
 //! Weighted score from 5 metrics:
@@ -13,6 +12,7 @@
 //!
 //! Phase 237 — Meshed Intelligence CX-01 to CX-04.
 
+use rc_common::fleet_event::FleetEvent;
 use serde::Serialize;
 
 const LOG_TARGET: &str = "experience-score";
@@ -155,6 +155,61 @@ pub fn calculate_score(inputs: &MetricInputs) -> ExperienceScore {
     }
 
     score
+}
+
+/// Update metric inputs based on a FleetEvent.
+/// Maps fleet events to the appropriate metric increments for score calculation.
+/// Called by experience_collector for each event received from the fleet bus.
+pub fn update_metrics(inputs: &mut MetricInputs, event: &FleetEvent) {
+    match event {
+        FleetEvent::FixApplied { trigger, .. } => {
+            // Game-related fix applied → count as successful launch recovery
+            let t = trigger.to_lowercase();
+            if t.contains("game") || t.contains("launch") {
+                inputs.launches_attempted += 1;
+                inputs.launches_succeeded += 1;
+            }
+        }
+        FleetEvent::FixFailed { trigger, .. } => {
+            // Game-related fix failed → launch attempted but not succeeded
+            let t = trigger.to_lowercase();
+            if t.contains("game") || t.contains("launch") {
+                inputs.launches_attempted += 1;
+            }
+        }
+        FleetEvent::AnomalyDetected { trigger, .. } => {
+            let t = trigger.to_lowercase();
+            // Display issues tracked
+            if t.contains("display") || t.contains("edge") || t.contains("blanking") {
+                inputs.total_scans += 1;
+                // display_ok_scans NOT incremented = failure
+            }
+            // HID issues tracked
+            if t.contains("hid") || t.contains("hardware") || t.contains("usb") {
+                inputs.total_hid_checks += 1;
+                // hid_ok_checks NOT incremented = failure
+            }
+        }
+        FleetEvent::PredictiveAlert { alert_type, .. } => {
+            tracing::trace!(target: LOG_TARGET, alert_type, "Predictive alert tracked for scoring");
+        }
+        FleetEvent::ExperienceScoreUpdate { .. }
+        | FleetEvent::Escalated { .. }
+        | FleetEvent::GameLaunchRetryResult { .. }
+        | FleetEvent::RevenueAnomaly { .. }
+        | FleetEvent::ModelReputationChange { .. } => {
+            // Not relevant for metric collection
+        }
+    }
+}
+
+/// Record a successful diagnostic scan (no anomalies).
+/// Called periodically to count clean scans for display/HID ratios.
+pub fn record_clean_scan(inputs: &mut MetricInputs) {
+    inputs.total_scans += 1;
+    inputs.display_ok_scans += 1;
+    inputs.total_hid_checks += 1;
+    inputs.hid_ok_checks += 1;
 }
 
 #[cfg(test)]

@@ -407,6 +407,8 @@ curl -s -m 120 https://openrouter.ai/api/v1/chat/completions \
 
 - **MMA bootstrap is env-only.** API key (`OPENROUTER_KEY`), budget limits (`MMA_DAILY_BUDGET`), and training mode (`MMA_TRAINING_MODE`) read from environment variables FIRST, then `mma.toml`, then hardcoded defaults. NEVER depend on `racecontrol.toml` for MMA core config.
   _Why: v31.0 — `racecontrol.toml` parse failure killed MMA itself. Bootstrap paradox._
+- **MMA 401 auto-recovery (all scripts).** When any MMA script gets a 401 (dead key), it automatically: (1) provisions a new child key via `OPENROUTER_MGMT_KEY`, (2) falls back to Bono relay (`provision_openrouter_key` command), (3) saves to `data/openrouter-mma-key.txt`. All 8 MMA scripts support this. Shared module: `scripts/lib/openrouter-key-recovery.js`. If `OPENROUTER_KEY` env is unset, scripts auto-load the saved key.
+  _Why: OpenRouter auto-revokes keys found in LLM prompts. MMA audits crashed mid-run requiring manual key rotation._
 - **Manual MMA requires structured logging.** Every manual MMA session by Bono/Claude MUST log: model name, step number, cost, consensus result. Never act on 1 model for code changes — always 3+. Track cost, stop at $5/session unless Uday approves. Append to LOGBOOK.md: `| timestamp | MMA-manual | step | models | consensus | cost |`
   _Why: Manual MMA left no audit trail. 5/5 models flagged "automation theater."_
 - **Vendor diversity: ≥3 vendors per 5-model step.** Max 2 models from same family. Families: DeepSeek, Meta, Google, Moonshot, Mistral, Qwen, xAI, Nvidia, OpenAI.

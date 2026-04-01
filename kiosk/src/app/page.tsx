@@ -84,9 +84,9 @@ export default function CustomerLanding() {
     setErrorMsg("");
   }, []);
 
-  // Inactivity → close modal (only during numpad)
+  // Inactivity → close modal (numpad + validating — prevents stuck modal on API hang)
   useEffect(() => {
-    if (!selectedPodId || pinStep !== "numpad") return;
+    if (!selectedPodId || (pinStep !== "numpad" && pinStep !== "validating")) return;
     const interval = setInterval(() => {
       if (Date.now() - lastActivity > INACTIVITY_MS) {
         closeModal();

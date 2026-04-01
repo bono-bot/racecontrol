@@ -148,7 +148,7 @@ export const api = {
 
   // Game Launcher
   launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
-    fetchApi<{ ok: boolean }>("/games/launch", {
+    fetchApi<{ ok: boolean; error?: string; warning?: string }>("/games/launch", {
       method: "POST",
       body: JSON.stringify({ pod_id, sim_type, launch_args }),
     }),

@@ -713,6 +713,23 @@ Before ANY MMA execution (automated or manual), run pre-flight probes:
 
 If any probe fails: log the failure, proceed with degraded mode (skip unavailable channels). Never assume infrastructure is healthy. If OpenRouter fails pre-flight, trigger MMA-14 fallback immediately (don't waste the first model call discovering it).
 
+### MMA-20: API Key 401 Auto-Recovery
+
+All MMA scripts implement automatic key recovery on 401 (dead/revoked key):
+
+1. **Detection:** 401 status, "Unauthorized", or "User not found" in OpenRouter error response
+2. **Local recovery:** Provision new child key via `OPENROUTER_MGMT_KEY` management key (POST `/api/v1/keys`)
+3. **Bono relay fallback:** If local mgmt key unavailable, request via comms-link relay: `provision_openrouter_key` command (AUTO tier)
+4. **Persistence:** New key saved to `data/openrouter-mma-key.txt` (mode 0600) — scripts auto-load if `OPENROUTER_KEY` env is unset
+5. **Serialization:** Concurrent 401 recoveries share a single provisioning call (prevents key explosion)
+6. **Retry:** After recovery, the failed API call retries with the new key (doesn't count as retry)
+
+**Shared module:** `scripts/lib/openrouter-key-recovery.js` — exports `recoverKey()`, `is401Error()`, `loadSavedKey()`, `checkKeyValid()`.
+
+**Covered scripts:** `scripts/multi-model-audit.js`, `scripts/gemini-audit.js`, `scripts/kiosk-audit.js`, `scripts/adversarial-eval.sh`, `audit/or-audit-runner.js`, `audit/mma-plan-review.js`, `audit/mma-code-verify.js`, `audit/mma-plan-review.sh`.
+
+**Relay command:** `provision_openrouter_key` in `comms-link/shared/exec-protocol.js` (AUTO tier). Both James and Bono can provision — the management key is in `OPENROUTER_MGMT_KEY` env var on both machines.
+
 ### MMA-11: Daily Self-Health-Check
 
 MMA engine runs a synthetic self-test daily (cron or startup):

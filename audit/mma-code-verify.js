@@ -7,7 +7,9 @@ const path = require('path');
 const https = require('https');
 const { execFileSync } = require('child_process');
 
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const { recoverKey, is401Error, loadSavedKey } = require('../scripts/lib/openrouter-key-recovery');
+
+let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY'); process.exit(1); }
 
 // Get the actual diff using execFileSync (safe, no shell injection)
@@ -59,7 +61,7 @@ P1 = will cause crash, data loss, or security breach in production
 P2 = degraded experience or maintenance burden
 P3 = improvement opportunity`;
 
-function callOpenRouter(model, content) {
+function callOpenRouter(model, content, keyRecovered = false) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model: model.id,
@@ -95,11 +97,21 @@ function callOpenRouter(model, content) {
         fs.writeFileSync(path.join(OUTPUT_DIR, `${model.short}-raw.json`), data);
         try {
           const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.message?.content || '';
-          fs.writeFileSync(path.join(OUTPUT_DIR, `${model.short}-findings.md`), content);
+          if (parsed.error && is401Error(parsed.error) && !keyRecovered) {
+            console.error(`>>> [${model.short}] 401 — key is dead. Attempting auto-recovery...`);
+            recoverKey().then(newKey => {
+              OPENROUTER_KEY = newKey;
+              callOpenRouter(model, content, true).then(resolve).catch(reject);
+            }).catch(e => {
+              resolve({ model: model.short, findings: [], error: `Key dead and recovery failed: ${e.message}` });
+            });
+            return;
+          }
+          const responseContent = parsed.choices?.[0]?.message?.content || '';
+          fs.writeFileSync(path.join(OUTPUT_DIR, `${model.short}-findings.md`), responseContent);
           let findings = [];
           try {
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            const jsonMatch = responseContent.match(/\[[\s\S]*\]/);
             if (jsonMatch) findings = JSON.parse(jsonMatch[0]);
           } catch (e) {}
           console.log(`>>> [${model.short}] ${findings.length} findings`);

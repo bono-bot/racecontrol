@@ -79,10 +79,10 @@ pub enum FleetEvent {
         timestamp: DateTime<Utc>,
     },
 
-    /// Phase 276: Per-pod experience score updated.
+    /// CX-05: Per-pod experience score updated (emitted every 5 minutes).
     ExperienceScoreUpdate {
         node_id: String,
-        score: f64,
+        total_score: f64,
         status: String,
         timestamp: DateTime<Utc>,
     },

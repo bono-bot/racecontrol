@@ -11113,12 +11113,12 @@ async fn list_staff(
 
     let staff: Vec<Value> = rows
         .into_iter()
-        .map(|(id, name, phone, pin, active, last_login, role)| {
+        .map(|(id, name, phone, _pin, active, last_login, role)| {
+            // SEC: Never expose staff PINs in API responses
             json!({
                 "id": id,
                 "name": name,
                 "phone": phone,
-                "pin": pin,
                 "is_active": active,
                 "last_login_at": last_login,
                 "role": role.unwrap_or_else(|| "staff".to_string()),

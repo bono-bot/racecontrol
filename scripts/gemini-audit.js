@@ -8,7 +8,9 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const { recoverKey, is401Error, loadSavedKey } = require('./lib/openrouter-key-recovery');
+
+let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 if (!OPENROUTER_KEY) {
   console.error('ERROR: Set OPENROUTER_KEY environment variable');
   process.exit(1);
@@ -70,7 +72,7 @@ function estimateTokens(text) {
 
 // ─── OpenRouter API caller ───────────────────────────────────────────────────
 
-function callGemini(systemPrompt, userPrompt, retries = 0) {
+function callGemini(systemPrompt, userPrompt, retries = 0, keyRecovered = false) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model: MODEL,
@@ -101,6 +103,16 @@ function callGemini(systemPrompt, userPrompt, retries = 0) {
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
+            if (is401Error(parsed.error) && !keyRecovered) {
+              console.log('  401 — key is dead. Attempting auto-recovery...');
+              recoverKey().then(newKey => {
+                OPENROUTER_KEY = newKey;
+                callGemini(systemPrompt, userPrompt, retries, true).then(resolve).catch(reject);
+              }).catch(e => {
+                reject(new Error(`Key dead (401) and recovery failed: ${e.message}`));
+              });
+              return;
+            }
             if (retries < MAX_RETRIES) {
               console.log(`  Retry ${retries + 1}/${MAX_RETRIES}...`);
               setTimeout(() => {

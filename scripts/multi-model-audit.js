@@ -30,7 +30,10 @@ const path = require('path');
 const https = require('https');
 const { execSync } = require('child_process');
 
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const { recoverKey, is401Error, loadSavedKey } = require('./lib/openrouter-key-recovery');
+
+// Mutable key — updated in-process on 401 recovery
+let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY env var'); process.exit(1); }
 
 const LEGACY_MODEL = process.env.MODEL; // backward compat: single model mode
@@ -303,7 +306,7 @@ function splitBatchIfNeeded(batch, maxTokens) {
 }
 
 // ─── OpenRouter API ────────────────────────────────────────────────────────
-function callModel(modelId, systemPrompt, userPrompt, retries = 0) {
+function callModel(modelId, systemPrompt, userPrompt, retries = 0, keyRecovered = false) {
   const config = MODEL_REGISTRY[modelId];
   if (!config) return Promise.reject(new Error(`Unknown model: ${modelId}`));
 
@@ -337,6 +340,17 @@ function callModel(modelId, systemPrompt, userPrompt, retries = 0) {
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
+            // 401 = dead key — attempt auto-recovery (doesn't count as retry)
+            if (is401Error(parsed.error) && !keyRecovered) {
+              console.log(`    [${config.short}] 401 — key is dead. Attempting auto-recovery...`);
+              recoverKey().then(newKey => {
+                OPENROUTER_KEY = newKey;
+                callModel(modelId, systemPrompt, userPrompt, retries, true).then(resolve).catch(reject);
+              }).catch(e => {
+                reject(new Error(`[${config.short}] Key dead (401) and recovery failed: ${e.message}`));
+              });
+              return;
+            }
             if (retries < MAX_RETRIES) {
               console.log(`    [${config.short}] Retry ${retries + 1}/${MAX_RETRIES}... (${parsed.error.message || 'unknown'})`);
               setTimeout(() => callModel(modelId, systemPrompt, userPrompt, retries + 1).then(resolve).catch(reject), 5000 * (retries + 1));
@@ -397,8 +411,33 @@ async function preflightCheck() {
     if (result.status === 200) {
       console.log('  [OK] OpenRouter API reachable (200)');
     } else if (result.status === 401 || result.status === 403) {
-      console.error(`  [FAIL] OpenRouter API returned ${result.status} — check API key`);
-      process.exit(1);
+      console.error(`  [WARN] OpenRouter API returned ${result.status} — key is dead. Attempting auto-recovery...`);
+      try {
+        OPENROUTER_KEY = await recoverKey();
+        console.log('  [OK] Key recovered — retrying preflight...');
+        // Re-check with new key
+        const recheck = await new Promise((resolve, reject) => {
+          const req2 = https.request({
+            hostname: 'openrouter.ai', path: '/api/v1/models', method: 'GET',
+            headers: { 'Authorization': `Bearer ${OPENROUTER_KEY}` }
+          }, (res2) => {
+            let d = ''; res2.on('data', c => d += c);
+            res2.on('end', () => resolve({ status: res2.statusCode }));
+          });
+          req2.on('error', reject);
+          req2.setTimeout(10000, () => { req2.destroy(); reject(new Error('timeout')); });
+          req2.end();
+        });
+        if (recheck.status === 200) {
+          console.log('  [OK] New key verified — preflight passed');
+        } else {
+          console.error(`  [FAIL] New key also returned ${recheck.status} — aborting`);
+          process.exit(1);
+        }
+      } catch (e) {
+        console.error(`  [FAIL] Key recovery failed: ${e.message}`);
+        process.exit(1);
+      }
     } else {
       console.log(`  [WARN] OpenRouter API returned ${result.status} — proceeding with caution`);
     }
