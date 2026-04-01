@@ -39,10 +39,10 @@ Make autonomous action loops observable and queryable with time-series depth -- 
   3. Hourly and daily rollups (min/max/avg/count) exist and are retained for 90 days
   4. Metric ingestion does not introduce observable latency on the main server event loop (async/batched writes)
   5. Storage is bounded -- disk usage does not grow indefinitely regardless of uptime duration
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 285-01-PLAN.md -- SQLite TSDB schema (metrics_samples + metrics_rollups tables), types, record_sample, rollup functions
+- [x] 285-01-PLAN.md -- SQLite TSDB schema (metrics_samples + metrics_rollups tables), types, record_sample, rollup functions
 - [ ] 285-02-PLAN.md -- Async mpsc ingestion pipeline, purge tasks (7d raw, 90d rollups), wired in main.rs
 
 ### Phase 286: Metrics Query API
@@ -111,7 +111,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 285. Metrics Ring Buffer | 0/2 | Not started | - |
+| 285. Metrics Ring Buffer | 1/2 | In Progress|  |
 | 286. Metrics Query API | 0/1 | Not started | - |
 | 287. Metrics Dashboard | 0/1 | Not started | - |
 | 288. Prometheus Export | 0/1 | Not started | - |
