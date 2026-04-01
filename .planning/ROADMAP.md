@@ -208,7 +208,7 @@ Plans:
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
 | 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
-| 291. Dashboard API Wiring | 1/1 | Complete   | 2026-04-01 |
+| 291. Dashboard API Wiring | 1/1 | Complete    | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete    | 2026-04-01 |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
