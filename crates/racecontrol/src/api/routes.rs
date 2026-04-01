@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::metrics;
+use super::metrics_query;
 use super::survival;
 use crate::ac_server;
 use crate::accounting;
@@ -524,6 +525,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
         .route("/metrics/launch-observability", get(metrics::launch_observability_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        // Phase 286: Metrics Query API (QAPI-01..05) — staff-only, business intelligence
+        .route("/metrics/query", get(metrics_query::query_handler))
+        .route("/metrics/names", get(metrics_query::names_handler))
+        .route("/metrics/snapshot", get(metrics_query::snapshot_handler))
         .route("/mesh/solutions", get(mesh_list_solutions))
         .route("/mesh/solutions/search", get(mesh_search_solutions))
         .route("/mesh/solutions/{id}", get(mesh_get_solution))
