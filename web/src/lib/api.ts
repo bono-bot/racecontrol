@@ -314,6 +314,24 @@ export interface BackupStatus {
   staleness_hours: number | null;
 }
 
+// ─── Phase 301-02: Cloud Sync Health (SYNC-06) ───────────────────────────────
+
+export interface SyncTableState {
+  table: string;
+  last_synced_at: string;
+  last_sync_count: number;
+  staleness_seconds: number;
+  conflict_count: number;
+}
+
+export interface SyncHealth {
+  status: string;
+  lag_seconds: number;
+  sync_mode: string;
+  relay_available: boolean;
+  sync_state: SyncTableState[];
+}
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -612,6 +630,9 @@ export const api = {
 
   // Phase 300-02: Backup Status — staff JWT required
   backupStatus: () => fetchApi<BackupStatus>("/backup/status"),
+
+  // Phase 301-02: Cloud Sync Health (SYNC-06) — staff JWT required
+  syncHealth: () => fetchApi<SyncHealth>("/sync/health"),
 };
 
 interface GameLaunchEvent {

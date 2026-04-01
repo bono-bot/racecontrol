@@ -3,7 +3,110 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { AlertTriangle } from "lucide-react";
-import { api, type BackupStatus } from "@/lib/api";
+import { api, type BackupStatus, type SyncHealth, type SyncTableState } from "@/lib/api";
+
+function formatStaleness(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
+function SyncStatusPanel({ syncHealth }: { syncHealth: SyncHealth | null }) {
+  const statusColor =
+    syncHealth?.status === "healthy"
+      ? "text-emerald-400"
+      : syncHealth?.status === "degraded"
+      ? "text-amber-400"
+      : syncHealth?.status === "critical"
+      ? "text-rp-red"
+      : "text-neutral-500";
+
+  const statusBadgeBg =
+    syncHealth?.status === "healthy"
+      ? "bg-emerald-400/10 border-emerald-400/20"
+      : syncHealth?.status === "degraded"
+      ? "bg-amber-400/10 border-amber-400/20"
+      : syncHealth?.status === "critical"
+      ? "bg-rp-red/10 border-rp-red/20"
+      : "bg-neutral-500/10 border-neutral-500/20";
+
+  return (
+    <div className="bg-rp-card border border-rp-border rounded-lg p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-medium text-neutral-400">Cloud Sync Status</h2>
+        {syncHealth && (
+          <span
+            className={`text-xs font-medium px-2 py-0.5 rounded border ${statusBadgeBg} ${statusColor}`}
+          >
+            {syncHealth.status}
+          </span>
+        )}
+      </div>
+
+      {!syncHealth ? (
+        <p className="text-sm text-rp-grey">Loading sync status...</p>
+      ) : (
+        <>
+          {/* Summary row */}
+          <div className="space-y-3 text-sm mb-4">
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Sync Mode</span>
+              <span className="text-neutral-300 font-mono">{syncHealth.sync_mode}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Relay</span>
+              <span className={syncHealth.relay_available ? "text-emerald-400" : "text-red-400"}>
+                {syncHealth.relay_available ? "Available" : "Unavailable"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-rp-grey">Overall Lag</span>
+              <span className="text-neutral-300 font-mono">
+                {formatStaleness(syncHealth.lag_seconds)}
+              </span>
+            </div>
+          </div>
+
+          {/* Per-table sync state */}
+          {syncHealth.sync_state.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-rp-grey border-b border-rp-border">
+                    <th className="text-left pb-2 font-medium">Table</th>
+                    <th className="text-right pb-2 font-medium">Last Synced</th>
+                    <th className="text-right pb-2 font-medium">Records</th>
+                    <th className="text-right pb-2 font-medium">Staleness</th>
+                    <th className="text-right pb-2 font-medium">Conflicts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syncHealth.sync_state.map((row: SyncTableState) => (
+                    <tr key={row.table} className="border-b border-rp-border/50">
+                      <td className="py-2 text-neutral-300 font-mono">{row.table}</td>
+                      <td className="py-2 text-right text-neutral-400">{row.last_synced_at}</td>
+                      <td className="py-2 text-right text-neutral-300">{row.last_sync_count}</td>
+                      <td className="py-2 text-right text-neutral-400 font-mono">
+                        {formatStaleness(row.staleness_seconds)}
+                      </td>
+                      <td className={`py-2 text-right font-mono ${row.conflict_count > 0 ? "text-rp-red" : "text-neutral-400"}`}>
+                        {row.conflict_count}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {syncHealth.sync_state.length === 0 && (
+            <p className="text-xs text-rp-grey">No tables synced yet.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [venue, setVenue] = useState<{
@@ -19,12 +122,14 @@ export default function SettingsPage() {
   const [posLocked, setPosLocked] = useState<boolean | null>(null);
   const [posToggling, setPosToggling] = useState(false);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
+  const [syncHealth, setSyncHealth] = useState<SyncHealth | null>(null);
 
   useEffect(() => {
     api.venue().then(setVenue).catch(() => {});
     api.health().then(setHealth).catch(() => {});
     api.getPosLockdown().then((r) => setPosLocked(r.locked)).catch(() => {});
     api.backupStatus().then(setBackup).catch(() => {});
+    api.syncHealth().then(setSyncHealth).catch(() => {});
   }, []);
 
   const togglePosLockdown = async () => {
@@ -180,6 +285,9 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* Cloud Sync Status */}
+        <SyncStatusPanel syncHealth={syncHealth} />
 
         {/* Brand Theme Preview */}
         <div className="bg-rp-card border border-rp-border rounded-lg p-5 lg:col-span-2">
