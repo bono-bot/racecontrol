@@ -533,6 +533,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
+        // ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────
+        .route("/models/evaluations", get(list_model_evaluations))
         // ─── v29.0 Phase 9: Maintenance & Analytics ─────────────────────────
         .route("/maintenance/events", post(maintenance_create_event).get(maintenance_list_events))
         .route("/maintenance/summary", get(maintenance_summary))
@@ -20340,6 +20342,45 @@ async fn mesh_retire_solution(
         Ok(true) => Json(serde_json::json!({ "ok": true, "status": "retired" })),
         Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
         Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+    }
+}
+
+// ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct EvalQueryParams {
+    model: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    #[serde(default = "default_eval_limit")]
+    limit: i64,
+}
+
+fn default_eval_limit() -> i64 {
+    1000
+}
+
+/// GET /api/v1/models/evaluations — query evaluation records pushed by rc-agent.
+/// Query params: model=<model_id>, from=<ISO8601>, to=<ISO8601>, limit=<n>
+/// Returns empty records array (not error) when no matching records exist.
+async fn list_model_evaluations(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EvalQueryParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::query_eval_records(
+        &state.db,
+        params.model.as_deref(),
+        params.from.as_deref(),
+        params.to.as_deref(),
+        params.limit,
+    )
+    .await
+    {
+        Ok(records) => {
+            let count = records.len();
+            Json(serde_json::json!({ "records": records, "count": count }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string(), "records": [] })),
     }
 }
 

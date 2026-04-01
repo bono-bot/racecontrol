@@ -3139,6 +3139,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     // v26.0 Meshed Intelligence tables
     crate::fleet_kb::migrate(pool).await?;
 
+    // v35.0 Model Evaluation Store (EVAL-03)
+    crate::fleet_kb::migrate_eval_store(pool).await?;
+
     // ─── Phase 251: Timer persistence columns (RESIL-02, FSM-09) ──────────────
     // elapsed_seconds: total wall-clock seconds since session start (persisted every 60s)
     // last_timer_sync_at: ISO timestamp of last successful persist, used for orphan detection

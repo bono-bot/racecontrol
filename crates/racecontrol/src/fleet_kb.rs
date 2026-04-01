@@ -519,3 +519,107 @@ impl From<IncidentRow> for MeshIncident {
         }
     }
 }
+
+// ─── Model Evaluation Store (EVAL-03) ─────────────────────────────────────────
+
+/// Create model_evaluations table on server. Called from db::migrate().
+pub async fn migrate_eval_store(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS model_evaluations (
+            id TEXT PRIMARY KEY,
+            model_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            prediction TEXT NOT NULL,
+            actual_outcome TEXT NOT NULL,
+            correct INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL NOT NULL DEFAULT 0.0,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_svc_eval_model_id ON model_evaluations (model_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_svc_eval_created_at ON model_evaluations (created_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("Model evaluation store table initialized (EVAL-03)");
+    Ok(())
+}
+
+/// Insert one evaluation record from an rc-agent push. Uses INSERT OR IGNORE to be idempotent.
+pub async fn insert_eval_record(
+    pool: &SqlitePool,
+    rec: &rc_common::protocol::EvalRecordPayload,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO model_evaluations \
+         (id, model_id, pod_id, trigger_type, prediction, actual_outcome, correct, cost_usd, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&rec.id)
+    .bind(&rec.model_id)
+    .bind(&rec.pod_id)
+    .bind(&rec.trigger_type)
+    .bind(&rec.prediction)
+    .bind(&rec.actual_outcome)
+    .bind(rec.correct as i64)
+    .bind(rec.cost_usd)
+    .bind(&rec.created_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Query evaluation records with optional filters. Used by GET /api/v1/models/evaluations.
+pub async fn query_eval_records(
+    pool: &SqlitePool,
+    model_id: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<rc_common::protocol::EvalRecordPayload>> {
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT id, model_id, pod_id, trigger_type, prediction, actual_outcome, correct, cost_usd, created_at \
+         FROM model_evaluations WHERE 1=1",
+    );
+    if let Some(m) = model_id {
+        qb.push(" AND model_id = ").push_bind(m);
+    }
+    if let Some(f) = from {
+        qb.push(" AND created_at >= ").push_bind(f);
+    }
+    if let Some(t) = to {
+        qb.push(" AND created_at <= ").push_bind(t);
+    }
+    qb.push(" ORDER BY created_at DESC LIMIT ").push_bind(limit);
+
+    let rows = qb.build().fetch_all(pool).await?;
+    let records = rows
+        .iter()
+        .map(|row| {
+            use sqlx::Row;
+            rc_common::protocol::EvalRecordPayload {
+                id: row.get("id"),
+                model_id: row.get("model_id"),
+                pod_id: row.get("pod_id"),
+                trigger_type: row.get("trigger_type"),
+                prediction: row.get("prediction"),
+                actual_outcome: row.get("actual_outcome"),
+                correct: row.get::<i64, _>("correct") != 0,
+                cost_usd: row.get("cost_usd"),
+                created_at: row.get("created_at"),
+            }
+        })
+        .collect();
+    Ok(records)
+}

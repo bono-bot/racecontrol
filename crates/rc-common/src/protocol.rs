@@ -41,6 +41,21 @@ pub struct EscalationPayload {
     pub timestamp: String,
 }
 
+/// Evaluation record payload sent from rc-agent to server after each AI diagnosis.
+/// Lives in rc-common so both crates can reference it without cross-crate imports.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalRecordPayload {
+    pub id: String,
+    pub model_id: String,
+    pub pod_id: String,
+    pub trigger_type: String,
+    pub prediction: String,
+    pub actual_outcome: String, // "fixed" | "failed_to_fix" | "not_applicable" | "escalated"
+    pub correct: bool,
+    pub cost_usd: f64,
+    pub created_at: String, // ISO 8601 UTC
+}
+
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -504,6 +519,16 @@ pub enum AgentMessage {
         status: String,
         /// ISO-8601 timestamp
         scored_at: String,
+    },
+
+    // ─── Model Evaluation Sync (EVAL-03) ────────────────────────────────────
+
+    /// Agent pushes evaluation records to server after each MMA Step 4 VERIFY.
+    /// Server stores in model_evaluations table for query via /api/v1/models/evaluations.
+    /// EVAL-03: enables server-side aggregation and trend queries.
+    ModelEvalSync {
+        pod_id: String,
+        records: Vec<EvalRecordPayload>,
     },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.

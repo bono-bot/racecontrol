@@ -1561,6 +1561,26 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             ).await;
                         }
 
+                        // ─── Model Evaluation Sync (EVAL-03 / Phase 290) ─────────────
+                        AgentMessage::ModelEvalSync { pod_id, records } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                record_count = records.len(),
+                                "EVAL-03: received model eval sync from pod"
+                            );
+                            for rec in records.iter() {
+                                if let Err(e) = crate::fleet_kb::insert_eval_record(&state.db, rec).await {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %rec.model_id,
+                                        "EVAL-03: failed to insert eval record"
+                                    );
+                                }
+                            }
+                        }
+
                         // ─── Tier 5 WhatsApp escalation (v274) ──────────────────────
                         AgentMessage::EscalationRequest(payload) => {
                             tracing::warn!(
@@ -1592,9 +1612,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "Received experience score report from pod"
                             );
                             let mut fleet = state.pod_fleet_health.write().await;
-                            let store = fleet.entry(pod_id).or_default();
-                            store.experience_score = Some(total_score);
-                            store.experience_status = Some(status);
+                            // [Rule 1 - Bug] clone/deref borrowed match bindings for owned entry/Option
+                            let store = fleet.entry(pod_id.clone()).or_default();
+                            store.experience_score = Some(*total_score);
+                            store.experience_status = Some(status.clone());
                         }
 
                         _ => { /* catch-all for future protocol additions */ }
