@@ -98,9 +98,9 @@ pub enum FleetEvent {
     /// Phase 277: Model reputation changed (demoted or promoted).
     ModelReputationChange {
         model_id: String,
-        old_accuracy: f64,
-        new_accuracy: f64,
         action: String,
+        accuracy: f64,
+        total_runs: u32,
         timestamp: DateTime<Utc>,
     },
 }

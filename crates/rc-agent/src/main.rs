@@ -40,6 +40,8 @@ mod self_monitor;
 mod sentinel_watcher;
 mod self_test;
 mod mma_engine;
+mod model_reputation;
+mod revenue_protection;
 mod tier_engine;
 mod sims;
 mod startup_log;
