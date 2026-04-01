@@ -3,10 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-01 16:19 IST | James | 396dae6c | test(285): v33.0 integration audit — E2E billing fairness (crash recovery excluded from cost), replay protection (nonce rotate + HMAC reject), FSM completeness (4 valid + 4 invalid transitions). 717 tests pass. |
-| 2026-04-01 16:00 IST | James | d79e2bee | feat(284): launch observability endpoint (top-10 slow, per-sim avg), fleet health +avg_ready_delay_ms +crash_recovery_count, kiosk pod cards show FSM state labels |
-| 2026-04-01 15:55 IST | James | d7fb6e43 | feat(283): billing replay protection — NonceStore (UUID v4, 5min TTL), HMAC-SHA256 middleware, billing_audit_log table (append-only), nonce rotation on mutation. 5 new tests. |
-| 2026-04-01 15:40 IST | James | 990914f7 | fix(281/282): test assertions for PausedCrashRecovery FSM + missing fields in test constructors. 4 new FSM tests. |
+| 2026-04-01 16:31 IST | James | a1830524 | docs(286-01): complete metrics-query-api plan — 3 endpoints, 8 tests, QAPI-01..05 done |
+| 2026-04-01 16:30 IST | James | fffd6ac2 | feat(286-01): register /metrics/query + /metrics/names + /metrics/snapshot in staff_routes |
+| 2026-04-01 16:15 IST | James | f86ee5d2 | feat(286-01): metrics_query.rs — 3 handlers, auto-resolution, COALESCE snapshot, 8 tests |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
