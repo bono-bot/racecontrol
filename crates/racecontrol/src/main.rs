@@ -434,6 +434,43 @@ fn security_headers_layer() -> HelmetLayer {
     layer
 }
 
+/// Cache control middleware — matches cloud nginx strategy.
+/// HTML/API: no-cache (always revalidate on update rollouts).
+/// _next/static: immutable (content-hashed filenames, safe to cache forever).
+/// Static assets (images): moderate cache with revalidation.
+async fn cache_control_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path().to_owned();
+    let mut response = next.run(req).await;
+
+    // Don't override if backend (Next.js proxy) already set Cache-Control
+    if response.headers().contains_key("cache-control") {
+        return response;
+    }
+
+    let value = if path.starts_with("/_next/static/") || path.starts_with("/kiosk/_next/static/") {
+        // Content-hashed static bundles — cache forever
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("/static/") {
+        // Cafe images etc — cache 1hr, revalidate
+        "public, max-age=3600, must-revalidate"
+    } else if path.starts_with("/ws/") {
+        // WebSocket upgrades — no caching
+        return response;
+    } else {
+        // Everything else (HTML, API, portal, proxied pages): never cache
+        "no-cache, no-store, must-revalidate"
+    };
+
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static(value),
+    );
+    response
+}
+
 fn cleanup_old_logs(log_dir: &std::path::Path) {
     let cutoff = std::time::SystemTime::now()
         .checked_sub(std::time::Duration::from_secs(30 * 24 * 3600))
@@ -469,6 +506,32 @@ async fn main() -> anyhow::Result<()> {
   Sim Racing Venue Management System
   by RacingPoint
 "#);
+
+    // Single-instance guard: prevent zombie racecontrol processes (same pattern as rc-agent 305638b)
+    // When watchdog spawns a new instance while zombie holds ports, the mutex causes
+    // the second instance to exit cleanly instead of crashing with os error 10048.
+    #[cfg(windows)]
+    let _mutex_guard = {
+        use std::ffi::CString;
+        let name = CString::new("Global\\RacingPoint_RaceControl_SingleInstance")
+            .expect("mutex name contains no null bytes");
+        let handle = unsafe {
+            winapi::um::synchapi::CreateMutexA(
+                std::ptr::null_mut(),
+                1, // bInitialOwner = TRUE
+                name.as_ptr(),
+            )
+        };
+        if handle.is_null() || unsafe { winapi::um::errhandlingapi::GetLastError() } == 183 {
+            // ERROR_ALREADY_EXISTS = 183
+            eprintln!("racecontrol is already running. Exiting to prevent zombie.");
+            if !handle.is_null() {
+                unsafe { winapi::um::handleapi::CloseHandle(handle); }
+            }
+            std::process::exit(0);
+        }
+        handle // held until process exits → mutex released automatically
+    };
 
     // Load config FIRST so MonitoringConfig is available for tracing init
     // Pre-init messages use eprintln! since tracing is not yet initialized
@@ -974,6 +1037,7 @@ async fn main() -> anyhow::Result<()> {
         .fallback(kiosk_proxy)
         .layer(axum_mw::from_fn(jwt_error_to_401))
         .layer(security_headers_layer())
+        .layer(axum_mw::from_fn(cache_control_middleware))
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
