@@ -98,7 +98,10 @@ Plans:
   2. metrics_samples table contains rows within 2 minutes of server startup
   3. GET /api/v1/metrics/snapshot returns at least one metric with a non-zero value
   4. GET /api/v1/metrics/names returns at least 3 metric names
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 290-01-PLAN.md -- Metric producer loops (ws_connections, game_sessions, pod_health, billing_revenue) + main.rs wiring
 
 ### Phase 291: Dashboard API Wiring
 **Goal**: Metrics dashboard displays real TSDB data by calling the Phase 286 API instead of stub functions
@@ -198,7 +201,7 @@ Plans:
 | 287. Metrics Dashboard | 1/1 | Complete | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
-| 290. Wire Metric Producers | 0/TBD | Not started | - |
+| 290. Wire Metric Producers | 0/1 | Not started | - |
 | 291. Dashboard API Wiring | 0/TBD | Not started | - |
 | 295. Config Schema & Validation | 0/TBD | Not started | - |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
