@@ -15,11 +15,11 @@ const path = require('path');
 const https = require('https');
 const { execSync } = require('child_process');
 
-const { recoverKey, is401Error, loadSavedKey } = require('./lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('./lib/openrouter-key-recovery');
 
 let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 const MODEL = process.env.MODEL;
-if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY env var'); process.exit(1); }
+// Deferred bootstrap — resolved before first API call via ensureKey()
 if (!MODEL) { console.error('ERROR: Set MODEL env var'); process.exit(1); }
 
 const MAX_RETRIES = 2;
@@ -284,6 +284,13 @@ function checkCodebaseFreshness() {
 
 // ─── Audit execution ─────────────────────────────────────────────────────────
 async function runAudit() {
+  if (!OPENROUTER_KEY) {
+    console.log('[bootstrap] No API key — auto-provisioning...');
+    try { OPENROUTER_KEY = await bootstrapKey(); } catch (e) {
+      console.error(`[bootstrap] FATAL: ${e.message}`); process.exit(1);
+    }
+  }
+  if (!MODEL) { console.error('ERROR: Set MODEL env var'); process.exit(1); }
   console.log(`=== Racing Point KIOSK Audit via ${config.short} (${MODEL}) ===`);
   console.log(`Context: ${(config.ctx / 1024).toFixed(0)}K | Pricing: $${config.priceIn}/$${config.priceOut} per 1M`);
   console.log(`Output: ${OUTPUT_DIR}\n`);

@@ -3,11 +3,11 @@
 // Usage: OPENROUTER_KEY="..." MODEL="qwen/qwen3-235b-a22b-2507" node audit/or-audit-runner.js
 const fs = require('fs');
 const https = require('https');
-const { recoverKey, is401Error, loadSavedKey } = require('../scripts/lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('../scripts/lib/openrouter-key-recovery');
 
 let KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 const MODEL = process.env.MODEL;
-if (!KEY || !MODEL) { console.error('Set OPENROUTER_KEY and MODEL'); process.exit(1); }
+if (!MODEL) { console.error('Set MODEL env var'); process.exit(1); }
 
 const prompt = fs.readFileSync('audit/mma-workflow-prompt.txt', 'utf8');
 const shortName = MODEL.split('/').pop();
@@ -76,4 +76,12 @@ function sendRequest(apiKey, keyRecovered = false) {
   req.end();
 }
 
-sendRequest(KEY);
+(async () => {
+  if (!KEY) {
+    console.log('[bootstrap] No API key — auto-provisioning...');
+    try { KEY = await bootstrapKey(); } catch (e) {
+      console.error(`[bootstrap] FATAL: ${e.message}`); process.exit(1);
+    }
+  }
+  sendRequest(KEY);
+})();

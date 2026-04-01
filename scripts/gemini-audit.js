@@ -8,13 +8,10 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const { recoverKey, is401Error, loadSavedKey } = require('./lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('./lib/openrouter-key-recovery');
 
 let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
-if (!OPENROUTER_KEY) {
-  console.error('ERROR: Set OPENROUTER_KEY environment variable');
-  process.exit(1);
-}
+// Deferred bootstrap — resolved before first API call
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const COMMS_ROOT = path.resolve(REPO_ROOT, '..', 'comms-link');
@@ -183,6 +180,12 @@ For each finding, report:
 Be thorough. Flag EVERYTHING suspicious. Better to over-report than miss a real issue.`;
 
 async function runAudit() {
+  if (!OPENROUTER_KEY) {
+    console.log('[bootstrap] No API key — auto-provisioning...');
+    try { OPENROUTER_KEY = await bootstrapKey(); } catch (e) {
+      console.error(`[bootstrap] FATAL: ${e.message}`); process.exit(1);
+    }
+  }
   console.log('=== Racing Point Full Audit via Gemini 2.5 Pro ===');
   console.log(`Output: ${OUTPUT_DIR}`);
   console.log('');

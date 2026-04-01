@@ -6,10 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const { recoverKey, is401Error, loadSavedKey } = require('../scripts/lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('../scripts/lib/openrouter-key-recovery');
 
 let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
-if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY'); process.exit(1); }
+// Deferred bootstrap — resolved before first API call
 
 const PLAN_FILE = path.join(__dirname, '..', '.planning', 'phases', 'LEADERBOARD-TELEMETRY-PLAN.md');
 const PLAN_CONTENT = fs.readFileSync(PLAN_FILE, 'utf-8');
@@ -159,6 +159,12 @@ function callOpenRouter(model, keyRecovered = false) {
 }
 
 async function main() {
+  if (!OPENROUTER_KEY) {
+    console.log('[bootstrap] No API key — auto-provisioning...');
+    try { OPENROUTER_KEY = await bootstrapKey(); } catch (e) {
+      console.error(`[bootstrap] FATAL: ${e.message}`); process.exit(1);
+    }
+  }
   console.log(`\n=== MMA Plan Review — ${MODELS.length} Models ===`);
   console.log(`Plan: ${PLAN_FILE}`);
   console.log(`Output: ${OUTPUT_DIR}/\n`);

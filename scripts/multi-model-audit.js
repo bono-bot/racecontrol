@@ -30,11 +30,12 @@ const path = require('path');
 const https = require('https');
 const { execSync } = require('child_process');
 
-const { recoverKey, is401Error, loadSavedKey } = require('./lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('./lib/openrouter-key-recovery');
 
 // Mutable key — updated in-process on 401 recovery
+// Bootstrap: if no key in env or saved file, auto-provision via management key
 let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
-if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY env var'); process.exit(1); }
+// Deferred bootstrap — resolved in main() before any API calls
 
 const LEGACY_MODEL = process.env.MODEL; // backward compat: single model mode
 const DRY_RUN = process.env.DRY_RUN === '1';
@@ -821,6 +822,19 @@ async function runAudit() {
   const outputDirName = isConsensus ? `consensus-audit-${dateStr}` : `${MODEL_REGISTRY[LEGACY_MODEL]?.short || 'unknown'}-audit-${dateStr}`;
   const OUTPUT_DIR = path.join(REPO_ROOT, 'audit', 'results', outputDirName);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  // Bootstrap key if none available (auto-provision via management key)
+  if (!OPENROUTER_KEY) {
+    console.log('[bootstrap] No OPENROUTER_KEY in env or saved file — auto-provisioning...');
+    try {
+      OPENROUTER_KEY = await bootstrapKey();
+      console.log('[bootstrap] Key provisioned successfully.');
+    } catch (e) {
+      console.error(`[bootstrap] FATAL: Cannot obtain API key: ${e.message}`);
+      console.error('Set OPENROUTER_KEY env var or OPENROUTER_MGMT_KEY for auto-provisioning.');
+      process.exit(1);
+    }
+  }
 
   console.log(`=== Racing Point MMA v3.0 Audit ===`);
   console.log(`Mode: ${isConsensus ? 'CONSENSUS (5 models per batch + adversarial verify)' : `LEGACY (${LEGACY_MODEL})`}`);

@@ -240,4 +240,27 @@ function is401Error(parsedError) {
   return code === 401 || code === '401' || msg.includes('401') || msg.includes('Unauthorized') || msg.includes('User not found');
 }
 
-module.exports = { recoverKey, checkKeyValid, is401Error, loadSavedKey };
+/**
+ * Bootstrap a key from zero — no env var, no saved key.
+ * Provisions a new child key via management key or Bono relay.
+ * Saves the key for future use. Returns the new key or throws.
+ *
+ * @returns {Promise<string>} The bootstrapped API key
+ */
+async function bootstrapKey() {
+  // Check saved key first (may have been created by a previous bootstrap)
+  const saved = loadSavedKey();
+  if (saved) {
+    const check = await checkKeyValid(saved);
+    if (check.valid) {
+      console.log(`[key-recovery] Loaded valid saved key (label: ${check.label || 'unknown'})`);
+      return saved;
+    }
+    console.log(`[key-recovery] Saved key is invalid: ${check.error} — provisioning new one...`);
+  }
+
+  console.log('[key-recovery] No valid API key found — bootstrapping via management key...');
+  return recoverKey();
+}
+
+module.exports = { recoverKey, checkKeyValid, is401Error, loadSavedKey, bootstrapKey };

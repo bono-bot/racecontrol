@@ -7,10 +7,10 @@ const path = require('path');
 const https = require('https');
 const { execFileSync } = require('child_process');
 
-const { recoverKey, is401Error, loadSavedKey } = require('../scripts/lib/openrouter-key-recovery');
+const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('../scripts/lib/openrouter-key-recovery');
 
 let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
-if (!OPENROUTER_KEY) { console.error('ERROR: Set OPENROUTER_KEY'); process.exit(1); }
+// Deferred bootstrap — resolved before first API call
 
 // Get the actual diff using execFileSync (safe, no shell injection)
 const diff = execFileSync('git', ['diff', 'HEAD'], { maxBuffer: 1024 * 1024 * 10, cwd: path.resolve(__dirname, '..') }).toString();
@@ -129,6 +129,12 @@ function callOpenRouter(model, content, keyRecovered = false) {
 }
 
 async function main() {
+  if (!OPENROUTER_KEY) {
+    console.log('[bootstrap] No API key — auto-provisioning...');
+    try { OPENROUTER_KEY = await bootstrapKey(); } catch (e) {
+      console.error(`[bootstrap] FATAL: ${e.message}`); process.exit(1);
+    }
+  }
   console.log(`\n=== MMA Code Verification — ${MODELS.length} Models ===`);
   console.log(`Diff size: ${(diff.length / 1024).toFixed(1)}KB`);
   console.log(`New files: ${newFiles.join(', ')}\n`);
