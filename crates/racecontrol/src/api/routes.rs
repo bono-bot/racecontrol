@@ -524,6 +524,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
         .route("/mesh/solutions", get(mesh_list_solutions))
+        .route("/mesh/solutions/search", get(mesh_search_solutions))
         .route("/mesh/solutions/{id}", get(mesh_get_solution))
         .route("/mesh/incidents", get(mesh_list_incidents))
         .route("/mesh/stats", get(mesh_stats))
@@ -20240,12 +20241,36 @@ struct MeshListParams {
 
 fn default_limit() -> u32 { 50 }
 
+#[derive(serde::Deserialize)]
+struct MeshSearchParams {
+    q: Option<String>,
+    limit: Option<u32>,
+}
+
 async fn mesh_list_solutions(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MeshListParams>,
 ) -> Json<serde_json::Value> {
     match crate::fleet_kb::list_solutions(&state.db, params.status.as_deref(), params.limit, params.offset).await {
         Ok(solutions) => Json(serde_json::json!({ "solutions": solutions, "count": solutions.len() })),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+async fn mesh_search_solutions(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MeshSearchParams>,
+) -> Json<serde_json::Value> {
+    let q = params.q.as_deref().unwrap_or("");
+    if q.is_empty() {
+        return Json(serde_json::json!({ "solutions": [], "count": 0, "query": q }));
+    }
+    match crate::fleet_kb::search_solutions(&state.db, q, params.limit.unwrap_or(5)).await {
+        Ok(solutions) => Json(serde_json::json!({
+            "solutions": solutions,
+            "count": solutions.len(),
+            "query": q,
+        })),
         Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
     }
 }

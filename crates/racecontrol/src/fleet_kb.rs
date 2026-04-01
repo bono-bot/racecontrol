@@ -262,6 +262,51 @@ pub async fn update_confidence(
     Ok(())
 }
 
+/// Search solutions by keyword matching against symptoms, root_cause, and problem_key.
+/// Returns up to `limit` results ordered by confidence descending.
+/// Keywords are split on whitespace; a solution matches if it contains ALL keywords
+/// (case-insensitive) across symptoms + root_cause + problem_key fields.
+pub async fn search_solutions(
+    pool: &SqlitePool,
+    query: &str,
+    limit: u32,
+) -> anyhow::Result<Vec<MeshSolution>> {
+    let keywords: Vec<&str> = query.split_whitespace()
+        .filter(|w| w.len() >= 3)
+        .collect();
+    if keywords.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build WHERE clause: each keyword must appear in symptoms OR root_cause OR problem_key
+    let mut conditions = Vec::new();
+    let mut binds = Vec::new();
+    for kw in &keywords {
+        let pattern = format!("%{}%", kw.to_lowercase());
+        let idx = binds.len();
+        conditions.push(format!(
+            "(LOWER(symptoms) LIKE ?{} OR LOWER(root_cause) LIKE ?{} OR LOWER(problem_key) LIKE ?{})",
+            idx + 1, idx + 2, idx + 3
+        ));
+        binds.push(pattern.clone());
+        binds.push(pattern.clone());
+        binds.push(pattern);
+    }
+
+    let sql = format!(
+        "SELECT * FROM fleet_solutions WHERE status != 'retired' AND {} ORDER BY confidence DESC, success_count DESC LIMIT {}",
+        conditions.join(" AND "),
+        limit
+    );
+
+    let mut q = sqlx::query_as::<_, SolutionRow>(&sql);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    let rows = q.fetch_all(pool).await?;
+    Ok(rows.into_iter().map(|r| r.into()).collect())
+}
+
 /// Get all candidate solutions eligible for promotion check.
 pub async fn get_candidates(pool: &SqlitePool) -> anyhow::Result<Vec<MeshSolution>> {
     let rows = sqlx::query_as::<_, SolutionRow>(

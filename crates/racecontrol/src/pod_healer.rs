@@ -1529,6 +1529,23 @@ async fn escalate_to_ai(
         pod.current_game,
     );
 
+    // Search fleet KB for prior solutions matching these issues
+    let kb_context = {
+        let search_query = sanitized_issues.join(" ");
+        match crate::fleet_kb::search_solutions(&state.db, &search_query, 3).await {
+            Ok(solutions) if !solutions.is_empty() => {
+                let entries: Vec<String> = solutions.iter().map(|s| {
+                    format!("- [{}] {}: {} (confidence: {:.0}%, applied {} times)",
+                        s.problem_key, s.root_cause,
+                        serde_json::to_string(&s.fix_action).unwrap_or_default(),
+                        s.confidence * 100.0, s.success_count)
+                }).collect();
+                format!("\n\nKNOWN SOLUTIONS FROM FLEET KB (apply if matching):\n{}", entries.join("\n"))
+            }
+            _ => String::new(),
+        }
+    };
+
     let messages = vec![
         json!({
             "role": "system",
@@ -1538,7 +1555,7 @@ async fn escalate_to_ai(
         }),
         json!({
             "role": "user",
-            "content": context.clone()
+            "content": format!("{}{}", context, kb_context)
         }),
     ];
 

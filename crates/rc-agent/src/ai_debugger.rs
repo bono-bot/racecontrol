@@ -322,6 +322,9 @@ pub async fn analyze_crash(
         return;
     }
 
+    // ── Tier 2.5: Check fleet solutions KB on server ─────────────────────────
+    let kb_context = fetch_fleet_solutions(&config, &error_context).await;
+
     // ── No memory match — query AI ──────────────────────────────────────────
     // Collect error logs (blocking I/O — file reads + PowerShell calls)
     let error_ctx = tokio::task::spawn_blocking(PodErrorContext::collect)
@@ -330,7 +333,11 @@ pub async fn analyze_crash(
     tracing::info!(target: LOG_TARGET, "Error context: {} bot events, {} win errors, {} CLOSE_WAIT",
         error_ctx.recent_bot_events.len(), error_ctx.windows_app_errors.len(), error_ctx.close_wait_count);
 
-    let prompt = build_prompt(&sim_type, &error_context, &snapshot, &error_ctx);
+    let prompt = format!(
+        "{}{}",
+        build_prompt(&sim_type, &error_context, &snapshot, &error_ctx),
+        kb_context,
+    );
     tracing::debug!(target: LOG_TARGET, "Prompt length: {} chars", prompt.len());
 
     // Try Ollama first (local, fast, no internet needed)
@@ -494,6 +501,59 @@ impl PodErrorContext {
             "No recent errors in logs.".to_string()
         } else {
             sections.join("\n\n")
+        }
+    }
+}
+
+/// Fetch matching solutions from the fleet KB on the server.
+/// Returns a formatted context string to append to the LLM prompt, or empty string on failure.
+async fn fetch_fleet_solutions(config: &AiDebuggerConfig, error_context: &str) -> String {
+    // Extract the server HTTP base from the WS URL (ws://host:port/ws/agent -> http://host:port)
+    let base = config.ollama_url.replace("/api/chat", ""); // ollama_url is separate, use core URL pattern
+    // The server is always at 192.168.31.23:8080 — derive from the core_url or hardcode venue server
+    let search_url = format!(
+        "http://192.168.31.23:8080/api/v1/mesh/solutions/search?q={}&limit=3",
+        error_context.replace(' ', "+").replace('&', "%26").replace('?', "%3F")
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(&search_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let solutions = body.get("solutions").and_then(|s| s.as_array());
+                if let Some(sols) = solutions {
+                    if sols.is_empty() {
+                        return String::new();
+                    }
+                    let entries: Vec<String> = sols.iter().filter_map(|s| {
+                        let root_cause = s.get("root_cause")?.as_str()?;
+                        let fix_action = s.get("fix_action")?;
+                        let confidence = s.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0);
+                        Some(format!("- {}: {} (confidence: {:.0}%)", root_cause, fix_action, confidence * 100.0))
+                    }).collect();
+                    if entries.is_empty() {
+                        return String::new();
+                    }
+                    tracing::info!(target: LOG_TARGET, "Fleet KB returned {} matching solutions", entries.len());
+                    return format!(
+                        "\n\nKNOWN SOLUTIONS FROM FLEET KB (apply if matching):\n{}",
+                        entries.join("\n")
+                    );
+                }
+            }
+            String::new()
+        }
+        Ok(resp) => {
+            tracing::debug!(target: LOG_TARGET, "Fleet KB search returned {}", resp.status());
+            String::new()
+        }
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, "Fleet KB search failed: {}", e);
+            String::new()
         }
     }
 }
