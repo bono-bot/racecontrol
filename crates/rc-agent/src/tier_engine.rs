@@ -734,6 +734,30 @@ async fn run_supervised(
                                 );
                             }
                         }
+                        // EVAL-03: push evaluation record to server via WS for /api/v1/models/evaluations query.
+                        // Best-effort — WS failure must NOT roll back the local EVAL-01 write.
+                        let payload = rc_common::protocol::EvalRecordPayload {
+                            id: record.id.clone(),
+                            model_id: record.model_id.clone(),
+                            pod_id: record.pod_id.clone(),
+                            trigger_type: record.trigger_type.clone(),
+                            prediction: record.prediction.clone(),
+                            actual_outcome: record.actual_outcome.clone(),
+                            correct: record.correct,
+                            cost_usd: record.cost_usd,
+                            created_at: record.created_at.clone(),
+                        };
+                        let sync_msg = rc_common::protocol::AgentMessage::ModelEvalSync {
+                            pod_id: record.pod_id.clone(),
+                            records: vec![payload],
+                        };
+                        if let Err(e) = ws_msg_tx.send(sync_msg).await {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                error = %e,
+                                "EVAL-03: failed to push evaluation to server via WS"
+                            );
+                        }
                     }
                 }
 
