@@ -70,11 +70,11 @@ Plans:
   3. Staff can change time range (1h, 6h, 24h, 7d, 30d, custom) and charts update accordingly
   4. Dashboard auto-refreshes every 30 seconds without manual reload
   5. Current snapshot values appear as headline numbers above the charts
-**Plans**: TBD
+**Plans:** 1 plan
 **UI hint**: yes
 
 Plans:
-- [ ] 287-01: Next.js /metrics page with charts, selectors, and auto-refresh
+- [ ] 287-01-PLAN.md — Stub API client + metrics page with sparkline charts, pod selector, time range picker, headline numbers, 30s auto-refresh
 
 ### Phase 288: Prometheus Export
 **Goal**: Metrics are available in Prometheus exposition format for future monitoring tool compatibility
