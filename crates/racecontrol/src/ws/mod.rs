@@ -1577,6 +1577,27 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             });
                         }
 
+                        // ─── Experience Score Report (CX-06) ─────────────────────────
+                        AgentMessage::ExperienceScoreReport {
+                            pod_id,
+                            total_score,
+                            status,
+                            ..
+                        } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                score = total_score,
+                                status = %status,
+                                "Received experience score report from pod"
+                            );
+                            let mut fleet = state.pod_fleet_health.write().await;
+                            if let Some(store) = fleet.get_mut(&pod_id) {
+                                store.api_shape.experience_score = Some(total_score);
+                                store.api_shape.experience_status = Some(status);
+                            }
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }

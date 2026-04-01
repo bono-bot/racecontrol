@@ -1113,6 +1113,8 @@ async fn main() -> Result<()> {
     // This standalone task is kept for backward-compatible logging + independent lifecycle.
     let pred_fleet_tx = fleet_bus.sender();
     let pred_node_id = format!("pod_{}", config.pod.number);
+    let pred_diag_tx = diagnostic_event_tx.clone();
+    let pred_fm_rx = failure_monitor_tx.subscribe();
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: started");
         // Wait for system to stabilize before first scan
@@ -1132,13 +1134,15 @@ async fn main() -> Result<()> {
 
                     // PRED-10/PRED-11: Convert high-severity alerts to diagnostic triggers
                     // for immediate tier engine action
-                    if let Some(_trigger) = predictive_maintenance::alert_to_diagnostic_trigger(alert) {
+                    if let Some(trigger) = predictive_maintenance::alert_to_diagnostic_trigger(alert) {
                         tracing::info!(
                             target: "predictive-maint",
                             alert_type = ?alert.alert_type,
                             severity = ?alert.severity,
-                            "PRED-10: High-severity alert converted to diagnostic trigger for tier engine"
+                            "PRED-10: High-severity alert → sending diagnostic trigger to tier engine"
                         );
+                        let pod_state = pred_fm_rx.borrow().clone();
+                        diagnostic_engine::emit_external_event(&pred_diag_tx, trigger, &pod_state);
                         // PRED-12: Successful pre-emptive fixes are recorded in KB
                         // by the tier engine's FixApplied event handler
                     }
@@ -1160,6 +1164,32 @@ async fn main() -> Result<()> {
         let cx_node_id = format!("pod_{}", config.pod.number);
         experience_collector::spawn(cx_fleet_rx, cx_fleet_tx, cx_ws_tx, cx_node_id);
         tracing::info!(target: LOG_TARGET, "Experience score collector started (5-min scoring cycle, CX-05..08)");
+    }
+
+    // ─── Revenue Protection Monitor (REV-01..03: 10s polling) ────────────────────
+    {
+        let rev_state_rx = failure_monitor_tx.subscribe();
+        let rev_fleet_tx = fleet_bus.sender();
+        let rev_node_id = format!("pod_{}", config.pod.number);
+        revenue_protection::spawn(rev_state_rx, rev_fleet_tx, rev_node_id);
+        tracing::info!(target: LOG_TARGET, "Revenue protection monitor started (10s poll, REV-01..03)");
+    }
+
+    // ─── Model Reputation Sweep (REP-01..02: daily) ─────────────────────────────
+    {
+        let rep_fleet_tx = fleet_bus.sender();
+        tokio::spawn(async move {
+            tracing::info!(target: "state", task = "model_reputation", event = "lifecycle", "lifecycle: started");
+            tokio::time::sleep(std::time::Duration::from_secs(180)).await;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                model_reputation::run_reputation_sweep(&rep_fleet_tx);
+                tracing::info!(target: "model-reputation", "Daily reputation sweep complete");
+            }
+        });
+        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, REP-01..02)");
     }
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────

@@ -580,6 +580,13 @@ async fn run_supervised(
                                     trigger: trigger_str.clone(),
                                     timestamp: Utc::now(),
                                 });
+                                // GAME-05: Cascade game fixes to fleet via mesh gossip
+                                if matches!(event.trigger, DiagnosticTrigger::GameLaunchFail) {
+                                    let gossip = crate::mesh_gossip::build_game_fix_announce(
+                                        &trigger_str, action, 0.9, &node_id,
+                                    );
+                                    let _ = ws_msg_tx.send(gossip).await;
+                                }
                             } else {
                                 tracing::warn!(
                                     target: LOG_TARGET,
@@ -1767,6 +1774,11 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                         "Game launch retry (attempt {}/2): cause={}, fix={}",
                         attempt, cause, fix
                     ));
+                    // GAME-04: Record game fix in KB with game-specific metadata
+                    if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                        let host = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "unknown".to_string());
+                        let _ = kb.record_game_fix(cause, fix, &host);
+                    }
                 }
                 game_launch_retry::RetryResult::EscalateToMma { attempts, ref causes } => {
                     // All retries failed — don't add to actions_taken so Tier 3/4 handles it

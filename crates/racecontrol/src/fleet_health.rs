@@ -313,6 +313,12 @@ pub struct PodFleetStatus {
     /// null = no heartbeat with agent_timestamp received yet.
     #[serde(default)]
     pub clock_drift_secs: Option<i64>,
+    /// CX-06: Pod experience score (0-100) from experience_collector. Updated every 5 min.
+    #[serde(default)]
+    pub experience_score: Option<f64>,
+    /// CX-06: "Healthy", "Maintenance", or "RemoveFromRotation"
+    #[serde(default)]
+    pub experience_status: Option<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -592,6 +598,8 @@ pub async fn fleet_health_handler(
                     maintenance_flag: false,
                     crashes_last_hour: 0,
                     clock_drift_secs: None,
+                    experience_score: None,
+                    experience_status: None,
                 });
             }
             Some(info) => {
@@ -667,6 +675,8 @@ pub async fn fleet_health_handler(
                     maintenance_flag,
                     crashes_last_hour,
                     clock_drift_secs,
+                    experience_score: None,
+                    experience_status: None,
                 });
             }
         }
