@@ -128,7 +128,7 @@ Plans:
 
 - [x] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning (completed 2026-04-01)
 - [x] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication (completed 2026-04-01)
-- [x] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail (completed 2026-04-01)
+- [x] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail (completed 2026-04-01)
 - [x] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI (completed 2026-04-01)
 - [x] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log (completed 2026-04-01)
 
@@ -222,7 +222,7 @@ Plans:
 
 **Milestone Goal:** Operational data survives hardware failure. Cloud sync is extended to new tables. All events are structured and archived. Schema is ready for a second venue. Fleet deploys are automated with canary, health verify, auto-rollout, and auto-rollback.
 
-- [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
+- [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
 - [x] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status (completed 2026-04-01)
 - [ ] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API
 - [ ] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger
@@ -271,7 +271,11 @@ Plans:
   3. Events in SQLite older than 90 days are purged by the daily maintenance task; the corresponding JSONL files remain untouched
   4. The nightly JSONL file for the previous day appears on Bono VPS after the archive task runs
   5. GET /api/v1/events returns a filtered list of events when given type, pod, or date range query parameters
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 302-01-PLAN.md -- EventArchiveConfig, system_events table, event_archive.rs (append_event, spawn, export, purge, SCP), wired into main.rs
+- [ ] 302-02-PLAN.md -- GET /api/v1/events REST handler with filters, instrument 6 high-signal event sources with append_event calls
 
 ### Phase 303: Multi-Venue Schema Prep
 **Goal**: The database schema supports a second venue without data model changes -- only a config value changes
@@ -324,6 +328,6 @@ Plans:
 | 299. Policy Rules Engine | 0/3 | Complete    | 2026-04-01 |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
-| 302. Structured Event Archive | 0/TBD | Not started | - |
+| 302. Structured Event Archive | 0/2 | Not started | - |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |
