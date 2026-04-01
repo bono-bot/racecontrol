@@ -10,6 +10,7 @@ pub mod accounting;
 pub mod action_queue;
 pub mod activity_log;
 pub mod app_health_monitor;
+pub mod backup_pipeline;
 pub mod ai;
 pub mod api;
 pub mod auth;

@@ -22,7 +22,7 @@ use rc_common::protocol::DashboardEvent;
 use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
     ac_camera, ac_server, action_queue, api, app_health_monitor, auth,
-    billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
+    backup_pipeline, billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
     fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
     process_guard, psychology, remote_terminal, scheduler, server_ops,
     udp_heartbeat, ws,
@@ -952,6 +952,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
     scheduler::spawn(state.clone());
+
+    // Spawn SQLite backup pipeline (hourly VACUUM INTO, rotation, staleness alert)
+    backup_pipeline::spawn(state.clone());
+    tracing::info!(target: "startup", "backup pipeline spawned");
 
     // Spawn psychology notification dispatcher (drains nudge_queue, routes to channels)
     psychology::spawn_dispatcher(state.clone());
