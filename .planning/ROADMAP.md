@@ -6,13 +6,12 @@ Centralize configuration so every pod runs from server-pushed config instead of 
 
 ## Milestones
 
-- ✅ **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-289 (shipped 2026-04-01)
+- 🚧 **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-291 (gap closure in progress)
 - 📋 **v36.0 Config Management & Policy Engine** - Phases 295-299 (planned)
 
 ## Phases
 
-<details>
-<summary>✅ v34.0 Time-Series Metrics & Operational Dashboards (Phases 285-289) - SHIPPED 2026-04-01</summary>
+### 🚧 v34.0 Time-Series Metrics & Operational Dashboards (Gap Closure)
 
 ### Phase 285: Metrics Ring Buffer
 **Goal**: Server efficiently stores and retains time-series metric data from all pods
@@ -89,7 +88,29 @@ Plans:
 - [x] 289-01-PLAN.md -- Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
 - [x] 289-02-PLAN.md -- Wire metric_alert_task into main.rs startup
 
-</details>
+### Phase 290: Wire Metric Producers
+**Goal**: Real metric data flows into the TSDB so all downstream phases (query, dashboard, alerts, Prometheus) return live venue data instead of empty results
+**Depends on**: Phase 285
+**Requirements**: TSDB-03, TSDB-05
+**Gap Closure**: Closes P1 gap from v34.0 audit — MetricsSender channel has no producers
+**Success Criteria** (what must be TRUE):
+  1. MetricsSender channel is cloned and used by at least one producer loop in main.rs
+  2. metrics_samples table contains rows within 2 minutes of server startup
+  3. GET /api/v1/metrics/snapshot returns at least one metric with a non-zero value
+  4. GET /api/v1/metrics/names returns at least 3 metric names
+**Plans**: TBD
+
+### Phase 291: Dashboard API Wiring
+**Goal**: Metrics dashboard displays real TSDB data by calling the Phase 286 API instead of stub functions
+**Depends on**: Phase 286, Phase 290
+**Requirements**: DASH-01
+**Gap Closure**: Closes P1 gap from v34.0 audit — dashboard stubs not replaced, API contract mismatches
+**Success Criteria** (what must be TRUE):
+  1. No TODO markers remain in racingpoint-admin/src/lib/api/metrics.ts
+  2. Dashboard page issues HTTP requests to /api/v1/metrics/names, /query, /snapshot (visible in network tab)
+  3. TypeScript interfaces match Rust response structs (name not metric_name, pod not pod_id, updated_at as number)
+  4. Dashboard displays real data when server has metrics_samples rows
+**Plans**: TBD
 
 ### 📋 v36.0 Config Management & Policy Engine (Planned)
 
@@ -177,6 +198,8 @@ Plans:
 | 287. Metrics Dashboard | 1/1 | Complete | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
+| 290. Wire Metric Producers | 0/TBD | Not started | - |
+| 291. Dashboard API Wiring | 0/TBD | Not started | - |
 | 295. Config Schema & Validation | 0/TBD | Not started | - |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
