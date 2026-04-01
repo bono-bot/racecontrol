@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Predictive Maintenance — threshold-based anomaly detection for hardware and software trends.
 //!
 //! Instead of waiting for failure, detects degradation patterns and alerts BEFORE impact.
@@ -132,6 +131,53 @@ pub fn alert_to_fleet_event(alert: &PredictiveAlert, node_id: &str) -> rc_common
         threshold: alert.threshold,
         node_id: node_id.to_string(),
         timestamp: chrono::Utc::now(),
+    }
+}
+
+/// PRED-10/PRED-11: Convert a high-severity predictive alert into a DiagnosticTrigger
+/// that the tier engine can act on immediately. Low-severity alerts return None
+/// (they are already broadcast as FleetEvents for logging/trending).
+///
+/// This bridges predictive alerts into the action pipeline:
+/// - DiskSpaceLow → triggers cleanup via tier engine (PRED-05 already does auto-cleanup, but tier engine can escalate)
+/// - MaintenanceModeStuck → triggers sentinel clearing
+/// - CloseWaitExhaustion → triggers port cleanup
+/// - OrphanPowerShell → triggers process cleanup
+/// - GpuThermal (Critical) → triggers GPU throttle warning
+pub fn alert_to_diagnostic_trigger(alert: &PredictiveAlert) -> Option<crate::diagnostic_engine::DiagnosticTrigger> {
+    // Only convert Critical alerts to immediate action triggers
+    if matches!(alert.severity, AlertSeverity::Warning) {
+        return None;
+    }
+
+    match &alert.alert_type {
+        PredAlertType::DiskSpaceLow => {
+            Some(crate::diagnostic_engine::DiagnosticTrigger::SentinelUnexpected {
+                file_name: "PRED_DISK_LOW".to_string(),
+            })
+        }
+        PredAlertType::MaintenanceModeStuck => {
+            Some(crate::diagnostic_engine::DiagnosticTrigger::SentinelUnexpected {
+                file_name: "MAINTENANCE_MODE".to_string(),
+            })
+        }
+        PredAlertType::CloseWaitExhaustion => {
+            Some(crate::diagnostic_engine::DiagnosticTrigger::ErrorSpike {
+                errors_per_min: alert.metric_value as u64,
+            })
+        }
+        PredAlertType::OrphanPowerShell => {
+            Some(crate::diagnostic_engine::DiagnosticTrigger::ProcessCrash {
+                process_name: "powershell.exe (orphan)".to_string(),
+            })
+        }
+        PredAlertType::GpuThermal => {
+            Some(crate::diagnostic_engine::DiagnosticTrigger::ErrorSpike {
+                errors_per_min: alert.metric_value as u64,
+            })
+        }
+        // Other alert types don't map to immediate diagnostic triggers
+        _ => None,
     }
 }
 

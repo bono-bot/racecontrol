@@ -478,6 +478,26 @@ pub enum AgentMessage {
         timestamp: String,
     },
 
+    // ─── Experience Scoring (Phase 276 — CX-05..08) ──────────────────────────
+
+    /// Pod reports its experience score every 5 minutes.
+    /// Server includes this in /api/v1/fleet/health per-pod response (CX-06).
+    ExperienceScoreReport {
+        pod_id: String,
+        /// Overall weighted score 0-100
+        total_score: f64,
+        /// Component scores for breakdown
+        game_launch: f64,
+        session_completion: f64,
+        display_stability: f64,
+        hardware_responsive: f64,
+        billing_accuracy: f64,
+        /// "Healthy", "Maintenance", or "RemoveFromRotation"
+        status: String,
+        /// ISO-8601 timestamp
+        scored_at: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]

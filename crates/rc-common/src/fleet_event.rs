@@ -66,6 +66,14 @@ pub enum FleetEvent {
         reason: String,
         timestamp: DateTime<Utc>,
     },
+
+    /// CX-05: Per-pod experience score updated (emitted every 5 minutes).
+    ExperienceScoreUpdate {
+        node_id: String,
+        total_score: f64,
+        status: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// An Incident is the work unit sent via mpsc to the tier engine.
