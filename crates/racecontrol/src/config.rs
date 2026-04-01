@@ -857,6 +857,7 @@ impl Config {
             mma: MmaConfig::default(),
             alert_rules: Vec::new(),
             backup: BackupConfig::default(),
+            presets: PresetsConfig::default(),
         }
     }
 

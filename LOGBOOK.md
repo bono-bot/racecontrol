@@ -3,7 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-01 20:48 IST | James | (pending) | feat(298-01): GamePreset types, DB migration, PresetsConfig, PresetPush WS variant — 4 unit tests pass |
+| 2026-04-01 21:07 IST | James | (pending) | feat(298-01/task2): preset_library.rs CRUD+reliability+WS push, REST routes wired, 4 unit tests pass |
+| 2026-04-01 20:48 IST | James | 95ef5f5f | feat(298-01): GamePreset types, DB migration, PresetsConfig, PresetPush WS variant, 4 unit tests |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |

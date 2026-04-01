@@ -70,6 +70,7 @@ pub mod lap_tracker;
 pub mod pod_healer;
 pub mod pod_monitor;
 pub mod pod_reservation;
+pub mod preset_library;
 pub mod psychology;
 pub mod recovery;
 pub mod reservation;

@@ -19,6 +19,7 @@ use crate::recovery;
 use crate::cafe;
 use crate::config_push;
 use crate::flags;
+use crate::preset_library;
 use crate::cafe_alerts;
 use crate::cafe_marketing;
 use crate::cafe_promos;
@@ -156,6 +157,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/pods/{id}/availability", get(pod_availability_handler))
         // Phase 288: Prometheus exposition format (PROM-01, PROM-02) — public, read-only metrics
         .route("/metrics/prometheus", get(metrics_prometheus::prometheus_handler))
+        // Phase 298 PRESET-01: Preset reads are public (pods/kiosk need the list without JWT)
+        .route("/presets", get(preset_library::list_presets))
+        .route("/presets/{id}", get(preset_library::get_preset))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -423,6 +427,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/guardian/verify-otp", post(verify_guardian_otp_handler))
         // Kiosk (admin-only: create/update/delete -- pod-accessible routes are in kiosk_routes())
         // kiosk experiences/settings — moved to role-gated admin section
+        // Phase 298: Game preset library — write operations (read is in public_routes)
+        .route("/presets", post(preset_library::create_preset))
+        .route("/presets/{id}", put(preset_library::update_preset).delete(preset_library::delete_preset))
         // Config
         // GET moved to public_routes (rc-agent fetches without auth)
         // config/kiosk-allowlist POST/DELETE — moved to role-gated admin section

@@ -367,6 +367,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             ).await {
                                 tracing::warn!("Failed to push full config to pod {} on connect: {}", canonical_id, e);
                             }
+                            // Phase 298 PRESET-02: Push preset library to pod on connect
+                            if let Err(e) = crate::preset_library::push_presets_to_pod(&state, &canonical_id, &cmd_tx).await {
+                                tracing::warn!("Failed to push presets to pod {} on connect: {}", canonical_id, e);
+                            }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
                             // Merge agent-reported fields with core-managed fields
