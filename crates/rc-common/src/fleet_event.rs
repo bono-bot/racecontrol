@@ -66,6 +66,43 @@ pub enum FleetEvent {
         reason: String,
         timestamp: DateTime<Utc>,
     },
+
+    // ─── Phase 0 shared variants for parallel phases 275/276/277 ──────
+
+    /// Phase 275: Game launch retry completed (success or exhausted).
+    GameLaunchRetryResult {
+        node_id: String,
+        attempt: u32,
+        success: bool,
+        cause: String,
+        fix_applied: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Phase 276: Per-pod experience score updated.
+    ExperienceScoreUpdate {
+        node_id: String,
+        score: f64,
+        status: String,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Phase 277: Revenue anomaly detected (game without billing, billing without game).
+    RevenueAnomaly {
+        anomaly_type: String,
+        detail: String,
+        node_id: String,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Phase 277: Model reputation changed (demoted or promoted).
+    ModelReputationChange {
+        model_id: String,
+        old_accuracy: f64,
+        new_accuracy: f64,
+        action: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// An Incident is the work unit sent via mpsc to the tier engine.
