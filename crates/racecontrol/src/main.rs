@@ -731,6 +731,13 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    // Spawn metric alert evaluation task
+    if !state.config.alert_rules.is_empty() {
+        let alert_state = state.clone();
+        tokio::spawn(racecontrol_crate::metric_alerts::metric_alert_task(alert_state));
+        tracing::info!(target: "startup", "metric alert task spawned ({} rules)", state.config.alert_rules.len());
+    }
+
     // Spawn notification outbox worker (UX-01: durable retry with exponential backoff)
     {
         let notif_state = state.clone();
