@@ -43,7 +43,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ### Phases
 
-- [ ] **Phase 290: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups
+- [x] **Phase 290: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups (completed 2026-04-01)
 - [ ] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator
 - [ ] **Phase 292: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
 - [ ] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format
@@ -53,7 +53,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 290. Model Evaluation Store | 2/3 | In Progress|  |
+| 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
 | 291. KB Promotion Persistence | 0/? | Not started | - |
 | 292. Model Reputation Persistence | 0/? | Not started | - |
 | 293. Retrain Data Export | 0/? | Not started | - |
@@ -75,7 +75,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 **Plans**: 3 plans
 - [x] 290-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
 - [x] 290-02-PLAN.md — eval_rollup.rs weekly cron producing model_eval_rollups (EVAL-02)
-- [ ] 290-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
+- [x] 290-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
 
 ### Phase 291: KB Promotion Persistence
 **Goal**: The KB promotion ladder (Shadow/Canary/Quorum/Hardened) survives process restarts and advances automatically every 6 hours
