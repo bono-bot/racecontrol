@@ -1561,6 +1561,22 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             ).await;
                         }
 
+                        // ─── Tier 5 WhatsApp escalation (v274) ──────────────────────
+                        AgentMessage::EscalationRequest(payload) => {
+                            tracing::warn!(
+                                target: "racecontrol::ws",
+                                pod_id = %payload.pod_id,
+                                incident_id = %payload.incident_id,
+                                severity = %payload.severity,
+                                "Received Tier 5 escalation from pod"
+                            );
+                            let escalation = state.whatsapp_escalation.clone();
+                            let payload_owned = payload.clone();
+                            tokio::spawn(async move {
+                                escalation.handle_escalation(payload_owned).await;
+                            });
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }

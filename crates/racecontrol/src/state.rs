@@ -230,6 +230,9 @@ pub struct AppState {
     /// Grants exclusive healing access per pod to one survival layer at a time.
     /// Expired leases are auto-freed on next request. Never hold lock across .await.
     pub lease_manager: std::sync::Arc<LeaseManager>,
+    /// Phase 274: Tier 5 WhatsApp escalation handler.
+    /// Receives EscalationRequest from pods, deduplicates, sends via Bono relay.
+    pub whatsapp_escalation: std::sync::Arc<crate::whatsapp_escalation::WhatsAppEscalation>,
 }
 
 impl AppState {
@@ -248,6 +251,10 @@ impl AppState {
         // Extract alert config for cascade_guard before config is moved into the struct
         let cascade_alert_cfg = crate::cascade_guard::CascadeAlertConfig::from_config(&config);
         let cascade_guard_inner = CascadeGuard::new(cascade_alert_cfg, http_client.clone());
+        // Phase 274: WhatsApp escalation handler — create before http_client is moved
+        let whatsapp_escalation_handler = std::sync::Arc::new(
+            crate::whatsapp_escalation::WhatsAppEscalation::new(http_client.clone())
+        );
         Self {
             config,
             db,
@@ -309,6 +316,7 @@ impl AppState {
             telemetry_writer_tx: None, // Initialized after AppState::new() in main.rs
             telemetry_db: None,        // Initialized after AppState::new() in main.rs
             lease_manager: std::sync::Arc::new(LeaseManager::new()),
+            whatsapp_escalation: whatsapp_escalation_handler,
         }
     }
 
