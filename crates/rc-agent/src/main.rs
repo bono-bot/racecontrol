@@ -40,6 +40,7 @@ mod startup_cleanup;
 mod process_guard;
 mod self_monitor;
 mod sentinel_watcher;
+mod weekly_report;
 mod self_test;
 mod mma_engine;
 mod model_reputation;
@@ -1182,6 +1183,16 @@ async fn main() -> Result<()> {
         }
     });
     tracing::info!(target: LOG_TARGET, "Night ops started (midnight IST cycle)");
+
+    // ─── Weekly Report (Sunday midnight IST — RPT-01..03) ───────────────────────
+    {
+        let wr_ws_tx = ws_exec_result_tx.clone();
+        let wr_node_id = format!("pod_{}", config.pod.number);
+        let wr_diag_log = diag_log.clone();
+        let wr_budget = mesh_budget.clone();
+        weekly_report::spawn(wr_ws_tx, wr_node_id, wr_diag_log, wr_budget);
+        tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03)");
+    }
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
