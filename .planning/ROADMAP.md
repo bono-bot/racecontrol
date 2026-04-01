@@ -115,4 +115,4 @@ Plans:
 | 286. Metrics Query API | 1/1 | Complete    | 2026-04-01 |
 | 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete    | 2026-04-01 |
-| 289. Metric Alert Thresholds | 2/2 | Complete   | 2026-04-01 |
+| 289. Metric Alert Thresholds | 2/2 | Complete    | 2026-04-01 |
