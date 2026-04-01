@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: executing
-stopped_at: Completed 302-01-PLAN.md
-last_updated: "2026-04-01T16:25:20.101Z"
+status: verifying
+stopped_at: Completed 302-02-PLAN.md
+last_updated: "2026-04-01T16:44:05.168Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 
 Phase: 302 (structured-event-archive) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [██████████] 100%
@@ -74,6 +74,7 @@ Progress: [██████████] 100%
 - [Phase 299]: Eval log limited to 20 entries in UI (API returns 500, sliced for readability)
 - [Phase 302-structured-event-archive]: system_events table (not events/scheduler_events) — separate from hotlap/WoL tables
 - [Phase 302]: insert_event_direct() pub(crate) helper for test bypass of fire-and-forget tokio::spawn
+- [Phase 302]: Route /system-events not /events — /events already registered for hotlap competition, would panic at runtime
 
 ### Pending Todos
 
@@ -86,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T16:25:20.097Z
-Stopped at: Completed 302-01-PLAN.md
+Last session: 2026-04-01T16:44:05.164Z
+Stopped at: Completed 302-02-PLAN.md
 Resume file: None

@@ -28,7 +28,7 @@
 - [x] **EVENT-02**: Daily JSONL export of events table for archival
 - [x] **EVENT-03**: SQLite events retained for 90 days, then purged (JSONL is permanent archive)
 - [x] **EVENT-04**: Nightly JSONL files shipped to Bono VPS via SCP
-- [ ] **EVENT-05**: Events queryable via REST API (GET /api/v1/events with filters: type, pod, date range)
+- [x] **EVENT-05**: Events queryable via REST API (GET /api/v1/events with filters: type, pod, date range)
 
 ### Multi-Venue Schema (VENUE)
 
@@ -86,7 +86,7 @@
 | EVENT-02 | Phase 302 | Complete |
 | EVENT-03 | Phase 302 | Complete |
 | EVENT-04 | Phase 302 | Complete |
-| EVENT-05 | Phase 302 | Pending |
+| EVENT-05 | Phase 302 | Complete |
 | VENUE-01 | Phase 303 | Pending |
 | VENUE-02 | Phase 303 | Pending |
 | VENUE-03 | Phase 303 | Pending |

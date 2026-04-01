@@ -224,7 +224,7 @@ Plans:
 
 - [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
 - [x] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status (completed 2026-04-01)
-- [ ] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API
+- [x] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API (completed 2026-04-01)
 - [ ] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger
 - [ ] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint
 
@@ -271,11 +271,11 @@ Plans:
   3. Events in SQLite older than 90 days are purged by the daily maintenance task; the corresponding JSONL files remain untouched
   4. The nightly JSONL file for the previous day appears on Bono VPS after the archive task runs
   5. GET /api/v1/events returns a filtered list of events when given type, pod, or date range query parameters
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 302-01-PLAN.md -- EventArchiveConfig, system_events table, event_archive.rs (append_event, spawn, export, purge, SCP), wired into main.rs
-- [ ] 302-02-PLAN.md -- GET /api/v1/events REST handler with filters, instrument 6 high-signal event sources with append_event calls
+- [x] 302-02-PLAN.md -- GET /api/v1/events REST handler with filters, instrument 6 high-signal event sources with append_event calls
 
 ### Phase 303: Multi-Venue Schema Prep
 **Goal**: The database schema supports a second venue without data model changes -- only a config value changes
@@ -328,6 +328,6 @@ Plans:
 | 299. Policy Rules Engine | 0/3 | Complete    | 2026-04-01 |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
-| 302. Structured Event Archive | 1/2 | In Progress|  |
+| 302. Structured Event Archive | 2/2 | Complete   | 2026-04-01 |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |
