@@ -447,6 +447,24 @@ impl KnowledgeBase {
         Ok(count)
     }
 
+    /// Convenience wrapper for recording a game launch fix (GAME-04).
+    /// Delegates to `record_resolution` with game-specific defaults.
+    pub fn record_game_fix(&self, cause: &str, fix: &str, node_id: &str) -> anyhow::Result<()> {
+        let problem_key = "game_launch_fail";
+        let problem_hash = format!("game_launch:{}", cause);
+        self.record_resolution(
+            problem_key,
+            &problem_hash,
+            "game launch failure",
+            fix,
+            "deterministic",
+            1,
+            "verified_pass",
+            node_id,
+            Some("game_doctor_retry"),
+        )
+    }
+
     /// Compute a simple hash of the KB state for drift detection (GAP-10 mesh heartbeat).
     /// Uses count + max updated_at as a cheap fingerprint.
     pub fn kb_hash(&self) -> anyhow::Result<String> {
