@@ -23,11 +23,11 @@
 
 ## Metrics Dashboard (DASH)
 
-- [ ] **DASH-01**: Admin app (/metrics page) displays sparkline charts for selected metrics
-- [ ] **DASH-02**: Dashboard has pod selector to filter metrics by pod
-- [ ] **DASH-03**: Dashboard has time range picker (1h, 6h, 24h, 7d, 30d, custom)
-- [ ] **DASH-04**: Dashboard auto-refreshes every 30 seconds
-- [ ] **DASH-05**: Dashboard shows current snapshot values as headline numbers above charts
+- [x] **DASH-01**: Admin app (/metrics page) displays sparkline charts for selected metrics
+- [x] **DASH-02**: Dashboard has pod selector to filter metrics by pod
+- [x] **DASH-03**: Dashboard has time range picker (1h, 6h, 24h, 7d, 30d, custom)
+- [x] **DASH-04**: Dashboard auto-refreshes every 30 seconds
+- [x] **DASH-05**: Dashboard shows current snapshot values as headline numbers above charts
 
 ## Prometheus Export (PROM)
 
@@ -84,11 +84,11 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | QAPI-03 | Phase 286 | Pending |
 | QAPI-04 | Phase 286 | Pending |
 | QAPI-05 | Phase 286 | Pending |
-| DASH-01 | Phase 287 | Pending |
-| DASH-02 | Phase 287 | Pending |
-| DASH-03 | Phase 287 | Pending |
-| DASH-04 | Phase 287 | Pending |
-| DASH-05 | Phase 287 | Pending |
+| DASH-01 | Phase 287 | Complete |
+| DASH-02 | Phase 287 | Complete |
+| DASH-03 | Phase 287 | Complete |
+| DASH-04 | Phase 287 | Complete |
+| DASH-05 | Phase 287 | Complete |
 | PROM-01 | Phase 288 | Pending |
 | PROM-02 | Phase 288 | Pending |
 | ALRT-01 | Phase 289 | Pending |

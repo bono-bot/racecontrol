@@ -23,7 +23,7 @@ Make autonomous action loops observable and queryable with time-series depth -- 
 
 - [x] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion (completed 2026-04-01)
 - [ ] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution
-- [ ] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh
+- [x] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh (completed 2026-04-01)
 - [ ] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility
 - [ ] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup
 
@@ -70,11 +70,11 @@ Plans:
   3. Staff can change time range (1h, 6h, 24h, 7d, 30d, custom) and charts update accordingly
   4. Dashboard auto-refreshes every 30 seconds without manual reload
   5. Current snapshot values appear as headline numbers above the charts
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 **UI hint**: yes
 
 Plans:
-- [ ] 287-01-PLAN.md — Stub API client + metrics page with sparkline charts, pod selector, time range picker, headline numbers, 30s auto-refresh
+- [x] 287-01-PLAN.md — Stub API client + metrics page with sparkline charts, pod selector, time range picker, headline numbers, 30s auto-refresh
 
 ### Phase 288: Prometheus Export
 **Goal**: Metrics are available in Prometheus exposition format for future monitoring tool compatibility
@@ -113,6 +113,6 @@ Plans:
 |-------|----------------|--------|-----------|
 | 285. Metrics Ring Buffer | 2/2 | Complete    | 2026-04-01 |
 | 286. Metrics Query API | 0/1 | Not started | - |
-| 287. Metrics Dashboard | 0/1 | Not started | - |
+| 287. Metrics Dashboard | 1/1 | Complete   | 2026-04-01 |
 | 288. Prometheus Export | 0/1 | Not started | - |
 | 289. Metric Alert Thresholds | 0/2 | Not started | - |
