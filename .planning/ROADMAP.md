@@ -222,7 +222,7 @@ Plans:
 
 **Milestone Goal:** Operational data survives hardware failure. Cloud sync is extended to new tables. All events are structured and archived. Schema is ready for a second venue. Fleet deploys are automated with canary, health verify, auto-rollout, and auto-rollback.
 
-- [ ] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility
+- [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
 - [ ] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status
 - [ ] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API
 - [ ] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger
@@ -240,11 +240,11 @@ Plans:
   3. After a nightly backup completes, the backup file appears on Bono VPS and a SHA256 checksum comparison confirms the file is intact
   4. If no backup has succeeded within 2 hours, a WhatsApp alert fires to the staff number -- the alert does not re-fire until the next 2-hour staleness window
   5. Admin dashboard backup panel shows last backup time, file size, and whether the Bono VPS destination is reachable
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 300-01-PLAN.md -- BackupConfig, backup_pipeline.rs (VACUUM INTO, rotation, staleness alert), wired into main.rs
-- [ ] 300-02-PLAN.md -- Nightly SCP to Bono VPS with SHA256, GET /api/v1/backup/status, admin Backup Status card
+- [x] 300-02-PLAN.md -- Nightly SCP to Bono VPS with SHA256, GET /api/v1/backup/status, admin Backup Status card
 
 ### Phase 301: Cloud Data Sync v2
 **Goal**: Key intelligence tables are synced to Bono VPS and the system is ready for cross-venue data flows
@@ -318,7 +318,7 @@ Plans:
 | 297. Config Editor UI | 0/2 | Not started | - |
 | 298. Game Preset Library | 0/2 | Not started | - |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
-| 300. SQLite Backup Pipeline | 1/2 | In Progress|  |
+| 300. SQLite Backup Pipeline | 2/2 | Complete   | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 0/TBD | Not started | - |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |

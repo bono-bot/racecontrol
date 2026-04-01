@@ -9,9 +9,9 @@
 
 - [x] **BACKUP-01**: Server performs hourly SQLite .backup (WAL-safe) of all operational databases
 - [x] **BACKUP-02**: Local backup rotation retains 7 daily + 4 weekly snapshots, auto-purging older files
-- [ ] **BACKUP-03**: Nightly backup is SCP'd to Bono VPS with integrity verification (SHA256 match)
+- [x] **BACKUP-03**: Nightly backup is SCP'd to Bono VPS with integrity verification (SHA256 match)
 - [x] **BACKUP-04**: WhatsApp alert fires if newest backup is older than 2 hours (staleness detection)
-- [ ] **BACKUP-05**: Backup status visible in admin dashboard (last backup time, size, destination health)
+- [x] **BACKUP-05**: Backup status visible in admin dashboard (last backup time, size, destination health)
 
 ### Cloud Data Sync (SYNC)
 
@@ -73,9 +73,9 @@
 |-------------|-------|--------|
 | BACKUP-01 | Phase 300 | Complete |
 | BACKUP-02 | Phase 300 | Complete |
-| BACKUP-03 | Phase 300 | Pending |
+| BACKUP-03 | Phase 300 | Complete |
 | BACKUP-04 | Phase 300 | Complete |
-| BACKUP-05 | Phase 300 | Pending |
+| BACKUP-05 | Phase 300 | Complete |
 | SYNC-01 | Phase 301 | Pending |
 | SYNC-02 | Phase 301 | Pending |
 | SYNC-03 | Phase 301 | Pending |
