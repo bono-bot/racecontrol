@@ -326,7 +326,8 @@ mod tests {
         let store = ModelEvalRollupStore::open(":memory:");
         assert!(store.is_ok(), "open(':memory:') must succeed");
 
-        let store = store.unwrap();
+        // unwrap() is acceptable in tests — panics are expected on assertion failure
+        let store = store.expect("test: store open must succeed");
         let count: i64 = store
             .conn
             .query_row(
@@ -334,7 +335,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .expect("test: COUNT query must succeed");
         assert_eq!(count, 0, "fresh table should have 0 rows");
     }
 
@@ -379,11 +380,11 @@ mod tests {
         assert!(model_ids.contains(&"model_a"), "model_a must be present");
         assert!(model_ids.contains(&"model_b"), "model_b must be present");
 
-        let a = rollups.iter().find(|r| r.model_id == "model_a").unwrap();
+        let a = rollups.iter().find(|r| r.model_id == "model_a").expect("test: model_a must exist");
         assert_eq!(a.total_runs, 3);
         assert_eq!(a.correct_runs, 3);
 
-        let b = rollups.iter().find(|r| r.model_id == "model_b").unwrap();
+        let b = rollups.iter().find(|r| r.model_id == "model_b").expect("test: model_b must exist");
         assert_eq!(b.total_runs, 2);
         assert_eq!(b.correct_runs, 0);
     }
