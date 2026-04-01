@@ -10,7 +10,7 @@
 - ✅ **v21.0** — Cross-Project Sync (shipped)
 - ✅ **v25.0** — Phases 81-96 (shipped)
 - ✅ **v32.0 Autonomous Meshed Intelligence** — Phases 273-279 (shipped 2026-04-01)
-- 🔄 **v35.0 Structured Retraining & Model Lifecycle** — Phases 280-284 (in progress)
+- 🔄 **v35.0 Structured Retraining & Model Lifecycle** — Phases 290-294 (in progress)
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -43,27 +43,27 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ### Phases
 
-- [ ] **Phase 280: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups
-- [ ] **Phase 281: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator
-- [ ] **Phase 282: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
-- [ ] **Phase 283: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format
-- [ ] **Phase 284: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends
+- [ ] **Phase 290: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups
+- [ ] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator
+- [ ] **Phase 292: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
+- [ ] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format
+- [ ] **Phase 294: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends
 
 ### Progress Table
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 280. Model Evaluation Store | 0/3 | Planned | - |
-| 281. KB Promotion Persistence | 0/? | Not started | - |
-| 282. Model Reputation Persistence | 0/? | Not started | - |
-| 283. Retrain Data Export | 0/? | Not started | - |
-| 284. Intelligence Report v2 | 0/? | Not started | - |
+| 290. Model Evaluation Store | 0/3 | Planned | - |
+| 291. KB Promotion Persistence | 0/? | Not started | - |
+| 292. Model Reputation Persistence | 0/? | Not started | - |
+| 293. Retrain Data Export | 0/? | Not started | - |
+| 294. Intelligence Report v2 | 0/? | Not started | - |
 
 ---
 
 ## Phase Details
 
-### Phase 280: Model Evaluation Store
+### Phase 290: Model Evaluation Store
 **Goal**: Every AI diagnosis is recorded with its prediction, outcome, and cost so accuracy can be measured over time
 **Depends on**: Nothing (foundation for all other phases)
 **Requirements**: EVAL-01, EVAL-02, EVAL-03
@@ -73,13 +73,13 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   3. `GET /api/v1/models/evaluations?model=X&from=Y&to=Z` returns filtered evaluation records with correct data
   4. Evaluation data persists across rc-agent restarts — records written before a restart are readable after
 **Plans**: 3 plans
-- [ ] 280-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
-- [ ] 280-02-PLAN.md — eval_rollup.rs weekly cron producing model_eval_rollups (EVAL-02)
-- [ ] 280-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
+- [ ] 290-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
+- [ ] 290-02-PLAN.md — eval_rollup.rs weekly cron producing model_eval_rollups (EVAL-02)
+- [ ] 290-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
 
-### Phase 281: KB Promotion Persistence
+### Phase 291: KB Promotion Persistence
 **Goal**: The KB promotion ladder (Shadow/Canary/Quorum/Hardened) survives process restarts and advances automatically every 6 hours
-**Depends on**: Phase 280 (evaluation data feeds promotion decisions)
+**Depends on**: Phase 290 (evaluation data feeds promotion decisions)
 **Requirements**: KBPP-01, KBPP-02, KBPP-03, KBPP-04, KBPP-05, KBPP-06
 **Success Criteria** (what must be TRUE):
   1. After rc-agent restarts, all KB candidate rules resume at their previous promotion stage (Shadow/Canary/Quorum/Hardened) — no regression to Observed
@@ -90,9 +90,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   6. The 6-hour cron evaluator runs, checks all candidate promotions, and advances or holds each based on their stage criteria
 **Plans**: TBD
 
-### Phase 282: Model Reputation Persistence
+### Phase 292: Model Reputation Persistence
 **Goal**: Per-model accuracy and run counts are durable so the roster self-curates over rolling 7-day windows without requiring a human to intervene
-**Depends on**: Phase 280 (accuracy data from evaluation store)
+**Depends on**: Phase 290 (accuracy data from evaluation store)
 **Requirements**: MREP-01, MREP-02, MREP-03, MREP-04
 **Success Criteria** (what must be TRUE):
   1. After rc-agent restarts, per-model accuracy and run count are restored from SQLite — no reset to zero
@@ -101,9 +101,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   4. `GET /api/v1/models/reputation` returns per-model trends including accuracy, run count, and cost efficiency
 **Plans**: TBD
 
-### Phase 283: Retrain Data Export
+### Phase 293: Retrain Data Export
 **Goal**: Every week, the system produces a training-ready JSONL file that captures what the AI diagnosed, whether it was correct, and what fix was applied — usable directly with Ollama or Unsloth
-**Depends on**: Phase 280 (evaluation data is the source of the export)
+**Depends on**: Phase 290 (evaluation data is the source of the export)
 **Requirements**: TRAIN-01, TRAIN-02, TRAIN-03
 **Success Criteria** (what must be TRUE):
   1. A weekly cron job produces a JSONL file containing diagnosis evaluations and KB solutions from the past 7 days
@@ -111,9 +111,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   3. Each entry includes model name, original prompt, model response, correct/incorrect flag, and fix outcome
 **Plans**: TBD
 
-### Phase 284: Intelligence Report v2
+### Phase 294: Intelligence Report v2
 **Goal**: Uday's Sunday midnight WhatsApp report tells him which models are improving, how many KB rules were promoted, how much cost was saved by Hardened rules, and whether model accuracy is trending up or down
-**Depends on**: Phase 280 (evaluation data), Phase 281 (KB promotion counts), Phase 282 (model reputation trends)
+**Depends on**: Phase 290 (evaluation data), Phase 291 (KB promotion counts), Phase 292 (model reputation trends)
 **Requirements**: RPTV2-01, RPTV2-02, RPTV2-03, RPTV2-04
 **Success Criteria** (what must be TRUE):
   1. The weekly WhatsApp report includes a per-model accuracy ranking (e.g. "Model A: 87%, Model B: 63%, Model C: 41%")
@@ -124,4 +124,4 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ---
 
-*Last updated: 2026-04-01 — Phase 280 planned (3 plans, wave 1 + wave 2)*
+*Last updated: 2026-04-01 — Phase 290 planned (3 plans, wave 1 + wave 2)*
