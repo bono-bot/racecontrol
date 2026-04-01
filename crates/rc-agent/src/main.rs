@@ -44,6 +44,7 @@ mod process_guard;
 mod self_monitor;
 mod sentinel_watcher;
 mod weekly_report;
+mod eval_rollup;
 mod self_test;
 mod mma_engine;
 mod model_reputation;
@@ -1240,6 +1241,10 @@ async fn main() -> Result<()> {
         weekly_report::spawn(wr_ws_tx, wr_node_id, wr_diag_log, wr_budget);
         tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03)");
     }
+
+    // ─── Model Eval Rollup (EVAL-02: weekly per-model accuracy rollup) ──────────
+    eval_rollup::spawn(eval_store.clone());
+    tracing::info!(target: LOG_TARGET, "Eval rollup cron started (Sunday midnight IST)");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
