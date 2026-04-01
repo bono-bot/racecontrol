@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v34.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 286-01-PLAN.md
-last_updated: "2026-04-01T11:17:24.766Z"
+status: executing
+stopped_at: Completed 289-01-PLAN.md
+last_updated: "2026-04-01T11:27:28.230Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 100
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Make autonomous action loops observable and queryable with time-series depth
-**Current focus:** Phase 288 — prometheus-export
+**Current focus:** Phase 289 — metric-alert-thresholds
 
 ## Current Position
 
-Phase: 289
-Plan: Not started
-Status: Phase 288 complete
+Phase: 289 (metric-alert-thresholds) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [##########] 100%
@@ -57,6 +57,7 @@ Progress: [##########] 100%
 | Phase 287 P01 | 8min | 2 tasks | 3 files |
 | Phase 286-metrics-query-api P01 | 30 | 2 tasks | 3 files |
 | Phase 288-prometheus-export P01 | 5min | 2 tasks | 3 files |
+| Phase 289-metric-alert-thresholds P01 | 15 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Recent decisions affecting current work:
 - [Phase 285]: 512-buffer mpsc channel with 64-sample batch and 5s flush for async metric ingestion
 - [Phase 287]: Deterministic sine-wave stubs to prevent SWR revalidation flicker
 - [Phase 286-metrics-query-api]: Use dynamic sqlx::query (not macros) for metrics_query — tables don't exist in dev DB
+- [Phase 289-01]: check_condition() extracted as free function so tests can call it directly without spinning up AppState
 
 ### Pending Todos
 
@@ -83,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T11:02:06.935Z
-Stopped at: Completed 286-01-PLAN.md
+Last session: 2026-04-01T11:27:28.226Z
+Stopped at: Completed 289-01-PLAN.md
 Resume file: None

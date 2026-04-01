@@ -98,10 +98,10 @@ Plans:
   3. Triggered alerts fire to WhatsApp via the existing Bono VPS Evolution API alerter
   4. Same alert is suppressed for 30 minutes after first fire (deduplication)
   5. Rules support threshold conditions (>, <, ==) on any metric name
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 289-01-PLAN.md — Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
+- [x] 289-01-PLAN.md — Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
 - [ ] 289-02-PLAN.md — Wire metric_alert_task into main.rs startup
 
 ## Progress
@@ -115,4 +115,4 @@ Plans:
 | 286. Metrics Query API | 1/1 | Complete    | 2026-04-01 |
 | 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete    | 2026-04-01 |
-| 289. Metric Alert Thresholds | 0/2 | Not started | - |
+| 289. Metric Alert Thresholds | 1/2 | In Progress|  |
