@@ -136,7 +136,10 @@ Plans:
   2. A config with an unknown field still loads with defaults and emits a warning log -- it does not crash the agent
   3. A config with a mismatched type on a known field falls back to the field default and logs a warning
   4. AgentConfig carries a schema_version field that old agents ignore when encountering a newer version
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 295-01-PLAN.md -- Move AgentConfig to rc-common with schema_version, lenient parsing with warnings
 
 ### Phase 296: Server-Pushed Config
 **Goal**: The server is the authoritative source of pod config; pods receive and persist config over WebSocket
@@ -203,7 +206,7 @@ Plans:
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
 | 290. Wire Metric Producers | 0/1 | Not started | - |
 | 291. Dashboard API Wiring | 0/TBD | Not started | - |
-| 295. Config Schema & Validation | 0/TBD | Not started | - |
+| 295. Config Schema & Validation | 0/1 | In progress | - |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
