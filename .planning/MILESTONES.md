@@ -1,9 +1,28 @@
 # Milestones
+
+## v32.0 Autonomous Meshed Intelligence (Shipped: 2026-04-01)
+
+**Phases completed:** 7 phases, 6 plans, 9 tasks
+
+**Key accomplishments:**
+
+- 1. [Rule 3 - Blocking] FailureMonitorState lacks Serialize derive
+- One-liner:
+- knowledge_base.rs:
+- 1. [Rule 1 - Bug] Fixed node_id shadowing in autonomous event branch
+- 1. [Rule 3 - Blocking] Module declaration without modifying main.rs
+- 1. [Rule 1 - Bug] EscalationPayload field mismatch
+- 1. [Rule 2 - Missing] FleetEvent variants did not exist
+- 1. [Rule 1 - Bug] Replaced .unwrap() with .single().expect()
+
+---
+
 ## v25.0 Debug-First-Time-Right (Shipped: 2026-03-26)
 
 **Phases completed:** 147 phases, 330 plans, 75 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
@@ -13,6 +32,7 @@
 **Phases completed:** 119 phases, 270 plans, 66 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
@@ -22,6 +42,7 @@
 **Phases completed:** 107 phases, 244 plans, 49 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
@@ -31,6 +52,7 @@
 **Phases completed:** 87 phases, 197 plans, 37 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
@@ -40,6 +62,7 @@
 **Phases completed:** 34 phases, 85 plans, 13 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
@@ -49,16 +72,17 @@
 **Phases completed:** 34 phases, 85 plans, 13 tasks
 
 **Key accomplishments:**
+
 - (none recorded)
 
 ---
-
 
 ## v1.0 RaceControl HUD & Safety (Shipped: 2026-03-13)
 
 **Phases completed:** 5 phases, 15 plans, 16 tasks
 
 **Key accomplishments:**
+
 - Escalating watchdog backoff (30s→2m→10m→30m) with post-restart verification and email alerts — pods self-heal without manual intervention
 - WebSocket keepalive (15s WS ping + 30s app-level Ping/Pong) + fast-then-backoff reconnect — no more "Disconnected" flash during game launch
 - DeployState FSM with HEAD-before-kill validation, canary-first (Pod 8), and session-aware rolling deploy — deployments work reliably across all 8 pods
@@ -71,6 +95,7 @@
 **Phases completed:** 6 phases, 12 plans
 
 **Key accomplishments:**
+
 - Server IP pinned to .23 via DHCP reservation + racecontrol reverse proxy for kiosk
 - Pod lock screens show branded "Connecting..." state — never browser error pages
 - Edge auto-update, StartupBoost, BackgroundMode disabled on all 8 pods
@@ -82,6 +107,7 @@
 **Phases completed:** 3 phases (12, 13, 13.1), 10 plans
 
 **Key accomplishments:**
+
 - SQLite lap times DB with full migration stack — persistent leaderboards across server restarts
 - Live leaderboard with top-10 per track/car, personal bests, percentile ranks, gap-to-leader — served via REST API
 - Pod fleet reliability: ConspitLink USB watchdog, process cleanup on session end, telemetry UDP failover
@@ -91,6 +117,7 @@
 **Phases completed:** 7 phases (16–22), 15 plans
 
 **Key accomplishments:**
+
 - Firewall auto-config: racecontrol opens its own Windows Firewall rule at startup — no manual setup on new server
 - WebSocket exec relay: staff can run shell commands on any pod from kiosk (WS proxy through rc-agent)
 - Startup self-healing: rc-agent detects and clears stale CLOSE_WAIT sockets, restarts on crash detection
@@ -104,6 +131,7 @@
 **Phases completed:** 5 phases, 10 plans, 19 requirements
 
 **Key accomplishments:**
+
 - Billing-game lifecycle wired: game killed on billing end, launch gate before billing, anti-double-launch guard, pod reset after session
 - Game crash recovery: auto-pause billing on crash, "Game Crashed" badge + "Relaunch" on kiosk dashboard
 - Launch resilience: structured `LaunchDiagnostics` (CM exit code, log errors, fallback flag), billing auto-pause on total launch failure
@@ -115,6 +143,7 @@
 **Phases completed:** 5 phases (23–27), 19 plans, 19 requirements
 
 **Key accomplishments:**
+
 - `PodFailureReason` enum (9 classes) + 5 `AgentMessage` bot variants + `is_pod_in_recovery()` guard — deterministic failure taxonomy shared across all bot tasks (Phase 23)
 - Game freeze, launch timeout, USB wheelbase disconnect auto-fix bots with FFB zero-force safety ordering before every process kill (Phase 24)
 - `billing_guard.rs` detects stuck sessions (60s) and idle drift (5min); `bot_coordinator.rs` routes to safe `end_session()` with CRDT cloud sync fence (Phase 25)
@@ -126,6 +155,7 @@
 **Phases completed:** 3 phases (33–35)
 
 **Key accomplishments:**
+
 - billing_rates DB table with non-retroactive additive algorithm + in-memory rate cache
 - Four CRUD endpoints for staff rate management
 - Every user-facing screen replaced rupees with credits
@@ -139,6 +169,7 @@
 **Archive:** archive/comms-link-v1.0/
 
 **Key accomplishments:**
+
 - Persistent WebSocket connection from James → Bono's VPS with PSK auth (Bearer header, not query params)
 - Auto-reconnect with queue flush on re-establish — only reconnects on network drops, not auth rejection
 - Heartbeat sender with CPU/memory/Claude detection metrics every N seconds
@@ -155,6 +186,7 @@
 **Archive:** archive/comms-link-v2.0/
 
 **Key accomplishments:**
+
 - ACK protocol with monotonic sequence numbers + exponential backoff retries (3 max)
 - WAL-backed message queue — messages survive process crash, replay on restart
 - DeduplicatorCache (1000 IDs, 1hr TTL) prevents double-processing on reconnect
@@ -171,6 +203,7 @@
 **Repos:** racingpoint-api-gateway, racingpoint-whatsapp-bot, racingpoint-discord-bot, racingpoint-google
 
 **Key accomplishments:**
+
 - API Gateway (Express.js): bookings, customers, calendar, proxy routes merging bot data with racecontrol REST API
 - WhatsApp bot: automated session booking with Google Calendar, Claude API migration, 2-min direct mode fallback, RaceControl session booking for registered customers
 - Discord bot: modal form booking with Google Calendar integration
@@ -183,6 +216,7 @@
 **Repo:** racingpoint-admin (Next.js/TypeScript)
 
 **Key accomplishments:**
+
 - Full admin dashboard: cafe, inventory, sales, purchases, finance modules
 - Receipt scanner + bank statement matching + analytics
 - Waivers page with signature viewing (Google Sheets integration)
@@ -201,6 +235,7 @@
 **Requirements:** 27 (FNDN-01..06, PDOP-01..11, SVOP-01..06, BUILD-01..04)
 
 **Key accomplishments (Phase 1):**
+
 - ops.bat interactive menu + CLI mode dual entry point
 - ops.conf.bat centralizes all pod IPs, server IP, paths, ports — zero hardcoded values
 - Safety blocklist prevents running pod binaries on James's machine
@@ -208,6 +243,7 @@
 - Stub routing for all Phase 2-5 commands (incremental build-out)
 
 **Remaining:**
+
 - Phase 2: Health & Status — read-only fleet visibility
 - Phase 3: Pod Deploy & Operations — deploy, restart, canary, screenshot
 - Phase 4: Server Operations — racecontrol, kiosk, pod-agent service management
@@ -220,6 +256,7 @@
 **Archive:** archive/ac-launcher-v1.0/
 
 **Key accomplishments:**
+
 - Session types (Practice, Race, Hotlap) with mode validation — only valid AC combinations presented
 - 5 difficulty tiers (Rookie→Alien) mapping to AI strength, aggression, and behavior
 - Billing synchronized to in-game session start (not game launch), DirectX init delay handled

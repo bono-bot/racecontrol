@@ -2,9 +2,9 @@
 
 ## Current State
 
-**Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1, v18.0-v18.2, v21.0 (2026-03-13 to 2026-03-23)
+**Shipped:** v1.0 through v32.0 (2026-03-01 to 2026-04-01)
 
-The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool; rc-agent decomposed into 5 focused modules; rc-common provides shared exec primitives; 67+ tests cover billing, failure detection, and FFB safety. 61+ phases shipped across 11+ milestones. v21.0 added cross-project sync: shared TypeScript types, OpenAPI specs, contract tests with CI, unified deploy scripts, standing rules across all repos, and 231-test E2E framework.
+The pod management stack is fully autonomous: rc-agent runs 5-tier diagnostic engine with event-driven FleetEvent pipeline, safety guardrails (blast radius limiter, circuit breaker, idempotency), KB-first diagnosis ($0 for known issues), automatic game launch recovery (60s), predictive alerts feeding the tier engine, experience scoring per pod with auto-rotation removal, revenue protection monitoring, model reputation auto-demotion, KB hardening promotion ladder (Observed→Hardened), and weekly fleet intelligence reports to Uday via WhatsApp. 280+ phases shipped across 15+ milestones.
 
 ## Shipped Milestone: v16.1 Camera Dashboard Pro (2026-03-22)
 
@@ -32,28 +32,11 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
-## Current Milestone: v32.0 Autonomous Meshed Intelligence
+## Shipped Milestone: v32.0 Autonomous Meshed Intelligence (2026-04-01)
 
-**Goal:** Close all action loops in Meshed Intelligence so the venue self-heals end-to-end: diagnose → fix → permanent fix → cascade to fleet → never debug the same issue twice.
+**Delivered:** Closed all Meshed Intelligence action loops end-to-end. Event-driven FleetEvent pipeline with safety guardrails (blast radius limiter 2/10 max, circuit breaker 40%, idempotency keys). Tier 5 WhatsApp escalation with 30-min dedup and INBOX.md fallback. Autonomous game launch fix (60s recovery, 2 retries, KB encode, fleet cascade). Predictive alerts→tier engine bridge. Per-pod experience scoring with auto-flag/remove. Revenue protection (game/billing mismatch detection). Model reputation auto-demotion/promotion. KB hardening promotion ladder (Observed→Shadow→Canary→Quorum→Hardened). Weekly fleet intelligence report (Sunday midnight IST via WhatsApp).
 
-**Target features:**
-- Autonomous game launch fix + cascade — diagnose launch failure, apply fix, auto-retry (2x with clean state reset), encode permanent fix as Tier 1 deterministic check (KB hardening), cascade solution via mesh gossip to all pods + POS
-- Predictive alert → action pipeline — connect predictive_maintenance alerts to diagnostic engine → tier engine (currently log-only, no action taken)
-- Experience scoring integration — wire experience_score.rs into main loop, feed scores to fleet health API, auto-flag/remove low-scoring pods
-- Tier 5 WhatsApp escalation — complete the stub via Bono VPS Evolution API
-- Enhanced night ops + MMA — full MMA diagnostic step, auto-fix application, morning readiness report to Uday
-- Model reputation auto-demotion — promote from log-only warning to actual roster removal when accuracy < 30%
-- Revenue protection triggers — game running without billing, session ended but game active, pod down during peak hours
-- Weekly fleet intelligence report — automated report to Uday (auto-resolution rate, MTTR, top issues, budget, KB growth)
-- KB hardening pipeline — solutions succeeding 3+ times across 2+ pods auto-promote to Tier 1 deterministic checks ($0 forever)
-
-**Constraints:**
-- All modules already exist as files — this is wiring + enhancement, not greenfield
-- v31.0 built MMA engine, tier engine, mesh gossip, KB — this milestone makes them fully autonomous
-- Budget controls ($5-20/day per node) already enforced — no new cost risks
-- WhatsApp escalation goes through Bono VPS Evolution API (not direct)
-- Cascade is recursive per standing rules — fix one pod → gossip to fleet → verify on each pod
-- KB promotion lifecycle exists (Discovered → Candidate → Fleet-Verified → Hardened) but "Hardened" doesn't generate Tier 1 code yet
+7 phases (273-279), 38 requirements, 10 new source files (~2,351 lines), 55 commits.
 
 ## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
 
