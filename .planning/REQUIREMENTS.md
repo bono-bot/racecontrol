@@ -11,19 +11,19 @@
 
 ## KB Promotion Persistence (KBPP)
 
-- [ ] **KBPP-01**: KB promotion state (Shadow/Canary/Quorum/Hardened) persists in SQLite across rc-agent restarts
-- [ ] **KBPP-02**: Shadow mode tracks candidate fix executions for 1 week or 25 applications (whichever first), logging only
-- [ ] **KBPP-03**: Canary stage restricts candidate fix to Pod 8 only and verifies success before fleet promotion
-- [ ] **KBPP-04**: Quorum requires 3+ successes across 2+ distinct pods before promoting to Hardened (Tier 1 rule)
-- [ ] **KBPP-05**: Hardened rules stored as typed `Rule` structs with matchers, actions, verifier, and TTL — applied at $0 cost
-- [ ] **KBPP-06**: 6-hour cron evaluator checks all candidate promotions and advances eligible entries
+- [x] **KBPP-01**: KB promotion state (Shadow/Canary/Quorum/Hardened) persists in SQLite across rc-agent restarts
+- [x] **KBPP-02**: Shadow mode tracks candidate fix executions for 1 week or 25 applications (whichever first), logging only
+- [x] **KBPP-03**: Canary stage restricts candidate fix to Pod 8 only and verifies success before fleet promotion
+- [x] **KBPP-04**: Quorum requires 3+ successes across 2+ distinct pods before promoting to Hardened (Tier 1 rule)
+- [x] **KBPP-05**: Hardened rules stored as typed `Rule` structs with matchers, actions, verifier, and TTL — applied at $0 cost
+- [x] **KBPP-06**: 6-hour cron evaluator checks all candidate promotions and advances eligible entries
 
 ## Model Reputation Persistence (MREP)
 
-- [ ] **MREP-01**: Per-model accuracy and run count tracked persistently in SQLite (survives rc-agent restart)
-- [ ] **MREP-02**: Models with 7-day accuracy below 30% across 5+ runs are automatically removed from MMA roster
-- [ ] **MREP-03**: Models with 7-day accuracy above 90% across 10+ runs are promoted to higher priority in roster
-- [ ] **MREP-04**: Model reputation dashboard visible at `/api/v1/models/reputation` (per-model trends, cost efficiency)
+- [x] **MREP-01**: Per-model accuracy and run count tracked persistently in SQLite (survives rc-agent restart)
+- [x] **MREP-02**: Models with 7-day accuracy below 30% across 5+ runs are automatically removed from MMA roster
+- [x] **MREP-03**: Models with 7-day accuracy above 90% across 10+ runs are promoted to higher priority in roster
+- [x] **MREP-04**: Model reputation dashboard visible at `/api/v1/models/reputation` (per-model trends, cost efficiency)
 
 ## Retrain Data Export (TRAIN)
 
@@ -45,16 +45,16 @@
 | EVAL-01 | Phase 290 | Complete |
 | EVAL-02 | Phase 290 | Complete |
 | EVAL-03 | Phase 290 | Complete |
-| KBPP-01 | Phase 291 | Pending |
-| KBPP-02 | Phase 291 | Pending |
-| KBPP-03 | Phase 291 | Pending |
-| KBPP-04 | Phase 291 | Pending |
-| KBPP-05 | Phase 291 | Pending |
-| KBPP-06 | Phase 291 | Pending |
-| MREP-01 | Phase 292 | Pending |
-| MREP-02 | Phase 292 | Pending |
-| MREP-03 | Phase 292 | Pending |
-| MREP-04 | Phase 292 | Pending |
+| KBPP-01 | Phase 291 | Complete |
+| KBPP-02 | Phase 291 | Complete |
+| KBPP-03 | Phase 291 | Complete |
+| KBPP-04 | Phase 291 | Complete |
+| KBPP-05 | Phase 291 | Complete |
+| KBPP-06 | Phase 291 | Complete |
+| MREP-01 | Phase 292 | Complete |
+| MREP-02 | Phase 292 | Complete |
+| MREP-03 | Phase 292 | Complete |
+| MREP-04 | Phase 292 | Complete |
 | TRAIN-01 | Phase 293 | Complete |
 | TRAIN-02 | Phase 293 | Complete |
 | TRAIN-03 | Phase 293 | Complete |

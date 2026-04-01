@@ -54,8 +54,8 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
-| 291. KB Promotion Persistence | 0/3 | Not started | - |
-| 292. Model Reputation Persistence | 0/2 | Planned | - |
+| 291. KB Promotion Persistence | 0/3 | Planned    |  |
+| 292. Model Reputation Persistence | 1/2 | In Progress|  |
 | 293. Retrain Data Export | 1/1 | Complete   | 2026-04-01 |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
 
@@ -104,7 +104,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   4. `GET /api/v1/models/reputation` returns per-model trends including accuracy, run count, and cost efficiency
 **Plans**: 2 plans
 - [ ] 292-01-PLAN.md — model_reputation_store.rs + updated run_reputation_sweep() using 7-day eval window + boot load in main.rs (MREP-01, MREP-02, MREP-03)
-- [ ] 292-02-PLAN.md — AgentMessage::ModelReputationSync + server DB table + GET /api/v1/models/reputation (MREP-04)
+- [x] 292-02-PLAN.md — AgentMessage::ModelReputationSync + server DB table + GET /api/v1/models/reputation (MREP-04)
 
 ### Phase 293: Retrain Data Export
 **Goal**: Every week, the system produces a training-ready JSONL file that captures what the AI diagnosed, whether it was correct, and what fix was applied — usable directly with Ollama or Unsloth
