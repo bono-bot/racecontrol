@@ -69,17 +69,40 @@
 
 ## Traceability
 
-Updated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| — | — | — |
+| BACKUP-01 | Phase 300 | Pending |
+| BACKUP-02 | Phase 300 | Pending |
+| BACKUP-03 | Phase 300 | Pending |
+| BACKUP-04 | Phase 300 | Pending |
+| BACKUP-05 | Phase 300 | Pending |
+| SYNC-01 | Phase 301 | Pending |
+| SYNC-02 | Phase 301 | Pending |
+| SYNC-03 | Phase 301 | Pending |
+| SYNC-04 | Phase 301 | Pending |
+| SYNC-05 | Phase 301 | Pending |
+| SYNC-06 | Phase 301 | Pending |
+| EVENT-01 | Phase 302 | Pending |
+| EVENT-02 | Phase 302 | Pending |
+| EVENT-03 | Phase 302 | Pending |
+| EVENT-04 | Phase 302 | Pending |
+| EVENT-05 | Phase 302 | Pending |
+| VENUE-01 | Phase 303 | Pending |
+| VENUE-02 | Phase 303 | Pending |
+| VENUE-03 | Phase 303 | Pending |
+| VENUE-04 | Phase 303 | Pending |
+| DEPLOY-01 | Phase 304 | Pending |
+| DEPLOY-02 | Phase 304 | Pending |
+| DEPLOY-03 | Phase 304 | Pending |
+| DEPLOY-04 | Phase 304 | Pending |
+| DEPLOY-05 | Phase 304 | Pending |
+| DEPLOY-06 | Phase 304 | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total
-- Mapped to phases: 0
-- Unmapped: 27 ⚠️
+- Mapped to phases: 27
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-01*
-*Last updated: 2026-04-01 after initial definition*
+*Last updated: 2026-04-01 — traceability completed during roadmap creation*

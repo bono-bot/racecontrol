@@ -1,13 +1,14 @@
-# Roadmap: v36.0 Config Management & Policy Engine
+# Roadmap: Racing Point eSports Operations
 
 ## Overview
 
-Centralize configuration so every pod runs from server-pushed config instead of local TOML files that drift. Phases build from schema foundation through push infrastructure, editor UI, preset library, and an automated policy rules engine.
+Operational data durability and multi-venue readiness — ensuring all venue data survives hardware failure, syncs reliably to cloud, is structured for query and archival, and that the schema and deploy pipeline are ready for a second venue.
 
 ## Milestones
 
 - ✅ **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-291, SHIPPED 2026-04-01 ([archive](milestones/v34.0-ROADMAP.md))
-- 📋 **v36.0 Config Management & Policy Engine** - Phases 295-299 (planned)
+- 🚧 **v36.0 Config Management & Policy Engine** - Phases 295-299 (in progress)
+- 📋 **v37.0 Data Durability & Multi-Venue Readiness** - Phases 300-304 (planned)
 
 ## Phases
 
@@ -121,7 +122,7 @@ Plans:
 
 </details>
 
-### 📋 v36.0 Config Management & Policy Engine (Planned)
+### 🚧 v36.0 Config Management & Policy Engine (In Progress)
 
 **Milestone Goal:** Every pod runs from server-pushed config. No local TOML drift. Staff can edit, push, and automate config changes via admin UI and policy rules.
 
@@ -130,8 +131,6 @@ Plans:
 - [ ] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail
 - [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
 - [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
-
-## Phase Details
 
 ### Phase 295: Config Schema & Validation
 **Goal**: A typed, versioned AgentConfig struct is the single source of truth for all pod-level configuration
@@ -200,12 +199,89 @@ Plans:
 **Plans**: TBD
 **UI hint**: yes
 
+---
+
+### 📋 v37.0 Data Durability & Multi-Venue Readiness (Planned)
+
+**Milestone Goal:** Operational data survives hardware failure. Cloud sync is extended to new tables. All events are structured and archived. Schema is ready for a second venue. Fleet deploys are automated with canary, health verify, auto-rollout, and auto-rollback.
+
+- [ ] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility
+- [ ] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status
+- [ ] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API
+- [ ] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger
+- [ ] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint
+
+## Phase Details
+
+### Phase 300: SQLite Backup Pipeline
+**Goal**: Operational databases are continuously backed up and staff can see backup health at a glance
+**Depends on**: Nothing (first phase of v37.0)
+**Requirements**: BACKUP-01, BACKUP-02, BACKUP-03, BACKUP-04, BACKUP-05
+**Success Criteria** (what must be TRUE):
+  1. Server runs an hourly backup of all SQLite databases using the WAL-safe .backup API -- backup files appear in the local backup directory within 60 minutes of server start
+  2. Local backup directory contains at most 7 daily + 4 weekly snapshots; older files are automatically deleted without manual intervention
+  3. After a nightly backup completes, the backup file appears on Bono VPS and a SHA256 checksum comparison confirms the file is intact
+  4. If no backup has succeeded within 2 hours, a WhatsApp alert fires to the staff number -- the alert does not re-fire until the next 2-hour staleness window
+  5. Admin dashboard backup panel shows last backup time, file size, and whether the Bono VPS destination is reachable
+**Plans**: TBD
+
+### Phase 301: Cloud Data Sync v2
+**Goal**: Key intelligence tables are synced to Bono VPS and the system is ready for cross-venue data flows
+**Depends on**: Phase 300
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06
+**Success Criteria** (what must be TRUE):
+  1. fleet_solutions, model_evaluations, and metrics_rollups rows written at the venue appear in the Bono VPS database within the next sync cycle (server-authoritative direction)
+  2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
+  3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
+  4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
+**Plans**: TBD
+
+### Phase 302: Structured Event Archive
+**Goal**: Every significant system event is captured, queryable, and permanently archived off-server
+**Depends on**: Phase 300
+**Requirements**: EVENT-01, EVENT-02, EVENT-03, EVENT-04, EVENT-05
+**Success Criteria** (what must be TRUE):
+  1. After any significant system action (session start/end, deploy, alert fire, pod recovery), a row appears in the events table with type, source, pod, timestamp, and JSON payload populated
+  2. A JSONL file for the previous day's events exists in the archive directory by 01:00 IST each morning
+  3. Events in SQLite older than 90 days are purged by the daily maintenance task; the corresponding JSONL files remain untouched
+  4. The nightly JSONL file for the previous day appears on Bono VPS after the archive task runs
+  5. GET /api/v1/events returns a filtered list of events when given type, pod, or date range query parameters
+**Plans**: TBD
+
+### Phase 303: Multi-Venue Schema Prep
+**Goal**: The database schema supports a second venue without data model changes -- only a config value changes
+**Depends on**: Phase 301, Phase 302
+**Requirements**: VENUE-01, VENUE-02, VENUE-03, VENUE-04
+**Success Criteria** (what must be TRUE):
+  1. Every major table has a venue_id column; existing rows all have venue_id = 'racingpoint-hyd-001' and the application behaves identically to before the migration
+  2. The migration runs on an existing production database without data loss -- no manual intervention required, no functional behavior change for current single-venue operation
+  3. All INSERT and UPDATE queries in racecontrol pass venue_id explicitly -- no row is written without a venue_id value
+  4. MULTI-VENUE-ARCHITECTURE.md exists and documents the trigger conditions, schema strategy, sync model, and breaking points for a second venue
+**Plans**: TBD
+
+### Phase 304: Fleet Deploy Automation
+**Goal**: Staff can deploy a new binary to the entire fleet in one API call with automatic safety gates
+**Depends on**: Phase 303
+**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05, DEPLOY-06
+**Success Criteria** (what must be TRUE):
+  1. POST /api/v1/fleet/deploy with a binary hash and scope (all/canary/specific pods) initiates a deployment and returns a deploy_id immediately
+  2. The deploy goes to Pod 8 first; the next wave does not start until Pod 8 passes its health check
+  3. After canary passes, remaining pods receive the binary in waves with a configurable inter-wave delay; the full fleet is updated without additional manual action
+  4. If Pod 8 or any subsequent wave pod fails its post-deploy health check, all affected pods are automatically reverted to the previous binary
+  5. GET /api/v1/fleet/deploy/status shows current wave, each pod's status (pending/deploying/healthy/rolled-back), and a log of rollback events
+  6. No pod swaps its binary while it has an active billing session; the swap is deferred until the session ends naturally
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
 295 -> 296 -> 297
 296 -> 298
 296 -> 299
+300 -> 301
+300 -> 302
+301 + 302 -> 303
+303 -> 304
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -214,10 +290,15 @@ Plans:
 | 287. Metrics Dashboard | 1/1 | Complete | 2026-04-01 |
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
-| 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
-| 291. Dashboard API Wiring | 1/1 | Complete    | 2026-04-01 |
-| 295. Config Schema & Validation | 1/1 | Complete    | 2026-04-01 |
-| 296. Server-Pushed Config | 1/2 | In Progress|  |
+| 290. Wire Metric Producers | 1/1 | Complete | 2026-04-01 |
+| 291. Dashboard API Wiring | 1/1 | Complete | 2026-04-01 |
+| 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
+| 296. Server-Pushed Config | 1/2 | In Progress | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
 | 299. Policy Rules Engine | 0/TBD | Not started | - |
+| 300. SQLite Backup Pipeline | 0/TBD | Not started | - |
+| 301. Cloud Data Sync v2 | 0/TBD | Not started | - |
+| 302. Structured Event Archive | 0/TBD | Not started | - |
+| 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
+| 304. Fleet Deploy Automation | 0/TBD | Not started | - |
