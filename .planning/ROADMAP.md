@@ -128,7 +128,7 @@ Plans:
 
 - [x] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning (completed 2026-04-01)
 - [x] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication (completed 2026-04-01)
-- [ ] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail
+- [x] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail (completed 2026-04-01)
 - [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
 - [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
 
@@ -172,11 +172,11 @@ Plans:
   3. Staff can push the updated config to a single pod with one click and the pod's status updates within 10 seconds
   4. Staff can push the current config to all pods simultaneously with one bulk-push action
   5. Every config change is recorded in the audit log with staff identity, timestamp, and the changed fields
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 297-01-PLAN.md -- Config API client and TypeScript types (configApi, AgentConfig, PodConfigResponse, AuditLogEntry, HOT_RELOAD_FIELDS)
-- [ ] 297-02-PLAN.md -- Config page (pod grid + status badges + bulk push + audit log), ConfigEditorModal (form + diff view + single push), nav link
+- [x] 297-01-PLAN.md -- Config API client and TypeScript types (configApi, AgentConfig, PodConfigResponse, AuditLogEntry, HOT_RELOAD_FIELDS)
+- [x] 297-02-PLAN.md -- Config page (pod grid + status badges + bulk push + audit log), ConfigEditorModal (form + diff view + single push), nav link
 
 **UI hint**: yes
 
@@ -315,7 +315,7 @@ Plans:
 | 291. Dashboard API Wiring | 1/1 | Complete | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
-| 297. Config Editor UI | 0/2 | Not started | - |
+| 297. Config Editor UI | 2/2 | Complete   | 2026-04-01 |
 | 298. Game Preset Library | 0/2 | Not started | - |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete   | 2026-04-01 |
