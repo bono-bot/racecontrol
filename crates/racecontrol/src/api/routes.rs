@@ -522,6 +522,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // MMA-v29: Metrics, mesh, admin, cameras moved from public_routes — require staff JWT
         .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
+        .route("/metrics/launch-observability", get(metrics::launch_observability_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
         .route("/mesh/solutions", get(mesh_list_solutions))
         .route("/mesh/solutions/search", get(mesh_search_solutions))
@@ -3774,6 +3775,22 @@ async fn start_billing(
         started_at: now, // placeholder — overwritten to game-live time on activation
     }).await;
 
+    // Phase 283: Generate nonce for replay protection
+    let billing_nonce = state.billing_nonce_store.generate(&session_id).await;
+
+    // Phase 283: Audit log — billing session started
+    crate::billing_replay::insert_audit_log(
+        &state.db,
+        &session_id,
+        &pod_id,
+        "billing_start",
+        "none",
+        "waiting_for_game",
+        Some(&billing_nonce),
+        staff_id.as_deref().unwrap_or("system"),
+    )
+    .await;
+
     Json(json!({
         "ok": true,
         "billing_session_id": session_id,
@@ -3782,6 +3799,7 @@ async fn start_billing(
         "original_price_paise": original_price_paise,
         "discount_reason": applied_discount_reason,
         "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
+        "nonce": billing_nonce,
     }))
 }
 
@@ -3992,6 +4010,11 @@ async fn stop_billing(
 
     let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
     if found {
+        // Phase 283: Audit log + nonce cleanup
+        crate::billing_replay::insert_audit_log(
+            &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff",
+        ).await;
+        state.billing_nonce_store.remove(&id).await;
         Json(json!({ "ok": true }))
     } else {
         Json(json!({ "ok": false, "error": "Session not found or already ended" }))
@@ -4050,6 +4073,11 @@ async fn pause_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
+    // Phase 283: Audit log for pause
+    crate::billing_replay::insert_audit_log(
+        &state.db, &id, "unknown", "pause", "active", "paused", None, "staff",
+    ).await;
+
     let cmd = rc_common::protocol::DashboardCommand::PauseBilling {
         billing_session_id: id,
     };
@@ -4061,6 +4089,11 @@ async fn resume_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
+    // Phase 283: Audit log for resume
+    crate::billing_replay::insert_audit_log(
+        &state.db, &id, "unknown", "resume", "paused", "active", None, "staff",
+    ).await;
+
     // Check if this is a disconnect-paused session (needs special handling)
     let is_disconnect_paused = {
         let timers = state.billing.active_timers.read().await;

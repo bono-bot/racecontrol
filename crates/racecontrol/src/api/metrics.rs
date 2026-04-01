@@ -497,6 +497,85 @@ pub async fn launch_matrix_handler(
     Json(serde_json::to_value(&rows).unwrap_or_default())
 }
 
+// ─── Launch Observability (Phase 284) ────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct SlowLaunch {
+    pub pod_id: String,
+    pub sim_type: String,
+    pub duration_to_playable_ms: i64,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReadyDelayBySim {
+    pub sim_type: String,
+    pub avg_ready_delay_ms: f64,
+    pub total_launches: i64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LaunchObservabilityResponse {
+    pub top_slow_launches: Vec<SlowLaunch>,
+    pub by_sim_type: Vec<ReadyDelayBySim>,
+}
+
+pub async fn launch_observability_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Top 10 slowest launches (last 30 days)
+    let slow_launches: Vec<SlowLaunch> = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT pod_id, sim_type, duration_to_playable_ms, created_at
+         FROM launch_events
+         WHERE duration_to_playable_ms IS NOT NULL
+           AND created_at >= datetime('now', '-30 days')
+         ORDER BY duration_to_playable_ms DESC
+         LIMIT 10",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(pod_id, sim_type, ms, ts)| SlowLaunch {
+        pod_id,
+        sim_type,
+        duration_to_playable_ms: ms,
+        timestamp: ts,
+    })
+    .collect();
+
+    // Average ready_delay, total launches, success rate by sim_type (last 7 days)
+    let by_sim: Vec<ReadyDelayBySim> = sqlx::query_as::<_, (String, f64, i64, i64)>(
+        "SELECT sim_type,
+                AVG(CAST(duration_to_playable_ms AS REAL)) as avg_ms,
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome = '\"Success\"' THEN 1 ELSE 0 END) as successes
+         FROM launch_events
+         WHERE created_at >= datetime('now', '-7 days')
+         GROUP BY sim_type
+         ORDER BY total DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(sim_type, avg_ms, total, successes)| ReadyDelayBySim {
+        sim_type,
+        avg_ready_delay_ms: avg_ms,
+        total_launches: total,
+        success_rate: if total > 0 { successes as f64 / total as f64 } else { 0.0 },
+    })
+    .collect();
+
+    let response = LaunchObservabilityResponse {
+        top_slow_launches: slow_launches,
+        by_sim_type: by_sim,
+    };
+
+    Json(serde_json::to_value(&response).unwrap_or_default())
+}
+
 // ─── Tests (TDD RED phase — 200-02) ──────────────────────────────────────────
 
 #[cfg(test)]

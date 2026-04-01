@@ -87,6 +87,7 @@ function derivePodState(
     if (billing.status === "waiting_for_game") return "loading";
     if (billing.status === "paused_game_pause") return "crashed";
     if (billing.status === "paused_disconnect") return "crashed";
+    if (billing.status === "paused_crash_recovery") return "crashed";
     if (gameInfo?.game_state === "loading") return "loading";
     if (gameInfo?.game_state === "running") return "on_track";
     if (gameInfo?.game_state === "launching") return "selecting";
@@ -104,6 +105,20 @@ function derivePodState(
   }
 
   return "idle";
+}
+
+/** Human-readable label for billing FSM state (Phase 284). */
+function fsmLabel(status: string): string | null {
+  switch (status) {
+    case "active": return null; // no extra label needed
+    case "paused_manual": return "Paused";
+    case "paused_disconnect": return "Disconnected";
+    case "paused_game_pause": return "Game Paused";
+    case "paused_crash_recovery": return "Crash Recovery";
+    case "waiting_for_game": return "Waiting for Game";
+    case "pending": return "Pending";
+    default: return status.replace(/_/g, " ");
+  }
 }
 
 function formatTime(seconds: number): string {
@@ -263,7 +278,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           {billing && state === "on_track" && (
             <div>
               <div className="flex justify-between text-[10px] text-rp-grey mb-0.5">
-                <span>{billing.status === "paused_manual" ? "Paused" : ""}</span>
+                <span className={billing.status !== "active" ? "text-amber-400" : ""}>{fsmLabel(billing.status) ?? ""}</span>
                 <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
                   {formatTime(displayRemaining)}
                 </span>
@@ -526,7 +541,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
             {/* Session Timer */}
             <div className="mt-auto">
               <div className="flex justify-between text-xs text-rp-grey mb-1">
-                <span>{billing.status === "paused_manual" ? "Paused" : "Remaining"}</span>
+                <span className={billing.status !== "active" ? "text-amber-400" : ""}>{fsmLabel(billing.status) ?? "Remaining"}</span>
                 <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
                   {formatTime(displayRemaining)}
                 </span>
