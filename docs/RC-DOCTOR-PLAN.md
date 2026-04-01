@@ -1230,7 +1230,7 @@ All Round 2 feedback incorporated into this v2.1 plan.
 ## Verification: 3 Layers + Floor Test
 
 **Run this test to confirm the entire self-healing stack is operational.** Integrated into:
-- UNIFIED-PROTOCOL Phase 0.2b (every session start)
+- COGNITIVE-GATE-PROTOCOL Phase 0.2b (every session start)
 - AUDIT-PROTOCOL Phase 10b (every audit)
 - gate-check.sh Suite 6 (pre-deploy when healing code changes)
 - escalation-engine.sh --self-test (healing pipeline validation)
@@ -1274,7 +1274,7 @@ FLOOR (PM2): PASS
 
 | When | Automated? | How |
 |------|-----------|-----|
-| Session start | Manual | Run 0.2b in UNIFIED-PROTOCOL |
+| Session start | Manual | Run 0.2b in COGNITIVE-GATE-PROTOCOL |
 | Pre-deploy (healing changes) | Auto | gate-check.sh Suite 6 detects healing-domain diff |
 | Audit | Manual | AUDIT-PROTOCOL Phase 10b |
 | Escalation self-test | Auto | `bash scripts/healing/escalation-engine.sh --self-test` |

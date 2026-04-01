@@ -4,6 +4,7 @@ set RUST_BACKTRACE=1
 
 rem --- v3.0 MMA-01: Bootstrap env vars (read FIRST, before any config) ---
 set OPENROUTER_KEY=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
+set OPENROUTER_MGMT_KEY=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
 
 rem --- v3.0: Clear stale sentinels (prevents stuck pods) ---
 del /Q MAINTENANCE_MODE 1>/dev/null 2>/dev/null

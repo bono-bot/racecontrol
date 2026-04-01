@@ -254,10 +254,106 @@ struct ChatUsage {
     completion_tokens: Option<u64>,
 }
 
-/// Get the OpenRouter API key from environment.
-/// Returns None if not set — caller should skip model calls gracefully.
+/// Saved key file path — matches the JS `openrouter-key-recovery.js` KEY_FILE.
+const SAVED_KEY_FILE: &str = if cfg!(windows) {
+    "C:\\RacingPoint\\data\\openrouter-mma-key.txt"
+} else {
+    "/opt/racecontrol/data/openrouter-mma-key.txt"
+};
+
+/// OpenRouter key provisioning endpoint (management key → child key).
+const OPENROUTER_KEYS_URL: &str = "https://openrouter.ai/api/v1/keys";
+
+/// Get the OpenRouter API key from environment, then saved file.
+/// Returns None if neither source has a valid key.
 pub fn get_api_key() -> Option<String> {
-    std::env::var("OPENROUTER_KEY").ok().filter(|k| !k.is_empty())
+    // 1. Environment variable (highest priority)
+    if let Ok(k) = std::env::var("OPENROUTER_KEY") {
+        if !k.is_empty() {
+            return Some(k);
+        }
+    }
+    // 2. Saved key file (persisted from previous auto-recovery)
+    load_saved_key()
+}
+
+/// Load a previously saved API key from disk.
+fn load_saved_key() -> Option<String> {
+    match std::fs::read_to_string(SAVED_KEY_FILE) {
+        Ok(content) => {
+            let key = content.trim().to_string();
+            if key.starts_with("sk-or-") {
+                tracing::info!(target: LOG_TARGET, "Loaded saved API key from {}", SAVED_KEY_FILE);
+                Some(key)
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// Save a recovered key to disk for persistence across restarts.
+fn save_key(key: &str) {
+    let path = std::path::Path::new(SAVED_KEY_FILE);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(path, format!("{}\n", key)) {
+        Ok(()) => tracing::info!(target: LOG_TARGET, "Saved recovered API key to {}", SAVED_KEY_FILE),
+        Err(e) => tracing::warn!(target: LOG_TARGET, "Could not save key to {}: {}", SAVED_KEY_FILE, e),
+    }
+}
+
+/// Provision a new child API key via the management key.
+/// Returns the new key or an error message.
+pub async fn recover_api_key(client: &reqwest::Client) -> Result<String, String> {
+    let mgmt_key = std::env::var("OPENROUTER_MGMT_KEY")
+        .map_err(|_| "OPENROUTER_MGMT_KEY not set — cannot auto-provision".to_string())?;
+
+    if mgmt_key.is_empty() {
+        return Err("OPENROUTER_MGMT_KEY is empty".to_string());
+    }
+
+    let date_label = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let name = format!("mma-auto-{}-{:x}", date_label, std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+
+    tracing::info!(target: LOG_TARGET, "Provisioning new API key via management key...");
+
+    let body = serde_json::json!({ "name": name });
+
+    let response = client
+        .post(OPENROUTER_KEYS_URL)
+        .header("Authorization", format!("Bearer {}", mgmt_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("Key provisioning request failed: {}", e))?;
+
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        return Err(format!("Key provisioning failed (HTTP {}): {}", status, &text[..text.len().min(200)]));
+    }
+
+    #[derive(Deserialize)]
+    struct KeyResponse {
+        key: Option<String>,
+    }
+
+    let parsed: KeyResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("Key provisioning parse error: {}", e))?;
+
+    let new_key = parsed.key
+        .ok_or_else(|| format!("No key in response: {}", &text[..text.len().min(200)]))?;
+
+    save_key(&new_key);
+    tracing::info!(target: LOG_TARGET, "New API key provisioned and saved successfully");
+    Ok(new_key)
 }
 
 /// Classify HTTP status into retry strategy.
@@ -332,6 +428,9 @@ pub async fn call_model(
     });
 
     let mut last_error = String::new();
+    // Mutable key — updated in-place on 401 recovery
+    let mut active_key = api_key.to_string();
+    let mut key_recovered = false;
 
     for attempt in 0..=MAX_RETRIES {
         if attempt > 0 {
@@ -352,7 +451,7 @@ pub async fn call_model(
 
         let result = client
             .post(OPENROUTER_API_URL)
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Authorization", format!("Bearer {}", active_key))
             .header("Content-Type", "application/json")
             .header("HTTP-Referer", "https://racingpoint.in")
             .header("X-Title", "Racing Point Mesh Intelligence")
@@ -394,10 +493,31 @@ pub async fn call_model(
 
             match error_class {
                 ErrorClass::Auth => {
-                    tracing::error!(
-                        target: LOG_TARGET, model = model.id, status = status_code,
-                        "OpenRouter auth error — check OPENROUTER_KEY (not retrying)"
-                    );
+                    if !key_recovered {
+                        tracing::warn!(
+                            target: LOG_TARGET, model = model.id, status = status_code,
+                            "OpenRouter auth error — attempting key auto-recovery"
+                        );
+                        match recover_api_key(client).await {
+                            Ok(new_key) => {
+                                tracing::info!(target: LOG_TARGET, "Key recovered — retrying with new key");
+                                active_key = new_key;
+                                key_recovered = true;
+                                continue;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    target: LOG_TARGET, model = model.id,
+                                    "Key recovery failed: {} — aborting", e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::error!(
+                            target: LOG_TARGET, model = model.id, status = status_code,
+                            "OpenRouter auth error — already recovered key, not retrying again"
+                        );
+                    }
                     return ModelResponse {
                         model_id: model.id.to_string(),
                         role: model.role.to_string(),

@@ -76,6 +76,10 @@ axum-server = { version = "0.8", features = ["tls-rustls"] }
 rcgen = "0.14"
 tower-helmet = "0.3"
 
+# Windows singleton mutex (prevent zombie crash-loops, same as rc-agent 305638b)
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["synchapi", "errhandlingapi", "handleapi"] }
+
 [dev-dependencies]
 # test-util enables tokio::time::pause() and advance() for time-controlled unit tests
 tokio = { version = "1", features = ["test-util"] }
