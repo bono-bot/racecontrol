@@ -38,9 +38,27 @@ The pod management stack is fully autonomous: rc-agent runs 5-tier diagnostic en
 
 7 phases (273-279), 38 requirements, 10 new source files (~2,351 lines), 55 commits.
 
-## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
+## Current Milestone: v35.0 Structured Retraining & Model Lifecycle
 
-**Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer (checking infrastructure not the consuming service), Count vs Health (counting items without verifying they work), Missing Config Validation (env vars/credentials unchecked), Missing Dashboard/UI Check (backend passes but user page untested), Missing Cross-Service Dependency (services checked independently but dependency chain unverified).
+**Goal:** Close the continuous learning loop — solutions that work get promoted, models that underperform get demoted, the system gets measurably smarter each week.
+
+**Target features:**
+- Model Evaluation Store — SQLite table tracking every AI diagnosis (prediction, actual, correct, cost) with weekly rollups
+- Full KB Promotion Ladder — persistent Shadow → Canary → Quorum → Tier 1 promotion with 6-hour cron evaluation
+- Model Reputation + Auto-Demotion — persistent accuracy tracking, 7-day accuracy < 30% = remove, dashboard per-model trends
+- Retrain Data Export — Weekly JSONL in Ollama/Unsloth format, training-ready pipeline
+- Intelligence Report v2 — Weekly WhatsApp with accuracy rankings, KB promotions, cost savings, prediction trends
+
+**Constraints:**
+- v32.0 built in-memory model_reputation and basic kb_hardening — v35.0 makes them persistent and measurable
+- Existing `mma_engine::get_all_model_stats()` provides accuracy data — no dependency on v34 metrics TSDB
+- Budget controls ($5-20/day per node) already enforced — evaluation adds observability, not cost
+- All new tables in existing SQLite databases — no new infrastructure
+
+<details>
+<summary>Previous: v23.1 Audit Protocol v5.0</summary>
+
+Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer, Count vs Health, Missing Config Validation, Missing Dashboard/UI Check, Missing Cross-Service Dependency.
 
 **Target features:**
 - Fix Phase 19 display resolution (currently a no-op — hardcoded 1920x1080 assumption)
