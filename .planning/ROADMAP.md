@@ -223,7 +223,7 @@ Plans:
 **Milestone Goal:** Operational data survives hardware failure. Cloud sync is extended to new tables. All events are structured and archived. Schema is ready for a second venue. Fleet deploys are automated with canary, health verify, auto-rollout, and auto-rollback.
 
 - [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
-- [ ] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status
+- [x] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status (completed 2026-04-01)
 - [ ] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API
 - [ ] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger
 - [ ] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint
@@ -255,11 +255,11 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution
-- [ ] 301-02-PLAN.md -- Admin settings Sync Status panel (syncHealth API client + SyncStatusPanel component)
+- [x] 301-02-PLAN.md -- Admin settings Sync Status panel (syncHealth API client + SyncStatusPanel component)
 
 ### Phase 302: Structured Event Archive
 **Goal**: Every significant system event is captured, queryable, and permanently archived off-server
@@ -323,7 +323,7 @@ Plans:
 | 298. Game Preset Library | 2/2 | Complete    | 2026-04-01 |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
-| 301. Cloud Data Sync v2 | 1/2 | In Progress|  |
+| 301. Cloud Data Sync v2 | 2/2 | Complete   | 2026-04-01 |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |

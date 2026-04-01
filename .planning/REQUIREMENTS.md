@@ -15,12 +15,12 @@
 
 ### Cloud Data Sync (SYNC)
 
-- [ ] **SYNC-01**: cloud_sync.rs syncs fleet_solutions table to Bono VPS (server-authoritative)
-- [ ] **SYNC-02**: cloud_sync.rs syncs model_evaluations table to Bono VPS (server-authoritative)
-- [ ] **SYNC-03**: cloud_sync.rs syncs metrics_rollups table to Bono VPS (server-authoritative)
-- [ ] **SYNC-04**: Cloud is authoritative for cross-venue data (future venue 2 solutions flow back)
-- [ ] **SYNC-05**: Sync handles conflicts gracefully — last-write-wins with venue_id tiebreaker
-- [ ] **SYNC-06**: Sync status visible in admin dashboard (last sync time, tables synced, conflict count)
+- [x] **SYNC-01**: cloud_sync.rs syncs fleet_solutions table to Bono VPS (server-authoritative)
+- [x] **SYNC-02**: cloud_sync.rs syncs model_evaluations table to Bono VPS (server-authoritative)
+- [x] **SYNC-03**: cloud_sync.rs syncs metrics_rollups table to Bono VPS (server-authoritative)
+- [x] **SYNC-04**: Cloud is authoritative for cross-venue data (future venue 2 solutions flow back)
+- [x] **SYNC-05**: Sync handles conflicts gracefully — last-write-wins with venue_id tiebreaker
+- [x] **SYNC-06**: Sync status visible in admin dashboard (last sync time, tables synced, conflict count)
 
 ### Event Archive (EVENT)
 
@@ -76,12 +76,12 @@
 | BACKUP-03 | Phase 300 | Complete |
 | BACKUP-04 | Phase 300 | Complete |
 | BACKUP-05 | Phase 300 | Complete |
-| SYNC-01 | Phase 301 | Pending |
-| SYNC-02 | Phase 301 | Pending |
-| SYNC-03 | Phase 301 | Pending |
-| SYNC-04 | Phase 301 | Pending |
-| SYNC-05 | Phase 301 | Pending |
-| SYNC-06 | Phase 301 | Pending |
+| SYNC-01 | Phase 301 | Complete |
+| SYNC-02 | Phase 301 | Complete |
+| SYNC-03 | Phase 301 | Complete |
+| SYNC-04 | Phase 301 | Complete |
+| SYNC-05 | Phase 301 | Complete |
+| SYNC-06 | Phase 301 | Complete |
 | EVENT-01 | Phase 302 | Pending |
 | EVENT-02 | Phase 302 | Pending |
 | EVENT-03 | Phase 302 | Pending |

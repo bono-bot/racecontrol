@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: verifying
-stopped_at: Completed 298-02-PLAN.md
-last_updated: "2026-04-01T15:48:00.032Z"
+status: executing
+stopped_at: Completed 301-02-PLAN.md
+last_updated: "2026-04-01T15:50:26.839Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
-**Current focus:** Phase 301 — cloud-data-sync-v2
+**Current focus:** Phase 299 — policy-rules-engine
 
 ## Current Position
 
-Phase: 299
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 299 (policy-rules-engine) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 298]: GamePreset does NOT derive sqlx::FromRow — rc-common has no sqlx dep, rows mapped manually
 - [Phase 298]: GET /presets in public_routes (pods/kiosk need without JWT), POST/PUT/DELETE in staff_routes
 - [Phase 298]: Admin UI uses rcFetch proxy (cookie JWT) not localStorage authHeaders — follows existing admin pattern
+- [Phase 301-cloud-data-sync-v2]: SyncStatusPanel declared as top-level function before SettingsPage to avoid nested component definition warnings
 
 ### Pending Todos
 
@@ -77,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:45:42.781Z
-Stopped at: Completed 298-02-PLAN.md
+Last session: 2026-04-01T15:50:26.835Z
+Stopped at: Completed 301-02-PLAN.md
 Resume file: None
