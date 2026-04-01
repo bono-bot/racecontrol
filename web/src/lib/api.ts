@@ -635,6 +635,79 @@ export const api = {
   syncHealth: () => fetchApi<SyncHealth>("/sync/health"),
 };
 
+// ─── Policy Rules Engine (Phase 299) ────────────────────────────────────────
+
+export interface PolicyRule {
+  id: string;
+  name: string;
+  metric: string;
+  condition: "gt" | "lt" | "eq";
+  threshold: number;
+  action: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params: string;    // JSON text
+  enabled: boolean;
+  created_at: string | null;
+  last_fired: string | null;
+  eval_count: number;
+}
+
+export interface PolicyEvalLogEntry {
+  id: number;
+  rule_id: string;
+  rule_name: string;
+  fired: boolean;
+  metric_value: number;
+  action_taken: string;
+  evaluated_at: string;
+}
+
+export interface CreatePolicyRuleRequest {
+  name: string;
+  metric: string;
+  condition: "gt" | "lt" | "eq";
+  threshold: number;
+  action: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface UpdatePolicyRuleRequest {
+  name?: string;
+  metric?: string;
+  condition?: "gt" | "lt" | "eq";
+  threshold?: number;
+  action?: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export const policyApi = {
+  listRules: () =>
+    fetchApi<{ rules: PolicyRule[] }>("/policy/rules"),
+
+  createRule: (data: CreatePolicyRuleRequest) =>
+    fetchApi<PolicyRule>("/policy/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  updateRule: (id: string, data: UpdatePolicyRuleRequest) =>
+    fetchApi<PolicyRule>(`/policy/rules/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  deleteRule: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/policy/rules/${id}`, { method: "DELETE" }),
+
+  listEvalLog: (ruleId?: string) => {
+    const qs = ruleId ? `?rule_id=${encodeURIComponent(ruleId)}` : "";
+    return fetchApi<{ entries: PolicyEvalLogEntry[] }>(`/policy/eval-log${qs}`);
+  },
+};
+
 interface GameLaunchEvent {
   id: string;
   pod_id: string;
