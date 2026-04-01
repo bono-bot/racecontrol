@@ -68,6 +68,9 @@ pub struct Config {
     pub alert_rules: Vec<MetricAlertRule>,
     #[serde(default)]
     pub backup: BackupConfig,
+    /// Phase 298 PRESET-04: Preset reliability scoring config.
+    #[serde(default)]
+    pub presets: PresetsConfig,
 }
 
 /// Unified MMA Protocol v3.0 config (v31.0+) — 30-day AI training period settings
@@ -977,6 +980,23 @@ impl Default for BackupConfig {
             remote_path: default_remote_path(),
             staleness_alert_hours: default_staleness_alert_hours(),
         }
+    }
+}
+
+/// Phase 298 PRESET-04: Config for preset reliability scoring.
+/// Presets below `unreliable_threshold` (and with >= 5 launches) are flagged as unreliable.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PresetsConfig {
+    /// Success rate below which a preset is flagged unreliable. Default 0.6 (60%).
+    #[serde(default = "default_unreliable_threshold")]
+    pub unreliable_threshold: f64,
+}
+
+fn default_unreliable_threshold() -> f64 { 0.6 }
+
+impl Default for PresetsConfig {
+    fn default() -> Self {
+        Self { unreliable_threshold: default_unreliable_threshold() }
     }
 }
 

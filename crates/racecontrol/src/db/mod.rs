@@ -3487,6 +3487,30 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     // v31.0 Phase 270: Fleet Healer incident_log table
     crate::fleet_healer::AuditTrail::migrate(pool).await?;
 
+    // ─── Phase 298: Game Preset Library ──────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS game_presets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            game TEXT NOT NULL,
+            car TEXT,
+            track TEXT,
+            session_type TEXT,
+            notes TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_presets_game ON game_presets(game)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_presets_enabled ON game_presets(enabled)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

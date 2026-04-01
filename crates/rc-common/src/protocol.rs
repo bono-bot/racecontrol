@@ -797,6 +797,9 @@ pub enum CoreToAgentMessage {
     /// Agent compares config_hash with last received hash — skips processing if unchanged (PUSH-06).
     FullConfigPush(crate::types::FullConfigPushPayload),
 
+    /// Phase 298 PRESET-02: Full preset library push on pod connect.
+    PresetPush(crate::types::PresetPushPayload),
+
     // ─── Mesh Intelligence (v26.0 Phase 233) ────────────────────────────────
 
     /// Server broadcasts a fleet-verified or newly-announced solution to all pods.

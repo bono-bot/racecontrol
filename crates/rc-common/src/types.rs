@@ -990,6 +990,46 @@ pub struct FullConfigPushPayload {
     pub schema_version: u32,
 }
 
+/// Phase 298 PRESET-01/02: A named game preset (car + track + session config) stored server-side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamePreset {
+    pub id: String,                        // UUID v4
+    pub name: String,                      // e.g. "Ferrari Monza Hotlap"
+    pub game: String,                      // sim_type string: "assettoCorsa", "f125", etc.
+    pub car: Option<String>,               // car ID (None = any car)
+    pub track: Option<String>,             // track ID (None = any track)
+    pub session_type: Option<String>,      // "hotlap", "race", "practice", etc.
+    pub notes: Option<String>,             // staff-visible notes
+    #[serde(default = "preset_bool_true")]
+    pub enabled: bool,                     // soft-delete — disabled presets not pushed
+    pub created_at: Option<String>,
+}
+
+fn preset_bool_true() -> bool { true }
+
+/// Phase 298 PRESET-01: GamePreset with aggregated reliability score attached.
+/// The reliability_score is the average success_rate from combo_reliability across all pods.
+/// None when total_launches < 5 (INTEL-02 threshold).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamePresetWithReliability {
+    #[serde(flatten)]
+    pub preset: GamePreset,
+    /// Average success rate (0.0 – 1.0) across all pods for this (game, car, track) combo.
+    /// None if fewer than 5 total launches.
+    pub reliability_score: Option<f64>,
+    /// Total launches across all pods for this combo.
+    pub total_launches: i64,
+    /// Whether this preset is flagged unreliable (score < threshold AND total_launches >= 5).
+    pub flagged_unreliable: bool,
+}
+
+/// Phase 298 PRESET-02: Payload pushed server→agent on WS connect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresetPushPayload {
+    /// All enabled presets with their reliability scores.
+    pub presets: Vec<GamePresetWithReliability>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1542,6 +1582,130 @@ mod tests {
         assert_eq!(parsed.sim_type(), SimType::IRacing);
     }
 
+    // ── Phase 298: GamePreset type tests (PRESET-01/02) ──────────────────────
+
+    #[test]
+    fn game_preset_serializes_with_all_required_fields() {
+        let preset = GamePreset {
+            id: "abc-123".to_string(),
+            name: "Ferrari Monza Hotlap".to_string(),
+            game: "assettoCorsa".to_string(),
+            car: Some("ks_ferrari_gte".to_string()),
+            track: Some("monza".to_string()),
+            session_type: Some("hotlap".to_string()),
+            notes: Some("Staff favourite".to_string()),
+            enabled: true,
+            created_at: Some("2026-01-01T00:00:00".to_string()),
+        };
+        let json = serde_json::to_string(&preset).unwrap();
+        assert!(json.contains("\"id\":\"abc-123\""), "id missing: {}", json);
+        assert!(json.contains("\"name\":\"Ferrari Monza Hotlap\""), "name missing: {}", json);
+        assert!(json.contains("\"game\":\"assettoCorsa\""), "game missing: {}", json);
+        assert!(json.contains("\"car\":\"ks_ferrari_gte\""), "car missing: {}", json);
+        assert!(json.contains("\"track\":\"monza\""), "track missing: {}", json);
+        assert!(json.contains("\"session_type\":\"hotlap\""), "session_type missing: {}", json);
+        assert!(json.contains("\"notes\":\"Staff favourite\""), "notes missing: {}", json);
+        assert!(json.contains("\"enabled\":true"), "enabled missing: {}", json);
+        assert!(json.contains("\"created_at\":"), "created_at missing: {}", json);
+        // Roundtrip
+        let parsed: GamePreset = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "abc-123");
+        assert_eq!(parsed.name, "Ferrari Monza Hotlap");
+    }
+
+    #[test]
+    fn preset_push_payload_serializes_with_presets_array() {
+        let preset = GamePreset {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            game: "f125".to_string(),
+            car: None,
+            track: None,
+            session_type: None,
+            notes: None,
+            enabled: true,
+            created_at: None,
+        };
+        let preset_with_rel = GamePresetWithReliability {
+            preset,
+            reliability_score: Some(0.85),
+            total_launches: 10,
+            flagged_unreliable: false,
+        };
+        let payload = PresetPushPayload { presets: vec![preset_with_rel] };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"presets\":["), "presets array missing: {}", json);
+        let parsed: PresetPushPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.presets.len(), 1);
+        assert_eq!(parsed.presets[0].preset.id, "p1");
+    }
+
+    #[test]
+    fn core_to_agent_message_preset_push_roundtrip() {
+        use crate::protocol::CoreToAgentMessage;
+        let preset = GamePreset {
+            id: "px1".to_string(),
+            name: "Roundtrip Test".to_string(),
+            game: "assettoCorsa".to_string(),
+            car: None,
+            track: None,
+            session_type: None,
+            notes: None,
+            enabled: true,
+            created_at: None,
+        };
+        let payload = PresetPushPayload {
+            presets: vec![GamePresetWithReliability {
+                preset,
+                reliability_score: None,
+                total_launches: 0,
+                flagged_unreliable: false,
+            }],
+        };
+        let msg = CoreToAgentMessage::PresetPush(payload);
+        let json = serde_json::to_string(&msg).unwrap();
+        // CoreToAgentMessage uses rename_all = "snake_case", so PresetPush → "preset_push"
+        assert!(json.contains("\"preset_push\""), "type tag missing: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::PresetPush(p) = parsed {
+            assert_eq!(p.presets.len(), 1);
+            assert_eq!(p.presets[0].preset.id, "px1");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn game_preset_with_reliability_has_all_fields() {
+        let preset = GamePreset {
+            id: "px2".to_string(),
+            name: "With Reliability".to_string(),
+            game: "iracing".to_string(),
+            car: Some("dallara_f3".to_string()),
+            track: Some("watkins_glen".to_string()),
+            session_type: Some("race".to_string()),
+            notes: None,
+            enabled: true,
+            created_at: None,
+        };
+        let with_rel = GamePresetWithReliability {
+            preset,
+            reliability_score: Some(0.72),
+            total_launches: 25,
+            flagged_unreliable: false,
+        };
+        let json = serde_json::to_string(&with_rel).unwrap();
+        assert!(json.contains("\"reliability_score\":0.72"), "reliability_score missing: {}", json);
+        assert!(json.contains("\"total_launches\":25"), "total_launches missing: {}", json);
+        assert!(json.contains("\"flagged_unreliable\":false"), "flagged_unreliable missing: {}", json);
+        // Flatten check: preset fields appear at top level
+        assert!(json.contains("\"id\":\"px2\""), "flattened id missing: {}", json);
+        let parsed: GamePresetWithReliability = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.reliability_score, Some(0.72));
+        assert_eq!(parsed.total_launches, 25);
+        assert!(!parsed.flagged_unreliable);
+    }
+
 }
 
 // ─── Process Guard ────────────────────────────────────────────────────────────
@@ -1814,5 +1978,117 @@ mod process_guard_types_tests {
         let decoded: FullConfigPushPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.config_hash, "deadbeef01234567");
         assert_eq!(decoded.schema_version, 1);
+    }
+
+    /// Phase 298 Task 1 Test 1: GamePreset serializes with all required fields
+    #[test]
+    fn test_game_preset_serializes_all_fields() {
+        let preset = GamePreset {
+            id: "test-uuid-001".to_string(),
+            name: "Ferrari Monza Hotlap".to_string(),
+            game: "assettoCorsa".to_string(),
+            car: Some("ks_ferrari_gte".to_string()),
+            track: Some("monza".to_string()),
+            session_type: Some("hotlap".to_string()),
+            notes: Some("Staff notes".to_string()),
+            enabled: true,
+            created_at: Some("2026-04-01T10:00:00".to_string()),
+        };
+        let json = serde_json::to_string(&preset).expect("should serialize");
+        assert!(json.contains("\"id\""), "must have id");
+        assert!(json.contains("\"name\""), "must have name");
+        assert!(json.contains("\"game\""), "must have game");
+        assert!(json.contains("\"car\""), "must have car");
+        assert!(json.contains("\"track\""), "must have track");
+        assert!(json.contains("\"session_type\""), "must have session_type");
+        assert!(json.contains("\"notes\""), "must have notes");
+        assert!(json.contains("\"enabled\""), "must have enabled");
+        assert!(json.contains("\"created_at\""), "must have created_at");
+        assert!(json.contains("Ferrari Monza Hotlap"));
+        let decoded: GamePreset = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(decoded.id, "test-uuid-001");
+        assert_eq!(decoded.name, "Ferrari Monza Hotlap");
+        assert!(decoded.enabled);
+    }
+
+    /// Phase 298 Task 1 Test 2: PresetPushPayload serializes with presets array field
+    #[test]
+    fn test_preset_push_payload_serializes_presets_array() {
+        let payload = PresetPushPayload { presets: vec![] };
+        let json = serde_json::to_string(&payload).expect("should serialize");
+        assert!(json.contains("\"presets\""), "must have presets field");
+        assert!(json.contains("[]"), "empty presets should be empty array");
+        let decoded: PresetPushPayload = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(decoded.presets.len(), 0);
+    }
+
+    /// Phase 298 Task 1 Test 3: CoreToAgentMessage::PresetPush round-trips through serde
+    #[test]
+    fn test_core_to_agent_preset_push_roundtrip() {
+        use crate::protocol::CoreToAgentMessage;
+        let preset = GamePreset {
+            id: "p1".to_string(),
+            name: "Test Preset".to_string(),
+            game: "f125".to_string(),
+            car: None,
+            track: None,
+            session_type: None,
+            notes: None,
+            enabled: true,
+            created_at: None,
+        };
+        let with_reliability = GamePresetWithReliability {
+            preset,
+            reliability_score: Some(0.9),
+            total_launches: 10,
+            flagged_unreliable: false,
+        };
+        let msg = CoreToAgentMessage::PresetPush(PresetPushPayload {
+            presets: vec![with_reliability],
+        });
+        let json = serde_json::to_string(&msg).expect("should serialize");
+        // CoreToAgentMessage uses rename_all = "snake_case", so PresetPush → "preset_push"
+        assert!(json.contains("\"preset_push\""), "type tag must be preset_push: {json}");
+        let decoded: CoreToAgentMessage = serde_json::from_str(&json).expect("should deserialize");
+        if let CoreToAgentMessage::PresetPush(payload) = decoded {
+            assert_eq!(payload.presets.len(), 1);
+            assert_eq!(payload.presets[0].preset.game, "f125");
+        } else {
+            panic!("Wrong variant after deserialize");
+        }
+    }
+
+    /// Phase 298 Task 1 Test 4: GamePresetWithReliability has all GamePreset fields plus reliability fields
+    #[test]
+    fn test_game_preset_with_reliability_fields() {
+        let preset = GamePreset {
+            id: "p2".to_string(),
+            name: "Monza Race".to_string(),
+            game: "assettoCorsa".to_string(),
+            car: Some("ks_ferrari_458_gt2".to_string()),
+            track: Some("monza".to_string()),
+            session_type: Some("race".to_string()),
+            notes: None,
+            enabled: true,
+            created_at: None,
+        };
+        let with_reliability = GamePresetWithReliability {
+            preset,
+            reliability_score: None, // None = less than 5 launches
+            total_launches: 3,
+            flagged_unreliable: false,
+        };
+        let json = serde_json::to_string(&with_reliability).expect("should serialize");
+        // Flattened fields from GamePreset must be present at top level
+        assert!(json.contains("\"id\""));
+        assert!(json.contains("\"name\""));
+        // Reliability fields
+        assert!(json.contains("\"reliability_score\""));
+        assert!(json.contains("\"total_launches\""));
+        assert!(json.contains("\"flagged_unreliable\""));
+        let decoded: GamePresetWithReliability = serde_json::from_str(&json).expect("should deserialize");
+        assert!(decoded.reliability_score.is_none());
+        assert_eq!(decoded.total_launches, 3);
+        assert!(!decoded.flagged_unreliable);
     }
 }
