@@ -1,27 +1,27 @@
 ---
 gsd_state_version: 1.0
-milestone: v35.0
-milestone_name: Structured Retraining & Model Lifecycle
-status: roadmap_complete
-stopped_at: Phase 290 (not started)
-last_updated: "2026-04-01T19:30:00.000Z"
-last_activity: 2026-04-01 — Roadmap created, ready for Phase 290 planning
+milestone: v32.0
+milestone_name: Summary
+status: planning
+stopped_at: Completed 290-01-PLAN.md (ModelEvalStore)
+last_updated: "2026-04-01T12:03:31.444Z"
+last_activity: 2026-04-01 — v35.0 roadmap created (5 phases, 20 requirements)
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 223
+  completed_phases: 204
+  total_plans: 510
+  completed_plans: 504
   percent: 0
 ---
 
 ## Current Position
 
-Phase: 280 — Model Evaluation Store (not started)
-Plan: —
-Status: Roadmap complete, ready for planning
-Last activity: 2026-04-01 — v35.0 roadmap created (5 phases, 20 requirements)
+Phase: 290 (model-evaluation-store) — Plan 1 of 3 COMPLETE
+Plan: 2 of 3 (next: 290-02 if exists, else 291)
+Status: Executing Phase 290
+Last activity: 2026-04-01 — Phase 290-01 complete (ModelEvalStore + EVAL-01 wiring)
 
-Progress: [░░░░░░░░░░] 0%  (0/5 phases)
+Progress: [███░░░░░░░] 33%  (1/3 plans in phase 290)
 
 ```
 290 ──┬──> 291 (KB Promotion) ────┐
@@ -50,6 +50,7 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 | Phases unblocked | 1 (Phase 290) |
 | Phases blocked | 3 (291, 292, 293 — await 290) |
 | Phases deeply blocked | 1 (294 — awaits 290, 291, 292) |
+| Phase 290-model-evaluation-store P01 | 11 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 - **Phase 294 is integration gate**: Depends on 280 + 281 + 282. Can overlap with 283 (retrain export is independent of 284 inputs).
 - **No new infrastructure**: All new tables land in existing SQLite databases (rc-agent's DB or racecontrol's DB — confirm in Phase 290 plan).
 - **v32.0 in-memory reputation reuses**: `model_reputation.rs` and `kb_hardening.rs` exist; v35.0 adds SQLite persistence layers, does not rewrite from scratch.
+- **290-01: Shared mesh_kb.db** — model_evaluations table in same file as knowledge_base.rs solutions, no extra file dependency.
+- **290-01: Tier-derived model_id** — model_id derived from tier number in run_supervised (tier functions don't return model_id through TierResult); Phase 292 will refine with exact OpenRouter model IDs.
+- **290-01: Arc<Mutex<ModelEvalStore>>** — passed via spawn(), consistent with BudgetTracker pattern, no global state.
 
 ### From v32.0 (carried forward)
 
@@ -84,6 +88,6 @@ None currently.
 
 ## Session Continuity
 
-Last session: 2026-04-01T19:30:00.000Z
-Stopped at: Roadmap complete — start with `/gsd:autonomous --from 290`
+Last session: 2026-04-01T12:03:31.436Z
+Stopped at: Completed 290-01-PLAN.md (ModelEvalStore)
 Resume file: None

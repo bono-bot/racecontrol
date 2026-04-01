@@ -53,7 +53,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 290. Model Evaluation Store | 0/3 | Planned | - |
+| 290. Model Evaluation Store | 1/3 | In Progress|  |
 | 291. KB Promotion Persistence | 0/? | Not started | - |
 | 292. Model Reputation Persistence | 0/? | Not started | - |
 | 293. Retrain Data Export | 0/? | Not started | - |
@@ -73,7 +73,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   3. `GET /api/v1/models/evaluations?model=X&from=Y&to=Z` returns filtered evaluation records with correct data
   4. Evaluation data persists across rc-agent restarts — records written before a restart are readable after
 **Plans**: 3 plans
-- [ ] 290-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
+- [x] 290-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
 - [ ] 290-02-PLAN.md — eval_rollup.rs weekly cron producing model_eval_rollups (EVAL-02)
 - [ ] 290-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
 
