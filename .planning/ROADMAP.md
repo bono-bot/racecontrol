@@ -98,11 +98,11 @@ Plans:
   3. Triggered alerts fire to WhatsApp via the existing Bono VPS Evolution API alerter
   4. Same alert is suppressed for 30 minutes after first fire (deduplication)
   5. Rules support threshold conditions (>, <, ==) on any metric name
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 289-01: TOML alert rule config and evaluation engine
-- [ ] 289-02: WhatsApp integration and deduplication
+- [ ] 289-01-PLAN.md — Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
+- [ ] 289-02-PLAN.md — Wire metric_alert_task into main.rs startup
 
 ## Progress
 
