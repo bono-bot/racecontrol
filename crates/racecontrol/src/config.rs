@@ -485,6 +485,9 @@ pub struct BillingConfig {
     /// Grace period before auto-ending session when pod goes offline (seconds). Default: 300.
     #[serde(default = "default_offline_grace")]
     pub offline_grace_secs: u64,
+    /// Phase 283: HMAC secret for billing replay protection. If empty, a random secret is generated at startup.
+    #[serde(default)]
+    pub hmac_secret: String,
 }
 
 fn default_multiplayer_wait_timeout() -> u64 { 60 }
@@ -501,6 +504,7 @@ impl Default for BillingConfig {
             launch_timeout_per_attempt_secs: default_launch_timeout_per_attempt(),
             idle_drift_threshold_secs: default_idle_drift_threshold(),
             offline_grace_secs: default_offline_grace(),
+            hmac_secret: String::new(),
         }
     }
 }

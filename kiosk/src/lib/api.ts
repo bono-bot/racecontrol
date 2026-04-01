@@ -88,7 +88,7 @@ export const api = {
     split_count?: number;
     split_duration_minutes?: number;
   }) =>
-    fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string }>("/billing/start", {
+    fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string; nonce?: string }>("/billing/start", {
       method: "POST",
       body: JSON.stringify(data),
     }),

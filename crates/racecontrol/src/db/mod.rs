@@ -427,6 +427,33 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 283: Billing audit log (immutable, append-only) ─────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_audit_log (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            old_status TEXT NOT NULL,
+            new_status TEXT NOT NULL,
+            nonce_used TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            actor TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_session ON billing_audit_log(session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_pod ON billing_audit_log(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_timestamp ON billing_audit_log(timestamp)")
+        .execute(pool)
+        .await?;
+
     // ─── Recovery events (METRICS-04) ─────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS recovery_events (

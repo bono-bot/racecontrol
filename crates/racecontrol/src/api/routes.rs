@@ -3763,6 +3763,7 @@ async fn start_billing(
     // Wallet debit + DB record already committed above (FATM-01).
     // Timer starts only when PlayableSignal received — customer not charged for load screens.
     let pod_id_for_defer = pod_id.clone();
+    let pod_id_for_audit = pod_id_for_defer.clone();
     billing::defer_billing_with_precommitted_session(&state, pod_id_for_defer, billing::BillingStartData {
         session_id: session_id.clone(),
         driver_id: driver_id.to_string(),
@@ -3782,7 +3783,7 @@ async fn start_billing(
     crate::billing_replay::insert_audit_log(
         &state.db,
         &session_id,
-        &pod_id,
+        &pod_id_for_audit,
         "billing_start",
         "none",
         "waiting_for_game",

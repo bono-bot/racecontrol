@@ -15,6 +15,7 @@ pub mod api;
 pub mod auth;
 pub mod billing;
 pub mod billing_fsm;
+pub mod billing_replay;
 pub mod business_aggregator;
 pub mod cafe;
 pub mod cafe_alerts;

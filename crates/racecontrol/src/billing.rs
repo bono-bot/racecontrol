@@ -314,6 +314,8 @@ pub struct BillingTimer {
     pub recovery_pause_seconds: u32,
     /// BILL-06: Reason for the current pause (distinguishes crash recovery from manual ESC pause).
     pub pause_reason: PauseReason,
+    /// Phase 283: Session nonce for replay protection. Rotated after each billing mutation.
+    pub nonce: String,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -442,6 +444,7 @@ impl BillingTimer {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         }
     }
 }
@@ -2062,6 +2065,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         tracing::info!(
@@ -2860,6 +2864,7 @@ pub async fn start_billing_session(
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
+        nonce: String::new(),
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -2973,7 +2978,7 @@ pub struct BillingStartData {
 /// Creates the in-memory timer, updates pod state, notifies the agent, broadcasts to dashboards.
 /// Safe to call only after tx.commit() — any error before commit rolls back automatically.
 pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartData) {
-    let timer = BillingTimer {
+    let mut timer = BillingTimer {
         session_id: data.session_id.clone(),
         driver_id: data.driver_id.clone(),
         driver_name: data.driver_name.clone(),
@@ -3000,7 +3005,12 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
+        nonce: String::new(), // Populated below after nonce store generation
     };
+
+    // Phase 283: Generate session nonce for replay protection
+    let nonce = state.billing_nonce_store.generate(&data.session_id).await;
+    timer.nonce = nonce;
 
     let rate_tiers = state.billing.rate_tiers.read().await;
     let info = timer.to_info(&rate_tiers);
@@ -4854,6 +4864,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Should count when driving
@@ -4901,6 +4912,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // One more tick should expire
@@ -4938,6 +4950,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -4972,6 +4985,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Active tick — driving_seconds should increment
@@ -5016,6 +5030,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -5143,6 +5158,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -5182,6 +5198,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -5218,6 +5235,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(timer.tick()); // Should return true (elapsed == max)
@@ -5253,6 +5271,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // One more tick should hit 600s pause timeout
@@ -5291,6 +5310,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let cost = timer.current_cost(&rate_tiers);
@@ -5329,6 +5349,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let info = timer.to_info(&rate_tiers);
@@ -5591,6 +5612,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         }
     }
 
@@ -6059,6 +6081,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -6907,6 +6930,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // At 600s (10 min), still in Standard tier (threshold=1800s=30min)
@@ -6953,6 +6977,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Verify: completed sessions are terminal — cannot be extended
@@ -6997,6 +7022,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert_eq!(timer.recovery_pause_seconds, 0, "recovery_pause_seconds must start at 0");
@@ -7033,6 +7059,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Simulate crash recovery: set PausedGamePause + CrashRecovery
@@ -7079,6 +7106,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::GamePause, // Manual ESC pause
+            nonce: String::new(),
         };
 
         // Tick 20 times
@@ -7124,6 +7152,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 120,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let cost = timer.current_cost(&tiers);

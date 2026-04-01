@@ -233,6 +233,8 @@ pub struct AppState {
     /// Phase 274: Tier 5 WhatsApp escalation handler.
     /// Receives EscalationRequest from pods, deduplicates, sends via Bono relay.
     pub whatsapp_escalation: std::sync::Arc<crate::whatsapp_escalation::WhatsAppEscalation>,
+    /// Phase 283: Nonce store for billing replay protection (session_id -> nonce + TTL).
+    pub billing_nonce_store: std::sync::Arc<crate::billing_replay::NonceStore>,
 }
 
 impl AppState {
@@ -317,6 +319,7 @@ impl AppState {
             telemetry_db: None,        // Initialized after AppState::new() in main.rs
             lease_manager: std::sync::Arc::new(LeaseManager::new()),
             whatsapp_escalation: whatsapp_escalation_handler,
+            billing_nonce_store: std::sync::Arc::new(crate::billing_replay::NonceStore::new()),
         }
     }
 
