@@ -27,9 +27,9 @@
 
 ## Retrain Data Export (TRAIN)
 
-- [ ] **TRAIN-01**: Weekly cron exports diagnosis evaluations + KB solutions as JSONL training data
-- [ ] **TRAIN-02**: Export format compatible with Ollama fine-tuning and Unsloth (conversation pairs with system/user/assistant)
-- [ ] **TRAIN-03**: Export includes model name, prompt, response, correct/incorrect, and fix outcome for each entry
+- [x] **TRAIN-01**: Weekly cron exports diagnosis evaluations + KB solutions as JSONL training data
+- [x] **TRAIN-02**: Export format compatible with Ollama fine-tuning and Unsloth (conversation pairs with system/user/assistant)
+- [x] **TRAIN-03**: Export includes model name, prompt, response, correct/incorrect, and fix outcome for each entry
 
 ## Intelligence Report v2 (RPTV2)
 
@@ -55,9 +55,9 @@
 | MREP-02 | Phase 292 | Pending |
 | MREP-03 | Phase 292 | Pending |
 | MREP-04 | Phase 292 | Pending |
-| TRAIN-01 | Phase 293 | Pending |
-| TRAIN-02 | Phase 293 | Pending |
-| TRAIN-03 | Phase 293 | Pending |
+| TRAIN-01 | Phase 293 | Complete |
+| TRAIN-02 | Phase 293 | Complete |
+| TRAIN-03 | Phase 293 | Complete |
 | RPTV2-01 | Phase 294 | Pending |
 | RPTV2-02 | Phase 294 | Pending |
 | RPTV2-03 | Phase 294 | Pending |

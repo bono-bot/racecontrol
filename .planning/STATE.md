@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v32.0
 milestone_name: Summary
 status: verifying
-stopped_at: Completed 290-03-PLAN.md (ModelEvalSync + Eval Query API)
-last_updated: "2026-04-01T12:27:37.899Z"
+stopped_at: Completed 293-01-PLAN.md (Retrain Export — JSONL training pipeline)
+last_updated: "2026-04-01T14:43:10.552Z"
 last_activity: 2026-04-01
 progress:
-  total_phases: 223
-  completed_phases: 205
-  total_plans: 510
-  completed_plans: 506
+  total_phases: 226
+  completed_phases: 207
+  total_plans: 516
+  completed_plans: 511
   percent: 33
 ---
 
@@ -53,6 +53,10 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 | Phase 290-model-evaluation-store P01 | 11 | 2 tasks | 3 files |
 | Phase 290 P02 | 14 | 2 tasks | 3 files |
 | Phase 290-model-evaluation-store P03 | 25 | 2 tasks | 6 files |
+| Phase 291 P1 | 28 | 2 tasks | 3 files |
+| Phase 291 P2 | 5 | 1 tasks | 1 files |
+| Phase 291 P3 | 2 | 2 tasks | 1 files |
+| Phase 293-retrain-data-export P01 | 27 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +94,6 @@ None currently.
 
 ## Session Continuity
 
-Last session: 2026-04-01T12:27:37.893Z
-Stopped at: Completed 290-03-PLAN.md (ModelEvalSync + Eval Query API)
+Last session: 2026-04-01T14:43:10.546Z
+Stopped at: Completed 293-01-PLAN.md (Retrain Export — JSONL training pipeline)
 Resume file: None

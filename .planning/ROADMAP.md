@@ -46,7 +46,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 - [x] **Phase 290: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups (completed 2026-04-01)
 - [ ] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator
 - [ ] **Phase 292: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
-- [ ] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format
+- [x] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format (completed 2026-04-01)
 - [ ] **Phase 294: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends
 
 ### Progress Table
@@ -56,7 +56,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
 | 291. KB Promotion Persistence | 0/3 | Not started | - |
 | 292. Model Reputation Persistence | 0/2 | Planned | - |
-| 293. Retrain Data Export | 0/1 | Planned | - |
+| 293. Retrain Data Export | 1/1 | Complete   | 2026-04-01 |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
 
 ---
@@ -115,7 +115,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   2. Each JSONL entry has `system`, `user`, and `assistant` fields — the file loads without modification in an Ollama fine-tune run and in Unsloth's conversation format
   3. Each entry includes model name, original prompt, model response, correct/incorrect flag, and fix outcome
 **Plans**: 1 plan
-- [ ] 293-01-PLAN.md — retrain_export.rs: TrainEntry + JSONL writer + weekly cron wired into main.rs (TRAIN-01, TRAIN-02, TRAIN-03)
+- [x] 293-01-PLAN.md — retrain_export.rs: TrainEntry + JSONL writer + weekly cron wired into main.rs (TRAIN-01, TRAIN-02, TRAIN-03)
 
 ### Phase 294: Intelligence Report v2
 **Goal**: Uday's Sunday midnight WhatsApp report tells him which models are improving, how many KB rules were promoted, how much cost was saved by Hardened rules, and whether model accuracy is trending up or down
