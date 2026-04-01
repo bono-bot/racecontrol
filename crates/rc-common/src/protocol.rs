@@ -56,6 +56,26 @@ pub struct EvalRecordPayload {
     pub created_at: String, // ISO 8601 UTC
 }
 
+/// Model reputation row payload sent from rc-agent to server after each reputation sweep.
+/// Lives in rc-common so both crates can reference it without cross-crate imports.
+/// Mirrors model_reputation_store::ReputationRow but is the wire format.
+/// MREP-04: enables server-side reputation query via GET /api/v1/models/reputation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReputationPayload {
+    /// e.g. "deepseek/deepseek-r1-0528"
+    pub model_id: String,
+    pub correct_count: u32,
+    pub total_count: u32,
+    /// 0.0 to 1.0 — computed as correct_count / total_count (or 0.5 if total_count == 0)
+    pub accuracy: f64,
+    /// "active" | "demoted" | "promoted"
+    pub status: String,
+    /// USD per correct diagnosis (0.0 if no correct diagnoses or not yet computed)
+    pub cost_per_correct_usd: f64,
+    /// RFC 3339 UTC
+    pub updated_at: String,
+}
+
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -529,6 +549,16 @@ pub enum AgentMessage {
     ModelEvalSync {
         pod_id: String,
         records: Vec<EvalRecordPayload>,
+    },
+
+    // ─── Model Reputation Sync (MREP-04) ─────────────────────────────────────
+
+    /// Agent pushes current reputation state to server after each daily sweep.
+    /// Server stores in model_reputation table for query via /api/v1/models/reputation.
+    /// MREP-04: enables server-side reputation dashboard and weekly report data.
+    ModelReputationSync {
+        pod_id: String,
+        rows: Vec<ReputationPayload>,
     },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.

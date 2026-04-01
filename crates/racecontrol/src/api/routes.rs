@@ -535,6 +535,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
         // ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────
         .route("/models/evaluations", get(list_model_evaluations))
+        // ─── Model Reputation Query (MREP-04 / Phase 292) ────────────────────
+        .route("/models/reputation", get(list_model_reputation))
         // ─── v29.0 Phase 9: Maintenance & Analytics ─────────────────────────
         .route("/maintenance/events", post(maintenance_create_event).get(maintenance_list_events))
         .route("/maintenance/summary", get(maintenance_summary))
@@ -20381,6 +20383,30 @@ async fn list_model_evaluations(
             Json(serde_json::json!({ "records": records, "count": count }))
         }
         Err(e) => Json(serde_json::json!({ "error": e.to_string(), "records": [] })),
+    }
+}
+
+// ─── Model Reputation Query (MREP-04 / Phase 292) ──────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ReputationQueryParams {
+    /// Optional status filter: "active" | "demoted" | "promoted"
+    status: Option<String>,
+}
+
+/// GET /api/v1/models/reputation — query model reputation state from server DB.
+/// Query params: status=<active|demoted|promoted>
+/// Returns empty models array (not error) when no reputation data exists yet.
+async fn list_model_reputation(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ReputationQueryParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::query_reputation(&state.db, params.status.as_deref()).await {
+        Ok(rows) => {
+            let count = rows.len();
+            Json(serde_json::json!({ "models": rows, "count": count }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string(), "models": [] })),
     }
 }
 

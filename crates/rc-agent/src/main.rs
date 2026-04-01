@@ -1240,11 +1240,12 @@ async fn main() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Revenue protection monitor started (10s poll, REV-01..03)");
     }
 
-    // ─── Model Reputation Sweep (MREP-01..03: daily, 7-day window, persistent) ───
+    // ─── Model Reputation Sweep (MREP-01..04: daily, 7-day window, persistent, server sync) ─
     {
         let rep_fleet_tx = fleet_bus.sender();
         let rep_eval_store = eval_store.clone();
         let rep_store_clone = rep_store.clone();
+        let rep_ws_tx = ws_exec_result_tx.clone();
         tokio::spawn(async move {
             tracing::info!(target: "state", task = "model_reputation", event = "lifecycle", "lifecycle: started");
             tokio::time::sleep(std::time::Duration::from_secs(180)).await;
@@ -1259,12 +1260,13 @@ async fn main() -> Result<()> {
                         &rep_fleet_tx,
                         rep_eval_store.clone(),
                         rep_store_clone.clone(),
+                        rep_ws_tx.clone(),
                     );
                 });
-                tracing::info!(target: "model-reputation", "Daily reputation sweep complete (MREP-01..03)");
+                tracing::info!(target: "model-reputation", "Daily reputation sweep complete (MREP-01..04)");
             }
         });
-        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, MREP-01..03, 7-day window, persistent)");
+        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, MREP-01..04, 7-day window, persistent, server sync)");
     }
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────

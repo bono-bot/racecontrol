@@ -1,9 +1,10 @@
-//! Model Reputation Management (REP-01..02, MREP-01..03)
+//! Model Reputation Management (REP-01..02, MREP-01..04)
 //!
 //! Periodic sweep of MMA model accuracy using 7-day eval window from SQLite:
 //!   MREP-01: Persist accuracy and run counts to model_reputation table after each sweep.
 //!   MREP-02: Models with 7-day accuracy < 30% across 5+ runs -> auto-demoted + persisted.
 //!   MREP-03: Models with 7-day accuracy > 90% across 10+ runs -> auto-promoted + persisted.
+//!   MREP-04: Push current reputation state to server via AgentMessage::ModelReputationSync.
 //!
 //! Called during night ops cycle or manually.
 //!
@@ -38,16 +39,15 @@ const PROMOTE_MIN_RUNS: u32 = 10;
 /// Queries `model_evaluations` (Phase 290 data) for the past 7 days instead of reading
 /// in-memory counters that reset on restart. Persists demotion/promotion decisions via
 /// `ModelReputationStore` so the roster survives restarts (MREP-01/02/03).
-///
-/// Also updates in-memory MODEL_REPUTATION with fresh counts for immediate use.
+/// After sweep, pushes the full reputation state to the server via ws_msg_tx (MREP-04).
 ///
 /// Note: This is a sync function — it is called from an async context via
-/// `tokio::task::block_in_place` if needed, or directly from the async sweep loop
-/// (rusqlite calls are sync and short-duration, acceptable on this task).
+/// `tokio::task::block_in_place` so rusqlite sync calls don't block the async runtime.
 pub fn run_reputation_sweep(
     fleet_tx: &broadcast::Sender<FleetEvent>,
     eval_store: Arc<Mutex<ModelEvalStore>>,
     rep_store: Arc<Mutex<ModelReputationStore>>,
+    ws_msg_tx: tokio::sync::mpsc::Sender<rc_common::protocol::AgentMessage>,
 ) {
     // ─── Step 1: Query 7-day eval window from SQLite ───────────────────────────
     let now = Utc::now();
@@ -206,19 +206,61 @@ pub fn run_reputation_sweep(
         "Reputation sweep complete — counts persisted, demotion/promotion applied"
     );
 
-    // Store per_model_cost for use by Plan 292-02 (ws sync) — available via get_all_model_stats alternative
-    // Logging cost efficiency for monitoring
-    for (model_id, (total_cost, correct_count)) in &per_model_cost {
-        let cost_per_correct = if *correct_count > 0 {
-            total_cost / *correct_count as f64
+    // ─── Step 5: Build reputation payload and push to server (MREP-04) ────────
+    let mut rep_rows: Vec<rc_common::protocol::ReputationPayload> = Vec::new();
+    for (model_id, (correct, total)) in &per_model {
+        let accuracy = if *total > 0 {
+            *correct as f64 / *total as f64
+        } else {
+            0.5
+        };
+        let status = if mma_engine::is_demoted(model_id) {
+            "demoted"
+        } else if mma_engine::is_promoted(model_id) {
+            "promoted"
+        } else {
+            "active"
+        };
+        // Compute cost_per_correct from per_model_cost tracking
+        let cost_per_correct = if let Some((total_cost, correct_count)) = per_model_cost.get(model_id) {
+            if *correct_count > 0 {
+                total_cost / *correct_count as f64
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
-        tracing::debug!(
-            target: LOG_TARGET,
-            model = %model_id,
-            cost_per_correct_usd = cost_per_correct,
-            "Model cost efficiency (7-day)"
-        );
+        rep_rows.push(rc_common::protocol::ReputationPayload {
+            model_id: model_id.clone(),
+            correct_count: *correct,
+            total_count: *total,
+            accuracy,
+            status: status.to_string(),
+            cost_per_correct_usd: cost_per_correct,
+            updated_at: Utc::now().to_rfc3339(),
+        });
+    }
+
+    if !rep_rows.is_empty() {
+        let sync_msg = rc_common::protocol::AgentMessage::ModelReputationSync {
+            pod_id: "local".to_string(),
+            rows: rep_rows,
+        };
+        // ws_msg_tx is a tokio mpsc Sender. Since we're inside block_in_place (sync context),
+        // we must use blocking_send instead of .await.
+        if let Err(e) = ws_msg_tx.blocking_send(sync_msg) {
+            tracing::warn!(
+                target: LOG_TARGET,
+                error = %e,
+                "MREP-04: failed to push reputation sync to server via WS — sweep still complete"
+            );
+        } else {
+            tracing::debug!(
+                target: LOG_TARGET,
+                model_count = per_model.len(),
+                "MREP-04: reputation sync sent to server"
+            );
+        }
     }
 }

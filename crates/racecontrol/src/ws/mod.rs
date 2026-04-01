@@ -1581,6 +1581,26 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
 
+                        // ─── Model Reputation Sync (MREP-04 / Phase 292) ─────────────
+                        AgentMessage::ModelReputationSync { pod_id, rows } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                model_count = rows.len(),
+                                "MREP-04: received model reputation sync from pod"
+                            );
+                            for row in rows.iter() {
+                                if let Err(e) = crate::fleet_kb::upsert_reputation(&state.db, row, &pod_id).await {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %row.model_id,
+                                        "MREP-04: failed to upsert reputation row"
+                                    );
+                                }
+                            }
+                        }
+
                         // ─── Tier 5 WhatsApp escalation (v274) ──────────────────────
                         AgentMessage::EscalationRequest(payload) => {
                             tracing::warn!(

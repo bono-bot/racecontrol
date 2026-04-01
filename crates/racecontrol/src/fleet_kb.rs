@@ -623,3 +623,104 @@ pub async fn query_eval_records(
         .collect();
     Ok(records)
 }
+
+// ─── Model Reputation Store (MREP-04) ─────────────────────────────────────────
+
+/// Create server-side model_reputation table. Called from db::migrate().
+pub async fn migrate_reputation_store(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS model_reputation (
+            model_id TEXT PRIMARY KEY,
+            correct_count INTEGER NOT NULL DEFAULT 0,
+            total_count INTEGER NOT NULL DEFAULT 0,
+            accuracy REAL NOT NULL DEFAULT 0.0,
+            status TEXT NOT NULL DEFAULT 'active',
+            cost_per_correct_usd REAL NOT NULL DEFAULT 0.0,
+            pod_id TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_rep_status ON model_reputation (status)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_rep_accuracy ON model_reputation (accuracy)",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("Model reputation store table initialized (MREP-04)");
+    Ok(())
+}
+
+/// Upsert one reputation row from a ModelReputationSync push (idempotent via ON CONFLICT DO UPDATE).
+pub async fn upsert_reputation(
+    pool: &SqlitePool,
+    row: &rc_common::protocol::ReputationPayload,
+    pod_id: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO model_reputation \
+         (model_id, correct_count, total_count, accuracy, status, cost_per_correct_usd, pod_id, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+         ON CONFLICT(model_id) DO UPDATE SET \
+           correct_count = excluded.correct_count, \
+           total_count = excluded.total_count, \
+           accuracy = excluded.accuracy, \
+           status = excluded.status, \
+           cost_per_correct_usd = excluded.cost_per_correct_usd, \
+           pod_id = excluded.pod_id, \
+           updated_at = excluded.updated_at",
+    )
+    .bind(&row.model_id)
+    .bind(row.correct_count as i64)
+    .bind(row.total_count as i64)
+    .bind(row.accuracy)
+    .bind(&row.status)
+    .bind(row.cost_per_correct_usd)
+    .bind(pod_id)
+    .bind(&row.updated_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Query all reputation rows with optional status filter.
+/// Used by GET /api/v1/models/reputation. Returns rows sorted by accuracy DESC.
+pub async fn query_reputation(
+    pool: &SqlitePool,
+    status_filter: Option<&str>,
+) -> anyhow::Result<Vec<rc_common::protocol::ReputationPayload>> {
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT model_id, correct_count, total_count, accuracy, status, cost_per_correct_usd, updated_at \
+         FROM model_reputation WHERE 1=1",
+    );
+    if let Some(s) = status_filter {
+        qb.push(" AND status = ").push_bind(s);
+    }
+    qb.push(" ORDER BY accuracy DESC");
+
+    let rows = qb.build().fetch_all(pool).await?;
+    let records = rows
+        .iter()
+        .map(|row| {
+            use sqlx::Row;
+            rc_common::protocol::ReputationPayload {
+                model_id: row.get("model_id"),
+                correct_count: row.get::<i64, _>("correct_count") as u32,
+                total_count: row.get::<i64, _>("total_count") as u32,
+                accuracy: row.get("accuracy"),
+                status: row.get("status"),
+                cost_per_correct_usd: row.get("cost_per_correct_usd"),
+                updated_at: row.get("updated_at"),
+            }
+        })
+        .collect();
+    Ok(records)
+}
