@@ -11,6 +11,7 @@ use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
 use crate::activity_log::log_pod_activity;
 use crate::crypto::redaction::redact_phone;
+use crate::event_archive;
 use crate::state::AppState;
 use crate::whatsapp_alerter;
 
@@ -2954,6 +2955,11 @@ pub async fn start_billing_session(
     );
 
     log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core");
+    event_archive::append_event(&state.db, "billing.session_started", "billing", Some(&pod_id), serde_json::json!({
+        "driver_id": driver_id,
+        "tier": tier.1,
+        "allocated_seconds": allocated_seconds,
+    }));
 
     Ok(session_id)
 }
@@ -3320,6 +3326,11 @@ async fn end_billing_session(
                 _ => "Session Expired",
             };
             log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core");
+            event_archive::append_event(&state.db, "billing.session_ended", "billing", Some(&pod_id), serde_json::json!({
+                "driver_id": info.driver_id,
+                "driving_seconds": driving_seconds,
+                "end_status": activity_action,
+            }));
 
             timers.remove(&pod_id);
             drop(timers);

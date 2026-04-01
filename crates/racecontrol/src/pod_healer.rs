@@ -16,6 +16,7 @@ use chrono::Utc;
 use serde_json::json;
 
 use crate::activity_log::log_pod_activity;
+use crate::event_archive;
 use crate::state::{AppState, WatchdogState};
 use crate::wol;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
@@ -468,6 +469,11 @@ async fn heal_pod(
                 &action.reason,
                 "race_engineer",
             );
+            event_archive::append_event(&state.db, "pod.recovery", "pod_healer", Some(&action.pod_id), serde_json::json!({
+                "action": action.action,
+                "target": action.target,
+                "reason": action.reason,
+            }));
             execute_heal_action(state, &pod.ip_address, action).await;
         }
         // NOTE: The healer does NOT call record_attempt() here.

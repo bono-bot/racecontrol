@@ -38,6 +38,7 @@ use crate::ac_server;
 use crate::activity_log::log_pod_activity;
 use crate::auth;
 use crate::billing;
+use crate::event_archive;
 use crate::game_launcher;
 use crate::state::{AppState, CachedAssistState};
 
@@ -194,6 +195,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             tracing::info!("Pod {} registered (conn_id={}): {}", pod_info.number, conn_id, pod_info.name);
                             registered_pod_id = Some(canonical_id.clone());
                             log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
+                            event_archive::append_event(&state.db, "pod.online", "ws", Some(&canonical_id), serde_json::json!({
+                                "pod_number": pod_info.number,
+                                "conn_id": conn_id,
+                            }));
 
                             // MMA-109: Scope each lock tightly — never hold across .await
                             // Lock order: agent_senders → agent_conn_ids → pods (consistent)
@@ -901,6 +906,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
+                            event_archive::append_event(&state.db, "pod.offline", "ws", Some(pod_id), serde_json::json!({ "reason": "agent_disconnect" }));
                             let has_active_billing = state
                                 .billing
                                 .active_timers

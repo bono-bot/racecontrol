@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use crate::config::AlertCondition;
+use crate::event_archive;
 use crate::state::AppState;
 
 const LOG_TARGET: &str = "metric_alerts";
@@ -92,6 +93,13 @@ pub async fn metric_alert_task(state: Arc<AppState>) {
             );
 
             tracing::warn!(target: LOG_TARGET, "metric alert fired: {}", message);
+            event_archive::append_event(&state.db, "alert.fired", "metric_alerts", None, serde_json::json!({
+                "rule_name": rule.name,
+                "metric": rule.metric,
+                "value": display_value,
+                "threshold": rule.threshold,
+                "severity": rule.severity,
+            }));
             crate::whatsapp_alerter::send_whatsapp(&state.config, &message).await;
         }
     }
