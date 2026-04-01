@@ -193,10 +193,19 @@ pub fn update_metrics(inputs: &mut MetricInputs, event: &FleetEvent) {
         FleetEvent::PredictiveAlert { alert_type, .. } => {
             tracing::trace!(target: LOG_TARGET, alert_type, "Predictive alert tracked for scoring");
         }
+        // MMA audit fix: GameLaunchRetryResult MUST update launch metrics
+        FleetEvent::GameLaunchRetryResult { success, .. } => {
+            inputs.launches_attempted += 1;
+            if *success {
+                inputs.launches_succeeded += 1;
+            }
+        }
+        FleetEvent::RevenueAnomaly { .. } => {
+            // Revenue anomalies tracked separately — don't affect experience score directly
+            // (billing accuracy is tracked via session completion, not anomaly events)
+        }
         FleetEvent::ExperienceScoreUpdate { .. }
         | FleetEvent::Escalated { .. }
-        | FleetEvent::GameLaunchRetryResult { .. }
-        | FleetEvent::RevenueAnomaly { .. }
         | FleetEvent::ModelReputationChange { .. } => {
             // Not relevant for metric collection
         }

@@ -101,26 +101,46 @@ pub fn get_all_model_stats() -> Vec<(String, f64, u32)> {
 }
 
 /// Demote a model — it will be skipped during stratified_select().
+/// MMA audit fix: recover from poisoned mutex instead of silently skipping demotion.
 pub fn demote_model(model_id: &str) {
-    if let Ok(mut set) = demoted_store().lock() {
-        set.insert(model_id.to_string());
-        tracing::warn!(target: LOG_TARGET, model = model_id, "Model added to DEMOTED set");
+    match demoted_store().lock() {
+        Ok(mut set) => {
+            set.insert(model_id.to_string());
+            tracing::warn!(target: LOG_TARGET, model = model_id, "Model added to DEMOTED set");
+        }
+        Err(poisoned) => {
+            tracing::error!(target: LOG_TARGET, model = model_id, "DEMOTED_MODELS mutex POISONED — recovering and demoting anyway");
+            poisoned.into_inner().insert(model_id.to_string());
+        }
     }
-    // Remove from promoted if it was there
-    if let Ok(mut set) = promoted_store().lock() {
-        set.remove(model_id);
+    match promoted_store().lock() {
+        Ok(mut set) => { set.remove(model_id); }
+        Err(poisoned) => {
+            tracing::error!(target: LOG_TARGET, model = model_id, "PROMOTED_MODELS mutex POISONED during demote — recovering");
+            poisoned.into_inner().remove(model_id);
+        }
     }
 }
 
 /// Promote a model — it gets priority boost in stratified_select().
+/// MMA audit fix: recover from poisoned mutex instead of silently skipping promotion.
 pub fn promote_model(model_id: &str) {
-    if let Ok(mut set) = promoted_store().lock() {
-        set.insert(model_id.to_string());
-        tracing::info!(target: LOG_TARGET, model = model_id, "Model added to PROMOTED set");
+    match promoted_store().lock() {
+        Ok(mut set) => {
+            set.insert(model_id.to_string());
+            tracing::info!(target: LOG_TARGET, model = model_id, "Model added to PROMOTED set");
+        }
+        Err(poisoned) => {
+            tracing::error!(target: LOG_TARGET, model = model_id, "PROMOTED_MODELS mutex POISONED — recovering and promoting anyway");
+            poisoned.into_inner().insert(model_id.to_string());
+        }
     }
-    // Remove from demoted if it was there
-    if let Ok(mut set) = demoted_store().lock() {
-        set.remove(model_id);
+    match demoted_store().lock() {
+        Ok(mut set) => { set.remove(model_id); }
+        Err(poisoned) => {
+            tracing::error!(target: LOG_TARGET, model = model_id, "DEMOTED_MODELS mutex POISONED during promote — recovering");
+            poisoned.into_inner().remove(model_id);
+        }
     }
 }
 

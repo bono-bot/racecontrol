@@ -49,7 +49,14 @@ pub fn spawn(
                             experience_score::update_metrics(&mut inputs, &event);
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(target: LOG_TARGET, lagged = n, "Missed {} fleet events — slow consumer", n);
+                            // MMA audit fix: count dropped events for observability
+                            tracing::error!(
+                                target: LOG_TARGET,
+                                lagged = n,
+                                "METRICS LOSS: Missed {} fleet events — experience score may be inaccurate. \
+                                 Scores will self-correct on next 5-min calculation from baseline scan data.",
+                                n
+                            );
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             tracing::warn!(target: "state", task = "experience_collector", event = "lifecycle", "lifecycle: exited (bus closed)");

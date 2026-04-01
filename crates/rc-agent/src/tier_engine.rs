@@ -1645,6 +1645,9 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
             // On success: KB recording + fleet cascade happen via the main loop's
             //   universal KB recording (273-03) and FleetEvent emission.
             // On failure: escalates to Tier 3/4 MMA via FailedToFix return.
+            // MMA audit note: diagnose_and_fix() is sync but tier1_deterministic_sync is already
+            // called via spawn_blocking from the tier engine main loop (T1 standing rule).
+            // The 60-second timeout in retry_game_launch uses std::thread::sleep (correct for sync context).
             tracing::info!(target: LOG_TARGET, "Tier 1: invoking game launch retry orchestrator");
             let retry_result = game_launch_retry::retry_game_launch();
 
