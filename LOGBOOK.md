@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 12:30 IST | James | 8df7b935 | feat(v32): CGP + Plan Manager + MMA integration for Meshed Intelligence Tier 3/4. New: cognitive_gate.rs (8 gates), diagnosis_planner.rs (step tracking). Wraps Tier 3/4 with think→plan→execute→verify. 9/9 tests. |
+| 2026-04-01 12:30 IST | James | f67f0c86 | fix(v32): MMA 5-model audit (GPT-5.4+Opus+Gemini+Sonnet+Nemotron). 4 fixes: F1 partial audit on Phase A fail, F2 remove raw SQL, F3 log send errors, F4 specialized hypotheses for 9 triggers. |
+| 2026-04-01 12:30 IST | James | 1e58082a | fix(v32): MMA VERIFY (3-model adversarial). PosWifiDegraded 3rd hypothesis for consistency. Score: F1=4.05, F2=4.50, F3=3.75, F4=3.85. |
 | 2026-04-01 09:22 IST | James | a61151eb | feat(mma): rewrite multi-model-audit.js to v3.0 — consensus voting (5 models/batch, 3/5 majority), adversarial Step 4 verify, domain rosters (6 domains from spec Part 8), vendor diversity enforcement, budget tracking ($5 cap), input sanitization, model provenance. Updated CLAUDE.md usage. Backward compatible (MODEL=xxx legacy mode). |
 | 2026-03-31 22:36 IST | James | 9b6225e9 | feat: expand Meshed Intelligence diagnosis to POS (/diagnosis), PWA (/staff/diagnosis), kiosk mesh browser. MMA 8-model audit (5 DIAGNOSE + 3 VERIFY). 2 P1 fixes: PWA auth token isolation + server-side middleware. 7 files, +1511 lines. |
 
