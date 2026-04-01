@@ -3,15 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-01 16:58 IST | James | 4e31df4f | feat(289-01): metric alert system — TOML config, evaluation engine, WhatsApp firing |
-| 2026-04-01 16:58 IST | James | 4265a2d0 | docs(phase-288): complete prometheus export — 3/3 verified, 7 tests |
-| 2026-04-01 16:58 IST | James | 3636f31d | feat(288-01): Prometheus exposition format handler + 7 unit tests |
-| 2026-04-01 16:58 IST | James | b2439f4a | docs(phase-287): complete metrics dashboard — 5/5 verified, stub API |
-| 2026-04-01 16:58 IST | James | 149f99c3 | docs(phase-285): complete TSDB phase — 11/11 verified |
-| 2026-04-01 16:58 IST | James | 7b9ab9b0 | feat(285-01): SQLite TSDB schema and metrics_tsdb module |
-| 2026-04-01 16:58 IST | James | 24f546c4 | feat(285-02): async ingestion pipeline, purge, rollup scheduler |
-| 2026-04-01 16:58 IST | James | b415c865 | feat(285-02): wire metrics ingestion + rollup/purge into main.rs |
-| 2026-04-01 16:58 IST | James | 49e2df18 | docs: v34.0 roadmap — 5 phases, 24 requirements, metrics TSDB milestone |
+| 2026-04-01 16:58 IST | James | efc28141 | docs(289-02): complete wire-metric-alert-task plan (SUMMARY, STATE, ROADMAP, REQUIREMENTS) |
+| 2026-04-01 16:58 IST | James | f6000e75 | feat(289-02): wire metric_alert_task into server startup — conditional spawn when alert_rules non-empty |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
