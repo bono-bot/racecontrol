@@ -1,77 +1,75 @@
-# Requirements: v35.0 Structured Retraining & Model Lifecycle
+# Requirements: v38.0 Security Hardening & Operational Maturity
 
 **Defined:** 2026-04-01
-**Core Value:** Close the continuous learning loop — system gets measurably smarter each week
+**Core Value:** Harden the attack surface after all data flows are established
 
-## Model Evaluation Store (EVAL)
+## TLS for Internal HTTP (TLS)
 
-- [x] **EVAL-01**: Every AI diagnosis writes prediction, actual outcome, correctness, and cost to SQLite `model_evaluations` table
-- [x] **EVAL-02**: Weekly rollup computes per-model accuracy and cost-per-correct-diagnosis (stored in `model_eval_rollups`)
-- [x] **EVAL-03**: Evaluation data queryable via API: `GET /api/v1/models/evaluations?model=X&from=Y&to=Z`
+- [ ] **TLS-01**: Self-signed venue CA generated via `scripts/generate-venue-ca.sh` with server + per-pod client certificates
+- [ ] **TLS-02**: Axum server (:8080) accepts mTLS connections — rejects clients without valid venue CA cert
+- [ ] **TLS-03**: rc-agent (:8090) accepts mTLS connections from server — rejects unauthorized callers
+- [ ] **TLS-04**: Tailscale remote connections bypass mTLS (already encrypted) — mTLS is LAN-only
 
-## KB Promotion Persistence (KBPP)
+## WS Auth Hardening (WSAUTH)
 
-- [x] **KBPP-01**: KB promotion state (Shadow/Canary/Quorum/Hardened) persists in SQLite across rc-agent restarts
-- [x] **KBPP-02**: Shadow mode tracks candidate fix executions for 1 week or 25 applications (whichever first), logging only
-- [x] **KBPP-03**: Canary stage restricts candidate fix to Pod 8 only and verifies success before fleet promotion
-- [x] **KBPP-04**: Quorum requires 3+ successes across 2+ distinct pods before promoting to Hardened (Tier 1 rule)
-- [x] **KBPP-05**: Hardened rules stored as typed `Rule` structs with matchers, actions, verifier, and TTL — applied at $0 cost
-- [x] **KBPP-06**: 6-hour cron evaluator checks all candidate promotions and advances eligible entries
+- [ ] **WSAUTH-01**: Per-pod JWT tokens with 24-hour expiry replace static PSK for WebSocket authentication
+- [ ] **WSAUTH-02**: JWT tokens auto-rotate 1 hour before expiry — zero-downtime refresh
+- [ ] **WSAUTH-03**: Invalid or expired JWT on WebSocket causes immediate disconnect + WhatsApp alert to staff
+- [ ] **WSAUTH-04**: PSK remains as bootstrap fallback — initial connection uses PSK, server issues JWT for subsequent auth
 
-## Model Reputation Persistence (MREP)
+## Audit Log Integrity (AUDIT)
 
-- [x] **MREP-01**: Per-model accuracy and run count tracked persistently in SQLite (survives rc-agent restart)
-- [x] **MREP-02**: Models with 7-day accuracy below 30% across 5+ runs are automatically removed from MMA roster
-- [x] **MREP-03**: Models with 7-day accuracy above 90% across 10+ runs are promoted to higher priority in roster
-- [x] **MREP-04**: Model reputation dashboard visible at `/api/v1/models/reputation` (per-model trends, cost efficiency)
+- [ ] **AUDIT-01**: Every activity_log entry includes a SHA-256 hash linking to the previous entry (append-only chain)
+- [ ] **AUDIT-02**: Tamper detection: if any entry's previous_hash doesn't match the actual previous entry's hash, alert fires
+- [ ] **AUDIT-03**: Hash chain covers config changes, deploys, billing events, and admin actions
+- [ ] **AUDIT-04**: `GET /api/v1/audit/verify` endpoint returns chain integrity status (valid/broken + first broken entry)
 
-## Retrain Data Export (TRAIN)
+## Role-Based Access Control (RBAC)
 
-- [x] **TRAIN-01**: Weekly cron exports diagnosis evaluations + KB solutions as JSONL training data
-- [x] **TRAIN-02**: Export format compatible with Ollama fine-tuning and Unsloth (conversation pairs with system/user/assistant)
-- [x] **TRAIN-03**: Export includes model name, prompt, response, correct/incorrect, and fix outcome for each entry
+- [ ] **RBAC-01**: Three roles defined: cashier (billing only), manager (billing + config), superadmin (everything)
+- [ ] **RBAC-02**: JWT tokens include role claim — server extracts and enforces on every protected endpoint
+- [ ] **RBAC-03**: Cashier role can only access billing, customer, and cafe endpoints — config/deploy/admin returns 403
+- [ ] **RBAC-04**: Admin dashboard UI shows/hides sections based on role — but enforcement is server-side (UI is convenience)
 
-## Intelligence Report v2 (RPTV2)
+## Security Audit Script (SECAUDIT)
 
-- [x] **RPTV2-01**: Weekly report includes per-model accuracy rankings (not just aggregate MTTR)
-- [x] **RPTV2-02**: Weekly report includes KB promotion count (how many rules advanced this week)
-- [x] **RPTV2-03**: Weekly report includes cost savings from Tier 1 hardened rules ($0 vs estimated model cost)
-- [x] **RPTV2-04**: Weekly report includes prediction accuracy trends (improving/declining/stable per model)
+- [ ] **SECAUDIT-01**: `scripts/security-audit.sh` scans: open ports, TLS config, JWT validity, default credentials, chain integrity
+- [ ] **SECAUDIT-02**: Output is structured JSON scorecard with pass/fail per check and overall score
+- [ ] **SECAUDIT-03**: Script integrates with existing `gate-check.sh` as a pre-deploy security gate
 
 ## Traceability
 
 | REQ | Phase | Status |
 |-----|-------|--------|
-| EVAL-01 | Phase 290 | Complete |
-| EVAL-02 | Phase 290 | Complete |
-| EVAL-03 | Phase 290 | Complete |
-| KBPP-01 | Phase 291 | Complete |
-| KBPP-02 | Phase 291 | Complete |
-| KBPP-03 | Phase 291 | Complete |
-| KBPP-04 | Phase 291 | Complete |
-| KBPP-05 | Phase 291 | Complete |
-| KBPP-06 | Phase 291 | Complete |
-| MREP-01 | Phase 292 | Complete |
-| MREP-02 | Phase 292 | Complete |
-| MREP-03 | Phase 292 | Complete |
-| MREP-04 | Phase 292 | Complete |
-| TRAIN-01 | Phase 293 | Complete |
-| TRAIN-02 | Phase 293 | Complete |
-| TRAIN-03 | Phase 293 | Complete |
-| RPTV2-01 | Phase 294 | Complete |
-| RPTV2-02 | Phase 294 | Complete |
-| RPTV2-03 | Phase 294 | Complete |
-| RPTV2-04 | Phase 294 | Complete |
+| TLS-01 | Phase 305 | Pending |
+| TLS-02 | Phase 305 | Pending |
+| TLS-03 | Phase 305 | Pending |
+| TLS-04 | Phase 305 | Pending |
+| WSAUTH-01 | Phase 306 | Pending |
+| WSAUTH-02 | Phase 306 | Pending |
+| WSAUTH-03 | Phase 306 | Pending |
+| WSAUTH-04 | Phase 306 | Pending |
+| AUDIT-01 | Phase 307 | Pending |
+| AUDIT-02 | Phase 307 | Pending |
+| AUDIT-03 | Phase 307 | Pending |
+| AUDIT-04 | Phase 307 | Pending |
+| RBAC-01 | Phase 308 | Pending |
+| RBAC-02 | Phase 308 | Pending |
+| RBAC-03 | Phase 308 | Pending |
+| RBAC-04 | Phase 308 | Pending |
+| SECAUDIT-01 | Phase 309 | Pending |
+| SECAUDIT-02 | Phase 309 | Pending |
+| SECAUDIT-03 | Phase 309 | Pending |
 
 ## Future Requirements (deferred)
 
-- Chart image attached to weekly WhatsApp report (requires image generation library)
-- Real-time model accuracy dashboard in admin UI (wait for v34 metrics TSDB)
-- Automated Ollama fine-tuning trigger (wait for Ollama to support fine-tuning API)
+- Certificate rotation automation (manual renewal — venue CA is long-lived)
+- Per-customer JWT (currently only staff/pod JWTs)
+- Encrypted SQLite at rest (not justified at venue scale)
 
 ## Out of Scope
 
-- MLflow/Kubeflow integration — SQLite evaluation store is sufficient at venue scale
-- Feature store — fleet_solutions + model_evaluations table is the feature store
-- Multi-venue model training — single-venue only for now
-- GPU-based training on venue hardware — export JSONL for external training only
+- External CA / Let's Encrypt for internal HTTP — self-signed venue CA is correct for LAN
+- OAuth2 / OIDC — JWT with roles is sufficient
+- Network segmentation / VLANs — infrastructure, not software
+- WAF / rate limiting on internal endpoints — venue LAN only

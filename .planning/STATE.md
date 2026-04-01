@@ -1,102 +1,58 @@
 ---
 gsd_state_version: 1.0
-milestone: v32.0
-milestone_name: Summary
-status: verifying
-stopped_at: Completed 294-01-PLAN.md (Intelligence Report v2)
-last_updated: "2026-04-01T15:16:47.447Z"
-last_activity: 2026-04-01
+milestone: v38.0
+milestone_name: Security Hardening & Operational Maturity
+status: roadmap_complete
+stopped_at: Roadmap created — ready for autonomous execution
+last_updated: "2026-04-01T20:00:00.000Z"
+last_activity: 2026-04-01 — v38.0 roadmap created (5 phases, 19 requirements)
 progress:
-  total_phases: 227
-  completed_phases: 209
-  total_plans: 517
-  completed_plans: 513
-  percent: 33
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 ## Current Position
 
-Phase: 290 (model-evaluation-store) — Plan 1 of 3 COMPLETE
-Plan: 3 of 3 (next: 290-02 if exists, else 291)
-Status: Phase complete — ready for verification
-Last activity: 2026-04-01
+Phase: 305 — TLS for Internal HTTP (not started)
+Plan: —
+Status: Roadmap complete, ready for execution
+Last activity: 2026-04-01 — v38.0 initialized
 
-Progress: [███░░░░░░░] 33%  (1/3 plans in phase 290)
+Progress: [░░░░░░░░░░] 0%  (0/5 phases)
 
 ```
-290 ──┬──> 291 (KB Promotion) ────┐
-      ├──> 292 (Model Reputation) ┤──> 294 (Report v2)
-      └──> 293 (Retrain Export) ──┘
+305 (TLS) ──┬──> 306 (WS Auth) ──> 308 (RBAC) ──┐
+            └──> 307 (Audit Chain) ───────────────┴──> 309 (Security Audit)
 ```
 
 ## Project Reference
 
-**Milestone:** v35.0 Structured Retraining & Model Lifecycle
-**Core value:** Close the continuous learning loop — system gets measurably smarter each week
-**Roadmap:** .planning/ROADMAP.md
-**Requirements:** .planning/REQUIREMENTS.md
-
-See: .planning/PROJECT.md (updated 2026-04-01)
-
-## Performance Metrics
-
-| Metric | Value |
-|--------|-------|
-| Phases total | 5 |
-| Phases complete | 0 |
-| Requirements total | 20 |
-| Requirements mapped | 20 |
-| Coverage | 100% |
-| Phases unblocked | 1 (Phase 290) |
-| Phases blocked | 3 (291, 292, 293 — await 290) |
-| Phases deeply blocked | 1 (294 — awaits 290, 291, 292) |
-| Phase 290-model-evaluation-store P01 | 11 | 2 tasks | 3 files |
-| Phase 290 P02 | 14 | 2 tasks | 3 files |
-| Phase 290-model-evaluation-store P03 | 25 | 2 tasks | 6 files |
-| Phase 291 P1 | 28 | 2 tasks | 3 files |
-| Phase 291 P2 | 5 | 1 tasks | 1 files |
-| Phase 291 P3 | 2 | 2 tasks | 1 files |
-| Phase 293-retrain-data-export P01 | 27 | 2 tasks | 2 files |
-| Phase 292-model-reputation-persistence P01 | 25 | 2 tasks | 4 files |
-| Phase 292-model-reputation-persistence P02 | 20 | 2 tasks | 7 files |
-| Phase 294 P01 | 17 | 4 tasks | 2 files |
+**Milestone:** v38.0 Security Hardening & Operational Maturity
+**Core value:** Harden the attack surface after all data flows are established
+**Roadmap:** .planning/ROADMAP.md (5 phases, 305-309)
+**Requirements:** .planning/REQUIREMENTS.md (19 requirements, 5 categories)
 
 ## Accumulated Context
 
 ### Key Decisions
 
-- **Phase numbering starts at 290**: Skipping 280-289 (reserved for v33.0 Billing Integrity and v34.0 Metrics TSDB).
-- **Phase 290 is strict foundation**: All other phases depend on it for evaluation data. Cannot parallelize before it completes.
-- **Phases 291, 292, 293 are parallel**: Once 290 is complete all three can be planned and executed in parallel.
-- **Phase 294 is integration gate**: Depends on 280 + 281 + 282. Can overlap with 283 (retrain export is independent of 284 inputs).
-- **No new infrastructure**: All new tables land in existing SQLite databases (rc-agent's DB or racecontrol's DB — confirm in Phase 290 plan).
-- **v32.0 in-memory reputation reuses**: `model_reputation.rs` and `kb_hardening.rs` exist; v35.0 adds SQLite persistence layers, does not rewrite from scratch.
-- **290-01: Shared mesh_kb.db** — model_evaluations table in same file as knowledge_base.rs solutions, no extra file dependency.
-- **290-01: Tier-derived model_id** — model_id derived from tier number in run_supervised (tier functions don't return model_id through TierResult); Phase 292 will refine with exact OpenRouter model IDs.
-- **290-01: Arc<Mutex<ModelEvalStore>>** — passed via spawn(), consistent with BudgetTracker pattern, no global state.
+- **Phase numbering at 305**: Continues after v37.0 reserved range (300-304)
+- **305 is foundation**: TLS enables encrypted JWT exchange (306) and secure audit verification (307)
+- **306 + 307 parallel after 305**: WS auth and audit chain are independent
+- **308 depends on 306**: RBAC needs JWT role claims from the hardened auth
+- **309 is capstone**: Audits everything built in 305-308
 
-### From v32.0 (carried forward)
+### From prior milestones
 
-- **model_reputation.rs** exists with in-memory accuracy tracking — Phase 292 adds persistence
-- **kb_hardening.rs** exists with basic ladder — Phase 291 adds SQLite persistence + Shadow/Canary/Quorum stages
-- **mma_engine::get_all_model_stats()** returns per-model accuracy data — Phase 290 adds structured write path
-- **weekly_report.rs** exists — Phase 294 enhances with model accuracy rankings, KB promotion count, cost savings
-- **EscalationPayload** used for WhatsApp delivery — reuse for enhanced reports in Phase 294
-- **FleetEvent bus** carries all events — evaluation events can ride the bus
-- **Budget tracker** in mma_engine resets daily — weekly accumulation not tracked yet; Phase 290 rollups handle this
-
-### Todos
-
-- [ ] Run `gsd-codebase-mapper` before Phase 290 planning (mandatory for new milestone per standing rules)
-- [ ] Confirm which SQLite database file gets new tables (rc-agent local DB vs racecontrol server DB)
-- [ ] Identify existing `mma_engine` write path to hook EVAL-01 into
-
-### Blockers
-
-None currently.
+- **Existing auth**: PSK + JWT in `crates/racecontrol/src/auth/`
+- **activity_log.rs**: Exists with structured logging — Phase 307 adds hash chain
+- **security-check.js**: 31 static assertions (SEC-GATE-01)
+- **gate-check.sh**: Deploy gate framework
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:13:08.699Z
-Stopped at: Completed 294-01-PLAN.md (Intelligence Report v2)
-Resume file: None
+Last session: 2026-04-01T20:00:00.000Z
+Stopped at: Roadmap complete — `/gsd:autonomous --from 305`

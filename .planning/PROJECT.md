@@ -38,20 +38,28 @@ The pod management stack is fully autonomous: rc-agent runs 5-tier diagnostic en
 
 7 phases (273-279), 38 requirements, 10 new source files (~2,351 lines), 55 commits.
 
-## Current Milestone: v35.0 Structured Retraining & Model Lifecycle
+## Shipped Milestone: v35.0 Structured Retraining & Model Lifecycle (2026-04-01)
 
-**Goal:** Close the continuous learning loop — solutions that work get promoted, models that underperform get demoted, the system gets measurably smarter each week.
+**Delivered:** Continuous learning loop with persistent model evaluation store, KB promotion ladder (Shadow→Canary→Quorum→Hardened in SQLite), model reputation auto-demotion/promotion on 7-day windows, weekly JSONL training data export, and enhanced intelligence report with accuracy rankings and cost savings.
+
+5 phases (290-294), 20 requirements, 10 plans, 6 new Rust modules (~3,500 lines).
+
+## Current Milestone: v38.0 Security Hardening & Operational Maturity
+
+**Goal:** Harden security posture — venue CA with mTLS, JWT rotation, hash-chained audit logs, RBAC, and automated security scanning.
 
 **Target features:**
-- Model Evaluation Store — SQLite table tracking every AI diagnosis (prediction, actual, correct, cost) with weekly rollups
-- Full KB Promotion Ladder — persistent Shadow → Canary → Quorum → Tier 1 promotion with 6-hour cron evaluation
-- Model Reputation + Auto-Demotion — persistent accuracy tracking, 7-day accuracy < 30% = remove, dashboard per-model trends
-- Retrain Data Export — Weekly JSONL in Ollama/Unsloth format, training-ready pipeline
-- Intelligence Report v2 — Weekly WhatsApp with accuracy rankings, KB promotions, cost savings, prediction trends
+- TLS for internal HTTP (self-signed venue CA, mTLS on :8080 server + :8090 agents)
+- WS auth hardening (PSK + per-pod JWT, 24h expiry, 1h pre-refresh rotation, invalid = disconnect + alert)
+- Audit log integrity (append-only SHA-256 hash chain, tamper detection, covers config/deploys/billing/admin)
+- RBAC for admin (cashier/manager/superadmin roles, JWT role claims, every endpoint checks role, admin UI gating)
+- Security audit script (automated scan of ports, TLS, JWT, default creds, chain integrity → scorecard JSON)
 
 **Constraints:**
-- v32.0 built in-memory model_reputation and basic kb_hardening — v35.0 makes them persistent and measurable
-- Existing `mma_engine::get_all_model_stats()` provides accuracy data — no dependency on v34 metrics TSDB
+- Existing PSK + JWT auth stays as foundation — v38 layers on top
+- Tailscale encrypts remote traffic — mTLS is for LAN security (venue WiFi)
+- Admin UI role gating is server-enforced (403 for wrong role, not just UI-hidden)
+- Hash chain covers new activity_log entries — does not retroactively chain existing
 - Budget controls ($5-20/day per node) already enforced — evaluation adds observability, not cost
 - All new tables in existing SQLite databases — no new infrastructure
 
