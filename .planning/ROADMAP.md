@@ -31,7 +31,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 
 ### Phases
 
-- [ ] **Phase 305: TLS for Internal HTTP** — Self-signed venue CA, mTLS on :8080/:8090, Tailscale bypass
+- [x] **Phase 305: TLS for Internal HTTP** — Self-signed venue CA, mTLS on :8080/:8090, Tailscale bypass ✅ (2026-04-01)
 - [ ] **Phase 306: WS Auth Hardening** — Per-pod JWT (24h), auto-rotation, invalid = disconnect + alert
 - [ ] **Phase 307: Audit Log Integrity** — SHA-256 hash chain, tamper detection, verify endpoint
 - [ ] **Phase 308: RBAC for Admin** — cashier/manager/superadmin roles, JWT claims, endpoint enforcement
@@ -41,7 +41,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 305. TLS for Internal HTTP | 0/? | Not started | - |
+| 305. TLS for Internal HTTP | 1/1 | Complete ✅ | 2026-04-01 |
 | 306. WS Auth Hardening | 0/? | Not started | - |
 | 307. Audit Log Integrity | 0/? | Not started | - |
 | 308. RBAC for Admin | 0/? | Not started | - |
