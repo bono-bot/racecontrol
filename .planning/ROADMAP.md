@@ -55,10 +55,10 @@ Plans:
   3. GET /api/v1/metrics/snapshot returns the latest value for every metric in one call
   4. Queries accept a pod filter parameter and return only that pod's data
   5. API auto-selects resolution (raw < 24h, hourly < 7d, daily > 7d) without caller needing to specify
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 286-01: Query, names, and snapshot endpoints with auto-resolution
+- [ ] 286-01-PLAN.md — Three REST endpoints (query, names, snapshot) with auto-resolution and pod filtering
 
 ### Phase 287: Metrics Dashboard
 **Goal**: Staff can visually monitor venue health trends through a browser dashboard
