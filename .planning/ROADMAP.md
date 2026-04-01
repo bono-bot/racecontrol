@@ -157,10 +157,10 @@ Plans:
   3. Changing a cold field (port, path, binary location) is marked as pending-restart and applied on next agent startup
   4. If the server is unreachable at pod boot, the pod loads its last-received local config and operates normally
   5. If the pushed config hash matches the pod's current config hash, the pod skips processing and logs "config unchanged"
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 296-01-PLAN.md -- pod_configs SQLite table, FullConfigPush WS message, store/retrieve/push functions, REST API, wired into Register handler
+- [x] 296-01-PLAN.md -- pod_configs SQLite table, FullConfigPush WS message, store/retrieve/push functions, REST API, wired into Register handler
 - [ ] 296-02-PLAN.md -- Agent FullConfigPush handler: hash dedup, hot/cold field categorization, local persistence, server-config boot fallback
 
 ### Phase 297: Config Editor UI
@@ -217,7 +217,7 @@ Plans:
 | 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
 | 291. Dashboard API Wiring | 1/1 | Complete    | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete    | 2026-04-01 |
-| 296. Server-Pushed Config | 0/2 | Not started | - |
+| 296. Server-Pushed Config | 1/2 | In Progress|  |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
 | 299. Policy Rules Engine | 0/TBD | Not started | - |

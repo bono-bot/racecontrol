@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v34.0
-milestone_name: Time-Series Metrics & Operational Dashboards
+milestone: v36.0
+milestone_name: Config Management & Policy Engine
 status: executing
 stopped_at: Completed 291-01-PLAN.md
-last_updated: "2026-04-01T12:19:58.462Z"
-last_activity: 2026-04-01
+last_updated: "2026-04-01T12:24:57.971Z"
+last_activity: 2026-04-01 -- Phase 296 execution started
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 9
-  completed_plans: 9
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Centralize configuration so every pod runs from server-pushed config, not local TOML files that drift
-**Current focus:** Phase 291 — dashboard-api-wiring
+**Current focus:** Phase 296 — server-pushed-config
 
 ## Current Position
 
-Phase: 291
-Plan: Not started
-Status: Executing Phase 291
-Last activity: 2026-04-01
+Phase: 296 (server-pushed-config) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 296
+Last activity: 2026-04-01 -- Phase 296 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
