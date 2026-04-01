@@ -19,10 +19,10 @@
 
 ## Audit Log Integrity (AUDIT)
 
-- [ ] **AUDIT-01**: Every activity_log entry includes a SHA-256 hash linking to the previous entry (append-only chain)
-- [ ] **AUDIT-02**: Tamper detection: if any entry's previous_hash doesn't match the actual previous entry's hash, alert fires
-- [ ] **AUDIT-03**: Hash chain covers config changes, deploys, billing events, and admin actions
-- [ ] **AUDIT-04**: `GET /api/v1/audit/verify` endpoint returns chain integrity status (valid/broken + first broken entry)
+- [x] **AUDIT-01**: Every activity_log entry includes a SHA-256 hash linking to the previous entry (append-only chain)
+- [x] **AUDIT-02**: Tamper detection: if any entry's previous_hash doesn't match the actual previous entry's hash, alert fires
+- [x] **AUDIT-03**: Hash chain covers config changes, deploys, billing events, and admin actions
+- [x] **AUDIT-04**: `GET /api/v1/audit/verify` endpoint returns chain integrity status (valid/broken + first broken entry)
 
 ## Role-Based Access Control (RBAC)
 
@@ -49,10 +49,10 @@
 | WSAUTH-02 | Phase 306 | Pending |
 | WSAUTH-03 | Phase 306 | Pending |
 | WSAUTH-04 | Phase 306 | Pending |
-| AUDIT-01 | Phase 307 | Pending |
-| AUDIT-02 | Phase 307 | Pending |
-| AUDIT-03 | Phase 307 | Pending |
-| AUDIT-04 | Phase 307 | Pending |
+| AUDIT-01 | Phase 307 | Complete (d5f9b387) |
+| AUDIT-02 | Phase 307 | Complete (d5f9b387) |
+| AUDIT-03 | Phase 307 | Complete (d5f9b387) |
+| AUDIT-04 | Phase 307 | Complete (d5f9b387) |
 | RBAC-01 | Phase 308 | Pending |
 | RBAC-02 | Phase 308 | Pending |
 | RBAC-03 | Phase 308 | Pending |

@@ -3,25 +3,25 @@ gsd_state_version: 1.0
 milestone: v38.0
 milestone_name: Security Hardening & Operational Maturity
 status: executing
-stopped_at: Phase 305 complete — executing 306+307 in parallel
+stopped_at: Phase 307-01 complete (d5f9b387) — audit log hash chain shipped
 last_updated: "2026-04-01T21:30:00.000Z"
-last_activity: 2026-04-01 — Phase 305 TLS complete (4 commits), launching 306+307
+last_activity: 2026-04-01 — Phase 307 audit log SHA-256 hash chain shipped (1 commit, d5f9b387)
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 20
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 40
 ---
 
 ## Current Position
 
-Phase: 306+307 — WS Auth + Audit Chain (parallel)
-Plan: —
-Status: Phase 305 complete, executing 306+307 in parallel
-Last activity: 2026-04-01 — Phase 305 TLS complete
+Phase: 307 (complete), 306 (in progress)
+Plan: 307-01 complete
+Status: Phase 307 Audit Chain complete (commit d5f9b387), Phase 306 WS Auth in progress
+Last activity: 2026-04-01 — Phase 307 audit log SHA-256 hash chain shipped
 
-Progress: [██░░░░░░░░] 20%  (1/5 phases)
+Progress: [████░░░░░░] 40%  (2/5 phases)
 
 ```
 305 (TLS) ──┬──> 306 (WS Auth) ──> 308 (RBAC) ──┐
@@ -36,6 +36,12 @@ Progress: [██░░░░░░░░] 20%  (1/5 phases)
 **Requirements:** .planning/REQUIREMENTS.md (19 requirements, 5 categories)
 
 ## Accumulated Context
+
+## Phase 307 Decisions
+
+1. **Mutex-serialized hash chain**: `std::sync::Mutex<String>` in AppState serializes writes without blocking callers (hold only for hash computation, release before .await)
+2. **compute_activity_hash is pub**: Allows audit_verify endpoint to recompute without formula duplication
+3. **GENESIS seed**: First hashed entry uses `previous_hash = "GENESIS"` as chain anchor
 
 ### Key Decisions
 
