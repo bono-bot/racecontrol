@@ -233,6 +233,10 @@ pub struct AppState {
     /// Phase 274: Tier 5 WhatsApp escalation handler.
     /// Receives EscalationRequest from pods, deduplicates, sends via Bono relay.
     pub whatsapp_escalation: std::sync::Arc<crate::whatsapp_escalation::WhatsAppEscalation>,
+    /// Phase 307: Last hash in the pod_activity_log SHA-256 chain.
+    /// Initialized from DB at startup (most recent entry_hash), or "GENESIS" if no hashed entries.
+    /// Held briefly inside tokio::spawn to serialize hash chain writes. Never held across .await.
+    pub audit_last_hash: std::sync::Mutex<String>,
 }
 
 impl AppState {
@@ -317,6 +321,8 @@ impl AppState {
             telemetry_db: None,        // Initialized after AppState::new() in main.rs
             lease_manager: std::sync::Arc::new(LeaseManager::new()),
             whatsapp_escalation: whatsapp_escalation_handler,
+            // Phase 307: Initialized to GENESIS; main.rs loads actual last hash from DB after init_db()
+            audit_last_hash: std::sync::Mutex::new("GENESIS".to_string()),
         }
     }
 

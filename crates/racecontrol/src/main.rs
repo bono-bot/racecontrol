@@ -693,6 +693,29 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Phase 307: Load last audit chain hash from DB so hash chain continues correctly after restart.
+    // If no hashed entries exist yet (fresh DB or pre-migration), stays at GENESIS.
+    {
+        let db = Arc::get_mut(&mut state).expect("no other Arc refs yet").db.clone();
+        let last_hash: Option<String> = sqlx::query_scalar(
+            "SELECT entry_hash FROM pod_activity_log WHERE entry_hash IS NOT NULL ORDER BY timestamp DESC LIMIT 1"
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(hash) = last_hash {
+            let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+            if let Ok(mut guard) = inner.audit_last_hash.lock() {
+                *guard = hash;
+            }
+            tracing::info!("Phase 307: Audit hash chain resumed from existing entry");
+        } else {
+            tracing::info!("Phase 307: Audit hash chain starting from GENESIS");
+        }
+    }
+
     // Auto-seed all 8 pods on startup so kiosk is never left with empty pod list
     // after server restart with fresh DB (BUG-01)
     seed_pods_on_startup(&state).await;
