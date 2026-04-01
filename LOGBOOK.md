@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 12:33 IST | James | 0e38519f | feat: Cache-Control middleware for Axum — no-cache on HTML/API, immutable on _next/static. Fixes stale browser cache after deploys on venue LAN (POS, kiosk, portal). |
 | 2026-04-01 12:30 IST | James | 8df7b935 | feat(v32): CGP + Plan Manager + MMA integration for Meshed Intelligence Tier 3/4. New: cognitive_gate.rs (8 gates), diagnosis_planner.rs (step tracking). Wraps Tier 3/4 with think→plan→execute→verify. 9/9 tests. |
 | 2026-04-01 12:30 IST | James | f67f0c86 | fix(v32): MMA 5-model audit (GPT-5.4+Opus+Gemini+Sonnet+Nemotron). 4 fixes: F1 partial audit on Phase A fail, F2 remove raw SQL, F3 log send errors, F4 specialized hypotheses for 9 triggers. |
 | 2026-04-01 12:30 IST | James | 1e58082a | fix(v32): MMA VERIFY (3-model adversarial). PosWifiDegraded 3rd hypothesis for consistency. Score: F1=4.05, F2=4.50, F3=3.75, F4=3.85. |
