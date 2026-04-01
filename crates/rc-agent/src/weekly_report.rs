@@ -81,7 +81,8 @@ pub fn spawn(
 
 /// Compute seconds until next Sunday 00:00:00 IST.
 /// IST = UTC + 5:30 (computed manually per CLAUDE.md — NEVER use TZ=Asia/Kolkata).
-fn seconds_until_next_sunday_midnight_ist() -> u64 {
+/// Public so eval_rollup.rs can reuse this calculation (no duplication).
+pub fn seconds_until_next_sunday_midnight_ist() -> u64 {
     let ist = FixedOffset::east_opt(5 * 3600 + 30 * 60)
         .expect("IST offset is always valid");
     let now_ist = Utc::now().with_timezone(&ist);
