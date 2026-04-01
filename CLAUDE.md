@@ -352,13 +352,17 @@ _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cy
 cd ~/racingpoint/racecontrol
 export OPENROUTER_KEY="..."  # NEVER hardcode key here — OpenRouter auto-revokes keys found in LLM prompts. Get key from dashboard: openrouter.ai/settings/keys
 
-# Codebase audit (7 batches):
-MODEL="deepseek/deepseek-r1-0528" node scripts/multi-model-audit.js &
-MODEL="deepseek/deepseek-chat-v3-0324" node scripts/multi-model-audit.js &
-MODEL="qwen/qwen3-235b-a22b-2507" node scripts/multi-model-audit.js &
-MODEL="google/gemini-2.5-pro-preview-03-25" node scripts/multi-model-audit.js &
-MODEL="xiaomi/mimo-v2-pro" node scripts/multi-model-audit.js &
-wait
+# v3.0 consensus mode (DEFAULT — 5 models per batch, consensus voting, adversarial verify):
+node scripts/multi-model-audit.js
+
+# Dry run (validate model selection, no API calls):
+DRY_RUN=1 node scripts/multi-model-audit.js
+
+# Legacy single-model mode (backward compatible):
+MODEL="deepseek/deepseek-r1-0528" node scripts/multi-model-audit.js
+
+# Budget override (default $5):
+MMA_SESSION_BUDGET=10 node scripts/multi-model-audit.js
 
 # Custom diagnostic prompt (curl):
 curl -s -m 120 https://openrouter.ai/api/v1/chat/completions \
