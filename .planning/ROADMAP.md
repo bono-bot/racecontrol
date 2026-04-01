@@ -113,10 +113,10 @@ Plans:
   2. Dashboard page issues HTTP requests to /api/v1/metrics/names, /query, /snapshot (visible in network tab)
   3. TypeScript interfaces match Rust response structs (name not metric_name, pod not pod_id, updated_at as number)
   4. Dashboard displays real data when server has metrics_samples rows
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 291-01-PLAN.md — TSDB API client + metrics dashboard page + sidebar nav link
+- [x] 291-01-PLAN.md — TSDB API client + metrics dashboard page + sidebar nav link
 
 ### 📋 v36.0 Config Management & Policy Engine (Planned)
 
@@ -208,8 +208,8 @@ Plans:
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
 | 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
-| 291. Dashboard API Wiring | 0/1 | Not started | - |
-| 295. Config Schema & Validation | 1/1 | Complete   | 2026-04-01 |
+| 291. Dashboard API Wiring | 1/1 | Complete   | 2026-04-01 |
+| 295. Config Schema & Validation | 1/1 | Complete    | 2026-04-01 |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
