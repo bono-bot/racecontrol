@@ -57,7 +57,10 @@ Plans:
   2. The same incident ID is suppressed for 30 minutes after first alert -- no duplicate messages for the same ongoing issue
   3. If WhatsApp send fails (Evolution API down, VPS unreachable), the alert falls back to comms-link INBOX.md entry within 60 seconds
   4. WhatsApp messages are routed through Bono VPS Evolution API (POST /message/sendText/:instance) with apikey auth -- never direct from venue
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 274-01-PLAN.md — Pod-side Tier 5 escalation via WS (EscalationPayload + tier5 wiring)
+- [ ] 274-02-PLAN.md — Server-side WhatsApp sender + dedup + fallback
 **UI hint**: no
 
 ### Phase 275: Autonomous Game Launch Fix
@@ -176,7 +179,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 273. Event Pipeline & Safety Foundation | 3/4 | In Progress|  |
-| 274. WhatsApp Escalation | 0/TBD | Not started | - |
+| 274. WhatsApp Escalation | 0/2 | Not started | - |
 | 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
 | 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |
 | 277. Revenue Protection & Model Reputation | 0/TBD | Not started | - |

@@ -143,6 +143,22 @@ _Why: v18.0 shipped with 8 integration bugs that 135 unit tests missed. Multi-mo
 Any change that touches lock screen, Edge kiosk, overlay, blanking, or browser launch MUST include a visual check — ask the user "are the screens showing correctly?" BEFORE marking shipped. Build IDs, fleet health, and cargo tests cannot catch flicker, misalignment, or rendering issues. Do NOT declare "PASS" from terminal output alone when the change affects what customers see.
 _Why: v17.0 browser watchdog caused screen flicker on all pods (kill+relaunch cycle every 30s, plus location.reload() every 5s). Four deploy rounds declared "fixed" without anyone looking at the screens. The flicker was obvious to anyone in the venue._
 
+### Subagent Gates (MANDATORY per phase type)
+
+| Phase Type | Required Agent | Artifact | When |
+|------------|---------------|----------|------|
+| **Any frontend** (UI, dashboard, kiosk, billing page) | `gsd-ui-researcher` | UI-SPEC.md | Before planning |
+| **Any frontend** | `gsd-ui-auditor` | UI-REVIEW.md | After execution, before ship |
+| **Multi-phase milestone** (3+ phases) | `gsd-integration-checker` | Integration check | Before milestone ship |
+| **Any phase with business logic** (billing, sessions, auth, games) | `gsd-nyquist-auditor` | Test coverage | After execution |
+| **New milestone** | `gsd-codebase-mapper` | Refresh codebase/ | Before first phase plan |
+| **Any phase** (optional but recommended) | `feature-dev:code-reviewer` | Review findings | Before MMA audit |
+
+**No frontend phase ships without UI-SPEC.md AND UI-REVIEW.md.**
+**No milestone ships without integration check.**
+**No business logic phase ships without nyquist test audit.**
+_Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits. Agents existed but were never invoked. This gate ensures they run every time._
+
 ### Deploy
 
 - **Remote deploy sequence (rc-agent):** (1) `cargo build --release`, (2) copy to deploy-staging (both `rc-agent.exe` and `rc-agent-<hash>.exe`), (3) start HTTP server on :18889, (4) exec download on pod: `curl.exe -s -o C:\RacingPoint\rc-agent-<hash>.exe http://192.168.31.27:18889/rc-agent-<hash>.exe`, (5) kill rc-agent via rc-sentry — RCWatchdog restarts via `start-rcagent.bat` which swaps `rc-agent-<hash>.exe` → `rc-agent.exe` (old binary renamed to `rc-agent-prev.exe` for rollback). (6) verify build_id on `/health`.
