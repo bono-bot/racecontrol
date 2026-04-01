@@ -1,41 +1,26 @@
-# Roadmap: v34.0 Time-Series Metrics & Operational Dashboards
+# Roadmap: v36.0 Config Management & Policy Engine
 
-## Milestone Goal
+## Overview
 
-Make autonomous action loops observable and queryable with time-series depth -- answer "what happened last Tuesday at 8pm" without grepping JSONL logs. SQLite TSDB with rollups, query API, Next.js dashboard, Prometheus export, and WhatsApp threshold alerts.
+Centralize configuration so every pod runs from server-pushed config instead of local TOML files that drift. Phases build from schema foundation through push infrastructure, editor UI, preset library, and an automated policy rules engine.
+
+## Milestones
+
+- ✅ **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-289 (shipped 2026-04-01)
+- 📋 **v36.0 Config Management & Policy Engine** - Phases 295-299 (planned)
 
 ## Phases
 
-**Phase Numbering:** Continues from v33.0 (ended at Phase 281). Start at 285 (per backlog allocation).
-
-**Parallelism Map:**
-- Phase 285 (Ring Buffer) runs FIRST (foundation)
-- Phase 286 (Query API) depends on 285
-- Phase 287 (Dashboard) depends on 286
-- Phase 288 (Prometheus) depends on 286 (can parallel with 287)
-- Phase 289 (Alerts) depends on 285 (can parallel with 286)
-
-```
-285 ──> 286 ──┬──> 287 (Dashboard)
-              └──> 288 (Prometheus)
-285 ──> 289 (Alerts)
-```
-
-- [x] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion (completed 2026-04-01)
-- [x] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution (completed 2026-04-01)
-- [x] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh (completed 2026-04-01)
-- [x] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility (completed 2026-04-01)
-- [x] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup (completed 2026-04-01)
-
-## Phase Details
+<details>
+<summary>✅ v34.0 Time-Series Metrics & Operational Dashboards (Phases 285-289) - SHIPPED 2026-04-01</summary>
 
 ### Phase 285: Metrics Ring Buffer
-**Goal**: Server persistently stores time-series metric data with automatic rollups and bounded storage
+**Goal**: Server efficiently stores and retains time-series metric data from all pods
 **Depends on**: Nothing (first phase)
-**Requirements**: TSDB-01, TSDB-02, TSDB-03, TSDB-04, TSDB-05, TSDB-06, TSDB-07
+**Requirements**: TSDB-01, TSDB-02, TSDB-03, TSDB-04, TSDB-05
 **Success Criteria** (what must be TRUE):
-  1. Server records CPU, GPU temp, FPS, billing revenue, WS connections, pod health score, and game session count at 1-minute resolution into SQLite
-  2. Raw samples older than 7 days are automatically purged without manual intervention
+  1. Metrics from all pods are stored in SQLite with timestamps and pod identifiers
+  2. Raw samples are retained for 7 days, hourly rollups for 90 days
   3. Hourly and daily rollups (min/max/avg/count) exist and are retained for 90 days
   4. Metric ingestion does not introduce observable latency on the main server event loop (async/batched writes)
   5. Storage is bounded -- disk usage does not grow indefinitely regardless of uptime duration
@@ -58,7 +43,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 286-01-PLAN.md — Three REST endpoints (query, names, snapshot) with auto-resolution and pod filtering
+- [x] 286-01-PLAN.md -- Three REST endpoints (query, names, snapshot) with auto-resolution and pod filtering
 
 ### Phase 287: Metrics Dashboard
 **Goal**: Staff can visually monitor venue health trends through a browser dashboard
@@ -74,7 +59,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [x] 287-01-PLAN.md — Stub API client + metrics page with sparkline charts, pod selector, time range picker, headline numbers, 30s auto-refresh
+- [x] 287-01-PLAN.md -- Stub API client + metrics page with sparkline charts, pod selector, time range picker, headline numbers, 30s auto-refresh
 
 ### Phase 288: Prometheus Export
 **Goal**: Metrics are available in Prometheus exposition format for future monitoring tool compatibility
@@ -86,7 +71,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 288-01-PLAN.md — Prometheus exposition format handler + public route registration (completed 2026-04-01)
+- [x] 288-01-PLAN.md -- Prometheus exposition format handler + public route registration (completed 2026-04-01)
 
 ### Phase 289: Metric Alert Thresholds
 **Goal**: Operators receive WhatsApp alerts when metrics cross configured thresholds
@@ -101,18 +86,99 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 289-01-PLAN.md — Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
-- [x] 289-02-PLAN.md — Wire metric_alert_task into main.rs startup
+- [x] 289-01-PLAN.md -- Config structs, evaluation engine with dedup, WhatsApp firing, unit tests
+- [x] 289-02-PLAN.md -- Wire metric_alert_task into main.rs startup
+
+</details>
+
+### 📋 v36.0 Config Management & Policy Engine (Planned)
+
+**Milestone Goal:** Every pod runs from server-pushed config. No local TOML drift. Staff can edit, push, and automate config changes via admin UI and policy rules.
+
+- [ ] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning
+- [ ] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication
+- [ ] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail
+- [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
+- [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
+
+## Phase Details
+
+### Phase 295: Config Schema & Validation
+**Goal**: A typed, versioned AgentConfig struct is the single source of truth for all pod-level configuration
+**Depends on**: Nothing (first phase of milestone)
+**Requirements**: SCHEMA-01, SCHEMA-02, SCHEMA-03, SCHEMA-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent and racecontrol both import AgentConfig from rc-common with no duplication
+  2. A config with an unknown field still loads with defaults and emits a warning log -- it does not crash the agent
+  3. A config with a mismatched type on a known field falls back to the field default and logs a warning
+  4. AgentConfig carries a schema_version field that old agents ignore when encountering a newer version
+**Plans**: TBD
+
+### Phase 296: Server-Pushed Config
+**Goal**: The server is the authoritative source of pod config; pods receive and persist config over WebSocket
+**Depends on**: Phase 295
+**Requirements**: PUSH-01, PUSH-02, PUSH-03, PUSH-04, PUSH-05, PUSH-06
+**Success Criteria** (what must be TRUE):
+  1. On WebSocket connect, every pod receives its current config from the server within 5 seconds
+  2. Changing a hot-reload field (threshold, flag, budget limit) on the server takes effect on the pod within one WS round-trip -- no agent restart needed
+  3. Changing a cold field (port, path, binary location) is marked as pending-restart and applied on next agent startup
+  4. If the server is unreachable at pod boot, the pod loads its last-received local config and operates normally
+  5. If the pushed config hash matches the pod's current config hash, the pod skips processing and logs "config unchanged"
+**Plans**: TBD
+
+### Phase 297: Config Editor UI
+**Goal**: Staff can view, edit, and push pod configuration from the admin app without touching files
+**Depends on**: Phase 296
+**Requirements**: EDITOR-01, EDITOR-02, EDITOR-03, EDITOR-04, EDITOR-05, EDITOR-06
+**Success Criteria** (what must be TRUE):
+  1. Admin app /config page lists all pods with their current config status (in-sync, pending-restart, unknown)
+  2. Staff can open a form editor for any pod, change fields, and see a diff of old vs new values before pushing
+  3. Staff can push the updated config to a single pod with one click and the pod's status updates within 10 seconds
+  4. Staff can push the current config to all pods simultaneously with one bulk-push action
+  5. Every config change is recorded in the audit log with staff identity, timestamp, and the changed fields
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 298: Game Preset Library
+**Goal**: Game presets are server-managed, pushed to pods, and flagged when their launch reliability is poor
+**Depends on**: Phase 296
+**Requirements**: PRESET-01, PRESET-02, PRESET-03, PRESET-04
+**Success Criteria** (what must be TRUE):
+  1. Staff can create and store named car/track/session presets in the admin app tied to a specific game
+  2. On pod connect, all presets are delivered via the config channel alongside pod config
+  3. Each preset displays a reliability score in the kiosk and admin UI based on historical launch success/failure data
+  4. Presets with a reliability score below the configured threshold are visually flagged as unreliable before staff selects them
+**Plans**: TBD
+
+### Phase 299: Policy Rules Engine
+**Goal**: Staff can define automated IF/THEN rules that respond to live metrics without manual intervention
+**Depends on**: Phase 296
+**Requirements**: POLICY-01, POLICY-02, POLICY-03, POLICY-04, POLICY-05
+**Success Criteria** (what must be TRUE):
+  1. Staff can create a rule in the admin UI with a metric condition (e.g., gpu_temp > 85) and an action (alert, config change, feature flag toggle, budget adjust)
+  2. The rule engine evaluates all active rules periodically against live metrics and triggers matching actions automatically
+  3. Staff can view a log of rule evaluations showing which rules fired, when, and what action was taken
+  4. Staff can edit or delete any rule from the admin UI and the change takes effect on the next evaluation cycle
+  5. Rules that have never fired are distinguishable from rules that fired recently in the evaluation log
+**Plans**: TBD
+**UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-285 -> 286 + 289 (parallel) -> 287 + 288 (parallel)
+295 -> 296 -> 297
+296 -> 298
+296 -> 299
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 285. Metrics Ring Buffer | 2/2 | Complete    | 2026-04-01 |
-| 286. Metrics Query API | 1/1 | Complete    | 2026-04-01 |
-| 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
-| 288. Prometheus Export | 1/1 | Complete    | 2026-04-01 |
-| 289. Metric Alert Thresholds | 2/2 | Complete    | 2026-04-01 |
+| 285. Metrics Ring Buffer | 2/2 | Complete | 2026-04-01 |
+| 286. Metrics Query API | 1/1 | Complete | 2026-04-01 |
+| 287. Metrics Dashboard | 1/1 | Complete | 2026-04-01 |
+| 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
+| 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
+| 295. Config Schema & Validation | 0/TBD | Not started | - |
+| 296. Server-Pushed Config | 0/TBD | Not started | - |
+| 297. Config Editor UI | 0/TBD | Not started | - |
+| 298. Game Preset Library | 0/TBD | Not started | - |
+| 299. Policy Rules Engine | 0/TBD | Not started | - |
