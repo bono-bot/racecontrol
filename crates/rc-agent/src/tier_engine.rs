@@ -907,6 +907,24 @@ async fn run_staff_diagnosis(
         };
     }
 
+    // ── Tier 0: Hardened rules ($0 cost — check before giving up) ───────────────
+    let t0 = tier0_hardened_rule(&event);
+    if let TierResult::Fixed { tier, ref action } = t0 {
+        tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request resolved by Tier 0 hardened rule: {}", action);
+        return StaffDiagnosticResult {
+            correlation_id: req.correlation_id.clone(),
+            tier,
+            outcome: "fixed".to_string(),
+            root_cause: action.clone(),
+            fix_action: action.clone(),
+            fix_type: "hardened_rule".to_string(),
+            confidence: 1.0,
+            fix_applied: true,
+            problem_hash: compute_problem_hash(&req.category),
+            summary: format!("Tier 0 hardened rule: {}", action),
+        };
+    }
+
     // Tier 1+2 didn't resolve — return recommendation
     tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request: Tier 1+2 did not resolve — recommending manual action");
     StaffDiagnosticResult {
@@ -1219,6 +1237,12 @@ async fn run_tiers(
     if is_periodic_only {
         tracing::debug!(target: LOG_TARGET, "Periodic scan complete — no anomaly, skipping model tiers");
         return TierResult::NotApplicable { tier: 1 };
+    }
+
+    // ── Tier 0: Hardened Rules ($0 cost — runs before any model tier) ──────────
+    let t0 = tier0_hardened_rule(event);
+    if matches!(t0, TierResult::Fixed { .. }) {
+        return t0;
     }
 
     // ── Q1-Q4: MMA-First Protocol decision gate ──
@@ -2232,6 +2256,60 @@ fn tier2_kb_lookup(event: &DiagnosticEvent) -> TierResult {
     }
 }
 
+// ─── Tier 0: Hardened Rule Lookup ($0 cost — KBPP-05) ────────────────────────
+
+/// Check the hardened_rules table for a deterministic match.
+/// Returns Fixed if a rule matches — NO model call is made ($0 cost).
+/// Runs BEFORE all model tiers (Tier 3, 4, 5) in the autonomous flow.
+fn tier0_hardened_rule(event: &DiagnosticEvent) -> TierResult {
+    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+
+    let kb = match KnowledgeBase::open(KB_PATH) {
+        Ok(kb) => kb,
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, tier = 0u8, error = %e, "KB unavailable — skipping Tier 0 hardened");
+            return TierResult::NotApplicable { tier: 0 };
+        }
+    };
+
+    let rules = match kb.get_hardened_rules() {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, tier = 0u8, error = %e, "Failed to load hardened rules");
+            return TierResult::NotApplicable { tier: 0 };
+        }
+    };
+
+    let matcher_key = format!("problem_key:{}", problem_key);
+    for rule in &rules {
+        if rule.matchers.iter().any(|m| m == &matcher_key || m.starts_with(&format!("problem_key:{}", problem_key))) {
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = 0u8,
+                problem_key = %problem_key,
+                confidence = rule.confidence,
+                action = %rule.action,
+                provenance = %rule.provenance,
+                "Tier 0 hardened rule match — $0 cost",
+            );
+            return TierResult::Fixed {
+                tier: 0,
+                action: format!(
+                    "Tier 0 hardened ({:.0}%): {} [{}]",
+                    rule.confidence * 100.0,
+                    rule.action,
+                    rule.provenance
+                ),
+            };
+        }
+    }
+
+    tracing::debug!(target: LOG_TARGET, tier = 0u8, problem_key = %problem_key, "No hardened rule match");
+    TierResult::NotApplicable { tier: 0 }
+}
+
 // ─── Tier 3: Single Model (DIAG-04) ──────────────────────────────────────────
 
 async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
@@ -2510,5 +2588,83 @@ async fn tier5_human_escalation(
     TierResult::FailedToFix {
         tier: 5,
         reason: format!("Escalated to human via WhatsApp (incident {})", incident_id),
+    }
+}
+
+// ─── Tier 0 Tests ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tier0_tests {
+    use super::*;
+    use crate::knowledge_base::HardenedRule;
+
+    fn make_rule(problem_key: &str, confidence: f64) -> HardenedRule {
+        HardenedRule {
+            problem_key: problem_key.to_string(),
+            matchers: vec![format!("problem_key:{}", problem_key)],
+            action: format!("fix_{}", problem_key),
+            verifier: "kb_verify:abc".to_string(),
+            ttl_secs: 86400,
+            confidence,
+            provenance: "test provenance".to_string(),
+        }
+    }
+
+    /// Test helper that accepts explicit rule list (avoids SQLite dependency in unit tests)
+    fn tier0_hardened_rule_matches(problem_key: &str, rules: &[HardenedRule]) -> TierResult {
+        let matcher_key = format!("problem_key:{}", problem_key);
+        for rule in rules {
+            if rule.matchers.iter().any(|m| m == &matcher_key) {
+                return TierResult::Fixed {
+                    tier: 0,
+                    action: format!(
+                        "Tier 0 hardened ({:.0}%): {} [{}]",
+                        rule.confidence * 100.0,
+                        rule.action,
+                        rule.provenance
+                    ),
+                };
+            }
+        }
+        TierResult::NotApplicable { tier: 0 }
+    }
+
+    // Test 1: matching rule returns Fixed
+    #[test]
+    fn test_tier0_matching_rule_returns_fixed() {
+        let rules = vec![make_rule("game_crash", 0.95)];
+        let result = tier0_hardened_rule_matches("game_crash", &rules);
+        assert!(matches!(result, TierResult::Fixed { tier: 0, .. }), "should return Fixed for match");
+        if let TierResult::Fixed { action, .. } = result {
+            assert!(action.contains("Tier 0 hardened"), "action must contain 'Tier 0 hardened'");
+            assert!(action.contains("95%"), "action must contain confidence");
+        }
+    }
+
+    // Test 2: no matching rule returns NotApplicable
+    #[test]
+    fn test_tier0_no_match_returns_not_applicable() {
+        let rules = vec![make_rule("game_crash", 0.95)];
+        let result = tier0_hardened_rule_matches("network_error", &rules);
+        assert!(matches!(result, TierResult::NotApplicable { tier: 0 }), "should return NotApplicable for miss");
+    }
+
+    // Test 3: empty rules returns NotApplicable
+    #[test]
+    fn test_tier0_empty_rules_returns_not_applicable() {
+        let result = tier0_hardened_rule_matches("any_key", &[]);
+        assert!(matches!(result, TierResult::NotApplicable { tier: 0 }));
+    }
+
+    // Test 4: Fixed action contains confidence percentage
+    #[test]
+    fn test_tier0_fixed_action_contains_confidence() {
+        let rules = vec![make_rule("test_key", 0.87)];
+        let result = tier0_hardened_rule_matches("test_key", &rules);
+        if let TierResult::Fixed { action, .. } = result {
+            assert!(action.contains("87%"), "action must contain rounded confidence: {}", action);
+        } else {
+            panic!("Expected Fixed result");
+        }
     }
 }
