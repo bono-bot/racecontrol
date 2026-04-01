@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::metrics;
+use super::metrics_prometheus;
 use super::metrics_query;
 use super::survival;
 use crate::ac_server;
@@ -153,6 +154,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/queue/{id}/leave", post(queue_leave_handler))
         // v29.0 Phase 34: Pod availability for kiosk maintenance gate
         .route("/pods/{id}/availability", get(pod_availability_handler))
+        // Phase 288: Prometheus exposition format (PROM-01, PROM-02) — public, read-only metrics
+        .route("/metrics/prometheus", get(metrics_prometheus::prometheus_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
