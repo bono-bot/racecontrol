@@ -20,13 +20,13 @@ Close all action loops in Meshed Intelligence so the venue self-heals end-to-end
               └──> 277 (Rev+Rep) ─────┘
 ```
 
-- [ ] **Phase 273: Event Pipeline & Safety Foundation** - Event bus, proactive pipeline, blast radius limiter, circuit breakers, idempotency
-- [ ] **Phase 274: WhatsApp Escalation** - Tier 5 WhatsApp alerts via Bono VPS Evolution API with dedup and fallback
-- [ ] **Phase 275: Autonomous Game Launch Fix** - Game launch failure -> diagnosis -> fix -> retry -> KB encode -> fleet cascade
-- [ ] **Phase 276: Predictive Alerts & Experience Scoring** - Predictive alerts fed into tier engine + per-pod experience scoring with auto-flag/remove
-- [ ] **Phase 277: Revenue Protection & Model Reputation** - Billing/game mismatch detection + model accuracy auto-demotion/promotion
-- [ ] **Phase 278: KB Hardening Pipeline** - Promotion ladder: Observed -> Shadow -> Canary -> Quorum -> Deterministic Rule
-- [ ] **Phase 279: Weekly Report & Integration Audit** - Weekly KPI report to Uday via WhatsApp + full MMA audit of v32.0
+- [x] **Phase 273: Event Pipeline & Safety Foundation** - Event bus, proactive pipeline, blast radius limiter, circuit breakers, idempotency
+- [x] **Phase 274: WhatsApp Escalation** - Tier 5 WhatsApp alerts via Bono VPS Evolution API with dedup and fallback
+- [x] **Phase 275: Autonomous Game Launch Fix** - Game launch failure -> diagnosis -> fix -> retry -> KB encode -> fleet cascade
+- [x] **Phase 276: Predictive Alerts & Experience Scoring** - Predictive alerts fed into tier engine + per-pod experience scoring with auto-flag/remove
+- [x] **Phase 277: Revenue Protection & Model Reputation** - Billing/game mismatch detection + model accuracy auto-demotion/promotion
+- [x] **Phase 278: KB Hardening Pipeline** - Promotion ladder: Observed -> Shadow -> Canary -> Quorum -> Deterministic Rule
+- [x] **Phase 279: Weekly Report & Integration Audit** - Weekly KPI report to Uday via WhatsApp + full MMA audit of v32.0
 
 ## Phase Details
 
@@ -45,7 +45,7 @@ Plans:
 - [x] 273-01-PLAN.md — Event bus & FleetEvent types + broadcast wiring
 - [x] 273-02-PLAN.md — Safety guardrails (blast radius, circuit breaker, idempotency)
 - [x] 273-03-PLAN.md — KB-first gate & solution recording
-- [ ] 273-04-PLAN.md — Immediate fix & 30-second verification loop
+- [x] 273-04-PLAN.md — Immediate fix & 30-second verification loop
 **UI hint**: no
 
 ### Phase 274: WhatsApp Escalation
@@ -59,8 +59,8 @@ Plans:
   4. WhatsApp messages are routed through Bono VPS Evolution API (POST /message/sendText/:instance) with apikey auth -- never direct from venue
 **Plans**: 2 plans
 Plans:
-- [ ] 274-01-PLAN.md — Pod-side Tier 5 escalation via WS (EscalationPayload + tier5 wiring)
-- [ ] 274-02-PLAN.md — Server-side WhatsApp sender + dedup + fallback
+- [x] 274-01-PLAN.md — Pod-side Tier 5 escalation via WS (EscalationPayload + tier5 wiring)
+- [x] 274-02-PLAN.md — Server-side WhatsApp sender + dedup + fallback
 **UI hint**: no
 
 ### Phase 275: Autonomous Game Launch Fix
@@ -72,7 +72,9 @@ Plans:
   2. After a fix is applied, the system auto-retries launch up to 2 times with clean state reset between attempts
   3. If deterministic fix fails after retries, the system escalates to Tier 3/4 MMA for AI diagnosis without further customer wait
   4. Every successful game launch fix is encoded in KB with problem signature, and cascaded via mesh gossip to all pods + POS for fleet pre-immunization
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 275-01-PLAN.md — Autonomous game launch fix with retry + KB + cascade
 **UI hint**: no
 
 ### Phase 276: Predictive Alerts & Experience Scoring
@@ -84,7 +86,9 @@ Plans:
   2. Predictive alerts that lead to successful pre-emptive fixes are recorded in KB with the prediction-to-fix mapping
   3. Each pod has an experience score (0-100) calculated every 5 minutes from diagnostic scan data, visible at /api/v1/fleet/health as experience_score per pod
   4. A pod scoring below 80% is auto-flagged for maintenance in fleet status; a pod scoring below 50% is auto-removed from customer rotation and triggers a WhatsApp alert to Uday
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 276-01-PLAN.md — Predictive alerts to action + experience scoring
 **UI hint**: no
 
 ### Phase 277: Revenue Protection & Model Reputation
@@ -96,7 +100,9 @@ Plans:
   2. A billing session that ends while a game is still active triggers a grace period followed by auto-end of the game process
   3. Pod recovery during peak hours (12-22 IST) is prioritized over off-peak recovery in the tier engine queue
   4. Models with accuracy below 30% across 5+ runs are automatically removed from the MMA roster; models with accuracy above 90% across 10+ runs are promoted to higher priority
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 277-01-PLAN.md — Revenue protection + model reputation auto-demotion
 **UI hint**: no
 
 ### Phase 278: KB Hardening Pipeline
@@ -108,7 +114,9 @@ Plans:
   2. Shadow mode runs the candidate fix alongside the existing pipeline for 1 week or 25 applications (whichever comes first), logging only -- no customer impact
   3. Canary deploys the candidate fix on Pod 8 first and verifies success before any other pod receives it
   4. After 3+ successes across 2+ different pods, the fix is promoted to Tier 1 as a typed Rule struct with matchers, actions, verifier, and TTL -- applied instantly at $0 cost
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 278-01-PLAN.md — KB hardening promotion ladder
 **UI hint**: no
 
 ### Phase 279: Weekly Report & Integration Audit
@@ -120,7 +128,9 @@ Plans:
   2. The report is sent to Uday via WhatsApp as a text summary with an attached chart image (via Evolution API /message/sendMedia)
   3. Unified MMA Protocol audit of all v32.0 code produces zero P1 findings on the final iteration (convergence)
   4. All Unified Protocol v3.1 gates pass: Quality Gate, E2E round-trip, Standing Rules compliance, and MMA consensus
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 279-01-PLAN.md — Weekly fleet intelligence report
 **UI hint**: no
 
 ## Coverage Map
@@ -178,13 +188,13 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 273. Event Pipeline & Safety Foundation | 3/4 | In Progress|  |
-| 274. WhatsApp Escalation | 0/2 | Not started | - |
-| 275. Autonomous Game Launch Fix | 0/TBD | Not started | - |
-| 276. Predictive Alerts & Experience Scoring | 0/TBD | Not started | - |
-| 277. Revenue Protection & Model Reputation | 0/TBD | Not started | - |
-| 278. KB Hardening Pipeline | 0/TBD | Not started | - |
-| 279. Weekly Report & Integration Audit | 0/TBD | Not started | - |
+| 273. Event Pipeline & Safety Foundation | 4/4 | ✓ Complete | 2026-04-01 |
+| 274. WhatsApp Escalation | 2/2 | ✓ Complete | 2026-04-01 |
+| 275. Autonomous Game Launch Fix | 1/1 | ✓ Complete | 2026-04-01 |
+| 276. Predictive Alerts & Experience Scoring | 1/1 | ✓ Complete | 2026-04-01 |
+| 277. Revenue Protection & Model Reputation | 1/1 | ✓ Complete | 2026-04-01 |
+| 278. KB Hardening Pipeline | 1/1 | ✓ Complete | 2026-04-01 |
+| 279. Weekly Report & Integration Audit | 1/1 | ✓ Complete | 2026-04-01 |
 
 ---
 *Roadmap created: 2026-04-01*
