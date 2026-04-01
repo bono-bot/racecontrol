@@ -44,7 +44,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 ### Phases
 
 - [x] **Phase 290: Model Evaluation Store** — SQLite persistence for every AI diagnosis and weekly accuracy rollups (completed 2026-04-01)
-- [ ] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator
+- [x] **Phase 291: KB Promotion Persistence** — Shadow/Canary/Quorum/Hardened ladder survives restarts, 6-hour cron evaluator (completed 2026-04-01)
 - [ ] **Phase 292: Model Reputation Persistence** — Per-model accuracy persisted, auto-demotion and promotion on 7-day windows
 - [x] **Phase 293: Retrain Data Export** — Weekly JSONL export in Ollama/Unsloth training format (completed 2026-04-01)
 - [ ] **Phase 294: Intelligence Report v2** — Weekly WhatsApp with accuracy rankings, KB promotion count, cost savings, prediction trends
@@ -54,7 +54,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
-| 291. KB Promotion Persistence | 0/3 | Planned    |  |
+| 291. KB Promotion Persistence | 3/3 | Complete   | 2026-04-01 |
 | 292. Model Reputation Persistence | 1/2 | In Progress|  |
 | 293. Retrain Data Export | 1/1 | Complete   | 2026-04-01 |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
@@ -89,9 +89,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   5. A Hardened rule is stored as a typed `Rule` struct (matchers, actions, verifier, TTL) and applied at $0 model cost
   6. The 6-hour cron evaluator runs, checks all candidate promotions, and advances or holds each based on their stage criteria
 **Plans**: 3 plans
-- [ ] 291-01-PLAN.md — kb_promotion_store.rs schema + KbPromotionStore wired into kb_hardening.rs for restart persistence + stage gates (KBPP-01, KBPP-02, KBPP-03, KBPP-04)
-- [ ] 291-02-PLAN.md — tier0_hardened_rule() in tier_engine.rs — Hardened rules applied at $0 cost before model tiers (KBPP-05)
-- [ ] 291-03-PLAN.md — 6-hour cron constant + promotion audit logging + integration tests (KBPP-06)
+- [x] 291-01-PLAN.md — kb_promotion_store.rs schema + KbPromotionStore wired into kb_hardening.rs for restart persistence + stage gates (KBPP-01, KBPP-02, KBPP-03, KBPP-04)
+- [x] 291-02-PLAN.md — tier0_hardened_rule() in tier_engine.rs — Hardened rules applied at $0 cost before model tiers (KBPP-05)
+- [x] 291-03-PLAN.md — 6-hour cron constant + promotion audit logging + integration tests (KBPP-06)
 
 ### Phase 292: Model Reputation Persistence
 **Goal**: Per-model accuracy and run counts are durable so the roster self-curates over rolling 7-day windows without requiring a human to intervene
