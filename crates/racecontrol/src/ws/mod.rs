@@ -1592,10 +1592,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "Received experience score report from pod"
                             );
                             let mut fleet = state.pod_fleet_health.write().await;
-                            if let Some(store) = fleet.get_mut(&pod_id) {
-                                store.api_shape.experience_score = Some(total_score);
-                                store.api_shape.experience_status = Some(status);
-                            }
+                            let store = fleet.entry(pod_id).or_default();
+                            store.experience_score = Some(total_score);
+                            store.experience_status = Some(status);
                         }
 
                         _ => { /* catch-all for future protocol additions */ }
