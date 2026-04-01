@@ -17,6 +17,30 @@ pub struct DeployPodStatus {
     pub last_updated: String,
 }
 
+/// Tier 5 escalation payload — sent from pod to server when all AI tiers are exhausted.
+/// Server receives this via AgentMessage::EscalationRequest and delivers via WhatsApp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EscalationPayload {
+    /// Which pod is escalating (e.g. "pod_3")
+    pub pod_id: String,
+    /// UUID for dedup on server side (30-min suppression window)
+    pub incident_id: String,
+    /// Severity level: "critical" or "high"
+    pub severity: String,
+    /// Stringified DiagnosticTrigger (e.g. "GameCrash", "WsDisconnect")
+    pub trigger: String,
+    /// Human-readable issue summary
+    pub summary: String,
+    /// List of AI actions attempted before escalation
+    pub actions_tried: Vec<String>,
+    /// Customer impact description
+    pub impact: String,
+    /// Clickable link to /status or /debug page
+    pub dashboard_url: String,
+    /// IST timestamp string
+    pub timestamp: String,
+}
+
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -70,6 +94,10 @@ pub enum AgentMessage {
 
     /// Agent reports game crash detected (process disappeared unexpectedly)
     GameCrashed { pod_id: String, billing_active: bool },
+
+    /// Tier 5 escalation — all automated AI tiers exhausted, needs human attention.
+    /// Server receives this and sends WhatsApp via Bono relay (Plan 274-02).
+    EscalationRequest(EscalationPayload),
 
     /// Agent warns that an open-world game session is about to expire (GAME-03).
     /// Sent once at T-60s for ForzaHorizon5/Forza sessions with duration enforcement.

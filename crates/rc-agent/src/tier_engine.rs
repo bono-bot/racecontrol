@@ -408,13 +408,14 @@ pub fn spawn(
     staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
+    ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
 ) {
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events + staff requests + FleetEvent broadcast");
 
         // C2: Supervisor wraps the inner loop — restarts on panic
-        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx).await;
+        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx, ws_msg_tx).await;
 
         tracing::warn!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
     });
@@ -428,6 +429,7 @@ async fn run_supervised(
     mut staff_rx: mpsc::Receiver<StaffDiagnosticRequest>,
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
+    ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
 ) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
@@ -491,7 +493,7 @@ async fn run_supervised(
                     }
                 };
 
-                let result = run_tiers(&event, &mut circuit_breaker, &budget).await;
+                let result = run_tiers(&event, &mut circuit_breaker, &budget, &ws_msg_tx, &node_id).await;
 
                 // Record circuit breaker outcome for per-action tracking
                 match &result {
@@ -1068,6 +1070,8 @@ async fn run_tiers(
     event: &DiagnosticEvent,
     circuit_breaker: &mut CircuitBreaker,
     budget: &Arc<RwLock<BudgetTracker>>,
+    ws_msg_tx: &mpsc::Sender<rc_common::protocol::AgentMessage>,
+    pod_id: &str,
 ) -> TierResult {
     // ── Short-circuit: Periodic events with no anomaly don't need model diagnosis ──
     let is_periodic_only = matches!(event.trigger, DiagnosticTrigger::Periodic);
@@ -1217,7 +1221,7 @@ async fn run_tiers(
     // C1: Check circuit breaker before model calls
     if circuit_breaker.is_open() {
         tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping MMA");
-        return tier5_human_escalation(event);
+        return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
     }
 
     // Run the full 4-step Unified MMA Protocol
@@ -1315,7 +1319,7 @@ async fn run_tiers(
                 "MMA Protocol: budget exhausted at step {} (${:.2} spent)",
                 step, spent
             );
-            return tier5_human_escalation(event);
+            return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
         }
 
         crate::mma_engine::MmaProtocolResult::HumanEscalation { backtracks, last_failure, total_cost } => {
@@ -1339,7 +1343,7 @@ async fn run_tiers(
 
         crate::mma_engine::MmaProtocolResult::ApiUnavailable { reason } => {
             tracing::warn!(target: LOG_TARGET, reason = %reason, "MMA Protocol: API unavailable");
-            return tier5_human_escalation(event);
+            return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
         }
     }
 }
@@ -2190,11 +2194,78 @@ async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
 
 // ─── Tier 5: Human Escalation (DIAG-06) ──────────────────────────────────────
 
-fn tier5_human_escalation(event: &DiagnosticEvent) -> TierResult {
+async fn tier5_human_escalation(
+    event: &DiagnosticEvent,
+    ws_msg_tx: &mpsc::Sender<rc_common::protocol::AgentMessage>,
+    pod_id: &str,
+) -> TierResult {
     tracing::warn!(
         target: LOG_TARGET, tier = 5u8, trigger = ?event.trigger,
-        "Tier 5: all automated tiers exhausted — needs human attention"
+        "Tier 5: all automated tiers exhausted — escalating to human via WhatsApp"
     );
-    // TODO Phase 2: Send WhatsApp alert via Evolution API
-    TierResult::Stub { tier: 5, note: "WhatsApp escalation — implement with Evolution API" }
+
+    let incident_id = uuid::Uuid::new_v4().to_string();
+
+    // Derive severity from trigger type
+    let severity = match &event.trigger {
+        DiagnosticTrigger::GameMidSessionCrash { .. }
+        | DiagnosticTrigger::WsDisconnect { .. } => "critical",
+        _ => "high",
+    };
+
+    // Build human-readable summary from trigger + pod state
+    let trigger_str = format!("{:?}", event.trigger);
+    let summary = format!(
+        "{} on {} (build {})",
+        trigger_str, pod_id, event.build_id
+    );
+
+    // Derive impact from pod state
+    let impact = if event.pod_state.billing_active {
+        "Customer session impacted — billing active".to_string()
+    } else {
+        "Pod offline — no active billing".to_string()
+    };
+
+    let payload = rc_common::protocol::EscalationPayload {
+        pod_id: pod_id.to_string(),
+        incident_id: incident_id.clone(),
+        severity: severity.to_string(),
+        trigger: trigger_str,
+        summary,
+        actions_tried: vec![
+            "Tier 1: deterministic rules".to_string(),
+            "Tier 2: KB lookup".to_string(),
+            "Tier 3: single model diagnosis".to_string(),
+            "Tier 4: multi-model MMA".to_string(),
+        ],
+        impact,
+        dashboard_url: "http://192.168.31.23:8080/status".to_string(),
+        timestamp: event.timestamp.clone(),
+    };
+
+    if let Err(e) = ws_msg_tx
+        .send(rc_common::protocol::AgentMessage::EscalationRequest(payload))
+        .await
+    {
+        tracing::error!(
+            target: LOG_TARGET,
+            incident_id = %incident_id,
+            error = %e,
+            "Failed to send EscalationRequest via WS — channel closed"
+        );
+    } else {
+        tracing::warn!(
+            target: LOG_TARGET,
+            incident_id = %incident_id,
+            pod_id = %pod_id,
+            severity = %severity,
+            "EscalationRequest sent to server for WhatsApp delivery"
+        );
+    }
+
+    TierResult::FailedToFix {
+        tier: 5,
+        reason: format!("Escalated to human via WhatsApp (incident {})", incident_id),
+    }
 }
