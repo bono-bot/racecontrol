@@ -391,6 +391,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             sector2_ms: self.sector_times[1],
             sector3_ms: self.sector_times[2],
             lap_id: None, // Phase 251: stamped by event_loop before WS send
+            sim_type: Some(SimType::AssettoCorsaEvo),
         }))
     }
 

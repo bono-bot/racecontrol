@@ -168,7 +168,7 @@ pub async fn authoritative_end_session(
         "UPDATE billing_sessions \
          SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? \
          WHERE id = ? \
-         AND status IN ('active','paused_manual','paused_disconnect','paused_game_pause','waiting_for_game')",
+         AND status IN ('active','paused_manual','paused_disconnect','paused_game_pause','paused_crash_recovery','waiting_for_game')",
     )
     .bind(status_str)
     .bind(driving_seconds as i64)

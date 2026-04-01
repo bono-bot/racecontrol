@@ -187,6 +187,11 @@ pub struct TelemetryFrame {
     pub position: Option<Position3D>,
     pub session_time_ms: u32,
 
+    /// Phase 282: Sim type that produced this telemetry frame.
+    /// Enables per-sim analytics without joins to launch/game tables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sim_type: Option<SimType>,
+
     /// Phase 251: Current lap ID for telemetry sample persistence.
     /// Stamped by rc-agent before sending; None means pre-lap data (discarded by server).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -454,6 +459,13 @@ pub struct GameLaunchInfo {
     /// Takes priority over error_message string parsing for crash classification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
+    /// Phase 282: When the game became playable (PlayableSignal received).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playable_at: Option<DateTime<Utc>>,
+    /// Phase 282: Milliseconds from launch command to PlayableSignal.
+    /// Measures actual customer wait time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_delay_ms: Option<i64>,
 }
 
 /// Structured diagnostics from a game launch attempt.

@@ -36,6 +36,10 @@ pub struct GameTracker {
     /// Maximum auto-relaunch attempts allowed for this combo (INTEL-05).
     /// Default: 2. Set to 3 for combos with < 50% reliability (>= 5 launches).
     pub max_auto_relaunch: u32,
+    /// Phase 282: When the game became playable (PlayableSignal received).
+    pub playable_at: Option<DateTime<Utc>>,
+    /// Phase 282: Milliseconds from launch command to PlayableSignal.
+    pub ready_delay_ms: Option<i64>,
 }
 
 impl GameTracker {
@@ -49,6 +53,8 @@ impl GameTracker {
             error_message: self.error_message.clone(),
             diagnostics: None,
             exit_code: None,
+            playable_at: self.playable_at,
+            ready_delay_ms: self.ready_delay_ms,
         }
     }
 }
@@ -408,6 +414,8 @@ async fn launch_game(
             dynamic_timeout_secs: Some(dynamic_timeout as i64),
             exit_codes: Vec::new(),
             max_auto_relaunch: max_relaunch_cap,
+            playable_at: None,
+            ready_delay_ms: None,
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -694,6 +702,19 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     if info.game_state == GameState::Running && tracker.launched_at.is_none() {
                         tracker.launched_at = Some(Utc::now());
                     }
+                    // Phase 282: Record playable_at and ready_delay_ms when game becomes Running
+                    if info.game_state == GameState::Running && tracker.playable_at.is_none() {
+                        let now = Utc::now();
+                        tracker.playable_at = Some(now);
+                        if let Some(launched) = tracker.launched_at {
+                            let delay = now.signed_duration_since(launched).num_milliseconds();
+                            tracker.ready_delay_ms = Some(delay);
+                            tracing::info!(
+                                "Phase 282: pod {} ready_delay_ms={} (launch→playable)",
+                                tracker.pod_id, delay
+                            );
+                        }
+                    }
                 } else {
                     // Agent reported state for a game we don't have tracked — create tracker
                     games.insert(
@@ -711,6 +732,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             dynamic_timeout_secs: None,
                             exit_codes: Vec::new(),
                             max_auto_relaunch: 2,
+                            playable_at: None,
+                            ready_delay_ms: None,
                         },
                     );
                 }
@@ -785,6 +808,23 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         .send(DashboardEvent::GameStateChanged(info.clone()))
     {
         tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
+    }
+
+    // Phase 282: Update launch_events with ready_delay when game becomes Running
+    if info.game_state == GameState::Running {
+        let ready_delay = {
+            let games = state.game_launcher.active_games.read().await;
+            games.get(pod_id).and_then(|t| t.ready_delay_ms)
+        };
+        if let Some(delay_ms) = ready_delay {
+            let _ = sqlx::query(
+                "UPDATE launch_events SET duration_to_playable_ms = ? WHERE pod_id = ? AND duration_to_playable_ms IS NULL ORDER BY created_at DESC LIMIT 1"
+            )
+            .bind(delay_ms)
+            .bind(pod_id)
+            .execute(&state.db)
+            .await;
+        }
     }
 
     // ─── AC Timer Sync: reset billing timer on initial game start ────
@@ -1024,9 +1064,12 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     let mut timers = state.billing.active_timers.write().await;
                     if let Some(timer) = timers.get_mut(pod_id) {
                         if timer.status == BillingSessionStatus::Active {
-                            timer.status = BillingSessionStatus::PausedGamePause;
+                            timer.status = BillingSessionStatus::PausedCrashRecovery;
+                            timer.pause_reason = crate::billing::PauseReason::CrashRecovery;
+                            timer.last_paused_at = Some(Utc::now());
+                            timer.pause_seconds = 0;
                             tracing::info!(
-                                "LAUNCH-03: Billing paused on pod {} — launch failed after 2 auto-relaunch attempts",
+                                "LAUNCH-03: Billing paused (crash recovery) on pod {} — launch failed after max auto-relaunch attempts",
                                 pod_id
                             );
                         }
@@ -1199,6 +1242,8 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             error_message: Some(timeout_msg.clone()),
             diagnostics: None,
             exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
         };
 
         // Update tracker
@@ -1748,6 +1793,8 @@ mod tests {
             error_message: None,
             diagnostics: None,
             exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1800,6 +1847,8 @@ mod tests {
             error_message: None,
             diagnostics: None,
             exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2022,6 +2071,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2051,6 +2102,8 @@ mod tests {
             error_message: None,
             diagnostics: None,
             exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2114,6 +2167,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2146,6 +2201,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2187,6 +2244,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2222,6 +2281,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2405,6 +2466,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2490,6 +2553,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 
@@ -2525,6 +2590,8 @@ mod tests {
                 dynamic_timeout_secs: None,
                 exit_codes: Vec::new(),
                 max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
             },
         );
 

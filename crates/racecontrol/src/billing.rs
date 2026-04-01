@@ -2005,7 +2005,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
-         WHERE bs.status IN ('active', 'paused_manual', 'paused_disconnect')",
+         WHERE bs.status IN ('active', 'paused_manual', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .fetch_all(&state.db)
     .await?;
@@ -2020,6 +2020,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             "active" => BillingSessionStatus::Active,
             "paused_manual" => BillingSessionStatus::PausedManual,
             "paused_disconnect" => BillingSessionStatus::PausedDisconnect,
+            "paused_crash_recovery" => BillingSessionStatus::PausedCrashRecovery,
             _ => continue,
         };
 
@@ -2220,7 +2221,7 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                 // MMA-ITER1-NEW1: Auto-end zombie sessions (not just flag)
                 // CAS guard prevents double-end if another path already finalized
                 let cas = sqlx::query(
-                    "UPDATE billing_sessions SET status = 'ended_early', end_reason = 'orphan_auto_ended_background', ended_at = datetime('now') WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+                    "UPDATE billing_sessions SET status = 'ended_early', end_reason = 'orphan_auto_ended_background', ended_at = datetime('now') WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
                 )
                 .bind(session_id)
                 .execute(&state.db)
@@ -3339,7 +3340,7 @@ async fn end_billing_session(
             // FSM allows End/EndEarly/Cancel from paused_manual, paused_game_pause, paused_disconnect.
             // Previously only matched 'active' — paused sessions were silently dropped with no refund.
             let cas_result = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
@@ -3528,7 +3529,7 @@ async fn end_billing_session(
     drop(timers);
     // Match all pre-terminal states (consistent with CRITICAL-1 CAS fix)
     let orphan = match sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
+        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
@@ -4717,7 +4718,7 @@ pub async fn handle_agent_shutdown(
 
     // Record shutdown_at timestamp (idempotent — only sets if NULL, since session may already be ended)
     let _ = sqlx::query(
-        "UPDATE billing_sessions SET shutdown_at = datetime('now') WHERE id = ? AND shutdown_at IS NULL AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+        "UPDATE billing_sessions SET shutdown_at = datetime('now') WHERE id = ? AND shutdown_at IS NULL AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')"
     )
     .bind(session_id)
     .execute(&state.db)
@@ -4774,7 +4775,7 @@ pub async fn handle_interrupted_sessions_check(
     let interrupted = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT id, driver_id, COALESCE(driving_seconds, 0) FROM billing_sessions \
          WHERE pod_id = ? AND shutdown_at IS NOT NULL \
-         AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+         AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')"
     )
     .bind(pod_id)
     .fetch_all(&state.db)

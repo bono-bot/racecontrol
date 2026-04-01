@@ -20511,7 +20511,7 @@ async fn apply_billing_discount(
 
     // FATM-10: Enforce discount floor — fetch current price/discount to check cap
     let session_prices = sqlx::query_as::<_, (Option<i64>, i64)>(
-        "SELECT original_price_paise, COALESCE(discount_paise, 0) FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+        "SELECT original_price_paise, COALESCE(discount_paise, 0) FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .bind(&session_id)
     .fetch_optional(&state.db)
@@ -20564,7 +20564,7 @@ async fn apply_billing_discount(
         "UPDATE billing_sessions
          SET discount_paise = COALESCE(discount_paise, 0) + ?,
              discount_reason = ?
-         WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+         WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .bind(effective_discount_paise)
     .bind(&req.reason_code)
