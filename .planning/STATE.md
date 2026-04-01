@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v32.0
-milestone_name: milestone
+milestone: v34.0
+milestone_name: Time-Series Metrics & Operational Dashboards
 status: planning
-stopped_at: Completed 273-03-PLAN.md
-last_updated: "2026-03-31T23:11:47.782Z"
-last_activity: 2026-04-01 — Roadmap created for v32.0
+stopped_at: Milestone initialized, defining requirements
+last_updated: "2026-04-01T10:01:00.000Z"
+last_activity: 2026-04-01 — Milestone v34.0 started
 progress:
-  total_phases: 7
+  total_phases: 0
   completed_phases: 0
-  total_plans: 4
-  completed_plans: 3
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
 ## Current Position
 
-Phase: 273 (1 of 7) — Event Pipeline & Safety Foundation
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-04-01 — Roadmap created for v32.0
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-01 — Milestone v34.0 started
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-**Milestone:** v32.0 Autonomous Meshed Intelligence
-**Core value:** Close all action loops — diagnose -> fix -> permanent fix -> cascade -> never debug same issue twice
-**Roadmap:** .planning/ROADMAP.md (7 phases, 273-279)
-**Requirements:** .planning/REQUIREMENTS.md (38 requirements, 10 categories)
+**Milestone:** v34.0 Time-Series Metrics & Operational Dashboards
+**Core value:** Make autonomous action loops observable and queryable with time-series depth
+**Roadmap:** .planning/ROADMAP.md (pending)
+**Requirements:** .planning/REQUIREMENTS.md (pending)
 
 See: .planning/PROJECT.md (project context)
 See: COGNITIVE-GATE-PROTOCOL.md (operations protocol v3.1)
@@ -37,39 +37,27 @@ See: COGNITIVE-GATE-PROTOCOL.md (operations protocol v3.1)
 
 ### Key Architectural Decisions
 
-- **All modules exist as files** — this milestone wires dead code and closes action loops, not greenfield
-- **v31.0 built the foundation** — MMA engine (4-step convergence), tier engine (5-tier), mesh gossip, KB, budget tracker
-- **KB promotion lifecycle** — Discovered -> Candidate -> Fleet-Verified -> Hardened. "Hardened" needs to generate Tier 1 code
-- **WhatsApp via Bono VPS Evolution API** — not direct from pods
-- **Budget controls enforced** — $5-20/day per node, circuit breaker on OpenRouter failures
-- **Cascade is recursive** — fix -> gossip -> verify -> if config/bat needed, cascade that too
-- **User wants parallel phase execution** — use Unified MMA Protocol to plan and execute multiple phases simultaneously where dependencies allow
-- **Verify after execution** — every phase must be verified before declaring done
+- **SQLite TSDB** — extend existing SQLite WAL pattern, no new database dependencies
+- **Metrics captured** — CPU, GPU temp, FPS, billing revenue, WS connections, pod health
+- **Rollup strategy** — 1-min raw (7 days), hourly rollups (90 days), daily rollups (90 days)
+- **Dashboard in racingpoint-admin** — port 3201, Next.js /metrics page with recharts sparklines
+- **Prometheus export is passive** — exposition format endpoint only, no Prometheus server deployed
+- **Alert thresholds in TOML** — evaluated every 60s against TSDB, fires existing WhatsApp alerter
+- **Extends alert_engine.rs** — not replacing existing alert system, adding TSDB-backed thresholds
+- **Backlog design doc** — .planning/backlog/infrastructure-roadmap-v34-v37.md has full specs
 
-### Roadmap Design Decisions (2026-04-01)
+### From v32.0 (carried forward)
 
-- PRO + SAFE combined into Phase 273 (event bus + safety guardrails are co-dependent)
-- ESC (Phase 274) before parallel group — CX-08, REV alerts, RPT all need WhatsApp
-- Phases 275/276/277 run IN PARALLEL (independent feature domains)
-- KB hardening (278) after foundation + at least one consumer phase (needs real fix data)
-- REP (2 reqs) merged with REV (3 reqs) into Phase 277 to avoid tiny phase
-- RPT + integration audit combined into Phase 279 (both are capstone activities)
-
-### From v31.0 (carried forward)
-
-- **OpenRouter client trait in rc-common only** — trait definition, no reqwest dependency
-- **rc-watchdog has NO tokio runtime** — must create Runtime::new() for async calls
-- **rc-guardian is a separate Linux crate** — for Bono VPS
-- **HEAL_IN_PROGRESS sentinel** defined in rc-common
+- v32.0 paused at Phase 273 (3/4 plans done) — will resume after v34.0
+- v33.0 billing integrity: Phase 280 (deferred billing) + Phase 281 (crash recovery) committed
+- OpenRouter client trait in rc-common only — trait definition, no reqwest dependency
 
 ### Blockers/Concerns
 
-- v31.0 Phase 268 (Unified MMA Protocol) still in progress -- v32.0 event bus is independent but KB uses existing KB from v26.0+
-- WhatsApp Evolution API (ESC) needs Bono VPS connectivity confirmed
-- Pod deploy for v31.0 still pending pendrive -- v32.0 will need same deploy path
+- None — v34.0 is infrastructure-only, no dependencies on v32/v33 shipping first
 
 ## Session Continuity
 
-Last session: 2026-03-31T23:11:47.779Z
-Stopped at: Completed 273-03-PLAN.md
+Last session: 2026-04-01
+Stopped at: Milestone initialized, defining requirements
 Resume file: None
