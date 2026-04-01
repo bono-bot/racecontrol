@@ -66,6 +66,23 @@ pub enum FleetEvent {
         reason: String,
         timestamp: DateTime<Utc>,
     },
+
+    /// Revenue anomaly detected (game without billing, billing without game, etc.)
+    RevenueAnomaly {
+        anomaly_type: String,
+        node_id: String,
+        message: String,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Model reputation changed (promoted or demoted based on accuracy).
+    ModelReputationChange {
+        model_id: String,
+        action: String,
+        accuracy: f64,
+        total_runs: u32,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// An Incident is the work unit sent via mpsc to the tier engine.

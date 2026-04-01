@@ -29,7 +29,7 @@ const LOG_TARGET: &str = "mma-engine";
 // verified outcomes get demoted. Models that identify correct minority opinions
 // get promoted. Stored in-memory (resets on restart — Wave 3 could persist to DB).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex as StdMutex;
 
 /// Global reputation scores — model_id → (correct_count, total_count)
@@ -69,6 +69,69 @@ pub fn get_model_accuracy(model_id: &str) -> f64 {
             if *t > 0 { *c as f64 / *t as f64 } else { 0.5 }
         }))
         .unwrap_or(0.5)
+}
+
+// ─── Model Demotion/Promotion Sets (REP-01/REP-02) ──────────────────────────
+
+/// Models demoted due to low accuracy — skipped during stratified_select().
+static DEMOTED_MODELS: std::sync::OnceLock<StdMutex<HashSet<String>>> = std::sync::OnceLock::new();
+/// Models promoted due to high accuracy — get priority boost in stratified_select().
+static PROMOTED_MODELS: std::sync::OnceLock<StdMutex<HashSet<String>>> = std::sync::OnceLock::new();
+
+fn demoted_store() -> &'static StdMutex<HashSet<String>> {
+    DEMOTED_MODELS.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+fn promoted_store() -> &'static StdMutex<HashSet<String>> {
+    PROMOTED_MODELS.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+/// Get all model stats: (model_id, accuracy, total_runs) for every tracked model.
+pub fn get_all_model_stats() -> Vec<(String, f64, u32)> {
+    reputation_store()
+        .lock()
+        .ok()
+        .map(|store| {
+            store.iter().map(|(id, (correct, total))| {
+                let accuracy = if *total > 0 { *correct as f64 / *total as f64 } else { 0.5 };
+                (id.clone(), accuracy, *total)
+            }).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Demote a model — it will be skipped during stratified_select().
+pub fn demote_model(model_id: &str) {
+    if let Ok(mut set) = demoted_store().lock() {
+        set.insert(model_id.to_string());
+        tracing::warn!(target: LOG_TARGET, model = model_id, "Model added to DEMOTED set");
+    }
+    // Remove from promoted if it was there
+    if let Ok(mut set) = promoted_store().lock() {
+        set.remove(model_id);
+    }
+}
+
+/// Promote a model — it gets priority boost in stratified_select().
+pub fn promote_model(model_id: &str) {
+    if let Ok(mut set) = promoted_store().lock() {
+        set.insert(model_id.to_string());
+        tracing::info!(target: LOG_TARGET, model = model_id, "Model added to PROMOTED set");
+    }
+    // Remove from demoted if it was there
+    if let Ok(mut set) = demoted_store().lock() {
+        set.remove(model_id);
+    }
+}
+
+/// Check if a model is demoted.
+fn is_demoted(model_id: &str) -> bool {
+    demoted_store().lock().ok().map(|s| s.contains(model_id)).unwrap_or(false)
+}
+
+/// Check if a model is promoted.
+fn is_promoted(model_id: &str) -> bool {
+    promoted_store().lock().ok().map(|s| s.contains(model_id)).unwrap_or(false)
 }
 
 /// Maximum iterations per step before escalating to human.
@@ -288,11 +351,17 @@ fn stratified_select(pool: &[RosterModel], iteration: u8) -> Vec<ModelConfig> {
     use rand::thread_rng;
 
     let mut rng = thread_rng();
+
+    // Filter out demoted models (REP-01)
+    let active_pool: Vec<&RosterModel> = pool.iter()
+        .filter(|m| !is_demoted(m.config.id))
+        .collect();
+
     let mut selected: Vec<&RosterModel> = Vec::with_capacity(MODELS_PER_ITERATION);
     let mut used_ids: Vec<&str> = Vec::new();
 
     // Guarantee: 1 reasoner
-    let reasoners: Vec<&RosterModel> = pool.iter()
+    let reasoners: Vec<&&RosterModel> = active_pool.iter()
         .filter(|m| m.role == ModelRole::Reasoner)
         .collect();
     if let Some(r) = reasoners.choose(&mut rng) {
@@ -301,7 +370,7 @@ fn stratified_select(pool: &[RosterModel], iteration: u8) -> Vec<ModelConfig> {
     }
 
     // Guarantee: 1 code expert
-    let coders: Vec<&RosterModel> = pool.iter()
+    let coders: Vec<&&RosterModel> = active_pool.iter()
         .filter(|m| m.role == ModelRole::CodeExpert && !used_ids.contains(&m.config.id))
         .collect();
     if let Some(c) = coders.choose(&mut rng) {
@@ -310,7 +379,7 @@ fn stratified_select(pool: &[RosterModel], iteration: u8) -> Vec<ModelConfig> {
     }
 
     // Guarantee: 1 SRE (or domain specialist if no SRE available)
-    let sres: Vec<&RosterModel> = pool.iter()
+    let sres: Vec<&&RosterModel> = active_pool.iter()
         .filter(|m| (m.role == ModelRole::Sre || m.role == ModelRole::DomainSpecialist)
                      && !used_ids.contains(&m.config.id))
         .collect();
@@ -319,16 +388,18 @@ fn stratified_select(pool: &[RosterModel], iteration: u8) -> Vec<ModelConfig> {
         used_ids.push(s.config.id);
     }
 
-    // Fill remaining slots randomly (considering iteration for diversity)
-    let mut remaining: Vec<&RosterModel> = pool.iter()
+    // Fill remaining slots — promoted models get priority (REP-02)
+    let mut remaining: Vec<&&RosterModel> = active_pool.iter()
         .filter(|m| !used_ids.contains(&m.config.id))
         .collect();
     remaining.shuffle(&mut rng);
 
-    // For iteration > 1, prefer models that weren't primary in iteration 1
-    if iteration > 1 {
-        remaining.sort_by_key(|m| if m.priority == 0 { 1 } else { 0 });
-    }
+    // Sort: promoted models first, then by iteration diversity
+    remaining.sort_by_key(|m| {
+        let promoted_boost = if is_promoted(m.config.id) { 0 } else { 1 };
+        let iteration_boost = if iteration > 1 && m.priority == 0 { 1 } else { 0 };
+        (promoted_boost, iteration_boost)
+    });
 
     for m in remaining {
         if selected.len() >= MODELS_PER_ITERATION {
