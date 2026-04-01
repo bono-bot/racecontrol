@@ -1,6 +1,31 @@
 use serde::Deserialize;
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
+// ─── Metric Alert Types (ALRT-01, ALRT-02) ────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertCondition {
+    Gt,
+    Lt,
+    Eq,
+}
+
+fn default_alert_severity() -> String {
+    "warn".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricAlertRule {
+    pub name: String,
+    pub metric: String,
+    pub condition: AlertCondition,
+    pub threshold: f64,
+    #[serde(default = "default_alert_severity")]
+    pub severity: String,
+    pub message_template: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -39,6 +64,8 @@ pub struct Config {
     pub billing: BillingConfig,
     #[serde(default)]
     pub mma: MmaConfig,
+    #[serde(default)]
+    pub alert_rules: Vec<MetricAlertRule>,
 }
 
 /// Unified MMA Protocol v3.0 config (v31.0+) — 30-day AI training period settings
@@ -823,6 +850,7 @@ impl Config {
             cafe: CafeConfig::default(),
             billing: BillingConfig::default(),
             mma: MmaConfig::default(),
+            alert_rules: Vec::new(),
         }
     }
 
