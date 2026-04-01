@@ -26,6 +26,7 @@ import {
   ToggleLeft,
   Activity,
   Rocket,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { fetchPublic } from "@/lib/api";
@@ -64,6 +65,7 @@ const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/cafe", label: "Cafe Menu", Icon: Coffee },
   { href: "/settings", label: "Settings", Icon: Settings },
   { href: "/flags", label: "Feature Flags", Icon: ToggleLeft },
+  { href: "/policy", label: "Policy Rules", Icon: GitBranch },
   { href: "/ota", label: "OTA Releases", Icon: Rocket },
 ];
 
