@@ -234,6 +234,49 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // ── Phase 285: Security replay protection integration test ────────────
+
+    #[tokio::test]
+    async fn test_replay_protection_e2e() {
+        let store = NonceStore::new();
+        let secret = b"billing-session-secret-key";
+        let session = "sess_replay_test";
+        let body = b"{\"action\":\"end_early\",\"session_id\":\"sess_replay_test\"}";
+
+        // Step 1: Generate nonce for session
+        let nonce1 = store.generate(session).await;
+
+        // Step 2: Compute valid HMAC and verify it passes
+        let hmac1 = compute_hmac(secret, &nonce1, body);
+        assert!(verify_hmac(secret, &nonce1, body, &hmac1), "Valid HMAC must pass");
+
+        // Step 3: Use the nonce (validate_and_rotate) — should succeed and rotate
+        let nonce2 = store.validate_and_rotate(session, &nonce1).await
+            .expect("First use of nonce must succeed");
+        assert_ne!(nonce1, nonce2, "Nonce must rotate after use");
+
+        // Step 4: REPLAY ATTACK — reuse old nonce must fail
+        let replay = store.validate_and_rotate(session, &nonce1).await;
+        assert!(replay.is_err(), "Replayed nonce must be rejected");
+
+        // Step 5: Old HMAC with old nonce must not verify against new nonce
+        assert!(!verify_hmac(secret, &nonce2, body, &hmac1),
+            "HMAC computed with old nonce must not verify with new nonce");
+
+        // Step 6: Invalid HMAC must be rejected
+        assert!(!verify_hmac(secret, &nonce2, body, "deadbeef00112233"),
+            "Invalid HMAC must be rejected");
+        assert!(!verify_hmac(secret, &nonce2, body, "not-even-hex"),
+            "Non-hex HMAC must be rejected");
+
+        // Step 7: New nonce works for next mutation
+        let hmac2 = compute_hmac(secret, &nonce2, body);
+        assert!(verify_hmac(secret, &nonce2, body, &hmac2), "New HMAC with rotated nonce must pass");
+        let nonce3 = store.validate_and_rotate(session, &nonce2).await
+            .expect("Rotated nonce must work");
+        assert_ne!(nonce2, nonce3, "Nonce must rotate again after second use");
+    }
+
     #[tokio::test]
     async fn test_cleanup_expired() {
         let store = NonceStore::new();

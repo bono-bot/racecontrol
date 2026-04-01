@@ -7199,4 +7199,120 @@ mod tests {
         let reason = PauseReason::CrashRecovery;
         assert_eq!(reason, PauseReason::CrashRecovery, "BILL-07: multiplayer crash uses CrashRecovery pause reason");
     }
+
+    // ── Phase 285: Integration Audit — E2E billing fairness flow ────────────
+
+    #[test]
+    fn test_e2e_billing_fairness_crash_recovery_excluded() {
+        // Exercises: Active → CrashPause → PausedCrashRecovery → Resume → Active → EndEarly
+        // Verifies recovery_pause_seconds is excluded from billable time.
+        use crate::billing_fsm::{validate_transition, BillingEvent};
+
+        let mut timer = BillingTimer::dummy("pod-e2e");
+        timer.status = BillingSessionStatus::Active;
+        timer.elapsed_seconds = 0;
+        timer.recovery_pause_seconds = 0;
+
+        // Simulate 60 seconds of active driving
+        for _ in 0..60 {
+            timer.tick();
+        }
+        assert_eq!(timer.elapsed_seconds, 60);
+        assert_eq!(timer.driving_seconds, 60);
+        assert_eq!(timer.recovery_pause_seconds, 0);
+
+        // FSM: Active → PausedCrashRecovery
+        let next = validate_transition(BillingSessionStatus::Active, BillingEvent::CrashPause);
+        assert_eq!(next, Ok(BillingSessionStatus::PausedCrashRecovery));
+        timer.status = BillingSessionStatus::PausedCrashRecovery;
+
+        // Simulate 30 seconds of crash recovery pause
+        for _ in 0..30 {
+            timer.tick();
+        }
+        assert_eq!(timer.pause_seconds, 30);
+        assert_eq!(timer.recovery_pause_seconds, 30, "recovery pause must track crash time");
+
+        // FSM: PausedCrashRecovery → Active (Resume)
+        let next = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume);
+        assert_eq!(next, Ok(BillingSessionStatus::Active));
+        timer.status = BillingSessionStatus::Active;
+
+        // Simulate 40 more seconds of active driving
+        for _ in 0..40 {
+            timer.tick();
+        }
+        assert_eq!(timer.elapsed_seconds, 100); // 60 + 40 active seconds
+        assert_eq!(timer.driving_seconds, 100);
+        assert_eq!(timer.recovery_pause_seconds, 30, "recovery pause unchanged after resume");
+
+        // FSM: Active → EndedEarly
+        let next = validate_transition(BillingSessionStatus::Active, BillingEvent::EndEarly);
+        assert_eq!(next, Ok(BillingSessionStatus::EndedEarly));
+        timer.status = BillingSessionStatus::EndedEarly;
+
+        // Verify billable time excludes recovery pause
+        let tiers = default_billing_rate_tiers();
+        let cost_with_recovery = timer.current_cost(&tiers);
+        // Billable = elapsed(100) - recovery(30) = 70 seconds
+        let mut timer_no_recovery = BillingTimer::dummy("pod-e2e");
+        timer_no_recovery.status = BillingSessionStatus::EndedEarly;
+        timer_no_recovery.elapsed_seconds = 100;
+        timer_no_recovery.driving_seconds = 100;
+        timer_no_recovery.recovery_pause_seconds = 0;
+        let cost_without_recovery = timer_no_recovery.current_cost(&tiers);
+        // With recovery exclusion, cost must be less than without
+        assert!(
+            cost_with_recovery.total_paise <= cost_without_recovery.total_paise,
+            "Crash recovery time must not be billed: with_recovery={}p vs without={}p",
+            cost_with_recovery.total_paise, cost_without_recovery.total_paise
+        );
+    }
+
+    // ── Phase 285: FSM completeness — PausedCrashRecovery transitions ───────
+
+    #[test]
+    fn test_fsm_paused_crash_recovery_all_transitions() {
+        use crate::billing_fsm::{validate_transition, BillingEvent};
+
+        // Valid transitions from PausedCrashRecovery
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume),
+            Ok(BillingSessionStatus::Active),
+            "CrashRecovery + Resume → Active"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::End),
+            Ok(BillingSessionStatus::Completed),
+            "CrashRecovery + End → Completed"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::EndEarly),
+            Ok(BillingSessionStatus::EndedEarly),
+            "CrashRecovery + EndEarly → EndedEarly"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Cancel),
+            Ok(BillingSessionStatus::Cancelled),
+            "CrashRecovery + Cancel → Cancelled"
+        );
+
+        // Invalid transitions from PausedCrashRecovery
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Pause).is_err(),
+            "CrashRecovery + Pause should be rejected"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::CrashPause).is_err(),
+            "CrashRecovery + CrashPause should be rejected (already paused)"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::StartWaiting).is_err(),
+            "CrashRecovery + StartWaiting should be rejected"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::GameLive).is_err(),
+            "CrashRecovery + GameLive should be rejected"
+        );
+    }
 }
