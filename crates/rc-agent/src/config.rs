@@ -52,6 +52,9 @@ pub struct AgentConfig {
     /// MMA-First Protocol config (v31.0). Controls training mode, budget caps, and tier ordering.
     #[serde(default)]
     pub mma: MmaConfig,
+    /// Phase 305: TLS config for the rc-agent HTTP server (:8090).
+    #[serde(default)]
+    pub tls: AgentTlsConfig,
 }
 
 pub(crate) fn default_auto_end_orphan_session_secs() -> u64 { 300 }
@@ -542,6 +545,66 @@ pub fn load_config() -> Result<AgentConfig> {
             .collect::<Vec<_>>()
             .join(", ")
     ))
+}
+
+
+// ─── Phase 305: TLS Config ────────────────────────────────────────────────────
+
+/// Default cert paths are platform-specific (Windows venue path or Linux /etc path).
+#[cfg(windows)]
+fn default_agent_cert_path() -> String {
+    "C:\\RacingPoint\\tls\\pod.pem".to_string()
+}
+#[cfg(not(windows))]
+fn default_agent_cert_path() -> String {
+    "/etc/racingpoint/tls/pod.pem".to_string()
+}
+
+#[cfg(windows)]
+fn default_agent_key_path() -> String {
+    "C:\\RacingPoint\\tls\\pod-key.pem".to_string()
+}
+#[cfg(not(windows))]
+fn default_agent_key_path() -> String {
+    "/etc/racingpoint/tls/pod-key.pem".to_string()
+}
+
+fn default_true_agent() -> bool { true }
+
+/// TLS configuration for the rc-agent HTTP server (:8090).
+///
+/// When `enabled = true`, the server uses the per-pod client cert (signed by
+/// the venue CA) for its TLS identity. Callers that don't present a certificate
+/// signed by the same CA are rejected.
+///
+/// `tailscale_bypass = true` (default) means that the bypass is architectural:
+/// the Tailscale relay path in main.rs always uses a separate plain-HTTP listener.
+/// No second TLS port is opened; this flag exists as a runtime reminder.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentTlsConfig {
+    /// When false (default), the server binds plain HTTP (backward compatible).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the pod's mTLS client certificate (PEM, signed by venue CA).
+    #[serde(default = "default_agent_cert_path")]
+    pub server_cert_path: String,
+    /// Path to the pod's mTLS private key (PEM).
+    #[serde(default = "default_agent_key_path")]
+    pub server_key_path: String,
+    /// When true, the Tailscale relay path is kept as plain HTTP (architectural bypass).
+    #[serde(default = "default_true_agent")]
+    pub tailscale_bypass: bool,
+}
+
+impl Default for AgentTlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_cert_path: default_agent_cert_path(),
+            server_key_path: default_agent_key_path(),
+            tailscale_bypass: true,
+        }
+    }
 }
 
 #[cfg(test)]

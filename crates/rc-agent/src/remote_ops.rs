@@ -400,6 +400,135 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
     rx
 }
 
+// ─── Phase 305: TLS-enabled server startup ───────────────────────────────────
+
+/// Start the remote ops server, optionally with TLS (Phase 305).
+///
+/// If `tls` is `None` or `tls.enabled = false`, delegates to plain `start_checked()`.
+/// If `tls.enabled = true`, uses axum-server with the pod's cert/key for TLS.
+///
+/// The Tailscale bypass is architectural: Tailscale relay listeners use a separate
+/// plain-HTTP bind IP in main.rs. Pass `None` from any Tailscale-bound startup path.
+pub fn start_checked_with_tls(
+    port: u16,
+    tls: Option<crate::config::AgentTlsConfig>,
+) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+    // Filter out disabled TLS configs — fallback to plain HTTP
+    let maybe_tls = tls.filter(|t| t.enabled);
+    if maybe_tls.is_none() {
+        return start_checked(port);
+    }
+    start_checked_tls_inner(port, maybe_tls)
+}
+
+/// Internal helper: start the server with a confirmed-enabled TLS config.
+fn start_checked_tls_inner(
+    port: u16,
+    maybe_tls: Option<crate::config::AgentTlsConfig>,
+) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    START_TIME.get_or_init(Instant::now);
+
+    tokio::spawn(async move {
+        let tls_cfg = match maybe_tls {
+            Some(ref t) => t,
+            None => {
+                let _ = tx.send(Err("start_checked_tls_inner called with no TLS config".to_string()));
+                return;
+            }
+        };
+
+        let rustls_cfg = match crate::tls::load_agent_tls_config(tls_cfg).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, "Failed to load agent TLS config: {}", e);
+                let _ = tx.send(Err(format!("TLS config load failed: {}", e)));
+                return;
+            }
+        };
+
+        let public_routes = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
+            .route("/info", get(info))
+            .route("/files", get(list_files))
+            .route("/file", get(read_file))
+            .route("/exec", post(exec_command))
+            .route("/mkdir", post(make_dir))
+            .route("/write", post(write_file))
+            .route("/screenshot", get(screenshot))
+            .route("/cursor", get(cursor_position))
+            .route("/input", post(send_input))
+            .layer(middleware::from_fn(require_service_key));
+
+        let app = public_routes
+            .merge(protected_routes)
+            .layer(middleware::from_fn(connection_close_layer));
+
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+
+        // Retry-bind loop (same as start_checked)
+        let std_listener = {
+            let mut bound = None;
+            for attempt in 1..=10u32 {
+                let sock = match socket2::Socket::new(
+                    socket2::Domain::IPV4,
+                    socket2::Type::STREAM,
+                    Some(socket2::Protocol::TCP),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("TLS socket create failed: {}", e)));
+                        return;
+                    }
+                };
+                let _ = sock.set_reuse_address(true);
+                let _ = sock.set_nonblocking(false); // axum-server needs blocking std listener
+                match sock.bind(&addr.into()) {
+                    Ok(()) => {
+                        let _ = sock.listen(128);
+                        let std_l: std::net::TcpListener = sock.into();
+                        tracing::info!(target: LOG_TARGET, "Remote ops TLS server listening on https://{}", addr);
+                        bound = Some(std_l);
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            "TLS port {} busy (attempt {}/10): {} — retrying in 3s",
+                            port, attempt, e
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                }
+            }
+            match bound {
+                Some(l) => {
+                    let _ = tx.send(Ok(port));
+                    l
+                }
+                None => {
+                    let msg = format!("remote ops TLS port {} bind failed after 10 attempts", port);
+                    tracing::error!(target: LOG_TARGET, "{}", msg);
+                    let _ = tx.send(Err(msg));
+                    return;
+                }
+            }
+        };
+
+        if let Err(e) = axum_server::from_tcp_rustls(std_listener, rustls_cfg)
+            .serve(app.into_make_service())
+            .await
+        {
+            tracing::error!(target: LOG_TARGET, "Remote ops TLS server error: {}", e);
+        }
+    });
+    rx
+}
+
+
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
 async fn ping() -> &'static str {

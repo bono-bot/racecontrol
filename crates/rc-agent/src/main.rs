@@ -37,6 +37,7 @@ mod overlay;
 mod predictive_maintenance;
 mod pre_flight;
 mod remote_ops;
+mod tls;
 mod safe_mode;
 mod self_heal;
 mod startup_cleanup;
