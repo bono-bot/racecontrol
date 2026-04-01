@@ -1278,6 +1278,41 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Phase 301: Cloud Data Sync v2 migrations
+    // model_evaluations table (SYNC-02): stores AI diagnosis accuracy tracking
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS model_evaluations (
+            id TEXT PRIMARY KEY,
+            model_name TEXT NOT NULL,
+            pod_id TEXT,
+            problem_key TEXT,
+            prediction TEXT,
+            actual TEXT,
+            correct INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            diagnosis_tier TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            venue_id TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // metrics_rollups column additions (SYNC-03): enable LWW conflict resolution for rollups
+    // SQLite does not support IF NOT EXISTS on ALTER TABLE — use let _ = ignore pattern
+    let _ = sqlx::query("ALTER TABLE metrics_rollups ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE metrics_rollups ADD COLUMN venue_id TEXT")
+        .execute(pool)
+        .await;
+
+    // sync_state conflict_count column (SYNC-05): track skipped writes due to LWW
+    let _ = sqlx::query("ALTER TABLE sync_state ADD COLUMN conflict_count INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
     // Add updated_at to ALL tables used by cloud sync (idempotent — ALTER fails silently if exists).
     // Required because CREATE TABLE IF NOT EXISTS won't modify tables created by older binaries.
     for table in &[
