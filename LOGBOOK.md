@@ -3,8 +3,6 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-01 16:58 IST | James | efc28141 | docs(289-02): complete wire-metric-alert-task plan (SUMMARY, STATE, ROADMAP, REQUIREMENTS) |
-| 2026-04-01 16:58 IST | James | f6000e75 | feat(289-02): wire metric_alert_task into server startup — conditional spawn when alert_rules non-empty |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
@@ -1073,3 +1071,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-31 21:20 IST | James | — | ops(ssh): MMA 4-model SSH fleet hardening — KexAlgorithms forced classical (PQ warning eliminated), ClientAliveInterval 30 + MaxSessions 50 on server + 8 pods. DeepSeek R1 + V3 + Qwen3 + MiMo consensus. |
 | 2026-03-31 21:55 IST | James | 3302df9b | fix(watchdog): MMA 4-model consensus — prevent false MAINTENANCE_MODE from system events. 3 fixes: (1) dual crash detection (health+tasklist), (2) JSON timestamp auto-clear (not mtime), (3) watchdog defers on MAINT. Root cause: sshd restart triggered all 8 pods MAINTENANCE_MODE. New rc-watchdog deployed to all pods. |
 | 2026-04-01 10:33 IST | James | 2e96024f | enforce subagent gates: mandatory UI review, integration check, nyquist audit per phase type. Audit found 233 phases with 0 UI reviews, 0 integration checks, 0 test audits. Added to CLAUDE.md + standing-rules.md + memory. Bono synced. |
+| 2026-04-01 17:34 IST | James | d6c41c97 | feat(290-01): create metrics_producers.rs — 4 live metric producers (ws_connections, game_session_count, pod_health_score, billing_revenue) wired to MetricsSender channel via 30s interval loop. No unwrap(). |
+| 2026-04-01 17:34 IST | James | bb3f1ecc | feat(290-01): wire metrics_tx into main.rs — rename _metrics_tx, call spawn_metric_producers. TSDB now receives live venue data. All tests pass, release build OK. |
+| 2026-04-01 17:34 IST | James | 91af743c | docs(290-01): 290-01-SUMMARY.md, STATE.md progress 100%, ROADMAP.md Phase 290 Complete. |
