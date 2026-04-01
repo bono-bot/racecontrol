@@ -207,7 +207,13 @@ Plans:
   3. Staff can view a log of rule evaluations showing which rules fired, when, and what action was taken
   4. Staff can edit or delete any rule from the admin UI and the change takes effect on the next evaluation cycle
   5. Rules that have never fired are distinguishable from rules that fired recently in the evaluation log
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 299-01-PLAN.md -- SQLite schema (policy_rules + policy_eval_log tables), PolicyRule/PolicyAction types, DB helpers, five REST endpoints (CRUD + eval-log)
+- [ ] 299-02-PLAN.md -- policy_engine_task evaluation loop (60s cadence, 30-min cooldown, 4 action types: alert/config_change/flag_toggle/budget_adjust), wired into main.rs
+- [ ] 299-03-PLAN.md -- Admin /policy page (rule list, create/edit/delete form, eval log with fired/not-fired badges), Sidebar nav link
+
 **UI hint**: yes
 
 ---
@@ -311,7 +317,7 @@ Plans:
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
 | 297. Config Editor UI | 0/2 | Not started | - |
 | 298. Game Preset Library | 0/2 | Not started | - |
-| 299. Policy Rules Engine | 0/TBD | Not started | - |
+| 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 1/2 | In Progress|  |
 | 301. Cloud Data Sync v2 | 0/TBD | Not started | - |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
