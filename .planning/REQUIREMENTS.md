@@ -5,10 +5,10 @@
 
 ## Config Schema & Validation (SCHEMA)
 
-- [ ] **SCHEMA-01**: Typed Rust `AgentConfig` struct defines all pod-level configuration fields with serde validation
-- [ ] **SCHEMA-02**: Invalid config fields fall back to defaults with a warning log (never crash)
-- [ ] **SCHEMA-03**: Config has a schema version field for forward compatibility (old agent ignores unknown fields)
-- [ ] **SCHEMA-04**: AgentConfig is shared between rc-agent and racecontrol via rc-common
+- [x] **SCHEMA-01**: Typed Rust `AgentConfig` struct defines all pod-level configuration fields with serde validation
+- [x] **SCHEMA-02**: Invalid config fields fall back to defaults with a warning log (never crash)
+- [x] **SCHEMA-03**: Config has a schema version field for forward compatibility (old agent ignores unknown fields)
+- [x] **SCHEMA-04**: AgentConfig is shared between rc-agent and racecontrol via rc-common
 
 ## Server-Pushed Config (PUSH)
 
@@ -56,10 +56,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHEMA-01 | Phase 295 | Pending |
-| SCHEMA-02 | Phase 295 | Pending |
-| SCHEMA-03 | Phase 295 | Pending |
-| SCHEMA-04 | Phase 295 | Pending |
+| SCHEMA-01 | Phase 295 | Complete |
+| SCHEMA-02 | Phase 295 | Complete |
+| SCHEMA-03 | Phase 295 | Complete |
+| SCHEMA-04 | Phase 295 | Complete |
 | PUSH-01 | Phase 296 | Pending |
 | PUSH-02 | Phase 296 | Pending |
 | PUSH-03 | Phase 296 | Pending |

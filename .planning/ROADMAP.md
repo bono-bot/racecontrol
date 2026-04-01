@@ -122,7 +122,7 @@ Plans:
 
 **Milestone Goal:** Every pod runs from server-pushed config. No local TOML drift. Staff can edit, push, and automate config changes via admin UI and policy rules.
 
-- [ ] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning
+- [x] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning (completed 2026-04-01)
 - [ ] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication
 - [ ] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail
 - [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
@@ -139,10 +139,10 @@ Plans:
   2. A config with an unknown field still loads with defaults and emits a warning log -- it does not crash the agent
   3. A config with a mismatched type on a known field falls back to the field default and logs a warning
   4. AgentConfig carries a schema_version field that old agents ignore when encountering a newer version
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 295-01-PLAN.md -- Move AgentConfig to rc-common with schema_version, lenient parsing with warnings
+- [x] 295-01-PLAN.md -- Move AgentConfig to rc-common with schema_version, lenient parsing with warnings
 
 ### Phase 296: Server-Pushed Config
 **Goal**: The server is the authoritative source of pod config; pods receive and persist config over WebSocket
@@ -209,7 +209,7 @@ Plans:
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
 | 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
 | 291. Dashboard API Wiring | 0/1 | Not started | - |
-| 295. Config Schema & Validation | 0/1 | In progress | - |
+| 295. Config Schema & Validation | 1/1 | Complete   | 2026-04-01 |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
