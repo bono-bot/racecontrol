@@ -24,7 +24,7 @@ Make autonomous action loops observable and queryable with time-series depth -- 
 - [x] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion (completed 2026-04-01)
 - [x] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution (completed 2026-04-01)
 - [x] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh (completed 2026-04-01)
-- [ ] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility
+- [x] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility (completed 2026-04-01)
 - [ ] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup
 
 ## Phase Details
@@ -86,7 +86,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 288-01-PLAN.md — Prometheus exposition format handler + public route registration
+- [x] 288-01-PLAN.md — Prometheus exposition format handler + public route registration (completed 2026-04-01)
 
 ### Phase 289: Metric Alert Thresholds
 **Goal**: Operators receive WhatsApp alerts when metrics cross configured thresholds
@@ -114,5 +114,5 @@ Plans:
 | 285. Metrics Ring Buffer | 2/2 | Complete    | 2026-04-01 |
 | 286. Metrics Query API | 1/1 | Complete    | 2026-04-01 |
 | 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
-| 288. Prometheus Export | 0/1 | Not started | - |
+| 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 0/2 | Not started | - |

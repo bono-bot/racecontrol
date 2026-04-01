@@ -31,8 +31,8 @@
 
 ## Prometheus Export (PROM)
 
-- [ ] **PROM-01**: GET /api/v1/metrics/prometheus returns metrics in Prometheus exposition format
-- [ ] **PROM-02**: Endpoint is zero-cost -- no Prometheus server required, just the format for future compatibility
+- [x] **PROM-01**: GET /api/v1/metrics/prometheus returns metrics in Prometheus exposition format
+- [x] **PROM-02**: Endpoint is zero-cost -- no Prometheus server required, just the format for future compatibility
 
 ## Alert Thresholds (ALRT)
 
@@ -89,8 +89,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | DASH-03 | Phase 287 | Complete |
 | DASH-04 | Phase 287 | Complete |
 | DASH-05 | Phase 287 | Complete |
-| PROM-01 | Phase 288 | Pending |
-| PROM-02 | Phase 288 | Pending |
+| PROM-01 | Phase 288 | Complete |
+| PROM-02 | Phase 288 | Complete |
 | ALRT-01 | Phase 289 | Pending |
 | ALRT-02 | Phase 289 | Pending |
 | ALRT-03 | Phase 289 | Pending |
