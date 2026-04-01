@@ -129,7 +129,7 @@ Plans:
 - [x] **Phase 295: Config Schema & Validation** - Typed AgentConfig struct shared across rc-agent and racecontrol via rc-common, with serde validation and schema versioning (completed 2026-04-01)
 - [x] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication (completed 2026-04-01)
 - [x] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail (completed 2026-04-01)
-- [ ] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI
+- [x] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI (completed 2026-04-01)
 - [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
 
 ### Phase 295: Config Schema & Validation
@@ -192,8 +192,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 298-01-PLAN.md -- GamePreset types, game_presets SQLite table, PresetsConfig, PresetPush WS message, push on connect, REST CRUD API with reliability scoring
-- [ ] 298-02-PLAN.md -- Admin /presets page with reliability badges, create/delete form, Sidebar nav link
+- [x] 298-01-PLAN.md -- GamePreset types, game_presets SQLite table, PresetsConfig, PresetPush WS message, push on connect, REST CRUD API with reliability scoring
+- [x] 298-02-PLAN.md -- Admin /presets page with reliability badges, create/delete form, Sidebar nav link
 
 **UI hint**: yes
 
@@ -320,7 +320,7 @@ Plans:
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
 | 297. Config Editor UI | 2/2 | Complete    | 2026-04-01 |
-| 298. Game Preset Library | 0/2 | Not started | - |
+| 298. Game Preset Library | 2/2 | Complete   | 2026-04-01 |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 1/2 | In Progress|  |

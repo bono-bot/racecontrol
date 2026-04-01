@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: executing
-stopped_at: Completed 301-01-PLAN.md
-last_updated: "2026-04-01T15:44:22.955Z"
+status: verifying
+stopped_at: Completed 298-02-PLAN.md
+last_updated: "2026-04-01T15:45:42.786Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 
 Phase: 301 (cloud-data-sync-v2) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -62,6 +62,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 301]: normalize_timestamp made pub(crate) for reuse in routes.rs
 - [Phase 301]: metrics_rollups uses max-sample-count wins for avg_value conflict resolution (more data = more authoritative)
 - [Phase 301]: SCHEMA_VERSION bumped 3->4 when fleet_solutions+model_evaluations+metrics_rollups added to push payload
+- [Phase 298]: GamePreset does NOT derive sqlx::FromRow — rc-common has no sqlx dep, rows mapped manually
+- [Phase 298]: GET /presets in public_routes (pods/kiosk need without JWT), POST/PUT/DELETE in staff_routes
+- [Phase 298]: Admin UI uses rcFetch proxy (cookie JWT) not localStorage authHeaders — follows existing admin pattern
 
 ### Pending Todos
 
@@ -74,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:44:22.950Z
-Stopped at: Completed 301-01-PLAN.md
+Last session: 2026-04-01T15:45:42.781Z
+Stopped at: Completed 298-02-PLAN.md
 Resume file: None
