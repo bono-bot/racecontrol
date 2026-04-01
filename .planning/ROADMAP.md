@@ -56,7 +56,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
 | 291. KB Promotion Persistence | 0/? | Not started | - |
 | 292. Model Reputation Persistence | 0/? | Not started | - |
-| 293. Retrain Data Export | 0/? | Not started | - |
+| 293. Retrain Data Export | 0/1 | Planned | - |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
 
 ---
@@ -109,7 +109,8 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   1. A weekly cron job produces a JSONL file containing diagnosis evaluations and KB solutions from the past 7 days
   2. Each JSONL entry has `system`, `user`, and `assistant` fields — the file loads without modification in an Ollama fine-tune run and in Unsloth's conversation format
   3. Each entry includes model name, original prompt, model response, correct/incorrect flag, and fix outcome
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 293-01-PLAN.md — retrain_export.rs: TrainEntry + JSONL writer + weekly cron wired into main.rs (TRAIN-01, TRAIN-02, TRAIN-03)
 
 ### Phase 294: Intelligence Report v2
 **Goal**: Uday's Sunday midnight WhatsApp report tells him which models are improving, how many KB rules were promoted, how much cost was saved by Hardened rules, and whether model accuracy is trending up or down
@@ -124,4 +125,4 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ---
 
-*Last updated: 2026-04-01 — Phase 290 planned (3 plans, wave 1 + wave 2)*
+*Last updated: 2026-04-01 — Phase 293 planned (1 plan, wave 1)*
