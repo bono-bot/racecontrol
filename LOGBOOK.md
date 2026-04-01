@@ -3,6 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 20:20 IST | James | d035e183 | docs(296-02): complete agent-side FullConfigPush handler plan — SUMMARY, STATE, ROADMAP |
+| 2026-04-01 20:10 IST | James | 5384bc48 | feat(296-02): FullConfigPush handler — hash dedup, hot/cold reload, boot resilience (PUSH-03/04/05/06) |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
