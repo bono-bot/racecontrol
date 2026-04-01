@@ -109,11 +109,14 @@ Plans:
 **Requirements**: DASH-01
 **Gap Closure**: Closes P1 gap from v34.0 audit — dashboard stubs not replaced, API contract mismatches
 **Success Criteria** (what must be TRUE):
-  1. No TODO markers remain in racingpoint-admin/src/lib/api/metrics.ts
+  1. No TODO markers remain in web/src/lib/api/tsdb.ts
   2. Dashboard page issues HTTP requests to /api/v1/metrics/names, /query, /snapshot (visible in network tab)
   3. TypeScript interfaces match Rust response structs (name not metric_name, pod not pod_id, updated_at as number)
   4. Dashboard displays real data when server has metrics_samples rows
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 291-01-PLAN.md — TSDB API client + metrics dashboard page + sidebar nav link
 
 ### 📋 v36.0 Config Management & Policy Engine (Planned)
 
@@ -205,7 +208,7 @@ Plans:
 | 288. Prometheus Export | 1/1 | Complete | 2026-04-01 |
 | 289. Metric Alert Thresholds | 2/2 | Complete | 2026-04-01 |
 | 290. Wire Metric Producers | 1/1 | Complete    | 2026-04-01 |
-| 291. Dashboard API Wiring | 0/TBD | Not started | - |
+| 291. Dashboard API Wiring | 0/1 | Not started | - |
 | 295. Config Schema & Validation | 0/1 | In progress | - |
 | 296. Server-Pushed Config | 0/TBD | Not started | - |
 | 297. Config Editor UI | 0/TBD | Not started | - |
