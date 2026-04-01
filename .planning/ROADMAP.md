@@ -130,7 +130,7 @@ Plans:
 - [x] **Phase 296: Server-Pushed Config** - SQLite pod_configs table, WS push on connect, hot/cold reload semantics, local fallback, and hash-based deduplication (completed 2026-04-01)
 - [x] **Phase 297: Config Editor UI** - Admin /config page with per-pod form editor, diff view, single-pod and bulk push, and audit trail (completed 2026-04-01)
 - [x] **Phase 298: Game Preset Library** - SQLite preset store, push via config channel, reliability scoring, and flagging of unreliable presets in UI (completed 2026-04-01)
-- [ ] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log
+- [x] **Phase 299: Policy Rules Engine** - IF/THEN rules stored in SQLite, evaluated periodically against live metrics, with staff CRUD UI and evaluation log (completed 2026-04-01)
 
 ### Phase 295: Config Schema & Validation
 **Goal**: A typed, versioned AgentConfig struct is the single source of truth for all pod-level configuration
@@ -210,9 +210,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 299-01-PLAN.md -- SQLite schema (policy_rules + policy_eval_log tables), PolicyRule/PolicyAction types, DB helpers, five REST endpoints (CRUD + eval-log)
-- [ ] 299-02-PLAN.md -- policy_engine_task evaluation loop (60s cadence, 30-min cooldown, 4 action types: alert/config_change/flag_toggle/budget_adjust), wired into main.rs
-- [ ] 299-03-PLAN.md -- Admin /policy page (rule list, create/edit/delete form, eval log with fired/not-fired badges), Sidebar nav link
+- [x] 299-01-PLAN.md -- SQLite schema (policy_rules + policy_eval_log tables), PolicyRule/PolicyAction types, DB helpers, five REST endpoints (CRUD + eval-log)
+- [x] 299-02-PLAN.md -- policy_engine_task evaluation loop (60s cadence, 30-min cooldown, 4 action types: alert/config_change/flag_toggle/budget_adjust), wired into main.rs
+- [x] 299-03-PLAN.md -- Admin /policy page (rule list, create/edit/delete form, eval log with fired/not-fired badges), Sidebar nav link
 
 **UI hint**: yes
 

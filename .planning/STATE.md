@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
 status: executing
-stopped_at: Completed 301-02-PLAN.md
-last_updated: "2026-04-01T15:56:56.731Z"
+stopped_at: Completed 299-03-PLAN.md
+last_updated: "2026-04-01T17:00:00.000Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 7
-  percent: 0
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 
 ## Current Position
 
-Phase: 301
-Plan: Not started
-Status: Ready to execute
+Phase: 299 (policy-rules-engine) — COMPLETE
+Plan: 3 of 3
+Status: All plans complete
 Last activity: 2026-04-01
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -66,6 +66,12 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 298]: GET /presets in public_routes (pods/kiosk need without JWT), POST/PUT/DELETE in staff_routes
 - [Phase 298]: Admin UI uses rcFetch proxy (cookie JWT) not localStorage authHeaders — follows existing admin pattern
 - [Phase 301-cloud-data-sync-v2]: SyncStatusPanel declared as top-level function before SettingsPage to avoid nested component definition warnings
+- [Phase 299]: Policy routes in staff-gated router (same auth level as flags/config — require_staff_jwt)
+- [Phase 299]: PolicyRule uses tuple-based sqlx fetch_as (no sqlx::FromRow derive)
+- [Phase 299]: policy_engine_task + dispatch_action implemented in plan 01 file for module cohesion — plan 02 only wires main.rs
+- [Phase 299]: config_change queues via config_push_queue table (async pickup) — avoids WS broadcast complexity from internal context
+- [Phase 299]: policyApi is separate export (not inside api object) for modularity
+- [Phase 299]: Eval log limited to 20 entries in UI (API returns 500, sliced for readability)
 
 ### Pending Todos
 
@@ -78,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:50:26.835Z
-Stopped at: Completed 301-02-PLAN.md
+Last session: 2026-04-01T17:00:00.000Z
+Stopped at: Completed 299-03-PLAN.md
 Resume file: None
