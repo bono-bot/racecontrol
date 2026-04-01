@@ -6,7 +6,7 @@
 ## Model Evaluation Store (EVAL)
 
 - [x] **EVAL-01**: Every AI diagnosis writes prediction, actual outcome, correctness, and cost to SQLite `model_evaluations` table
-- [ ] **EVAL-02**: Weekly rollup computes per-model accuracy and cost-per-correct-diagnosis (stored in `model_eval_rollups`)
+- [x] **EVAL-02**: Weekly rollup computes per-model accuracy and cost-per-correct-diagnosis (stored in `model_eval_rollups`)
 - [ ] **EVAL-03**: Evaluation data queryable via API: `GET /api/v1/models/evaluations?model=X&from=Y&to=Z`
 
 ## KB Promotion Persistence (KBPP)
@@ -43,7 +43,7 @@
 | REQ | Phase | Status |
 |-----|-------|--------|
 | EVAL-01 | Phase 290 | Complete |
-| EVAL-02 | Phase 290 | Pending |
+| EVAL-02 | Phase 290 | Complete |
 | EVAL-03 | Phase 290 | Pending |
 | KBPP-01 | Phase 291 | Pending |
 | KBPP-02 | Phase 291 | Pending |
