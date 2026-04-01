@@ -172,7 +172,12 @@ Plans:
   3. Staff can push the updated config to a single pod with one click and the pod's status updates within 10 seconds
   4. Staff can push the current config to all pods simultaneously with one bulk-push action
   5. Every config change is recorded in the audit log with staff identity, timestamp, and the changed fields
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 297-01-PLAN.md -- Config API client and TypeScript types (configApi, AgentConfig, PodConfigResponse, AuditLogEntry, HOT_RELOAD_FIELDS)
+- [ ] 297-02-PLAN.md -- Config page (pod grid + status badges + bulk push + audit log), ConfigEditorModal (form + diff view + single push), nav link
+
 **UI hint**: yes
 
 ### Phase 298: Game Preset Library
@@ -298,7 +303,7 @@ Plans:
 | 291. Dashboard API Wiring | 1/1 | Complete | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
-| 297. Config Editor UI | 0/TBD | Not started | - |
+| 297. Config Editor UI | 0/2 | Not started | - |
 | 298. Game Preset Library | 0/TBD | Not started | - |
 | 299. Policy Rules Engine | 0/TBD | Not started | - |
 | 300. SQLite Backup Pipeline | 0/2 | Not started | - |
