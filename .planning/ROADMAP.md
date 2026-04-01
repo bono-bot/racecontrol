@@ -6,12 +6,13 @@ Centralize configuration so every pod runs from server-pushed config instead of 
 
 ## Milestones
 
-- 🚧 **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-291 (gap closure in progress)
+- ✅ **v34.0 Time-Series Metrics & Operational Dashboards** - Phases 285-291, SHIPPED 2026-04-01 ([archive](milestones/v34.0-ROADMAP.md))
 - 📋 **v36.0 Config Management & Policy Engine** - Phases 295-299 (planned)
 
 ## Phases
 
-### 🚧 v34.0 Time-Series Metrics & Operational Dashboards (Gap Closure)
+<details>
+<summary>✅ v34.0 Time-Series Metrics & Operational Dashboards (SHIPPED 2026-04-01)</summary>
 
 ### Phase 285: Metrics Ring Buffer
 **Goal**: Server efficiently stores and retains time-series metric data from all pods
@@ -117,6 +118,8 @@ Plans:
 
 Plans:
 - [x] 291-01-PLAN.md — TSDB API client + metrics dashboard page + sidebar nav link
+
+</details>
 
 ### 📋 v36.0 Config Management & Policy Engine (Planned)
 

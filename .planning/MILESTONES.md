@@ -1,4 +1,18 @@
 # Milestones
+## v34.0 Time-Series Metrics & Operational Dashboards (Shipped: 2026-04-01)
+
+**Phases completed:** 7 phases (285-291), 9 plans, 741 tests passing
+
+**Key accomplishments:**
+- SQLite TSDB with 1-min resolution, 7-day raw + 90-day rollup retention
+- REST API: /metrics/query (auto-resolution), /metrics/names, /metrics/snapshot
+- Next.js metrics dashboard with sparkline charts, pod selector, time range picker, 30s auto-refresh
+- Prometheus exposition format endpoint (zero infrastructure, future-compatible)
+- TOML-configured alert thresholds with 60s evaluation, WhatsApp firing, 30-min dedup
+- 4 metric producers (ws_connections, game_sessions, pod_health, billing_revenue)
+
+---
+
 ## v25.0 Debug-First-Time-Right (Shipped: 2026-03-26)
 
 **Phases completed:** 147 phases, 330 plans, 75 tasks
