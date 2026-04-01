@@ -672,7 +672,7 @@ pub async fn run(
                                         ..Default::default()
                                     };
                                     tokio::spawn(crate::ai_debugger::analyze_crash(
-                                        state.config.ai_debugger.clone(),
+                                        state.config.ai_debugger.clone().into(),
                                         state.pod_id.clone(),
                                         game.sim_type,
                                         err_ctx,
@@ -927,7 +927,7 @@ pub async fn run(
                                 ..Default::default()
                             };
                             tokio::spawn(crate::ai_debugger::analyze_crash(
-                                state.config.ai_debugger.clone(),
+                                state.config.ai_debugger.clone().into(),
                                 state.pod_id.clone(),
                                 sim,
                                 err_ctx,

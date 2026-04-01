@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::process::{Child, Command};
 
+pub use rc_common::config_schema::GameExeConfig;
 use rc_common::types::{GameState, SimType};
-use serde::Deserialize;
 
 const LOG_TARGET: &str = "game-process";
 
@@ -251,20 +251,8 @@ pub fn cleanup_orphaned_games() -> u32 {
     cleaned
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct GameExeConfig {
-    /// Path to game executable
-    pub exe_path: Option<String>,
-    /// Working directory (defaults to exe parent dir)
-    pub working_dir: Option<String>,
-    /// Launch arguments
-    pub args: Option<String>,
-    /// Steam app ID (for Steam launch method)
-    pub steam_app_id: Option<u32>,
-    /// Whether to use Steam launch (steam://rungameid/{id})
-    #[serde(default)]
-    pub use_steam: bool,
-}
+// GameExeConfig is defined in rc-common::config_schema and imported above.
+// All callers should use rc_common::config_schema::GameExeConfig or crate::config::GameExeConfig.
 
 pub struct GameProcess {
     pub sim_type: SimType,

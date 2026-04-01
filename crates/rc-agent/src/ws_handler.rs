@@ -606,7 +606,7 @@ pub async fn handle_ws_message(
                                     ..Default::default()
                                 };
                                 tokio::spawn(crate::ai_debugger::analyze_crash(
-                                    state.config.ai_debugger.clone(), pod_id_clone.clone(),
+                                    state.config.ai_debugger.clone().into(), pod_id_clone.clone(),
                                     launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                                 ));
                             }
@@ -648,7 +648,7 @@ pub async fn handle_ws_message(
                                 ..Default::default()
                             };
                             tokio::spawn(crate::ai_debugger::analyze_crash(
-                                state.config.ai_debugger.clone(), pod_id_clone,
+                                state.config.ai_debugger.clone().into(), pod_id_clone,
                                 launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                             ));
                         }

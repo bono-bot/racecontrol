@@ -985,7 +985,11 @@ async fn main() -> Result<()> {
     // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
     // Passes diagnostic_event_tx so WS disconnect events are bridged into
     // the Meshed Intelligence 5-tier pipeline before relaunch.
-    self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone(), Some(diagnostic_event_tx.clone()), Some(failure_monitor_tx.subscribe()));
+    #[cfg(feature = "ai-debugger")]
+    let ai_debugger_cfg = crate::ai_debugger::AiDebuggerConfig::from(config.ai_debugger.clone());
+    #[cfg(not(feature = "ai-debugger"))]
+    let ai_debugger_cfg = config.ai_debugger.clone();
+    self_monitor::spawn(ai_debugger_cfg, heartbeat_status.clone(), Some(diagnostic_event_tx.clone()), Some(failure_monitor_tx.subscribe()));
     tracing::info!(target: LOG_TARGET, "Self-monitor started (check interval: 5min)");
 
     // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────

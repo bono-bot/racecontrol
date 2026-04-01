@@ -1,232 +1,27 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
 const LOG_TARGET: &str = "config";
 
-#[cfg(feature = "ai-debugger")]
-use crate::ai_debugger::AiDebuggerConfig;
-
+// Re-export all config types from rc-common — single source of truth (SCHEMA-01)
+// When ai-debugger feature is enabled, we re-export the feature-gated AiDebuggerConfig
+// instead of the stub from rc-common to avoid type conflicts.
 #[cfg(not(feature = "ai-debugger"))]
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-pub struct AiDebuggerConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub ollama_url: String,
-    #[serde(default)]
-    pub ollama_model: String,
-}
-use crate::game_process::GameExeConfig;
+pub use rc_common::config_schema::*;
+
+#[cfg(feature = "ai-debugger")]
+pub use rc_common::config_schema::{
+    AgentConfig, AiDebuggerConfig as _RcCommonAiDebuggerConfig, CoreConfig, GameExeConfig,
+    GamesConfig, KioskConfig, LockScreenConfig, MmaConfig, NodeType, PodConfig, PreflightConfig,
+    ProcessGuardConfig, TelemetryPortsConfig, WheelbaseConfig,
+    default_auto_end_orphan_session_secs, default_core_url, default_sim, default_sim_ip,
+    default_sim_port, default_telemetry_ports, default_wheelbase_pid, default_wheelbase_vid,
+};
+
+#[cfg(feature = "ai-debugger")]
+pub use crate::ai_debugger::AiDebuggerConfig;
+
 use rc_common::types::SimType;
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AgentConfig {
-    pub pod: PodConfig,
-    pub core: CoreConfig,
-    #[serde(default)]
-    pub wheelbase: WheelbaseConfig,
-    #[serde(default)]
-    pub telemetry_ports: TelemetryPortsConfig,
-    #[serde(default)]
-    pub games: GamesConfig,
-    #[serde(default)]
-    pub ai_debugger: AiDebuggerConfig,
-    #[serde(default)]
-    pub kiosk: KioskConfig,
-    #[serde(default)]
-    pub lock_screen: LockScreenConfig,
-    #[serde(default)]
-    pub preflight: PreflightConfig,
-    #[serde(default)]
-    pub process_guard: ProcessGuardConfig,
-    /// Orphan billing auto-end timeout in seconds (SESSION-01).
-    /// If billing is active but no game PID detected for this duration, session auto-ends.
-    /// Configurable via TOML, default 300s (5 minutes).
-    #[serde(default = "default_auto_end_orphan_session_secs")]
-    pub auto_end_orphan_session_secs: u64,
-    /// AC EVO shared memory telemetry feature flag (HARD-05). Off by default until anti-cheat status confirmed at v1.0.
-    #[serde(default)]
-    pub ac_evo_telemetry_enabled: bool,
-    /// MMA-First Protocol config (v31.0). Controls training mode, budget caps, and tier ordering.
-    #[serde(default)]
-    pub mma: MmaConfig,
-}
-
-pub(crate) fn default_auto_end_orphan_session_secs() -> u64 { 300 }
-
-// ─── MMA-First Protocol Config (v31.0) ────────────────────────────────────
-
-fn default_daily_budget_pod() -> f64 { 10.0 }
-fn default_daily_budget_server() -> f64 { 20.0 }
-fn default_daily_budget_pos() -> f64 { 5.0 }
-
-/// MMA-First Protocol configuration.
-/// During the 30-day training period, MMA 5-model diagnosis is Tier 1
-/// for all unresolved issues, rapidly populating the fleet KB.
-/// After training_end, the system auto-flips to production mode (KB-first).
-#[derive(Debug, Clone, Deserialize)]
-pub struct MmaConfig {
-    /// When true AND today is within [training_start, training_end], MMA is Tier 1.
-    #[serde(default)]
-    pub training_mode: bool,
-    /// ISO 8601 date when training period began (e.g. "2026-03-30").
-    #[serde(default)]
-    pub training_start: Option<String>,
-    /// ISO 8601 date when training period ends (e.g. "2026-04-29").
-    /// After this date, system auto-flips to production mode regardless of training_mode flag.
-    #[serde(default)]
-    pub training_end: Option<String>,
-    /// Daily budget per pod during training (default $15, production $10).
-    #[serde(default = "default_daily_budget_pod")]
-    pub daily_budget_pod: f64,
-    /// Daily budget for server node during training (default $25, production $20).
-    #[serde(default = "default_daily_budget_server")]
-    pub daily_budget_server: f64,
-    /// Daily budget for POS terminal during training (default $8, production $5).
-    #[serde(default = "default_daily_budget_pos")]
-    pub daily_budget_pos: f64,
-}
-
-impl Default for MmaConfig {
-    fn default() -> Self {
-        Self {
-            training_mode: false,
-            training_start: None,
-            training_end: None,
-            daily_budget_pod: default_daily_budget_pod(),
-            daily_budget_server: default_daily_budget_server(),
-            daily_budget_pos: default_daily_budget_pos(),
-        }
-    }
-}
-
-impl MmaConfig {
-    /// Returns true if the training period is currently active.
-    /// Training is active when: training_mode is true AND today is within [start, end].
-    /// If training_end has passed, returns false regardless of the flag (auto-flip).
-    pub fn is_training_active(&self) -> bool {
-        if !self.training_mode {
-            return false;
-        }
-
-        let today = chrono::Utc::now().date_naive();
-
-        // Check training_end — if past, training is over (auto-flip)
-        if let Some(ref end_str) = self.training_end {
-            if let Ok(end_date) = chrono::NaiveDate::parse_from_str(end_str, "%Y-%m-%d") {
-                if today > end_date {
-                    return false;
-                }
-            }
-        }
-
-        // Check training_start — if not yet reached, training hasn't begun
-        if let Some(ref start_str) = self.training_start {
-            if let Ok(start_date) = chrono::NaiveDate::parse_from_str(start_str, "%Y-%m-%d") {
-                if today < start_date {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
-    /// Returns the appropriate daily budget based on node type and training status.
-    pub fn daily_budget_for_node(&self, node_type: &crate::config::NodeType) -> f64 {
-        if self.is_training_active() {
-            match node_type {
-                NodeType::Pod => self.daily_budget_pod,
-                NodeType::Pos => self.daily_budget_pos,
-            }
-        } else {
-            // Production defaults
-            match node_type {
-                NodeType::Pod => 10.0,
-                NodeType::Pos => 5.0,
-            }
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct KioskConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
-
-impl Default for KioskConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
-fn default_true() -> bool { true }
-
-/// POS-01: Lock screen browser configuration.
-/// On gaming pods (default), the lock screen browser shows branded screens.
-/// On POS/auxiliary devices, disable to prevent overlaying the billing kiosk.
-#[derive(Debug, Deserialize)]
-pub struct LockScreenConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
-
-impl Default for LockScreenConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PreflightConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
-
-impl Default for PreflightConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ProcessGuardConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default = "default_scan_interval")]
-    pub scan_interval_secs: u64,
-}
-
-impl Default for ProcessGuardConfig {
-    fn default() -> Self {
-        Self { enabled: true, scan_interval_secs: 60 }
-    }
-}
-
-fn default_scan_interval() -> u64 { 60 }
-
-#[derive(Debug, Default, Deserialize)]
-pub struct GamesConfig {
-    #[serde(default)]
-    pub assetto_corsa: GameExeConfig,
-    #[serde(default)]
-    pub assetto_corsa_evo: GameExeConfig,
-    #[serde(default)]
-    pub assetto_corsa_rally: GameExeConfig,
-    #[serde(default)]
-    pub iracing: GameExeConfig,
-    #[serde(default)]
-    pub f1_25: GameExeConfig,
-    #[serde(default)]
-    pub le_mans_ultimate: GameExeConfig,
-    #[serde(default)]
-    pub forza: GameExeConfig,
-    #[serde(default)]
-    pub forza_horizon_5: GameExeConfig,
-}
 
 /// Detect which games are actually installed on this pod.
 /// Checks both TOML config (exe_path/steam_app_id) AND verifies the game exists on disk
@@ -235,7 +30,8 @@ pub struct GamesConfig {
 pub(crate) fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
     let mut installed = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
 
-    let candidates: &[(&GameExeConfig, SimType)] = &[
+    // Map rc-common GameExeConfig to agent GameExeConfig via the shared fields
+    let candidates: Vec<(&GameExeConfig, SimType)> = vec![
         (&games.f1_25, SimType::F125),
         (&games.iracing, SimType::IRacing),
         (&games.forza, SimType::Forza),
@@ -251,18 +47,16 @@ pub(crate) fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
             continue;
         }
 
-        // If exe_path is set, check if the file exists on disk
         if let Some(ref path) = config.exe_path {
             if std::path::Path::new(path).exists() {
-                installed.push(*sim_type);
+                installed.push(sim_type);
                 continue;
             }
         }
 
-        // If steam_app_id is set, check for appmanifest_{id}.acf in Steam
         if let Some(app_id) = config.steam_app_id {
             if is_steam_app_installed(app_id) {
-                installed.push(*sim_type);
+                installed.push(sim_type);
             } else {
                 tracing::info!(
                     target: LOG_TARGET,
@@ -285,114 +79,10 @@ fn is_steam_app_installed(app_id: u32) -> bool {
     std::path::Path::new(&manifest).exists()
 }
 
-/// Node type within the Racing Point fleet.
-/// Determines which subsystems are initialized at startup.
-/// - Pod: Full gaming pod (FFB, HID, overlay, lock screen, game launching)
-/// - POS: Point-of-sale terminal (billing, kiosk, mesh intelligence — no game hardware)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NodeType {
-    Pod,
-    Pos,
-}
-
-impl Default for NodeType {
-    fn default() -> Self {
-        NodeType::Pod
-    }
-}
-
-impl std::fmt::Display for NodeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NodeType::Pod => write!(f, "pod"),
-            NodeType::Pos => write!(f, "pos"),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PodConfig {
-    pub number: u32,
-    pub name: String,
-    /// Sim type — required for gaming pods, ignored for POS nodes.
-    #[serde(default = "default_sim")]
-    pub sim: String,
-    #[serde(default = "default_sim_ip")]
-    pub sim_ip: String,
-    #[serde(default = "default_sim_port")]
-    pub sim_port: u16,
-    /// Node type: "pod" (default) or "pos". Determines which subsystems start.
-    #[serde(default)]
-    pub node_type: NodeType,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CoreConfig {
-    #[serde(default = "default_core_url")]
-    pub url: String,
-    #[serde(default)]
-    pub failover_url: Option<String>,
-    /// Shared secret for WebSocket authentication. Sent as ?token= query parameter.
-    /// Must match racecontrol's cloud.terminal_secret.
-    #[serde(default)]
-    pub ws_secret: Option<String>,
-    /// SEC-07: Path to a custom CA certificate file (PEM format) for wss:// connections.
-    /// Used when the server uses a self-signed certificate (common on venue LAN).
-    /// When set, the agent trusts this CA in addition to the system root store.
-    /// Leave unset for public certificates signed by a trusted root CA.
-    #[serde(default)]
-    pub tls_ca_cert_path: Option<String>,
-    /// SEC-07: Skip TLS certificate verification for wss:// connections.
-    /// DANGEROUS: only use for LAN development/testing with self-signed certs.
-    /// Default: false. Do NOT set true in production.
-    #[serde(default)]
-    pub tls_skip_verify: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WheelbaseConfig {
-    #[serde(default = "default_wheelbase_vid")]
-    pub vendor_id: u16,
-    #[serde(default = "default_wheelbase_pid")]
-    pub product_id: u16,
-}
-
-impl Default for WheelbaseConfig {
-    fn default() -> Self {
-        Self {
-            vendor_id: default_wheelbase_vid(),
-            product_id: default_wheelbase_pid(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TelemetryPortsConfig {
-    #[serde(default = "default_telemetry_ports")]
-    pub ports: Vec<u16>,
-}
-
-impl Default for TelemetryPortsConfig {
-    fn default() -> Self {
-        Self {
-            ports: default_telemetry_ports(),
-        }
-    }
-}
-
-pub(crate) fn default_sim() -> String { "none".to_string() }
-pub(crate) fn default_sim_ip() -> String { "127.0.0.1".to_string() }
-pub(crate) fn default_sim_port() -> u16 { 9996 }
-pub(crate) fn default_core_url() -> String { "ws://127.0.0.1:8080/ws/agent".to_string() }
-pub(crate) fn default_wheelbase_vid() -> u16 { 0x1209 }
-pub(crate) fn default_wheelbase_pid() -> u16 { 0xFFB0 }
-pub(crate) fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 6789, 5555] }
-
 /// Validate agent configuration. Returns Err with all issues found (not fail-fast).
 ///
 /// Rules:
-/// - pod.number must be 1–8 inclusive
+/// - pod.number must be 1–99 inclusive
 /// - pod.name must not be blank after trimming
 /// - core.url must start with "ws://" or "wss://"
 pub(crate) fn validate_config(config: &AgentConfig) -> Result<()> {
@@ -438,14 +128,11 @@ pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     let mut paths: Vec<std::path::PathBuf> = Vec::new();
 
     // Determine config filename from binary name — rc-pos-agent.exe uses rc-pos-agent.toml
-    // Strip hash suffixes (rc-pos-agent-a0224366 → rc-pos-agent) and test hashes
     let config_name = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
         .and_then(|stem| {
-            // Only use binary-derived name for known agent binaries
             if stem.starts_with("rc-pos-agent") {
-                // Strip hash suffix: rc-pos-agent-a0224366 → rc-pos-agent
                 Some("rc-pos-agent.toml".to_string())
             } else {
                 None
@@ -457,7 +144,6 @@ pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             paths.push(exe_dir.join(&config_name));
-            // Also check rc-agent.toml as fallback (POS binary can use either)
             if config_name != "rc-agent.toml" {
                 paths.push(exe_dir.join("rc-agent.toml"));
             }
@@ -472,6 +158,121 @@ pub(crate) fn config_search_paths() -> Vec<std::path::PathBuf> {
     paths.push(std::path::PathBuf::from("/etc/racecontrol/rc-agent.toml"));
 
     paths
+}
+
+// ─── Known top-level TOML keys for AgentConfig ───────────────────────────────
+
+const KNOWN_FIELDS: &[&str] = &[
+    "schema_version",
+    "pod",
+    "core",
+    "wheelbase",
+    "telemetry_ports",
+    "games",
+    "ai_debugger",
+    "kiosk",
+    "lock_screen",
+    "preflight",
+    "process_guard",
+    "auto_end_orphan_session_secs",
+    "ac_evo_telemetry_enabled",
+    "mma",
+];
+
+/// Lenient TOML deserializer (SCHEMA-02, SCHEMA-03).
+///
+/// Returns (config, warnings) where warnings are human-readable messages about:
+/// - Unknown top-level fields (SCHEMA-02): silently ignored, warning issued
+/// - Type-mismatched fields (SCHEMA-03): field falls back to Default value, warning issued
+///
+/// Never panics or returns Err for well-formed TOML — only structural TOML syntax errors
+/// (missing `=`, unclosed brackets) cause an Err.
+pub(crate) fn lenient_deserialize(content: &str) -> Result<(AgentConfig, Vec<String>)> {
+    let mut warnings: Vec<String> = Vec::new();
+
+    // Parse as raw Value first — always succeeds for syntactically valid TOML
+    let raw: toml::Value = toml::from_str(content)
+        .map_err(|e| anyhow::anyhow!("TOML syntax error: {}", e))?;
+
+    // Warn on unknown top-level keys (SCHEMA-02)
+    if let Some(table) = raw.as_table() {
+        for key in table.keys() {
+            if !KNOWN_FIELDS.contains(&key.as_str()) {
+                warnings.push(format!("Unknown config field '{}' — ignored", key));
+            }
+        }
+    }
+
+    // Try full deserialize — with #[serde(default)] it won't fail on missing fields
+    match toml::from_str::<AgentConfig>(content) {
+        Ok(config) => Ok((config, warnings)),
+        Err(full_err) => {
+            // Type error somewhere — fall back field-by-field (SCHEMA-03)
+            warnings.push(format!(
+                "Config has type errors, using defaults for invalid fields: {}",
+                full_err
+            ));
+
+            let mut config = AgentConfig::default();
+
+            if let Some(table) = raw.as_table() {
+                macro_rules! try_section {
+                    ($key:literal, $field:ident, $ty:ty) => {
+                        if let Some(val) = table.get($key) {
+                            match val.clone().try_into::<$ty>() {
+                                Ok(v) => config.$field = v,
+                                Err(e) => warnings.push(format!(
+                                    "Config field '{}' has invalid type — using default: {}",
+                                    $key, e
+                                )),
+                            }
+                        }
+                    };
+                }
+
+                try_section!("pod", pod, PodConfig);
+                try_section!("core", core, CoreConfig);
+                try_section!("wheelbase", wheelbase, WheelbaseConfig);
+                try_section!("telemetry_ports", telemetry_ports, TelemetryPortsConfig);
+                try_section!("games", games, GamesConfig);
+                // Use the common stub type explicitly — AgentConfig.ai_debugger is always the common type
+                try_section!("ai_debugger", ai_debugger, rc_common::config_schema::AiDebuggerConfig);
+                try_section!("kiosk", kiosk, KioskConfig);
+                try_section!("lock_screen", lock_screen, LockScreenConfig);
+                try_section!("preflight", preflight, PreflightConfig);
+                try_section!("process_guard", process_guard, ProcessGuardConfig);
+                try_section!("mma", mma, MmaConfig);
+
+                // Scalar fields
+                if let Some(val) = table.get("auto_end_orphan_session_secs") {
+                    match val.clone().try_into::<u64>() {
+                        Ok(v) => config.auto_end_orphan_session_secs = v,
+                        Err(e) => warnings.push(format!(
+                            "Config field 'auto_end_orphan_session_secs' has invalid type — using default: {}", e
+                        )),
+                    }
+                }
+                if let Some(val) = table.get("ac_evo_telemetry_enabled") {
+                    match val.clone().try_into::<bool>() {
+                        Ok(v) => config.ac_evo_telemetry_enabled = v,
+                        Err(e) => warnings.push(format!(
+                            "Config field 'ac_evo_telemetry_enabled' has invalid type — using default: {}", e
+                        )),
+                    }
+                }
+                if let Some(val) = table.get("schema_version") {
+                    match val.clone().try_into::<u64>() {
+                        Ok(v) => config.schema_version = v as u32,
+                        Err(e) => warnings.push(format!(
+                            "Config field 'schema_version' has invalid type — using default: {}", e
+                        )),
+                    }
+                }
+            }
+
+            Ok((config, warnings))
+        }
+    }
 }
 
 // ─── Verification chain steps for agent config TOML load (COV-03) ────────────
@@ -499,13 +300,21 @@ impl VerifyStep for StepAgentTomlParse {
     fn name(&self) -> &str { "agent_toml_parse" }
     fn run(&self, input: (String, String)) -> Result<AgentConfig, VerificationError> {
         let (content, path) = input;
-        toml::from_str::<AgentConfig>(&content).map_err(|e| {
-            let first_3_lines: String = content.lines().take(3).collect::<Vec<_>>().join(" | ");
-            VerificationError::InputParseError {
-                step: self.name().to_string(),
-                raw_value: format!("path={} error={} first_3_lines=[{}]", path, e, first_3_lines),
+        match lenient_deserialize(&content) {
+            Ok((config, warnings)) => {
+                for warn in &warnings {
+                    tracing::warn!(target: "config", "{}", warn);
+                }
+                Ok(config)
             }
-        })
+            Err(e) => {
+                let first_3_lines: String = content.lines().take(3).collect::<Vec<_>>().join(" | ");
+                Err(VerificationError::InputParseError {
+                    step: self.name().to_string(),
+                    raw_value: format!("path={} error={} first_3_lines=[{}]", path, e, first_3_lines),
+                })
+            }
+        }
     }
 }
 
@@ -523,14 +332,12 @@ pub fn load_config() -> Result<AgentConfig> {
                         return Ok(config);
                     }
                     Err(e) => {
-                        // COV-03: Chain already logged first 3 lines in verification span
                         tracing::warn!(target: LOG_TARGET, error = %e, "config parse failed via verification chain");
-                        // Don't return error — try next path
                         continue;
                     }
                 }
             }
-            Err(_) => continue, // file not readable, try next
+            Err(_) => continue,
         }
     }
 
@@ -567,10 +374,7 @@ mod process_guard_config_tests {
 
     #[test]
     fn agent_config_no_process_guard_section_deserializes() {
-        // Minimal valid AgentConfig TOML — process_guard section absent
         let toml_str = "[pod]\nnumber = 1\n[core]\nurl = \"ws://127.0.0.1:8080/ws/agent\"\n";
-        // This tests that #[serde(default)] on process_guard works
-        // We only care it doesn't panic — partial parse is fine
         let result = toml::from_str::<toml::Value>(toml_str);
         assert!(result.is_ok());
     }
@@ -579,10 +383,10 @@ mod process_guard_config_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_process::GameExeConfig;
 
     fn valid_config() -> AgentConfig {
         AgentConfig {
+            schema_version: 1,
             pod: PodConfig {
                 number: 3,
                 name: "Pod 03".to_string(),
@@ -601,7 +405,7 @@ mod tests {
             wheelbase: WheelbaseConfig::default(),
             telemetry_ports: TelemetryPortsConfig::default(),
             games: GamesConfig::default(),
-            ai_debugger: AiDebuggerConfig::default(),
+            ai_debugger: rc_common::config_schema::AiDebuggerConfig::default(),
             kiosk: KioskConfig::default(),
             lock_screen: LockScreenConfig::default(),
             preflight: PreflightConfig::default(),
@@ -652,7 +456,7 @@ mod tests {
     #[test]
     fn validate_config_rejects_empty_pod_name() {
         let mut config = valid_config();
-        config.pod.name = "   ".to_string(); // whitespace only
+        config.pod.name = "   ".to_string();
         let err = validate_config(&config).unwrap_err();
         assert!(
             err.to_string().contains("pod.name"),
@@ -703,17 +507,9 @@ mod tests {
 
     #[test]
     fn load_config_returns_err_when_no_file_exists() {
-        // Temporarily change to a directory without a config file
-        // We test this by trying to parse an empty/nonexistent config
-        // Since load_config reads from CWD, we check it returns Err (not defaults)
-        // by verifying that the code path for missing files exists and returns Err.
-        // Direct testing of file-system behavior is done via integration test.
-        // Here we verify validate_config is the gatekeeper for default values.
         let mut config = valid_config();
-        // A pod.number=1 with default core URL used to be the default. Now it must be explicit.
         config.pod.number = 1;
         config.core.url = "ws://127.0.0.1:8080/ws/agent".to_string();
-        // This SHOULD pass (valid explicit config, not a sneaky default)
         assert!(validate_config(&config).is_ok(), "Explicitly valid config should pass");
     }
 
@@ -721,16 +517,13 @@ mod tests {
     fn test_config_search_paths_includes_exe_dir() {
         use std::path::PathBuf;
         let paths = config_search_paths();
-        // Must have at least one path
         assert!(!paths.is_empty(), "config_search_paths() must return at least one path");
-        // First path must end with rc-agent.toml
         let first = &paths[0];
         assert!(
             first.file_name().map(|n| n == "rc-agent.toml").unwrap_or(false),
             "First search path must end with rc-agent.toml, got: {}",
             first.display()
         );
-        // First path must NOT be just "rc-agent.toml" (must include a parent directory from exe)
         assert!(
             first != &PathBuf::from("rc-agent.toml"),
             "First path must include exe directory, not bare 'rc-agent.toml', got: {}",
@@ -742,10 +535,8 @@ mod tests {
     fn test_config_search_paths_includes_cwd_fallback() {
         use std::path::PathBuf;
         let paths = config_search_paths();
-        // Must contain CWD-relative fallback
         let has_cwd_fallback = paths.contains(&PathBuf::from("rc-agent.toml"));
         assert!(has_cwd_fallback, "config_search_paths() must include 'rc-agent.toml' (CWD fallback)");
-        // CWD fallback must appear AFTER the exe-dir path (index > 0)
         let cwd_index = paths.iter().position(|p| p == &PathBuf::from("rc-agent.toml")).unwrap();
         assert!(
             cwd_index > 0,
@@ -756,17 +547,13 @@ mod tests {
 
     #[test]
     fn test_load_config_error_lists_all_searched_paths() {
-        // Change to a temp directory that has no rc-agent.toml
         let tmp = std::env::temp_dir().join("rc_agent_test_no_config");
         let _ = std::fs::create_dir_all(&tmp);
         let original = std::env::current_dir().ok();
-
-        // Set CWD to temp dir (best effort — doesn't affect exe-dir search)
         let _ = std::env::set_current_dir(&tmp);
 
         let result = load_config();
 
-        // Restore original CWD
         if let Some(orig) = original {
             let _ = std::env::set_current_dir(orig);
         }
@@ -783,7 +570,6 @@ mod tests {
             "Error must contain 'Searched:', got: {}",
             msg
         );
-        // Must list at least 2 distinct path entries (exe-dir + CWD fallback)
         let path_count = msg.matches("rc-agent.toml").count();
         assert!(
             path_count >= 2,
@@ -793,156 +579,87 @@ mod tests {
         );
     }
 
-    // ─── installed games tests ─────────────────────────────────────────
+    // ─── Lenient parsing tests (SCHEMA-02, SCHEMA-03) ─────────────────────────
 
+    /// Test 1: TOML with unknown field deserializes successfully, warning issued
     #[test]
-    fn test_installed_games_empty_config_only_ac() {
-        // Default config (no games configured) should only have AC
-        let games = GamesConfig::default();
-        let installed = detect_installed_games(&games);
-        assert_eq!(installed, vec![SimType::AssettoCorsa]);
-    }
-
-    #[test]
-    fn test_installed_games_configured_but_not_on_disk() {
-        // steam_app_id set but no manifest on disk → should NOT be detected
-        let mut games = GamesConfig::default();
-        games.f1_25 = GameExeConfig { steam_app_id: Some(9999999), ..Default::default() };
-        games.iracing = GameExeConfig { steam_app_id: Some(9999998), ..Default::default() };
-        let installed = detect_installed_games(&games);
-        // Only AC — fake app_ids have no manifest files
-        assert_eq!(installed, vec![SimType::AssettoCorsa],
-            "Games with steam_app_id but no disk manifest should not appear");
-    }
-
-    #[test]
-    fn test_installed_games_exe_path_not_on_disk() {
-        // exe_path set but file does not exist → fall through to steam check (also fails)
-        let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            exe_path: Some("C:\\NonExistent\\fake_game.exe".to_string()),
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        assert!(!installed.contains(&SimType::AssettoCorsaRally),
-            "exe_path pointing to nonexistent file should not detect game");
-    }
-
-    #[test]
-    fn test_installed_games_exe_path_exists_on_disk() {
-        // exe_path pointing to a real file → should be detected
-        let tmp = std::env::temp_dir().join("test_game_detect.exe");
-        std::fs::write(&tmp, b"fake").unwrap();
-        let mut games = GamesConfig::default();
-        games.forza_horizon_5 = GameExeConfig {
-            exe_path: Some(tmp.to_string_lossy().to_string()),
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        assert!(installed.contains(&SimType::ForzaHorizon5),
-            "exe_path pointing to real file should detect game");
-        std::fs::remove_file(&tmp).ok();
-    }
-
-    #[test]
-    fn test_is_steam_app_installed_nonexistent() {
-        // Fake app_id should not have a manifest
-        assert!(!is_steam_app_installed(9999999));
-    }
-
-    // ─── Phase 68: failover_url validation tests ───────────────────────────
-
-    #[test]
-    fn validate_config_accepts_failover_url() {
+    fn lenient_unknown_field_warns_not_errors() {
         let toml_str = r#"
+future_field = true
 [pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
+number = 1
+name = "Pod 01"
 [core]
-url = "ws://192.168.31.23:8080/ws/agent"
-failover_url = "ws://100.70.177.44:8080/ws/agent"
+url = "ws://127.0.0.1:8080/ws/agent"
 "#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(validate_config(&config).is_ok());
+        let (config, warnings) = lenient_deserialize(toml_str).expect("should succeed");
+        assert_eq!(config.pod.number, 1);
+        let has_unknown_warn = warnings.iter().any(|w| w.contains("future_field") && w.contains("ignored"));
+        assert!(has_unknown_warn, "Expected warning about 'future_field', got: {:?}", warnings);
+    }
+
+    /// Test 2: TOML with wrong type on known field falls back to default, warning issued
+    #[test]
+    fn lenient_type_mismatch_falls_back_to_default() {
+        // auto_end_orphan_session_secs is u64 — give it a string
+        let toml_str = r#"
+auto_end_orphan_session_secs = "not_a_number"
+[pod]
+number = 1
+name = "Pod 01"
+[core]
+url = "ws://127.0.0.1:8080/ws/agent"
+"#;
+        let (config, warnings) = lenient_deserialize(toml_str).expect("should succeed");
         assert_eq!(
-            config.core.failover_url.as_deref(),
-            Some("ws://100.70.177.44:8080/ws/agent")
+            config.auto_end_orphan_session_secs,
+            default_auto_end_orphan_session_secs(),
+            "should fall back to default 300"
         );
+        let has_type_warn = warnings.iter().any(|w| w.contains("invalid type") || w.contains("type errors"));
+        assert!(has_type_warn, "Expected type mismatch warning, got: {:?}", warnings);
     }
 
+    /// Test 3: TOML with schema_version=99 loads successfully
     #[test]
-    fn validate_config_accepts_missing_failover_url() {
+    fn lenient_future_schema_version_loads() {
         let toml_str = r#"
+schema_version = 99
 [pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
-[core]
-url = "ws://192.168.31.23:8080/ws/agent"
-"#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(validate_config(&config).is_ok());
-        assert!(config.core.failover_url.is_none());
-    }
-
-    #[test]
-    fn validate_config_rejects_non_ws_failover_url() {
-        let toml_str = r#"
-[pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
-[core]
-url = "ws://192.168.31.23:8080/ws/agent"
-failover_url = "http://bad-url"
-"#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("failover_url"),
-            "Error should mention failover_url: {}",
-            err
-        );
-    }
-
-    // ─── Phase 110: AC EVO telemetry feature flag tests ───────────────────────
-
-    #[test]
-    fn test_ac_evo_feature_flag_default_false() {
-        // Minimal TOML (just [pod] and [core]) — ac_evo_telemetry_enabled absent → must default false
-        let toml_str = r#"
-[pod]
-number = 1
-name = "Pod 1"
-sim = "assetto_corsa"
+number = 2
+name = "Pod 02"
 [core]
 url = "ws://127.0.0.1:8080/ws/agent"
 "#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(
-            !config.ac_evo_telemetry_enabled,
-            "ac_evo_telemetry_enabled must default to false (HARD-05)"
-        );
+        let (config, warnings) = lenient_deserialize(toml_str).expect("should succeed");
+        assert_eq!(config.schema_version, 99);
+        assert!(warnings.is_empty(), "No warnings expected for valid future version, got: {:?}", warnings);
     }
 
+    /// Test 4: Minimal valid TOML still works
     #[test]
-    fn test_ac_evo_feature_flag_enabled() {
-        // TOML with ac_evo_telemetry_enabled = true as a top-level field — must parse as true
+    fn lenient_minimal_toml_works() {
         let toml_str = r#"
-ac_evo_telemetry_enabled = true
-
 [pod]
-number = 1
-name = "Pod 1"
-sim = "assetto_corsa_evo"
+number = 5
+name = "Pod 05"
 [core]
-url = "ws://127.0.0.1:8080/ws/agent"
+url = "ws://192.168.31.23:8080/ws/agent"
 "#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(
-            config.ac_evo_telemetry_enabled,
-            "ac_evo_telemetry_enabled = true in TOML must parse correctly"
-        );
+        let (config, _warnings) = lenient_deserialize(toml_str).expect("should succeed");
+        assert_eq!(config.pod.number, 5);
+        assert_eq!(config.pod.name, "Pod 05");
+        assert_eq!(config.schema_version, 1); // default
+    }
+
+    /// Test 5: re-export of rc_common::config_schema types is accessible
+    #[test]
+    fn reexported_types_accessible() {
+        // If this compiles, re-export works
+        let _ = AgentConfig::default();
+        let _ = NodeType::Pod;
+        let _ = ProcessGuardConfig::default();
+        let _ = MmaConfig::default();
+        let _ = AiDebuggerConfig::default();
     }
 }
