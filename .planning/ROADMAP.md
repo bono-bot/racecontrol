@@ -21,7 +21,7 @@ Make autonomous action loops observable and queryable with time-series depth -- 
 285 ──> 289 (Alerts)
 ```
 
-- [ ] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion
+- [x] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion (completed 2026-04-01)
 - [ ] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution
 - [ ] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh
 - [ ] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility
@@ -39,11 +39,11 @@ Make autonomous action loops observable and queryable with time-series depth -- 
   3. Hourly and daily rollups (min/max/avg/count) exist and are retained for 90 days
   4. Metric ingestion does not introduce observable latency on the main server event loop (async/batched writes)
   5. Storage is bounded -- disk usage does not grow indefinitely regardless of uptime duration
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 285-01-PLAN.md -- SQLite TSDB schema (metrics_samples + metrics_rollups tables), types, record_sample, rollup functions
-- [ ] 285-02-PLAN.md -- Async mpsc ingestion pipeline, purge tasks (7d raw, 90d rollups), wired in main.rs
+- [x] 285-02-PLAN.md -- Async mpsc ingestion pipeline, purge tasks (7d raw, 90d rollups), wired in main.rs
 
 ### Phase 286: Metrics Query API
 **Goal**: Operators can retrieve historical and current metric data via REST API
@@ -111,7 +111,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 285. Metrics Ring Buffer | 1/2 | In Progress|  |
+| 285. Metrics Ring Buffer | 2/2 | Complete   | 2026-04-01 |
 | 286. Metrics Query API | 0/1 | Not started | - |
 | 287. Metrics Dashboard | 0/1 | Not started | - |
 | 288. Prometheus Export | 0/1 | Not started | - |

@@ -6,12 +6,12 @@
 ## Metrics Storage (TSDB)
 
 - [x] **TSDB-01**: Server records metric samples at 1-minute resolution into SQLite metrics_tsdb
-- [ ] **TSDB-02**: Raw samples retained for 7 days, then purged automatically
+- [x] **TSDB-02**: Raw samples retained for 7 days, then purged automatically
 - [x] **TSDB-03**: Hourly rollups (min/max/avg/count) computed and retained for 90 days
 - [x] **TSDB-04**: Daily rollups computed and retained for 90 days
 - [x] **TSDB-05**: Metrics captured include: CPU usage, GPU temperature, FPS, billing revenue, WS connection count, pod health score, game session count
-- [ ] **TSDB-06**: Metric ingestion does not block the main server event loop (async insert, batch if needed)
-- [ ] **TSDB-07**: Ring buffer behavior -- storage is bounded, old data purged by cron/background task
+- [x] **TSDB-06**: Metric ingestion does not block the main server event loop (async insert, batch if needed)
+- [x] **TSDB-07**: Ring buffer behavior -- storage is bounded, old data purged by cron/background task
 
 ## Metrics Query API (QAPI)
 
@@ -73,12 +73,12 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TSDB-01 | Phase 285 | Complete |
-| TSDB-02 | Phase 285 | Pending |
+| TSDB-02 | Phase 285 | Complete |
 | TSDB-03 | Phase 285 | Complete |
 | TSDB-04 | Phase 285 | Complete |
 | TSDB-05 | Phase 285 | Complete |
-| TSDB-06 | Phase 285 | Pending |
-| TSDB-07 | Phase 285 | Pending |
+| TSDB-06 | Phase 285 | Complete |
+| TSDB-07 | Phase 285 | Complete |
 | QAPI-01 | Phase 286 | Pending |
 | QAPI-02 | Phase 286 | Pending |
 | QAPI-03 | Phase 286 | Pending |
