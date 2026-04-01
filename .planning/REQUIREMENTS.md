@@ -42,26 +42,26 @@
 
 | REQ | Phase | Status |
 |-----|-------|--------|
-| EVAL-01 | TBD | Pending |
-| EVAL-02 | TBD | Pending |
-| EVAL-03 | TBD | Pending |
-| KBPP-01 | TBD | Pending |
-| KBPP-02 | TBD | Pending |
-| KBPP-03 | TBD | Pending |
-| KBPP-04 | TBD | Pending |
-| KBPP-05 | TBD | Pending |
-| KBPP-06 | TBD | Pending |
-| MREP-01 | TBD | Pending |
-| MREP-02 | TBD | Pending |
-| MREP-03 | TBD | Pending |
-| MREP-04 | TBD | Pending |
-| TRAIN-01 | TBD | Pending |
-| TRAIN-02 | TBD | Pending |
-| TRAIN-03 | TBD | Pending |
-| RPTV2-01 | TBD | Pending |
-| RPTV2-02 | TBD | Pending |
-| RPTV2-03 | TBD | Pending |
-| RPTV2-04 | TBD | Pending |
+| EVAL-01 | Phase 280 | Pending |
+| EVAL-02 | Phase 280 | Pending |
+| EVAL-03 | Phase 280 | Pending |
+| KBPP-01 | Phase 281 | Pending |
+| KBPP-02 | Phase 281 | Pending |
+| KBPP-03 | Phase 281 | Pending |
+| KBPP-04 | Phase 281 | Pending |
+| KBPP-05 | Phase 281 | Pending |
+| KBPP-06 | Phase 281 | Pending |
+| MREP-01 | Phase 282 | Pending |
+| MREP-02 | Phase 282 | Pending |
+| MREP-03 | Phase 282 | Pending |
+| MREP-04 | Phase 282 | Pending |
+| TRAIN-01 | Phase 283 | Pending |
+| TRAIN-02 | Phase 283 | Pending |
+| TRAIN-03 | Phase 283 | Pending |
+| RPTV2-01 | Phase 284 | Pending |
+| RPTV2-02 | Phase 284 | Pending |
+| RPTV2-03 | Phase 284 | Pending |
+| RPTV2-04 | Phase 284 | Pending |
 
 ## Future Requirements (deferred)
 
