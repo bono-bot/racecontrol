@@ -708,9 +708,11 @@ async fn main() -> anyhow::Result<()> {
     racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
 
     // v34.0 Phase 285: Metrics TSDB -- async ingestion pipeline + rollup/purge
-    let _metrics_tx = racecontrol_crate::metrics_tsdb::spawn_metrics_ingestion(state.db.clone());
+    let metrics_tx = racecontrol_crate::metrics_tsdb::spawn_metrics_ingestion(state.db.clone());
     racecontrol_crate::metrics_tsdb::spawn_rollup_and_purge(state.db.clone());
     tracing::info!("Metrics TSDB ingestion + rollup/purge tasks spawned");
+    racecontrol_crate::metrics_producers::spawn_metric_producers(state.clone(), metrics_tx);
+    tracing::info!("Metrics producers spawned (ws_connections, game_sessions, pod_health, billing_revenue)");
 
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
