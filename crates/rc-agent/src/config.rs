@@ -318,6 +318,108 @@ impl VerifyStep for StepAgentTomlParse {
     }
 }
 
+// ─── PUSH-05: Hot/cold field classification ───────────────────────────────────
+//
+// HOT fields: apply immediately on FullConfigPush without agent restart (PUSH-03).
+// COLD fields: log as pending-restart, NOT applied until next startup (PUSH-04).
+// Fields are identified by dot-path string prefix for comparison.
+
+/// Fields that can be applied immediately without agent restart (PUSH-03).
+/// These control runtime feature gates and budgets — safe to toggle live.
+pub(crate) const HOT_RELOAD_CONFIG_FIELDS: &[&str] = &[
+    "process_guard.enabled",
+    "process_guard.scan_interval_secs",
+    "kiosk.enabled",
+    "lock_screen.enabled",
+    "preflight.enabled",
+    "mma.training_mode",
+    "mma.daily_budget_pod",
+    "mma.daily_budget_server",
+    "mma.daily_budget_pos",
+    "auto_end_orphan_session_secs",
+    "ac_evo_telemetry_enabled",
+];
+
+/// Fields that require agent restart to take effect (PUSH-04).
+/// Changing these live would cause undefined behavior (wrong pod identity,
+/// WS reconnect with old URL, HID bind failure, UDP port conflict).
+pub(crate) const COLD_CONFIG_FIELDS: &[&str] = &[
+    "pod.number",
+    "pod.name",
+    "pod.sim",
+    "pod.sim_ip",
+    "pod.sim_port",
+    "pod.node_type",
+    "core.url",
+    "core.failover_url",
+    "core.ws_secret",
+    "core.tls_ca_cert_path",
+    "core.tls_skip_verify",
+    "wheelbase.vendor_id",
+    "wheelbase.product_id",
+    "telemetry_ports.ports",
+    "games",
+    "ai_debugger",
+];
+
+// ─── PUSH-05: Server config persistence ──────────────────────────────────────
+
+/// Returns the path to the server-pushed config cache file.
+/// Always in the same directory as the running binary.
+fn server_config_path() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("rc-agent-server-config.json")
+}
+
+/// PUSH-05: Persist server-pushed config to local JSON file for boot resilience.
+/// File: rc-agent-server-config.json in the same directory as the exe.
+/// On next startup, if no TOML config is found, load_config() will fall back to this.
+pub fn persist_server_config(config: &AgentConfig, config_hash: &str) -> Result<()> {
+    persist_server_config_to(config, config_hash, &server_config_path())
+}
+
+/// Persist to a specific path (for testing).
+pub(crate) fn persist_server_config_to(
+    config: &AgentConfig,
+    config_hash: &str,
+    path: &std::path::Path,
+) -> Result<()> {
+    let wrapper = serde_json::json!({
+        "config": config,
+        "config_hash": config_hash,
+        "received_at": chrono::Utc::now().to_rfc3339(),
+    });
+    let json = serde_json::to_string_pretty(&wrapper)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize server config: {}", e))?;
+    std::fs::write(path, json)
+        .map_err(|e| anyhow::anyhow!("Failed to write server config to {}: {}", path.display(), e))?;
+    tracing::info!(
+        target: LOG_TARGET,
+        "Persisted server config to {} (hash={})",
+        path.display(),
+        config_hash
+    );
+    Ok(())
+}
+
+/// PUSH-05: Load last-received server config from local JSON file.
+/// Returns None if file doesn't exist or is corrupt — caller falls back gracefully.
+pub fn load_server_config() -> Option<(AgentConfig, String)> {
+    load_server_config_from(&server_config_path())
+}
+
+/// Load from a specific path (for testing).
+pub(crate) fn load_server_config_from(path: &std::path::Path) -> Option<(AgentConfig, String)> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let wrapper: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let config: AgentConfig = serde_json::from_value(wrapper.get("config")?.clone()).ok()?;
+    let hash = wrapper.get("config_hash")?.as_str()?.to_string();
+    Some((config, hash))
+}
+
 pub fn load_config() -> Result<AgentConfig> {
     let search_paths = config_search_paths();
     let chain = ColdVerificationChain::new("agent_config_load");
@@ -339,6 +441,18 @@ pub fn load_config() -> Result<AgentConfig> {
             }
             Err(_) => continue,
         }
+    }
+
+    // PUSH-05: Fallback to last-received server config when no TOML file found.
+    // This provides boot resilience when the server is temporarily unreachable.
+    if let Some((config, hash)) = load_server_config() {
+        tracing::warn!(
+            target: LOG_TARGET,
+            "No TOML config found — using last-received server config (hash={})",
+            hash
+        );
+        validate_config(&config)?;
+        return Ok(config);
     }
 
     Err(anyhow::anyhow!(
@@ -661,5 +775,90 @@ url = "ws://192.168.31.23:8080/ws/agent"
         let _ = ProcessGuardConfig::default();
         let _ = MmaConfig::default();
         let _ = AiDebuggerConfig::default();
+    }
+}
+
+// ─── PUSH-05: Server config persistence tests ─────────────────────────────────
+
+#[cfg(test)]
+mod server_config_persistence_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn test_config() -> AgentConfig {
+        let mut c = AgentConfig::default();
+        c.pod.number = 3;
+        c.pod.name = "Pod 03".to_string();
+        c.core.url = "ws://192.168.31.23:8080/ws/agent".to_string();
+        c
+    }
+
+    /// Test 1: persist_server_config writes a JSON file that load_server_config reads back with matching fields.
+    #[test]
+    fn persist_and_load_round_trip() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("rc-agent-server-config.json");
+        let config = test_config();
+        let hash = "abc123deadbeef".to_string();
+
+        persist_server_config_to(&config, &hash, &path).expect("persist should succeed");
+        let (loaded, loaded_hash) = load_server_config_from(&path).expect("load should return Some");
+
+        assert_eq!(loaded_hash, hash, "hash must match");
+        assert_eq!(loaded.pod.number, config.pod.number, "pod.number must match");
+        assert_eq!(loaded.pod.name, config.pod.name, "pod.name must match");
+        assert_eq!(loaded.core.url, config.core.url, "core.url must match");
+    }
+
+    /// Test 2: load_server_config returns None when no file exists.
+    #[test]
+    fn load_returns_none_when_no_file() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("nonexistent-server-config.json");
+        let result = load_server_config_from(&path);
+        assert!(result.is_none(), "Should return None when file does not exist");
+    }
+
+    /// Test 3: AgentConfig round-trips through JSON (serialize+deserialize identity check).
+    #[test]
+    fn agent_config_json_roundtrip() {
+        let config = test_config();
+        let json = serde_json::to_string(&config).expect("serialize");
+        let decoded: AgentConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.pod.number, config.pod.number);
+        assert_eq!(decoded.pod.name, config.pod.name);
+        assert_eq!(decoded.core.url, config.core.url);
+        assert_eq!(decoded.schema_version, config.schema_version);
+    }
+
+    /// Test 4: HOT_RELOAD_CONFIG_FIELDS and COLD_CONFIG_FIELDS lists are disjoint
+    /// (no field appears in both).
+    #[test]
+    fn hot_and_cold_fields_are_disjoint() {
+        for hot in HOT_RELOAD_CONFIG_FIELDS {
+            assert!(
+                !COLD_CONFIG_FIELDS.contains(hot),
+                "Field '{}' appears in both HOT_RELOAD_CONFIG_FIELDS and COLD_CONFIG_FIELDS — must be disjoint",
+                hot
+            );
+        }
+    }
+
+    /// Test 5: persist_server_config produces valid JSON with all expected keys.
+    #[test]
+    fn persist_produces_valid_json_with_expected_keys() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("rc-agent-server-config.json");
+        let config = test_config();
+        let hash = "deadbeef01234567".to_string();
+
+        persist_server_config_to(&config, &hash, &path).expect("persist should succeed");
+
+        let content = std::fs::read_to_string(&path).expect("read file");
+        let value: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+        assert!(value.get("config").is_some(), "must contain 'config' key");
+        assert!(value.get("config_hash").is_some(), "must contain 'config_hash' key");
+        assert!(value.get("received_at").is_some(), "must contain 'received_at' key");
+        assert_eq!(value["config_hash"].as_str(), Some("deadbeef01234567"));
     }
 }
