@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 22:00 IST | James | c47e23c3 | fix(302-01): add event_archive to main.rs use imports |
+| 2026-04-01 22:00 IST | James | dca4988a | feat(302-01): wire event_archive::spawn into main.rs |
+| 2026-04-01 22:00 IST | James | 3bc332ec | feat(302-01): EventArchiveConfig + system_events table + event_archive module (5 tests pass) |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
@@ -1071,9 +1074,3 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-03-31 21:20 IST | James | — | ops(ssh): MMA 4-model SSH fleet hardening — KexAlgorithms forced classical (PQ warning eliminated), ClientAliveInterval 30 + MaxSessions 50 on server + 8 pods. DeepSeek R1 + V3 + Qwen3 + MiMo consensus. |
 | 2026-03-31 21:55 IST | James | 3302df9b | fix(watchdog): MMA 4-model consensus — prevent false MAINTENANCE_MODE from system events. 3 fixes: (1) dual crash detection (health+tasklist), (2) JSON timestamp auto-clear (not mtime), (3) watchdog defers on MAINT. Root cause: sshd restart triggered all 8 pods MAINTENANCE_MODE. New rc-watchdog deployed to all pods. |
 | 2026-04-01 10:33 IST | James | 2e96024f | enforce subagent gates: mandatory UI review, integration check, nyquist audit per phase type. Audit found 233 phases with 0 UI reviews, 0 integration checks, 0 test audits. Added to CLAUDE.md + standing-rules.md + memory. Bono synced. |
-| 2026-04-01 22:30 IST | James | 10ada2ff | feat(299-01): SQLite schema + PolicyCondition/PolicyAction types + DB helpers — policy_rules + policy_eval_log CREATE TABLE migrations, policy_engine.rs module, 7 unit tests pass |
-| 2026-04-01 22:31 IST | James | 4198f92b | feat(299-01): REST handlers + route registration — 5 endpoints under /api/v1/policy (list/create/update/delete rules + eval-log), staff-gated router |
-| 2026-04-01 22:35 IST | James | d38c194d | feat(299-02): wire policy_engine_task into main.rs — 60s eval loop, 4 action dispatch (alert/flag_toggle/config_change/budget_adjust), 30-min cooldown |
-| 2026-04-01 22:42 IST | James | c6da644c | feat(299-03): PolicyRule types + policyApi client in lib/api.ts — 4 interfaces + policyApi with 5 methods, 0 TypeScript errors |
-| 2026-04-01 22:45 IST | James | 69524fa1 | feat(299-03): /policy admin page (577 LOC) + Sidebar nav link — rule CRUD, last_fired IST display, eval log with fired/not-fired visual badges |
-| 2026-04-01 22:50 IST | James | 93d88bbb | docs(299): complete phase 299 policy-rules-engine — 3 SUMMARY files, STATE.md updated, ROADMAP.md Phase 299 marked complete |
