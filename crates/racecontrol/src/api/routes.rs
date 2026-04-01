@@ -10017,6 +10017,81 @@ async fn sync_changes(
                     result["staff_members"] = json!(items);
                 }
             }
+            // Phase 301: Cloud Data Sync v2 — intelligence tables (SYNC-04)
+            "fleet_solutions" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'problem_key', problem_key, 'problem_hash', problem_hash,
+                        'symptoms', symptoms, 'environment', environment, 'root_cause', root_cause,
+                        'fix_action', fix_action, 'fix_type', fix_type, 'status', status,
+                        'success_count', success_count, 'fail_count', fail_count,
+                        'confidence', confidence, 'cost_to_diagnose', cost_to_diagnose,
+                        'models_used', models_used, 'diagnosis_tier', diagnosis_tier,
+                        'source_node', source_node, 'venue_id', venue_id,
+                        'created_at', created_at, 'updated_at', updated_at,
+                        'version', version, 'ttl_days', ttl_days, 'tags', tags
+                    ) FROM fleet_solutions WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["fleet_solutions"] = json!(items);
+                }
+            }
+            "model_evaluations" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'model_name', model_name, 'pod_id', pod_id,
+                        'problem_key', problem_key, 'prediction', prediction, 'actual', actual,
+                        'correct', correct, 'cost_usd', cost_usd, 'diagnosis_tier', diagnosis_tier,
+                        'created_at', created_at, 'updated_at', updated_at, 'venue_id', venue_id
+                    ) FROM model_evaluations WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["model_evaluations"] = json!(items);
+                }
+            }
+            "metrics_rollups" => {
+                // Omit id (AUTOINCREMENT) — target DB assigns its own
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'resolution', resolution, 'metric_name', metric_name, 'pod_id', pod_id,
+                        'min_value', min_value, 'max_value', max_value, 'avg_value', avg_value,
+                        'sample_count', sample_count, 'period_start', period_start,
+                        'updated_at', COALESCE(updated_at, datetime('now')), 'venue_id', venue_id
+                    ) FROM metrics_rollups
+                    WHERE COALESCE(updated_at, datetime('now')) > ?
+                    ORDER BY COALESCE(updated_at, datetime('now')) ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["metrics_rollups"] = json!(items);
+                }
+            }
             _ => {}
         }
     }
@@ -10651,6 +10726,193 @@ async fn sync_push(
         }
     }
 
+    // Phase 301: Upsert fleet_solutions with LWW + venue_id tiebreaker (SYNC-04/05)
+    if let Some(solutions) = body.get("fleet_solutions").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for sol in solutions {
+            let id = sol.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                sol.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO fleet_solutions
+                    (id, problem_key, problem_hash, symptoms, environment, root_cause,
+                     fix_action, fix_type, status, success_count, fail_count, confidence,
+                     cost_to_diagnose, models_used, diagnosis_tier, source_node, venue_id,
+                     created_at, updated_at, version, ttl_days, tags)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
+                 ON CONFLICT(id) DO UPDATE SET
+                    root_cause = excluded.root_cause,
+                    fix_action = excluded.fix_action,
+                    status = excluded.status,
+                    success_count = excluded.success_count,
+                    fail_count = excluded.fail_count,
+                    confidence = excluded.confidence,
+                    cost_to_diagnose = excluded.cost_to_diagnose,
+                    models_used = excluded.models_used,
+                    updated_at = excluded.updated_at,
+                    version = excluded.version,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > fleet_solutions.updated_at
+                    OR (excluded.updated_at = fleet_solutions.updated_at
+                        AND excluded.venue_id < fleet_solutions.venue_id)",
+            )
+            .bind(id)
+            .bind(sol.get("problem_key").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("problem_hash").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("symptoms").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("environment").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("root_cause").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("fix_action").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("fix_type").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("status").and_then(|v| v.as_str()).unwrap_or("candidate"))
+            .bind(sol.get("success_count").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(sol.get("fail_count").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(sol.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0))
+            .bind(sol.get("cost_to_diagnose").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(sol.get("models_used").and_then(|v| v.as_str()))
+            .bind(sol.get("diagnosis_tier").and_then(|v| v.as_str()).unwrap_or("deterministic"))
+            .bind(sol.get("source_node").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("venue_id").and_then(|v| v.as_str()))
+            .bind(sol.get("created_at").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(&ts)
+            .bind(sol.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(sol.get("ttl_days").and_then(|v| v.as_i64()).unwrap_or(90))
+            .bind(sol.get("tags").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("fleet_solutions upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'fleet_solutions'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} fleet_solutions ({} conflicts)", solutions.len(), conflicts);
+    }
+
+    // Phase 301: Upsert model_evaluations with LWW + venue_id tiebreaker (SYNC-04/05)
+    if let Some(evals) = body.get("model_evaluations").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for ev in evals {
+            let id = ev.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                ev.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO model_evaluations
+                    (id, model_name, pod_id, problem_key, prediction, actual,
+                     correct, cost_usd, diagnosis_tier, created_at, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                 ON CONFLICT(id) DO UPDATE SET
+                    prediction = excluded.prediction,
+                    actual = excluded.actual,
+                    correct = excluded.correct,
+                    cost_usd = excluded.cost_usd,
+                    diagnosis_tier = excluded.diagnosis_tier,
+                    updated_at = excluded.updated_at,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > model_evaluations.updated_at
+                    OR (excluded.updated_at = model_evaluations.updated_at
+                        AND excluded.venue_id < model_evaluations.venue_id)",
+            )
+            .bind(id)
+            .bind(ev.get("model_name").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(ev.get("pod_id").and_then(|v| v.as_str()))
+            .bind(ev.get("problem_key").and_then(|v| v.as_str()))
+            .bind(ev.get("prediction").and_then(|v| v.as_str()))
+            .bind(ev.get("actual").and_then(|v| v.as_str()))
+            .bind(ev.get("correct").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(ev.get("cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ev.get("diagnosis_tier").and_then(|v| v.as_str()))
+            .bind(ev.get("created_at").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(&ts)
+            .bind(ev.get("venue_id").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("model_evaluations upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'model_evaluations'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} model_evaluations ({} conflicts)", evals.len(), conflicts);
+    }
+
+    // Phase 301: Upsert metrics_rollups using UNIQUE constraint (not id) with LWW (SYNC-04/05)
+    // Do NOT include id — AUTOINCREMENT, target DB assigns its own
+    if let Some(rollups) = body.get("metrics_rollups").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for ru in rollups {
+            let resolution = ru.get("resolution").and_then(|v| v.as_str()).unwrap_or_default();
+            let metric_name = ru.get("metric_name").and_then(|v| v.as_str()).unwrap_or_default();
+            let period_start = ru.get("period_start").and_then(|v| v.as_str()).unwrap_or_default();
+            if resolution.is_empty() || metric_name.is_empty() || period_start.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                ru.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO metrics_rollups
+                    (resolution, metric_name, pod_id, min_value, max_value, avg_value,
+                     sample_count, period_start, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                 ON CONFLICT(resolution, metric_name, pod_id, period_start) DO UPDATE SET
+                    avg_value = CASE WHEN excluded.sample_count > metrics_rollups.sample_count
+                                THEN excluded.avg_value ELSE metrics_rollups.avg_value END,
+                    min_value = MIN(excluded.min_value, metrics_rollups.min_value),
+                    max_value = MAX(excluded.max_value, metrics_rollups.max_value),
+                    sample_count = MAX(excluded.sample_count, metrics_rollups.sample_count),
+                    updated_at = excluded.updated_at,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > metrics_rollups.updated_at
+                    OR metrics_rollups.updated_at IS NULL",
+            )
+            .bind(resolution)
+            .bind(metric_name)
+            .bind(ru.get("pod_id").and_then(|v| v.as_str()))
+            .bind(ru.get("min_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("max_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("avg_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("sample_count").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(period_start)
+            .bind(&ts)
+            .bind(ru.get("venue_id").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("metrics_rollups upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'metrics_rollups'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} metrics_rollups ({} conflicts)", rollups.len(), conflicts);
+    }
+
     tracing::info!("Sync push: upserted {} records", total);
     Json(json!({ "ok": true, "upserted": total }))
 }
@@ -10662,8 +10924,10 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
         .map(|r| r.0)
         .unwrap_or(0);
 
-    let sync_states = sqlx::query_as::<_, (String, String, i64, String)>(
-        "SELECT table_name, last_synced_at, last_sync_count, COALESCE(updated_at, last_synced_at)
+    let sync_states = sqlx::query_as::<_, (String, String, i64, String, i64)>(
+        "SELECT table_name, last_synced_at, last_sync_count,
+                COALESCE(updated_at, last_synced_at),
+                COALESCE(conflict_count, 0)
          FROM sync_state ORDER BY table_name",
     )
     .fetch_all(&state.db)
@@ -10674,7 +10938,7 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
     let sync_info: Vec<Value> = sync_states
         .iter()
-        .map(|(table, last, count, updated)| {
+        .map(|(table, last, count, updated, conflicts)| {
             // Compute per-table staleness
             let table_lag = chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%d %H:%M:%S")
                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%dT%H:%M:%S"))
@@ -10685,6 +10949,7 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "last_synced_at": last,
                 "last_sync_count": count,
                 "staleness_seconds": table_lag,
+                "conflict_count": conflicts,
             })
         })
         .collect();

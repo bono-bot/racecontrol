@@ -26,7 +26,7 @@ static SEEN_NONCES: std::sync::LazyLock<Mutex<HashMap<String, i64>>> =
 
 type HmacSha256 = Hmac<Sha256>;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members,driver_ratings";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members,driver_ratings,fleet_solutions,model_evaluations,metrics_rollups";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;
@@ -98,7 +98,7 @@ pub(crate) fn verify_sync_signature(
 /// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").
 /// SQLite's datetime('now') uses space separator, but sync_state stores ISO with 'T'.
 /// String comparison: space (0x20) < 'T' (0x54), causing updated records to be invisible.
-fn normalize_timestamp(ts: &str) -> String {
+pub(crate) fn normalize_timestamp(ts: &str) -> String {
     ts.replace('T', " ")
         .split('+')
         .next()
@@ -540,7 +540,7 @@ pub(crate) async fn process_debit_intents(state: &Arc<AppState>) -> anyhow::Resu
 /// Returns (payload, has_data).
 /// Schema version bumped when tables/columns change.
 /// Cloud side can reject pushes if it hasn't migrated yet.
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, bool)> {
     let last_push = normalize_timestamp(&get_last_push_time(state).await);
@@ -832,6 +832,78 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
             .collect();
         tracing::info!("Cloud sync push: {} staff_members", items.len());
         payload["staff_members"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Phase 301: Push fleet_solutions (AI knowledge base) since last push (SYNC-01)
+    let solutions = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'problem_key', problem_key, 'problem_hash', problem_hash,
+            'symptoms', symptoms, 'environment', environment, 'root_cause', root_cause,
+            'fix_action', fix_action, 'fix_type', fix_type, 'status', status,
+            'success_count', success_count, 'fail_count', fail_count,
+            'confidence', confidence, 'cost_to_diagnose', cost_to_diagnose,
+            'models_used', models_used, 'diagnosis_tier', diagnosis_tier,
+            'source_node', source_node, 'venue_id', venue_id,
+            'created_at', created_at, 'updated_at', updated_at,
+            'version', version, 'ttl_days', ttl_days, 'tags', tags
+        ) FROM fleet_solutions WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !solutions.is_empty() {
+        let items: Vec<serde_json::Value> = solutions.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} fleet_solutions", items.len());
+        payload["fleet_solutions"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Phase 301: Push model_evaluations (AI diagnosis accuracy) since last push (SYNC-02)
+    let evaluations = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'model_name', model_name, 'pod_id', pod_id,
+            'problem_key', problem_key, 'prediction', prediction, 'actual', actual,
+            'correct', correct, 'cost_usd', cost_usd, 'diagnosis_tier', diagnosis_tier,
+            'created_at', created_at, 'updated_at', updated_at, 'venue_id', venue_id
+        ) FROM model_evaluations WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !evaluations.is_empty() {
+        let items: Vec<serde_json::Value> = evaluations.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} model_evaluations", items.len());
+        payload["model_evaluations"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Phase 301: Push metrics_rollups (operational metrics) since last push (SYNC-03)
+    // Do NOT include id (AUTOINCREMENT) — target DB assigns its own
+    let rollups = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'resolution', resolution, 'metric_name', metric_name, 'pod_id', pod_id,
+            'min_value', min_value, 'max_value', max_value, 'avg_value', avg_value,
+            'sample_count', sample_count, 'period_start', period_start,
+            'updated_at', COALESCE(updated_at, datetime('now')), 'venue_id', venue_id
+        ) FROM metrics_rollups WHERE COALESCE(updated_at, datetime('now')) > ? ORDER BY COALESCE(updated_at, datetime('now')) ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !rollups.is_empty() {
+        let items: Vec<serde_json::Value> = rollups.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} metrics_rollups", items.len());
+        payload["metrics_rollups"] = serde_json::json!(items);
         has_data = true;
     }
 
