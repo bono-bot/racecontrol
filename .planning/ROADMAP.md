@@ -189,7 +189,13 @@ Plans:
   2. On pod connect, all presets are delivered via the config channel alongside pod config
   3. Each preset displays a reliability score in the kiosk and admin UI based on historical launch success/failure data
   4. Presets with a reliability score below the configured threshold are visually flagged as unreliable before staff selects them
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 298-01-PLAN.md -- GamePreset types, game_presets SQLite table, PresetsConfig, PresetPush WS message, push on connect, REST CRUD API with reliability scoring
+- [ ] 298-02-PLAN.md -- Admin /presets page with reliability badges, create/delete form, Sidebar nav link
+
+**UI hint**: yes
 
 ### Phase 299: Policy Rules Engine
 **Goal**: Staff can define automated IF/THEN rules that respond to live metrics without manual intervention
@@ -304,7 +310,7 @@ Plans:
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
 | 297. Config Editor UI | 0/2 | Not started | - |
-| 298. Game Preset Library | 0/TBD | Not started | - |
+| 298. Game Preset Library | 0/2 | Not started | - |
 | 299. Policy Rules Engine | 0/TBD | Not started | - |
 | 300. SQLite Backup Pipeline | 0/2 | Not started | - |
 | 301. Cloud Data Sync v2 | 0/TBD | Not started | - |
