@@ -111,7 +111,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 285. Metrics Ring Buffer | 2/2 | Complete   | 2026-04-01 |
+| 285. Metrics Ring Buffer | 2/2 | Complete    | 2026-04-01 |
 | 286. Metrics Query API | 0/1 | Not started | - |
 | 287. Metrics Dashboard | 0/1 | Not started | - |
 | 288. Prometheus Export | 0/1 | Not started | - |
