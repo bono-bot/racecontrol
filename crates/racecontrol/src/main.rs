@@ -707,6 +707,11 @@ async fn main() -> anyhow::Result<()> {
     // Wired to WhatsApp + dashboard alert delivery
     racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
 
+    // v34.0 Phase 285: Metrics TSDB -- async ingestion pipeline + rollup/purge
+    let _metrics_tx = racecontrol_crate::metrics_tsdb::spawn_metrics_ingestion(state.db.clone());
+    racecontrol_crate::metrics_tsdb::spawn_rollup_and_purge(state.db.clone());
+    tracing::info!("Metrics TSDB ingestion + rollup/purge tasks spawned");
+
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
         let email_script = email_script_for_alerter;
