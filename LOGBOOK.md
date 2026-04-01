@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |
+| 2026-04-01 13:47 IST | James | 3b3e815c | fix: update MMA audit scripts — key recovery, model pool, budget tracking |
+| 2026-04-01 13:47 IST | James | edffcab0 | refactor: merge CGP v2.1 + Unified Protocol into CGP v3.0 (single source of truth) |
 | 2026-04-01 12:33 IST | James | 0e38519f | feat: Cache-Control middleware for Axum — no-cache on HTML/API, immutable on _next/static. Fixes stale browser cache after deploys on venue LAN (POS, kiosk, portal). |
 | 2026-04-01 12:30 IST | James | 8df7b935 | feat(v32): CGP + Plan Manager + MMA integration for Meshed Intelligence Tier 3/4. New: cognitive_gate.rs (8 gates), diagnosis_planner.rs (step tracking). Wraps Tier 3/4 with think→plan→execute→verify. 9/9 tests. |
 | 2026-04-01 12:30 IST | James | f67f0c86 | fix(v32): MMA 5-model audit (GPT-5.4+Opus+Gemini+Sonnet+Nemotron). 4 fixes: F1 partial audit on Phase A fail, F2 remove raw SQL, F3 log send errors, F4 specialized hypotheses for 9 triggers. |
