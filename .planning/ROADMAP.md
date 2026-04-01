@@ -323,7 +323,7 @@ Plans:
 | 298. Game Preset Library | 2/2 | Complete    | 2026-04-01 |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
-| 301. Cloud Data Sync v2 | 2/2 | Complete   | 2026-04-01 |
+| 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |
