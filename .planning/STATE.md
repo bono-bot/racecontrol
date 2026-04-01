@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: planning
-stopped_at: Completed 296-02-PLAN.md
-last_updated: "2026-04-01T14:22:21.363Z"
+status: executing
+stopped_at: Completed 300-01-PLAN.md
+last_updated: "2026-04-01T14:42:31.449Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 3
+  total_plans: 7
   completed_plans: 3
   percent: 0
 ---
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
-**Current focus:** Phase 300 — SQLite Backup Pipeline (ready to plan)
+**Current focus:** Phase 300 — sqlite-backup-pipeline
 
 ## Current Position
 
-Phase: 297 of 304 (config editor ui)
-Plan: Not started
-Status: Ready to plan
+Phase: 300 (sqlite-backup-pipeline) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -52,6 +52,8 @@ Progress: [░░░░░░░░░░] 0%
 - SYNC + EVENT both complete before VENUE schema (Phase 303 depends on 301 + 302)
 - VENUE schema completes before DEPLOY automation (Phase 304 depends on 303)
 - [Phase 296]: compute_config_hash_local in ws_handler.rs (not imported from racecontrol -- rc-agent cannot depend on racecontrol crate)
+- [Phase 300]: VACUUM INTO used for WAL-safe backup (not file copy) per locked decision
+- [Phase 300]: BackupConfig has serde defaults for all fields — backward compatible, no TOML change needed
 
 ### Pending Todos
 
@@ -64,6 +66,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T14:19:12.107Z
-Stopped at: Completed 296-02-PLAN.md
+Last session: 2026-04-01T14:42:31.445Z
+Stopped at: Completed 300-01-PLAN.md
 Resume file: None
