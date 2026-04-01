@@ -24,6 +24,7 @@ mod game_launch_retry;
 mod game_process;
 mod kb_hardening;
 mod knowledge_base;
+mod model_eval_store;
 mod kiosk;
 mod lock_screen;
 mod cognitive_gate;
@@ -1009,6 +1010,20 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ─── Model Evaluation Store (EVAL-01: persist every AI diagnosis outcome) ────
+    let eval_store = match model_eval_store::ModelEvalStore::open(model_eval_store::EVAL_DB_PATH) {
+        Ok(s) => {
+            tracing::info!(target: LOG_TARGET, path = model_eval_store::EVAL_DB_PATH, "Model evaluation store ready");
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "Model eval store init failed — using in-memory fallback");
+            let fallback = model_eval_store::ModelEvalStore::open(":memory:")
+                .expect("in-memory eval store must open");
+            std::sync::Arc::new(std::sync::Mutex::new(fallback))
+        }
+    };
+
     // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
     // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
     // Plan 273-01: Also emits FleetEvents via broadcast for fan-out to multiple subscribers.
@@ -1041,7 +1056,7 @@ async fn main() -> Result<()> {
 
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
     // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
-    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe(), fleet_bus.sender(), ws_exec_result_tx.clone());
+    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe(), fleet_bus.sender(), ws_exec_result_tx.clone(), eval_store.clone());
     tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge, FleetEvent broadcast active");
 
     // ─── MMA-11: Daily Self-Health-Check ────────────────────────────────────────
