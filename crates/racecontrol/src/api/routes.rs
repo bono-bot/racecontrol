@@ -587,6 +587,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/config/push", post(config_push::push_config))
                 .route("/config/push/queue", get(config_push::get_queue))
                 .route("/config/audit", get(config_push::get_audit_log))
+                // Phase 296 PUSH-01/PUSH-02: Full AgentConfig per-pod storage + push
+                .route("/config/pod/{pod_id}", get(config_push::get_pod_config_handler).post(config_push::set_pod_config))
                 .route("/deploy/status", get(deploy_status))
                 .route("/deploy/rolling", post(deploy_rolling_handler))
                 .route("/deploy/{pod_id}", post(deploy_single_pod))

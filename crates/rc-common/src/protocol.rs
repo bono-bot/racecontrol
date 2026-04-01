@@ -793,6 +793,10 @@ pub enum CoreToAgentMessage {
     /// v22.0: Server pushes kill switch activation/deactivation
     KillSwitch(KillSwitchPayload),
 
+    /// Phase 296: Server pushes full AgentConfig to agent on WS connect and on admin config change.
+    /// Agent compares config_hash with last received hash — skips processing if unchanged (PUSH-06).
+    FullConfigPush(crate::types::FullConfigPushPayload),
+
     // ─── Mesh Intelligence (v26.0 Phase 233) ────────────────────────────────
 
     /// Server broadcasts a fleet-verified or newly-announced solution to all pods.

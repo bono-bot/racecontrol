@@ -360,6 +360,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     tracing::info!("Sent initial kiosk settings to pod {}", pod_info.number);
                                 }
                             }
+
+                            // Phase 296 PUSH-02: Push stored full AgentConfig to pod on connect
+                            if let Err(e) = crate::config_push::push_full_config_to_pod(
+                                &state, &canonical_id, &cmd_tx,
+                            ).await {
+                                tracing::warn!("Failed to push full config to pod {} on connect: {}", canonical_id, e);
+                            }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
                             // Merge agent-reported fields with core-managed fields

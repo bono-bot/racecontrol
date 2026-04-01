@@ -2428,6 +2428,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Phase 296 PUSH-01: Per-pod AgentConfig storage ──────────────────────
+    // Stores the full AgentConfig JSON for each pod so the server can push it
+    // on WebSocket connect without requiring manual TOML file editing on pods.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_configs (
+            pod_id TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            config_hash TEXT NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            last_modified TEXT DEFAULT (datetime('now')),
+            updated_by TEXT NOT NULL DEFAULT 'system'
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Phase 12: Data Foundation ───────────────────────────────────────────
 
     // DATA-01: Covering indexes for leaderboard queries

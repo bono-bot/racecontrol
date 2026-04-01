@@ -977,6 +977,19 @@ pub struct FlagCacheSyncPayload {
     pub cached_version: u64,
 }
 
+/// Phase 296 PUSH-02/PUSH-06: Full AgentConfig push with hash for deduplication.
+/// Sent server→agent on WS connect (and when admin updates config via REST API).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullConfigPushPayload {
+    /// The complete AgentConfig for this pod
+    pub config: crate::config_schema::AgentConfig,
+    /// SHA-256 hash of the serialized config — agent skips if unchanged (PUSH-06)
+    pub config_hash: String,
+    /// Schema version for forward compatibility
+    #[serde(default)]
+    pub schema_version: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1766,5 +1779,40 @@ mod process_guard_types_tests {
         };
         let json = serde_json::to_string(&v).unwrap();
         assert!(!json.contains("exe_path"), "exe_path should be omitted when None: {json}");
+    }
+
+    // ── Phase 296: FullConfigPushPayload tests ────────────────────────────────
+
+    /// Test: FullConfigPushPayload serializes expected fields
+    #[test]
+    fn full_config_push_payload_serializes_expected_fields() {
+        use crate::config_schema::AgentConfig;
+        let config = AgentConfig::default();
+        let payload = FullConfigPushPayload {
+            config_hash: "abc123".to_string(),
+            schema_version: 1,
+            config,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"config\""), "must have config: {json}");
+        assert!(json.contains("\"config_hash\""), "must have config_hash: {json}");
+        assert!(json.contains("\"schema_version\""), "must have schema_version: {json}");
+        assert!(json.contains("abc123"), "must contain hash: {json}");
+    }
+
+    /// Test: FullConfigPushPayload round-trips through serde
+    #[test]
+    fn full_config_push_payload_serde_roundtrip() {
+        use crate::config_schema::AgentConfig;
+        let config = AgentConfig::default();
+        let payload = FullConfigPushPayload {
+            config_hash: "deadbeef01234567".to_string(),
+            schema_version: 1,
+            config,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let decoded: FullConfigPushPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.config_hash, "deadbeef01234567");
+        assert_eq!(decoded.schema_version, 1);
     }
 }
