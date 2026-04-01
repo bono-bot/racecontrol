@@ -1215,6 +1215,26 @@ async fn run_tiers(
         Ok(gates) => gates,
         Err(e) => {
             tracing::error!(target: LOG_TARGET, error = %e, "CGP Phase A critical failure — escalating");
+            // MMA-F1: Persist partial audit trail before escalating (fleet blind spot fix)
+            let problem_key = crate::knowledge_base::normalize_problem_key(&event.trigger);
+            let partial_audit = rc_common::mesh_types::StructuredDiagnosisAudit {
+                incident_id: format!("diag-{}", event.timestamp),
+                problem_key,
+                tier,
+                cgp_gates: vec![],
+                plan: None,
+                mma_summary: Some(serde_json::json!({"status": "cgp_phase_a_failed", "error": format!("{}", e)})),
+                total_cost: 0.0,
+                total_duration_ms: mma_start.elapsed().as_millis() as u64,
+                timestamp: Utc::now(),
+            };
+            if let Some(ref kb) = kb {
+                DiagnosisPlanner::save_audit(&partial_audit, kb);
+            }
+            let _ = ws_msg_tx.send(rc_common::protocol::AgentMessage::MeshDiagnosisAudit {
+                incident_id: partial_audit.incident_id.clone(),
+                audit_json: serde_json::to_string(&partial_audit).unwrap_or_default(),
+            }).await;
             return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
         }
     };
@@ -1416,11 +1436,18 @@ async fn run_tiers(
         DiagnosisPlanner::save_audit(&audit, kb);
     }
 
-    // Gossip audit to server for fleet-wide visibility
-    let _ = ws_msg_tx.send(rc_common::protocol::AgentMessage::MeshDiagnosisAudit {
+    // MMA-F3: Gossip audit to server — log errors instead of ignoring
+    if let Err(e) = ws_msg_tx.send(rc_common::protocol::AgentMessage::MeshDiagnosisAudit {
         incident_id: audit.incident_id.clone(),
         audit_json: serde_json::to_string(&audit).unwrap_or_default(),
-    }).await;
+    }).await {
+        tracing::warn!(
+            target: LOG_TARGET,
+            incident_id = %audit.incident_id,
+            error = %e,
+            "Failed to gossip diagnosis audit — channel full or closed"
+        );
+    }
 
     tracing::info!(
         target: LOG_TARGET,

@@ -867,9 +867,30 @@ impl KnowledgeBase {
         Ok(solutions)
     }
 
-    /// Execute arbitrary SQL with params — used by diagnosis_planner for plan/audit persistence.
-    pub fn execute_sql(&self, sql: &str, params: &[&dyn rusqlite::types::ToSql]) -> anyhow::Result<()> {
-        self.conn.execute(sql, params)?;
+    /// MMA-F2: Typed method for saving diagnosis plans (no raw SQL exposure).
+    pub fn save_diagnosis_plan(
+        &self,
+        plan_id: &str,
+        incident_id: &str,
+        problem_key: &str,
+        steps_json: &str,
+        created_at: &str,
+        completed_at: Option<&str>,
+        tier: &str,
+    ) -> anyhow::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO diagnosis_plans (plan_id, incident_id, problem_key, steps_json, created_at, completed_at, tier) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![plan_id, incident_id, problem_key, steps_json, created_at, completed_at, tier],
+        )?;
+        Ok(())
+    }
+
+    /// MMA-F2: Typed method for saving diagnosis audits (no raw SQL exposure).
+    pub fn save_diagnosis_audit(&self, incident_id: &str, audit_json: &str, timestamp: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO diagnosis_audits (incident_id, audit_json, timestamp) VALUES (?1, ?2, ?3)",
+            params![incident_id, audit_json, timestamp],
+        )?;
         Ok(())
     }
 }

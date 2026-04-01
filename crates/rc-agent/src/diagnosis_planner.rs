@@ -124,39 +124,33 @@ impl DiagnosisPlanner {
         })
     }
 
-    /// Persist plan to SQLite.
+    /// Persist plan to SQLite via typed KB method (MMA-F2: no raw SQL).
     pub fn save(plan: &DiagnosisPlan, kb: &KnowledgeBase) {
         let steps_json = serde_json::to_string(&plan.steps).unwrap_or_default();
         let tier_str = serde_json::to_string(&plan.tier).unwrap_or_default();
         let completed_str = plan.completed_at.map(|t| t.to_rfc3339());
 
-        if let Err(e) = kb.execute_sql(
-            "INSERT OR REPLACE INTO diagnosis_plans (plan_id, incident_id, problem_key, steps_json, created_at, completed_at, tier) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            &[
-                &plan.plan_id as &dyn rusqlite::types::ToSql,
-                &plan.incident_id,
-                &plan.problem_key,
-                &steps_json,
-                &plan.created_at.to_rfc3339(),
-                &completed_str as &dyn rusqlite::types::ToSql,
-                &tier_str,
-            ],
+        if let Err(e) = kb.save_diagnosis_plan(
+            &plan.plan_id,
+            &plan.incident_id,
+            &plan.problem_key,
+            &steps_json,
+            &plan.created_at.to_rfc3339(),
+            completed_str.as_deref(),
+            &tier_str,
         ) {
             tracing::warn!(target: LOG_TARGET, error = %e, "Failed to save diagnosis plan");
         }
     }
 
-    /// Save a full audit trail to SQLite.
+    /// Save a full audit trail to SQLite via typed KB method (MMA-F2: no raw SQL).
     pub fn save_audit(audit: &rc_common::mesh_types::StructuredDiagnosisAudit, kb: &KnowledgeBase) {
         let audit_json = serde_json::to_string(audit).unwrap_or_default();
 
-        if let Err(e) = kb.execute_sql(
-            "INSERT INTO diagnosis_audits (incident_id, audit_json, timestamp) VALUES (?1, ?2, ?3)",
-            &[
-                &audit.incident_id as &dyn rusqlite::types::ToSql,
-                &audit_json,
-                &audit.timestamp.to_rfc3339(),
-            ],
+        if let Err(e) = kb.save_diagnosis_audit(
+            &audit.incident_id,
+            &audit_json,
+            &audit.timestamp.to_rfc3339(),
         ) {
             tracing::warn!(target: LOG_TARGET, error = %e, "Failed to save diagnosis audit");
         }

@@ -522,6 +522,51 @@ fn trigger_to_hypotheses(trigger: &DiagnosticTrigger) -> Vec<(String, String)> {
             ("Downstream service failure causing cascade".into(), "Check which error types are spiking".into()),
             ("Network partition from server".into(), "Verify connectivity to all endpoints".into()),
         ],
+        // MMA-F4: Specialized hypotheses for remaining trigger types
+        DiagnosticTrigger::TaskbarVisible => vec![
+            ("Explorer.exe restarted and lost SW_HIDE state".into(), "Check if explorer.exe PID changed recently".into()),
+            ("Third-party app triggered taskbar show event".into(), "Check foreground window history for non-kiosk apps".into()),
+            ("Windows Update or Group Policy reset taskbar settings".into(), "Check Event Viewer for policy application events".into()),
+        ],
+        DiagnosticTrigger::SentinelUnexpected { .. } => vec![
+            ("Previous crash storm left stale MAINTENANCE_MODE sentinel".into(), "Check sentinel file age vs last known crash time".into()),
+            ("Deploy in progress left OTA_DEPLOYING sentinel".into(), "Check if any OTA process is actually running".into()),
+            ("Manual intervention created sentinel without clearing".into(), "Check sentinel creation timestamp vs operator activity log".into()),
+        ],
+        DiagnosticTrigger::ViolationSpike { .. } => vec![
+            ("Process guard allowlist is stale or empty (server was down at boot)".into(), "Check allowlist size and last fetch time".into()),
+            ("New software installed that isn't in allowlist".into(), "Compare running processes against allowlist entries".into()),
+            ("Malware or unauthorized process spawning".into(), "Check violation log for unfamiliar process names".into()),
+        ],
+        DiagnosticTrigger::PreFlightFailed { .. } => vec![
+            ("Hardware not connected (USB wheel, pedals)".into(), "Check HID device enumeration".into()),
+            ("Service dependency not started (ConspitLink, Edge)".into(), "Check process list for required services".into()),
+            ("Configuration file corrupted or missing".into(), "Verify game config files exist and parse correctly".into()),
+        ],
+        DiagnosticTrigger::PosKioskDown { .. } => vec![
+            ("Edge browser crashed (OOM or GPU issue)".into(), "Check Event Viewer for msedge.exe crash".into()),
+            ("Network to racecontrol server lost".into(), "Ping server and check kiosk URL connectivity".into()),
+            ("POS WiFi degraded causing page timeout".into(), "Check WiFi signal strength and latency".into()),
+        ],
+        DiagnosticTrigger::PosNetworkDown { .. } => vec![
+            ("WiFi adapter disconnected or driver crashed".into(), "Check network adapter status in Device Manager".into()),
+            ("Router or access point failure".into(), "Ping default gateway and check ARP table".into()),
+            ("Server racecontrol crashed or restarted".into(), "Check server health endpoint from another device".into()),
+        ],
+        DiagnosticTrigger::PosBillingApiError { .. } => vec![
+            ("Server billing endpoint returned error".into(), "Check server logs for billing API errors".into()),
+            ("Request payload malformed (schema mismatch)".into(), "Compare POS kiosk version against server API version".into()),
+            ("Network timeout on WiFi causing partial request".into(), "Check POS WiFi latency and retry count".into()),
+        ],
+        DiagnosticTrigger::PosWifiDegraded { .. } => vec![
+            ("Physical obstruction or interference".into(), "Check RSSI history for sudden drops vs gradual degradation".into()),
+            ("Too many devices on the network".into(), "Check router connected device count".into()),
+        ],
+        DiagnosticTrigger::PosKioskEscaped { .. } => vec![
+            ("Notification popup stole foreground focus".into(), "Check for notification/toast windows".into()),
+            ("System dialog appeared (UAC, update, error)".into(), "Check Event Viewer for system dialog events".into()),
+            ("User intentionally escaped kiosk mode".into(), "Check if keyboard shortcuts were used (Alt+Tab, Win key)".into()),
+        ],
         _ => vec![
             ("Configuration drift from expected state".into(), "Compare current config against known-good".into()),
             ("External environmental factor".into(), "Check for recent Windows updates, driver changes, or power events".into()),
