@@ -1568,6 +1568,8 @@ mod tests {
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
                         max_auto_relaunch: 2,
+                        playable_at: None,
+                        ready_delay_ms: None,
                     },
                 );
         }
@@ -1620,6 +1622,8 @@ mod tests {
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
                         max_auto_relaunch: 2,
+                        playable_at: None,
+                        ready_delay_ms: None,
                     },
                 );
         }
@@ -1712,6 +1716,8 @@ mod tests {
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
                         max_auto_relaunch: 2,
+                        playable_at: None,
+                        ready_delay_ms: None,
                     },
                 );
         }
@@ -1833,6 +1839,8 @@ mod tests {
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
                         max_auto_relaunch: 2,
+                        playable_at: None,
+                        ready_delay_ms: None,
                     },
                 );
         }
@@ -2651,6 +2659,8 @@ mod tests {
                         dynamic_timeout_secs: None,
                         exit_codes: Vec::new(),
                         max_auto_relaunch: 2,
+                        playable_at: None,
+                        ready_delay_ms: None,
                     },
                 );
         }

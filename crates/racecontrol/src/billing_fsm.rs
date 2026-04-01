@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_active_crash_pause() {
         let result = validate_transition(BillingSessionStatus::Active, BillingEvent::CrashPause);
-        assert_eq!(result, Ok(BillingSessionStatus::PausedGamePause));
+        assert_eq!(result, Ok(BillingSessionStatus::PausedCrashRecovery));
     }
 
     #[test]
@@ -314,6 +314,30 @@ mod tests {
     fn test_paused_game_pause_end_early() {
         let result = validate_transition(BillingSessionStatus::PausedGamePause, BillingEvent::EndEarly);
         assert_eq!(result, Ok(BillingSessionStatus::EndedEarly));
+    }
+
+    #[test]
+    fn test_paused_crash_recovery_resume() {
+        let result = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume);
+        assert_eq!(result, Ok(BillingSessionStatus::Active));
+    }
+
+    #[test]
+    fn test_paused_crash_recovery_end() {
+        let result = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::End);
+        assert_eq!(result, Ok(BillingSessionStatus::Completed));
+    }
+
+    #[test]
+    fn test_paused_crash_recovery_end_early() {
+        let result = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::EndEarly);
+        assert_eq!(result, Ok(BillingSessionStatus::EndedEarly));
+    }
+
+    #[test]
+    fn test_paused_crash_recovery_cancel() {
+        let result = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Cancel);
+        assert_eq!(result, Ok(BillingSessionStatus::Cancelled));
     }
 
     #[test]
