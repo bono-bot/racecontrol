@@ -3,6 +3,7 @@
 use chrono::{Utc, Duration};
 use serde::{Serialize, Deserialize};
 use sqlx::SqlitePool;
+use tokio::sync::mpsc;
 
 const LOG_TARGET: &str = "metrics-tsdb";
 
@@ -120,4 +121,113 @@ pub async fn compute_daily_rollups(pool: &SqlitePool) -> Result<usize, sqlx::Err
         tracing::info!(target: LOG_TARGET, rows, "Computed daily rollups for {}", yesterday);
     }
     Ok(rows)
+}
+
+/// Channel sender for non-blocking metric ingestion (TSDB-06).
+pub type MetricsSender = mpsc::Sender<MetricSample>;
+
+/// Spawn the async ingestion task. Returns a Sender callers use to submit samples.
+/// Batches up to 64 samples or flushes every 5 seconds (whichever comes first).
+pub fn spawn_metrics_ingestion(pool: SqlitePool) -> MetricsSender {
+    let (tx, mut rx) = mpsc::channel::<MetricSample>(512);
+    tokio::spawn(async move {
+        tracing::info!(target: LOG_TARGET, "metrics-ingestion task started (batch=64, flush=5s)");
+        let mut batch: Vec<MetricSample> = Vec::with_capacity(64);
+        let mut flush_interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                Some(sample) = rx.recv() => {
+                    batch.push(sample);
+                    if batch.len() >= 64 {
+                        if let Err(e) = record_samples_batch(&pool, &batch).await {
+                            tracing::warn!(target: LOG_TARGET, error = %e, "Failed to write metrics batch");
+                        }
+                        batch.clear();
+                    }
+                }
+                _ = flush_interval.tick() => {
+                    if !batch.is_empty() {
+                        if let Err(e) = record_samples_batch(&pool, &batch).await {
+                            tracing::warn!(target: LOG_TARGET, error = %e, "Failed to flush metrics batch");
+                        }
+                        batch.clear();
+                    }
+                }
+                else => {
+                    // Channel closed -- flush remaining
+                    if !batch.is_empty() {
+                        let _ = record_samples_batch(&pool, &batch).await;
+                    }
+                    tracing::info!(target: LOG_TARGET, "metrics-ingestion task exiting");
+                    break;
+                }
+            }
+        }
+    });
+    tx
+}
+
+/// Purge raw samples older than 7 days (TSDB-02, TSDB-07).
+pub async fn purge_old_samples(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let threshold = (Utc::now() - Duration::days(7)).format("%Y-%m-%dT%H:%M:%S").to_string();
+    let result = sqlx::query("DELETE FROM metrics_samples WHERE recorded_at < ?1")
+        .bind(&threshold)
+        .execute(pool)
+        .await?;
+    let deleted = result.rows_affected();
+    if deleted > 0 {
+        tracing::info!(target: LOG_TARGET, deleted, "Purged raw samples older than 7 days");
+    }
+    Ok(deleted)
+}
+
+/// Purge rollups older than 90 days (TSDB-07).
+pub async fn purge_old_rollups(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let threshold = (Utc::now() - Duration::days(90)).format("%Y-%m-%dT%H:%M:%S").to_string();
+    let result = sqlx::query("DELETE FROM metrics_rollups WHERE period_start < ?1")
+        .bind(&threshold)
+        .execute(pool)
+        .await?;
+    let deleted = result.rows_affected();
+    if deleted > 0 {
+        tracing::info!(target: LOG_TARGET, deleted, "Purged rollups older than 90 days");
+    }
+    Ok(deleted)
+}
+
+/// Spawn background task for hourly rollups, daily rollups, and purge.
+/// Runs every 60 minutes. On each tick: hourly rollup, daily rollup, purge.
+pub fn spawn_rollup_and_purge(pool: SqlitePool) {
+    tokio::spawn(async move {
+        // Wait 2 min for system to stabilize
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        tracing::info!(target: LOG_TARGET, "rollup-and-purge task started (60min interval)");
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            // Hourly rollup
+            if let Err(e) = compute_hourly_rollups(&pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Hourly rollup failed");
+            }
+
+            // Daily rollup (run every tick -- INSERT OR IGNORE makes it idempotent)
+            if let Err(e) = compute_daily_rollups(&pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Daily rollup failed");
+            }
+
+            // Purge old data
+            if let Err(e) = purge_old_samples(&pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Sample purge failed");
+            }
+            if let Err(e) = purge_old_rollups(&pool).await {
+                tracing::warn!(target: LOG_TARGET, error = %e, "Rollup purge failed");
+            }
+        }
+    });
 }
