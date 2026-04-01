@@ -32,24 +32,29 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
-## Current Milestone: v34.0 Time-Series Metrics & Operational Dashboards
+## Shipped Milestone: v34.0 Time-Series Metrics & Operational Dashboards (2026-04-01)
 
-**Goal:** Give the venue time-series depth so operators can answer "what happened last Tuesday at 8pm" without grepping JSONL logs — making autonomous action loops observable and queryable.
+**Delivered:** SQLite metrics TSDB with 1-min resolution, 7-day raw retention, hourly/daily rollups (90-day). Metrics query API (query/names/snapshot with auto-resolution). Next.js /metrics dashboard with sparkline charts, pod selector, time range picker, 30s auto-refresh. Prometheus exposition format endpoint. TOML-configured alert thresholds evaluated every 60s against TSDB, firing to WhatsApp. 5 phases (285-289), 7 plans.
+
+## Current Milestone: v36.0 Config Management & Policy Engine
+
+**Goal:** Centralize configuration so every pod runs from server-pushed config, not local TOML files that drift. Add a lightweight policy rules engine for automated config-driven actions.
 
 **Target features:**
-- SQLite metrics TSDB with 1-min resolution, 7-day raw retention, hourly/daily rollups (90-day)
-- Metrics query API — query by name/time range, list all metric names, current snapshot
-- Next.js /metrics dashboard with sparkline charts, pod selector, time range picker, 30s auto-refresh
-- Prometheus exposition format endpoint (zero-cost future option, no Prometheus server deployed)
-- TOML-configured alert thresholds evaluated every 60s against TSDB, firing to WhatsApp alerter
+- Typed Rust AgentConfig struct with serde validation attributes + schema versioning for forward compat
+- Server-pushed config via WS on connect (SQLite pod_configs table, hot/cold reload split)
+- Admin /config page with per-pod editor, diff view, one-click push, bulk ops, audit log
+- Server-managed game preset library with historical reliability scores, unreliable combos flagged
+- Policy rules engine: IF metric_condition THEN action (change config, alert, toggle flag, adjust budget), SQLite-backed, admin-editable
 
 **Constraints:**
+- Rust/Axum + Next.js stack — changes to racecontrol + rc-agent + rc-common + racingpoint-admin
 - SQLite WAL mode (existing pattern) — no new database dependencies
-- Metrics captured: CPU, GPU temp, FPS, billing, revenue, WS connections
-- Replaces aspirational Prometheus/Grafana with venue-scale SQLite + custom Next.js
-- Extends existing alert_engine.rs — not a new alerting system
-- Dashboard goes in racingpoint-admin (admin app, port 3201)
-- Must not increase server memory footprint significantly (ring buffer, not unbounded)
+- Config push uses existing WS channel (ConfigPush CP-01 from v22.0)
+- Hot-reload for thresholds/flags/budget; cold (restart-required) for ports/paths
+- Must not break existing billing, lock screen, session management, or recovery systems
+- Pod 8 canary-first for all agent-side changes
+- Backward compatible with existing kiosk/PWA/admin flows
 
 ## Paused Milestone: v32.0 Autonomous Meshed Intelligence
 

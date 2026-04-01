@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v34.0
-milestone_name: milestone
-status: verifying
-stopped_at: Completed 289-02-PLAN.md
-last_updated: "2026-04-01T11:36:51.468Z"
+milestone: v36.0
+milestone_name: Config Management & Policy Engine
+status: planning
+stopped_at: Milestone initialized
+last_updated: "2026-04-01T12:00:00.000Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
-  completed_phases: 5
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,15 +20,15 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-01)
 
-**Core value:** Make autonomous action loops observable and queryable with time-series depth
-**Current focus:** Phase 289 — metric-alert-thresholds
+**Core value:** Centralize configuration so every pod runs from server-pushed config, not local TOML files that drift
+**Current focus:** Defining requirements for v36.0
 
 ## Current Position
 
-Phase: 289
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-01
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-01 — Milestone v36.0 started
 
 Progress: [##########] 100%
 
