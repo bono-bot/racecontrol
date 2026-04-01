@@ -1166,6 +1166,8 @@ async fn main() -> Result<()> {
     };
 
     // ─── KB Hardening Promoter (6-hour promotion ladder checks — KBPP-06) ────────
+    // Clone before move: weekly_report (Phase 294) also needs a reference to kb_promo_store.
+    let kb_promo_store_for_report = kb_promo_store.clone();
     {
         let kb_fleet_tx = fleet_bus.sender();
         let kb_node_id = format!("pod_{}", config.pod.number);
@@ -1293,14 +1295,23 @@ async fn main() -> Result<()> {
     });
     tracing::info!(target: LOG_TARGET, "Night ops started (midnight IST cycle)");
 
-    // ─── Weekly Report (Sunday midnight IST — RPT-01..03) ───────────────────────
+    // ─── Weekly Report (Sunday midnight IST — RPT-01..03, RPTV2-01..04) ────────────
     {
         let wr_ws_tx = ws_exec_result_tx.clone();
         let wr_node_id = format!("pod_{}", config.pod.number);
         let wr_diag_log = diag_log.clone();
         let wr_budget = mesh_budget.clone();
-        weekly_report::spawn(wr_ws_tx, wr_node_id, wr_diag_log, wr_budget);
-        tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03)");
+        // Phase 294: pass eval/promo/rep stores for enhanced report sections (RPTV2-01..04).
+        weekly_report::spawn(
+            wr_ws_tx,
+            wr_node_id,
+            wr_diag_log,
+            wr_budget,
+            Some(eval_store.clone()),
+            Some(kb_promo_store_for_report),
+            Some(rep_store.clone()),
+        );
+        tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03, RPTV2-01..04)");
     }
 
     // ─── Model Eval Rollup (EVAL-02: weekly per-model accuracy rollup) ──────────
