@@ -31,7 +31,7 @@ Progress: [░░░░░░░░░░] 0%
 **Requirements:** .planning/REQUIREMENTS.md (38 requirements, 10 categories)
 
 See: .planning/PROJECT.md (project context)
-See: UNIFIED-PROTOCOL.md (operations protocol v3.1)
+See: COGNITIVE-GATE-PROTOCOL.md (operations protocol v3.1)
 
 ## Accumulated Context
 

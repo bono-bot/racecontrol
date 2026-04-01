@@ -1,6 +1,6 @@
 # Racing Point Operations Quick Reference v2.1
 
-**Use this at 3am.** Full details in UNIFIED-PROTOCOL.md.
+**Use this at 3am.** Full details in COGNITIVE-GATE-PROTOCOL.md.
 
 ---
 
@@ -163,4 +163,4 @@ cd comms-link && COMMS_PSK="..." COMMS_URL="ws://srv1422716.hstgr.cloud:8765" no
 
 ---
 
-*Full protocol: UNIFIED-PROTOCOL.md | Audit: `bash audit/verify-unified-protocol.sh`*
+*Full protocol: COGNITIVE-GATE-PROTOCOL.md | Audit: `bash audit/verify-unified-protocol.sh`*

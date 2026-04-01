@@ -44,4 +44,4 @@
 - Hypothesis: per-hypothesis tracking with status (Untested/Testing/Confirmed/Eliminated)
 - ValidationCheck: deterministic check for Ralph Wiggum loop
 
-See UNIFIED-PROTOCOL.md v3.1 for full integration into lifecycle phases.
+See COGNITIVE-GATE-PROTOCOL.md v3.1 for full integration into lifecycle phases.

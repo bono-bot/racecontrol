@@ -35,7 +35,7 @@
 | Billing manipulation | Put affected sessions on hold, paper billing fallback |
 
 ### Step 4: INVESTIGATE (Cause Elimination Process)
-Follow UNIFIED-PROTOCOL.md Phase D: Debug methodology:
+Follow COGNITIVE-GATE-PROTOCOL.md Phase D: Debug methodology:
 1. Document symptom
 2. List ALL hypotheses
 3. Test & eliminate one by one
@@ -54,7 +54,7 @@ Follow UNIFIED-PROTOCOL.md Phase D: Debug methodology:
 3. **Standing rule update** if new pattern discovered
 4. **Credential rotation** if any credential may have been exposed
 5. **Notify affected customers** via WhatsApp if data was breached (DPDP requirement)
-6. **MMA audit** on affected code area (post-incident audit per UNIFIED-PROTOCOL.md Phase D.9.1)
+6. **MMA audit** on affected code area (post-incident audit per COGNITIVE-GATE-PROTOCOL.md Phase D.9.1)
 
 ## Emergency Contacts
 

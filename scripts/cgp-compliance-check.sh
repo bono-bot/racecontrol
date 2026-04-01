@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CGP Compliance Checker — Machine-readable gate proof detection
 #
-# Scans a text response (stdin or file) for Cognitive Gate Protocol v2.0
+# Scans a text response (stdin or file) for Cognitive Gate Protocol v3.0
 # proof artifacts. Returns a structured report of which gates were triggered
 # and whether proofs are present.
 #

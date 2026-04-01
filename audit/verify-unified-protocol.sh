@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Audit Protocol Verification of UNIFIED-PROTOCOL.md v2.0
+# Audit Protocol Verification of COGNITIVE-GATE-PROTOCOL.md v2.0
 # Maps 20 audit tiers to document verification checks
 
-FILE="UNIFIED-PROTOCOL.md"
+FILE="COGNITIVE-GATE-PROTOCOL.md"
 CLAUDE="CLAUDE.md"
 REGISTRY="standing-rules-registry.json"
 MMAUDIT="audit/MULTI-MODEL-AUDIT-PROTOCOL.md"
@@ -16,7 +16,7 @@ check() {
 }
 
 echo "================================================================"
-echo "  AUDIT PROTOCOL VERIFICATION: UNIFIED-PROTOCOL.md v2.0"
+echo "  AUDIT PROTOCOL VERIFICATION: COGNITIVE-GATE-PROTOCOL.md v2.0"
 echo "  Mode: FULL | Tiers: 20 | Date: 2026-03-27"
 echo "================================================================"
 echo ""
@@ -141,7 +141,7 @@ grep -q "2.0.*2026-03-27" "$FILE" && check 56 14 "Version history" "PASS" || che
 
 echo ""
 echo "=== TIER 15: CROSS-DOC SYNC ==="
-grep -q "UNIFIED-PROTOCOL" "$CLAUDE" && check 57 15 "CLAUDE ref" "PASS" || check 57 15 "CLAUDE ref" "FAIL"
+grep -q "COGNITIVE-GATE-PROTOCOL" "$CLAUDE" && check 57 15 "CLAUDE ref" "PASS" || check 57 15 "CLAUDE ref" "FAIL"
 grep -q "FOUR\|four" "$CLAUDE" && check 58 15 "CLAUDE 4 layers" "PASS" || check 58 15 "CLAUDE layers" "FAIL"
 grep -q "Multi-Model AI Audit" "$REGISTRY" && check 59 15 "Registry sync" "PASS" || check 59 15 "Registry" "FAIL"
 [ -f "$MMAUDIT" ] && check 60 15 "Source protocol" "PASS" || check 60 15 "Source" "FAIL"

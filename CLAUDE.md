@@ -1,33 +1,34 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v2.0 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.0 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Gates fire on specific triggers and require visible proof in every response. Skipping a gate = incomplete response. See `COGNITIVE-GATE-PROTOCOL.md` for full protocol with MMA audit trail.**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01).**
 
-**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking if the goal was achieved. 37 documented corrections over 10 days. 147+ standing rules failed to fix this because rules are declarative; gates are procedural.
+**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 37 corrections over 10 days. Rules are declarative; gates are procedural.
 
-### The 10 Gates (triggers + required proofs)
+### The 10 Gates (embedded in lifecycle phases)
 
-| Gate | Trigger | Required Proof |
-|------|---------|----------------|
-| **G0: Problem Definition** | New non-trivial task | `PROBLEM:` + `SYMPTOMS:` + `PLAN:` block |
-| **G1: Outcome Verification** | Before "fixed/done/verified/PASS" | Behavior tested + method of observation + raw evidence. Proxy metrics (health, build_id) are supplementary only. |
-| **G2: Fleet Scope** | After any fix on any machine | Per-target table: Target / Applies? / Applied? / Evidence. "Applied: Yes" without evidence = fail. |
-| **G3: Apply Now** | User shares info during active problem | Show the application (command + output), not a summary or comparison table. |
-| **G4: Confidence Calibration** | Before success/confidence claims | Three lists: Tested / Not Tested (with risk) / Follow-up Plan. "Complete" invalid if HIGH-risk items have no plan. |
-| **G5: Competing Hypotheses** | Unexpected data or anomalous state | 2+ hypotheses with falsification tests. Single hypothesis = insufficient. |
-| **G6: Context Parking** | Topic change while work is open | `PAUSED:` + `STATUS:` + `NEXT:` + `RESUME BY:` block |
-| **G7: Tool Verification** | Before selecting tool/approach | Requirement + Tool + Compatibility Check (not "it's similar" but "confirmed supports X") |
-| **G8: Dependency Cascade** | Before deploying shared interface changes | Changed component + downstream consumers + verification per consumer |
-| **G9: Retrospective** | After resolving issue (>3 exchanges) | Root cause + prevention + similar past incidents |
+| Gate | Trigger | Required Proof | Phase(s) | Bypass? |
+|------|---------|----------------|----------|---------|
+| **G0** | New non-trivial task | `PROBLEM:` + `SYMPTOMS:` + `PLAN:` block | 0, 1 | YES |
+| **G1** | Before "done/fixed/PASS" | Behavior + method + raw evidence (not proxies) | 3, 5 | NO |
+| **G2** | After any fix | Per-target fleet scope table with evidence | 4, 5 | NO |
+| **G3** | User shares info during problem | Application (command+output), not summary | D | YES |
+| **G4** | Before success claims | Tested / Not Tested (risk) / Follow-up Plan | 3, 5 | NO |
+| **G5** | Anomalous data | 2+ hypotheses with falsification tests | D, 3 | YES |
+| **G6** | Topic change while work open | `PAUSED:` + `STATUS:` + `NEXT:` + `RESUME BY:` | Any | YES |
+| **G7** | Before selecting tool | Requirement + Tool + Compatibility Check | 2, 4 | YES |
+| **G8** | Before deploying shared changes | Changed + downstream consumers + verification | 2, 4 | YES |
+| **G9** | After resolving issue (>3 exchanges) | Root cause + prevention + similar past | D exit | YES |
+
+### Lifecycle: Phase 0 (Session Start) → 1 (Plan) → 2 (Create) → 3 (Verify) → 4 (Deploy) → 5 (Ship) | Phase D (Debug) | Phase E (Emergency) | Phase B (Break-Glass) | Phase I (Island Mode)
 
 ### Enforcement
 - **Gate Summary Block** required at end of any completion claim: `GATES TRIGGERED: [...] | PROOFS: [Y/N each] | SKIPPED: [reason]`
-- **User is Supervisor:** If response claims "done" without Gate 1 proof block or makes a fix without Gate 2 table, user should reject.
-- **Emergency bypass:** During Phase E, gates 0/5/8/9 may be deferred (label: "EMERGENCY BYPASS"). Gates 1/2/4 always apply.
-- **No gate is "obvious enough to skip."** The bias that skips gates IS the bias being fixed.
-- **Session Bootstrap:** `.claude/hooks/cgp-session-bootstrap.sh` injects gate awareness at every session start. Both repos have this hook.
-- **Compliance Checker:** `scripts/cgp-compliance-check.sh` validates proof blocks machine-readably (exit 0 = compliant).
+- **User is Supervisor:** "done" without G1 proof or fix without G2 table → reject.
+- **Emergency bypass:** Phase E defers G0/5/6/7/8/9. Gates 1/2/4 always apply.
+- **Session Bootstrap:** `.claude/hooks/cgp-session-bootstrap.sh` + `cgp-enforce.js` (hard) + `cgp-session-inject.js` (soft).
+- **Compliance Checker:** `scripts/cgp-compliance-check.sh` (exit 0 = compliant).
 
 ---
 
@@ -118,7 +119,7 @@
 
 ### Ultimate Rule
 
-**Before marking ANY milestone or phase as shipped, run all FOUR verification layers (see UNIFIED-PROTOCOL.md Phase 5 Gate for full details):**
+**Before marking ANY milestone or phase as shipped, run all FOUR verification layers (see COGNITIVE-GATE-PROTOCOL.md Phase 5 Gate for full details):**
 
 ```bash
 # 1. Quality Gate — automated tests (contract + integration + syntax + security)
@@ -132,7 +133,7 @@ curl -s http://localhost:8766/relay/health   # health + connection mode
 # 3. Standing Rules — check compliance (auto-push, Bono synced, watchdog running, rules categorized)
 
 # 4. Multi-Model AI Audit — cross-model consensus findings triaged (for milestones)
-# See UNIFIED-PROTOCOL.md Phase 5.4 for tiered audit approach (Tier A/B/C)
+# See COGNITIVE-GATE-PROTOCOL.md Phase 3.4/5.4 for tiered MMA audit (Tier A/B/C)
 # Full 5-model audit: ~$3-5 via OpenRouter (Qwen3, DeepSeek V3, DeepSeek R1, MiMo v2, Gemini 2.5)
 ```
 
@@ -614,7 +615,7 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `UNIFIED-PROTOCOL.md` | Unified Operations Protocol v3.0 — all 147+ rules mapped to lifecycle phases with MMA integration |
+| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.0 — 10 gates + lifecycle phases + emergency/debug/audit (merged from CGP v2.1 + Unified Protocol v3.0) |
 | `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
 | `.cargo\config.toml` | Static CRT build config |
 
