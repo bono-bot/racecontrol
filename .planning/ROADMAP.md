@@ -255,10 +255,10 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution
+- [x] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution
 - [ ] 301-02-PLAN.md -- Admin settings Sync Status panel (syncHealth API client + SyncStatusPanel component)
 
 ### Phase 302: Structured Event Archive
@@ -323,7 +323,7 @@ Plans:
 | 298. Game Preset Library | 0/2 | Not started | - |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
-| 301. Cloud Data Sync v2 | 0/TBD | Not started | - |
+| 301. Cloud Data Sync v2 | 1/2 | In Progress|  |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
 | 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |

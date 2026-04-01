@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: verifying
-stopped_at: Completed 297-02-PLAN.md
-last_updated: "2026-04-01T15:03:11.923Z"
+status: executing
+stopped_at: Completed 301-01-PLAN.md
+last_updated: "2026-04-01T15:44:22.955Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 10
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
-**Current focus:** Phase 297 — config-editor-ui
+**Current focus:** Phase 301 — cloud-data-sync-v2
 
 ## Current Position
 
-Phase: 298
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 301 (cloud-data-sync-v2) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -59,6 +59,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 300]: Remote reachability checked every tick so dashboard always shows current state
 - [Phase 297-config-editor-ui]: Promise.all SWR fetcher for pod configs avoids React Rules of Hooks violations from conditional/loop hook calls
 - [Phase 297-config-editor-ui]: ConfigEditorModal accepts initialConfig from parent SWR data — no additional fetch on modal open
+- [Phase 301]: normalize_timestamp made pub(crate) for reuse in routes.rs
+- [Phase 301]: metrics_rollups uses max-sample-count wins for avg_value conflict resolution (more data = more authoritative)
+- [Phase 301]: SCHEMA_VERSION bumped 3->4 when fleet_solutions+model_evaluations+metrics_rollups added to push payload
 
 ### Pending Todos
 
@@ -71,6 +74,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:00:35.866Z
-Stopped at: Completed 297-02-PLAN.md
+Last session: 2026-04-01T15:44:22.950Z
+Stopped at: Completed 301-01-PLAN.md
 Resume file: None
