@@ -86,6 +86,7 @@ pub mod ollama_client;
 pub mod optimization_engine;
 pub mod pricing_bridge;
 pub mod metric_alerts;
+pub mod policy_engine;
 pub mod whatsapp_alerter;
 pub mod whatsapp_escalation;
 pub mod udp_heartbeat;

@@ -3546,6 +3546,39 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 299: Policy Rules Engine ─────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS policy_rules (
+            id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            name        TEXT NOT NULL,
+            metric      TEXT NOT NULL,
+            condition   TEXT NOT NULL CHECK(condition IN ('gt','lt','eq')),
+            threshold   REAL NOT NULL,
+            action      TEXT NOT NULL CHECK(action IN ('alert','config_change','flag_toggle','budget_adjust')),
+            action_params TEXT NOT NULL DEFAULT '{}',
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            last_fired  TEXT,
+            eval_count  INTEGER NOT NULL DEFAULT 0
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS policy_eval_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id     TEXT NOT NULL,
+            rule_name   TEXT NOT NULL,
+            fired       INTEGER NOT NULL,
+            metric_value REAL NOT NULL,
+            action_taken TEXT NOT NULL,
+            evaluated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
