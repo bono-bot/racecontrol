@@ -268,6 +268,27 @@ impl KnowledgeBase {
             "CREATE INDEX IF NOT EXISTS idx_solutions_stable_hash ON solutions(problem_key);"
         ).ok();
 
+        // CGP + Plan Manager tables (v32.0)
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS diagnosis_plans (
+                plan_id TEXT PRIMARY KEY,
+                incident_id TEXT NOT NULL,
+                problem_key TEXT NOT NULL,
+                steps_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                tier TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_plans_incident ON diagnosis_plans(incident_id);
+
+            CREATE TABLE IF NOT EXISTS diagnosis_audits (
+                incident_id TEXT PRIMARY KEY,
+                audit_json TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_audits_timestamp ON diagnosis_audits(timestamp);"
+        )?;
+
         tracing::debug!(target: LOG_TARGET, "Migrations complete");
         Ok(())
     }
@@ -789,6 +810,66 @@ impl KnowledgeBase {
             permanent = permanent_id,
             "Workaround linked to permanent fix — demoted to fallback"
         );
+        Ok(())
+    }
+
+    // ─── CGP + Plan Manager Support (v32.0) ──────────────────────────────────
+
+    /// Look up multiple solutions by problem_key (for G5 competing hypotheses).
+    /// Returns up to `limit` solutions ordered by confidence desc.
+    pub fn lookup_all(&self, problem_key: &str, limit: usize) -> anyhow::Result<Vec<Solution>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, problem_key, problem_hash, symptoms, environment, root_cause,
+                    fix_action, fix_type, success_count, fail_count, confidence,
+                    cost_to_diagnose, models_used, source_node, created_at, updated_at,
+                    version, ttl_days, tags, diagnosis_method, fix_permanence,
+                    recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
+             FROM solutions WHERE problem_key = ?1
+             ORDER BY confidence DESC LIMIT ?2"
+        )?;
+
+        let rows = stmt.query_map(rusqlite::params![problem_key, limit as i64], |row| {
+            Ok(Solution {
+                id: row.get(0)?,
+                problem_key: row.get(1)?,
+                problem_hash: row.get(2)?,
+                symptoms: row.get(3)?,
+                environment: row.get(4)?,
+                root_cause: row.get(5)?,
+                fix_action: row.get(6)?,
+                fix_type: row.get(7)?,
+                success_count: row.get(8)?,
+                fail_count: row.get(9)?,
+                confidence: row.get(10)?,
+                cost_to_diagnose: row.get(11)?,
+                models_used: row.get(12)?,
+                source_node: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                version: row.get(16)?,
+                ttl_days: row.get(17)?,
+                tags: row.get(18)?,
+                diagnosis_method: row.get(19)?,
+                fix_permanence: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "workaround".to_string()),
+                recurrence_count: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                permanent_fix_id: row.get(22)?,
+                last_recurrence: row.get(23)?,
+                permanent_attempt_at: row.get(24)?,
+            })
+        })?;
+
+        let mut solutions = Vec::new();
+        for row in rows {
+            if let Ok(sol) = row {
+                solutions.push(sol);
+            }
+        }
+        Ok(solutions)
+    }
+
+    /// Execute arbitrary SQL with params — used by diagnosis_planner for plan/audit persistence.
+    pub fn execute_sql(&self, sql: &str, params: &[&dyn rusqlite::types::ToSql]) -> anyhow::Result<()> {
+        self.conn.execute(sql, params)?;
         Ok(())
     }
 }

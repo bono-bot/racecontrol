@@ -76,6 +76,13 @@ pub async fn handle_mesh_message(
                 .await;
         }
 
+        AgentMessage::MeshDiagnosisAudit {
+            incident_id,
+            audit_json,
+        } => {
+            handle_diagnosis_audit(state, incident_id, audit_json).await;
+        }
+
         _ => {} // Non-mesh messages handled elsewhere
     }
 }
@@ -303,4 +310,35 @@ async fn handle_heartbeat(
         budget = %budget_remaining,
         "Mesh heartbeat received"
     );
+}
+
+/// Handle a structured diagnosis audit from a pod (CGP + Plan + MMA trail).
+/// Stores in fleet DB for cross-pod visibility and retrospective analysis.
+async fn handle_diagnosis_audit(
+    state: &AppState,
+    incident_id: &str,
+    audit_json: &str,
+) {
+    tracing::info!(
+        incident_id = %incident_id,
+        audit_len = audit_json.len(),
+        "Received diagnosis audit trail"
+    );
+
+    // Store in fleet KB via async SQLite pool
+    let result = sqlx::query(
+        "INSERT OR REPLACE INTO diagnosis_audits (incident_id, audit_json, timestamp) VALUES (?1, ?2, datetime('now'))"
+    )
+    .bind(incident_id)
+    .bind(audit_json)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = result {
+        tracing::warn!(
+            incident_id = %incident_id,
+            error = %e,
+            "Failed to store diagnosis audit in fleet DB"
+        );
+    }
 }

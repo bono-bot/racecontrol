@@ -430,3 +430,111 @@ pub struct ValidationCheck {
     pub actual: Option<String>,
     pub passed: bool,
 }
+
+// ─── Cognitive Gate Protocol (CGP) Types ────────────────────────────────────
+
+/// CGP gate identifiers — subset of the 10-gate protocol relevant to machine diagnosis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CgpGateId {
+    /// G0: Problem Definition (PROBLEM/SYMPTOMS/PLAN)
+    G0ProblemDefinition,
+    /// G1: Outcome Verification (behavior tested + evidence)
+    G1OutcomeVerification,
+    /// G2: Fleet Scope (per-target applicability table)
+    G2FleetScope,
+    /// G4: Confidence Calibration (tested/not-tested/follow-up)
+    G4ConfidenceCalibration,
+    /// G5: Competing Hypotheses (2+ with falsification tests)
+    G5CompetingHypotheses,
+    /// G7: Tool Verification (model/approach selection)
+    G7ToolVerification,
+    /// G8: Dependency Cascade (downstream impact check)
+    G8DependencyCascade,
+    /// G9: Retrospective (root cause + prevention)
+    G9Retrospective,
+}
+
+/// Outcome of evaluating a single CGP gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CgpGateStatus {
+    Passed,
+    Failed,
+    /// Gate not applicable for this tier (e.g. G2 skipped for single-pod Tier 3).
+    Skipped,
+    /// Live incident — gate deferred per emergency bypass rules.
+    EmergencyBypass,
+}
+
+/// Result of evaluating one CGP gate. Evidence is machine-readable JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CgpGateResult {
+    pub gate: CgpGateId,
+    pub status: CgpGateStatus,
+    /// Structured proof artifact (e.g. problem/symptoms/plan for G0, hypotheses for G5).
+    pub evidence: serde_json::Value,
+    pub timestamp: DateTime<Utc>,
+    pub duration_ms: u64,
+}
+
+// ─── Diagnosis Plan Manager Types ───────────────────────────────────────────
+
+/// Status of a single step in a diagnosis plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStepStatus {
+    Todo,
+    InProgress,
+    Done,
+    Blocked,
+    Skipped,
+}
+
+/// One atomic step in a diagnosis plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosisPlanStep {
+    pub step_id: u8,
+    pub description: String,
+    pub status: PlanStepStatus,
+    /// Step IDs that must be Done before this step can start.
+    pub depends_on: Vec<u8>,
+    /// Output/result of this step (populated when Done).
+    pub output: Option<serde_json::Value>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// A full diagnosis plan — atomic steps with dependency tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosisPlan {
+    pub plan_id: String,
+    /// Links to the DiagnosticEvent that spawned this plan.
+    pub incident_id: String,
+    pub problem_key: String,
+    pub steps: Vec<DiagnosisPlanStep>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub tier: DiagnosisTier,
+}
+
+// ─── CGP + Plan + MMA Structured Audit Trail ────────────────────────────────
+
+/// Complete audit trail for a Tier 3/4 diagnosis: CGP gates + plan steps + MMA result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructuredDiagnosisAudit {
+    pub incident_id: String,
+    pub problem_key: String,
+    pub tier: DiagnosisTier,
+    /// All CGP gates evaluated (Phase A + Phase D).
+    pub cgp_gates: Vec<CgpGateResult>,
+    /// Diagnosis plan with step-by-step progress.
+    pub plan: Option<DiagnosisPlan>,
+    /// MMA protocol result summary (serialized from MmaProtocolResult).
+    pub mma_summary: Option<serde_json::Value>,
+    /// Total dollar cost of this diagnosis.
+    pub total_cost: f64,
+    /// Total wall-clock duration in milliseconds.
+    pub total_duration_ms: u64,
+    pub timestamp: DateTime<Utc>,
+}

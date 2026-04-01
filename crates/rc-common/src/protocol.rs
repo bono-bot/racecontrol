@@ -370,6 +370,14 @@ pub enum AgentMessage {
         last_diagnosis: Option<String>,
     },
 
+    /// Pod sends structured diagnosis audit trail (CGP + Plan + MMA).
+    /// Server stores in fleet diagnosis_audits table for cross-pod visibility.
+    MeshDiagnosisAudit {
+        incident_id: String,
+        /// JSON-serialized StructuredDiagnosisAudit.
+        audit_json: String,
+    },
+
     // ─── Extended Hardware Telemetry (v29.0 Preventive Maintenance) ────────
 
     /// Pod sends extended hardware health metrics every 60s for preventive maintenance.

@@ -21,6 +21,8 @@ use sysinfo::{System, ProcessesToUpdate};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::budget_tracker::BudgetTracker;
+use crate::cognitive_gate::CgpEngine;
+use crate::diagnosis_planner::DiagnosisPlanner;
 use crate::diagnostic_engine::{DiagnosticEvent, DiagnosticTrigger};
 use crate::diagnostic_log::{DiagnosticLog, DiagnosticLogEntry};
 use rc_common::fleet_event::FleetEvent;
@@ -1202,9 +1204,34 @@ async fn run_tiers(
         }
     }
 
-    // ── Unified MMA Protocol: 4-Step Convergence Engine (v31.0) ──
+    // ═══ CGP + Plan Manager + MMA Integration (v32.0) ═══════════════════════
+    let mma_start = Instant::now();
 
-    // Staggered startup: delay first model call by pod_number × 2s
+    // ── CGP Phase A: Pre-action gates (local, $0) ──
+    let kb = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH).ok();
+    let tier = rc_common::mesh_types::DiagnosisTier::MultiModel;
+
+    let cgp_phase_a = match CgpEngine::run_phase_a(event, kb.as_ref(), tier) {
+        Ok(gates) => gates,
+        Err(e) => {
+            tracing::error!(target: LOG_TARGET, error = %e, "CGP Phase A critical failure — escalating");
+            return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
+        }
+    };
+
+    // ── Plan Manager: Create structured diagnosis plan ──
+    let mut plan = DiagnosisPlanner::create_plan(event, &cgp_phase_a, tier);
+    if let Some(ref kb) = kb {
+        DiagnosisPlanner::save(&plan, kb);
+    }
+
+    // Mark step 1 (gather context) as done — CGP Phase A already did this
+    DiagnosisPlanner::start_step(&mut plan, 1);
+    DiagnosisPlanner::complete_step(&mut plan, 1, serde_json::json!({
+        "cgp_gates_passed": cgp_phase_a.iter().filter(|g| g.status == rc_common::mesh_types::CgpGateStatus::Passed).count(),
+    }));
+
+    // ── Staggered startup: delay first model call by pod_number × 2s ──
     {
         use std::sync::atomic::{AtomicBool, Ordering};
         static STARTUP_DELAYED: AtomicBool = AtomicBool::new(false);
@@ -1227,18 +1254,43 @@ async fn run_tiers(
         return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
     }
 
-    // Run the full 4-step Unified MMA Protocol
+    // Mark step 2 (evaluate hypotheses) as done
+    if plan.steps.len() >= 2 {
+        DiagnosisPlanner::start_step(&mut plan, 2);
+        DiagnosisPlanner::complete_step(&mut plan, 2, serde_json::json!({"hypotheses_from_g5": true}));
+    }
+
+    // ── Run the full 4-step Unified MMA Protocol ──
     tracing::info!(
         target: LOG_TARGET,
         trigger = ?event.trigger,
-        "Q3 authorized: launching Unified MMA Protocol (4-step convergence engine)"
+        plan_id = %plan.plan_id,
+        "Q3 authorized: launching Unified MMA Protocol with CGP+Plan tracking"
     );
+
+    // Mark MMA DIAGNOSE step as in-progress
+    if plan.steps.len() >= 3 {
+        DiagnosisPlanner::start_step(&mut plan, 3);
+    }
 
     let protocol_result = crate::mma_engine::run_protocol(event, budget).await;
 
-    match protocol_result {
+    let (fix_applied, fix_description, tier_result) = match protocol_result {
         crate::mma_engine::MmaProtocolResult::Success { consensus, total_cost, backtracks } => {
             circuit_breaker.record_success();
+
+            let root_cause = consensus.majority_findings.first()
+                .map(|f| f.description.clone())
+                .unwrap_or_else(|| "MMA protocol found no specific root cause".to_string());
+            let fix_action = consensus.executions.first()
+                .map(|e| e.implementation.clone())
+                .unwrap_or_else(|| consensus.fix_plans.first()
+                    .map(|p| p.actions.join("; "))
+                    .unwrap_or_default());
+            let fix_type = consensus.fix_plans.first()
+                .map(|p| p.fix_type.clone())
+                .unwrap_or_else(|| "deterministic".to_string());
+
             tracing::info!(
                 target: LOG_TARGET,
                 findings = consensus.majority_findings.len(),
@@ -1254,23 +1306,16 @@ async fn run_tiers(
                 backtracks
             );
 
+            // Complete plan steps 3-10 (MMA steps)
+            for step_id in 3..=std::cmp::min(10, plan.steps.len() as u8) {
+                DiagnosisPlanner::complete_step(&mut plan, step_id, serde_json::json!({"mma": "success"}));
+            }
+
             // Store in KB with full provenance
             if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
                 let problem_key = crate::knowledge_base::normalize_problem_key(&event.trigger);
                 let env_fp = crate::knowledge_base::fingerprint_env(event.build_id);
                 let stable_hash = crate::knowledge_base::compute_stable_hash(&problem_key, &env_fp);
-
-                let root_cause = consensus.majority_findings.first()
-                    .map(|f| f.description.clone())
-                    .unwrap_or_else(|| "MMA protocol found no specific root cause".to_string());
-                let fix_action = consensus.executions.first()
-                    .map(|e| e.implementation.clone())
-                    .unwrap_or_else(|| consensus.fix_plans.first()
-                        .map(|p| p.actions.join("; "))
-                        .unwrap_or_default());
-                let fix_type = consensus.fix_plans.first()
-                    .map(|p| p.fix_type.clone())
-                    .unwrap_or_else(|| "deterministic".to_string());
 
                 let solution = crate::knowledge_base::Solution {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -1293,7 +1338,7 @@ async fn run_tiers(
                     version: 1,
                     ttl_days: 365,
                     tags: Some(format!("[\"mma_protocol\",\"{}\"]", problem_key)),
-                    diagnosis_method: Some("unified_mma_4step".to_string()),
+                    diagnosis_method: Some("cgp_plan_mma_4step".to_string()),
                     fix_permanence: "permanent".to_string(),
                     recurrence_count: 0,
                     permanent_fix_id: None,
@@ -1303,16 +1348,11 @@ async fn run_tiers(
                 let _ = kb.store_solution(&solution);
             }
 
-            return TierResult::Fixed {
-                tier: 4,
-                action: format!(
-                    "MMA Protocol (${:.2}, {} backtracks): {}",
-                    total_cost, backtracks,
-                    consensus.majority_findings.first()
-                        .map(|f| f.description.as_str())
-                        .unwrap_or("resolved")
-                ),
-            };
+            let desc = format!(
+                "MMA Protocol (${:.2}, {} backtracks): {}",
+                total_cost, backtracks, root_cause
+            );
+            (true, desc.clone(), TierResult::Fixed { tier: 4, action: desc })
         }
 
         crate::mma_engine::MmaProtocolResult::BudgetExhausted { step, spent } => {
@@ -1322,7 +1362,8 @@ async fn run_tiers(
                 "MMA Protocol: budget exhausted at step {} (${:.2} spent)",
                 step, spent
             );
-            return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
+            let desc = format!("Budget exhausted at step {} (${:.2})", step, spent);
+            (false, desc, tier5_human_escalation(event, ws_msg_tx, pod_id).await)
         }
 
         crate::mma_engine::MmaProtocolResult::HumanEscalation { backtracks, last_failure, total_cost } => {
@@ -1335,20 +1376,62 @@ async fn run_tiers(
                 "MMA Protocol: max backtracks ({}) — human escalation",
                 backtracks
             );
-            return TierResult::FailedToFix {
+            let desc = format!("Max backtracks ({}, ${:.2}): {}", backtracks, total_cost, last_failure);
+            (false, desc.clone(), TierResult::FailedToFix {
                 tier: 4,
-                reason: format!(
-                    "MMA Protocol exhausted {} backtracks (${:.2}): {}",
-                    backtracks, total_cost, last_failure
-                ),
-            };
+                reason: desc,
+            })
         }
 
         crate::mma_engine::MmaProtocolResult::ApiUnavailable { reason } => {
             tracing::warn!(target: LOG_TARGET, reason = %reason, "MMA Protocol: API unavailable");
-            return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
+            let desc = format!("API unavailable: {}", reason);
+            (false, desc, tier5_human_escalation(event, ws_msg_tx, pod_id).await)
         }
+    };
+
+    // ── CGP Phase D: Post-action verification gates (local, $0) ──
+    let cgp_phase_d = CgpEngine::run_phase_d(event, fix_applied, &fix_description, tier, kb.as_ref());
+
+    // ── Store structured audit trail ──
+    let all_gates: Vec<_> = cgp_phase_a.iter().chain(cgp_phase_d.iter()).cloned().collect();
+    let audit = rc_common::mesh_types::StructuredDiagnosisAudit {
+        incident_id: plan.incident_id.clone(),
+        problem_key: plan.problem_key.clone(),
+        tier,
+        cgp_gates: all_gates,
+        plan: Some(plan.clone()),
+        mma_summary: Some(serde_json::json!({
+            "fix_applied": fix_applied,
+            "fix_description": fix_description,
+        })),
+        total_cost: 0.0, // Cost tracked by MMA engine internally
+        total_duration_ms: mma_start.elapsed().as_millis() as u64,
+        timestamp: Utc::now(),
+    };
+
+    // Persist audit in local SQLite
+    if let Some(ref kb) = kb {
+        DiagnosisPlanner::save(&plan, kb);
+        DiagnosisPlanner::save_audit(&audit, kb);
     }
+
+    // Gossip audit to server for fleet-wide visibility
+    let _ = ws_msg_tx.send(rc_common::protocol::AgentMessage::MeshDiagnosisAudit {
+        incident_id: audit.incident_id.clone(),
+        audit_json: serde_json::to_string(&audit).unwrap_or_default(),
+    }).await;
+
+    tracing::info!(
+        target: LOG_TARGET,
+        plan_id = %plan.plan_id,
+        gates_passed = audit.cgp_gates.iter().filter(|g| g.status == rc_common::mesh_types::CgpGateStatus::Passed).count(),
+        gates_total = audit.cgp_gates.len(),
+        duration_ms = audit.total_duration_ms,
+        "CGP+Plan+MMA diagnosis complete"
+    );
+
+    tier_result
 }
 
 // ─── Q4: Background Permanent Fix Search (v31.0) ────────────────────────────

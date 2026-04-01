@@ -26,6 +26,8 @@ mod kb_hardening;
 mod knowledge_base;
 mod kiosk;
 mod lock_screen;
+mod cognitive_gate;
+mod diagnosis_planner;
 mod mesh_gossip;
 mod night_ops;
 mod openrouter;

@@ -94,6 +94,23 @@ pub async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // CGP + Plan Manager audit trail (v32.0)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS diagnosis_audits (
+            incident_id TEXT PRIMARY KEY,
+            audit_json TEXT NOT NULL,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_diagnosis_audits_timestamp ON diagnosis_audits(timestamp)",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Mesh intelligence tables initialized");
     Ok(())
 }
