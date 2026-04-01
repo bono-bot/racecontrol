@@ -87,6 +87,19 @@ pub struct Experiment {
     pub created_at: String,
 }
 
+/// A fully promoted deterministic rule — typed struct with matchers/actions/verifier/TTL.
+/// KB-05: Promoted rules stored as typed Rule structs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardenedRule {
+    pub problem_key: String,
+    pub matchers: Vec<String>,
+    pub action: String,
+    pub verifier: String,
+    pub ttl_secs: i64,
+    pub confidence: f64,
+    pub provenance: String,
+}
+
 /// Environment fingerprint captured at diagnostic time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentFingerprint {
@@ -195,6 +208,60 @@ impl KnowledgeBase {
                 ).ok();
             }
         }
+
+        // Phase 278: promotion_status column for KB hardening ladder
+        let has_promotion_status: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('solutions') WHERE name='promotion_status'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0) > 0;
+        if !has_promotion_status {
+            self.conn.execute_batch(
+                "ALTER TABLE solutions ADD COLUMN promotion_status TEXT DEFAULT 'observed';"
+            ).ok();
+        }
+
+        // Phase 278: promoted_at timestamp for tracking time-in-status
+        let has_promoted_at: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('solutions') WHERE name='promoted_at'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0) > 0;
+        if !has_promoted_at {
+            self.conn.execute_batch(
+                "ALTER TABLE solutions ADD COLUMN promoted_at TEXT;"
+            ).ok();
+        }
+
+        // Phase 278: hardened_rules table for fully promoted deterministic rules
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS hardened_rules (
+                problem_key TEXT PRIMARY KEY,
+                matchers TEXT NOT NULL,
+                action TEXT NOT NULL,
+                verifier TEXT NOT NULL,
+                ttl_secs INTEGER NOT NULL,
+                confidence REAL NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_hardened_rules_key ON hardened_rules(problem_key);"
+        )?;
+
+        // Phase 278: solution_nodes table for tracking distinct nodes per solution
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS solution_nodes (
+                problem_hash TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                success_count INTEGER DEFAULT 0,
+                last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (problem_hash, node_id)
+            );"
+        )?;
 
         // Index on stable_hash for two-tier lookup (added if not exists)
         self.conn.execute_batch(
@@ -829,6 +896,202 @@ pub fn compute_stable_hash(problem_key: &str, env: &EnvironmentFingerprint) -> S
     let input = format!("{}|{}", problem_key, env.hardware_class);
     let hash = Sha256::digest(input.as_bytes());
     format!("s_{:x}", hash)[..16].to_string()
+}
+
+// ─── Phase 278: KB Hardening Promotion Methods ─────────────────────────────
+
+impl KnowledgeBase {
+    /// Get all solutions with a given promotion_status.
+    pub fn get_promotion_candidates(&self, status: &str) -> anyhow::Result<Vec<Solution>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, problem_key, problem_hash, symptoms, environment,
+                    root_cause, fix_action, fix_type, success_count, fail_count,
+                    confidence, cost_to_diagnose, models_used, source_node,
+                    created_at, updated_at, version, ttl_days, tags, diagnosis_method,
+                    fix_permanence, recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
+             FROM solutions
+             WHERE promotion_status = ?1"
+        )?;
+
+        let rows = stmt.query_map(params![status], |row| {
+            Ok(Solution {
+                id: row.get(0)?,
+                problem_key: row.get(1)?,
+                problem_hash: row.get(2)?,
+                symptoms: row.get(3)?,
+                environment: row.get(4)?,
+                root_cause: row.get(5)?,
+                fix_action: row.get(6)?,
+                fix_type: row.get(7)?,
+                success_count: row.get(8)?,
+                fail_count: row.get(9)?,
+                confidence: row.get(10)?,
+                cost_to_diagnose: row.get(11)?,
+                models_used: row.get(12)?,
+                source_node: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                version: row.get(16)?,
+                ttl_days: row.get(17)?,
+                tags: row.get(18)?,
+                diagnosis_method: row.get(19)?,
+                fix_permanence: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "workaround".to_string()),
+                recurrence_count: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                permanent_fix_id: row.get(22)?,
+                last_recurrence: row.get(23)?,
+                permanent_attempt_at: row.get(24)?,
+            })
+        })?;
+
+        let mut solutions = Vec::new();
+        for row in rows {
+            match row {
+                Ok(sol) => solutions.push(sol),
+                Err(e) => tracing::warn!(target: LOG_TARGET, error = %e, "Failed to read promotion candidate"),
+            }
+        }
+        Ok(solutions)
+    }
+
+    /// Promote a solution to a new status in the ladder.
+    pub fn promote_solution(&self, problem_hash: &str, new_status: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "UPDATE solutions SET promotion_status = ?1, promoted_at = datetime('now'), updated_at = datetime('now')
+             WHERE problem_hash = ?2",
+            params![new_status, problem_hash],
+        )?;
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_hash = problem_hash,
+            new_status = new_status,
+            "Solution promotion_status updated"
+        );
+        Ok(())
+    }
+
+    /// Get the current promotion_status for a solution.
+    pub fn get_promotion_status(&self, problem_hash: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT COALESCE(promotion_status, 'observed') FROM solutions WHERE problem_hash = ?1 LIMIT 1",
+                params![problem_hash],
+                |r| r.get(0),
+            )
+            .ok()
+    }
+
+    /// Count distinct source nodes that have successfully applied this solution.
+    pub fn count_distinct_nodes(&self, problem_hash: &str) -> anyhow::Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(DISTINCT node_id) FROM solution_nodes WHERE problem_hash = ?1 AND success_count > 0",
+            params![problem_hash],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Record a node's success/failure for a solution (for quorum tracking).
+    pub fn record_node_outcome(&self, problem_hash: &str, node_id: &str, success: bool) -> anyhow::Result<()> {
+        if success {
+            self.conn.execute(
+                "INSERT INTO solution_nodes (problem_hash, node_id, success_count, last_seen)
+                 VALUES (?1, ?2, 1, datetime('now'))
+                 ON CONFLICT(problem_hash, node_id) DO UPDATE SET
+                    success_count = success_count + 1,
+                    last_seen = datetime('now')",
+                params![problem_hash, node_id],
+            )?;
+        } else {
+            self.conn.execute(
+                "INSERT INTO solution_nodes (problem_hash, node_id, success_count, last_seen)
+                 VALUES (?1, ?2, 0, datetime('now'))
+                 ON CONFLICT(problem_hash, node_id) DO UPDATE SET
+                    last_seen = datetime('now')",
+                params![problem_hash, node_id],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Check if a canary pod (pod_8) has successfully applied this solution.
+    pub fn has_canary_pod_success(&self, problem_hash: &str) -> anyhow::Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM solution_nodes
+             WHERE problem_hash = ?1
+               AND (node_id LIKE '%pod_8%' OR node_id LIKE '%pod-8%')
+               AND success_count > 0",
+            params![problem_hash],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Calculate days since the solution was last promoted (for shadow duration check).
+    pub fn days_since_promotion(&self, problem_hash: &str) -> Option<i64> {
+        self.conn.query_row(
+            "SELECT CAST(julianday('now') - julianday(COALESCE(promoted_at, created_at)) AS INTEGER)
+             FROM solutions WHERE problem_hash = ?1 LIMIT 1",
+            params![problem_hash],
+            |r| r.get(0),
+        ).ok()
+    }
+
+    /// Store a fully promoted hardened rule.
+    pub fn store_hardened_rule(&self, rule: &HardenedRule) -> anyhow::Result<()> {
+        let matchers_json = serde_json::to_string(&rule.matchers).unwrap_or_else(|_| "[]".to_string());
+        self.conn.execute(
+            "INSERT OR REPLACE INTO hardened_rules (
+                problem_key, matchers, action, verifier, ttl_secs, confidence, provenance, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+            params![
+                rule.problem_key,
+                matchers_json,
+                rule.action,
+                rule.verifier,
+                rule.ttl_secs,
+                rule.confidence,
+                rule.provenance,
+            ],
+        )?;
+        tracing::info!(
+            target: LOG_TARGET,
+            problem_key = %rule.problem_key,
+            confidence = rule.confidence,
+            "Hardened rule stored"
+        );
+        Ok(())
+    }
+
+    /// Retrieve all hardened rules for Tier 1 deterministic checks.
+    pub fn get_hardened_rules(&self) -> anyhow::Result<Vec<HardenedRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT problem_key, matchers, action, verifier, ttl_secs, confidence, provenance
+             FROM hardened_rules"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let matchers_str: String = row.get(1)?;
+            let matchers: Vec<String> = serde_json::from_str(&matchers_str).unwrap_or_default();
+            Ok(HardenedRule {
+                problem_key: row.get(0)?,
+                matchers,
+                action: row.get(2)?,
+                verifier: row.get(3)?,
+                ttl_secs: row.get(4)?,
+                confidence: row.get(5)?,
+                provenance: row.get(6)?,
+            })
+        })?;
+
+        let mut rules = Vec::new();
+        for row in rows {
+            match row {
+                Ok(rule) => rules.push(rule),
+                Err(e) => tracing::warn!(target: LOG_TARGET, error = %e, "Failed to read hardened rule"),
+            }
+        }
+        Ok(rules)
+    }
 }
 
 #[cfg(test)]

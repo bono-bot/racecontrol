@@ -22,6 +22,7 @@ mod firewall;
 mod game_doctor;
 mod game_launch_retry;
 mod game_process;
+mod kb_hardening;
 mod knowledge_base;
 mod kiosk;
 mod lock_screen;
@@ -1094,6 +1095,14 @@ async fn main() -> Result<()> {
             }
         });
         tracing::info!(target: LOG_TARGET, "Mesh heartbeat started (5-min interval)");
+    }
+
+    // ─── KB Hardening Promoter (5-min promotion ladder checks) ──────────────────
+    {
+        let kb_fleet_tx = fleet_bus.sender();
+        let kb_node_id = format!("pod_{}", config.pod.number);
+        kb_hardening::spawn(kb_fleet_tx, kb_node_id);
+        tracing::info!(target: LOG_TARGET, "KB hardening promoter spawned (5-min interval)");
     }
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
