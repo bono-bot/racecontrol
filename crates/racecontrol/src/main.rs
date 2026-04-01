@@ -961,6 +961,10 @@ async fn main() -> anyhow::Result<()> {
     backup_pipeline::spawn(state.clone());
     tracing::info!(target: "startup", "backup pipeline spawned");
 
+    // Spawn event archive pipeline (hourly tick: JSONL export, 90-day purge, nightly SCP)
+    event_archive::spawn(state.clone());
+    tracing::info!(target: "startup", "event_archive pipeline spawned");
+
     // Spawn psychology notification dispatcher (drains nudge_queue, routes to channels)
     psychology::spawn_dispatcher(state.clone());
 
