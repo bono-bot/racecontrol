@@ -53,7 +53,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 280. Model Evaluation Store | 0/? | Not started | - |
+| 280. Model Evaluation Store | 0/3 | Planned | - |
 | 281. KB Promotion Persistence | 0/? | Not started | - |
 | 282. Model Reputation Persistence | 0/? | Not started | - |
 | 283. Retrain Data Export | 0/? | Not started | - |
@@ -72,7 +72,10 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   2. A weekly cron job produces one `model_eval_rollups` row per model with accuracy and cost-per-correct-diagnosis
   3. `GET /api/v1/models/evaluations?model=X&from=Y&to=Z` returns filtered evaluation records with correct data
   4. Evaluation data persists across rc-agent restarts — records written before a restart are readable after
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 280-01-PLAN.md — model_eval_store.rs schema + store.insert() wired into tier_engine (EVAL-01)
+- [ ] 280-02-PLAN.md — eval_rollup.rs weekly cron producing model_eval_rollups (EVAL-02)
+- [ ] 280-03-PLAN.md — AgentMessage::ModelEvalSync + server DB table + GET /api/v1/models/evaluations (EVAL-03)
 
 ### Phase 281: KB Promotion Persistence
 **Goal**: The KB promotion ladder (Shadow/Canary/Quorum/Hardened) survives process restarts and advances automatically every 6 hours
@@ -121,4 +124,4 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ---
 
-*Last updated: 2026-04-01 after v35.0 roadmap creation*
+*Last updated: 2026-04-01 — Phase 280 planned (3 plans, wave 1 + wave 2)*
