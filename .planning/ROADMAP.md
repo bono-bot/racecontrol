@@ -83,10 +83,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. GET /api/v1/metrics/prometheus returns all current metrics in valid Prometheus exposition format
   2. Endpoint works without any Prometheus server deployed -- zero additional infrastructure required
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 288-01: Prometheus exposition format endpoint
+- [ ] 288-01-PLAN.md — Prometheus exposition format handler + public route registration
 
 ### Phase 289: Metric Alert Thresholds
 **Goal**: Operators receive WhatsApp alerts when metrics cross configured thresholds
