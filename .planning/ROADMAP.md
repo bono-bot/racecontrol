@@ -315,7 +315,7 @@ Plans:
 | 291. Dashboard API Wiring | 1/1 | Complete | 2026-04-01 |
 | 295. Config Schema & Validation | 1/1 | Complete | 2026-04-01 |
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
-| 297. Config Editor UI | 2/2 | Complete   | 2026-04-01 |
+| 297. Config Editor UI | 2/2 | Complete    | 2026-04-01 |
 | 298. Game Preset Library | 0/2 | Not started | - |
 | 299. Policy Rules Engine | 0/3 | Not started | - |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
