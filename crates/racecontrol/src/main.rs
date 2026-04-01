@@ -23,7 +23,7 @@ use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
     ac_camera, ac_server, action_queue, api, app_health_monitor, auth,
     backup_pipeline, billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
-    fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
+    event_archive, fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
     process_guard, psychology, remote_terminal, scheduler, server_ops,
     udp_heartbeat, ws,
 };
