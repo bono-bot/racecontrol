@@ -55,7 +55,7 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 |-------|----------------|--------|-----------|
 | 290. Model Evaluation Store | 3/3 | Complete   | 2026-04-01 |
 | 291. KB Promotion Persistence | 0/? | Not started | - |
-| 292. Model Reputation Persistence | 0/? | Not started | - |
+| 292. Model Reputation Persistence | 0/2 | Planned | - |
 | 293. Retrain Data Export | 0/1 | Planned | - |
 | 294. Intelligence Report v2 | 0/? | Not started | - |
 
@@ -99,7 +99,9 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
   2. A model with 7-day accuracy below 30% across 5+ runs is absent from the MMA roster for subsequent diagnoses
   3. A model with 7-day accuracy above 90% across 10+ runs appears at higher priority in the MMA roster than a model with lower accuracy
   4. `GET /api/v1/models/reputation` returns per-model trends including accuracy, run count, and cost efficiency
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 292-01-PLAN.md — model_reputation_store.rs + updated run_reputation_sweep() using 7-day eval window + boot load in main.rs (MREP-01, MREP-02, MREP-03)
+- [ ] 292-02-PLAN.md — AgentMessage::ModelReputationSync + server DB table + GET /api/v1/models/reputation (MREP-04)
 
 ### Phase 293: Retrain Data Export
 **Goal**: Every week, the system produces a training-ready JSONL file that captures what the AI diagnosed, whether it was correct, and what fix was applied — usable directly with Ollama or Unsloth
@@ -125,4 +127,4 @@ Close all action loops in Meshed Intelligence: anomaly → diagnose → fix → 
 
 ---
 
-*Last updated: 2026-04-01 — Phase 293 planned (1 plan, wave 1)*
+*Last updated: 2026-04-01 — Phase 292 planned (2 plans, wave 1 + wave 2)*
