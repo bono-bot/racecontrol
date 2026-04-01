@@ -121,6 +121,7 @@ impl BlastRadiusLimiter {
         Some(FixGuard {
             limiter: self,
             fix_id,
+            released: false,
         })
     }
 
@@ -156,22 +157,39 @@ impl Default for BlastRadiusLimiter {
 }
 
 /// RAII guard that auto-releases the blast radius slot on drop.
+/// MMA audit fix: idempotent drop via `released` flag — prevents double-release
+/// if manually released before drop fires (panic paths, early returns).
 pub struct FixGuard<'a> {
     limiter: &'a BlastRadiusLimiter,
     fix_id: String,
+    released: bool,
+}
+
+impl<'a> FixGuard<'a> {
+    /// Manually release the fix slot early. Safe to call multiple times.
+    pub fn release_early(&mut self) {
+        if !self.released {
+            self.limiter.release(&self.fix_id);
+            self.released = true;
+        }
+    }
 }
 
 impl<'a> std::fmt::Debug for FixGuard<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FixGuard")
             .field("fix_id", &self.fix_id)
+            .field("released", &self.released)
             .finish()
     }
 }
 
 impl<'a> Drop for FixGuard<'a> {
     fn drop(&mut self) {
-        self.limiter.release(&self.fix_id);
+        if !self.released {
+            self.limiter.release(&self.fix_id);
+            self.released = true;
+        }
     }
 }
 
@@ -184,11 +202,24 @@ const ACTION_CB_THRESHOLD: u32 = 3;
 /// Default cooldown in seconds before the breaker resets.
 const ACTION_CB_COOLDOWN_SECS: u64 = 300;
 
+/// MMA audit fix: explicit state enum prevents success/failure race conditions.
+/// Previous design used remove-on-success which erased half-open timing metadata.
+#[derive(Debug, Clone)]
+enum BreakerPhase {
+    /// Normal operation — tracking failures
+    Closed,
+    /// Breaker tripped — rejecting actions until cooldown expires
+    Open { opened_at: Instant },
+    /// Cooldown expired — allowing one probe to test recovery
+    HalfOpen,
+}
+
 /// State of a single action-type circuit breaker.
 #[derive(Debug, Clone)]
 struct ActionBreakerState {
     consecutive_failures: u32,
     last_failure: Option<Instant>,
+    phase: BreakerPhase,
 }
 
 /// Per-action-type circuit breaker. Each action type (e.g., "kill_process",
@@ -221,44 +252,52 @@ impl PerActionCircuitBreaker {
     }
 
     /// Check if the circuit breaker for a given action type is open (should skip).
+    /// MMA audit fix: uses explicit phase enum, transitions Open → HalfOpen on cooldown expiry.
     pub fn is_open(&self, action_type: &str) -> bool {
-        let breakers = match self.breakers.lock() {
+        let mut breakers = match self.breakers.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        let state = match breakers.get(action_type) {
+        let state = match breakers.get_mut(action_type) {
             Some(s) => s,
             None => return false, // No state = never failed = closed
         };
 
-        if state.consecutive_failures < self.threshold {
-            return false;
-        }
-
-        // Check cooldown — if cooldown elapsed, breaker is half-open (allow retry)
-        match state.last_failure {
-            Some(t) => {
-                if t.elapsed().as_secs() < self.cooldown_secs {
-                    true // Still in cooldown
+        match &state.phase {
+            BreakerPhase::Closed => false,
+            BreakerPhase::Open { opened_at } => {
+                if opened_at.elapsed().as_secs() >= self.cooldown_secs {
+                    // Cooldown expired → transition to half-open (allow one probe)
+                    state.phase = BreakerPhase::HalfOpen;
+                    false // Allow the probe
                 } else {
-                    false // Cooldown elapsed — half-open, allow one retry
+                    true // Still in cooldown — reject
                 }
             }
-            None => false,
+            BreakerPhase::HalfOpen => {
+                // Already in half-open — only one probe allowed.
+                // Block additional concurrent probes.
+                true
+            }
         }
     }
 
-    /// Record a successful action — resets the breaker for this action type.
+    /// Record a successful action — transitions to Closed, resets failure count.
+    /// MMA audit fix: preserves state entry (doesn't remove), preventing race with concurrent failures.
     pub fn record_success(&self, action_type: &str) {
         let mut breakers = match self.breakers.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
-        breakers.remove(action_type);
+        if let Some(state) = breakers.get_mut(action_type) {
+            state.consecutive_failures = 0;
+            state.last_failure = None;
+            state.phase = BreakerPhase::Closed;
+        }
     }
 
-    /// Record a failed action — increments failure count.
+    /// Record a failed action — increments failure count, transitions to Open if threshold hit.
     pub fn record_failure(&self, action_type: &str) {
         let mut breakers = match self.breakers.lock() {
             Ok(g) => g,
@@ -270,12 +309,14 @@ impl PerActionCircuitBreaker {
             .or_insert(ActionBreakerState {
                 consecutive_failures: 0,
                 last_failure: None,
+                phase: BreakerPhase::Closed,
             });
 
         state.consecutive_failures += 1;
         state.last_failure = Some(Instant::now());
 
         if state.consecutive_failures >= self.threshold {
+            state.phase = BreakerPhase::Open { opened_at: Instant::now() };
             tracing::warn!(
                 target: LOG_TARGET,
                 action_type = %action_type,
@@ -298,10 +339,7 @@ impl PerActionCircuitBreaker {
         breakers
             .iter()
             .map(|(k, v)| {
-                let is_open = v.consecutive_failures >= self.threshold
-                    && v.last_failure
-                        .map(|t| t.elapsed().as_secs() < self.cooldown_secs)
-                        .unwrap_or(false);
+                let is_open = matches!(v.phase, BreakerPhase::Open { .. });
                 (k.clone(), (v.consecutive_failures, is_open))
             })
             .collect()
@@ -383,16 +421,22 @@ impl IdempotencyTracker {
             // Expired — fall through to re-record
         }
 
-        // Record and cleanup if needed
+        // Record and cleanup — MMA audit fix: always prune expired entries first
+        // (prevents evicting live keys during anomaly storms when map > 500)
         seen.insert(key.to_string(), now);
 
-        if seen.len() > IDEMPOTENCY_CLEANUP_THRESHOLD {
-            let ttl = self.ttl_secs;
-            seen.retain(|_, v| now.duration_since(*v).as_secs() < ttl);
+        // Always prune expired entries on every insert (cheap — just a retain scan)
+        let ttl = self.ttl_secs;
+        let pre_cleanup = seen.len();
+        seen.retain(|_, v| now.duration_since(*v).as_secs() < ttl);
+        let pruned = pre_cleanup.saturating_sub(seen.len());
+        if pruned > 0 {
             tracing::debug!(
                 target: LOG_TARGET,
+                pruned = pruned,
                 remaining = seen.len(),
-                "Idempotency tracker: cleaned up expired entries"
+                "Idempotency tracker: pruned {} expired entries",
+                pruned
             );
         }
 
