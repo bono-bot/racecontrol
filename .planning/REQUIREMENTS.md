@@ -15,11 +15,11 @@
 
 ## Metrics Query API (QAPI)
 
-- [ ] **QAPI-01**: GET /api/v1/metrics/query returns time-series data filtered by metric name and time range
-- [ ] **QAPI-02**: GET /api/v1/metrics/names returns list of all known metric names
-- [ ] **QAPI-03**: GET /api/v1/metrics/snapshot returns current (latest) value for all metrics
-- [ ] **QAPI-04**: Query API supports per-pod filtering (e.g., ?pod=3)
-- [ ] **QAPI-05**: Query API auto-selects resolution (raw for <24h, hourly for <7d, daily for >7d)
+- [x] **QAPI-01**: GET /api/v1/metrics/query returns time-series data filtered by metric name and time range
+- [x] **QAPI-02**: GET /api/v1/metrics/names returns list of all known metric names
+- [x] **QAPI-03**: GET /api/v1/metrics/snapshot returns current (latest) value for all metrics
+- [x] **QAPI-04**: Query API supports per-pod filtering (e.g., ?pod=3)
+- [x] **QAPI-05**: Query API auto-selects resolution (raw for <24h, hourly for <7d, daily for >7d)
 
 ## Metrics Dashboard (DASH)
 
@@ -79,11 +79,11 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | TSDB-05 | Phase 285 | Complete |
 | TSDB-06 | Phase 285 | Complete |
 | TSDB-07 | Phase 285 | Complete |
-| QAPI-01 | Phase 286 | Pending |
-| QAPI-02 | Phase 286 | Pending |
-| QAPI-03 | Phase 286 | Pending |
-| QAPI-04 | Phase 286 | Pending |
-| QAPI-05 | Phase 286 | Pending |
+| QAPI-01 | Phase 286 | Complete |
+| QAPI-02 | Phase 286 | Complete |
+| QAPI-03 | Phase 286 | Complete |
+| QAPI-04 | Phase 286 | Complete |
+| QAPI-05 | Phase 286 | Complete |
 | DASH-01 | Phase 287 | Complete |
 | DASH-02 | Phase 287 | Complete |
 | DASH-03 | Phase 287 | Complete |

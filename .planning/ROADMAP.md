@@ -22,7 +22,7 @@ Make autonomous action loops observable and queryable with time-series depth -- 
 ```
 
 - [x] **Phase 285: Metrics Ring Buffer** - SQLite TSDB with 1-min samples, hourly/daily rollups, bounded storage, async ingestion (completed 2026-04-01)
-- [ ] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution
+- [x] **Phase 286: Metrics Query API** - REST endpoints for time-series queries, metric names, snapshots, per-pod filtering, auto-resolution (completed 2026-04-01)
 - [x] **Phase 287: Metrics Dashboard** - Next.js /metrics page with sparkline charts, pod selector, time range picker, auto-refresh (completed 2026-04-01)
 - [ ] **Phase 288: Prometheus Export** - Prometheus exposition format endpoint for future compatibility
 - [ ] **Phase 289: Metric Alert Thresholds** - TOML-configured alert rules evaluated against TSDB, firing to WhatsApp with dedup
@@ -55,10 +55,10 @@ Plans:
   3. GET /api/v1/metrics/snapshot returns the latest value for every metric in one call
   4. Queries accept a pod filter parameter and return only that pod's data
   5. API auto-selects resolution (raw < 24h, hourly < 7d, daily > 7d) without caller needing to specify
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 286-01-PLAN.md — Three REST endpoints (query, names, snapshot) with auto-resolution and pod filtering
+- [x] 286-01-PLAN.md — Three REST endpoints (query, names, snapshot) with auto-resolution and pod filtering
 
 ### Phase 287: Metrics Dashboard
 **Goal**: Staff can visually monitor venue health trends through a browser dashboard
@@ -112,7 +112,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 285. Metrics Ring Buffer | 2/2 | Complete    | 2026-04-01 |
-| 286. Metrics Query API | 0/1 | Not started | - |
-| 287. Metrics Dashboard | 1/1 | Complete   | 2026-04-01 |
+| 286. Metrics Query API | 1/1 | Complete   | 2026-04-01 |
+| 287. Metrics Dashboard | 1/1 | Complete    | 2026-04-01 |
 | 288. Prometheus Export | 0/1 | Not started | - |
 | 289. Metric Alert Thresholds | 0/2 | Not started | - |
