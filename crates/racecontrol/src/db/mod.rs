@@ -3579,6 +3579,40 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Phase 302: system_events table for structured system-wide event archive.
+    // NOTE: NOT the same as `events` (hotlap/competition) or `scheduler_events` (pod wake/sleep).
+    // This is the cross-subsystem operational log: billing, deploy, alert, pod recovery, etc.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS system_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            pod TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            payload TEXT NOT NULL DEFAULT '{}'
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_pod ON system_events(pod)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_ts ON system_events(timestamp)"
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

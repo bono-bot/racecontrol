@@ -34,6 +34,7 @@ pub mod email_alerts;
 pub mod escalation;
 pub mod error_aggregator;
 pub mod error_rate;
+pub mod event_archive;
 pub mod feedback_loop;
 pub mod config_push;
 pub mod flags;

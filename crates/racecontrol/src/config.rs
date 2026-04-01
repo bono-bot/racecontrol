@@ -68,6 +68,9 @@ pub struct Config {
     pub alert_rules: Vec<MetricAlertRule>,
     #[serde(default)]
     pub backup: BackupConfig,
+    /// Phase 302: Structured event archive pipeline config.
+    #[serde(default)]
+    pub event_archive: EventArchiveConfig,
     /// Phase 298 PRESET-04: Preset reliability scoring config.
     #[serde(default)]
     pub presets: PresetsConfig,
@@ -857,6 +860,7 @@ impl Config {
             mma: MmaConfig::default(),
             alert_rules: Vec::new(),
             backup: BackupConfig::default(),
+            event_archive: EventArchiveConfig::default(),
             presets: PresetsConfig::default(),
         }
     }
@@ -980,6 +984,51 @@ impl Default for BackupConfig {
             remote_host: default_remote_host(),
             remote_path: default_remote_path(),
             staleness_alert_hours: default_staleness_alert_hours(),
+        }
+    }
+}
+
+// ─── Event Archive Config (EVENT-01 to EVENT-04, Phase 302) ──────────────────
+
+/// Configuration for the structured event archive pipeline.
+/// Stores system-wide events in SQLite, exports daily JSONL, purges after 90 days,
+/// and SCPs JSONL files to Bono VPS nightly.
+/// All fields have serde defaults — no [event_archive] section needed in racecontrol.toml.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EventArchiveConfig {
+    /// Enable the event archive pipeline (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory to store JSONL export files (default: "./data/event-archive")
+    #[serde(default = "default_event_archive_dir")]
+    pub archive_dir: String,
+    /// Enable remote JSONL transfer to Bono VPS (default: true)
+    #[serde(default = "default_true")]
+    pub remote_enabled: bool,
+    /// Remote host for JSONL transfers (default: Bono VPS)
+    #[serde(default = "default_remote_host")]
+    pub remote_host: String,
+    /// Remote path for JSONL storage (default: /root/racecontrol-event-archive)
+    #[serde(default = "default_event_remote_path")]
+    pub remote_path: String,
+    /// Days to retain events in SQLite before purge (default: 90)
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_event_archive_dir() -> String { "./data/event-archive".to_string() }
+fn default_event_remote_path() -> String { "/root/racecontrol-event-archive".to_string() }
+fn default_retention_days() -> u32 { 90 }
+
+impl Default for EventArchiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            archive_dir: default_event_archive_dir(),
+            remote_enabled: default_true(),
+            remote_host: default_remote_host(),
+            remote_path: default_event_remote_path(),
+            retention_days: default_retention_days(),
         }
     }
 }
