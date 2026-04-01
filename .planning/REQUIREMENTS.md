@@ -24,10 +24,10 @@
 
 ### Event Archive (EVENT)
 
-- [ ] **EVENT-01**: All significant events written to SQLite events table with structured schema (type, source, pod, timestamp, payload)
-- [ ] **EVENT-02**: Daily JSONL export of events table for archival
-- [ ] **EVENT-03**: SQLite events retained for 90 days, then purged (JSONL is permanent archive)
-- [ ] **EVENT-04**: Nightly JSONL files shipped to Bono VPS via SCP
+- [x] **EVENT-01**: All significant events written to SQLite events table with structured schema (type, source, pod, timestamp, payload)
+- [x] **EVENT-02**: Daily JSONL export of events table for archival
+- [x] **EVENT-03**: SQLite events retained for 90 days, then purged (JSONL is permanent archive)
+- [x] **EVENT-04**: Nightly JSONL files shipped to Bono VPS via SCP
 - [ ] **EVENT-05**: Events queryable via REST API (GET /api/v1/events with filters: type, pod, date range)
 
 ### Multi-Venue Schema (VENUE)
@@ -82,10 +82,10 @@
 | SYNC-04 | Phase 301 | Complete |
 | SYNC-05 | Phase 301 | Complete |
 | SYNC-06 | Phase 301 | Complete |
-| EVENT-01 | Phase 302 | Pending |
-| EVENT-02 | Phase 302 | Pending |
-| EVENT-03 | Phase 302 | Pending |
-| EVENT-04 | Phase 302 | Pending |
+| EVENT-01 | Phase 302 | Complete |
+| EVENT-02 | Phase 302 | Complete |
+| EVENT-03 | Phase 302 | Complete |
+| EVENT-04 | Phase 302 | Complete |
 | EVENT-05 | Phase 302 | Pending |
 | VENUE-01 | Phase 303 | Pending |
 | VENUE-02 | Phase 303 | Pending |
