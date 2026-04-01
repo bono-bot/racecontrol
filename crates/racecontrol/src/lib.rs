@@ -56,6 +56,7 @@ pub mod maintenance_store;
 pub mod maintenance_xai;
 pub mod snapshot_manager;
 pub mod metrics;
+pub mod metrics_tsdb;
 pub mod multiplayer;
 pub mod network_source;
 pub mod ota_pipeline;

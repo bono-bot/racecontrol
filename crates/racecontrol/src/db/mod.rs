@@ -3568,6 +3568,44 @@ async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
         tracing::info!("Phase 88: track_records migration complete");
     }
 
+    // Phase 285: TSDB tables for time-series metrics ring buffer
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS metrics_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            metric_name TEXT NOT NULL,
+            pod_id TEXT,
+            value REAL NOT NULL,
+            recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_samples_lookup
+         ON metrics_samples(metric_name, recorded_at)"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS metrics_rollups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resolution TEXT NOT NULL CHECK(resolution IN ('hourly', 'daily')),
+            metric_name TEXT NOT NULL,
+            pod_id TEXT,
+            min_value REAL NOT NULL,
+            max_value REAL NOT NULL,
+            avg_value REAL NOT NULL,
+            sample_count INTEGER NOT NULL,
+            period_start TEXT NOT NULL,
+            UNIQUE(resolution, metric_name, pod_id, period_start)
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_rollups_lookup
+         ON metrics_rollups(resolution, metric_name, period_start)"
+    ).execute(pool).await?;
+
+    tracing::info!("Phase 285: metrics TSDB tables migration complete");
+
     Ok(())
 }
 
