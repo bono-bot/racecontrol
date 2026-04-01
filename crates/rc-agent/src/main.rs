@@ -20,6 +20,7 @@ mod failure_monitor;
 mod ffb_controller;
 mod firewall;
 mod game_doctor;
+mod game_launch_retry;
 mod game_process;
 mod knowledge_base;
 mod kiosk;
