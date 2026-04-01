@@ -21,7 +21,7 @@ export default function StaffTerminal() {
   const [staffId, setStaffId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
-  const { toastError } = useToast();
+  const { toast, toastError } = useToast();
 
   // Restore auth from sessionStorage after hydration (SSR can't access sessionStorage)
   useEffect(() => {
@@ -164,8 +164,9 @@ export default function StaffTerminal() {
       // Pre-select AC as the game (splits are AC-only)
       wizard.setField("selectedGame", "assetto_corsa");
       setPanelMode("setup");
-      // Skip to track/car selection — game is already known
-      wizard.goToStep("select_track");
+      // Skip to experience or track selection — game is already known.
+      // Let user pick experience (preset) or track/car (custom) for the next split.
+      wizard.goToStep("select_experience");
     }
   }, [pendingSplitContinuation]);
 
@@ -197,6 +198,7 @@ export default function StaffTerminal() {
         // Normal billing start
         const driver = wizard.state.selectedDriver;
         const tier = wizard.state.selectedTier;
+        let billingSessionId: string | undefined;
         if (driver && tier) {
           try {
             const result = await api.startBilling({
@@ -214,24 +216,31 @@ export default function StaffTerminal() {
               toastError(`Billing failed: ${result.error}`);
               return;
             }
+            billingSessionId = result.billing_session_id;
           } catch (err) {
             toastError(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
             return;
           }
         }
 
-        // Launch game — handle errors to avoid silent failure
+        // Launch game — auto-cancel billing on failure to prevent orphan charges
         try {
           const launchResult = await api.launchGame(selectedPodId, simType, launchArgs);
           if (!launchResult.ok) {
-            toastError(`Game launch failed: ${launchResult.error || "Unknown error"}`);
+            if (billingSessionId) {
+              sendCommand("end_billing", { billing_session_id: billingSessionId });
+            }
+            toastError(`Game launch failed (billing cancelled): ${launchResult.error || "Unknown error"}`);
             return;
           }
           if (launchResult.warning) {
-            toastError(launchResult.warning);
+            toast(launchResult.warning, "warning");
           }
         } catch (err) {
-          toastError(`Failed to launch game: ${err instanceof Error ? err.message : "Network error"}`);
+          if (billingSessionId) {
+            sendCommand("end_billing", { billing_session_id: billingSessionId });
+          }
+          toastError(`Launch failed (billing cancelled): ${err instanceof Error ? err.message : "Network error"}`);
           return;
         }
       }
@@ -376,7 +385,7 @@ export default function StaffTerminal() {
         requests={gameLaunchRequests}
         onConfirm={async (req) => {
           try {
-            await api.launchGame(req.pod_id, req.sim_type, undefined);
+            await api.launchGame(req.pod_id, req.sim_type, JSON.stringify({ game: req.sim_type }));
           } catch (err) {
             toastError(
               `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
@@ -497,9 +506,9 @@ export default function StaffTerminal() {
                   wizard.reset();
                   wizard.goToStep("select_game");
                 } else {
-                  // Non-AC: direct launch with no launch args
+                  // Non-AC: send minimal args so server can inject duration_minutes
                   try {
-                    await api.launchGame(podId, simType, undefined);
+                    await api.launchGame(podId, simType, JSON.stringify({ game: simType }));
                   } catch (err) {
                     toastError(
                       `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`

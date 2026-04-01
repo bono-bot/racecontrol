@@ -93,6 +93,8 @@ export function SetupWizard({
       setComboAlternatives([]);
       return;
     }
+    // Only AC has meaningful car/track reliability data — skip for other games
+    if (ws.selectedGame !== "assetto_corsa") return;
     const car = ws.selectedCar?.id || ws.selectedExperience?.car;
     const track = ws.selectedTrack?.id || ws.selectedExperience?.track;
     const game = ws.selectedGame;
@@ -192,7 +194,11 @@ export function SetupWizard({
 
   function handleSelectGame(gameId: string) {
     setField("selectedGame", gameId);
-    goNext();
+    // Navigate explicitly — goNext() would use stale selectedGame in getFlow()
+    // because React hasn't flushed the setField state update yet.
+    // AC: first step is session_splits (getFlow will filter it if tier <20min on next render).
+    // Non-AC: skip all AC steps, go straight to review.
+    goToStep(gameId === "assetto_corsa" ? "session_splits" : "review");
   }
 
   function handleSelectSplit(count: number, durationMinutes: number) {
@@ -234,6 +240,7 @@ export function SetupWizard({
   }
 
   const step = ws.currentStep;
+  const isAc = ws.selectedGame === "assetto_corsa";
 
   return (
     <div className="flex flex-col h-full">
@@ -931,24 +938,26 @@ export function SetupWizard({
               {ws.splitCount > 1 && ws.splitDurationMinutes && (
                 <ReviewRow label="Format" value={`${ws.splitCount} × ${ws.splitDurationMinutes} min`} />
               )}
-              <ReviewRow label="Mode" value={ws.playerMode === "multi" ? "Multiplayer" : "Singleplayer"} />
-              <ReviewRow label="Session" value={ws.sessionType.charAt(0).toUpperCase() + ws.sessionType.slice(1)} />
-              {ws.aiEnabled && (
+              {isAc && (
                 <>
-                  <ReviewRow label="AI Opponents" value={`${ws.aiCount} (${ws.aiDifficulty})`} />
+                  <ReviewRow label="Mode" value={ws.playerMode === "multi" ? "Multiplayer" : "Singleplayer"} />
+                  <ReviewRow label="Session" value={ws.sessionType.charAt(0).toUpperCase() + ws.sessionType.slice(1)} />
+                  {ws.aiEnabled && (
+                    <ReviewRow label="AI Opponents" value={`${ws.aiCount} (${ws.aiDifficulty})`} />
+                  )}
+                  {ws.selectedExperience ? (
+                    <ReviewRow label="Experience" value={ws.selectedExperience.name} />
+                  ) : (
+                    <>
+                      <ReviewRow label="Track" value={ws.selectedTrack?.name || ""} />
+                      <ReviewRow label="Car" value={ws.selectedCar?.name || ""} />
+                    </>
+                  )}
+                  <ReviewRow label="Difficulty" value={DIFFICULTY_PRESETS[ws.drivingDifficulty]?.label || ws.drivingDifficulty} />
+                  <ReviewRow label="Transmission" value={ws.transmission === "auto" ? "Automatic" : "Manual"} />
+                  <ReviewRow label="FFB" value={ws.ffb.charAt(0).toUpperCase() + ws.ffb.slice(1)} />
                 </>
               )}
-              {ws.selectedExperience ? (
-                <ReviewRow label="Experience" value={ws.selectedExperience.name} />
-              ) : (
-                <>
-                  <ReviewRow label="Track" value={ws.selectedTrack?.name || ""} />
-                  <ReviewRow label="Car" value={ws.selectedCar?.name || ""} />
-                </>
-              )}
-              <ReviewRow label="Difficulty" value={DIFFICULTY_PRESETS[ws.drivingDifficulty]?.label || ws.drivingDifficulty} />
-              <ReviewRow label="Transmission" value={ws.transmission === "auto" ? "Automatic" : "Manual"} />
-              <ReviewRow label="FFB" value={ws.ffb.charAt(0).toUpperCase() + ws.ffb.slice(1)} />
               {ws.playerMode === "multi" && ws.multiplayerMode === "join" && (
                 <ReviewRow label="Server" value={`${ws.serverIp}:${ws.serverPort}`} />
               )}

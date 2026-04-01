@@ -146,8 +146,11 @@ export function useSetupWizard() {
         "select_track",
         "select_car",
         "driving_settings",
+        // Non-AC games use Steam-based launch with minimal args — skip experience
+        // selection too (prevents dead-end when no experiences are configured for a game).
+        "select_experience",
       ];
-      // Flow: register_driver → select_plan → select_game → select_experience → review
+      // Flow: register_driver → select_plan → select_game → review
       return filtered.filter((s) => !acOnlySteps.includes(s));
     }
 
@@ -212,8 +215,10 @@ export function useSetupWizard() {
       game_mode: isMulti ? "multi" : "single",
       aids,
       conditions: { damage: 0 },
-      // session_type: Rust ac_launcher accepts both "weekend" and "race_weekend"
-      session_type: state.sessionType,
+      // session_type: Rust ac_launcher accepts both "weekend" and "race_weekend".
+      // When using a preset experience, use its start_type (race/trackday/etc.) instead of
+      // the wizard default ("practice") since experience-mode skips the session_type step.
+      session_type: state.selectedExperience?.start_type || state.sessionType,
       // ai_level: numeric 0-100 value matching rc-agent's AcLaunchParams.ai_level
       ai_level: AI_DIFFICULTY_TO_LEVEL[state.aiDifficulty] ?? 87,
       // ai_count: how many AI opponents to generate (agent auto-picks car models)

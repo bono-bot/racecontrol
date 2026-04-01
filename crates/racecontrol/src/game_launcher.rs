@@ -928,14 +928,47 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             "Race Engineer: relaunching {} on pod {} (attempt {}/2)",
                             sim_name, pod_id_owned, attempt
                         );
+
+                        // BUG-01 fix: Recalculate remaining duration from DB at relaunch time.
+                        // The stored launch_args contain the duration from ORIGINAL launch — stale
+                        // after crash + elapsed time. Without this, AC sessions can outlast billing.
+                        let fresh_duration: Option<u32> = sqlx::query_as::<_, (i64, i64, Option<i64>)>(
+                            "SELECT allocated_seconds, driving_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+                        )
+                        .bind(&pod_id_owned)
+                        .fetch_optional(&state_clone.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|(allocated, driven, split_mins)| {
+                            if let Some(sm) = split_mins {
+                                sm as u32
+                            } else {
+                                let remaining = (allocated as u32).saturating_sub(driven as u32);
+                                (remaining + 59) / 60 // ceiling division
+                            }
+                        });
+
+                        // Inject fresh duration into launch_args JSON
+                        let updated_args = launch_args.map(|args_str| {
+                            if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&args_str) {
+                                if let Some(dur) = fresh_duration {
+                                    parsed["duration_minutes"] = serde_json::json!(dur);
+                                }
+                                parsed.to_string()
+                            } else {
+                                args_str
+                            }
+                        });
+
                         let senders = state_clone.agent_senders.read().await;
                         if let Some(tx) = senders.get(&pod_id_owned) {
                             let _ = tx
                                 .send(CoreToAgentMessage::LaunchGame {
                                     sim_type,
-                                    launch_args,
+                                    launch_args: updated_args,
                                     force_clean: true,
-                                    duration_minutes: None,
+                                    duration_minutes: fresh_duration,
                                 })
                                 .await;
                         }
@@ -952,7 +985,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             track: track_clone,
                             failure_mode: failure_mode_clone,
                             recovery_action_tried: action_label,
-                            recovery_outcome: metrics::RecoveryOutcome::Success,
+                            recovery_outcome: metrics::RecoveryOutcome::Attempted,
                             recovery_duration_ms: Some(recovery_duration_ms),
                             error_details: Some(format!("exit_code: {:?}", current_exit_code)),
                         };

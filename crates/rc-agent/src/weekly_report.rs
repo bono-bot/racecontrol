@@ -42,9 +42,11 @@ pub fn spawn(
                 secs_until_report = secs,
                 "Sleeping until next Sunday midnight IST for weekly report"
             );
-            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            // MMA audit fix: add jitter to prevent thundering herd (all 8 pods at midnight)
+            let jitter_secs: u64 = rand::random::<u64>() % 120; // 0-120 seconds random offset
+            tokio::time::sleep(std::time::Duration::from_secs(secs + jitter_secs)).await;
 
-            tracing::info!(target: LOG_TARGET, "Weekly report cycle starting");
+            tracing::info!(target: LOG_TARGET, jitter_secs = jitter_secs, "Weekly report cycle starting (jitter={}s)", jitter_secs);
             let report = collect_report(&diag_log, &budget, &node_id).await;
             let message = format_whatsapp_message(&report);
 

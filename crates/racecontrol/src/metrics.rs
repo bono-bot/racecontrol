@@ -210,6 +210,7 @@ pub enum RecoveryOutcome {
     Success,
     Failed,
     PartialSuccess,
+    Attempted,
 }
 
 /// A crash recovery event — records what happened when Race Engineer tried to
