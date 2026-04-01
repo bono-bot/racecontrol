@@ -1,0 +1,85 @@
+# Requirements: v37.0 Data Durability & Multi-Venue Readiness
+
+**Defined:** 2026-04-01
+**Core Value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
+
+## v1 Requirements
+
+### Backup Pipeline (BACKUP)
+
+- [ ] **BACKUP-01**: Server performs hourly SQLite .backup (WAL-safe) of all operational databases
+- [ ] **BACKUP-02**: Local backup rotation retains 7 daily + 4 weekly snapshots, auto-purging older files
+- [ ] **BACKUP-03**: Nightly backup is SCP'd to Bono VPS with integrity verification (SHA256 match)
+- [ ] **BACKUP-04**: WhatsApp alert fires if newest backup is older than 2 hours (staleness detection)
+- [ ] **BACKUP-05**: Backup status visible in admin dashboard (last backup time, size, destination health)
+
+### Cloud Data Sync (SYNC)
+
+- [ ] **SYNC-01**: cloud_sync.rs syncs fleet_solutions table to Bono VPS (server-authoritative)
+- [ ] **SYNC-02**: cloud_sync.rs syncs model_evaluations table to Bono VPS (server-authoritative)
+- [ ] **SYNC-03**: cloud_sync.rs syncs metrics_rollups table to Bono VPS (server-authoritative)
+- [ ] **SYNC-04**: Cloud is authoritative for cross-venue data (future venue 2 solutions flow back)
+- [ ] **SYNC-05**: Sync handles conflicts gracefully — last-write-wins with venue_id tiebreaker
+- [ ] **SYNC-06**: Sync status visible in admin dashboard (last sync time, tables synced, conflict count)
+
+### Event Archive (EVENT)
+
+- [ ] **EVENT-01**: All significant events written to SQLite events table with structured schema (type, source, pod, timestamp, payload)
+- [ ] **EVENT-02**: Daily JSONL export of events table for archival
+- [ ] **EVENT-03**: SQLite events retained for 90 days, then purged (JSONL is permanent archive)
+- [ ] **EVENT-04**: Nightly JSONL files shipped to Bono VPS via SCP
+- [ ] **EVENT-05**: Events queryable via REST API (GET /api/v1/events with filters: type, pod, date range)
+
+### Multi-Venue Schema (VENUE)
+
+- [ ] **VENUE-01**: All major tables have venue_id column (default: 'racingpoint-hyd-001')
+- [ ] **VENUE-02**: Migration is backward compatible — existing data gets default venue_id, no functional change
+- [ ] **VENUE-03**: All INSERT/UPDATE queries include venue_id (prepared for multi-venue)
+- [ ] **VENUE-04**: Design doc created: MULTI-VENUE-ARCHITECTURE.md with trigger conditions for venue 2
+
+### Fleet Deploy Automation (DEPLOY)
+
+- [ ] **DEPLOY-01**: POST /api/v1/fleet/deploy endpoint accepts binary hash + target scope (all/canary/specific pods)
+- [ ] **DEPLOY-02**: Canary deploy to Pod 8 first, health verify before fleet rollout
+- [ ] **DEPLOY-03**: Auto-rollout to remaining pods after canary passes (configurable delay between waves)
+- [ ] **DEPLOY-04**: Auto-rollback on failure — if canary or any wave fails health check, revert to previous binary
+- [ ] **DEPLOY-05**: Deploy status endpoint (GET /api/v1/fleet/deploy/status) shows progress, wave status, rollback events
+- [ ] **DEPLOY-06**: Active billing sessions drain before binary swap on each pod (existing OTA sentinel protocol)
+
+## v2 Requirements
+
+### Advanced Backup
+
+- **BACKUP-V2-01**: Point-in-time recovery from backup + WAL replay
+- **BACKUP-V2-02**: Encrypted backups at rest on Bono VPS
+
+### Advanced Sync
+
+- **SYNC-V2-01**: Bidirectional sync with conflict resolution UI in admin
+- **SYNC-V2-02**: Real-time sync via WebSocket (not periodic)
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| PostgreSQL migration | SQLite WAL sufficient for single venue; trigger: venue 2 confirmed |
+| MinIO/S3 object storage | Local backup + SCP sufficient; trigger: artifacts > 50GB |
+| Kubernetes deployment | Windows pods, never applicable |
+| Multi-server racecontrol | Single server sufficient for 8 pods; trigger: multi-server confirmed |
+
+## Traceability
+
+Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| — | — | — |
+
+**Coverage:**
+- v1 requirements: 27 total
+- Mapped to phases: 0
+- Unmapped: 27 ⚠️
+
+---
+*Requirements defined: 2026-04-01*
+*Last updated: 2026-04-01 after initial definition*
