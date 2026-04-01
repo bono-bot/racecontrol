@@ -1081,7 +1081,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
-    // Start HTTPS server (if tls_port configured)
+    // Start HTTPS server (if tls_port configured -- legacy one-way TLS path)
     if let Some(tls_port) = state.config.server.tls_port {
         let tls_config = tls::load_or_generate_rustls_config(
             &state.config.server.host,
@@ -1103,8 +1103,21 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // HTTP listener (blocking — keeps main alive)
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    // Phase 305: Venue CA mTLS on main :8080 listener.
+    // When server.tls.enabled = true, binds with TLS (one-way or mTLS per require_client_cert).
+    // When false (default), falls through to plain HTTP (backward compatible).
+    // Tailscale relay listener always stays plain HTTP -- it uses a separate bind IP.
+    if state.config.server.tls.enabled {
+        let mtls_cfg = tls::load_mtls_config(&state.config.server.tls).await?;
+        let mode = if state.config.server.tls.require_client_cert { "mTLS" } else { "TLS (one-way)" };
+        tracing::info!("RaceControl {} on https://{}", mode, bind_addr);
+        axum_server::bind_rustls(listener.local_addr()?, mtls_cfg)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await?;
+    } else {
+        // HTTP listener (blocking -- keeps main alive)
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    }
 
     Ok(())
 }
