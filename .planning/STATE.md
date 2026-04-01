@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v36.0
-milestone_name: Config Management & Policy Engine
-status: executing
-stopped_at: Completed 291-01-PLAN.md
-last_updated: "2026-04-01T12:24:57.971Z"
-last_activity: 2026-04-01 -- Phase 296 execution started
+milestone: v37.0
+milestone_name: Data Durability & Multi-Venue Readiness
+status: defining_requirements
+stopped_at: null
+last_updated: "2026-04-01T18:00:00.000Z"
+last_activity: 2026-04-01 -- Milestone v37.0 started
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 1
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -20,15 +20,15 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-01)
 
-**Core value:** Centralize configuration so every pod runs from server-pushed config, not local TOML files that drift
-**Current focus:** Phase 296 — server-pushed-config
+**Core value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
+**Current focus:** Defining requirements for v37.0
 
 ## Current Position
 
-Phase: 296 (server-pushed-config) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 296
-Last activity: 2026-04-01 -- Phase 296 execution started
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-01 — Milestone v37.0 started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -36,41 +36,18 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 0 (v36.0)
+- Total plans completed: 0 (v37.0)
 - Average duration: -
 - Total execution time: -
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: n/a
-- Trend: -
-
-*Updated after each plan completion*
-| Phase 290-wire-metric-producers P01 | 15 | 2 tasks | 3 files |
-| Phase 295-config-schema-validation P01 | 45 | 2 tasks | 9 files |
-| Phase 291 P01 | 15 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-- Phase 295: AgentConfig shared via rc-common (not duplicated in each crate)
-- Phase 296: Hot/cold reload split -- hot fields apply immediately, cold fields require restart
-- Phase 296: Pod persists received config locally for server-down boot resilience
-- Phase 296: Hash-based deduplication -- pod skips processing if config hash unchanged
-- Phases 298-299: Both depend on Phase 296 and can be planned in parallel after 296 ships
-- Out of scope: etcd/Consul, multi-server sync, config encryption, concurrent edit resolution
-- [Phase 290-wire-metric-producers]: Used try_send().ok() for non-blocking metric emission; binary health score (1.0/0.0) for pod_health_score since no explicit score field in FleetHealthStore
-- [Phase 295-01]: AgentConfig.ai_debugger stays as rc_common stub type; ai-debugger feature uses From<> to convert to full type at call sites
-- [Phase 295-01]: GameExeConfig moved to rc-common, game_process.rs re-exports it — eliminates duplicate struct
-- [Phase 295-01]: lenient_deserialize uses two-pass strategy: full parse first, field-by-field fallback on type error — no new dependencies
-- [Phase 291]: Reused existing fetchApi for auth+timeout; Promise.allSettled for parallel metric queries
+- v37.0 continues phase numbering from v36.0 (phases 300-304)
+- Backup uses SQLite .backup API (WAL-safe) not file copy
+- venue_id default: racingpoint-hyd-001
+- Fleet deploy extends existing OTA pipeline from v22.0
 
 ### Pending Todos
 
@@ -78,10 +55,10 @@ None yet.
 
 ### Blockers/Concerns
 
-Phase 296 is the critical dependency -- phases 297, 298, and 299 all block on it completing first.
+None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T12:17:29.857Z
-Stopped at: Completed 291-01-PLAN.md
+Last session: 2026-04-01
+Stopped at: Milestone initialization
 Resume file: None

@@ -36,25 +36,30 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** SQLite metrics TSDB with 1-min resolution, 7-day raw retention, hourly/daily rollups (90-day). Metrics query API (query/names/snapshot with auto-resolution). Next.js /metrics dashboard with sparkline charts, pod selector, time range picker, 30s auto-refresh. Prometheus exposition format endpoint. TOML-configured alert thresholds evaluated every 60s against TSDB, firing to WhatsApp. 5 phases (285-289), 7 plans.
 
-## Current Milestone: v36.0 Config Management & Policy Engine
+## Shipped Milestone: v36.0 Config Management & Policy Engine (2026-04-01)
 
-**Goal:** Centralize configuration so every pod runs from server-pushed config, not local TOML files that drift. Add a lightweight policy rules engine for automated config-driven actions.
+**Delivered:** Typed AgentConfig struct with serde validation + schema versioning, server-pushed config via WS (SQLite pod_configs, hot/cold reload split). 2 phases (295-296), partial completion.
+
+## Current Milestone: v37.0 Data Durability & Multi-Venue Readiness
+
+**Goal:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue.
 
 **Target features:**
-- Typed Rust AgentConfig struct with serde validation attributes + schema versioning for forward compat
-- Server-pushed config via WS on connect (SQLite pod_configs table, hot/cold reload split)
-- Admin /config page with per-pod editor, diff view, one-click push, bulk ops, audit log
-- Server-managed game preset library with historical reliability scores, unreliable combos flagged
-- Policy rules engine: IF metric_condition THEN action (change config, alert, toggle flag, adjust budget), SQLite-backed, admin-editable
+- SQLite Backup Pipeline — hourly WAL-safe .backup, local rotation (7 daily + 4 weekly), nightly SCP to Bono VPS, staleness alert if > 2 hours
+- Cloud Data Sync v2 — extend cloud_sync.rs to sync solutions, evaluations, rollups; server-authoritative for solutions, cloud-authoritative for cross-venue
+- Structured Event Archive — all events → SQLite events table + daily JSONL; 90-day SQLite retention, JSONL shipped to VPS
+- Multi-Venue Schema Prep — add venue_id to all tables (default: racingpoint-hyd-001); no functional change, design doc for venue 2 trigger
+- Fleet Deploy Automation — POST /api/v1/fleet/deploy endpoint; canary-first (Pod 8), health verify + auto-rollout, auto-rollback on failure
 
 **Constraints:**
 - Rust/Axum + Next.js stack — changes to racecontrol + rc-agent + rc-common + racingpoint-admin
 - SQLite WAL mode (existing pattern) — no new database dependencies
-- Config push uses existing WS channel (ConfigPush CP-01 from v22.0)
-- Hot-reload for thresholds/flags/budget; cold (restart-required) for ports/paths
+- Backup uses SQLite .backup API (WAL-safe, not file copy)
+- Cloud sync extends existing cloud_sync.rs (additive, not rewrite)
+- venue_id migration must be backward compatible (DEFAULT value, no breaking changes)
+- Fleet deploy builds on existing OTA pipeline (v22.0) — extends, not replaces
 - Must not break existing billing, lock screen, session management, or recovery systems
 - Pod 8 canary-first for all agent-side changes
-- Backward compatible with existing kiosk/PWA/admin flows
 
 ## Paused Milestone: v32.0 Autonomous Meshed Intelligence
 
