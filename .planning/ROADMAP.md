@@ -240,7 +240,7 @@ Plans:
   3. After a nightly backup completes, the backup file appears on Bono VPS and a SHA256 checksum comparison confirms the file is intact
   4. If no backup has succeeded within 2 hours, a WhatsApp alert fires to the staff number -- the alert does not re-fire until the next 2-hour staleness window
   5. Admin dashboard backup panel shows last backup time, file size, and whether the Bono VPS destination is reachable
-**Plans:** 2/2 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 300-01-PLAN.md -- BackupConfig, backup_pipeline.rs (VACUUM INTO, rotation, staleness alert), wired into main.rs
@@ -321,7 +321,7 @@ Plans:
 | 296. Server-Pushed Config | 2/2 | Complete    | 2026-04-01 |
 | 297. Config Editor UI | 2/2 | Complete    | 2026-04-01 |
 | 298. Game Preset Library | 2/2 | Complete    | 2026-04-01 |
-| 299. Policy Rules Engine | 0/3 | Not started | - |
+| 299. Policy Rules Engine | 0/3 | Complete    | 2026-04-01 |
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 0/TBD | Not started | - |
