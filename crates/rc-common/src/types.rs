@@ -352,6 +352,9 @@ pub enum BillingSessionStatus {
     Cancelled,
     /// Session ended before PlayableSignal -- customer charged nothing (BILL-06)
     CancelledNoPlayable,
+    /// Billing paused because game crashed — distinct from PausedGamePause (ESC menu).
+    /// Enables different UI messaging ("recovering..." vs "paused") and recovery window tracking.
+    PausedCrashRecovery,
 }
 
 /// Signal that a game is in a playable state -- triggers billing start.

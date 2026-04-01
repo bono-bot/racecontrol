@@ -59,7 +59,7 @@ pub enum BillingEvent {
     Cancel,
     /// Session cancelled because game never became playable — WaitingForGame → CancelledNoPlayable
     CancelNoPlayable,
-    /// Game crash while Active — Active → PausedGamePause (recovery)
+    /// Game crash while Active — Active → PausedCrashRecovery
     CrashPause,
 }
 
@@ -73,7 +73,7 @@ const TRANSITION_TABLE: &[(BillingSessionStatus, BillingEvent, BillingSessionSta
     (BillingSessionStatus::WaitingForGame, BillingEvent::CancelNoPlayable, BillingSessionStatus::CancelledNoPlayable),
     // ─── Active → pause paths ─────────────────────────────────────────────────
     (BillingSessionStatus::Active, BillingEvent::Pause, BillingSessionStatus::PausedGamePause),
-    (BillingSessionStatus::Active, BillingEvent::CrashPause, BillingSessionStatus::PausedGamePause),
+    (BillingSessionStatus::Active, BillingEvent::CrashPause, BillingSessionStatus::PausedCrashRecovery),
     (BillingSessionStatus::Active, BillingEvent::Disconnect, BillingSessionStatus::PausedDisconnect),
     (BillingSessionStatus::Active, BillingEvent::PauseManual, BillingSessionStatus::PausedManual),
     // ─── Active → end paths ───────────────────────────────────────────────────
@@ -93,6 +93,11 @@ const TRANSITION_TABLE: &[(BillingSessionStatus, BillingEvent, BillingSessionSta
     (BillingSessionStatus::PausedManual, BillingEvent::Resume, BillingSessionStatus::Active),
     (BillingSessionStatus::PausedManual, BillingEvent::End, BillingSessionStatus::Completed),
     (BillingSessionStatus::PausedManual, BillingEvent::Cancel, BillingSessionStatus::Cancelled),
+    // ─── PausedCrashRecovery paths ───────────────────────────────────
+    (BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume, BillingSessionStatus::Active),
+    (BillingSessionStatus::PausedCrashRecovery, BillingEvent::End, BillingSessionStatus::Completed),
+    (BillingSessionStatus::PausedCrashRecovery, BillingEvent::EndEarly, BillingSessionStatus::EndedEarly),
+    (BillingSessionStatus::PausedCrashRecovery, BillingEvent::Cancel, BillingSessionStatus::Cancelled),
 ];
 
 /// Validate a billing state transition.

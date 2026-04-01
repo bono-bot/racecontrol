@@ -388,6 +388,11 @@ impl BillingTimer {
                 }
                 self.pause_seconds >= 600 // 10-min pause timeout
             }
+            BillingSessionStatus::PausedCrashRecovery => {
+                self.pause_seconds += 1;
+                self.recovery_pause_seconds += 1;
+                self.pause_seconds >= 600 // 10-min pause timeout
+            }
             BillingSessionStatus::WaitingForGame => false,
             _ => false,
         }
@@ -1207,10 +1212,16 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             continue;
         }
 
-        // Handle PausedGamePause — send paused tick to agent (overlay shows PAUSED badge)
-        if timer.status == BillingSessionStatus::PausedGamePause {
+        // Handle PausedGamePause / PausedCrashRecovery — send paused tick to agent (overlay shows PAUSED badge)
+        if matches!(timer.status, BillingSessionStatus::PausedGamePause | BillingSessionStatus::PausedCrashRecovery) {
             timer.pause_seconds += 1;
             timer.total_paused_seconds += 1;
+            // PausedCrashRecovery always increments recovery_pause_seconds (not charged)
+            if timer.status == BillingSessionStatus::PausedCrashRecovery
+                || timer.pause_reason == PauseReason::CrashRecovery
+            {
+                timer.recovery_pause_seconds += 1;
+            }
 
             // Check 10-min pause timeout
             if timer.pause_seconds > timer.max_pause_duration_secs {
@@ -1899,6 +1910,7 @@ pub async fn sync_timers_to_db(state: &Arc<AppState>) {
                 | BillingSessionStatus::PausedManual
                 | BillingSessionStatus::PausedDisconnect
                 | BillingSessionStatus::PausedGamePause
+                | BillingSessionStatus::PausedCrashRecovery
             ))
             .map(|t| (t.session_id.clone(), t.status, t.driving_seconds, t.total_paused_seconds))
             .collect()
@@ -1945,6 +1957,7 @@ pub async fn persist_timer_state(state: &Arc<AppState>, target_pod_number: Optio
                 | BillingSessionStatus::PausedManual
                 | BillingSessionStatus::PausedDisconnect
                 | BillingSessionStatus::PausedGamePause
+                | BillingSessionStatus::PausedCrashRecovery
             ))
             .filter(|t| {
                 // If target_pod_number specified, only persist that pod's timer
