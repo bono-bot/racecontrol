@@ -639,6 +639,24 @@ async fn run_test_migrations(pool: &SqlitePool) {
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p2_count INTEGER DEFAULT 0").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p3_count INTEGER DEFAULT 0").execute(pool).await;
 
+    // ─── Phase 303: venue_id on all major operational tables ─────────────────
+    // Mirrors the production ALTER TABLE block in db/mod.rs — idempotent (let _ ignores duplicate column errors)
+    for table in &[
+        "billing_sessions", "billing_events", "wallet_transactions", "wallets",
+        "drivers", "laps", "sessions", "kiosk_experiences",
+        "hotlap_events", "hotlap_event_entries", "championships",
+        "championship_standings", "championship_rounds", "driver_ratings",
+        "personal_bests", "track_records", "group_sessions", "multiplayer_results",
+        "pod_activity_log", "pod_reservations",
+    ] {
+        let _ = sqlx::query(&format!(
+            "ALTER TABLE {} ADD COLUMN venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'",
+            table
+        ))
+        .execute(pool)
+        .await;
+    }
+
     // ─── Phase 33: Billing rates (per-minute tiered pricing) ────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS billing_rates (
