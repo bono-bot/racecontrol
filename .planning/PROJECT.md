@@ -40,25 +40,28 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 
 **Delivered:** Typed AgentConfig struct with serde validation + schema versioning, server-pushed config via WS (SQLite pod_configs, hot/cold reload split). 2 phases (295-296), partial completion.
 
-## Current Milestone: v37.0 Data Durability & Multi-Venue Readiness
+## Paused Milestone: v37.0 Data Durability & Multi-Venue Readiness
 
 **Goal:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue.
+**Status:** Paused — partially shipped (venue_id migration done, fleet deploy done). Backup pipeline and cloud sync v2 pending.
+
+## Current Milestone: v40.0 Game Launch Reliability
+
+**Goal:** Fix 4 critical architectural issues in the game launch workflow that cause silent failures, revenue loss, and pod lockouts. Found during E2E regression test of PWA → POS cash payment → AC single-player launch.
 
 **Target features:**
-- SQLite Backup Pipeline — hourly WAL-safe .backup, local rotation (7 daily + 4 weekly), nightly SCP to Bono VPS, staleness alert if > 2 hours
-- Cloud Data Sync v2 — extend cloud_sync.rs to sync solutions, evaluations, rollups; server-authoritative for solutions, cloud-authoritative for cross-venue
-- Structured Event Archive — all events → SQLite events table + daily JSONL; 90-day SQLite retention, JSONL shipped to VPS
-- Multi-Venue Schema Prep — add venue_id to all tables (default: racingpoint-hyd-001); no functional change, design doc for venue 2 trigger
-- Fleet Deploy Automation — POST /api/v1/fleet/deploy endpoint; canary-first (Pod 8), health verify + auto-rollout, auto-rollback on failure
+- WS ACK Protocol — Server waits for agent ACK before returning success on /games/launch and /games/stop (currently fire-and-forget, commands silently lost on WS drop)
+- GameStateUpdate Loss Prevention — Handle WS reconnect race where GameTracker gets stuck in Launching permanently, blocking all future launches on that pod
+- Billing Lock Race Fix — Hold single lock across pre-validation + DB write in start_billing to prevent duplicate sessions on concurrent requests
+- Billing-During-Launch Guard — Prevent the 5-min stale cancel from killing sessions where the game is actively loading (game alive but not yet AcStatus::Live). Customer shouldn't play for free.
 
 **Constraints:**
-- Rust/Axum + Next.js stack — changes to racecontrol + rc-agent + rc-common + racingpoint-admin
-- SQLite WAL mode (existing pattern) — no new database dependencies
-- Backup uses SQLite .backup API (WAL-safe, not file copy)
-- Cloud sync extends existing cloud_sync.rs (additive, not rewrite)
-- venue_id migration must be backward compatible (DEFAULT value, no breaking changes)
-- Fleet deploy builds on existing OTA pipeline (v22.0) — extends, not replaces
-- Must not break existing billing, lock screen, session management, or recovery systems
+- Rust/Axum server + rc-agent protocol changes — both binaries affected
+- WebSocket protocol changes must be backward compatible (old agents must not crash)
+- Billing atomicity (FATM-01) must be preserved — no new race conditions
+- Must not increase game launch latency perceptibly (< 500ms added for ACK)
+- 8 pods in production — changes must deploy fleet-wide atomically
+- Standing rules: no .unwrap() in production, no lock held across .await
 - Pod 8 canary-first for all agent-side changes
 
 ## Paused Milestone: v32.0 Autonomous Meshed Intelligence
