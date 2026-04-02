@@ -573,6 +573,36 @@ async fn detect_fleet_anomalies(
 ) {
     use std::sync::atomic::{AtomicI64, Ordering};
 
+    // ── 0. Venue close transition → bulk-resolve stale incidents ───────────
+    // Track venue state transitions. When venue closes (all pods off, normal shutdown),
+    // auto-resolve all open pod_offline and dashboard_orphan incidents.
+    {
+        use std::sync::atomic::AtomicBool;
+        static WAS_VENUE_OPEN: AtomicBool = AtomicBool::new(true);
+
+        let is_open = crate::venue_state::venue_is_open();
+        let was_open = WAS_VENUE_OPEN.swap(is_open, std::sync::atomic::Ordering::Relaxed);
+
+        if was_open && !is_open {
+            // Transition: open → closed. Bulk-resolve stale incidents.
+            tracing::info!(
+                target: "fleet-anomaly",
+                "VENUE_CLOSED: Bulk-resolving open pod_offline and dashboard_orphan incidents"
+            );
+            let db = state.db.clone();
+            tokio::spawn(async move {
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = sqlx::query(
+                    "UPDATE fleet_incidents SET resolved_at = ?1, resolution = 'venue_closed'
+                     WHERE resolved_at IS NULL AND (problem_key LIKE 'pod_offline:%' OR problem_key = 'dashboard_orphan:kiosk')"
+                )
+                .bind(&now)
+                .execute(&db)
+                .await;
+            });
+        }
+    }
+
     // Cooldown: one alert per class per 15 minutes
     static LAST_BUILD_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_DRIFT_ALERT: AtomicI64 = AtomicI64::new(0);
@@ -832,7 +862,7 @@ async fn detect_fleet_anomalies(
         let dashboard_clients = crate::ws::dashboard_client_count();
         let kiosk_healthy = crate::app_health_monitor::get_consecutive_failures("kiosk") == 0;
 
-        if kiosk_healthy && dashboard_clients == 0 {
+        if kiosk_healthy && dashboard_clients == 0 && crate::venue_state::venue_is_open() {
             let count = DASHBOARD_ORPHAN_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             if count >= 10 {
                 tracing::warn!(
