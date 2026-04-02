@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 
-// PIN charset: no ambiguous I, L, O, 0, 1
-const PIN_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+// PIN charset: numeric only (0-9). All PINs are 4-digit numeric.
+const PIN_CHARS = "1234567890";
 const AUTO_CLOSE_SUCCESS_MS = 15_000;
 const AUTO_RETURN_ERROR_MS = 10_000;
 
@@ -152,7 +152,7 @@ export default function PinRedeemScreen({ onClose, pinConfig }: PinRedeemScreenP
 
         <h1 className="text-3xl font-bold text-white mb-8">Enter Your Booking PIN</h1>
 
-        {/* 6 PIN boxes */}
+        {/* 4 PIN digit boxes */}
         <div className="flex gap-3 mb-8">
           {Array.from({ length: PIN_LENGTH }).map((_, i) => (
             <div
@@ -172,27 +172,33 @@ export default function PinRedeemScreen({ onClose, pinConfig }: PinRedeemScreenP
           ))}
         </div>
 
-        {/* Character grid: 7 columns */}
-        <div className="grid grid-cols-7 gap-2 mb-4">
-          {PIN_CHARS.split("").map((ch) => (
+        {/* Numeric pad: 3 columns (phone-style) */}
+        <div className="grid grid-cols-3 gap-3 mb-4 w-fit">
+          {["1","2","3","4","5","6","7","8","9"].map((ch) => (
             <button
               key={ch}
               onClick={() => handleChar(ch)}
-              className="w-14 h-14 rounded-lg bg-[#222222] hover:bg-[#333333] text-white font-semibold border border-[#333333] transition-colors text-lg"
+              className="w-[72px] h-[72px] rounded-xl bg-[#222222] hover:bg-[#333333] text-white font-bold border border-[#333333] transition-colors text-2xl"
             >
               {ch}
             </button>
           ))}
-          {/* Fill remaining cells in the last row: 31 chars = 4 rows of 7 + 3 chars, need backspace filling row 5 */}
-          {/* Last row has 3 chars (Y, Z are in row 4... let's calculate: 31 / 7 = 4 rows + 3 extra) */}
-          {/* The grid will naturally flow. After 31 chars, add Backspace (1 col) and Clear (2 cols) and Submit (3 cols) on the bottom row */}
-        </div>
-
-        {/* Action row */}
-        <div className="grid grid-cols-7 gap-2 w-fit">
+          {/* Bottom row: Clear, 0, Backspace */}
+          <button
+            onClick={handleClear}
+            className="w-[72px] h-[72px] rounded-xl bg-[#222222] hover:bg-[#333333] text-[#5A5A5A] hover:text-white font-semibold border border-[#333333] transition-colors text-sm"
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => handleChar("0")}
+            className="w-[72px] h-[72px] rounded-xl bg-[#222222] hover:bg-[#333333] text-white font-bold border border-[#333333] transition-colors text-2xl"
+          >
+            0
+          </button>
           <button
             onClick={handleBackspace}
-            className="col-span-1 h-14 rounded-lg bg-[#222222] hover:bg-[#333333] text-[#5A5A5A] hover:text-white font-semibold border border-[#333333] transition-colors flex items-center justify-center"
+            className="w-[72px] h-[72px] rounded-xl bg-[#222222] hover:bg-[#333333] text-[#5A5A5A] hover:text-white font-semibold border border-[#333333] transition-colors flex items-center justify-center"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -203,20 +209,16 @@ export default function PinRedeemScreen({ onClose, pinConfig }: PinRedeemScreenP
               />
             </svg>
           </button>
-          <button
-            onClick={handleClear}
-            className="col-span-2 h-14 rounded-lg bg-[#222222] hover:bg-[#333333] text-[#5A5A5A] hover:text-white font-semibold border border-[#333333] transition-colors text-sm"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={pin.length !== PIN_LENGTH}
-            className="col-span-4 h-14 rounded-lg bg-[#E10600] hover:bg-[#FF1A1A] disabled:bg-[#333333] disabled:text-[#5A5A5A] text-white font-bold border border-transparent transition-colors text-lg"
-          >
-            Submit
-          </button>
         </div>
+
+        {/* Submit button */}
+        <button
+          onClick={handleSubmit}
+          disabled={pin.length !== PIN_LENGTH}
+          className="w-[234px] h-14 rounded-xl bg-[#E10600] hover:bg-[#FF1A1A] disabled:bg-[#333333] disabled:text-[#5A5A5A] text-white font-bold border border-transparent transition-colors text-lg"
+        >
+          Submit
+        </button>
       </div>
     );
   }

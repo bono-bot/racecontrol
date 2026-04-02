@@ -16,8 +16,8 @@ use crate::state::AppState;
 use crate::wallet;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 
-/// 31-char charset excluding ambiguous characters (O/0/I/1/L).
-const PIN_CHARSET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/// Numeric-only PIN charset (0-9). All PINs across the system are 4-digit numeric.
+const PIN_CHARSET: &[u8] = b"0123456789";
 const PIN_LENGTH: usize = 4;
 
 #[derive(serde::Deserialize)]
@@ -516,10 +516,13 @@ impl RedeemPinError {
 pub async fn redeem_pin(state: &Arc<AppState>, pin: &str) -> Result<Value, RedeemPinError> {
     tracing::info!("PIN redemption started for pin={}***", &pin.get(..3).unwrap_or("?"));
 
-    // 1. Normalize PIN
-    let pin = pin.trim().to_uppercase();
+    // 1. Normalize PIN (numeric-only, 4 digits)
+    let pin = pin.trim().to_string();
     if pin.len() != PIN_LENGTH {
-        return Err(RedeemPinError::pin(format!("PIN must be exactly {} characters", PIN_LENGTH)));
+        return Err(RedeemPinError::pin(format!("PIN must be exactly {} digits", PIN_LENGTH)));
+    }
+    if !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err(RedeemPinError::pin("PIN must contain only digits (0-9)".to_string()));
     }
 
     // 2. Check for pending_debit status first (distinct message)

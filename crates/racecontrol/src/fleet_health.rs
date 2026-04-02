@@ -983,11 +983,29 @@ async fn detect_fleet_anomalies(
                     pin_failures, details.join(", ")
                 );
                 crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+
+                // MI Bridge: Log fleet incident for PIN failures
+                let incident = rc_common::mesh_types::MeshIncident {
+                    id: format!("inc_pin_spike_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+                    node: "server".to_string(),
+                    problem_key: "pin_failure_spike".to_string(),
+                    severity: rc_common::mesh_types::IncidentSeverity::Medium,
+                    cost: 0.0,
+                    resolution: None,
+                    time_to_resolve_secs: None,
+                    resolved_by_tier: None,
+                    detected_at: chrono::Utc::now(),
+                    resolved_at: None,
+                };
+                let db = state.db.clone();
+                tokio::spawn(async move {
+                    let _ = crate::fleet_kb::insert_incident(&db, &incident).await;
+                });
             }
         }
     }
 
-    // ── 8. Bat file hash drift (closes incident #16, #22) ─────────────────
+    // ── 9. Bat file hash drift (closes incident #16, #22) ─────────────────
     // If bat_sha256 differs across the fleet, startup scripts are out of sync.
     // Stale bat files miss process kills, power settings, ConspitLink guards.
     // Data already collected in fleet health store from agent /health probe.
