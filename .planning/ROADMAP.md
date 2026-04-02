@@ -225,7 +225,7 @@ Plans:
 - [x] **Phase 300: SQLite Backup Pipeline** - Hourly WAL-safe backup, 7-daily + 4-weekly rotation, nightly SCP to Bono VPS, staleness WhatsApp alert, admin visibility (completed 2026-04-01)
 - [x] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status (completed 2026-04-01)
 - [x] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API (completed 2026-04-01)
-- [x] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger (completed 2026-04-02)
+- [x] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger (completed 2026-04-02)
 - [ ] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint
 
 ## Phase Details
@@ -287,7 +287,8 @@ Plans:
   3. All INSERT and UPDATE queries in racecontrol pass venue_id explicitly -- no row is written without a venue_id value
   4. MULTI-VENUE-ARCHITECTURE.md exists and documents the trigger conditions, schema strategy, sync model, and breaking points for a second venue
 **Plans**: 2 plans
-nPlans:
+
+Plans:
 - [x] 303-01-PLAN.md -- VenueConfig venue_id field, ALTER migrations for 44 tables, MULTI-VENUE-ARCHITECTURE.md design doc
 - [x] 303-02-PLAN.md -- Add venue_id to ~122 INSERT statements across 22 source files
 
@@ -303,6 +304,10 @@ nPlans:
   5. GET /api/v1/fleet/deploy/status shows current wave, each pod's status (pending/deploying/healthy/rolled-back), and a log of rollback events
   6. No pod swaps its binary while it has an active billing session; the swap is deferred until the session ends naturally
 **Plans**: 2 plans
+
+Plans:
+- [ ] 304-01-PLAN.md -- FleetDeploySession types, run_fleet_deploy orchestration, wave/rollback/billing logic, unit tests
+- [ ] 304-02-PLAN.md -- AppState field, route handlers (POST /fleet/deploy + GET /fleet/deploy/status), superadmin route registration
 
 ## Progress
 
@@ -333,4 +338,4 @@ nPlans:
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 2/2 | Complete    | 2026-04-01 |
 | 303. Multi-Venue Schema Prep | 4/1 | Complete    | 2026-04-02 |
-| 304. Fleet Deploy Automation | 0/TBD | Not started | - |
+| 304. Fleet Deploy Automation | 0/2 | Not started | - |
