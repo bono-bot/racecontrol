@@ -196,4 +196,33 @@ Plans:
 
 ---
 
-*Last updated: 2026-04-02 after v37+v38 merge reconciliation*
+---
+
+## v39.0 Observability & Session Traceability (Next)
+
+**Goal:** Single-query debugging across the full customer session lifecycle — Launch → Billing → Crash → Refund.
+
+**Phases:** 1 (expandable)
+
+### Phase 310: Session Trace ID Propagation
+**Goal**: Every log, metric, and event during a customer session includes `session_id` for end-to-end traceability
+**Depends on**: None (additive)
+**Requirements**: MI-5 (Mermaid AI finding)
+**Success Criteria** (what must be TRUE):
+  1. `log_pod_activity()` accepts and persists `session_id` — all callers in billing/launch pass it
+  2. `GameTracker` has `billing_session_id` field set when launch is tied to a billing session
+  3. `LaunchEvent` metrics include `billing_session_id` for launch/crash correlation
+  4. A query on `pod_activity_log WHERE session_id = ?` returns the complete session timeline
+**Plans**: 2 plans (core propagation + dashboard events)
+
+Plans:
+- [ ] 310-01-PLAN.md -- Core: add session_id to activity_log, GameTracker, LaunchEvent
+- [ ] 310-02-PLAN.md -- Dashboard events + optional GET /sessions/{id}/trace endpoint
+
+### Progress Table (v39.0)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 310. Session Trace ID | 0/2 | Pending | — |
+
+*Last updated: 2026-04-02 after MI-5 gap creation*
