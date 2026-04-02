@@ -35,7 +35,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 ### Phases
 
 - [x] **Phase 311: Launch-Billing Coordination Guard** — LBILL-01, LBILL-02, LBILL-03
-- [ ] **Phase 312: WS ACK Protocol** — WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
+- [x] **Phase 312: WS ACK Protocol** — WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
 - [ ] **Phase 313: Game State Resilience** — GSTATE-01, GSTATE-02, GSTATE-03
 - [ ] **Phase 314: Billing Atomicity** — BATOM-01, BATOM-02
 
@@ -87,7 +87,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 312-01-PLAN.md -- CommandAck protocol: agent ACKs for launch/stop, server 5s timeout wait
+- [x] 312-01-PLAN.md -- CommandAck protocol: agent ACKs for launch/stop, server 5s timeout wait (b7359a02)
 
 ---
 

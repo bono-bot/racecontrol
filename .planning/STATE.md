@@ -32,7 +32,7 @@ Last activity: 2026-04-03 — Milestone v41.0 started
 
 ## Accumulated Context
 
-- v40.0 Game Launch Reliability in progress (Phase 311 complete, 312-314 remaining)
+- v40.0 Game Launch Reliability: Phase 311 complete, Phase 312 complete (b7359a02), 313-314 remaining
 - content_scanner.rs only scans AC content — Steam/non-Steam games invisible to system
 - combo_reliability table + GamePresetWithReliability exist from Phase 298 (Config Management)
 - Game Doctor (12-point check) exists but runs reactively at launch, not proactively

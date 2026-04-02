@@ -4,10 +4,10 @@
 **Core Value:** Fix 4 critical architectural issues in the game launch workflow that cause silent failures, revenue loss, and pod lockouts
 
 ## WS Command Delivery (WSCMD)
-- [ ] **WSCMD-01**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/launch`
-- [ ] **WSCMD-02**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/stop`
-- [ ] **WSCMD-03**: If agent doesn't ACK within timeout, server returns error to caller (not silent success)
-- [ ] **WSCMD-04**: ACK protocol is backward compatible — old agents that don't ACK trigger timeout path gracefully
+- [x] **WSCMD-01**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/launch`
+- [x] **WSCMD-02**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/stop`
+- [x] **WSCMD-03**: If agent doesn't ACK within timeout, server returns error to caller (not silent success)
+- [x] **WSCMD-04**: ACK protocol is backward compatible — old agents that don't ACK trigger timeout path gracefully
 
 ## Game State Resilience (GSTATE)
 - [ ] **GSTATE-01**: GameTracker stuck in `Launching` for >3 minutes auto-transitions to `Error` with clear message
@@ -39,10 +39,10 @@
 | LBILL-01 | 311 | 01 | Complete (4488f48a) |
 | LBILL-02 | 311 | 01 | Complete (4488f48a) |
 | LBILL-03 | 311 | 01 | Complete (4488f48a) |
-| WSCMD-01 | 312 | — | Pending |
-| WSCMD-02 | 312 | — | Pending |
-| WSCMD-03 | 312 | — | Pending |
-| WSCMD-04 | 312 | — | Pending |
+| WSCMD-01 | 312 | 01 | Complete (b7359a02) |
+| WSCMD-02 | 312 | 01 | Complete (b7359a02) |
+| WSCMD-03 | 312 | 01 | Complete (b7359a02) |
+| WSCMD-04 | 312 | 01 | Complete (b7359a02) |
 | GSTATE-01 | 313 | — | Pending |
 | GSTATE-02 | 313 | — | Pending |
 | GSTATE-03 | 313 | — | Pending |
