@@ -1,136 +1,50 @@
-# Requirements: v38.0 Security Hardening & Operational Maturity
+# Requirements: v40.0 Game Launch Reliability
 
-**Defined:** 2026-04-01
-**Core Value:** Harden the attack surface after all data flows are established
+**Defined:** 2026-04-03
+**Core Value:** Fix 4 critical architectural issues in the game launch workflow that cause silent failures, revenue loss, and pod lockouts
 
-## TLS for Internal HTTP (TLS)
+## WS Command Delivery (WSCMD)
+- [ ] **WSCMD-01**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/launch`
+- [ ] **WSCMD-02**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/stop`
+- [ ] **WSCMD-03**: If agent doesn't ACK within timeout, server returns error to caller (not silent success)
+- [ ] **WSCMD-04**: ACK protocol is backward compatible — old agents that don't ACK trigger timeout path gracefully
 
-- [ ] **TLS-01**: Self-signed venue CA generated via `scripts/generate-venue-ca.sh` with server + per-pod client certificates
-- [ ] **TLS-02**: Axum server (:8080) accepts mTLS connections — rejects clients without valid venue CA cert
-- [ ] **TLS-03**: rc-agent (:8090) accepts mTLS connections from server — rejects unauthorized callers
-- [ ] **TLS-04**: Tailscale remote connections bypass mTLS (already encrypted) — mTLS is LAN-only
+## Game State Resilience (GSTATE)
+- [ ] **GSTATE-01**: GameTracker stuck in `Launching` for >3 minutes auto-transitions to `Error` with clear message
+- [ ] **GSTATE-02**: On WS reconnect, reconciliation correctly merges pod's actual game state with server tracker (not blind overwrite)
+- [ ] **GSTATE-03**: `/games/stop` clears the GameTracker entry on success (not just transition to Stopping)
 
-## WS Auth Hardening (WSAUTH)
+## Billing Atomicity (BATOM)
+- [ ] **BATOM-01**: `start_billing` holds a consistent view — no window where concurrent requests can create duplicate sessions for the same pod
+- [ ] **BATOM-02**: If a billing session already exists for a pod (any status), new `start_billing` returns clear error
 
-- [x] **WSAUTH-01**: Per-pod JWT tokens with 24-hour expiry replace static PSK for WebSocket authentication
-- [x] **WSAUTH-02**: JWT tokens auto-rotate 1 hour before expiry — zero-downtime refresh
-- [x] **WSAUTH-03**: Invalid or expired JWT on WebSocket causes immediate disconnect + WhatsApp alert to staff
-- [x] **WSAUTH-04**: PSK remains as bootstrap fallback — initial connection uses PSK, server issues JWT for subsequent auth
+## Launch-Billing Coordination (LBILL)
+- [ ] **LBILL-01**: Stale session cancel (5-min timeout) checks if game process is alive on the pod before cancelling
+- [ ] **LBILL-02**: If game is alive but not yet Live, extend the waiting period (up to 10 minutes total for slow-loading games)
+- [ ] **LBILL-03**: If game is dead AND session is waiting_for_game >5 min, cancel with full wallet refund (existing fix from 8184d4f3)
 
-## Audit Log Integrity (AUDIT)
-
-- [x] **AUDIT-01**: Every activity_log entry includes a SHA-256 hash linking to the previous entry (append-only chain)
-- [x] **AUDIT-02**: Tamper detection: if any entry's previous_hash doesn't match the actual previous entry's hash, alert fires
-- [x] **AUDIT-03**: Hash chain covers config changes, deploys, billing events, and admin actions
-- [x] **AUDIT-04**: `GET /api/v1/audit/verify` endpoint returns chain integrity status (valid/broken + first broken entry)
-
-## Role-Based Access Control (RBAC)
-
-- [x] **RBAC-01**: Three roles defined: cashier (billing only), manager (billing + config), superadmin (everything)
-- [x] **RBAC-02**: JWT tokens include role claim — server extracts and enforces on every protected endpoint
-- [x] **RBAC-03**: Cashier role can only access billing, customer, and cafe endpoints — config/deploy/admin returns 403
-- [x] **RBAC-04**: Admin dashboard UI shows/hides sections based on role — but enforcement is server-side (UI is convenience)
-
-- [x] **VENUE-01**: All major tables have venue_id column (default: 'racingpoint-hyd-001')
-- [x] **VENUE-02**: Migration is backward compatible — existing data gets default venue_id, no functional change
-- [x] **VENUE-03**: All INSERT/UPDATE queries include venue_id (prepared for multi-venue)
-- [x] **VENUE-04**: Design doc created: MULTI-VENUE-ARCHITECTURE.md with trigger conditions for venue 2
-
-### Fleet Deploy Automation (DEPLOY)
-
-- [x] **DEPLOY-01**: POST /api/v1/fleet/deploy endpoint accepts binary hash + target scope (all/canary/specific pods)
-- [x] **DEPLOY-02**: Canary deploy to Pod 8 first, health verify before fleet rollout
-- [x] **DEPLOY-03**: Auto-rollout to remaining pods after canary passes (configurable delay between waves)
-- [x] **DEPLOY-04**: Auto-rollback on failure — if canary or any wave fails health check, revert to previous binary
-- [x] **DEPLOY-05**: Deploy status endpoint (GET /api/v1/fleet/deploy/status) shows progress, wave status, rollback events
-- [x] **DEPLOY-06**: Active billing sessions drain before binary swap on each pod (existing OTA sentinel protocol)
-
-## Security Audit Script (SECAUDIT)
-
-- [x] **SECAUDIT-01**: `scripts/security-audit.sh` scans: open ports, TLS config, JWT validity, default credentials, chain integrity
-- [x] **SECAUDIT-02**: Output is structured JSON scorecard with pass/fail per check and overall score
-- [x] **SECAUDIT-03**: Script integrates with existing `gate-check.sh` as a pre-deploy security gate
-
-## v2 Requirements
-
-### Advanced Backup
-
-- **BACKUP-V2-01**: Point-in-time recovery from backup + WAL replay
-- **BACKUP-V2-02**: Encrypted backups at rest on Bono VPS
-
-### Advanced Sync
-
-- **SYNC-V2-01**: Bidirectional sync with conflict resolution UI in admin
-- **SYNC-V2-02**: Real-time sync via WebSocket (not periodic)
+## Future Requirements
+- WS command delivery for other endpoints (fleet/exec, config push)
+- Billing reconciliation dashboard showing desync events
+- Per-game launch timeout configuration
 
 ## Out of Scope
-
-| Feature | Reason |
-|---------|--------|
-| PostgreSQL migration | SQLite WAL sufficient for single venue; trigger: venue 2 confirmed |
-| MinIO/S3 object storage | Local backup + SCP sufficient; trigger: artifacts > 50GB |
-| Kubernetes deployment | Windows pods, never applicable |
-| Multi-server racecontrol | Single server sufficient for 8 pods; trigger: multi-server confirmed |
+- Full bidirectional NTP-style time sync (200ms desync acceptable)
+- Rewriting the WS protocol to binary format (JSON sufficient for 8 pods)
+- Client-side retry logic in kiosk (server handles retries)
 
 ## Traceability
-
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| BACKUP-01 | Phase 300 | Complete |
-| BACKUP-02 | Phase 300 | Complete |
-| BACKUP-03 | Phase 300 | Complete |
-| BACKUP-04 | Phase 300 | Complete |
-| BACKUP-05 | Phase 300 | Complete |
-| SYNC-01 | Phase 301 | Complete |
-| SYNC-02 | Phase 301 | Complete |
-| SYNC-03 | Phase 301 | Complete |
-| SYNC-04 | Phase 301 | Complete |
-| SYNC-05 | Phase 301 | Complete |
-| SYNC-06 | Phase 301 | Complete |
-| EVENT-01 | Phase 302 | Complete |
-| EVENT-02 | Phase 302 | Complete |
-| EVENT-03 | Phase 302 | Complete |
-| EVENT-04 | Phase 302 | Complete |
-| EVENT-05 | Phase 302 | Complete |
-| VENUE-01 | Phase 303 | Complete |
-| VENUE-02 | Phase 303 | Complete |
-| VENUE-03 | Phase 303 | Complete |
-| VENUE-04 | Phase 303 | Complete |
-| DEPLOY-01 | Phase 304 | Complete |
-| DEPLOY-02 | Phase 304 | Complete |
-| DEPLOY-03 | Phase 304 | Complete |
-| DEPLOY-04 | Phase 304 | Complete |
-| DEPLOY-05 | Phase 304 | Complete |
-| DEPLOY-06 | Phase 304 | Complete |
-| TLS-01 | Phase 305 | Pending |
-| TLS-02 | Phase 305 | Pending |
-| TLS-03 | Phase 305 | Pending |
-| TLS-04 | Phase 305 | Pending |
-| WSAUTH-01 | Phase 306 | Done (b33e388e) |
-| WSAUTH-02 | Phase 306 | Done (b33e388e) |
-| WSAUTH-03 | Phase 306 | Done (b33e388e) |
-| WSAUTH-04 | Phase 306 | Done (b33e388e) |
-| AUDIT-01 | Phase 307 | Complete (d5f9b387) |
-| AUDIT-02 | Phase 307 | Complete (d5f9b387) |
-| AUDIT-03 | Phase 307 | Complete (d5f9b387) |
-| AUDIT-04 | Phase 307 | Complete (d5f9b387) |
-| RBAC-01 | Phase 308 | Done (pre-built) |
-| RBAC-02 | Phase 308 | Done (pre-built) |
-| RBAC-03 | Phase 308 | Done (pre-built) |
-| RBAC-04 | Phase 308 | Done (pre-built) |
-| SECAUDIT-01 | Phase 309 | Done |
-| SECAUDIT-02 | Phase 309 | Done |
-| SECAUDIT-03 | Phase 309 | Done |
-
-## Future Requirements (deferred)
-
-- Certificate rotation automation (manual renewal — venue CA is long-lived)
-- Per-customer JWT (currently only staff/pod JWTs)
-- Encrypted SQLite at rest (not justified at venue scale)
-
-## Out of Scope
-
-- External CA / Let's Encrypt for internal HTTP — self-signed venue CA is correct for LAN
-- OAuth2 / OIDC — JWT with roles is sufficient
-- Network segmentation / VLANs — infrastructure, not software
-- WAF / rate limiting on internal endpoints — venue LAN only
+| REQ | Phase | Plan | Status |
+|-----|-------|------|--------|
+| WSCMD-01 | — | — | Pending |
+| WSCMD-02 | — | — | Pending |
+| WSCMD-03 | — | — | Pending |
+| WSCMD-04 | — | — | Pending |
+| GSTATE-01 | — | — | Pending |
+| GSTATE-02 | — | — | Pending |
+| GSTATE-03 | — | — | Pending |
+| BATOM-01 | — | — | Pending |
+| BATOM-02 | — | — | Pending |
+| LBILL-01 | — | — | Pending |
+| LBILL-02 | — | — | Pending |
+| LBILL-03 | — | — | Pending |
