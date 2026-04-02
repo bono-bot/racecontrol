@@ -1,12 +1,16 @@
-# Cognitive Gate Protocol v3.0
+# Cognitive Gate Protocol v3.1
 
 **Purpose:** Single protocol governing every phase of Racing Point operations — Plan, Create, Verify, Deploy, Ship, and Debug — with 10 embedded anti-bias gates that fire at specific lifecycle moments. All standing rules, debugging methodology, audit phases, and the Multi-Model AI Audit Protocol are mapped to the phase where they activate.
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking goals. 37 documented corrections over 10 days. 147+ standing rules failed because rules are declarative; gates are procedural. Gates require visible output at specific moments, making skips visible.
 
+**v3.1 incident (2026-04-02):** G0 had hard hook enforcement; G1/G4 had ZERO enforcement. James recovered 7 pods, declared "all fixes deployed" based on `ws=True` (proxy metric). All recovered pods were in Session 0 — blanking screens broken on every pod. User caught it. Fix: hook now injects G1/G4 checklist every prompt + two-phase completion rule.
+
 **Meta-gate:** The bias that causes all failures will try to skip these gates ("I already know the answer"). Writing the proof IS the fix. Thinking you know the answer without writing it IS the bias.
 
-**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01.
+**Two-Phase Completion Rule (v3.1):** NEVER claim "done/fixed/deployed" in the same message as the last fix action. Separate the FIX step from the VERIFY step into different turns. This structural separation prevents the rush-to-declare-done bias.
+
+**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02.
 
 ---
 
@@ -318,23 +322,27 @@ Model stack: Qwen3 235B (scanner) + DeepSeek V3 (code) + DeepSeek R1 (reasoner) 
 #### 3.5 — Financial Flow E2E (if billing touched)
 Trace actual currency values: create customer → topup → book → launch → end (early/normal/cancel) → verify refund/balance. Any function that UPDATEs then SELECTs same column = audit for overwrite bug.
 
-#### ⛩️ G1: Outcome Verification
-**Trigger:** Before writing "fixed", "verified", "done", "complete", "PASS".
+#### ⛩️ G1: Outcome Verification (NO BYPASS — v3.1 hardened)
+**Trigger:** Before writing "fixed", "verified", "done", "complete", "PASS", "all X online", "deployed".
 **Proof — all 3 mandatory:**
-1. **Behavior tested:** Name the specific behavior (NOT "health endpoint" or "build_id")
+1. **Behavior tested:** Name the specific behavior (NOT "health endpoint" or "build_id" or "ws=True")
 2. **Method of observation:** Command run + output, visual check, API call + response body. Same domain as the change.
 3. **Raw evidence:** Paste actual output, or "Asked user to visually confirm — awaiting response"
 
-Proxy metrics (health 200, build_id match) are supplementary only, never primary proof. If intermittent: state duration tested and recurrence interval.
+**PROHIBITED as primary proof (v3.1):** `health 200`, `build_id` match, `ws=True`, `http=True`, `status: ok`. These are supplementary only — they prove the binary runs, NOT that the bug is fixed.
+**For pod changes:** MUST verify `tasklist /V` shows `Session=Console` (not Services), `edge_process_count > 0` at `:18924/debug`, blanking screen visible.
+**For API changes:** Test the EXACT changed endpoint with actual data, not just health check.
+_Why (v3.1): 2026-04-02 — 7 pods recovered, declared "all fixes deployed" based on ws=True. All pods were in Session 0. Blanking screens broken on every pod. Proxy metrics passed; actual behavior failed._
 
-#### ⛩️ G4: Confidence Calibration
+#### ⛩️ G4: Confidence Calibration (NO BYPASS — v3.1 hardened)
 **Trigger:** Before any success/probability/confidence claim.
 **Proof — three lists:**
 1. **Tested:** [specific items with evidence]
 2. **Not tested:** [specific items with risk: HIGH/MED/LOW]
 3. **Follow-up plan:** [plan for HIGH-risk untested items]
 
-"Complete" is invalid if Follow-up Plan is empty and Not Tested contains HIGH-risk items.
+"Complete" is invalid if Follow-up Plan is empty and Not Tested contains HIGH-risk items. An empty "Not Tested" list is a lie — there is ALWAYS something untested.
+_Why (v3.1): 2026-04-02 — G4 block listed "PROOFS: [Y — health API evidence]" without any Not Tested list. Session context (HIGH risk) and blanking screens (HIGH risk) were never listed._
 
 #### ⛩️ G5: Competing Hypotheses
 **Trigger:** Unexpected data, unusual values, surprising system state.
@@ -628,6 +636,7 @@ Cost ceiling hit → AI audits fall back to mechanical-only (grep-based). Never 
 | 2.0 | 2026-03-31 | MMA-hardened. 4-model audit. Added G0, G8, G9. Defense-in-depth. |
 | 2.1 | 2026-03-31 | Active enforcement. Session hooks, compliance checker, inline CLAUDE.md. |
 | 3.0 | 2026-04-01 | Merged with Unified Operations Protocol v3.0. Gates embedded in lifecycle phases. Single source of truth. |
+| 3.1 | 2026-04-02 | G1/G4 enforcement gap. Only G0 had hard enforcement; G1/G4 had zero. James declared "done" from proxy metrics (ws=True) while blanking screens broken on all pods. Fix: session-inject hook now includes G1/G4 checklist. Two-phase completion rule. Proxy metrics explicitly prohibited as primary proof. |
 
 ### MMA Audit Trail (v2.0)
 

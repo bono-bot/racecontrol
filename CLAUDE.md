@@ -1,10 +1,12 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.0 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.1 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.1: 2026-04-02).**
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 37 corrections over 10 days. Rules are declarative; gates are procedural.
+
+**v3.1 critical fix:** G1/G4 had ZERO enforcement — only G0 was enforced by hooks. James declared "all pods online" based on `ws=True` while blanking screens were broken (Session 0). **Two-Phase Completion Rule:** NEVER claim "done" in the same message as the last fix. **Proxy metrics (health OK, ws=True, build_id) are NOT proof** — verify the actual user-visible behavior.
 
 ### The 10 Gates (embedded in lifecycle phases)
 
