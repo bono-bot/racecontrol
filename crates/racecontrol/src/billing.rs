@@ -1,6 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
+
+/// GAP-3 fix: Monotonic billing tick sequence counter.
+/// Kiosk/agent can ignore ticks with seq < last seen to prevent stale state after WS reconnect.
+static BILLING_TICK_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use tokio::sync::RwLock;
@@ -1415,6 +1419,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // Send billing ticks to agents (for pod lock screen timer + overlay taxi meter)
     if !agent_ticks.is_empty() {
+        let seq = BILLING_TICK_SEQ.fetch_add(1, Ordering::Relaxed);
         let agent_senders = state.agent_senders.read().await;
         for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier, tier_nm) in agent_ticks {
             if let Some(sender) = agent_senders.get(&pod_id) {
@@ -1422,6 +1427,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     remaining_seconds: remaining,
                     allocated_seconds: allocated,
                     driver_name,
+                    tick_seq: seq,
                     elapsed_seconds: elapsed,
                     cost_paise: cost,
                     rate_per_min_paise: rate,

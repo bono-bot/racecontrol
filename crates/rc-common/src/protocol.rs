@@ -699,6 +699,9 @@ pub enum CoreToAgentMessage {
         remaining_seconds: u32,
         allocated_seconds: u32,
         driver_name: String,
+        /// Monotonic sequence counter for ordering — kiosk ignores ticks with seq < last seen (GAP-3 fix)
+        #[serde(default)]
+        tick_seq: u64,
         /// Elapsed driving seconds (count-up model). None for legacy countdown.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         elapsed_seconds: Option<u32>,
@@ -1525,6 +1528,7 @@ mod tests {
             remaining_seconds: 1500,
             allocated_seconds: 1800,
             driver_name: "Test Driver".to_string(),
+            tick_seq: 0,
             elapsed_seconds: None,
             cost_paise: None,
             rate_per_min_paise: None,
@@ -1759,6 +1763,7 @@ mod tests {
             remaining_seconds: 9900,
             allocated_seconds: 10800,
             driver_name: "Test Driver".to_string(),
+            tick_seq: 42,
             elapsed_seconds: Some(900),
             cost_paise: Some(34950),
             rate_per_min_paise: Some(2500),
@@ -1795,12 +1800,13 @@ mod tests {
         let json = r#"{"type":"billing_tick","data":{"remaining_seconds":1500,"allocated_seconds":1800,"driver_name":"Test"}}"#;
         let parsed: CoreToAgentMessage = serde_json::from_str(json).unwrap();
         if let CoreToAgentMessage::BillingTick {
-            remaining_seconds, allocated_seconds, driver_name,
+            remaining_seconds, allocated_seconds, driver_name, tick_seq,
             elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_next_tier, tier_name,
         } = parsed {
             assert_eq!(remaining_seconds, 1500);
             assert_eq!(allocated_seconds, 1800);
             assert_eq!(driver_name, "Test");
+            assert_eq!(tick_seq, 0); // default when not in JSON
             assert_eq!(elapsed_seconds, None);
             assert_eq!(cost_paise, None);
             assert_eq!(rate_per_min_paise, None);
@@ -1839,6 +1845,7 @@ mod tests {
                 remaining_seconds: 1200,
                 allocated_seconds: 1800,
                 driver_name: "AliasTest".to_string(),
+                tick_seq: 0,
                 elapsed_seconds: None,
                 cost_paise: None,
                 rate_per_min_paise: None,

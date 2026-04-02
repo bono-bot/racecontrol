@@ -441,6 +441,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                         remaining_seconds: remaining,
                                         allocated_seconds,
                                         driver_name: driver_name.clone(),
+                                        tick_seq: 0, // initial tick on reconnect — next real tick will be seq > 0
                                         elapsed_seconds: None,
                                         cost_paise: None,
                                         rate_per_min_paise: None,

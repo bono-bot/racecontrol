@@ -426,15 +426,34 @@ async fn launch_game(
     let (launch_car, launch_track, launch_session_type, launch_args_hash) =
         extract_launch_fields(&launch_args);
 
-    // Send command to agent (canonical pod_id guaranteed by normalization at entry)
-    let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(pod_id) {
-        let cmd = launcher.make_launch_message(sim_type, launch_args);
-        if let Err(e) = tx.send(cmd).await {
-            tracing::error!("Failed to send LaunchGame to pod {}: {}", pod_id, e);
+    // Send command to agent with 1 retry (GAP-1 fix: fire-and-forget → retry-once)
+    let launch_msg = launcher.make_launch_message(sim_type, launch_args);
+    let mut send_ok = false;
+    for attempt in 1..=2 {
+        let senders = state.agent_senders.read().await;
+        if let Some(tx) = senders.get(pod_id) {
+            match tx.send(launch_msg.clone()).await {
+                Ok(_) => { send_ok = true; break; }
+                Err(e) => {
+                    tracing::warn!("LaunchGame send attempt {}/2 failed for pod {}: {}", attempt, pod_id, e);
+                    drop(senders);
+                    if attempt == 1 {
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                }
+            }
+        } else {
+            drop(senders);
+            if attempt == 1 {
+                tracing::warn!("No agent connected for pod {} (attempt 1/2), retrying in 3s", pod_id);
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                continue;
+            }
+            break;
         }
-    } else {
-        tracing::warn!("No agent connected for pod {}", pod_id);
+    }
+    if !send_ok {
+        tracing::warn!("No agent connected for pod {} after 2 attempts", pod_id);
         // Update tracker to error
         if let Some(tracker) = state
             .game_launcher
