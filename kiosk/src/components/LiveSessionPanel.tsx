@@ -127,7 +127,29 @@ export function LiveSessionPanel({
             </svg>
             <span className="text-amber-400 font-bold text-sm uppercase tracking-wider">Relaunching Game...</span>
           </div>
-          <p className="text-amber-400/70 text-xs">Game paused — auto-recovery in progress</p>
+          <p className="text-amber-400/70 text-xs">Your time is paused &mdash; you won&apos;t be charged while we recover</p>
+          {onRelaunchGame && (
+            <button
+              onClick={() => onRelaunchGame(pod.id)}
+              className="mt-2 w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg text-sm transition-colors"
+            >
+              Relaunch Now
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Crash Recovery banner — when billing is paused_crash_recovery (FSM CrashPause) */}
+      {billing.status === "paused_crash_recovery" && (
+        <div className="bg-amber-900/50 border border-amber-600/50 rounded-xl px-4 py-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-amber-400 font-bold text-sm uppercase tracking-wider">Game Crashed &mdash; Recovering...</span>
+          </div>
+          <p className="text-amber-400/70 text-xs">Your time is paused &mdash; you won&apos;t be charged while we restart the game</p>
           {onRelaunchGame && (
             <button
               onClick={() => onRelaunchGame(pod.id)}
@@ -153,7 +175,8 @@ export function LiveSessionPanel({
           <span className="text-xs text-rp-grey uppercase tracking-wider">
             {billing.status === "paused_manual" ? "Paused" :
              billing.status === "waiting_for_game" ? "Game Loading" :
-             billing.status === "paused_game_pause" ? "Relaunching" :
+             billing.status === "paused_game_pause" ? "Relaunching \u2014 Not Charged" :
+             billing.status === "paused_crash_recovery" ? "Crash Recovery \u2014 Not Charged" :
              billing.status === "paused_disconnect" ? "Disconnected" :
              "Session Time"}
           </span>
@@ -201,8 +224,14 @@ export function LiveSessionPanel({
       {gameInfo?.game_state === "error" && (
         <div className="bg-red-900/30 border border-red-600/50 rounded-xl px-4 py-3 text-center">
           <span className="text-red-400 font-bold text-sm uppercase tracking-wider">
-            {gameInfo.diagnostics?.cm_attempted ? "Launch Failed" : "Game Crashed"}
+            {gameInfo.error_message?.includes("timed out") ? "Game Failed to Start" :
+             gameInfo.diagnostics?.cm_attempted ? "Launch Failed" : "Game Crashed"}
           </span>
+          <p className="text-red-400/60 text-[11px] mt-0.5">
+            {gameInfo.error_message?.includes("timed out")
+              ? "The game didn\u2019t start in time. Unused time will be refunded."
+              : "Your session time has been preserved. Try relaunching below."}
+          </p>
           {gameInfo.diagnostics ? (
             <div className="mt-1 text-xs text-red-400/70 space-y-0.5">
               {gameInfo.diagnostics.cm_attempted && (

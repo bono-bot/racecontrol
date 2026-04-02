@@ -38,7 +38,8 @@ export function SessionTimer({ billing, hasWarning }: SessionTimerProps) {
         <span>
           {billing.status === "paused_manual" ? "Paused" :
            billing.status === "waiting_for_game" ? "Game Loading" :
-           billing.status === "paused_game_pause" ? "Relaunching" :
+           billing.status === "paused_game_pause" ? "Relaunching \u2014 Not Charged" :
+           billing.status === "paused_crash_recovery" ? "Crash Recovery \u2014 Not Charged" :
            billing.status === "paused_disconnect" ? "Disconnected" :
            "Remaining"}
         </span>
