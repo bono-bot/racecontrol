@@ -87,23 +87,51 @@ pub fn pre_launch_checks() -> Result<(), String> {
     // Check 1 & 2: No MAINTENANCE_MODE / OTA_DEPLOYING sentinels
     check_sentinel_files_in_dir(rp_dir)?;
 
-    // Check 3: No orphan game processes running
+    // Check 3: No orphan game processes running — auto-cleanup before failing
+    // LAUNCH-FIX-3: Kill orphans automatically instead of just reporting them
     {
         use sysinfo::System;
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let known = all_game_process_names();
+        let mut orphans: Vec<(u32, String)> = Vec::new();
         for (_pid, proc) in sys.processes() {
             let pname = proc.name().to_string_lossy().to_string();
             for name in known {
                 if pname.eq_ignore_ascii_case(name) {
+                    orphans.push((_pid.as_u32(), pname.clone()));
+                    break;
+                }
+            }
+        }
+
+        if !orphans.is_empty() {
+            tracing::warn!(target: LOG_TARGET, "LAUNCH-FIX-3: Found {} orphan game process(es), auto-cleaning", orphans.len());
+            for (pid, name) in &orphans {
+                tracing::info!(target: LOG_TARGET, "Killing orphan {} (PID {})", name, pid);
+                if let Err(e) = kill_process(*pid) {
                     return Err(format!(
-                        "orphan game process {} (PID {}) still running — clean state required",
-                        name,
-                        _pid.as_u32()
+                        "orphan game process {} (PID {}) still running after cleanup attempt: {}",
+                        name, pid, e
                     ));
                 }
             }
+            // Re-verify after cleanup
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            for (_pid, proc) in sys.processes() {
+                let pname = proc.name().to_string_lossy().to_string();
+                for name in all_game_process_names() {
+                    if pname.eq_ignore_ascii_case(name) {
+                        return Err(format!(
+                            "orphan game process {} (PID {}) persists after cleanup — manual intervention required",
+                            name,
+                            _pid.as_u32()
+                        ));
+                    }
+                }
+            }
+            tracing::info!(target: LOG_TARGET, "LAUNCH-FIX-3: All orphan processes cleaned successfully");
         }
     }
 
@@ -462,11 +490,37 @@ fn is_process_alive(pid: u32) -> bool {
 }
 
 /// Platform-specific process kill
+/// LAUNCH-FIX-2: Check taskkill exit code + post-kill verification + /T for process tree
 #[cfg(target_os = "windows")]
 fn kill_process(pid: u32) -> anyhow::Result<()> {
-    hidden_cmd("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
+    let output = hidden_cmd("taskkill")
+        .args(["/PID", &pid.to_string(), "/F", "/T"])
         .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // If process already exited, that's fine
+        if stderr.contains("not found") || stderr.contains("not running") {
+            tracing::info!(target: LOG_TARGET, pid, "Process already exited before taskkill");
+            return Ok(());
+        }
+        tracing::error!(target: LOG_TARGET, pid, stderr = %stderr, "taskkill failed");
+        anyhow::bail!("taskkill /PID {} /F /T failed: {}", pid, stderr.trim());
+    }
+
+    // Post-kill verification: wait up to 2s for process to die
+    for _ in 0..20 {
+        if !is_process_alive(pid) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    if is_process_alive(pid) {
+        tracing::error!(target: LOG_TARGET, pid, "Process still alive 2s after taskkill");
+        anyhow::bail!("Process {} still alive after taskkill /F /T + 2s wait", pid);
+    }
+
     Ok(())
 }
 

@@ -390,6 +390,9 @@ pub async fn run(
                                                 let _ = ws_tx.send(Message::Text(json.into())).await;
                                             }
                                             conn.launch_state = LaunchState::Live;
+                                            // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
+                                            state.lock_screen.close_browser();
+                                            tracing::info!(target: LOG_TARGET, "Splash dismissed — game is Live");
                                         } else if elapsed >= 5 {
                                             // False-Live: menu/replay, suppress billing start and reset
                                             conn.ac_live_since = None;
@@ -797,6 +800,9 @@ pub async fn run(
                                     let _ = ws_tx.send(Message::Text(json.into())).await;
                                 }
                                 conn.launch_state = LaunchState::Live;
+                                // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
+                                state.lock_screen.close_browser();
+                                tracing::info!(target: LOG_TARGET, "Splash dismissed — F1 25 is Live");
                             }
                         }
                         Some(rc_common::types::SimType::IRacing) => {
@@ -814,6 +820,9 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Live;
+                                        // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
+                                        state.lock_screen.close_browser();
+                                        tracing::info!(target: LOG_TARGET, "Splash dismissed — iRacing is Live");
                                     }
                                 }
                             }
@@ -833,6 +842,9 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Live;
+                                        // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
+                                        state.lock_screen.close_browser();
+                                        tracing::info!(target: LOG_TARGET, "Splash dismissed — LMU is Live");
                                     }
                                 }
                             }
@@ -856,6 +868,9 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Live;
+                                        // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
+                                        state.lock_screen.close_browser();
+                                        tracing::info!(target: LOG_TARGET, "Splash dismissed — {:?} is Live (90s fallback)", sim_type);
                                     } else {
                                         tracing::warn!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game DEAD, emitting Error not Live (BILL-08)", sim_type);
                                         let msg = AgentMessage::GameStatusUpdate {
