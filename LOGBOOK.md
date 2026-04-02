@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-02 22:36 IST | James | 8184d4f3 | fix: refund wallet when stale billing sessions auto-cancelled (Bug #11 + BILL-13) — E2E regression test found money-loss bug |
 | 2026-04-02 20:38 IST | James | 20df022e | fix: MI false positives — venue close auto-resolves + dashboard_orphan gated |
 | 2026-04-02 20:08 IST | James | 3007cfef | feat: MI Session 0 detection + fleet KB seed scripts |
 | 2026-04-02 19:52 IST | James | 27bc076a | feat: venue_state — ping-based open detection replaces hardcoded hours + pod offline MI bridge |
