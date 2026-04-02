@@ -39,12 +39,12 @@
 
 ### Fleet Deploy Automation (DEPLOY)
 
-- [ ] **DEPLOY-01**: POST /api/v1/fleet/deploy endpoint accepts binary hash + target scope (all/canary/specific pods)
-- [ ] **DEPLOY-02**: Canary deploy to Pod 8 first, health verify before fleet rollout
-- [ ] **DEPLOY-03**: Auto-rollout to remaining pods after canary passes (configurable delay between waves)
-- [ ] **DEPLOY-04**: Auto-rollback on failure — if canary or any wave fails health check, revert to previous binary
-- [ ] **DEPLOY-05**: Deploy status endpoint (GET /api/v1/fleet/deploy/status) shows progress, wave status, rollback events
-- [ ] **DEPLOY-06**: Active billing sessions drain before binary swap on each pod (existing OTA sentinel protocol)
+- [x] **DEPLOY-01**: POST /api/v1/fleet/deploy endpoint accepts binary hash + target scope (all/canary/specific pods)
+- [x] **DEPLOY-02**: Canary deploy to Pod 8 first, health verify before fleet rollout
+- [x] **DEPLOY-03**: Auto-rollout to remaining pods after canary passes (configurable delay between waves)
+- [x] **DEPLOY-04**: Auto-rollback on failure — if canary or any wave fails health check, revert to previous binary
+- [x] **DEPLOY-05**: Deploy status endpoint (GET /api/v1/fleet/deploy/status) shows progress, wave status, rollback events
+- [x] **DEPLOY-06**: Active billing sessions drain before binary swap on each pod (existing OTA sentinel protocol)
 
 ## v2 Requirements
 
@@ -91,12 +91,12 @@
 | VENUE-02 | Phase 303 | Complete |
 | VENUE-03 | Phase 303 | Complete |
 | VENUE-04 | Phase 303 | Complete |
-| DEPLOY-01 | Phase 304 | Pending |
-| DEPLOY-02 | Phase 304 | Pending |
-| DEPLOY-03 | Phase 304 | Pending |
-| DEPLOY-04 | Phase 304 | Pending |
-| DEPLOY-05 | Phase 304 | Pending |
-| DEPLOY-06 | Phase 304 | Pending |
+| DEPLOY-01 | Phase 304 | Complete |
+| DEPLOY-02 | Phase 304 | Complete |
+| DEPLOY-03 | Phase 304 | Complete |
+| DEPLOY-04 | Phase 304 | Complete |
+| DEPLOY-05 | Phase 304 | Complete |
+| DEPLOY-06 | Phase 304 | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total

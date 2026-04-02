@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v36.0
 milestone_name: Config Management & Policy Engine
-status: verifying
-stopped_at: Completed 303-04-PLAN.md
-last_updated: "2026-04-02T05:58:32.753Z"
+status: executing
+stopped_at: Completed 304-01-PLAN.md
+last_updated: "2026-04-02T06:29:23.483Z"
 last_activity: 2026-04-02
 progress:
   total_phases: 5
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-01)
 
 **Core value:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue
-**Current focus:** Phase 303 — multi-venue-schema-prep
+**Current focus:** Phase 304 — fleet-deploy-automation
 
 ## Current Position
 
-Phase: 303
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 304 (fleet-deploy-automation) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-02
 
 Progress: [██████████] 100%
@@ -81,6 +81,8 @@ Progress: [██████████] 100%
 - [Phase 303]: 303-02: Parallel agent coordination — routes.rs agent + other-files agent ran concurrently; integration.rs fixed post-merge in 303-02
 - [Phase 303]: 303-02: system_events CREATE TABLE updated in both production (db/mod.rs) and test schema (event_archive.rs make_test_db)
 - [Phase 303]: All 4 VENUE requirements satisfied — Phase 303 complete with 856 tests passing
+- [Phase 304]: deploy_id format: {binary_hash[..8]}-{unix_timestamp}
+- [Phase 304]: sentry_service_key accessed via state.config.pods.sentry_service_key (nested in PodConfig)
 
 ### Pending Todos
 
@@ -93,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-02T05:49:29.465Z
-Stopped at: Completed 303-04-PLAN.md
+Last session: 2026-04-02T06:29:23.480Z
+Stopped at: Completed 304-01-PLAN.md
 Resume file: None

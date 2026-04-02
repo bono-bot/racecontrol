@@ -306,7 +306,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 304-01-PLAN.md -- FleetDeploySession types, run_fleet_deploy orchestration, wave/rollback/billing logic, unit tests
+- [x] 304-01-PLAN.md -- FleetDeploySession types, run_fleet_deploy orchestration, wave/rollback/billing logic, unit tests
 - [ ] 304-02-PLAN.md -- AppState field, route handlers (POST /fleet/deploy + GET /fleet/deploy/status), superadmin route registration
 
 ## Progress
@@ -338,4 +338,4 @@ Plans:
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 2/2 | Complete    | 2026-04-01 |
 | 303. Multi-Venue Schema Prep | 4/1 | Complete    | 2026-04-02 |
-| 304. Fleet Deploy Automation | 0/2 | Not started | - |
+| 304. Fleet Deploy Automation | 1/2 | In Progress|  |
