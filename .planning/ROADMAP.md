@@ -53,6 +53,11 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 3. If game is dead and session is waiting_for_game >5 min, cancel with full wallet refund
 4. Log every stale cancel decision with reason (game_alive/game_dead/extended)
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 311-01-PLAN.md -- Game-aware stale cancel: check GameTracker before cancelling waiting_for_game sessions
+
 **Key files:**
 - `crates/racecontrol/src/billing.rs` — tick_all_timers stale cancel logic (line ~1442)
 - `crates/racecontrol/src/game_launcher.rs` — GameTracker state query
