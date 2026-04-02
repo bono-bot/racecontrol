@@ -49,10 +49,15 @@ pub fn spawn(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(15)).await;
 
         let mut interval = tokio::time::interval(Duration::from_secs(check_interval));
+        // Phase 310-fix: Track when each pod was first seen stale.
+        // Only mark Offline after 2 consecutive stale checks (skip-once pattern).
+        // Prevents false "offline" from transient network blips.
+        let mut first_stale_at: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+            std::collections::HashMap::new();
 
         loop {
             interval.tick().await;
-            check_all_pods(&state, heartbeat_timeout).await;
+            check_all_pods(&state, heartbeat_timeout, &mut first_stale_at).await;
         }
     });
 }
@@ -83,6 +88,7 @@ fn backoff_label(cooldown: Duration) -> String {
 async fn check_all_pods(
     state: &Arc<AppState>,
     heartbeat_timeout: i64,
+    first_stale_at: &mut std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>,
 ) {
     let now = Utc::now();
 
@@ -105,6 +111,8 @@ async fn check_all_pods(
         };
 
         if !stale {
+            // Clear stale tracking — pod is alive
+            first_stale_at.remove(&pod.id);
             // Pod is healthy -- reset shared backoff if it had prior failures
             let mut backoffs = state.pod_backoffs.write().await;
             if let Some(backoff) = backoffs.get_mut(&pod.id) {
@@ -160,7 +168,19 @@ async fn check_all_pods(
             continue;
         }
 
-        // Pod is stale. Mark Offline for status tracking.
+        // Pod is stale. Apply skip-once pattern: first stale → record timestamp,
+        // second consecutive stale → mark Offline. Prevents false offline from
+        // transient network blips (standing rule: never conclude offline from single probe).
+        if !first_stale_at.contains_key(&pod.id) {
+            first_stale_at.insert(pod.id.clone(), now);
+            tracing::debug!(
+                "Pod {} heartbeat stale (first detection, skip-once) — will confirm next cycle",
+                pod.id
+            );
+            continue; // Skip this cycle — confirm on next check
+        }
+
+        // Second+ consecutive stale detection — proceed with Offline marking.
         // Recovery actions (WoL, rc-agent restart, AI escalation, staff alert)
         // are handled by pod_healer's graduated recovery tracker (see pod_healer.rs).
         // pod_monitor's role here is detection only.

@@ -167,7 +167,16 @@ async fn probe_app(
     let start = Instant::now();
     let now_str = whatsapp_alerter::ist_now_string();
 
-    let mut entry = match client.get(url).send().await {
+    // Retry-once before declaring unreachable (standing rule: never conclude offline from single probe)
+    let http_result = match client.get(url).send().await {
+        Ok(resp) => Ok(resp),
+        Err(_first_err) => {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            client.get(url).send().await
+        }
+    };
+
+    let mut entry = match http_result {
         Ok(resp) => {
             let response_ms = start.elapsed().as_millis() as u64;
             let http_status = resp.status();

@@ -322,12 +322,21 @@ async fn is_process_alive(state: &Arc<AppState>, pod_id: &str, pod_ip: &str) -> 
 }
 
 /// Check if WebSocket channel is open for a pod.
+/// Check WS connectivity with retry-once (standing rule: never conclude offline from single probe).
 async fn is_ws_connected(state: &Arc<AppState>, pod_id: &str) -> bool {
-    let senders = state.agent_senders.read().await;
-    match senders.get(pod_id) {
-        Some(sender) => !sender.is_closed(),
-        None => false,
+    let check = || async {
+        let senders = state.agent_senders.read().await;
+        match senders.get(pod_id) {
+            Some(sender) => !sender.is_closed(),
+            None => false,
+        }
+    };
+    if check().await {
+        return true;
     }
+    // Retry once after 2s — WS may be reconnecting
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    check().await
 }
 
 /// Check if lock screen HTTP server is responsive on the pod.

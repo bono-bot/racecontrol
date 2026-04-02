@@ -1350,8 +1350,17 @@ async fn check_rc_agent_health(
     // Use curl.exe instead of PowerShell — cmd.exe strips $ variables from
     // PowerShell commands, causing $r to disappear and the check to always return 0.
     // curl.exe -s -o NUL -w %{http_code} is cmd.exe-safe (no $ variables).
+    // Retry-once before declaring unhealthy (standing rule: never conclude offline from single probe).
     let cmd = r#"curl.exe -s -o NUL -w %{http_code} http://127.0.0.1:18923/ --max-time 3"#;
-    match exec_on_pod(state, pod_ip, cmd).await {
+    let first = exec_on_pod(state, pod_ip, cmd).await;
+    let exec_result = match &first {
+        Ok(output) if output.trim().ends_with("200") || output.trim() == "200" => first,
+        _ => {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            exec_on_pod(state, pod_ip, cmd).await
+        }
+    };
+    match exec_result {
         Ok(output) => {
             let chain = ColdVerificationChain::new("pod_healer_curl");
             match chain.execute_step(&StepRawStdout, output.clone()) {
