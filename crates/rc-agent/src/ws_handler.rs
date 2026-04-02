@@ -397,6 +397,8 @@ pub async fn handle_ws_message(
                             error_message: Some(format!("Pre-launch check failed: {}", reason)),
                             diagnostics: None,
                             exit_code: None,
+                            playable_at: None,
+                            ready_delay_ms: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -464,6 +466,8 @@ pub async fn handle_ws_message(
                             error_message: Some(format!("Pre-launch validation: malformed launch args: {}", parse_err)),
                             diagnostics: None,
                             exit_code: None,
+                            playable_at: None,
+                            ready_delay_ms: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -485,6 +489,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Pre-launch validation: {}", validation_error)),
                                 diagnostics: None,
                                 exit_code: None,
+                                playable_at: None, ready_delay_ms: None,
                             };
                             if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -538,7 +543,7 @@ pub async fn handle_ws_message(
                     pod_id: state.pod_id.clone(), sim_type: launch_sim,
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
- exit_code: None,
+                    exit_code: None, playable_at: None, ready_delay_ms: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -569,6 +574,7 @@ pub async fn handle_ws_message(
                                 direct_exit_code: result.diagnostics.direct_exit_code,
                             }),
                             exit_code: None,
+                            playable_at: None, ready_delay_ms: None,
                         };
                         game_process::persist_pid(result.pid);
                         state.game_process = Some(game_process::GameProcess {
@@ -600,7 +606,7 @@ pub async fn handle_ws_message(
                                     ..Default::default()
                                 };
                                 tokio::spawn(crate::ai_debugger::analyze_crash(
-                                    state.config.ai_debugger.clone(), pod_id_clone.clone(),
+                                    state.config.ai_debugger.clone().into(), pod_id_clone.clone(),
                                     launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                                 ));
                             }
@@ -623,6 +629,7 @@ pub async fn handle_ws_message(
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
+ playable_at: None, ready_delay_ms: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -641,7 +648,7 @@ pub async fn handle_ws_message(
                                 ..Default::default()
                             };
                             tokio::spawn(crate::ai_debugger::analyze_crash(
-                                state.config.ai_debugger.clone(), pod_id_clone,
+                                state.config.ai_debugger.clone().into(), pod_id_clone,
                                 launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                             ));
                         }
@@ -685,6 +692,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Steam readiness check failed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
+                                playable_at: None, ready_delay_ms: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -724,6 +732,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Content not installed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
+                                playable_at: None, ready_delay_ms: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -784,6 +793,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("iRacing readiness check failed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
+                                playable_at: None, ready_delay_ms: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -816,6 +826,7 @@ pub async fn handle_ws_message(
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
  exit_code: None,
+ playable_at: None, ready_delay_ms: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(launching_info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -862,6 +873,7 @@ pub async fn handle_ws_message(
                                 game_state: GameState::Running, pid: Some(pid),
                                 launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
                                 exit_code: None,
+                                playable_at: None, ready_delay_ms: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
@@ -896,6 +908,7 @@ pub async fn handle_ws_message(
                                             game_state: GameState::Running, pid: Some(pid),
                                             launched_at: Some(Utc::now()), error_message: None,
                                             diagnostics: None, exit_code: None,
+                                            playable_at: None, ready_delay_ms: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
                                     }
@@ -912,6 +925,7 @@ pub async fn handle_ws_message(
                                             launched_at: None,
                                             error_message: Some(format!("Game window not detected: {}", reason)),
                                             diagnostics: None, exit_code: None,
+                                            playable_at: None, ready_delay_ms: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
                                     }
@@ -937,6 +951,7 @@ pub async fn handle_ws_message(
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
+ playable_at: None, ready_delay_ms: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -982,6 +997,7 @@ pub async fn handle_ws_message(
                             pod_id: state.pod_id.clone(), sim_type: sim, game_state: GameState::Idle,
                             pid: None, launched_at: None, error_message: None, diagnostics: None,
  exit_code: None,
+ playable_at: None, ready_delay_ms: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json = serde_json::to_string(&msg)?;
@@ -1510,6 +1526,37 @@ pub async fn handle_ws_message(
             tracing::info!(target: LOG_TARGET, "ConfigPush applied (seq={}), ack queued", payload.sequence);
         }
 
+        // ─── Phase 296: FullConfigPush handler ───────────────────────────────────
+        // PUSH-03: Hot fields applied immediately without restart.
+        // PUSH-04: Cold fields logged as pending-restart, NOT applied until next startup.
+        // PUSH-05: Config persisted locally so agent can boot when server is unreachable.
+        // PUSH-06: Hash-based deduplication — skip processing if config unchanged.
+        CoreToAgentMessage::FullConfigPush(payload) => {
+            let current_hash = compute_config_hash_local(&state.config);
+            if payload.config_hash == current_hash {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "FullConfigPush: config unchanged (hash={}), skipping",
+                    payload.config_hash
+                );
+            } else {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "FullConfigPush: new config received (hash={}, old={})",
+                    payload.config_hash,
+                    current_hash
+                );
+
+                // PUSH-05: Persist locally before applying so boot fallback is always current.
+                if let Err(e) = crate::config::persist_server_config(&payload.config, &payload.config_hash) {
+                    tracing::warn!(target: LOG_TARGET, "FullConfigPush: failed to persist server config: {}", e);
+                }
+
+                // PUSH-03/04: Apply hot fields immediately; log cold fields as pending-restart.
+                apply_full_config(state, &payload.config);
+            }
+        }
+
         CoreToAgentMessage::ForceRelaunchBrowser { pod_id: _ } => {
             // Phase 139: Server-initiated lock screen recovery.
             // Guard: never relaunch during an active billing session (standing rule #10).
@@ -1698,8 +1745,162 @@ pub async fn handle_ws_message(
     Ok(HandleResult::Continue)
 }
 
+// ─── Phase 296: FullConfigPush helpers ────────────────────────────────────────
+
+/// Compute SHA-256 hash of the serialized AgentConfig for deduplication (PUSH-06).
+/// Same implementation as racecontrol::config_push::compute_config_hash — must stay in sync.
+fn compute_config_hash_local(config: &crate::config::AgentConfig) -> String {
+    use sha2::{Sha256, Digest};
+    let json = serde_json::to_string(config).unwrap_or_default();
+    let hash = Sha256::digest(json.as_bytes());
+    format!("{:x}", hash)
+}
+
+/// Apply a new AgentConfig received via FullConfigPush.
+///
+/// Hot fields (PUSH-03): applied immediately to running state so subsystems pick them up
+/// on their next tick without requiring a restart.
+///
+/// Cold fields (PUSH-04): logged as pending-restart. They are NOT applied to the running
+/// state — the update is already persisted to rc-agent-server-config.json (PUSH-05), so
+/// the new values will take effect on next agent startup.
+///
+/// At the end, state.config is replaced with the full new config so subsequent
+/// compute_config_hash_local() calls return the correct current hash.
+fn apply_full_config(state: &mut crate::app_state::AppState, new_config: &crate::config::AgentConfig) {
+    let old = &state.config;
+    let mut pending_restart: Vec<&'static str> = Vec::new();
+
+    // ─── Hot fields: apply immediately ────────────────────────────────────────
+
+    if old.process_guard.enabled != new_config.process_guard.enabled {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload process_guard.enabled = {}",
+            new_config.process_guard.enabled
+        );
+    }
+
+    if old.process_guard.scan_interval_secs != new_config.process_guard.scan_interval_secs {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload process_guard.scan_interval_secs = {}",
+            new_config.process_guard.scan_interval_secs
+        );
+    }
+
+    if old.kiosk.enabled != new_config.kiosk.enabled {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload kiosk.enabled = {}",
+            new_config.kiosk.enabled
+        );
+        state.kiosk_enabled = new_config.kiosk.enabled;
+    }
+
+    if old.lock_screen.enabled != new_config.lock_screen.enabled {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload lock_screen.enabled = {}",
+            new_config.lock_screen.enabled
+        );
+    }
+
+    if old.preflight.enabled != new_config.preflight.enabled {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload preflight.enabled = {}",
+            new_config.preflight.enabled
+        );
+    }
+
+    if old.mma.training_mode != new_config.mma.training_mode {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload mma.training_mode = {}",
+            new_config.mma.training_mode
+        );
+    }
+
+    if (old.mma.daily_budget_pod - new_config.mma.daily_budget_pod).abs() > f64::EPSILON {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload mma.daily_budget_pod = {}",
+            new_config.mma.daily_budget_pod
+        );
+    }
+
+    if (old.mma.daily_budget_server - new_config.mma.daily_budget_server).abs() > f64::EPSILON {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload mma.daily_budget_server = {}",
+            new_config.mma.daily_budget_server
+        );
+    }
+
+    if (old.mma.daily_budget_pos - new_config.mma.daily_budget_pos).abs() > f64::EPSILON {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload mma.daily_budget_pos = {}",
+            new_config.mma.daily_budget_pos
+        );
+    }
+
+    if old.auto_end_orphan_session_secs != new_config.auto_end_orphan_session_secs {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload auto_end_orphan_session_secs = {}",
+            new_config.auto_end_orphan_session_secs
+        );
+    }
+
+    if old.ac_evo_telemetry_enabled != new_config.ac_evo_telemetry_enabled {
+        tracing::info!(
+            target: LOG_TARGET,
+            "FullConfigPush: hot-reload ac_evo_telemetry_enabled = {}",
+            new_config.ac_evo_telemetry_enabled
+        );
+    }
+
+    // ─── Cold fields: log as pending-restart ──────────────────────────────────
+
+    if old.pod.number != new_config.pod.number { pending_restart.push("pod.number"); }
+    if old.pod.name != new_config.pod.name { pending_restart.push("pod.name"); }
+    if old.pod.sim != new_config.pod.sim { pending_restart.push("pod.sim"); }
+    if old.pod.sim_ip != new_config.pod.sim_ip { pending_restart.push("pod.sim_ip"); }
+    if old.pod.sim_port != new_config.pod.sim_port { pending_restart.push("pod.sim_port"); }
+    if old.core.url != new_config.core.url { pending_restart.push("core.url"); }
+    if old.core.failover_url != new_config.core.failover_url { pending_restart.push("core.failover_url"); }
+    if old.core.ws_secret != new_config.core.ws_secret { pending_restart.push("core.ws_secret"); }
+    if old.wheelbase.vendor_id != new_config.wheelbase.vendor_id { pending_restart.push("wheelbase.vendor_id"); }
+    if old.wheelbase.product_id != new_config.wheelbase.product_id { pending_restart.push("wheelbase.product_id"); }
+    if old.telemetry_ports.ports != new_config.telemetry_ports.ports { pending_restart.push("telemetry_ports.ports"); }
+
+    if !pending_restart.is_empty() {
+        tracing::warn!(
+            target: LOG_TARGET,
+            "FullConfigPush: {} cold field(s) changed, require agent restart: {:?}",
+            pending_restart.len(),
+            pending_restart
+        );
+    }
+
+    // Replace running config so next hash comparison is accurate (PUSH-06).
+    // Note: cold field changes are NOT applied to the running subsystems — only to state.config
+    // so that we correctly detect future changes against the "last received" baseline.
+    state.config = new_config.clone();
+
+    tracing::info!(target: LOG_TARGET, "FullConfigPush: applied ({} hot, {} cold/pending-restart)",
+        crate::config::HOT_RELOAD_CONFIG_FIELDS.len(),
+        pending_restart.len()
+    );
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::config::AgentConfig;
+
     #[test]
     fn force_relaunch_browser_variant_exists() {
         // Verify the variant deserializes correctly from JSON
@@ -1711,6 +1912,67 @@ mod tests {
                 assert_eq!(pod_id, "pod-1");
             }
             _ => panic!("expected ForceRelaunchBrowser"),
+        }
+    }
+
+    // ─── Phase 296: FullConfigPush handler tests ──────────────────────────────
+
+    /// Test: compute_config_hash_local returns same hash for same config (PUSH-06)
+    #[test]
+    fn compute_config_hash_local_is_consistent() {
+        let config = AgentConfig::default();
+        let hash1 = compute_config_hash_local(&config);
+        let hash2 = compute_config_hash_local(&config);
+        assert_eq!(hash1, hash2, "Same config must produce same hash");
+        assert_eq!(hash1.len(), 64, "SHA-256 hex should be 64 chars");
+    }
+
+    /// Test: compute_config_hash_local returns different hash for different configs (PUSH-06)
+    #[test]
+    fn compute_config_hash_local_differs_for_different_configs() {
+        let mut config1 = AgentConfig::default();
+        let mut config2 = AgentConfig::default();
+        config1.pod.number = 1;
+        config2.pod.number = 2;
+        let hash1 = compute_config_hash_local(&config1);
+        let hash2 = compute_config_hash_local(&config2);
+        assert_ne!(hash1, hash2, "Different configs must produce different hashes");
+    }
+
+    /// Test: FullConfigPush message deserializes from JSON with expected type tag
+    #[test]
+    fn full_config_push_message_deserializes() {
+        use rc_common::types::FullConfigPushPayload;
+        let config = AgentConfig::default();
+        let payload = FullConfigPushPayload {
+            config: config.clone(),
+            config_hash: "abc123".to_string(),
+            schema_version: 1,
+        };
+        let msg = rc_common::protocol::CoreToAgentMessage::FullConfigPush(payload);
+        let json = serde_json::to_string(&msg).expect("serialize");
+        assert!(json.contains("full_config_push"), "type tag must be 'full_config_push': {json}");
+        assert!(json.contains("abc123"), "must contain hash: {json}");
+        let decoded: rc_common::protocol::CoreToAgentMessage = serde_json::from_str(&json).expect("deserialize");
+        match decoded {
+            rc_common::protocol::CoreToAgentMessage::FullConfigPush(p) => {
+                assert_eq!(p.config_hash, "abc123");
+                assert_eq!(p.schema_version, 1);
+            }
+            _ => panic!("expected FullConfigPush variant"),
+        }
+    }
+
+    /// Test: HOT_RELOAD_CONFIG_FIELDS and COLD_CONFIG_FIELDS are disjoint (belt-and-suspenders
+    /// — also tested in config.rs server_config_persistence_tests but verified here too)
+    #[test]
+    fn hot_and_cold_config_fields_are_disjoint() {
+        for hot in crate::config::HOT_RELOAD_CONFIG_FIELDS {
+            assert!(
+                !crate::config::COLD_CONFIG_FIELDS.contains(hot),
+                "Field '{}' appears in both hot and cold lists",
+                hot
+            );
         }
     }
 }

@@ -85,3 +85,5 @@ winapi = { version = "0.3", features = ["synchapi", "errhandlingapi", "handleapi
 [dev-dependencies]
 # test-util enables tokio::time::pause() and advance() for time-controlled unit tests
 tokio = { version = "1", features = ["test-util"] }
+# Temp directories for backup pipeline tests
+tempfile = "3"

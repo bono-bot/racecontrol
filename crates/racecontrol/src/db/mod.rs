@@ -427,6 +427,33 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 283: Billing audit log (immutable, append-only) ─────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_audit_log (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            old_status TEXT NOT NULL,
+            new_status TEXT NOT NULL,
+            nonce_used TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            actor TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_session ON billing_audit_log(session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_pod ON billing_audit_log(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_audit_timestamp ON billing_audit_log(timestamp)")
+        .execute(pool)
+        .await?;
+
     // ─── Recovery events (METRICS-04) ─────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS recovery_events (
@@ -1250,6 +1277,41 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+
+    // Phase 301: Cloud Data Sync v2 migrations
+    // model_evaluations table (SYNC-02): stores AI diagnosis accuracy tracking
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS model_evaluations (
+            id TEXT PRIMARY KEY,
+            model_name TEXT NOT NULL,
+            pod_id TEXT,
+            problem_key TEXT,
+            prediction TEXT,
+            actual TEXT,
+            correct INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            diagnosis_tier TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            venue_id TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // metrics_rollups column additions (SYNC-03): enable LWW conflict resolution for rollups
+    // SQLite does not support IF NOT EXISTS on ALTER TABLE — use let _ = ignore pattern
+    let _ = sqlx::query("ALTER TABLE metrics_rollups ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE metrics_rollups ADD COLUMN venue_id TEXT")
+        .execute(pool)
+        .await;
+
+    // sync_state conflict_count column (SYNC-05): track skipped writes due to LWW
+    let _ = sqlx::query("ALTER TABLE sync_state ADD COLUMN conflict_count INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
 
     // Add updated_at to ALL tables used by cloud sync (idempotent — ALTER fails silently if exists).
     // Required because CREATE TABLE IF NOT EXISTS won't modify tables created by older binaries.
@@ -2416,6 +2478,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Phase 296 PUSH-01: Per-pod AgentConfig storage ──────────────────────
+    // Stores the full AgentConfig JSON for each pod so the server can push it
+    // on WebSocket connect without requiring manual TOML file editing on pods.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_configs (
+            pod_id TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            config_hash TEXT NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            last_modified TEXT DEFAULT (datetime('now')),
+            updated_by TEXT NOT NULL DEFAULT 'system'
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Phase 12: Data Foundation ───────────────────────────────────────────
 
     // DATA-01: Covering indexes for leaderboard queries
@@ -3465,6 +3543,97 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     // v31.0 Phase 270: Fleet Healer incident_log table
     crate::fleet_healer::AuditTrail::migrate(pool).await?;
 
+    // ─── Phase 298: Game Preset Library ──────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS game_presets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            game TEXT NOT NULL,
+            car TEXT,
+            track TEXT,
+            session_type TEXT,
+            notes TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_presets_game ON game_presets(game)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_presets_enabled ON game_presets(enabled)")
+        .execute(pool)
+        .await?;
+
+    // ─── Phase 299: Policy Rules Engine ─────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS policy_rules (
+            id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            name        TEXT NOT NULL,
+            metric      TEXT NOT NULL,
+            condition   TEXT NOT NULL CHECK(condition IN ('gt','lt','eq')),
+            threshold   REAL NOT NULL,
+            action      TEXT NOT NULL CHECK(action IN ('alert','config_change','flag_toggle','budget_adjust')),
+            action_params TEXT NOT NULL DEFAULT '{}',
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            last_fired  TEXT,
+            eval_count  INTEGER NOT NULL DEFAULT 0
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS policy_eval_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id     TEXT NOT NULL,
+            rule_name   TEXT NOT NULL,
+            fired       INTEGER NOT NULL,
+            metric_value REAL NOT NULL,
+            action_taken TEXT NOT NULL,
+            evaluated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Phase 302: system_events table for structured system-wide event archive.
+    // NOTE: NOT the same as `events` (hotlap/competition) or `scheduler_events` (pod wake/sleep).
+    // This is the cross-subsystem operational log: billing, deploy, alert, pod recovery, etc.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS system_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            pod TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            payload TEXT NOT NULL DEFAULT '{}'
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_pod ON system_events(pod)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_system_events_ts ON system_events(timestamp)"
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
@@ -3588,6 +3757,44 @@ async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
 
         tracing::info!("Phase 88: track_records migration complete");
     }
+
+    // Phase 285: TSDB tables for time-series metrics ring buffer
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS metrics_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            metric_name TEXT NOT NULL,
+            pod_id TEXT,
+            value REAL NOT NULL,
+            recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_samples_lookup
+         ON metrics_samples(metric_name, recorded_at)"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS metrics_rollups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resolution TEXT NOT NULL CHECK(resolution IN ('hourly', 'daily')),
+            metric_name TEXT NOT NULL,
+            pod_id TEXT,
+            min_value REAL NOT NULL,
+            max_value REAL NOT NULL,
+            avg_value REAL NOT NULL,
+            sample_count INTEGER NOT NULL,
+            period_start TEXT NOT NULL,
+            UNIQUE(resolution, metric_name, pod_id, period_start)
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_rollups_lookup
+         ON metrics_rollups(resolution, metric_name, period_start)"
+    ).execute(pool).await?;
+
+    tracing::info!("Phase 285: metrics TSDB tables migration complete");
 
     Ok(())
 }

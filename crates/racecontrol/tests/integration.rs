@@ -910,6 +910,7 @@ async fn test_billing_timer_counting() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Tick 30 times
@@ -952,6 +953,7 @@ async fn test_billing_manual_pause() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Drive 10 seconds
@@ -1001,6 +1003,7 @@ async fn test_billing_disconnect_pause() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Drive 5 seconds
@@ -1062,6 +1065,7 @@ async fn test_billing_max_pauses() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // With pause_count = 3 and status = Active, tick should still count

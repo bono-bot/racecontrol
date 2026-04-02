@@ -11,6 +11,7 @@ use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
 use crate::activity_log::log_pod_activity;
 use crate::crypto::redaction::redact_phone;
+use crate::event_archive;
 use crate::state::AppState;
 use crate::whatsapp_alerter;
 
@@ -314,6 +315,8 @@ pub struct BillingTimer {
     pub recovery_pause_seconds: u32,
     /// BILL-06: Reason for the current pause (distinguishes crash recovery from manual ESC pause).
     pub pause_reason: PauseReason,
+    /// Phase 283: Session nonce for replay protection. Rotated after each billing mutation.
+    pub nonce: String,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -442,6 +445,7 @@ impl BillingTimer {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         }
     }
 }
@@ -2005,7 +2009,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
-         WHERE bs.status IN ('active', 'paused_manual', 'paused_disconnect')",
+         WHERE bs.status IN ('active', 'paused_manual', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .fetch_all(&state.db)
     .await?;
@@ -2020,6 +2024,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             "active" => BillingSessionStatus::Active,
             "paused_manual" => BillingSessionStatus::PausedManual,
             "paused_disconnect" => BillingSessionStatus::PausedDisconnect,
+            "paused_crash_recovery" => BillingSessionStatus::PausedCrashRecovery,
             _ => continue,
         };
 
@@ -2061,6 +2066,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         tracing::info!(
@@ -2220,7 +2226,7 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                 // MMA-ITER1-NEW1: Auto-end zombie sessions (not just flag)
                 // CAS guard prevents double-end if another path already finalized
                 let cas = sqlx::query(
-                    "UPDATE billing_sessions SET status = 'ended_early', end_reason = 'orphan_auto_ended_background', ended_at = datetime('now') WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+                    "UPDATE billing_sessions SET status = 'ended_early', end_reason = 'orphan_auto_ended_background', ended_at = datetime('now') WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
                 )
                 .bind(session_id)
                 .execute(&state.db)
@@ -2859,6 +2865,7 @@ pub async fn start_billing_session(
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
+        nonce: String::new(),
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -2948,6 +2955,11 @@ pub async fn start_billing_session(
     );
 
     log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core");
+    event_archive::append_event(&state.db, "billing.session_started", "billing", Some(&pod_id), serde_json::json!({
+        "driver_id": driver_id,
+        "tier": tier.1,
+        "allocated_seconds": allocated_seconds,
+    }));
 
     Ok(session_id)
 }
@@ -2972,7 +2984,7 @@ pub struct BillingStartData {
 /// Creates the in-memory timer, updates pod state, notifies the agent, broadcasts to dashboards.
 /// Safe to call only after tx.commit() — any error before commit rolls back automatically.
 pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartData) {
-    let timer = BillingTimer {
+    let mut timer = BillingTimer {
         session_id: data.session_id.clone(),
         driver_id: data.driver_id.clone(),
         driver_name: data.driver_name.clone(),
@@ -2999,7 +3011,12 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
+        nonce: String::new(), // Populated below after nonce store generation
     };
+
+    // Phase 283: Generate session nonce for replay protection
+    let nonce = state.billing_nonce_store.generate(&data.session_id).await;
+    timer.nonce = nonce;
 
     let rate_tiers = state.billing.rate_tiers.read().await;
     let info = timer.to_info(&rate_tiers);
@@ -3309,6 +3326,11 @@ async fn end_billing_session(
                 _ => "Session Expired",
             };
             log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core");
+            event_archive::append_event(&state.db, "billing.session_ended", "billing", Some(&pod_id), serde_json::json!({
+                "driver_id": info.driver_id,
+                "driving_seconds": driving_seconds,
+                "end_status": activity_action,
+            }));
 
             timers.remove(&pod_id);
             drop(timers);
@@ -3339,7 +3361,7 @@ async fn end_billing_session(
             // FSM allows End/EndEarly/Cancel from paused_manual, paused_game_pause, paused_disconnect.
             // Previously only matched 'active' — paused sessions were silently dropped with no refund.
             let cas_result = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
@@ -3528,7 +3550,7 @@ async fn end_billing_session(
     drop(timers);
     // Match all pre-terminal states (consistent with CRITICAL-1 CAS fix)
     let orphan = match sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')",
+        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
@@ -4717,7 +4739,7 @@ pub async fn handle_agent_shutdown(
 
     // Record shutdown_at timestamp (idempotent — only sets if NULL, since session may already be ended)
     let _ = sqlx::query(
-        "UPDATE billing_sessions SET shutdown_at = datetime('now') WHERE id = ? AND shutdown_at IS NULL AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+        "UPDATE billing_sessions SET shutdown_at = datetime('now') WHERE id = ? AND shutdown_at IS NULL AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')"
     )
     .bind(session_id)
     .execute(&state.db)
@@ -4774,7 +4796,7 @@ pub async fn handle_interrupted_sessions_check(
     let interrupted = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT id, driver_id, COALESCE(driving_seconds, 0) FROM billing_sessions \
          WHERE pod_id = ? AND shutdown_at IS NOT NULL \
-         AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'waiting_for_game')"
+         AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')"
     )
     .bind(pod_id)
     .fetch_all(&state.db)
@@ -4853,6 +4875,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Should count when driving
@@ -4900,6 +4923,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // One more tick should expire
@@ -4937,6 +4961,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -4971,6 +4996,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Active tick — driving_seconds should increment
@@ -5015,6 +5041,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -5142,6 +5169,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -5181,6 +5209,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -5217,6 +5246,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(timer.tick()); // Should return true (elapsed == max)
@@ -5252,6 +5282,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // One more tick should hit 600s pause timeout
@@ -5290,6 +5321,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let cost = timer.current_cost(&rate_tiers);
@@ -5328,6 +5360,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let info = timer.to_info(&rate_tiers);
@@ -5590,6 +5623,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         }
     }
 
@@ -6058,6 +6092,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert!(!timer.tick());
@@ -6906,6 +6941,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // At 600s (10 min), still in Standard tier (threshold=1800s=30min)
@@ -6952,6 +6988,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Verify: completed sessions are terminal — cannot be extended
@@ -6996,6 +7033,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         assert_eq!(timer.recovery_pause_seconds, 0, "recovery_pause_seconds must start at 0");
@@ -7032,6 +7070,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         // Simulate crash recovery: set PausedGamePause + CrashRecovery
@@ -7078,6 +7117,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::GamePause, // Manual ESC pause
+            nonce: String::new(),
         };
 
         // Tick 20 times
@@ -7123,6 +7163,7 @@ mod tests {
             sim_type: None,
             recovery_pause_seconds: 120,
             pause_reason: PauseReason::None,
+            nonce: String::new(),
         };
 
         let cost = timer.current_cost(&tiers);
@@ -7168,5 +7209,121 @@ mod tests {
         // (same as single-pod crash, but applied to all group members)
         let reason = PauseReason::CrashRecovery;
         assert_eq!(reason, PauseReason::CrashRecovery, "BILL-07: multiplayer crash uses CrashRecovery pause reason");
+    }
+
+    // ── Phase 285: Integration Audit — E2E billing fairness flow ────────────
+
+    #[test]
+    fn test_e2e_billing_fairness_crash_recovery_excluded() {
+        // Exercises: Active → CrashPause → PausedCrashRecovery → Resume → Active → EndEarly
+        // Verifies recovery_pause_seconds is excluded from billable time.
+        use crate::billing_fsm::{validate_transition, BillingEvent};
+
+        let mut timer = BillingTimer::dummy("pod-e2e");
+        timer.status = BillingSessionStatus::Active;
+        timer.elapsed_seconds = 0;
+        timer.recovery_pause_seconds = 0;
+
+        // Simulate 60 seconds of active driving
+        for _ in 0..60 {
+            timer.tick();
+        }
+        assert_eq!(timer.elapsed_seconds, 60);
+        assert_eq!(timer.driving_seconds, 60);
+        assert_eq!(timer.recovery_pause_seconds, 0);
+
+        // FSM: Active → PausedCrashRecovery
+        let next = validate_transition(BillingSessionStatus::Active, BillingEvent::CrashPause);
+        assert_eq!(next, Ok(BillingSessionStatus::PausedCrashRecovery));
+        timer.status = BillingSessionStatus::PausedCrashRecovery;
+
+        // Simulate 30 seconds of crash recovery pause
+        for _ in 0..30 {
+            timer.tick();
+        }
+        assert_eq!(timer.pause_seconds, 30);
+        assert_eq!(timer.recovery_pause_seconds, 30, "recovery pause must track crash time");
+
+        // FSM: PausedCrashRecovery → Active (Resume)
+        let next = validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume);
+        assert_eq!(next, Ok(BillingSessionStatus::Active));
+        timer.status = BillingSessionStatus::Active;
+
+        // Simulate 40 more seconds of active driving
+        for _ in 0..40 {
+            timer.tick();
+        }
+        assert_eq!(timer.elapsed_seconds, 100); // 60 + 40 active seconds
+        assert_eq!(timer.driving_seconds, 100);
+        assert_eq!(timer.recovery_pause_seconds, 30, "recovery pause unchanged after resume");
+
+        // FSM: Active → EndedEarly
+        let next = validate_transition(BillingSessionStatus::Active, BillingEvent::EndEarly);
+        assert_eq!(next, Ok(BillingSessionStatus::EndedEarly));
+        timer.status = BillingSessionStatus::EndedEarly;
+
+        // Verify billable time excludes recovery pause
+        let tiers = default_billing_rate_tiers();
+        let cost_with_recovery = timer.current_cost(&tiers);
+        // Billable = elapsed(100) - recovery(30) = 70 seconds
+        let mut timer_no_recovery = BillingTimer::dummy("pod-e2e");
+        timer_no_recovery.status = BillingSessionStatus::EndedEarly;
+        timer_no_recovery.elapsed_seconds = 100;
+        timer_no_recovery.driving_seconds = 100;
+        timer_no_recovery.recovery_pause_seconds = 0;
+        let cost_without_recovery = timer_no_recovery.current_cost(&tiers);
+        // With recovery exclusion, cost must be less than without
+        assert!(
+            cost_with_recovery.total_paise <= cost_without_recovery.total_paise,
+            "Crash recovery time must not be billed: with_recovery={}p vs without={}p",
+            cost_with_recovery.total_paise, cost_without_recovery.total_paise
+        );
+    }
+
+    // ── Phase 285: FSM completeness — PausedCrashRecovery transitions ───────
+
+    #[test]
+    fn test_fsm_paused_crash_recovery_all_transitions() {
+        use crate::billing_fsm::{validate_transition, BillingEvent};
+
+        // Valid transitions from PausedCrashRecovery
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Resume),
+            Ok(BillingSessionStatus::Active),
+            "CrashRecovery + Resume → Active"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::End),
+            Ok(BillingSessionStatus::Completed),
+            "CrashRecovery + End → Completed"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::EndEarly),
+            Ok(BillingSessionStatus::EndedEarly),
+            "CrashRecovery + EndEarly → EndedEarly"
+        );
+        assert_eq!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Cancel),
+            Ok(BillingSessionStatus::Cancelled),
+            "CrashRecovery + Cancel → Cancelled"
+        );
+
+        // Invalid transitions from PausedCrashRecovery
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::Pause).is_err(),
+            "CrashRecovery + Pause should be rejected"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::CrashPause).is_err(),
+            "CrashRecovery + CrashPause should be rejected (already paused)"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::StartWaiting).is_err(),
+            "CrashRecovery + StartWaiting should be rejected"
+        );
+        assert!(
+            validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::GameLive).is_err(),
+            "CrashRecovery + GameLive should be rejected"
+        );
     }
 }

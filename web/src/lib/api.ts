@@ -301,6 +301,37 @@ export type OtaStatusResponse =
   | DeployRecord
   | { state: "idle"; message: string };
 
+// ─── Phase 300-02: Backup Status ─────────────────────────────────────────────
+
+export interface BackupStatus {
+  last_backup_at: string | null;
+  last_backup_size_bytes: number | null;
+  last_backup_file: string | null;
+  remote_reachable: boolean;
+  last_remote_transfer_at: string | null;
+  last_checksum_match: boolean | null;
+  backup_count_local: number;
+  staleness_hours: number | null;
+}
+
+// ─── Phase 301-02: Cloud Sync Health (SYNC-06) ───────────────────────────────
+
+export interface SyncTableState {
+  table: string;
+  last_synced_at: string;
+  last_sync_count: number;
+  staleness_seconds: number;
+  conflict_count: number;
+}
+
+export interface SyncHealth {
+  status: string;
+  lag_seconds: number;
+  sync_mode: string;
+  relay_available: boolean;
+  sync_state: SyncTableState[];
+}
+
 export const api = {
   health: () => fetchApi<{ status: string; version: string }>("/health"),
   venue: () => fetchApi<{ name: string; location: string; timezone: string; pods: number }>("/venue"),
@@ -595,6 +626,85 @@ export const api = {
       body: tomlManifest,
     });
     return res.json() as Promise<{ ok?: boolean; version?: string; error?: string }>;
+  },
+
+  // Phase 300-02: Backup Status — staff JWT required
+  backupStatus: () => fetchApi<BackupStatus>("/backup/status"),
+
+  // Phase 301-02: Cloud Sync Health (SYNC-06) — staff JWT required
+  syncHealth: () => fetchApi<SyncHealth>("/sync/health"),
+};
+
+// ─── Policy Rules Engine (Phase 299) ────────────────────────────────────────
+
+export interface PolicyRule {
+  id: string;
+  name: string;
+  metric: string;
+  condition: "gt" | "lt" | "eq";
+  threshold: number;
+  action: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params: string;    // JSON text
+  enabled: boolean;
+  created_at: string | null;
+  last_fired: string | null;
+  eval_count: number;
+}
+
+export interface PolicyEvalLogEntry {
+  id: number;
+  rule_id: string;
+  rule_name: string;
+  fired: boolean;
+  metric_value: number;
+  action_taken: string;
+  evaluated_at: string;
+}
+
+export interface CreatePolicyRuleRequest {
+  name: string;
+  metric: string;
+  condition: "gt" | "lt" | "eq";
+  threshold: number;
+  action: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface UpdatePolicyRuleRequest {
+  name?: string;
+  metric?: string;
+  condition?: "gt" | "lt" | "eq";
+  threshold?: number;
+  action?: "alert" | "config_change" | "flag_toggle" | "budget_adjust";
+  action_params?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export const policyApi = {
+  listRules: () =>
+    fetchApi<{ rules: PolicyRule[] }>("/policy/rules"),
+
+  createRule: (data: CreatePolicyRuleRequest) =>
+    fetchApi<PolicyRule>("/policy/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  updateRule: (id: string, data: UpdatePolicyRuleRequest) =>
+    fetchApi<PolicyRule>(`/policy/rules/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  deleteRule: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/policy/rules/${id}`, { method: "DELETE" }),
+
+  listEvalLog: (ruleId?: string) => {
+    const qs = ruleId ? `?rule_id=${encodeURIComponent(ruleId)}` : "";
+    return fetchApi<{ entries: PolicyEvalLogEntry[] }>(`/policy/eval-log${qs}`);
   },
 };
 

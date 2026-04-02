@@ -2,9 +2,9 @@
 
 ## Current State
 
-**Shipped:** v1.0 through v32.0 (2026-03-01 to 2026-04-01)
+**Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1, v18.0-v18.2, v21.0 (2026-03-13 to 2026-03-23)
 
-The pod management stack is fully autonomous: rc-agent runs 5-tier diagnostic engine with event-driven FleetEvent pipeline, safety guardrails (blast radius limiter, circuit breaker, idempotency), KB-first diagnosis ($0 for known issues), automatic game launch recovery (60s), predictive alerts feeding the tier engine, experience scoring per pod with auto-rotation removal, revenue protection monitoring, model reputation auto-demotion, KB hardening promotion ladder (Observed→Hardened), and weekly fleet intelligence reports to Uday via WhatsApp. 280+ phases shipped across 15+ milestones.
+The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool; rc-agent decomposed into 5 focused modules; rc-common provides shared exec primitives; 67+ tests cover billing, failure detection, and FFB safety. 61+ phases shipped across 11+ milestones. v21.0 added cross-project sync: shared TypeScript types, OpenAPI specs, contract tests with CI, unified deploy scripts, standing rules across all repos, and 231-test E2E framework.
 
 ## Shipped Milestone: v16.1 Camera Dashboard Pro (2026-03-22)
 
@@ -32,41 +32,61 @@ The pod management stack is fully autonomous: rc-agent runs 5-tier diagnostic en
 
 **Delivered:** Single-command fleet audit runner (`audit.sh --mode full --auto-fix --notify --commit`). 60 phases across 18 tiers, parallel engine (4-concurrent), delta tracking, auto-fix with whitelist, Bono/WhatsApp notifications. Pure bash + jq. 42 requirements, 16 plans, 5 phases (189-193).
 
-## Shipped Milestone: v32.0 Autonomous Meshed Intelligence (2026-04-01)
+## Shipped Milestone: v34.0 Time-Series Metrics & Operational Dashboards (2026-04-01)
 
-**Delivered:** Closed all Meshed Intelligence action loops end-to-end. Event-driven FleetEvent pipeline with safety guardrails (blast radius limiter 2/10 max, circuit breaker 40%, idempotency keys). Tier 5 WhatsApp escalation with 30-min dedup and INBOX.md fallback. Autonomous game launch fix (60s recovery, 2 retries, KB encode, fleet cascade). Predictive alerts→tier engine bridge. Per-pod experience scoring with auto-flag/remove. Revenue protection (game/billing mismatch detection). Model reputation auto-demotion/promotion. KB hardening promotion ladder (Observed→Shadow→Canary→Quorum→Hardened). Weekly fleet intelligence report (Sunday midnight IST via WhatsApp).
+**Delivered:** SQLite metrics TSDB with 1-min resolution, 7-day raw retention, hourly/daily rollups (90-day). Metrics query API (query/names/snapshot with auto-resolution). Next.js /metrics dashboard with sparkline charts, pod selector, time range picker, 30s auto-refresh. Prometheus exposition format endpoint. TOML-configured alert thresholds evaluated every 60s against TSDB, firing to WhatsApp. 5 phases (285-289), 7 plans.
 
-7 phases (273-279), 38 requirements, 10 new source files (~2,351 lines), 55 commits.
+## Shipped Milestone: v36.0 Config Management & Policy Engine (2026-04-01)
 
-## Shipped Milestone: v35.0 Structured Retraining & Model Lifecycle (2026-04-01)
+**Delivered:** Typed AgentConfig struct with serde validation + schema versioning, server-pushed config via WS (SQLite pod_configs, hot/cold reload split). 2 phases (295-296), partial completion.
 
-**Delivered:** Continuous learning loop with persistent model evaluation store, KB promotion ladder (Shadow→Canary→Quorum→Hardened in SQLite), model reputation auto-demotion/promotion on 7-day windows, weekly JSONL training data export, and enhanced intelligence report with accuracy rankings and cost savings.
+## Current Milestone: v37.0 Data Durability & Multi-Venue Readiness
 
-5 phases (290-294), 20 requirements, 10 plans, 6 new Rust modules (~3,500 lines).
-
-## Current Milestone: v38.0 Security Hardening & Operational Maturity
-
-**Goal:** Harden security posture — venue CA with mTLS, JWT rotation, hash-chained audit logs, RBAC, and automated security scanning.
+**Goal:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue.
 
 **Target features:**
-- TLS for internal HTTP (self-signed venue CA, mTLS on :8080 server + :8090 agents)
-- WS auth hardening (PSK + per-pod JWT, 24h expiry, 1h pre-refresh rotation, invalid = disconnect + alert)
-- Audit log integrity (append-only SHA-256 hash chain, tamper detection, covers config/deploys/billing/admin)
-- RBAC for admin (cashier/manager/superadmin roles, JWT role claims, every endpoint checks role, admin UI gating)
-- Security audit script (automated scan of ports, TLS, JWT, default creds, chain integrity → scorecard JSON)
+- SQLite Backup Pipeline — hourly WAL-safe .backup, local rotation (7 daily + 4 weekly), nightly SCP to Bono VPS, staleness alert if > 2 hours
+- Cloud Data Sync v2 — extend cloud_sync.rs to sync solutions, evaluations, rollups; server-authoritative for solutions, cloud-authoritative for cross-venue
+- Structured Event Archive — all events → SQLite events table + daily JSONL; 90-day SQLite retention, JSONL shipped to VPS
+- Multi-Venue Schema Prep — add venue_id to all tables (default: racingpoint-hyd-001); no functional change, design doc for venue 2 trigger
+- Fleet Deploy Automation — POST /api/v1/fleet/deploy endpoint; canary-first (Pod 8), health verify + auto-rollout, auto-rollback on failure
 
 **Constraints:**
-- Existing PSK + JWT auth stays as foundation — v38 layers on top
-- Tailscale encrypts remote traffic — mTLS is for LAN security (venue WiFi)
-- Admin UI role gating is server-enforced (403 for wrong role, not just UI-hidden)
-- Hash chain covers new activity_log entries — does not retroactively chain existing
-- Budget controls ($5-20/day per node) already enforced — evaluation adds observability, not cost
-- All new tables in existing SQLite databases — no new infrastructure
+- Rust/Axum + Next.js stack — changes to racecontrol + rc-agent + rc-common + racingpoint-admin
+- SQLite WAL mode (existing pattern) — no new database dependencies
+- Backup uses SQLite .backup API (WAL-safe, not file copy)
+- Cloud sync extends existing cloud_sync.rs (additive, not rewrite)
+- venue_id migration must be backward compatible (DEFAULT value, no breaking changes)
+- Fleet deploy builds on existing OTA pipeline (v22.0) — extends, not replaces
+- Must not break existing billing, lock screen, session management, or recovery systems
+- Pod 8 canary-first for all agent-side changes
 
-<details>
-<summary>Previous: v23.1 Audit Protocol v5.0</summary>
+## Paused Milestone: v32.0 Autonomous Meshed Intelligence
 
-Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer, Count vs Health, Missing Config Validation, Missing Dashboard/UI Check, Missing Cross-Service Dependency.
+**Goal:** Close all action loops in Meshed Intelligence so the venue self-heals end-to-end: diagnose → fix → permanent fix → cascade to fleet → never debug the same issue twice.
+
+**Target features:**
+- Autonomous game launch fix + cascade — diagnose launch failure, apply fix, auto-retry (2x with clean state reset), encode permanent fix as Tier 1 deterministic check (KB hardening), cascade solution via mesh gossip to all pods + POS
+- Predictive alert → action pipeline — connect predictive_maintenance alerts to diagnostic engine → tier engine (currently log-only, no action taken)
+- Experience scoring integration — wire experience_score.rs into main loop, feed scores to fleet health API, auto-flag/remove low-scoring pods
+- Tier 5 WhatsApp escalation — complete the stub via Bono VPS Evolution API
+- Enhanced night ops + MMA — full MMA diagnostic step, auto-fix application, morning readiness report to Uday
+- Model reputation auto-demotion — promote from log-only warning to actual roster removal when accuracy < 30%
+- Revenue protection triggers — game running without billing, session ended but game active, pod down during peak hours
+- Weekly fleet intelligence report — automated report to Uday (auto-resolution rate, MTTR, top issues, budget, KB growth)
+- KB hardening pipeline — solutions succeeding 3+ times across 2+ pods auto-promote to Tier 1 deterministic checks ($0 forever)
+
+**Constraints:**
+- All modules already exist as files — this is wiring + enhancement, not greenfield
+- v31.0 built MMA engine, tier engine, mesh gossip, KB — this milestone makes them fully autonomous
+- Budget controls ($5-20/day per node) already enforced — no new cost risks
+- WhatsApp escalation goes through Bono VPS Evolution API (not direct)
+- Cascade is recursive per standing rules — fix one pod → gossip to fleet → verify on each pod
+- KB promotion lifecycle exists (Discovered → Candidate → Fleet-Verified → Hardened) but "Hardened" doesn't generate Tier 1 code yet
+
+## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
+
+**Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer (checking infrastructure not the consuming service), Count vs Health (counting items without verifying they work), Missing Config Validation (env vars/credentials unchecked), Missing Dashboard/UI Check (backend passes but user page untested), Missing Cross-Service Dependency (services checked independently but dependency chain unverified).
 
 **Target features:**
 - Fix Phase 19 display resolution (currently a no-op — hardcoded 1920x1080 assumption)

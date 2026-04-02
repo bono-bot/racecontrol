@@ -103,6 +103,27 @@ pub struct VenueConfigSnapshot {
     pub received_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Status of the backup pipeline — updated each tick, readable by downstream API consumers.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct BackupStatus {
+    /// ISO timestamp of the last successful backup (IST)
+    pub last_backup_at: Option<String>,
+    /// Size in bytes of the last backup file
+    pub last_backup_size_bytes: Option<u64>,
+    /// Filename of the last backup created
+    pub last_backup_file: Option<String>,
+    /// Whether the remote backup host was reachable on last attempt
+    pub remote_reachable: bool,
+    /// ISO timestamp of last successful remote transfer (IST)
+    pub last_remote_transfer_at: Option<String>,
+    /// Whether the last checksum verification passed
+    pub last_checksum_match: Option<bool>,
+    /// Total number of local backup files across both databases
+    pub backup_count_local: usize,
+    /// Hours since the most recent backup file was created (None if no backups exist)
+    pub staleness_hours: Option<f64>,
+}
+
 pub struct AppState {
     pub config: Config,
     pub db: SqlitePool,
@@ -233,6 +254,10 @@ pub struct AppState {
     /// Phase 274: Tier 5 WhatsApp escalation handler.
     /// Receives EscalationRequest from pods, deduplicates, sends via Bono relay.
     pub whatsapp_escalation: std::sync::Arc<crate::whatsapp_escalation::WhatsAppEscalation>,
+    /// Phase 283: Nonce store for billing replay protection (session_id -> nonce + TTL).
+    pub billing_nonce_store: std::sync::Arc<crate::billing_replay::NonceStore>,
+    /// Phase 300: Backup pipeline status — updated each tick for downstream API consumers.
+    pub backup_status: RwLock<BackupStatus>,
     /// Phase 307: Last hash in the pod_activity_log SHA-256 chain.
     /// Initialized from DB at startup (most recent entry_hash), or "GENESIS" if no hashed entries.
     /// Held briefly inside tokio::spawn to serialize hash chain writes. Never held across .await.
@@ -321,6 +346,8 @@ impl AppState {
             telemetry_db: None,        // Initialized after AppState::new() in main.rs
             lease_manager: std::sync::Arc::new(LeaseManager::new()),
             whatsapp_escalation: whatsapp_escalation_handler,
+            billing_nonce_store: std::sync::Arc::new(crate::billing_replay::NonceStore::new()),
+            backup_status: RwLock::new(BackupStatus::default()),
             // Phase 307: Initialized to GENESIS; main.rs loads actual last hash from DB after init_db()
             audit_last_hash: std::sync::Mutex::new("GENESIS".to_string()),
         }

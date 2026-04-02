@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-01 22:30 IST | James | 65a1eda5 | docs(302-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md for REST API + instrumentation plan |
+| 2026-04-01 22:15 IST | James | 8069c0a8 | feat(302-02): 11 append_event calls across billing/deploy/pod_healer/ws/metric_alerts — system_events table now receives production data |
+| 2026-04-01 22:00 IST | James | 7d1c763d | feat(302-02): GET /api/v1/system-events handler with EventsQuery (event_type/pod/from/to/limit) — staff-gated, validated inputs |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |

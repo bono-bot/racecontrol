@@ -75,6 +75,28 @@ fn default_openrouter_model() -> String {
     "openrouter/auto".to_string()
 }
 
+/// Convert from the shared rc-common config stub to the full ai-debugger config.
+/// Extra fields (openrouter_api_key, openrouter_model) default to None/"openrouter/auto".
+impl From<rc_common::config_schema::AiDebuggerConfig> for AiDebuggerConfig {
+    fn from(stub: rc_common::config_schema::AiDebuggerConfig) -> Self {
+        Self {
+            enabled: stub.enabled,
+            ollama_url: if stub.ollama_url.is_empty() {
+                default_ollama_url()
+            } else {
+                stub.ollama_url
+            },
+            ollama_model: if stub.ollama_model.is_empty() {
+                default_ollama_model()
+            } else {
+                stub.ollama_model
+            },
+            openrouter_api_key: None,
+            openrouter_model: default_openrouter_model(),
+        }
+    }
+}
+
 /// Runtime snapshot of pod state at the moment of a crash/error.
 /// Passed to the AI debugger for richer context.
 #[derive(Debug, Clone, Serialize, Default)]

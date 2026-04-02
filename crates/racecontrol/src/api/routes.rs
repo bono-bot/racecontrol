@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::metrics;
+use super::metrics_prometheus;
+use super::metrics_query;
 use super::survival;
 use crate::ac_server;
 use crate::accounting;
@@ -17,6 +19,8 @@ use crate::recovery;
 use crate::cafe;
 use crate::config_push;
 use crate::flags;
+use crate::policy_engine;
+use crate::preset_library;
 use crate::cafe_alerts;
 use crate::cafe_marketing;
 use crate::cafe_promos;
@@ -152,6 +156,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/queue/{id}/leave", post(queue_leave_handler))
         // v29.0 Phase 34: Pod availability for kiosk maintenance gate
         .route("/pods/{id}/availability", get(pod_availability_handler))
+        // Phase 288: Prometheus exposition format (PROM-01, PROM-02) — public, read-only metrics
+        .route("/metrics/prometheus", get(metrics_prometheus::prometheus_handler))
+        // Phase 298 PRESET-01: Preset reads are public (pods/kiosk need the list without JWT)
+        .route("/presets", get(preset_library::list_presets))
+        .route("/presets/{id}", get(preset_library::get_preset))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -298,6 +307,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Driver rating history (staff-only — Phase 253)
         .route("/drivers/{id}/rating-history", get(staff_driver_rating_history))
+        // Phase 302: Event archive query API
+        .route("/events", get(get_events))
         // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/debug/activity", get(debug_activity))
@@ -419,6 +430,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/guardian/verify-otp", post(verify_guardian_otp_handler))
         // Kiosk (admin-only: create/update/delete -- pod-accessible routes are in kiosk_routes())
         // kiosk experiences/settings — moved to role-gated admin section
+        // Phase 298: Game preset library — write operations (read is in public_routes)
+        .route("/presets", post(preset_library::create_preset))
+        .route("/presets/{id}", put(preset_library::update_preset).delete(preset_library::delete_preset))
         // Config
         // GET moved to public_routes (rc-agent fetches without auth)
         // config/kiosk-allowlist POST/DELETE — moved to role-gated admin section
@@ -522,7 +536,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // MMA-v29: Metrics, mesh, admin, cameras moved from public_routes — require staff JWT
         .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
+        .route("/metrics/launch-observability", get(metrics::launch_observability_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        // Phase 286: Metrics Query API (QAPI-01..05) — staff-only, business intelligence
+        .route("/metrics/query", get(metrics_query::query_handler))
+        .route("/metrics/names", get(metrics_query::names_handler))
+        .route("/metrics/snapshot", get(metrics_query::snapshot_handler))
         .route("/mesh/solutions", get(mesh_list_solutions))
         .route("/mesh/solutions/search", get(mesh_search_solutions))
         .route("/mesh/solutions/{id}", get(mesh_get_solution))
@@ -544,6 +563,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/maintenance/tasks/{id}", axum::routing::patch(maintenance_update_task))
         .route("/analytics/telemetry", get(analytics_telemetry))
         .route("/analytics/trends", get(analytics_trends))
+        // ─── Phase 300-02: Backup Status (staff-only — backup health is internal data) ──
+        .route("/backup/status", get(get_backup_status))
+        // ─── Phase 299: Policy Rules Engine ──────────────────────────────────
+        .route("/policy/rules", get(policy_engine::list_rules_handler).post(policy_engine::create_rule_handler))
+        .route("/policy/rules/{id}", put(policy_engine::update_rule_handler).delete(policy_engine::delete_rule_handler))
+        .route("/policy/eval-log", get(policy_engine::list_eval_log_handler))
         // Merge role-gated sub-routers (SEC-04: manager+, superadmin-only groups)
         .merge(
             // ── Manager+ routes ─────────────────────────────────────────────
@@ -582,6 +607,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/config/push", post(config_push::push_config))
                 .route("/config/push/queue", get(config_push::get_queue))
                 .route("/config/audit", get(config_push::get_audit_log))
+                // Phase 296 PUSH-01/PUSH-02: Full AgentConfig per-pod storage + push
+                .route("/config/pod/{pod_id}", get(config_push::get_pod_config_handler).post(config_push::set_pod_config))
                 .route("/deploy/status", get(deploy_status))
                 .route("/deploy/rolling", post(deploy_rolling_handler))
                 .route("/deploy/{pod_id}", post(deploy_single_pod))
@@ -656,6 +683,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "build_id": BUILD_ID,
         "whatsapp": whatsapp_status,
     }))
+}
+
+// ─── Phase 300-02: Backup Status endpoint ────────────────────────────────────
+/// GET /api/v1/backup/status — returns current BackupStatus as JSON.
+///
+/// Staff JWT required (registered in staff_routes). Backup health data should not
+/// be visible to unauthenticated clients on venue WiFi.
+async fn get_backup_status(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Snapshot without holding lock across .await (standing rule: no lock held across .await)
+    let status = { state.backup_status.read().await.clone() };
+    Json(status)
 }
 
 /// Probe Evolution API health. Returns "ok", "unreachable", or "not_configured".
@@ -3788,6 +3828,7 @@ async fn start_billing(
     // Timer starts only when PlayableSignal received — customer not charged for load screens.
     let pod_id_for_defer = pod_id.clone();
     let billing_pod_id_clone = pod_id_for_defer.clone();
+    let pod_id_for_audit = pod_id_for_defer.clone();
     billing::defer_billing_with_precommitted_session(&state, pod_id_for_defer, billing::BillingStartData {
         session_id: session_id.clone(),
         driver_id: driver_id.to_string(),
@@ -3810,6 +3851,22 @@ async fn start_billing(
         "core",
     );
 
+    // Phase 283: Generate nonce for replay protection
+    let billing_nonce = state.billing_nonce_store.generate(&session_id).await;
+
+    // Phase 283: Audit log — billing session started
+    crate::billing_replay::insert_audit_log(
+        &state.db,
+        &session_id,
+        &pod_id_for_audit,
+        "billing_start",
+        "none",
+        "waiting_for_game",
+        Some(&billing_nonce),
+        staff_id.as_deref().unwrap_or("system"),
+    )
+    .await;
+
     Json(json!({
         "ok": true,
         "billing_session_id": session_id,
@@ -3818,6 +3875,7 @@ async fn start_billing(
         "original_price_paise": original_price_paise,
         "discount_reason": applied_discount_reason,
         "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
+        "nonce": billing_nonce,
     }))
 }
 
@@ -4037,6 +4095,11 @@ async fn stop_billing(
             &format!("session_id={}", id),
             "staff",
         );
+        // Phase 283: Audit log + nonce cleanup
+        crate::billing_replay::insert_audit_log(
+            &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff",
+        ).await;
+        state.billing_nonce_store.remove(&id).await;
         Json(json!({ "ok": true }))
     } else {
         Json(json!({ "ok": false, "error": "Session not found or already ended" }))
@@ -4095,6 +4158,11 @@ async fn pause_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
+    // Phase 283: Audit log for pause
+    crate::billing_replay::insert_audit_log(
+        &state.db, &id, "unknown", "pause", "active", "paused", None, "staff",
+    ).await;
+
     let cmd = rc_common::protocol::DashboardCommand::PauseBilling {
         billing_session_id: id,
     };
@@ -4106,6 +4174,11 @@ async fn resume_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
+    // Phase 283: Audit log for resume
+    crate::billing_replay::insert_audit_log(
+        &state.db, &id, "unknown", "resume", "paused", "active", None, "staff",
+    ).await;
+
     // Check if this is a disconnect-paused session (needs special handling)
     let is_disconnect_paused = {
         let timers = state.billing.active_timers.read().await;
@@ -9996,6 +10069,81 @@ async fn sync_changes(
                     result["staff_members"] = json!(items);
                 }
             }
+            // Phase 301: Cloud Data Sync v2 — intelligence tables (SYNC-04)
+            "fleet_solutions" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'problem_key', problem_key, 'problem_hash', problem_hash,
+                        'symptoms', symptoms, 'environment', environment, 'root_cause', root_cause,
+                        'fix_action', fix_action, 'fix_type', fix_type, 'status', status,
+                        'success_count', success_count, 'fail_count', fail_count,
+                        'confidence', confidence, 'cost_to_diagnose', cost_to_diagnose,
+                        'models_used', models_used, 'diagnosis_tier', diagnosis_tier,
+                        'source_node', source_node, 'venue_id', venue_id,
+                        'created_at', created_at, 'updated_at', updated_at,
+                        'version', version, 'ttl_days', ttl_days, 'tags', tags
+                    ) FROM fleet_solutions WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["fleet_solutions"] = json!(items);
+                }
+            }
+            "model_evaluations" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'model_name', model_name, 'pod_id', pod_id,
+                        'problem_key', problem_key, 'prediction', prediction, 'actual', actual,
+                        'correct', correct, 'cost_usd', cost_usd, 'diagnosis_tier', diagnosis_tier,
+                        'created_at', created_at, 'updated_at', updated_at, 'venue_id', venue_id
+                    ) FROM model_evaluations WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["model_evaluations"] = json!(items);
+                }
+            }
+            "metrics_rollups" => {
+                // Omit id (AUTOINCREMENT) — target DB assigns its own
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'resolution', resolution, 'metric_name', metric_name, 'pod_id', pod_id,
+                        'min_value', min_value, 'max_value', max_value, 'avg_value', avg_value,
+                        'sample_count', sample_count, 'period_start', period_start,
+                        'updated_at', COALESCE(updated_at, datetime('now')), 'venue_id', venue_id
+                    ) FROM metrics_rollups
+                    WHERE COALESCE(updated_at, datetime('now')) > ?
+                    ORDER BY COALESCE(updated_at, datetime('now')) ASC LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["metrics_rollups"] = json!(items);
+                }
+            }
             _ => {}
         }
     }
@@ -10630,6 +10778,193 @@ async fn sync_push(
         }
     }
 
+    // Phase 301: Upsert fleet_solutions with LWW + venue_id tiebreaker (SYNC-04/05)
+    if let Some(solutions) = body.get("fleet_solutions").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for sol in solutions {
+            let id = sol.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                sol.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO fleet_solutions
+                    (id, problem_key, problem_hash, symptoms, environment, root_cause,
+                     fix_action, fix_type, status, success_count, fail_count, confidence,
+                     cost_to_diagnose, models_used, diagnosis_tier, source_node, venue_id,
+                     created_at, updated_at, version, ttl_days, tags)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
+                 ON CONFLICT(id) DO UPDATE SET
+                    root_cause = excluded.root_cause,
+                    fix_action = excluded.fix_action,
+                    status = excluded.status,
+                    success_count = excluded.success_count,
+                    fail_count = excluded.fail_count,
+                    confidence = excluded.confidence,
+                    cost_to_diagnose = excluded.cost_to_diagnose,
+                    models_used = excluded.models_used,
+                    updated_at = excluded.updated_at,
+                    version = excluded.version,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > fleet_solutions.updated_at
+                    OR (excluded.updated_at = fleet_solutions.updated_at
+                        AND excluded.venue_id < fleet_solutions.venue_id)",
+            )
+            .bind(id)
+            .bind(sol.get("problem_key").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("problem_hash").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("symptoms").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("environment").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("root_cause").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("fix_action").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("fix_type").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("status").and_then(|v| v.as_str()).unwrap_or("candidate"))
+            .bind(sol.get("success_count").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(sol.get("fail_count").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(sol.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0))
+            .bind(sol.get("cost_to_diagnose").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(sol.get("models_used").and_then(|v| v.as_str()))
+            .bind(sol.get("diagnosis_tier").and_then(|v| v.as_str()).unwrap_or("deterministic"))
+            .bind(sol.get("source_node").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(sol.get("venue_id").and_then(|v| v.as_str()))
+            .bind(sol.get("created_at").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(&ts)
+            .bind(sol.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(sol.get("ttl_days").and_then(|v| v.as_i64()).unwrap_or(90))
+            .bind(sol.get("tags").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("fleet_solutions upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'fleet_solutions'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} fleet_solutions ({} conflicts)", solutions.len(), conflicts);
+    }
+
+    // Phase 301: Upsert model_evaluations with LWW + venue_id tiebreaker (SYNC-04/05)
+    if let Some(evals) = body.get("model_evaluations").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for ev in evals {
+            let id = ev.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                ev.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO model_evaluations
+                    (id, model_name, pod_id, problem_key, prediction, actual,
+                     correct, cost_usd, diagnosis_tier, created_at, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                 ON CONFLICT(id) DO UPDATE SET
+                    prediction = excluded.prediction,
+                    actual = excluded.actual,
+                    correct = excluded.correct,
+                    cost_usd = excluded.cost_usd,
+                    diagnosis_tier = excluded.diagnosis_tier,
+                    updated_at = excluded.updated_at,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > model_evaluations.updated_at
+                    OR (excluded.updated_at = model_evaluations.updated_at
+                        AND excluded.venue_id < model_evaluations.venue_id)",
+            )
+            .bind(id)
+            .bind(ev.get("model_name").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(ev.get("pod_id").and_then(|v| v.as_str()))
+            .bind(ev.get("problem_key").and_then(|v| v.as_str()))
+            .bind(ev.get("prediction").and_then(|v| v.as_str()))
+            .bind(ev.get("actual").and_then(|v| v.as_str()))
+            .bind(ev.get("correct").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(ev.get("cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ev.get("diagnosis_tier").and_then(|v| v.as_str()))
+            .bind(ev.get("created_at").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(&ts)
+            .bind(ev.get("venue_id").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("model_evaluations upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'model_evaluations'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} model_evaluations ({} conflicts)", evals.len(), conflicts);
+    }
+
+    // Phase 301: Upsert metrics_rollups using UNIQUE constraint (not id) with LWW (SYNC-04/05)
+    // Do NOT include id — AUTOINCREMENT, target DB assigns its own
+    if let Some(rollups) = body.get("metrics_rollups").and_then(|v| v.as_array()) {
+        let mut conflicts = 0i64;
+        for ru in rollups {
+            let resolution = ru.get("resolution").and_then(|v| v.as_str()).unwrap_or_default();
+            let metric_name = ru.get("metric_name").and_then(|v| v.as_str()).unwrap_or_default();
+            let period_start = ru.get("period_start").and_then(|v| v.as_str()).unwrap_or_default();
+            if resolution.is_empty() || metric_name.is_empty() || period_start.is_empty() { continue; }
+            let ts = crate::cloud_sync::normalize_timestamp(
+                ru.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let r = sqlx::query(
+                "INSERT INTO metrics_rollups
+                    (resolution, metric_name, pod_id, min_value, max_value, avg_value,
+                     sample_count, period_start, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                 ON CONFLICT(resolution, metric_name, pod_id, period_start) DO UPDATE SET
+                    avg_value = CASE WHEN excluded.sample_count > metrics_rollups.sample_count
+                                THEN excluded.avg_value ELSE metrics_rollups.avg_value END,
+                    min_value = MIN(excluded.min_value, metrics_rollups.min_value),
+                    max_value = MAX(excluded.max_value, metrics_rollups.max_value),
+                    sample_count = MAX(excluded.sample_count, metrics_rollups.sample_count),
+                    updated_at = excluded.updated_at,
+                    venue_id = excluded.venue_id
+                 WHERE excluded.updated_at > metrics_rollups.updated_at
+                    OR metrics_rollups.updated_at IS NULL",
+            )
+            .bind(resolution)
+            .bind(metric_name)
+            .bind(ru.get("pod_id").and_then(|v| v.as_str()))
+            .bind(ru.get("min_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("max_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("avg_value").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .bind(ru.get("sample_count").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(period_start)
+            .bind(&ts)
+            .bind(ru.get("venue_id").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            match r {
+                Ok(res) => {
+                    if res.rows_affected() > 0 { total += 1; }
+                    else { conflicts += 1; }
+                }
+                Err(e) => { tracing::warn!("metrics_rollups upsert error: {}", e); }
+            }
+        }
+        if conflicts > 0 {
+            let _ = sqlx::query(
+                "UPDATE sync_state SET conflict_count = COALESCE(conflict_count, 0) + ?1
+                 WHERE table_name = 'metrics_rollups'"
+            ).bind(conflicts).execute(&state.db).await;
+        }
+        tracing::info!("Sync push: {} metrics_rollups ({} conflicts)", rollups.len(), conflicts);
+    }
+
     tracing::info!("Sync push: upserted {} records", total);
     Json(json!({ "ok": true, "upserted": total }))
 }
@@ -10641,8 +10976,10 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
         .map(|r| r.0)
         .unwrap_or(0);
 
-    let sync_states = sqlx::query_as::<_, (String, String, i64, String)>(
-        "SELECT table_name, last_synced_at, last_sync_count, COALESCE(updated_at, last_synced_at)
+    let sync_states = sqlx::query_as::<_, (String, String, i64, String, i64)>(
+        "SELECT table_name, last_synced_at, last_sync_count,
+                COALESCE(updated_at, last_synced_at),
+                COALESCE(conflict_count, 0)
          FROM sync_state ORDER BY table_name",
     )
     .fetch_all(&state.db)
@@ -10653,7 +10990,7 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
     let sync_info: Vec<Value> = sync_states
         .iter()
-        .map(|(table, last, count, updated)| {
+        .map(|(table, last, count, updated, conflicts)| {
             // Compute per-table staleness
             let table_lag = chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%d %H:%M:%S")
                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%dT%H:%M:%S"))
@@ -10664,6 +11001,7 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "last_synced_at": last,
                 "last_sync_count": count,
                 "staleness_seconds": table_lag,
+                "conflict_count": conflicts,
             })
         })
         .collect();
@@ -20712,7 +21050,7 @@ async fn apply_billing_discount(
 
     // FATM-10: Enforce discount floor — fetch current price/discount to check cap
     let session_prices = sqlx::query_as::<_, (Option<i64>, i64)>(
-        "SELECT original_price_paise, COALESCE(discount_paise, 0) FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+        "SELECT original_price_paise, COALESCE(discount_paise, 0) FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .bind(&session_id)
     .fetch_optional(&state.db)
@@ -20765,7 +21103,7 @@ async fn apply_billing_discount(
         "UPDATE billing_sessions
          SET discount_paise = COALESCE(discount_paise, 0) + ?,
              discount_reason = ?
-         WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect')",
+         WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery')",
     )
     .bind(effective_discount_paise)
     .bind(&req.reason_code)
@@ -21498,6 +21836,94 @@ pub async fn queue_expire_task(db: sqlx::SqlitePool) {
                 tracing::warn!("QUEUE: expire task error: {}", e);
             }
         }
+    }
+}
+
+// ─── Phase 302: Event archive query API ──────────────────────────────────────
+
+#[derive(Deserialize)]
+struct EventsQuery {
+    event_type: Option<String>,
+    pod: Option<String>,
+    from: Option<String>, // YYYY-MM-DD
+    to: Option<String>,   // YYYY-MM-DD
+    limit: Option<i64>,
+}
+
+/// GET /api/v1/events — Query system_events with optional filters.
+///
+/// All filter inputs are validated with character allowlists before SQL
+/// interpolation (no raw user data in query strings — standing rule compliance).
+/// Payload TEXT column is parsed back to JSON Value to avoid double-encoding.
+async fn get_events(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<EventsQuery>,
+) -> Json<Value> {
+    let mut query = String::from(
+        "SELECT id, event_type, source, pod, timestamp, payload FROM system_events WHERE 1=1",
+    );
+    let mut bind_values: Vec<String> = Vec::new();
+
+    if let Some(ref et) = q.event_type {
+        // Allow alphanumeric + underscore + dot (e.g. "billing.session_started")
+        if et.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+            query.push_str(" AND event_type = ?");
+            bind_values.push(et.clone());
+        }
+    }
+    if let Some(ref pod) = q.pod {
+        // Allow alphanumeric + hyphen + underscore (e.g. "pod_4", "pod-4")
+        if pod.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            query.push_str(" AND pod = ?");
+            bind_values.push(pod.clone());
+        }
+    }
+    if let Some(ref from) = q.from {
+        // Validate YYYY-MM-DD: exactly 10 chars, digits + hyphens only
+        if from.len() == 10 && from.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(timestamp) >= ?");
+            bind_values.push(from.clone());
+        }
+    }
+    if let Some(ref to) = q.to {
+        // Validate YYYY-MM-DD: exactly 10 chars, digits + hyphens only
+        if to.len() == 10 && to.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(timestamp) <= ?");
+            bind_values.push(to.clone());
+        }
+    }
+
+    let limit = q.limit.unwrap_or(200).min(1000);
+    query.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+    let mut qb = sqlx::query_as::<_, (String, String, String, Option<String>, String, String)>(&query);
+    for val in &bind_values {
+        qb = qb.bind(val);
+    }
+    qb = qb.bind(limit);
+
+    match qb.fetch_all(&state.db).await {
+        Ok(rows) => {
+            let events: Vec<Value> = rows
+                .into_iter()
+                .map(|(id, event_type, source, pod, timestamp, payload)| {
+                    // Parse payload TEXT back to JSON Value — avoids double-encoding (Pitfall 5)
+                    let payload_val: Value = serde_json::from_str(&payload)
+                        .unwrap_or_else(|_| Value::String(payload));
+                    json!({
+                        "id": id,
+                        "event_type": event_type,
+                        "source": source,
+                        "pod": pod,
+                        "timestamp": timestamp,
+                        "payload": payload_val,
+                    })
+                })
+                .collect();
+            let count = events.len();
+            Json(json!({ "events": events, "count": count }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
 

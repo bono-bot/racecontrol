@@ -323,6 +323,11 @@ pub struct PodFleetStatus {
     /// CX-06: "Healthy", "Maintenance", or "RemoveFromRotation"
     #[serde(default)]
     pub experience_status: Option<String>,
+    /// Phase 284: Average ready_delay (duration_to_playable_ms) for this pod over last 7 days.
+    pub avg_ready_delay_ms: Option<f64>,
+    /// Phase 284: Number of crash recovery events for this pod in last 24 hours.
+    #[serde(default)]
+    pub crash_recovery_count: i64,
 }
 
 /// Called from the WS StartupReport handler.
@@ -567,6 +572,32 @@ pub async fn fleet_health_handler(
     let fleet_snapshot = { state.pod_fleet_health.read().await.clone() };
     let violations_snapshot = { state.pod_violations.read().await.clone() };
 
+    // Phase 284: Query avg ready_delay and crash_recovery_count per pod from DB.
+    let ready_delay_rows: Vec<(String, f64)> = sqlx::query_as(
+        "SELECT pod_id, AVG(CAST(duration_to_playable_ms AS REAL))
+         FROM launch_events
+         WHERE duration_to_playable_ms IS NOT NULL
+           AND created_at >= datetime('now', '-7 days')
+         GROUP BY pod_id",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let ready_delay_map: HashMap<String, f64> = ready_delay_rows.into_iter().collect();
+
+    let crash_recovery_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT pod_id, COUNT(*)
+         FROM launch_events
+         WHERE outcome != '\"Success\"'
+           AND error_taxonomy = 'CrashRecovery'
+           AND created_at >= datetime('now', '-1 day')
+         GROUP BY pod_id",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let crash_recovery_map: HashMap<String, i64> = crash_recovery_rows.into_iter().collect();
+
     let mut result: Vec<PodFleetStatus> = Vec::with_capacity(8);
 
     for pod_number in 1u32..=8 {
@@ -604,6 +635,8 @@ pub async fn fleet_health_handler(
                     clock_drift_secs: None,
                     experience_score: None,
                     experience_status: None,
+                    avg_ready_delay_ms: None,
+                    crash_recovery_count: 0,
                 });
             }
             Some(info) => {
@@ -654,6 +687,8 @@ pub async fn fleet_health_handler(
                 let maintenance_flag = store.map(|s| s.maintenance_flag).unwrap_or(false);
                 let crashes_last_hour = store.map(|s| s.crashes_last_hour).unwrap_or(0);
                 let clock_drift_secs = store.and_then(|s| s.clock_drift_secs);
+                let avg_ready_delay_ms = ready_delay_map.get(pod_id).copied();
+                let crash_recovery_count = crash_recovery_map.get(pod_id).copied().unwrap_or(0);
 
                 result.push(PodFleetStatus {
                     pod_number,
@@ -681,6 +716,8 @@ pub async fn fleet_health_handler(
                     clock_drift_secs,
                     experience_score: store.and_then(|s| s.experience_score),
                     experience_status: store.and_then(|s| s.experience_status.clone()),
+                    avg_ready_delay_ms,
+                    crash_recovery_count,
                 });
             }
         }

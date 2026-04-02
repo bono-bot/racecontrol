@@ -22,8 +22,8 @@ use rc_common::protocol::DashboardEvent;
 use rc_common::types::{PodInfo, PodStatus, SimType};
 use racecontrol_crate::{
     ac_camera, ac_server, action_queue, api, app_health_monitor, auth,
-    billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
-    fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
+    backup_pipeline, billing, bono_relay, cloud_sync, db, deploy_awareness, error_aggregator,
+    event_archive, fleet_health, game_launcher, pod_healer, pod_monitor, pod_reservation,
     process_guard, psychology, remote_terminal, scheduler, server_ops,
     udp_heartbeat, ws,
 };
@@ -730,6 +730,13 @@ async fn main() -> anyhow::Result<()> {
     // Wired to WhatsApp + dashboard alert delivery
     racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
 
+    // v34.0 Phase 285: Metrics TSDB -- async ingestion pipeline + rollup/purge
+    let metrics_tx = racecontrol_crate::metrics_tsdb::spawn_metrics_ingestion(state.db.clone());
+    racecontrol_crate::metrics_tsdb::spawn_rollup_and_purge(state.db.clone());
+    tracing::info!("Metrics TSDB ingestion + rollup/purge tasks spawned");
+    racecontrol_crate::metrics_producers::spawn_metric_producers(state.clone(), metrics_tx);
+    tracing::info!("Metrics producers spawned (ws_connections, game_sessions, pod_health, billing_revenue)");
+
     // Spawn error rate alerter task — sends to both James and Uday on error spikes
     if error_rate_email_enabled {
         let email_script = email_script_for_alerter;
@@ -748,6 +755,17 @@ async fn main() -> anyhow::Result<()> {
             wa_alert_rx,
         ));
     }
+
+    // Spawn metric alert evaluation task
+    if !state.config.alert_rules.is_empty() {
+        let alert_state = state.clone();
+        tokio::spawn(racecontrol_crate::metric_alerts::metric_alert_task(alert_state));
+        tracing::info!(target: "startup", "metric alert task spawned ({} rules)", state.config.alert_rules.len());
+    }
+
+    // Spawn policy engine evaluation task (Phase 299 — re-loads rules each cycle from DB)
+    let policy_state = state.clone();
+    tokio::spawn(racecontrol_crate::policy_engine::policy_engine_task(policy_state));
 
     // Spawn notification outbox worker (UX-01: durable retry with exponential backoff)
     {
@@ -961,6 +979,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
     scheduler::spawn(state.clone());
+
+    // Spawn SQLite backup pipeline (hourly VACUUM INTO, rotation, staleness alert)
+    backup_pipeline::spawn(state.clone());
+    tracing::info!(target: "startup", "backup pipeline spawned");
+
+    // Spawn event archive pipeline (hourly tick: JSONL export, 90-day purge, nightly SCP)
+    event_archive::spawn(state.clone());
+    tracing::info!(target: "startup", "event_archive pipeline spawned");
 
     // Spawn psychology notification dispatcher (drains nudge_queue, routes to channels)
     psychology::spawn_dispatcher(state.clone());

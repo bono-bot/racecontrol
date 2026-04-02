@@ -1,6 +1,31 @@
 use serde::Deserialize;
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 
+// ─── Metric Alert Types (ALRT-01, ALRT-02) ────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertCondition {
+    Gt,
+    Lt,
+    Eq,
+}
+
+fn default_alert_severity() -> String {
+    "warn".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricAlertRule {
+    pub name: String,
+    pub metric: String,
+    pub condition: AlertCondition,
+    pub threshold: f64,
+    #[serde(default = "default_alert_severity")]
+    pub severity: String,
+    pub message_template: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -39,6 +64,16 @@ pub struct Config {
     pub billing: BillingConfig,
     #[serde(default)]
     pub mma: MmaConfig,
+    #[serde(default)]
+    pub alert_rules: Vec<MetricAlertRule>,
+    #[serde(default)]
+    pub backup: BackupConfig,
+    /// Phase 302: Structured event archive pipeline config.
+    #[serde(default)]
+    pub event_archive: EventArchiveConfig,
+    /// Phase 298 PRESET-04: Preset reliability scoring config.
+    #[serde(default)]
+    pub presets: PresetsConfig,
 }
 
 /// Unified MMA Protocol v3.0 config (v31.0+) — 30-day AI training period settings
@@ -555,6 +590,9 @@ pub struct BillingConfig {
     /// Grace period before auto-ending session when pod goes offline (seconds). Default: 300.
     #[serde(default = "default_offline_grace")]
     pub offline_grace_secs: u64,
+    /// Phase 283: HMAC secret for billing replay protection. If empty, a random secret is generated at startup.
+    #[serde(default)]
+    pub hmac_secret: String,
 }
 
 fn default_multiplayer_wait_timeout() -> u64 { 60 }
@@ -571,6 +609,7 @@ impl Default for BillingConfig {
             launch_timeout_per_attempt_secs: default_launch_timeout_per_attempt(),
             idle_drift_threshold_secs: default_idle_drift_threshold(),
             offline_grace_secs: default_offline_grace(),
+            hmac_secret: String::new(),
         }
     }
 }
@@ -890,6 +929,10 @@ impl Config {
             cafe: CafeConfig::default(),
             billing: BillingConfig::default(),
             mma: MmaConfig::default(),
+            alert_rules: Vec::new(),
+            backup: BackupConfig::default(),
+            event_archive: EventArchiveConfig::default(),
+            presets: PresetsConfig::default(),
         }
     }
 
@@ -954,6 +997,127 @@ impl Config {
                 self.cloud.sync_hmac_key = Some(val);
             }
         }
+    }
+}
+
+// ─── Backup Config (BACKUP-01, BACKUP-02) ────────────────────────────────────
+
+/// Configuration for the SQLite backup pipeline.
+/// All fields have serde defaults — no [backup] section needed in racecontrol.toml.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackupConfig {
+    /// Enable the backup pipeline (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory to store backup files (default: "./data/backups")
+    #[serde(default = "default_backup_dir")]
+    pub backup_dir: String,
+    /// How often to run backups in seconds (default: 3600 = 1 hour)
+    #[serde(default = "default_backup_interval_secs")]
+    pub interval_secs: u64,
+    /// Number of daily backup files to retain per database (default: 7)
+    #[serde(default = "default_daily_retain")]
+    pub daily_retain: usize,
+    /// Number of weekly backup files to retain per database (default: 4)
+    #[serde(default = "default_weekly_retain")]
+    pub weekly_retain: usize,
+    /// Enable remote backup transfer via rsync/scp (default: true)
+    #[serde(default = "default_true")]
+    pub remote_enabled: bool,
+    /// Remote host for backup transfers (default: Bono VPS)
+    #[serde(default = "default_remote_host")]
+    pub remote_host: String,
+    /// Remote path for backup storage (default: /root/racecontrol-backups)
+    #[serde(default = "default_remote_path")]
+    pub remote_path: String,
+    /// Hours without a successful backup before firing a WhatsApp alert (default: 2)
+    #[serde(default = "default_staleness_alert_hours")]
+    pub staleness_alert_hours: u64,
+}
+
+fn default_backup_dir() -> String { "./data/backups".to_string() }
+fn default_backup_interval_secs() -> u64 { 3600 }
+fn default_daily_retain() -> usize { 7 }
+fn default_weekly_retain() -> usize { 4 }
+fn default_remote_host() -> String { "root@100.70.177.44".to_string() }
+fn default_remote_path() -> String { "/root/racecontrol-backups".to_string() }
+fn default_staleness_alert_hours() -> u64 { 2 }
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            backup_dir: default_backup_dir(),
+            interval_secs: default_backup_interval_secs(),
+            daily_retain: default_daily_retain(),
+            weekly_retain: default_weekly_retain(),
+            remote_enabled: default_true(),
+            remote_host: default_remote_host(),
+            remote_path: default_remote_path(),
+            staleness_alert_hours: default_staleness_alert_hours(),
+        }
+    }
+}
+
+// ─── Event Archive Config (EVENT-01 to EVENT-04, Phase 302) ──────────────────
+
+/// Configuration for the structured event archive pipeline.
+/// Stores system-wide events in SQLite, exports daily JSONL, purges after 90 days,
+/// and SCPs JSONL files to Bono VPS nightly.
+/// All fields have serde defaults — no [event_archive] section needed in racecontrol.toml.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EventArchiveConfig {
+    /// Enable the event archive pipeline (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory to store JSONL export files (default: "./data/event-archive")
+    #[serde(default = "default_event_archive_dir")]
+    pub archive_dir: String,
+    /// Enable remote JSONL transfer to Bono VPS (default: true)
+    #[serde(default = "default_true")]
+    pub remote_enabled: bool,
+    /// Remote host for JSONL transfers (default: Bono VPS)
+    #[serde(default = "default_remote_host")]
+    pub remote_host: String,
+    /// Remote path for JSONL storage (default: /root/racecontrol-event-archive)
+    #[serde(default = "default_event_remote_path")]
+    pub remote_path: String,
+    /// Days to retain events in SQLite before purge (default: 90)
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_event_archive_dir() -> String { "./data/event-archive".to_string() }
+fn default_event_remote_path() -> String { "/root/racecontrol-event-archive".to_string() }
+fn default_retention_days() -> u32 { 90 }
+
+impl Default for EventArchiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            archive_dir: default_event_archive_dir(),
+            remote_enabled: default_true(),
+            remote_host: default_remote_host(),
+            remote_path: default_event_remote_path(),
+            retention_days: default_retention_days(),
+        }
+    }
+}
+
+/// Phase 298 PRESET-04: Config for preset reliability scoring.
+/// Presets below `unreliable_threshold` (and with >= 5 launches) are flagged as unreliable.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PresetsConfig {
+    /// Success rate below which a preset is flagged unreliable. Default 0.6 (60%).
+    #[serde(default = "default_unreliable_threshold")]
+    pub unreliable_threshold: f64,
+}
+
+fn default_unreliable_threshold() -> f64 { 0.6 }
+
+impl Default for PresetsConfig {
+    fn default() -> Self {
+        Self { unreliable_threshold: default_unreliable_threshold() }
     }
 }
 

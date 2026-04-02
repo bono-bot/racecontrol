@@ -38,6 +38,7 @@ use crate::ac_server;
 use crate::activity_log::log_pod_activity;
 use crate::auth;
 use crate::billing;
+use crate::event_archive;
 use crate::game_launcher;
 use crate::state::{AppState, CachedAssistState};
 
@@ -308,6 +309,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             // Phase 306: Tell rotation task which pod this connection serves
                             *jwt_rotation_pod_id.lock().await = Some((canonical_id.clone(), pod_info.number));
                             log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
+                            event_archive::append_event(&state.db, "pod.online", "ws", Some(&canonical_id), serde_json::json!({
+                                "pod_number": pod_info.number,
+                                "conn_id": conn_id,
+                            }));
 
                             // MMA-109: Scope each lock tightly — never hold across .await
                             // Lock order: agent_senders → agent_conn_ids → pods (consistent)
@@ -397,6 +402,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                                     dynamic_timeout_secs: None,
                                                     exit_codes: Vec::new(),
                                                     max_auto_relaunch: 2,
+                                                    playable_at: None,
+                                                    ready_delay_ms: None,
                                                 },
                                             );
                                             tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
@@ -477,6 +484,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             if !jwt_issued_for_conn.load(std::sync::atomic::Ordering::Relaxed) {
                                 issue_pod_jwt_to_agent(&state, &canonical_id, pod_info.number, &cmd_tx);
                                 jwt_issued_for_conn.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            // Phase 296 PUSH-02: Push stored full AgentConfig to pod on connect
+                            if let Err(e) = crate::config_push::push_full_config_to_pod(
+                                &state, &canonical_id, &cmd_tx,
+                            ).await {
+                                tracing::warn!("Failed to push full config to pod {} on connect: {}", canonical_id, e);
+                            }
+                            // Phase 298 PRESET-02: Push preset library to pod on connect
+                            if let Err(e) = crate::preset_library::push_presets_to_pod(&state, &canonical_id, &cmd_tx).await {
+                                tracing::warn!("Failed to push presets to pod {} on connect: {}", canonical_id, e);
                             }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
@@ -1008,6 +1025,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
+                            event_archive::append_event(&state.db, "pod.offline", "ws", Some(pod_id), serde_json::json!({ "reason": "agent_disconnect" }));
                             let has_active_billing = state
                                 .billing
                                 .active_timers

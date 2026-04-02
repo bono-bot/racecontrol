@@ -26,6 +26,7 @@ import {
   ToggleLeft,
   Activity,
   Rocket,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { fetchPublic } from "@/lib/api";
@@ -45,6 +46,7 @@ const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/", label: "Live Overview", Icon: LayoutDashboard },
   { href: "/pods", label: "Pods", Icon: Cpu },
   { href: "/fleet", label: "Fleet Health", Icon: Activity },
+  { href: "/metrics", label: "Metrics", Icon: BarChart2 },
   { href: "/games", label: "Games", Icon: Gamepad2 },
   { href: "/telemetry", label: "Telemetry", Icon: BarChart2 },
   { href: "/ac-lan", label: "AC LAN Race", Icon: Flag },
@@ -63,6 +65,7 @@ const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/cafe", label: "Cafe Menu", Icon: Coffee },
   { href: "/settings", label: "Settings", Icon: Settings },
   { href: "/flags", label: "Feature Flags", Icon: ToggleLeft },
+  { href: "/policy", label: "Policy Rules", Icon: GitBranch },
   { href: "/ota", label: "OTA Releases", Icon: Rocket },
 ];
 
