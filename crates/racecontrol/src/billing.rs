@@ -1456,7 +1456,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     if !expired_sessions.is_empty() {
         // Log activity for expired sessions
         for (pod_id, _, driving_seconds, driver_name) in &expired_sessions {
-            log_pod_activity(state, pod_id, "billing", "Session Expired", &format!("{} — {}s driven", driver_name, driving_seconds), "core");
+            log_pod_activity(state, pod_id, "billing", "Session Expired", &format!("{} — {}s driven", driver_name, driving_seconds), "core", None);
         }
 
         let agent_senders = state.agent_senders.read().await;
@@ -1633,7 +1633,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // Persist new disconnect pauses to DB
     for (pod_id, session_id, pause_count) in &new_pauses {
         log_pod_activity(state, pod_id, "billing", "Session Paused (Disconnect)",
-            &format!("Pod offline — pause {}/3", pause_count), "race_engineer");
+            &format!("Pod offline — pause {}/3", pause_count), "race_engineer", None);
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'paused_disconnect', pause_count = ?, last_paused_at = datetime('now')
              WHERE id = ?",
@@ -1677,7 +1677,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // Handle pause timeout auto-end with partial refund
     for (pod_id, session_id, driving_seconds, driver_id) in pause_timeout_end {
         log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended",
-            "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer");
+            "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer", None);
 
         // Calculate partial refund
         let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
@@ -1785,7 +1785,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     for (pod_id, session_id, reason) in sessions_to_auto_end {
         tracing::warn!("Auto-ending session {} on pod {} — {}", session_id, pod_id, reason);
         log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended (Offline)",
-            &reason, "race_engineer");
+            &reason, "race_engineer", None);
 
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', ended_at = datetime('now'),
@@ -1844,7 +1844,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 entry.attempt = 2;
                 entry.waiting_since = std::time::Instant::now();
                 log_pod_activity(state, &pod_id, "billing", "Launch Timeout",
-                    "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer");
+                    "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer", None);
             }
             // The agent-side LaunchState machine handles the actual retry
             // Send LaunchGame again to trigger retry
@@ -1866,7 +1866,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 pod_id
             );
             log_pod_activity(state, &pod_id, "billing", "Launch Failed",
-                "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer");
+                "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer", None);
 
             // BILL-06: Insert cancelled_no_playable record — no charge for customer
             if let Some(ref timed_out_entry) = entry {
@@ -2174,7 +2174,7 @@ pub async fn detect_orphaned_sessions_on_startup(state: &Arc<AppState>) {
             }
 
             // Log to activity feed for dashboard visibility
-            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "startup");
+            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "startup", None);
         }
         Err(e) => {
             tracing::error!("Failed to check for orphaned sessions on startup: {}", e);
@@ -2303,7 +2303,7 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
             if state.config.alerting.enabled {
                 whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
             }
-            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "background-job");
+            log_pod_activity(state, "server", "billing", "orphan_detection", &alert_msg, "background-job", None);
         }
         Err(e) => {
             tracing::error!("Background orphan detection query failed: {}", e);
@@ -2971,7 +2971,7 @@ pub async fn start_billing_session(
         tier.1
     );
 
-    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core");
+    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core", None);
     event_archive::append_event(&state.db, "billing.session_started", "billing", Some(&pod_id), serde_json::json!({
         "driver_id": driver_id,
         "tier": tier.1,
@@ -3108,6 +3108,7 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         "Session Started",
         &format!("{} — {} ({}min)", data.driver_name, data.pricing_tier_name, data.allocated_seconds / 60),
         "core",
+        None,
     );
 }
 
@@ -3153,7 +3154,7 @@ async fn set_billing_status(
                 BillingSessionStatus::Active => "Session Resumed",
                 _ => "Session Status Changed",
             };
-            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core");
+            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core", None);
 
             drop(timers);
 
@@ -3230,7 +3231,7 @@ pub async fn resume_billing_from_disconnect(
     drop(timers);
 
     log_pod_activity(state, &pod_id, "billing", "Session Resumed (Disconnect)",
-        &driver_name, "core");
+        &driver_name, "core", None);
 
     // Update DB
     let _ = sqlx::query(
@@ -3344,7 +3345,7 @@ async fn end_billing_session(
                 BillingSessionStatus::Cancelled => "Session Cancelled",
                 _ => "Session Expired",
             };
-            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core");
+            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core", None);
             event_archive::append_event(&state.db, "billing.session_ended", "billing", Some(&pod_id), serde_json::json!({
                 "driver_id": info.driver_id,
                 "driving_seconds": driving_seconds,
@@ -3629,7 +3630,7 @@ async fn end_billing_session(
             }
         }
 
-        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer");
+        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer", None);
 
         // Clear pod billing reference and restore idle state
         {

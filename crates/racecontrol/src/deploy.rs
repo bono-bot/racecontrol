@@ -427,6 +427,7 @@ async fn deploy_pod_inner(
         "Deploy Started",
         &format!("Binary: {} (self-swap)", binary_url),
         "deploy",
+        None,
     );
     event_archive::append_event(&state.db, "deploy.started", "deploy", Some(&pod_id), serde_json::json!({
         "binary_url": binary_url,
@@ -455,7 +456,7 @@ async fn deploy_pod_inner(
                 set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() })
                     .await;
                 send_deploy_failure_alert(&state, &pod_id, &reason).await;
-                log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+                log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy", None);
                 event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }), &state.config.venue.venue_id);
                 return;
             }
@@ -464,7 +465,7 @@ async fn deploy_pod_inner(
             let reason = format!("Download command failed: {}", e);
             set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
             send_deploy_failure_alert(&state, &pod_id, &reason).await;
-            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy", None);
             event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }), &state.config.venue.venue_id);
             return;
         }
@@ -504,6 +505,7 @@ async fn deploy_pod_inner(
                         "Deploy Failed",
                         &reason,
                         "deploy",
+                        None,
                     );
                     return;
                 }
@@ -524,7 +526,7 @@ async fn deploy_pod_inner(
                 )
                 .await;
                 send_deploy_failure_alert(&state, &pod_id, &reason).await;
-                log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+                log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy", None);
                 return;
             }
         },
@@ -532,7 +534,7 @@ async fn deploy_pod_inner(
             let reason = format!("Dir command failed: {}", e);
             set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
             send_deploy_failure_alert(&state, &pod_id, &reason).await;
-            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy", None);
             return;
         }
     }
@@ -663,6 +665,7 @@ async fn deploy_pod_inner(
                     delay
                 ),
                 "deploy",
+                None,
             );
             event_archive::append_event(&state.db, "deploy.completed", "deploy", Some(&pod_id), serde_json::json!({
                 "verify_delay_secs": delay,
@@ -734,7 +737,7 @@ async fn deploy_pod_inner(
             );
             set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
             send_deploy_failure_alert(&state, &pod_id, &reason).await;
-            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy", None);
             return;
         }
 
@@ -794,6 +797,7 @@ async fn deploy_pod_inner(
                     failure_reason
                 ),
                 "deploy",
+                None,
             );
             // Note: state stays Failed (with rollback context in reason) — pod is alive.
             // No separate RolledBack variant; the reason string tells the dashboard.
@@ -811,6 +815,7 @@ async fn deploy_pod_inner(
                 "Deploy + Rollback Failed",
                 &reason,
                 "deploy",
+                None,
             );
         }
     } else {
@@ -830,6 +835,7 @@ async fn deploy_pod_inner(
             "Deploy Failed",
             &failure_reason,
             "deploy",
+            None,
         );
         event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": failure_reason }), &state.config.venue.venue_id);
     }

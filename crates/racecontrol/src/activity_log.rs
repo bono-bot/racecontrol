@@ -64,6 +64,7 @@ pub fn log_pod_activity(
     action: &str,
     details: &str,
     source: &str,
+    session_id: Option<&str>,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -114,12 +115,13 @@ pub fn log_pod_activity(
     let details = details.to_string();
     let source = source.to_string();
     let venue_id = state.config.venue.venue_id.clone();
+    let session_id = session_id.map(|s| s.to_string());
 
     tokio::spawn(async move {
         let result = sqlx::query(
             "INSERT INTO pod_activity_log
-             (id, pod_id, pod_number, timestamp, category, action, details, source, venue_id, entry_hash, previous_hash)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, pod_id, pod_number, timestamp, category, action, details, source, venue_id, entry_hash, previous_hash, session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&pod_id)
@@ -132,6 +134,7 @@ pub fn log_pod_activity(
         .bind(&venue_id)
         .bind(&entry_hash)
         .bind(&prev_hash)
+        .bind(&session_id)
         .execute(&db)
         .await;
 

@@ -356,6 +356,7 @@ async fn heal_pod(
                     "Restart Flagged",
                     "Lock screen unresponsive + no WebSocket -- deferred to pod_monitor",
                     "race_engineer",
+                    None,
                 );
                 // Still add to issues for potential AI escalation context
                 issues.push(
@@ -468,6 +469,7 @@ async fn heal_pod(
                 activity_action,
                 &action.reason,
                 "race_engineer",
+                None,
             );
             event_archive::append_event(&state.db, "pod.recovery", "pod_healer", Some(&action.pod_id), serde_json::json!({
                 "action": action.action,
@@ -497,6 +499,7 @@ async fn heal_pod(
             "AI Analysis Requested",
             &issues.join("; "),
             "race_engineer",
+            None,
         );
         escalate_to_ai(state, pod, &issues, &actions).await;
 
@@ -777,6 +780,7 @@ async fn run_graduated_recovery(
                     "Network Partition Detected",
                     "Both rc-agent and rc-sentry unreachable — likely network issue, not process crash",
                     "race_engineer",
+                    None,
                 );
                 tracker.step = PodRecoveryStep::WakeOnLan;
                 return;
@@ -806,6 +810,7 @@ async fn run_graduated_recovery(
                         "Graduated Restart (Tier 1)",
                         "rc-agent restart via pod-agent (graduated step 2)",
                         "race_engineer",
+                        None,
                     );
                 }
                 _ => {
@@ -992,6 +997,7 @@ async fn run_graduated_recovery(
                                     mac_addr
                                 ),
                                 "race_engineer",
+                                None,
                             );
                         }
                         Err(e) => {
@@ -1072,6 +1078,7 @@ async fn run_graduated_recovery(
                             suggestion.chars().take(200).collect::<String>()
                         ),
                         "race_engineer",
+                        None,
                     );
                 }
                 Err(e) => {
@@ -1157,6 +1164,7 @@ async fn run_graduated_recovery(
                     offline_duration.as_secs() / 60
                 ),
                 "race_engineer",
+                None,
             );
         }
     }
@@ -1626,6 +1634,7 @@ async fn escalate_to_ai(
                     action_name,
                     &detail,
                     "ai_debugger",
+                    None,
                 );
                 tracing::info!(
                     "Pod healer: AI action parsed for {} — {} ({})",

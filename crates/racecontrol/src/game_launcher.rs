@@ -355,7 +355,7 @@ async fn launch_game(
         }
     }
 
-    log_pod_activity(state, pod_id, "game", "Game Launching", &format!("{}", sim_type), "core");
+    log_pod_activity(state, pod_id, "game", "Game Launching", &format!("{}", sim_type), "core", None);
 
     // LAUNCH-08: Query dynamic timeout from historical launch data
     let default_timeout_secs: u64 = match sim_type {
@@ -612,7 +612,7 @@ pub async fn relaunch_game(
         }
     }
 
-    log_pod_activity(state, pod_id, "game", "Game Relaunched", "Manual relaunch from kiosk", "core");
+    log_pod_activity(state, pod_id, "game", "Game Relaunched", "Manual relaunch from kiosk", "core", None);
 
     Ok(())
 }
@@ -635,7 +635,7 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
 
     if let Some(info) = info {
         // LAUNCH-19: Log actual sim_type, not empty string
-        log_pod_activity(state, pod_id, "game", "Game Stopping", &info.sim_type.to_string(), "core");
+        log_pod_activity(state, pod_id, "game", "Game Stopping", &info.sim_type.to_string(), "core", None);
 
         // Send command to agent (canonical pod_id guaranteed by normalization at entry)
         let senders = state.agent_senders.read().await;
@@ -959,6 +959,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     "Auto-Relaunching Game",
                     &format!("Race Engineer relaunching {} after crash (attempt {}/{}) — action: {}", sim_name, attempt, max_cap, best_action),
                     "race_engineer",
+                    None,
                 );
 
                 // Delayed relaunch (5s) — verify billing still active + game still in Error
@@ -1077,6 +1078,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             info.sim_type
                         ),
                         "race_engineer",
+                        None,
                     );
 
                     // Pause billing so customer doesn't pay for downtime
@@ -1249,7 +1251,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
 
     for (pod_id, sim_type, timeout_secs) in timed_out {
         tracing::warn!("Game launch timed out on pod {} ({}s limit for {:?})", pod_id, timeout_secs, sim_type);
-        log_pod_activity(state, &pod_id, "game", "Launch Timeout", &format!("{} failed to start within {}s", sim_type, timeout_secs), "core");
+        log_pod_activity(state, &pod_id, "game", "Launch Timeout", &format!("{} failed to start within {}s", sim_type, timeout_secs), "core", None);
 
         let timeout_msg = format!("Launch timed out ({}s)", timeout_secs);
         let info = GameLaunchInfo {

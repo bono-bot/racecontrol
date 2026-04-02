@@ -979,6 +979,7 @@ async fn enable_pod(
             // Phase 307 AUDIT-03: Log admin pod enable action
             crate::activity_log::log_pod_activity(
                 &state, &id, "admin", "Pod Enabled", "", "staff",
+                None,
             );
             Json(json!({ "status": "enabled", "pod_id": id }))
         }
@@ -1000,6 +1001,7 @@ async fn disable_pod(
             // Phase 307 AUDIT-03: Log admin pod disable action
             crate::activity_log::log_pod_activity(
                 &state, &id, "admin", "Pod Disabled", "", "staff",
+                None,
             );
             Json(json!({ "status": "disabled", "pod_id": id }))
         }
@@ -1172,6 +1174,7 @@ async fn lockdown_pod(
         lockdown_action,
         &format!("locked={}", locked),
         "staff",
+        None,
     );
 
     Json(json!({ "ok": true, "pod_id": id, "locked": locked }))
@@ -1532,7 +1535,7 @@ async fn clear_maintenance_pod(
     }
 
     tracing::info!("ClearMaintenance sent to pod {} (STAFF-02)", id);
-    crate::activity_log::log_pod_activity(&state, &id, "system", "Maintenance Cleared", "Staff cleared maintenance via dashboard", "staff");
+    crate::activity_log::log_pod_activity(&state, &id, "system", "Maintenance Cleared", "Staff cleared maintenance via dashboard", "staff", None);
 
     Json(json!({ "ok": true, "pod_id": id }))
 }
@@ -3858,6 +3861,7 @@ async fn start_billing(
         "Session Started",
         &format!("session_id={} driver={} tier={}", session_id, driver_id, pricing_tier_id),
         "core",
+        None,
     );
 
     // Phase 283: Generate nonce for replay protection
@@ -4104,6 +4108,7 @@ async fn stop_billing(
             "Session Ended",
             &format!("session_id={}", id),
             "staff",
+            None,
         );
         // Phase 283: Audit log + nonce cleanup
         crate::billing_replay::insert_audit_log(
@@ -8998,7 +9003,7 @@ async fn customer_continue_session(
             let manifest = state.pod_manifests.read().await.get(&reservation.pod_id).cloned();
             if let Err(reason) = catalog::validate_launch_combo(manifest.as_ref(), &car, &track, "") {
                 tracing::warn!("customer_book_session: launch rejected for pod {}: {}", reservation.pod_id, reason);
-                crate::activity_log::log_pod_activity(&state, &reservation.pod_id, "content", "Launch Rejected", &reason, "core");
+                crate::activity_log::log_pod_activity(&state, &reservation.pod_id, "content", "Launch Rejected", &reason, "core", None);
             } else {
                 let launch_args = serde_json::json!({
                     "car": car, "track": track, "driver": "Driver",
@@ -14365,6 +14370,7 @@ async fn create_pricing_rule(
                 &state, "server", "config", "Pricing Rule Created",
                 &format!("id={} type={} multiplier={}", id, rule_type, multiplier),
                 "staff",
+                None,
             );
             Json(json!({ "id": id }))
         }
@@ -16622,6 +16628,7 @@ async fn create_debug_incident(
         "Staff Report",
         &body.description,
         "staff",
+        None,
     );
 
     let playbook_json = playbook.map(|(pid, cat, title, steps)| {
@@ -16901,7 +16908,7 @@ async fn debug_apply_fix(
         let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
         format!("Fix '{}' failed on Pod {}: {}", action_label, pod.number, err)
     };
-    crate::activity_log::log_pod_activity(&state, pod_id, "race_engineer", "Quick Fix Applied", &detail, "staff");
+    crate::activity_log::log_pod_activity(&state, pod_id, "race_engineer", "Quick Fix Applied", &detail, "staff", None);
 
     // v27.0: Notify pod's tier engine about the staff action to reset dedup window
     if success {
@@ -17049,7 +17056,7 @@ async fn debug_diagnose(
             // Log diagnosis to activity feed
             let detail = if diagnosis.len() > 120 { format!("{}...", &diagnosis[..120]) } else { diagnosis.clone() };
             let log_pod = pod_id.as_deref().unwrap_or("system");
-            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis", &detail, "race_engineer");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis", &detail, "race_engineer", None);
 
             Json(json!({
                 "diagnosis": diagnosis,
@@ -17061,7 +17068,7 @@ async fn debug_diagnose(
         }
         Err(e) => {
             let log_pod = pod_id.as_deref().unwrap_or("system");
-            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis Failed", &e.to_string(), "race_engineer");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis Failed", &e.to_string(), "race_engineer", None);
             Json(json!({
                 "error": format!("AI diagnosis failed: {}", e),
                 "incident_id": inc_id,
@@ -17756,6 +17763,7 @@ async fn ota_deploy_handler(
         "OTA Deploy Initiated",
         &format!("version={} by={}", deploy_version, deploy_actor),
         "staff",
+        None,
     );
 
     // Spawn pipeline as background task
@@ -17825,6 +17833,7 @@ async fn watchdog_crash_report(
             report.exit_code, report.restart_count, report.crash_time, report.watchdog_version
         ),
         "watchdog",
+        None,
     );
 
     axum::http::StatusCode::OK

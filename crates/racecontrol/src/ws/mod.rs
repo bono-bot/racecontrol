@@ -308,7 +308,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             registered_pod_id = Some(canonical_id.clone());
                             // Phase 306: Tell rotation task which pod this connection serves
                             *jwt_rotation_pod_id.lock().await = Some((canonical_id.clone(), pod_info.number));
-                            log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
+                            log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent", None);
                             event_archive::append_event(&state.db, "pod.online", "ws", Some(&canonical_id), serde_json::json!({
                                 "pod_number": pod_info.number,
                                 "conn_id": conn_id,
@@ -693,7 +693,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 Some(err) => format!("{}: {}", info.sim_type, err),
                                 None => format!("{}", info.sim_type),
                             };
-                            log_pod_activity(&state, &info.pod_id, "game", gs_action, &gs_details, "agent");
+                            log_pod_activity(&state, &info.pod_id, "game", gs_action, &gs_details, "agent", None);
                             game_launcher::handle_game_state_update(&state, info.clone()).await;
                         }
                         AgentMessage::AiDebugResult(suggestion) => {
@@ -722,7 +722,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         }
                         AgentMessage::PinEntered { pod_id, pin } => {
                             tracing::info!("PIN entered on pod {}", pod_id);
-                            log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent");
+                            log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent", None);
                             auth::handle_pin_entered(&state, pod_id.clone(), pin.clone()).await;
                         }
                         AgentMessage::Pong { id, agent_delay_us } => {
@@ -759,16 +759,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         }
                         AgentMessage::GameStatusUpdate { pod_id, ac_status, sim_type } => {
                             tracing::info!("Pod {} AC STATUS: {:?}", pod_id, ac_status);
-                            log_pod_activity(&state, pod_id, "game", &format!("AC Status: {:?}", ac_status), "", "agent");
+                            log_pod_activity(&state, pod_id, "game", &format!("AC Status: {:?}", ac_status), "", "agent", None);
                             billing::handle_game_status_update(&state, pod_id, *ac_status, *sim_type, &cmd_tx).await;
                         }
                         AgentMessage::FfbZeroed { pod_id } => {
                             tracing::info!("Pod {} FFB zeroed (safety action completed)", pod_id);
-                            log_pod_activity(&state, pod_id, "safety", "FFB Zeroed", "Wheelbase torque set to 0", "agent");
+                            log_pod_activity(&state, pod_id, "safety", "FFB Zeroed", "Wheelbase torque set to 0", "agent", None);
                         }
                         AgentMessage::GameCrashed { pod_id, billing_active } => {
                             tracing::warn!("Pod {} game crashed (billing_active={})", pod_id, billing_active);
-                            log_pod_activity(&state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent");
+                            log_pod_activity(&state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent", None);
                             // CRASH-02: Auto-pause billing on game crash
                             if *billing_active {
                                 let mut timers = state.billing.active_timers.write().await;
@@ -838,7 +838,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 pod_id, assist_type, enabled, confirmed
                             );
                             log_pod_activity(&state, pod_id, "game", "Assist Changed",
-                                &format!("{} = {} (confirmed: {})", assist_type, enabled, confirmed), "agent");
+                                &format!("{} = {} (confirmed: {})", assist_type, enabled, confirmed), "agent", None);
                             // Update assist cache with the changed value
                             {
                                 let mut cache = state.assist_cache.write().await;
@@ -854,7 +854,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         AgentMessage::FfbGainChanged { pod_id, percent } => {
                             tracing::info!("Pod {} FFB gain changed to {}%", pod_id, percent);
                             log_pod_activity(&state, pod_id, "game", "FFB Gain Changed",
-                                &format!("{}%", percent), "agent");
+                                &format!("{}%", percent), "agent", None);
                             // Update FFB percent in assist cache
                             {
                                 let mut cache = state.assist_cache.write().await;
@@ -868,7 +868,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 pod_id, abs, tc, auto_shifter, ffb_percent
                             );
                             log_pod_activity(&state, pod_id, "game", "Assist State",
-                                &format!("ABS={} TC={} auto_shifter={} FFB={}%", abs, tc, auto_shifter, ffb_percent), "agent");
+                                &format!("ABS={} TC={} auto_shifter={} FFB={}%", abs, tc, auto_shifter, ffb_percent), "agent", None);
                             // Replace entire cached state for this pod with fresh data from agent
                             {
                                 let mut cache = state.assist_cache.write().await;
@@ -886,7 +886,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 let track_count = manifest.tracks.len();
                                 tracing::info!("Pod {} content manifest: {} cars, {} tracks", pod_id, car_count, track_count);
                                 log_pod_activity(&state, pod_id, "content", "Content Scanned",
-                                    &format!("{} cars, {} tracks", car_count, track_count), "agent");
+                                    &format!("{} cars, {} tracks", car_count, track_count), "agent", None);
                                 state.pod_manifests.write().await.insert(pod_id.clone(), manifest.clone());
                             }
                         }
@@ -937,6 +937,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 &format!("v{} uptime={}s hash={} crash_recovery={} repairs={:?}",
                                     version, uptime_secs, config_hash, crash_recovery, repairs),
                                 "agent",
+                                None,
                             );
                             // Store version + uptime + boot verification for fleet health dashboard.
                             let crash_loop_just_detected = {
@@ -974,7 +975,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 pod_id, device, timestamp
                             );
                             log_pod_activity(&state, pod_id, "hardware", "USB Disconnect",
-                                &format!("{} disconnected", device), "agent");
+                                &format!("{} disconnected", device), "agent", None);
 
                             // Pause active billing session if present
                             // Snapshot pod_id and billing state before async work
@@ -1026,7 +1027,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
-                            log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
+                            log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent", None);
                             event_archive::append_event(&state.db, "pod.offline", "ws", Some(pod_id), serde_json::json!({ "reason": "agent_disconnect" }), &state.config.venue.venue_id);
                             let has_active_billing = state
                                 .billing
@@ -1089,6 +1090,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "Process Approval Request",
                                 &format!("Process '{}' at '{}' seen {} times — awaiting approval", process_name, exe_path, sighting_count),
                                 "rc-bot",
+                                None,
                             );
                             // TODO: forward to admin dashboard for approve/reject UI
                             // For now, log and let TTL handle it (auto-reject after 10min)
@@ -1102,6 +1104,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "Kiosk Lockdown",
                                 &reason,
                                 "rc-bot",
+                                None,
                             );
 
                             // Auto-pause active billing session on this pod (SESS-05)
@@ -1121,7 +1124,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 .execute(&state.db)
                                 .await;
                                 tracing::warn!("[kiosk] Billing session {} auto-paused due to lockdown on pod {}", session_id, pod_id);
-                                log_pod_activity(&state, &pod_id, "billing", "Auto-Pause", &pause_reason, "rc-bot");
+                                log_pod_activity(&state, &pod_id, "billing", "Auto-Pause", &pause_reason, "rc-bot", None);
                             }
 
                             // WhatsApp alert with debounce (SESS-05)
@@ -1147,6 +1150,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "Session Auto-Ended",
                                 &format!("session={} reason={}", billing_session_id, reason),
                                 "rc-agent",
+                                None,
                             );
                         }
                         // SESSION-03 + FSM-04: Billing paused during crash recovery.
@@ -1185,7 +1189,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         // Phase 50: Agent returns self-test probe results.
                         AgentMessage::PreFlightPassed { pod_id } => {
                             tracing::info!("Pod {} pre-flight checks passed", pod_id);
-                            log_pod_activity(&state, pod_id, "system", "Pre-flight Passed", "All checks passed before session start", "agent");
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Passed", "All checks passed before session start", "agent", None);
                             // Phase 100 (STAFF-03): Clear maintenance state — pod is healthy.
                             {
                                 let mut fleet = state.pod_fleet_health.write().await;
@@ -1196,7 +1200,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         }
                         AgentMessage::PreFlightFailed { pod_id, failures, .. } => {
                             tracing::warn!("Pod {} pre-flight checks failed: {:?}", pod_id, failures);
-                            log_pod_activity(&state, pod_id, "system", "Pre-flight Failed", &format!("Failures: {:?}", failures), "agent");
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Failed", &format!("Failures: {:?}", failures), "agent", None);
                             // Phase 100 (STAFF-03): Mark pod as in maintenance with failure details.
                             {
                                 let mut fleet = state.pod_fleet_health.write().await;
@@ -1288,6 +1292,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "Idle Health Failed",
                                 &format!("Failures: {:?}, consecutive: {}", failures, consecutive_count),
                                 "agent",
+                                None,
                             );
                             {
                                 let mut fleet = state.pod_fleet_health.write().await;
@@ -1532,6 +1537,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     "Pod Diagnosis Complete",
                                     &log_detail,
                                     "race_engineer",
+                                    None,
                                 );
                             }
 
@@ -1648,6 +1654,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "Customer Idle",
                                 &format!("No input for {}s — staff alert sent", idle_seconds),
                                 "agent",
+                                None,
                             );
                             // Broadcast to staff dashboard — do NOT auto-end the session
                             let _ = state.dashboard_tx.send(DashboardEvent::InactivityAlert {
@@ -1859,7 +1866,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                     && pod.status != rc_common::types::PodStatus::Disabled
                 {
                     tracing::warn!("Pod {} WebSocket dropped without Disconnect (conn_id={}) — marking Offline", pod_id, conn_id);
-                    log_pod_activity(&state, pod_id, "system", "Pod Disconnected", &format!("WebSocket dropped unexpectedly (conn_id={})", conn_id), "core");
+                    log_pod_activity(&state, pod_id, "system", "Pod Disconnected", &format!("WebSocket dropped unexpectedly (conn_id={})", conn_id), "core", None);
                     pod.status = rc_common::types::PodStatus::Offline;
                     pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
                     // Preserve game_state if billing is active — agent will resync on reconnect

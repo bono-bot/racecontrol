@@ -123,6 +123,7 @@ async fn check_all_pods(
                         "Pod Recovered",
                         &format!("Recovered after {} restart attempt(s)", attempt_count),
                         "race_engineer",
+                        None,
                     );
                     // Emit PodOnline event to Bono relay (pod transitioned offline -> online)
                     let _ = state.bono_event_tx.send(BonoEvent::PodOnline {
@@ -178,6 +179,7 @@ async fn check_all_pods(
                 "Heartbeat Lost",
                 &format!("No heartbeat for {}s", heartbeat_timeout),
                 "race_engineer",
+                None,
             );
 
             let mut pods_lock = state.pods.write().await;

@@ -292,6 +292,7 @@ pub async fn handle_multiplayer_failure(
             reason, resolved_session_id, group_pods
         ),
         "bot",
+        None,
     );
 }
 

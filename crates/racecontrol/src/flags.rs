@@ -288,6 +288,7 @@ pub async fn update_flag(
         "Feature Flag Updated",
         &format!("flag={} enabled={} by={}", name, new_enabled, claims.sub),
         "staff",
+        None,
     );
 
     Ok(Json(new_row))
