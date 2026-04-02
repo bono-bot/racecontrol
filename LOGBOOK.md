@@ -3,6 +3,18 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-02 20:38 IST | James | 20df022e | fix: MI false positives — venue close auto-resolves + dashboard_orphan gated |
+| 2026-04-02 20:08 IST | James | 3007cfef | feat: MI Session 0 detection + fleet KB seed scripts |
+| 2026-04-02 19:52 IST | James | 27bc076a | feat: venue_state — ping-based open detection replaces hardcoded hours + pod offline MI bridge |
+| 2026-04-02 19:13 IST | James | 91980c3b | feat: MI Phase 1 — dashboard WS client census + DASHBOARD_ORPHAN detection |
+| 2026-04-02 18:52 IST | James | 068d279b | fix: kiosk WS "Connecting" — accept token from protocol header + type sync |
+| 2026-04-02 18:35 IST | James | 4ea0b5fa | fix: MMA-hardened MI blind spot bridge — 5 consensus P1/P2 fixes |
+| 2026-04-02 18:22 IST | James | 29df1b65 | feat: MI blind spot fixes — app_health→fleet_kb bridge + fleet app degradation detection |
+| 2026-04-02 18:04 IST | James | 7cec2601 | feat: fleet anomaly detection — 4 MI gaps closed (build skew, clock drift, slow ready, violation spike) |
+| 2026-04-02 16:56 IST | James | 4fc6c3e8 | fix: permanent fixes for 2 deployment issues discovered during v34-v39 rollout |
+| 2026-04-02 15:13 IST | James | 3d36200d | fix: eliminate single-probe-failure assumptions across 4 monitoring systems |
+| 2026-04-02 14:55 IST | James | 3501828c | feat(310): session trace ID propagation — end-to-end customer journey tracing |
+| 2026-04-02 14:31 IST | James | 60df0f53 | feat(v38.0): Meshed Intelligence v2 — semantic health, dependency chain, auto-restart, probes |
 | 2026-04-01 15:15 IST | James | 93f0bddf | feat: Phase 281 scaffolding — PausedCrashRecovery billing state, FSM transitions, timer tick |
 | 2026-04-01 15:06 IST | James | 52eefe88 | feat(BILL-13): deferred billing for kiosk staff path — timer starts on game-live, not staff click. Wallet debit upfront (FATM-01), timer deferred to PlayableSignal. Auto-refund if game never loads. v33.0 Phase 280. |
 | 2026-04-01 13:47 IST | James | e6e82e10 | fix: winapi dep for server mutex, openrouter key recovery in rc-agent, deploy bat updates |

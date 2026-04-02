@@ -9380,7 +9380,7 @@ async fn kiosk_book_multiplayer(
 
 /// PIN configuration constants — exposed via kiosk settings so the frontend
 /// reads config truth instead of hardcoding (standing rule: UI must reflect config truth).
-const PIN_REDEEM_LENGTH: u32 = 6;
+const PIN_REDEEM_LENGTH: u32 = 4;
 const PIN_REDEEM_MAX_ATTEMPTS: u32 = 10;
 const PIN_REDEEM_LOCKOUT_SECONDS: u32 = 300;
 

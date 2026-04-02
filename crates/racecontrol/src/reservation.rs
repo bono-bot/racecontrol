@@ -18,7 +18,7 @@ use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 
 /// 31-char charset excluding ambiguous characters (O/0/I/1/L).
 const PIN_CHARSET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const PIN_LENGTH: usize = 6;
+const PIN_LENGTH: usize = 4;
 
 #[derive(serde::Deserialize)]
 pub struct CreateReservationRequest {

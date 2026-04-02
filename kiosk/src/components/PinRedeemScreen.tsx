@@ -10,7 +10,7 @@ const AUTO_RETURN_ERROR_MS = 10_000;
 
 // Defaults matching backend constants (PIN_REDEEM_LENGTH, etc. in routes.rs).
 // Can be overridden via pinConfig prop when parent fetches /kiosk/settings.
-const DEFAULT_PIN_LENGTH = 6;
+const DEFAULT_PIN_LENGTH = 4;
 
 type RedeemStep = "entry" | "validating" | "success" | "error" | "lockout";
 
