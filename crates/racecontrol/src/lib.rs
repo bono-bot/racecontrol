@@ -39,6 +39,7 @@ pub mod feedback_loop;
 pub mod config_push;
 pub mod flags;
 pub mod fleet_alert;
+pub mod fleet_deploy;
 pub mod fleet_healer;
 pub mod fleet_health;
 pub mod fleet_kb;
