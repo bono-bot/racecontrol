@@ -120,10 +120,18 @@ pub struct VenueConfig {
     /// GST Identification Number (15-char alphanumeric). Used for invoice generation.
     #[serde(default = "default_venue_gstin")]
     pub venue_gstin: String,
+    /// Venue identifier for multi-venue schema (Phase 303, VENUE-01).
+    /// Default 'racingpoint-hyd-001' — backward compatible, no TOML change required.
+    #[serde(default = "default_venue_id")]
+    pub venue_id: String,
 }
 
 fn default_venue_gstin() -> String {
     "36PLACEHOLDER0Z0".to_string()
+}
+
+fn default_venue_id() -> String {
+    "racingpoint-hyd-001".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -901,6 +909,7 @@ impl Config {
                 location: default_location(),
                 timezone: default_timezone(),
                 venue_gstin: default_venue_gstin(),
+                venue_id: default_venue_id(),
             },
             server: ServerConfig {
                 host: default_host(),
