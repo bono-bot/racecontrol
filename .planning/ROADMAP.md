@@ -84,6 +84,11 @@ Plans:
 - `crates/rc-agent/src/ws_handler.rs` — command handlers (send ACK after processing)
 - `crates/racecontrol/src/ws/mod.rs` — receive ACK and resolve waiting future
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 312-01-PLAN.md -- CommandAck protocol: agent ACKs for launch/stop, server 5s timeout wait
+
 ---
 
 ### Phase 313: Game State Resilience
