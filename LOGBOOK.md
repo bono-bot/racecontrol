@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-03 01:00 IST | James | f2690e06 | cgp: v3.2 — automated verification (pod-verify.sh), 6 new rules from 5 user corrections, G5 multi-probe, quick-start bat, delete-before-SCP |
+| 2026-04-03 00:30 IST | James | b4868e86 | cgp: v3.1 — G1/G4 enforcement hooks, two-phase completion rule, proxy metrics prohibited as proof |
+| 2026-04-02 23:45 IST | James | 823d55ba | fix: pod recovery circular deferral — pod_healer Tier 1 now uses sentry:8091 (not dead agent:8090), bat timeout→ping, schtask SYSTEM→User |
 | 2026-04-02 23:30 IST | James | 53e81e90 | fix: TIMER-SYNC — defer SessionEnforcer to AcStatus::Live so billing and game timers start together (MMA 3-model consensus: Approach B) |
 | 2026-04-02 23:00 IST | James | 81186955 | fix: AC game launcher — splash dismissal + taskkill verification + orphan auto-cleanup (MMA 2-model audit) |
 | 2026-04-02 22:36 IST | James | 8184d4f3 | fix: refund wallet when stale billing sessions auto-cancelled (Bug #11 + BILL-13) — E2E regression test found money-loss bug |
