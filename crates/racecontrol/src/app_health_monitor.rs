@@ -131,6 +131,57 @@ pub fn spawn(state: Arc<AppState>) {
                 crate::dependency_chain::evaluate_and_alert(&state, &entries).await;
             }
 
+            // MI Bridge: Log persistent app degradation as fleet incidents.
+            // After 5 consecutive failures (~2.5 min at 30s interval), record an
+            // incident in the fleet KB so Meshed Intelligence can learn from it.
+            // This bridges the gap where app_health_monitor detected 11,535 kiosk
+            // errors but MI never knew about them (no DiagnosticEvent was emitted).
+            {
+                let consecutive = CONSECUTIVE_FAILURES.lock().ok();
+                for entry in &entries {
+                    let count = consecutive.as_ref()
+                        .and_then(|m| m.get(&entry.app).copied())
+                        .unwrap_or(0);
+                    // Emit incident at 5 consecutive failures, then every 20th after that
+                    if count == 5 || (count > 5 && count % 20 == 0) {
+                        let incident = rc_common::mesh_types::MeshIncident {
+                            id: format!("inc_app_{}_{}", entry.app, chrono::Utc::now().timestamp()),
+                            node: "server".to_string(),
+                            problem_key: format!("app_degraded:{}", entry.app),
+                            severity: if count >= 20 {
+                                rc_common::mesh_types::IncidentSeverity::High
+                            } else {
+                                rc_common::mesh_types::IncidentSeverity::Medium
+                            },
+                            cost: 0.0,
+                            resolution: None,
+                            time_to_resolve_secs: None,
+                            resolved_by_tier: None,
+                            detected_at: chrono::Utc::now(),
+                            resolved_at: None,
+                        };
+                        let db = state.db.clone();
+                        let app_name = entry.app.clone();
+                        let error_msg = entry.error.clone().unwrap_or_default();
+                        let fail_count = count;
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::fleet_kb::insert_incident(&db, &incident).await {
+                                tracing::warn!(
+                                    target: "app_health_monitor",
+                                    "Failed to log MI incident for {}: {}", app_name, e
+                                );
+                            } else {
+                                tracing::info!(
+                                    target: "app_health_monitor",
+                                    "MI BRIDGE: Logged fleet incident for {} ({} consecutive failures: {})",
+                                    app_name, fail_count, error_msg
+                                );
+                            }
+                        });
+                    }
+                }
+            }
+
             // Phase 3: Auto-restart unhealthy apps via pm2
             for entry in &entries {
                 maybe_restart_app(&state, &entry.app).await;

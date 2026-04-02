@@ -577,6 +577,7 @@ async fn detect_fleet_anomalies(
     static LAST_BUILD_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_DRIFT_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_DELAY_ALERT: AtomicI64 = AtomicI64::new(0);
+    static LAST_APP_DEGRADED_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_VIOLATION_ALERT: AtomicI64 = AtomicI64::new(0);
     const COOLDOWN_SECS: i64 = 900; // 15 minutes
 
@@ -751,6 +752,43 @@ async fn detect_fleet_anomalies(
                 );
                 crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
             }
+        }
+    }
+
+    // ── 5. App health degradation (MI bridge — server-side blind spot) ─────
+    // Check app_health_monitor consecutive failures. If any app has been
+    // degraded for >5 consecutive probes, alert at fleet level.
+    // This closes the gap where 11,535 kiosk errors went undetected by MI.
+    {
+        let apps = ["admin", "kiosk", "web"];
+        let mut degraded: Vec<(&str, u32)> = Vec::new();
+
+        for app in &apps {
+            let count = crate::app_health_monitor::get_consecutive_failures(app);
+            if count >= 5 {
+                degraded.push((app, count));
+                tracing::warn!(
+                    target: "fleet-anomaly",
+                    "APP_DEGRADED: {} has {} consecutive health failures",
+                    app, count
+                );
+            }
+        }
+
+        if !degraded.is_empty()
+            && now_ts - LAST_APP_DEGRADED_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS
+        {
+            LAST_APP_DEGRADED_ALERT.store(now_ts, Ordering::Relaxed);
+            let list: Vec<String> = degraded
+                .iter()
+                .map(|(app, c)| format!("{}: {} failures", app, c))
+                .collect();
+            let msg = format!(
+                "⚠ APP DEGRADED: {} app(s) failing health checks (>2.5 min):\n{}\nCheck app_health_log for details. May need pm2 restart.",
+                degraded.len(),
+                list.join(", ")
+            );
+            crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
         }
     }
 }
