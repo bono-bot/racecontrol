@@ -242,6 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_or_generate_creates_missing_files() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = test_dir("load_create");
         let cert_path = dir.join("cert.pem");
         let key_path = dir.join("key.pem");
@@ -265,6 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_or_generate_uses_existing_files() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = test_dir("load_existing");
         let cert_path = dir.join("cert.pem");
         let key_path = dir.join("key.pem");

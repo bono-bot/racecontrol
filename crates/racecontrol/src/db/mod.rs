@@ -1279,15 +1279,20 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .await?;
 
     // Phase 301: Cloud Data Sync v2 migrations
-    // model_evaluations table (SYNC-02): stores AI diagnosis accuracy tracking
+    // model_evaluations table (SYNC-02 + v35 fleet_kb): unified schema
+    // James v37 fields: model_name, problem_key, actual, diagnosis_tier, updated_at, venue_id
+    // Bono v35 fields: model_id, trigger_type, actual_outcome
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS model_evaluations (
             id TEXT PRIMARY KEY,
-            model_name TEXT NOT NULL,
+            model_id TEXT NOT NULL DEFAULT '',
+            model_name TEXT NOT NULL DEFAULT '',
             pod_id TEXT,
+            trigger_type TEXT NOT NULL DEFAULT '',
             problem_key TEXT,
             prediction TEXT,
             actual TEXT,
+            actual_outcome TEXT NOT NULL DEFAULT '',
             correct INTEGER NOT NULL DEFAULT 0,
             cost_usd REAL DEFAULT 0,
             diagnosis_tier TEXT,
