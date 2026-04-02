@@ -705,6 +705,24 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
             Ok(Ok(result)) => {
                 if result.success {
                     tracing::info!("Stop ACK received for pod {} (command_id={})", pod_id, stop_command_id);
+                    // GSTATE-03: On successful ACK, remove tracker immediately (don't wait for agent Idle report)
+                    {
+                        let mut games = state.game_launcher.active_games.write().await;
+                        if let Some(tracker) = games.get(&*pod_id_owned) {
+                            if tracker.game_state == GameState::Stopping {
+                                games.remove(&*pod_id_owned);
+                                tracing::info!("GSTATE-03: Cleared GameTracker for pod {} after successful stop ACK", pod_id);
+                            }
+                        }
+                    }
+                    // GSTATE-03: Update pod info to reflect no active game
+                    {
+                        let mut pods = state.pods.write().await;
+                        if let Some(pod) = pods.get_mut(&*pod_id_owned) {
+                            pod.game_state = Some(GameState::Idle);
+                            pod.current_game = None;
+                        }
+                    }
                 } else {
                     tracing::warn!("Agent ACK failure for stop on pod {}: {:?}", pod_id, result.error);
                 }
@@ -1289,20 +1307,34 @@ pub async fn check_game_health(state: &Arc<AppState>) {
     let now = Utc::now();
     let mut timed_out = Vec::new();
 
+    let mut needs_launched_at = Vec::new();
+
     {
         let games = state.game_launcher.active_games.read().await;
         for (pod_id, tracker) in games.iter() {
             if tracker.game_state == GameState::Launching {
                 if let Some(launched_at) = tracker.launched_at {
                     let elapsed = now.signed_duration_since(launched_at);
+                    let elapsed_secs = elapsed.num_seconds();
                     // LAUNCH-08: Use stored dynamic timeout, fall back to game-specific default
                     let timeout_secs = tracker.dynamic_timeout_secs.unwrap_or(match tracker.sim_type {
                         SimType::AssettoCorsa | SimType::AssettoCorsaRally | SimType::AssettoCorsaEvo => 120,
                         _ => 90,
                     });
-                    if elapsed.num_seconds() > timeout_secs {
+                    let mut already_timed_out = false;
+                    if elapsed_secs > timeout_secs {
                         timed_out.push((pod_id.clone(), tracker.sim_type, timeout_secs));
+                        already_timed_out = true;
                     }
+                    // GSTATE-01: Hard cap at 180s regardless of dynamic timeout
+                    if !already_timed_out && elapsed_secs > 180 {
+                        tracing::warn!("GSTATE-01: Hard-cap 180s timeout for pod {} (dynamic was {}s)", pod_id, timeout_secs);
+                        timed_out.push((pod_id.clone(), tracker.sim_type, 180));
+                    }
+                } else {
+                    // GSTATE-01: No launched_at = likely reconstructed from reconnect.
+                    // Backfill with current time so the next health tick starts the countdown.
+                    needs_launched_at.push(pod_id.clone());
                 }
             }
             // STATE-01 edge case: detect stale Stopping state from server restart
@@ -1320,6 +1352,20 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                     if (since_launch > 30 && since_launch < 90) || since_launch > 300 {
                         timed_out.push((pod_id.clone(), tracker.sim_type, 30));
                     }
+                }
+            }
+        }
+    }
+
+    // GSTATE-01: Backfill launched_at for trackers that had None (e.g., from reconnect reconciliation).
+    // Next check_game_health tick (5s) will start the real countdown.
+    if !needs_launched_at.is_empty() {
+        let mut games = state.game_launcher.active_games.write().await;
+        for pod_id in &needs_launched_at {
+            if let Some(tracker) = games.get_mut(pod_id) {
+                if tracker.game_state == GameState::Launching && tracker.launched_at.is_none() {
+                    tracker.launched_at = Some(now);
+                    tracing::warn!("GSTATE-01: Backfilled launched_at for pod {} (was None, likely from reconnect)", pod_id);
                 }
             }
         }
