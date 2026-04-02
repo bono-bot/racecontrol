@@ -134,21 +134,34 @@ pub fn spawn(state: Arc<AppState>) {
             // MI Bridge: Log persistent app degradation as fleet incidents.
             // After 5 consecutive failures (~2.5 min at 30s interval), record an
             // incident in the fleet KB so Meshed Intelligence can learn from it.
-            // This bridges the gap where app_health_monitor detected 11,535 kiosk
-            // errors but MI never knew about them (no DiagnosticEvent was emitted).
+            // MMA P1 fixes: nanosecond IDs, incident resolution on recovery, poison logging.
             {
-                let consecutive = CONSECUTIVE_FAILURES.lock().ok();
-                for entry in &entries {
-                    let count = consecutive.as_ref()
-                        .and_then(|m| m.get(&entry.app).copied())
-                        .unwrap_or(0);
+                // MMA P2: Log poisoned mutex instead of silent skip
+                let counts: Vec<(String, u32)> = match CONSECUTIVE_FAILURES.lock() {
+                    Ok(map) => entries.iter().map(|e| {
+                        (e.app.clone(), map.get(&e.app).copied().unwrap_or(0))
+                    }).collect(),
+                    Err(poisoned) => {
+                        tracing::error!(
+                            target: "app_health_monitor",
+                            "CONSECUTIVE_FAILURES mutex poisoned — MI bridge disabled this cycle: {}",
+                            poisoned
+                        );
+                        vec![]
+                    }
+                };
+                // MMA P2: Lock dropped here — no allocations or spawns while held
+
+                for (app_name, count) in &counts {
                     // Emit incident at 5 consecutive failures, then every 20th after that
-                    if count == 5 || (count > 5 && count % 20 == 0) {
+                    if *count == 5 || (*count > 5 && *count % 20 == 0) {
+                        // MMA P1: Use nanosecond timestamp for unique IDs
+                        let nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
                         let incident = rc_common::mesh_types::MeshIncident {
-                            id: format!("inc_app_{}_{}", entry.app, chrono::Utc::now().timestamp()),
+                            id: format!("inc_app_{}_{}", app_name, nanos),
                             node: "server".to_string(),
-                            problem_key: format!("app_degraded:{}", entry.app),
-                            severity: if count >= 20 {
+                            problem_key: format!("app_degraded:{}", app_name),
+                            severity: if *count >= 20 {
                                 rc_common::mesh_types::IncidentSeverity::High
                             } else {
                                 rc_common::mesh_types::IncidentSeverity::Medium
@@ -161,21 +174,51 @@ pub fn spawn(state: Arc<AppState>) {
                             resolved_at: None,
                         };
                         let db = state.db.clone();
-                        let app_name = entry.app.clone();
-                        let error_msg = entry.error.clone().unwrap_or_default();
-                        let fail_count = count;
+                        let app = app_name.clone();
+                        let error_msg = entries.iter()
+                            .find(|e| e.app == *app_name)
+                            .and_then(|e| e.error.clone())
+                            .unwrap_or_default();
+                        let fail_count = *count;
                         tokio::spawn(async move {
                             if let Err(e) = crate::fleet_kb::insert_incident(&db, &incident).await {
                                 tracing::warn!(
                                     target: "app_health_monitor",
-                                    "Failed to log MI incident for {}: {}", app_name, e
+                                    "Failed to log MI incident for {}: {}", app, e
                                 );
                             } else {
                                 tracing::info!(
                                     target: "app_health_monitor",
                                     "MI BRIDGE: Logged fleet incident for {} ({} consecutive failures: {})",
-                                    app_name, fail_count, error_msg
+                                    app, fail_count, error_msg
                                 );
+                            }
+                        });
+                    }
+
+                    // MMA P1: Resolve incident when app recovers (count drops to 0)
+                    if *count == 0 {
+                        let db = state.db.clone();
+                        let problem_key = format!("app_degraded:{}", app_name);
+                        tokio::spawn(async move {
+                            // Close any open incidents for this app
+                            let now = chrono::Utc::now().to_rfc3339();
+                            let result = sqlx::query(
+                                "UPDATE fleet_incidents SET resolved_at = ?1, resolution = 'auto_recovered'
+                                 WHERE problem_key = ?2 AND resolved_at IS NULL"
+                            )
+                            .bind(&now)
+                            .bind(&problem_key)
+                            .execute(&db)
+                            .await;
+                            if let Ok(r) = result {
+                                if r.rows_affected() > 0 {
+                                    tracing::info!(
+                                        target: "app_health_monitor",
+                                        "MI BRIDGE: Resolved {} open incident(s) for {}",
+                                        r.rows_affected(), problem_key
+                                    );
+                                }
                             }
                         });
                     }

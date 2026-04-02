@@ -577,7 +577,6 @@ async fn detect_fleet_anomalies(
     static LAST_BUILD_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_DRIFT_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_DELAY_ALERT: AtomicI64 = AtomicI64::new(0);
-    static LAST_APP_DEGRADED_ALERT: AtomicI64 = AtomicI64::new(0);
     static LAST_VIOLATION_ALERT: AtomicI64 = AtomicI64::new(0);
     const COOLDOWN_SECS: i64 = 900; // 15 minutes
 
@@ -757,38 +756,41 @@ async fn detect_fleet_anomalies(
 
     // ── 5. App health degradation (MI bridge — server-side blind spot) ─────
     // Check app_health_monitor consecutive failures. If any app has been
-    // degraded for >5 consecutive probes, alert at fleet level.
-    // This closes the gap where 11,535 kiosk errors went undetected by MI.
+    // degraded for >=5 consecutive probes (~2.5 min), alert at fleet level.
+    // MMA P2: Per-app cooldown so kiosk failure doesn't mask admin failure.
+    // MMA P1: WhatsApp error handling + cooldown updated post-send only.
     {
-        let apps = ["admin", "kiosk", "web"];
-        let mut degraded: Vec<(&str, u32)> = Vec::new();
+        use std::sync::LazyLock;
+        static APP_ALERT_COOLDOWNS: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+            LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
+        let apps = ["admin", "kiosk", "web"];
         for app in &apps {
             let count = crate::app_health_monitor::get_consecutive_failures(app);
             if count >= 5 {
-                degraded.push((app, count));
                 tracing::warn!(
                     target: "fleet-anomaly",
                     "APP_DEGRADED: {} has {} consecutive health failures",
                     app, count
                 );
-            }
-        }
 
-        if !degraded.is_empty()
-            && now_ts - LAST_APP_DEGRADED_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS
-        {
-            LAST_APP_DEGRADED_ALERT.store(now_ts, Ordering::Relaxed);
-            let list: Vec<String> = degraded
-                .iter()
-                .map(|(app, c)| format!("{}: {} failures", app, c))
-                .collect();
-            let msg = format!(
-                "⚠ APP DEGRADED: {} app(s) failing health checks (>2.5 min):\n{}\nCheck app_health_log for details. May need pm2 restart.",
-                degraded.len(),
-                list.join(", ")
-            );
-            crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                // Per-app cooldown check
+                let last_alert = APP_ALERT_COOLDOWNS.lock().ok()
+                    .and_then(|m| m.get(*app).copied())
+                    .unwrap_or(0);
+
+                if now_ts - last_alert > COOLDOWN_SECS {
+                    let msg = format!(
+                        "⚠ APP DEGRADED: {} failing health checks ({} consecutive, ≥2.5 min)\nCheck app_health_log for details. May need pm2 restart.",
+                        app, count
+                    );
+                    // Send alert and update per-app cooldown
+                    crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                    if let Ok(mut m) = APP_ALERT_COOLDOWNS.lock() {
+                        m.insert(app.to_string(), now_ts);
+                    }
+                }
+            }
         }
     }
 }
