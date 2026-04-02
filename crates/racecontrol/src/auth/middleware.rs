@@ -243,6 +243,78 @@ pub fn create_staff_jwt_with_role(
     .map_err(|e| format!("JWT encode error: {}", e))
 }
 
+
+// ─── Pod JWT Claims (Phase 306) ──────────────────────────────────────────────
+
+/// JWT claims for pod/agent WebSocket authentication.
+///
+/// Issued by the server after PSK bootstrap authentication (WSAUTH-01/04).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PodClaims {
+    /// Canonical pod ID, e.g. "pod_3"
+    pub pod_id: String,
+    /// Pod number (1-based), e.g. 3
+    pub pod_number: u32,
+    /// Expiration (UNIX timestamp)
+    pub exp: usize,
+    /// Issued-at (UNIX timestamp)
+    pub iat: usize,
+}
+
+/// Create a JWT for pod WebSocket authentication (Phase 306).
+pub fn create_pod_jwt(
+    secret: &str,
+    pod_id: &str,
+    pod_number: u32,
+    duration_hours: u64,
+) -> Result<String, String> {
+    let now = chrono::Utc::now();
+    let exp = now + chrono::Duration::hours(duration_hours as i64);
+    let claims = PodClaims {
+        pod_id: pod_id.to_string(),
+        pod_number,
+        iat: now.timestamp() as usize,
+        exp: exp.timestamp() as usize,
+    };
+    jsonwebtoken::encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| format!("Pod JWT encode error: {}", e))
+}
+
+/// Decode and validate a pod JWT (Phase 306).
+/// Tries current secret first, then previous secret (rotation grace).
+pub fn decode_pod_jwt(
+    token: &str,
+    secret: &str,
+    prev_secret: Option<&str>,
+) -> Result<PodClaims, String> {
+    let result = jsonwebtoken::decode::<PodClaims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    );
+    match result {
+        Ok(data) => Ok(data.claims),
+        Err(primary_err) => {
+            if let Some(prev) = prev_secret {
+                if !prev.is_empty() {
+                    return jsonwebtoken::decode::<PodClaims>(
+                        token,
+                        &DecodingKey::from_secret(prev.as_bytes()),
+                        &Validation::default(),
+                    )
+                    .map(|d| d.claims)
+                    .map_err(|_| format!("Pod JWT decode failed (both secrets): {}", primary_err));
+                }
+            }
+            Err(format!("Pod JWT decode failed: {}", primary_err))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

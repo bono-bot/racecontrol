@@ -23,7 +23,9 @@ mod game_doctor;
 mod game_launch_retry;
 mod game_process;
 mod kb_hardening;
+mod kb_promotion_store;
 mod knowledge_base;
+mod model_eval_store;
 mod kiosk;
 mod lock_screen;
 mod cognitive_gate;
@@ -35,6 +37,7 @@ mod overlay;
 mod predictive_maintenance;
 mod pre_flight;
 mod remote_ops;
+mod tls;
 mod safe_mode;
 mod self_heal;
 mod startup_cleanup;
@@ -43,9 +46,12 @@ mod process_guard;
 mod self_monitor;
 mod sentinel_watcher;
 mod weekly_report;
+mod eval_rollup;
+mod retrain_export;
 mod self_test;
 mod mma_engine;
 mod model_reputation;
+mod model_reputation_store;
 mod revenue_protection;
 mod tier_engine;
 mod sims;
@@ -1013,6 +1019,49 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ─── Model Evaluation Store (EVAL-01: persist every AI diagnosis outcome) ────
+    let eval_store = match model_eval_store::ModelEvalStore::open(model_eval_store::EVAL_DB_PATH) {
+        Ok(s) => {
+            tracing::info!(target: LOG_TARGET, path = model_eval_store::EVAL_DB_PATH, "Model evaluation store ready");
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "Model eval store init failed — using in-memory fallback");
+            let fallback = model_eval_store::ModelEvalStore::open(":memory:")
+                .expect("in-memory eval store must open");
+            std::sync::Arc::new(std::sync::Mutex::new(fallback))
+        }
+    };
+
+    // ─── Model Reputation Store (MREP-01: persist accuracy and roster decisions) ──
+    let rep_store = match model_reputation_store::ModelReputationStore::open(
+        model_reputation_store::REP_DB_PATH,
+    ) {
+        Ok(s) => {
+            // MREP-01: restore in-memory reputation from SQLite before tier_engine starts
+            if let Err(e) = model_reputation_store::load_into_memory(&s) {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    error = %e,
+                    "Failed to load reputation from SQLite — starting fresh"
+                );
+            } else {
+                tracing::info!(target: LOG_TARGET, "Model reputation loaded from SQLite");
+            }
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                error = %e,
+                "Model reputation store init failed — using in-memory fallback"
+            );
+            let fallback = model_reputation_store::ModelReputationStore::open(":memory:")
+                .expect("in-memory rep store must open");
+            std::sync::Arc::new(std::sync::Mutex::new(fallback))
+        }
+    };
+
     // ─── Diagnostic Engine (anomaly detection + 5-min scan) ─────────────────
     // Plan 229-01: Detection only. Plan 229-02 wires the tier decision engine.
     // Plan 273-01: Also emits FleetEvents via broadcast for fan-out to multiple subscribers.
@@ -1045,7 +1094,7 @@ async fn main() -> Result<()> {
 
     // ─── Tier Engine (5-tier decision tree — reads from diagnostic_engine) ───────
     // C2: Supervised spawn with auto-restart. C1: Circuit breaker. C3: Budget gate.
-    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe(), fleet_bus.sender(), ws_exec_result_tx.clone());
+    tier_engine::spawn(diagnostic_event_rx, mesh_budget.clone(), diag_log.clone(), staff_diag_rx, failure_monitor_tx.subscribe(), fleet_bus.sender(), ws_exec_result_tx.clone(), eval_store.clone());
     tracing::info!(target: LOG_TARGET, "Tier engine started — supervised, circuit breaker, budget gate, staff bridge, FleetEvent broadcast active");
 
     // ─── MMA-11: Daily Self-Health-Check ────────────────────────────────────────
@@ -1104,12 +1153,31 @@ async fn main() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Mesh heartbeat started (5-min interval)");
     }
 
-    // ─── KB Hardening Promoter (5-min promotion ladder checks) ──────────────────
+    // ─── KB Promotion Store (SQLite-backed promotion ladder state — KBPP-01) ───────
+    let kb_promo_store = match crate::kb_promotion_store::KbPromotionStore::open(
+        crate::knowledge_base::KB_PATH,
+    ) {
+        Ok(s) => {
+            tracing::info!(target: LOG_TARGET, "KB promotion store ready");
+            std::sync::Arc::new(std::sync::Mutex::new(s))
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "KB promotion store failed — using in-memory fallback");
+            std::sync::Arc::new(std::sync::Mutex::new(
+                crate::kb_promotion_store::KbPromotionStore::open(":memory:")
+                    .expect("in-memory KB promo store must open"),
+            ))
+        }
+    };
+
+    // ─── KB Hardening Promoter (6-hour promotion ladder checks — KBPP-06) ────────
+    // Clone before move: weekly_report (Phase 294) also needs a reference to kb_promo_store.
+    let kb_promo_store_for_report = kb_promo_store.clone();
     {
         let kb_fleet_tx = fleet_bus.sender();
         let kb_node_id = format!("pod_{}", config.pod.number);
-        kb_hardening::spawn(kb_fleet_tx, kb_node_id);
-        tracing::info!(target: LOG_TARGET, "KB hardening promoter spawned (5-min interval)");
+        kb_hardening::spawn(kb_fleet_tx, kb_node_id, kb_promo_store);
+        tracing::info!(target: LOG_TARGET, "KB hardening promoter spawned (6-hour interval)");
     }
 
     // ─── Predictive Maintenance (5-min scan for hardware/software degradation) ──
@@ -1117,6 +1185,8 @@ async fn main() -> Result<()> {
     // This standalone task is kept for backward-compatible logging + independent lifecycle.
     let pred_fleet_tx = fleet_bus.sender();
     let pred_node_id = format!("pod_{}", config.pod.number);
+    let pred_diag_tx = diagnostic_event_tx.clone();
+    let pred_fm_rx = failure_monitor_tx.subscribe();
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "predictive_maintenance", event = "lifecycle", "lifecycle: started");
         // Wait for system to stabilize before first scan
@@ -1136,13 +1206,15 @@ async fn main() -> Result<()> {
 
                     // PRED-10/PRED-11: Convert high-severity alerts to diagnostic triggers
                     // for immediate tier engine action
-                    if let Some(_trigger) = predictive_maintenance::alert_to_diagnostic_trigger(alert) {
+                    if let Some(trigger) = predictive_maintenance::alert_to_diagnostic_trigger(alert) {
                         tracing::info!(
                             target: "predictive-maint",
                             alert_type = ?alert.alert_type,
                             severity = ?alert.severity,
-                            "PRED-10: High-severity alert converted to diagnostic trigger for tier engine"
+                            "PRED-10: High-severity alert → sending diagnostic trigger to tier engine"
                         );
+                        let pod_state = pred_fm_rx.borrow().clone();
+                        diagnostic_engine::emit_external_event(&pred_diag_tx, trigger, &pod_state);
                         // PRED-12: Successful pre-emptive fixes are recorded in KB
                         // by the tier engine's FixApplied event handler
                     }
@@ -1164,6 +1236,44 @@ async fn main() -> Result<()> {
         let cx_node_id = format!("pod_{}", config.pod.number);
         experience_collector::spawn(cx_fleet_rx, cx_fleet_tx, cx_ws_tx, cx_node_id);
         tracing::info!(target: LOG_TARGET, "Experience score collector started (5-min scoring cycle, CX-05..08)");
+    }
+
+    // ─── Revenue Protection Monitor (REV-01..03: 10s polling) ────────────────────
+    {
+        let rev_state_rx = failure_monitor_tx.subscribe();
+        let rev_fleet_tx = fleet_bus.sender();
+        let rev_node_id = format!("pod_{}", config.pod.number);
+        revenue_protection::spawn(rev_state_rx, rev_fleet_tx, rev_node_id);
+        tracing::info!(target: LOG_TARGET, "Revenue protection monitor started (10s poll, REV-01..03)");
+    }
+
+    // ─── Model Reputation Sweep (MREP-01..04: daily, 7-day window, persistent, server sync) ─
+    {
+        let rep_fleet_tx = fleet_bus.sender();
+        let rep_eval_store = eval_store.clone();
+        let rep_store_clone = rep_store.clone();
+        let rep_ws_tx = ws_exec_result_tx.clone();
+        tokio::spawn(async move {
+            tracing::info!(target: "state", task = "model_reputation", event = "lifecycle", "lifecycle: started");
+            tokio::time::sleep(std::time::Duration::from_secs(180)).await;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                // run_reputation_sweep is sync (rusqlite) — use block_in_place to avoid
+                // blocking the async runtime from within an async context.
+                tokio::task::block_in_place(|| {
+                    model_reputation::run_reputation_sweep(
+                        &rep_fleet_tx,
+                        rep_eval_store.clone(),
+                        rep_store_clone.clone(),
+                        rep_ws_tx.clone(),
+                    );
+                });
+                tracing::info!(target: "model-reputation", "Daily reputation sweep complete (MREP-01..04)");
+            }
+        });
+        tracing::info!(target: LOG_TARGET, "Model reputation sweep scheduled (daily, MREP-01..04, 7-day window, persistent, server sync)");
     }
 
     // ─── Night Ops (midnight IST maintenance cycle) ─────────────────────────────
@@ -1190,15 +1300,31 @@ async fn main() -> Result<()> {
     });
     tracing::info!(target: LOG_TARGET, "Night ops started (midnight IST cycle)");
 
-    // ─── Weekly Report (Sunday midnight IST — RPT-01..03) ───────────────────────
+    // ─── Weekly Report (Sunday midnight IST — RPT-01..03, RPTV2-01..04) ────────────
     {
         let wr_ws_tx = ws_exec_result_tx.clone();
         let wr_node_id = format!("pod_{}", config.pod.number);
         let wr_diag_log = diag_log.clone();
         let wr_budget = mesh_budget.clone();
-        weekly_report::spawn(wr_ws_tx, wr_node_id, wr_diag_log, wr_budget);
-        tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03)");
+        // Phase 294: pass eval/promo/rep stores for enhanced report sections (RPTV2-01..04).
+        weekly_report::spawn(
+            wr_ws_tx,
+            wr_node_id,
+            wr_diag_log,
+            wr_budget,
+            Some(eval_store.clone()),
+            Some(kb_promo_store_for_report),
+            Some(rep_store.clone()),
+        );
+        tracing::info!(target: LOG_TARGET, "Weekly report scheduler started (Sunday midnight IST, RPT-01..03, RPTV2-01..04)");
     }
+
+    // ─── Model Eval Rollup (EVAL-02: weekly per-model accuracy rollup) ──────────
+    eval_rollup::spawn(eval_store.clone());
+    tracing::info!(target: LOG_TARGET, "Eval rollup cron started (Sunday midnight IST)");
+
+    retrain_export::spawn(eval_store.clone());
+    tracing::info!(target: LOG_TARGET, "Retrain export cron started (Sunday midnight IST)");
 
     // ─── Feature Flags — load from disk cache, shared with billing_guard and AppState ──
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
@@ -1428,6 +1554,9 @@ async fn main() -> Result<()> {
         // SEC-10: Mutex serializing LaunchGame and clean_state_reset.
         // Lives in AppState to survive WS reconnections (mutex state must persist across reconnects).
         game_launch_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        // Phase 306: JWT fields — start with no JWT (first connect uses PSK bootstrap)
+        current_jwt: None,
+        jwt_expires_at: None,
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
@@ -1599,16 +1728,16 @@ async fn main() -> Result<()> {
 
     // Phase 68: Runtime URL switching via SwitchController
     // Append ?token=SECRET for WS authentication (H1 audit fix)
-    let ws_token_suffix = state.config.core.ws_secret.as_ref()
+    let ws_psk_suffix = state.config.core.ws_secret.as_ref()
         .filter(|s| !s.is_empty())
         .map(|s| format!("?token={}", s))
         .unwrap_or_default();
-    let authed_url = format!("{}{}", state.config.core.url, ws_token_suffix);
+    let authed_url = format!("{}{}", state.config.core.url, ws_psk_suffix);
     let active_url: std::sync::Arc<RwLock<String>> =
         std::sync::Arc::new(RwLock::new(authed_url));
-    let primary_url: String = format!("{}{}", state.config.core.url, ws_token_suffix);
+    let primary_url: String = format!("{}{}", state.config.core.url, ws_psk_suffix);
     let failover_url: Option<String> = state.config.core.failover_url.as_ref()
-        .map(|u| format!("{}{}", u, ws_token_suffix));
+        .map(|u| format!("{}{}", u, ws_psk_suffix));
 
     // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
     #[cfg(feature = "http-client")]
@@ -1624,12 +1753,37 @@ async fn main() -> Result<()> {
         // version + uptime after it restarts (fixes null version/uptime for long-running pods)
         _startup_report_sent = false;
 
-        // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
-        let url = active_url.read().await.clone();
-        tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core at {}...", url);
+        // Phase 306: JWT-aware URL — use JWT if we have a valid (non-expired) one,
+        // otherwise fall back to PSK URL. JWT expires 24h after issue; we require
+        // at least 60s remaining to avoid racing against server-side expiry.
+        let connect_url = {
+            let now_ts = chrono::Utc::now().timestamp();
+            if let (Some(jwt), Some(exp)) = (&state.current_jwt, state.jwt_expires_at) {
+                if exp > now_ts + 60 {
+                    // Valid JWT — build URL with ?jwt= param
+                    let base = state.config.core.url.trim_end_matches('/');
+                    // Determine if this is the primary or failover URL by matching active_url
+                    let active = active_url.read().await.clone();
+                    // Strip any existing query string from the base URL stored in active_url
+                    let base_url = if let Some(pos) = active.find('?') { &active[..pos] } else { &active[..] };
+                    format!("{}?jwt={}", base_url, jwt)
+                } else {
+                    // JWT expired or about to expire — clear it and fall back to PSK
+                    tracing::info!(target: LOG_TARGET, "Phase 306: JWT expired (exp={}, now={}), clearing — falling back to PSK", exp, now_ts);
+                    state.current_jwt = None;
+                    state.jwt_expires_at = None;
+                    active_url.read().await.clone()
+                }
+            } else {
+                // No JWT yet — use PSK URL (bootstrap flow)
+                active_url.read().await.clone()
+            }
+        };
+        tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core (auth={})...",
+            if state.current_jwt.is_some() { "jwt" } else { "psk" });
         let ws_result = tokio::time::timeout(
             Duration::from_secs(10),
-            connect_async(&url),
+            connect_async(&connect_url),
         ).await;
 
         let (ws_stream, _) = match ws_result {
@@ -1640,6 +1794,15 @@ async fn main() -> Result<()> {
             }
             Ok(Err(e)) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
+                // Phase 306: detect 401 Unauthorized — clear JWT so next retry uses PSK
+                let err_str = e.to_string();
+                if err_str.contains("401") || err_str.contains("Unauthorized") {
+                    if state.current_jwt.is_some() {
+                        tracing::warn!(target: LOG_TARGET, "Phase 306: JWT rejected (401) — clearing JWT, next reconnect will use PSK bootstrap");
+                        state.current_jwt = None;
+                        state.jwt_expires_at = None;
+                    }
+                }
                 tracing::warn!(target: LOG_TARGET, "Failed to connect to core: {}. Attempt {}. Retrying in {:?}...", e, reconnect_attempt, delay);
                 // SESSION-04: Only show Disconnected after 30s grace window
                 {

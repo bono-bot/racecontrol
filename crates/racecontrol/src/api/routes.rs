@@ -552,6 +552,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
+        // ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────
+        .route("/models/evaluations", get(list_model_evaluations))
+        // ─── Model Reputation Query (MREP-04 / Phase 292) ────────────────────
+        .route("/models/reputation", get(list_model_reputation))
         // ─── v29.0 Phase 9: Maintenance & Analytics ─────────────────────────
         .route("/maintenance/events", post(maintenance_create_event).get(maintenance_list_events))
         .route("/maintenance/summary", get(maintenance_summary))
@@ -971,6 +975,11 @@ async fn enable_pod(
         Some(pod) => {
             pod.status = PodStatus::Offline;
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            drop(pods); // release write lock before log call
+            // Phase 307 AUDIT-03: Log admin pod enable action
+            crate::activity_log::log_pod_activity(
+                &state, &id, "admin", "Pod Enabled", "", "staff",
+            );
             Json(json!({ "status": "enabled", "pod_id": id }))
         }
         None => Json(json!({ "error": format!("Pod {} not found", id) })),
@@ -987,6 +996,11 @@ async fn disable_pod(
         Some(pod) => {
             pod.status = PodStatus::Disabled;
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            drop(pods); // release write lock before log call
+            // Phase 307 AUDIT-03: Log admin pod disable action
+            crate::activity_log::log_pod_activity(
+                &state, &id, "admin", "Pod Disabled", "", "staff",
+            );
             Json(json!({ "status": "disabled", "pod_id": id }))
         }
         None => Json(json!({ "error": format!("Pod {} not found", id) })),
@@ -1148,6 +1162,17 @@ async fn lockdown_pod(
     );
     let msg = CoreToAgentMessage::SettingsUpdated { settings };
     let _ = sender.send(msg).await;
+
+    // Phase 307 AUDIT-03: Log admin lockdown action for hash chain coverage
+    let lockdown_action = if locked { "Pod Lockdown" } else { "Pod Lockdown Released" };
+    crate::activity_log::log_pod_activity(
+        &state,
+        &id,
+        "admin",
+        lockdown_action,
+        &format!("locked={}", locked),
+        "staff",
+    );
 
     Json(json!({ "ok": true, "pod_id": id, "locked": locked }))
 }
@@ -3811,6 +3836,7 @@ async fn start_billing(
     // Wallet debit + DB record already committed above (FATM-01).
     // Timer starts only when PlayableSignal received — customer not charged for load screens.
     let pod_id_for_defer = pod_id.clone();
+    let billing_pod_id_clone = pod_id_for_defer.clone();
     let pod_id_for_audit = pod_id_for_defer.clone();
     billing::defer_billing_with_precommitted_session(&state, pod_id_for_defer, billing::BillingStartData {
         session_id: session_id.clone(),
@@ -3823,6 +3849,16 @@ async fn start_billing(
         split_duration_minutes,
         started_at: now, // placeholder — overwritten to game-live time on activation
     }).await;
+
+    // Phase 307 AUDIT-03: Log billing session start for hash chain coverage
+    crate::activity_log::log_pod_activity(
+        &state,
+        &billing_pod_id_clone,
+        "billing",
+        "Session Started",
+        &format!("session_id={} driver={} tier={}", session_id, driver_id, pricing_tier_id),
+        "core",
+    );
 
     // Phase 283: Generate nonce for replay protection
     let billing_nonce = state.billing_nonce_store.generate(&session_id).await;
@@ -4060,6 +4096,15 @@ async fn stop_billing(
 
     let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
     if found {
+        // Phase 307 AUDIT-03: Log billing session end for hash chain coverage
+        crate::activity_log::log_pod_activity(
+            &state,
+            "server",
+            "billing",
+            "Session Ended",
+            &format!("session_id={}", id),
+            "staff",
+        );
         // Phase 283: Audit log + nonce cleanup
         crate::billing_replay::insert_audit_log(
             &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff", &state.config.venue.venue_id,
@@ -14315,6 +14360,12 @@ async fn create_pricing_rule(
                 &json!({"rule_id": id, "rule_type": rule_type}).to_string(),
                 None, None,
             ).await;
+            // Phase 307 AUDIT-03: Log config change for hash chain
+            crate::activity_log::log_pod_activity(
+                &state, "server", "config", "Pricing Rule Created",
+                &format!("id={} type={} multiplier={}", id, rule_type, multiplier),
+                "staff",
+            );
             Json(json!({ "id": id }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -15961,8 +16012,8 @@ async fn global_activity(
     Query(q): Query<ActivityQuery>,
 ) -> Json<Value> {
     let limit = q.limit.unwrap_or(100).min(500);
-    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
-        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+    let rows: Vec<(String, String, i64, String, String, String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source, entry_hash, previous_hash
          FROM pod_activity_log ORDER BY timestamp DESC LIMIT ?"
     )
     .bind(limit)
@@ -15973,6 +16024,7 @@ async fn global_activity(
     let entries: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
         "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+        "entry_hash": r.8, "previous_hash": r.9,
     })).collect();
 
     Json(json!(entries))
@@ -15984,8 +16036,8 @@ async fn pod_activity(
     Query(q): Query<ActivityQuery>,
 ) -> Json<Value> {
     let limit = q.limit.unwrap_or(100).min(500);
-    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
-        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+    let rows: Vec<(String, String, i64, String, String, String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source, entry_hash, previous_hash
          FROM pod_activity_log WHERE pod_id = ? ORDER BY timestamp DESC LIMIT ?"
     )
     .bind(&pod_id)
@@ -15997,9 +16049,83 @@ async fn pod_activity(
     let entries: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
         "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+        "entry_hash": r.8, "previous_hash": r.9,
     })).collect();
 
     Json(json!(entries))
+}
+
+// ─── Phase 307: Audit chain verify ────────────────────────────────────────
+
+/// GET /api/v1/audit/verify — Walk the hash chain and report integrity status.
+///
+/// Returns:
+/// - chain_valid: true if no tampered entries found
+/// - total_entries: count of hashed entries in chain
+/// - verified_entries: entries whose hash matched
+/// - tampered_entries: entries whose hash did not match
+/// - tampered_at: ID of first tampered entry (null if chain is valid)
+async fn audit_verify(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    // Fetch all hashed entries in chronological order
+    let rows: Vec<(String, String, String, String, String, String, String, String, String)> =
+        sqlx::query_as(
+            "SELECT id, timestamp, category, action, details, source, entry_hash, previous_hash, pod_id
+             FROM pod_activity_log
+             WHERE entry_hash IS NOT NULL AND previous_hash IS NOT NULL
+             ORDER BY timestamp ASC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let total_entries = rows.len();
+    let mut verified_entries = 0usize;
+    let mut tampered_entries = 0usize;
+    let mut tampered_at: Option<String> = None;
+    let mut first_genesis: Option<String> = None;
+    let mut latest_hash = String::new();
+
+    for row in &rows {
+        let (id, timestamp, category, action, details, source, entry_hash, previous_hash, _pod_id) =
+            (row.0.as_str(), row.1.as_str(), row.2.as_str(), row.3.as_str(),
+             row.4.as_str(), row.5.as_str(), row.6.as_str(), row.7.as_str(), row.8.as_str());
+
+        if first_genesis.is_none() {
+            first_genesis = Some(timestamp.to_string());
+        }
+
+        let computed = crate::activity_log::compute_activity_hash(
+            id, timestamp, category, action, details, source, previous_hash,
+        );
+
+        if computed == entry_hash {
+            verified_entries += 1;
+        } else {
+            tampered_entries += 1;
+            if tampered_at.is_none() {
+                tampered_at = Some(id.to_string());
+                tracing::warn!(
+                    "AUDIT-02: Tamper detected in pod_activity_log entry {} (timestamp={})",
+                    id, timestamp
+                );
+            }
+        }
+        latest_hash = entry_hash.to_string();
+    }
+
+    let chain_valid = tampered_entries == 0;
+
+    Json(json!({
+        "chain_valid": chain_valid,
+        "total_entries": total_entries,
+        "verified_entries": verified_entries,
+        "tampered_entries": tampered_entries,
+        "first_genesis": first_genesis,
+        "latest_hash": if latest_hash.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(latest_hash) },
+        "tampered_at": tampered_at,
+    }))
 }
 
 // ─── Server Logs ─────────────────────────────────────────────────────────
@@ -17581,7 +17707,7 @@ struct OtaDeployQuery {
 ///
 /// Query params: ?force=true to override weekend peak-hour lock.
 async fn ota_deploy_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
     axum::extract::Query(query): axum::extract::Query<OtaDeployQuery>,
     body: String,
@@ -17619,6 +17745,18 @@ async fn ota_deploy_handler(
             );
         }
     }
+
+    // Phase 307 AUDIT-03: Log deploy initiation for hash chain coverage
+    let deploy_version = manifest.release.version.clone();
+    let deploy_actor = claims.sub.clone();
+    crate::activity_log::log_pod_activity(
+        &state,
+        "server",
+        "deploy",
+        "OTA Deploy Initiated",
+        &format!("version={} by={}", deploy_version, deploy_actor),
+        "staff",
+    );
 
     // Spawn pipeline as background task
     let version = manifest.release.version.clone();
@@ -20791,6 +20929,69 @@ async fn mesh_retire_solution(
         Ok(true) => Json(serde_json::json!({ "ok": true, "status": "retired" })),
         Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
         Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+    }
+}
+
+// ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct EvalQueryParams {
+    model: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    #[serde(default = "default_eval_limit")]
+    limit: i64,
+}
+
+fn default_eval_limit() -> i64 {
+    1000
+}
+
+/// GET /api/v1/models/evaluations — query evaluation records pushed by rc-agent.
+/// Query params: model=<model_id>, from=<ISO8601>, to=<ISO8601>, limit=<n>
+/// Returns empty records array (not error) when no matching records exist.
+async fn list_model_evaluations(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EvalQueryParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::query_eval_records(
+        &state.db,
+        params.model.as_deref(),
+        params.from.as_deref(),
+        params.to.as_deref(),
+        params.limit,
+    )
+    .await
+    {
+        Ok(records) => {
+            let count = records.len();
+            Json(serde_json::json!({ "records": records, "count": count }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string(), "records": [] })),
+    }
+}
+
+// ─── Model Reputation Query (MREP-04 / Phase 292) ──────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ReputationQueryParams {
+    /// Optional status filter: "active" | "demoted" | "promoted"
+    status: Option<String>,
+}
+
+/// GET /api/v1/models/reputation — query model reputation state from server DB.
+/// Query params: status=<active|demoted|promoted>
+/// Returns empty models array (not error) when no reputation data exists yet.
+async fn list_model_reputation(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ReputationQueryParams>,
+) -> Json<serde_json::Value> {
+    match crate::fleet_kb::query_reputation(&state.db, params.status.as_deref()).await {
+        Ok(rows) => {
+            let count = rows.len();
+            Json(serde_json::json!({ "models": rows, "count": count }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string(), "models": [] })),
     }
 }
 

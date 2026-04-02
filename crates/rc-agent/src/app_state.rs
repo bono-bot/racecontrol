@@ -105,6 +105,12 @@ pub struct AppState {
     /// a second LaunchGame command can proceed. Prevents race: game launched while
     /// old processes are still being killed, leaving two game instances competing.
     pub(crate) game_launch_mutex: Arc<Mutex<()>>,
+    /// Phase 306: JWT token received from server after PSK bootstrap.
+    /// Used for subsequent WS reconnections. Cleared on 401 rejection.
+    pub(crate) current_jwt: Option<String>,
+    /// Phase 306: JWT expiry timestamp (Unix seconds). Reconnect loop
+    /// compares against Utc::now() to decide PSK vs JWT URL.
+    pub(crate) jwt_expires_at: Option<i64>,
 }
 
 impl AppState {

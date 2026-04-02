@@ -41,6 +41,41 @@ pub struct EscalationPayload {
     pub timestamp: String,
 }
 
+/// Evaluation record payload sent from rc-agent to server after each AI diagnosis.
+/// Lives in rc-common so both crates can reference it without cross-crate imports.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalRecordPayload {
+    pub id: String,
+    pub model_id: String,
+    pub pod_id: String,
+    pub trigger_type: String,
+    pub prediction: String,
+    pub actual_outcome: String, // "fixed" | "failed_to_fix" | "not_applicable" | "escalated"
+    pub correct: bool,
+    pub cost_usd: f64,
+    pub created_at: String, // ISO 8601 UTC
+}
+
+/// Model reputation row payload sent from rc-agent to server after each reputation sweep.
+/// Lives in rc-common so both crates can reference it without cross-crate imports.
+/// Mirrors model_reputation_store::ReputationRow but is the wire format.
+/// MREP-04: enables server-side reputation query via GET /api/v1/models/reputation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReputationPayload {
+    /// e.g. "deepseek/deepseek-r1-0528"
+    pub model_id: String,
+    pub correct_count: u32,
+    pub total_count: u32,
+    /// 0.0 to 1.0 — computed as correct_count / total_count (or 0.5 if total_count == 0)
+    pub accuracy: f64,
+    /// "active" | "demoted" | "promoted"
+    pub status: String,
+    /// USD per correct diagnosis (0.0 if no correct diagnoses or not yet computed)
+    pub cost_per_correct_usd: f64,
+    /// RFC 3339 UTC
+    pub updated_at: String,
+}
+
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -506,6 +541,34 @@ pub enum AgentMessage {
         scored_at: String,
     },
 
+    // ─── Model Evaluation Sync (EVAL-03) ────────────────────────────────────
+
+    /// Agent pushes evaluation records to server after each MMA Step 4 VERIFY.
+    /// Server stores in model_evaluations table for query via /api/v1/models/evaluations.
+    /// EVAL-03: enables server-side aggregation and trend queries.
+    ModelEvalSync {
+        pod_id: String,
+        records: Vec<EvalRecordPayload>,
+    },
+
+    // ─── Model Reputation Sync (MREP-04) ─────────────────────────────────────
+
+    /// Agent pushes current reputation state to server after each daily sweep.
+    /// Server stores in model_reputation table for query via /api/v1/models/reputation.
+    /// MREP-04: enables server-side reputation dashboard and weekly report data.
+    ModelReputationSync {
+        pod_id: String,
+        rows: Vec<ReputationPayload>,
+    },
+
+    // ─── WS Auth (Phase 306) ─────────────────────────────────────────────────
+
+    /// Agent acknowledges receipt of a JWT token (observability only).
+    /// Sent in response to CoreToAgentMessage::IssueJwt or RefreshJwt.
+    JwtAck {
+        pod_id: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -855,6 +918,32 @@ pub enum CoreToAgentMessage {
         reason: String,
         /// Correlation ID for audit trail
         correlation_id: String,
+    },
+
+    // ─── WS Auth (Phase 306) ─────────────────────────────────────────────────
+
+    /// Server issues a per-pod JWT after successful PSK bootstrap authentication.
+    ///
+    /// WSAUTH-01/04: After the first PSK-authenticated connection, the server signs
+    /// a 24-hour PodClaims JWT and sends it to the agent. The agent stores this
+    /// and presents it as ?jwt=<token> on all subsequent reconnects.
+    ///
+    /// expires_at is a UNIX timestamp (seconds since epoch) so the agent can
+    /// check expiry without parsing the JWT.
+    IssueJwt {
+        token: String,
+        /// UNIX timestamp when this token expires
+        expires_at: i64,
+    },
+
+    /// Server rotates the pod JWT before it expires (WSAUTH-02).
+    ///
+    /// Sent ~1h before the current token expires. The agent replaces its stored
+    /// token immediately — no reconnect required.
+    RefreshJwt {
+        token: String,
+        /// UNIX timestamp when the new token expires
+        expires_at: i64,
     },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.

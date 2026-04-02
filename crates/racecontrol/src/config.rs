@@ -149,6 +149,76 @@ pub struct ServerConfig {
     /// Path to TLS private key PEM file. Auto-generated if missing.
     #[serde(default)]
     pub key_path: Option<String>,
+    /// v38.0 mTLS configuration (venue CA + mutual TLS).
+    /// `[server.tls]` in racecontrol.toml. Defaults to disabled (plain HTTP).
+    #[serde(default)]
+    pub tls: MtlsConfig,
+}
+
+/// Mutual TLS configuration for the racecontrol server (v38.0 Phase 305).
+///
+/// When `enabled = false` (default), the server uses plain HTTP -- no change
+/// from pre-305 behaviour. Set `enabled = true` after running
+/// `bash scripts/generate-venue-ca.sh` to generate venue certs.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MtlsConfig {
+    /// Enable venue CA TLS on the main :8080 listener. Default: false (plain HTTP).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the venue CA certificate PEM.
+    #[serde(default = "default_ca_cert_path")]
+    pub ca_cert_path: String,
+    /// Path to the server certificate PEM (signed by venue CA).
+    #[serde(default = "default_server_cert_path")]
+    pub server_cert_path: String,
+    /// Path to the server private key PEM.
+    #[serde(default = "default_server_key_path")]
+    pub server_key_path: String,
+    /// Require clients to present a valid venue CA-signed certificate (full mTLS).
+    /// Default: false (TLS only -- safe phase-in mode).
+    #[serde(default)]
+    pub require_client_cert: bool,
+    /// Allow Tailscale connections (100.64.0.0/10) to bypass client cert requirement.
+    /// Default: true -- Tailscale already provides end-to-end encryption.
+    #[serde(default = "default_true")]
+    pub tailscale_bypass: bool,
+}
+
+impl Default for MtlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ca_cert_path: default_ca_cert_path(),
+            server_cert_path: default_server_cert_path(),
+            server_key_path: default_server_key_path(),
+            require_client_cert: false,
+            tailscale_bypass: true,
+        }
+    }
+}
+
+fn default_ca_cert_path() -> String {
+    if cfg!(windows) {
+        "C:\\RacingPoint\\tls\\ca.pem".to_string()
+    } else {
+        "/etc/racingpoint/tls/ca.pem".to_string()
+    }
+}
+
+fn default_server_cert_path() -> String {
+    if cfg!(windows) {
+        "C:\\RacingPoint\\tls\\server.pem".to_string()
+    } else {
+        "/etc/racingpoint/tls/server.pem".to_string()
+    }
+}
+
+fn default_server_key_path() -> String {
+    if cfg!(windows) {
+        "C:\\RacingPoint\\tls\\server-key.pem".to_string()
+    } else {
+        "/etc/racingpoint/tls/server-key.pem".to_string()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -847,6 +917,7 @@ impl Config {
                 tls_port: None,
                 cert_path: None,
                 key_path: None,
+                tls: MtlsConfig::default(),
             },
             database: DatabaseConfig {
                 path: default_db_path(),

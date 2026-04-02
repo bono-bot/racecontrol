@@ -262,6 +262,10 @@ pub struct AppState {
     pub billing_nonce_store: std::sync::Arc<crate::billing_replay::NonceStore>,
     /// Phase 300: Backup pipeline status — updated each tick for downstream API consumers.
     pub backup_status: RwLock<BackupStatus>,
+    /// Phase 307: Last hash in the pod_activity_log SHA-256 chain.
+    /// Initialized from DB at startup (most recent entry_hash), or "GENESIS" if no hashed entries.
+    /// Held briefly inside tokio::spawn to serialize hash chain writes. Never held across .await.
+    pub audit_last_hash: std::sync::Mutex<String>,
 }
 
 impl AppState {
@@ -349,6 +353,8 @@ impl AppState {
             whatsapp_escalation: whatsapp_escalation_handler,
             billing_nonce_store: std::sync::Arc::new(crate::billing_replay::NonceStore::new()),
             backup_status: RwLock::new(BackupStatus::default()),
+            // Phase 307: Initialized to GENESIS; main.rs loads actual last hash from DB after init_db()
+            audit_last_hash: std::sync::Mutex::new("GENESIS".to_string()),
         }
     }
 

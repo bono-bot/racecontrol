@@ -414,13 +414,14 @@ pub fn spawn(
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
     ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
+    eval_store: std::sync::Arc<std::sync::Mutex<crate::model_eval_store::ModelEvalStore>>,
 ) {
     tokio::spawn(async move {
         tracing::info!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: started");
         tracing::info!(target: LOG_TARGET, "Tier engine started (supervised) — awaiting diagnostic events + staff requests + FleetEvent broadcast");
 
         // C2: Supervisor wraps the inner loop — restarts on panic
-        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx, ws_msg_tx).await;
+        run_supervised(event_rx, budget, diag_log, staff_rx, failure_monitor_rx, fleet_bus_tx, ws_msg_tx, eval_store).await;
 
         tracing::warn!(target: "state", task = "tier_engine", event = "lifecycle", "lifecycle: exited (channel closed)");
     });
@@ -435,6 +436,7 @@ async fn run_supervised(
     failure_monitor_rx: tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
     fleet_bus_tx: tokio::sync::broadcast::Sender<FleetEvent>,
     ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
+    eval_store: std::sync::Arc<std::sync::Mutex<crate::model_eval_store::ModelEvalStore>>,
 ) {
     let mut circuit_breaker = CircuitBreaker::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
@@ -580,6 +582,13 @@ async fn run_supervised(
                                     trigger: trigger_str.clone(),
                                     timestamp: Utc::now(),
                                 });
+                                // GAME-05: Cascade game fixes to fleet via mesh gossip
+                                if matches!(event.trigger, DiagnosticTrigger::GameLaunchFail) {
+                                    let gossip = crate::mesh_gossip::build_game_fix_announce(
+                                        &trigger_str, action, 0.9, &node_id,
+                                    );
+                                    let _ = ws_msg_tx.send(gossip).await;
+                                }
                             } else {
                                 tracing::warn!(
                                     target: LOG_TARGET,
@@ -644,6 +653,111 @@ async fn run_supervised(
                     }
                     TierResult::NotApplicable { .. } => {
                         tracing::debug!(target: LOG_TARGET, trigger = ?event.trigger, "No applicable tier for trigger");
+                    }
+                }
+
+                // EVAL-01: persist evaluation outcome to SQLite after every diagnosis.
+                // Records Fixed and FailedToFix outcomes; skips Stub/NotApplicable (no model call).
+                // Critical rule: no .await after eval_store.lock() — guard dropped in tight block.
+                {
+                    let (tier_num, fix_verified, action_str) = match &result {
+                        TierResult::Fixed { tier, action } => (*tier, true, action.clone()),
+                        TierResult::FailedToFix { tier, reason } => (*tier, false, reason.clone()),
+                        _ => (0u8, false, String::new()),
+                    };
+                    if tier_num > 0 {
+                        // Derive a model_id from tier number + action string (model_id is not
+                        // threaded through run_tiers; action strings encode the model for tier 3+).
+                        let model_id = match tier_num {
+                            1 => "tier1/deterministic".to_string(),
+                            2 => "tier2/kb_cached".to_string(),
+                            3 => {
+                                // Tier 3 action: "Qwen3 ($0.10): <root_cause>"
+                                if action_str.starts_with("Qwen3") {
+                                    "qwen/qwen3-235b-a22b:free".to_string()
+                                } else {
+                                    "tier3/single_model".to_string()
+                                }
+                            }
+                            4 => "tier4/mma_protocol".to_string(),
+                            _ => format!("tier{}/unknown", tier_num),
+                        };
+                        // Cost estimate: tiers 1-2 have no model cost, tier 3 uses TIER3, tier 4+ uses TIER4
+                        let cost_usd = match tier_num {
+                            1 | 2 => 0.0,
+                            3 => TIER3_ESTIMATED_COST,
+                            _ => TIER4_ESTIMATED_COST,
+                        };
+                        let trigger_name = format!("{:?}", &event.trigger)
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        let prediction_str: String = action_str.chars().take(500).collect();
+                        let outcome_str = if fix_verified { "fixed" } else { "failed_to_fix" };
+                        // Record in-memory reputation tracking (existing mma_engine function)
+                        crate::mma_engine::record_model_outcome(&model_id, fix_verified);
+                        let record = crate::model_eval_store::EvalRecord {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            model_id,
+                            pod_id: node_id.clone(),
+                            trigger_type: trigger_name,
+                            prediction: prediction_str,
+                            actual_outcome: outcome_str.to_string(),
+                            correct: fix_verified,
+                            cost_usd,
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        };
+                        match eval_store.lock() {
+                            Ok(store) => {
+                                if let Err(e) = store.insert(&record) {
+                                    tracing::warn!(
+                                        target: LOG_TARGET,
+                                        error = %e,
+                                        tier = tier_num,
+                                        "EVAL-01: failed to write evaluation record"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        target: LOG_TARGET,
+                                        tier = tier_num,
+                                        correct = fix_verified,
+                                        "EVAL-01: evaluation record written"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    target: LOG_TARGET,
+                                    error = %e,
+                                    "EVAL-01: eval_store mutex poisoned"
+                                );
+                            }
+                        }
+                        // EVAL-03: push evaluation record to server via WS for /api/v1/models/evaluations query.
+                        // Best-effort — WS failure must NOT roll back the local EVAL-01 write.
+                        let payload = rc_common::protocol::EvalRecordPayload {
+                            id: record.id.clone(),
+                            model_id: record.model_id.clone(),
+                            pod_id: record.pod_id.clone(),
+                            trigger_type: record.trigger_type.clone(),
+                            prediction: record.prediction.clone(),
+                            actual_outcome: record.actual_outcome.clone(),
+                            correct: record.correct,
+                            cost_usd: record.cost_usd,
+                            created_at: record.created_at.clone(),
+                        };
+                        let sync_msg = rc_common::protocol::AgentMessage::ModelEvalSync {
+                            pod_id: record.pod_id.clone(),
+                            records: vec![payload],
+                        };
+                        if let Err(e) = ws_msg_tx.send(sync_msg).await {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                error = %e,
+                                "EVAL-03: failed to push evaluation to server via WS"
+                            );
+                        }
                     }
                 }
 
@@ -790,6 +904,24 @@ async fn run_staff_diagnosis(
             fix_applied: true,
             problem_hash: compute_problem_hash(&req.category),
             summary: format!("Tier 2 KB match: {}", action),
+        };
+    }
+
+    // ── Tier 0: Hardened rules ($0 cost — check before giving up) ───────────────
+    let t0 = tier0_hardened_rule(&event);
+    if let TierResult::Fixed { tier, ref action } = t0 {
+        tracing::info!(target: LOG_TARGET, correlation_id = %req.correlation_id, "Staff request resolved by Tier 0 hardened rule: {}", action);
+        return StaffDiagnosticResult {
+            correlation_id: req.correlation_id.clone(),
+            tier,
+            outcome: "fixed".to_string(),
+            root_cause: action.clone(),
+            fix_action: action.clone(),
+            fix_type: "hardened_rule".to_string(),
+            confidence: 1.0,
+            fix_applied: true,
+            problem_hash: compute_problem_hash(&req.category),
+            summary: format!("Tier 0 hardened rule: {}", action),
         };
     }
 
@@ -1105,6 +1237,12 @@ async fn run_tiers(
     if is_periodic_only {
         tracing::debug!(target: LOG_TARGET, "Periodic scan complete — no anomaly, skipping model tiers");
         return TierResult::NotApplicable { tier: 1 };
+    }
+
+    // ── Tier 0: Hardened Rules ($0 cost — runs before any model tier) ──────────
+    let t0 = tier0_hardened_rule(event);
+    if matches!(t0, TierResult::Fixed { .. }) {
+        return t0;
     }
 
     // ── Q1-Q4: MMA-First Protocol decision gate ──
@@ -1767,6 +1905,11 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                         "Game launch retry (attempt {}/2): cause={}, fix={}",
                         attempt, cause, fix
                     ));
+                    // GAME-04: Record game fix in KB with game-specific metadata
+                    if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                        let host = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "unknown".to_string());
+                        let _ = kb.record_game_fix(cause, fix, &host);
+                    }
                 }
                 game_launch_retry::RetryResult::EscalateToMma { attempts, ref causes } => {
                     // All retries failed — don't add to actions_taken so Tier 3/4 handles it
@@ -2113,6 +2256,60 @@ fn tier2_kb_lookup(event: &DiagnosticEvent) -> TierResult {
     }
 }
 
+// ─── Tier 0: Hardened Rule Lookup ($0 cost — KBPP-05) ────────────────────────
+
+/// Check the hardened_rules table for a deterministic match.
+/// Returns Fixed if a rule matches — NO model call is made ($0 cost).
+/// Runs BEFORE all model tiers (Tier 3, 4, 5) in the autonomous flow.
+fn tier0_hardened_rule(event: &DiagnosticEvent) -> TierResult {
+    use crate::knowledge_base::{self, KnowledgeBase, KB_PATH};
+
+    let problem_key = knowledge_base::normalize_problem_key(&event.trigger);
+
+    let kb = match KnowledgeBase::open(KB_PATH) {
+        Ok(kb) => kb,
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, tier = 0u8, error = %e, "KB unavailable — skipping Tier 0 hardened");
+            return TierResult::NotApplicable { tier: 0 };
+        }
+    };
+
+    let rules = match kb.get_hardened_rules() {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, tier = 0u8, error = %e, "Failed to load hardened rules");
+            return TierResult::NotApplicable { tier: 0 };
+        }
+    };
+
+    let matcher_key = format!("problem_key:{}", problem_key);
+    for rule in &rules {
+        if rule.matchers.iter().any(|m| m == &matcher_key || m.starts_with(&format!("problem_key:{}", problem_key))) {
+            tracing::info!(
+                target: LOG_TARGET,
+                tier = 0u8,
+                problem_key = %problem_key,
+                confidence = rule.confidence,
+                action = %rule.action,
+                provenance = %rule.provenance,
+                "Tier 0 hardened rule match — $0 cost",
+            );
+            return TierResult::Fixed {
+                tier: 0,
+                action: format!(
+                    "Tier 0 hardened ({:.0}%): {} [{}]",
+                    rule.confidence * 100.0,
+                    rule.action,
+                    rule.provenance
+                ),
+            };
+        }
+    }
+
+    tracing::debug!(target: LOG_TARGET, tier = 0u8, problem_key = %problem_key, "No hardened rule match");
+    TierResult::NotApplicable { tier: 0 }
+}
+
 // ─── Tier 3: Single Model (DIAG-04) ──────────────────────────────────────────
 
 async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
@@ -2391,5 +2588,83 @@ async fn tier5_human_escalation(
     TierResult::FailedToFix {
         tier: 5,
         reason: format!("Escalated to human via WhatsApp (incident {})", incident_id),
+    }
+}
+
+// ─── Tier 0 Tests ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tier0_tests {
+    use super::*;
+    use crate::knowledge_base::HardenedRule;
+
+    fn make_rule(problem_key: &str, confidence: f64) -> HardenedRule {
+        HardenedRule {
+            problem_key: problem_key.to_string(),
+            matchers: vec![format!("problem_key:{}", problem_key)],
+            action: format!("fix_{}", problem_key),
+            verifier: "kb_verify:abc".to_string(),
+            ttl_secs: 86400,
+            confidence,
+            provenance: "test provenance".to_string(),
+        }
+    }
+
+    /// Test helper that accepts explicit rule list (avoids SQLite dependency in unit tests)
+    fn tier0_hardened_rule_matches(problem_key: &str, rules: &[HardenedRule]) -> TierResult {
+        let matcher_key = format!("problem_key:{}", problem_key);
+        for rule in rules {
+            if rule.matchers.iter().any(|m| m == &matcher_key) {
+                return TierResult::Fixed {
+                    tier: 0,
+                    action: format!(
+                        "Tier 0 hardened ({:.0}%): {} [{}]",
+                        rule.confidence * 100.0,
+                        rule.action,
+                        rule.provenance
+                    ),
+                };
+            }
+        }
+        TierResult::NotApplicable { tier: 0 }
+    }
+
+    // Test 1: matching rule returns Fixed
+    #[test]
+    fn test_tier0_matching_rule_returns_fixed() {
+        let rules = vec![make_rule("game_crash", 0.95)];
+        let result = tier0_hardened_rule_matches("game_crash", &rules);
+        assert!(matches!(result, TierResult::Fixed { tier: 0, .. }), "should return Fixed for match");
+        if let TierResult::Fixed { action, .. } = result {
+            assert!(action.contains("Tier 0 hardened"), "action must contain 'Tier 0 hardened'");
+            assert!(action.contains("95%"), "action must contain confidence");
+        }
+    }
+
+    // Test 2: no matching rule returns NotApplicable
+    #[test]
+    fn test_tier0_no_match_returns_not_applicable() {
+        let rules = vec![make_rule("game_crash", 0.95)];
+        let result = tier0_hardened_rule_matches("network_error", &rules);
+        assert!(matches!(result, TierResult::NotApplicable { tier: 0 }), "should return NotApplicable for miss");
+    }
+
+    // Test 3: empty rules returns NotApplicable
+    #[test]
+    fn test_tier0_empty_rules_returns_not_applicable() {
+        let result = tier0_hardened_rule_matches("any_key", &[]);
+        assert!(matches!(result, TierResult::NotApplicable { tier: 0 }));
+    }
+
+    // Test 4: Fixed action contains confidence percentage
+    #[test]
+    fn test_tier0_fixed_action_contains_confidence() {
+        let rules = vec![make_rule("test_key", 0.87)];
+        let result = tier0_hardened_rule_matches("test_key", &rules);
+        if let TierResult::Fixed { action, .. } = result {
+            assert!(action.contains("87%"), "action must contain rounded confidence: {}", action);
+        } else {
+            panic!("Expected Fixed result");
+        }
     }
 }

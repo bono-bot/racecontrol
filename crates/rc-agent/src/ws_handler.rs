@@ -1710,6 +1710,33 @@ pub async fn handle_ws_message(
             state.diagnostic_log.push(entry).await;
         }
 
+        // Phase 306 (WSAUTH-01/02): Server issues a JWT after PSK bootstrap (IssueJwt)
+        // or sends a refreshed JWT near expiry (RefreshJwt). Agent stores it in AppState
+        // so the reconnect loop can use ?jwt= instead of ?token=<psk>.
+        CoreToAgentMessage::IssueJwt { token, expires_at } => {
+            tracing::info!(
+                target: LOG_TARGET,
+                expires_at = expires_at,
+                "Phase 306: JWT issued by server — storing for future WS reconnects"
+            );
+            state.current_jwt = Some(token.clone());
+            state.jwt_expires_at = Some(expires_at);
+            // Ack receipt — best-effort (non-critical if channel is full)
+            let _ = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() });
+        }
+
+        CoreToAgentMessage::RefreshJwt { token, expires_at } => {
+            tracing::info!(
+                target: LOG_TARGET,
+                expires_at = expires_at,
+                "Phase 306: JWT refreshed by server — updating stored JWT"
+            );
+            state.current_jwt = Some(token.clone());
+            state.jwt_expires_at = Some(expires_at);
+            // Ack the refresh
+            let _ = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() });
+        }
+
         other => {
             tracing::warn!(target: LOG_TARGET, "Unhandled CoreToAgentMessage: {:?}", other);
         }

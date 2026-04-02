@@ -66,8 +66,18 @@ use sqlx;
 /// Query parameters for WS authentication
 #[derive(serde::Deserialize, Default)]
 pub struct WsAuthParams {
+    /// PSK bootstrap token — must match config.cloud.terminal_secret
     #[serde(default)]
     token: Option<String>,
+    /// Per-pod JWT token — issued by server after first PSK auth (Phase 306)
+    #[serde(default)]
+    jwt: Option<String>,
+}
+
+/// WS authentication result for the agent endpoint (Phase 306).
+enum AgentAuthResult {
+    PskAuthenticated,
+    JwtAuthenticated { pod_id: String, pod_number: u32 },
 }
 
 /// Validate WebSocket token against terminal_secret (if configured).
@@ -80,17 +90,61 @@ fn verify_ws_token(state: &AppState, token: &Option<String>) -> bool {
     }
 }
 
+/// Phase 306: Authenticate a pod WS connection.
+/// Tries JWT first (steady-state), then PSK (bootstrap).
+fn authenticate_agent_ws(state: &AppState, params: &WsAuthParams) -> Result<AgentAuthResult, String> {
+    if let Some(ref jwt_token) = params.jwt {
+        if !jwt_token.is_empty() {
+            let prev_secret = state.config.auth.jwt_secret_previous.as_deref();
+            match crate::auth::middleware::decode_pod_jwt(
+                jwt_token,
+                &state.config.auth.jwt_secret,
+                prev_secret,
+            ) {
+                Ok(claims) => {
+                    return Ok(AgentAuthResult::JwtAuthenticated {
+                        pod_id: claims.pod_id,
+                        pod_number: claims.pod_number,
+                    });
+                }
+                Err(e) => return Err(format!("Invalid pod JWT: {}", e)),
+            }
+        }
+    }
+    let psk_ok = match &state.config.cloud.terminal_secret {
+        None => true,
+        Some(s) if s.is_empty() => true,
+        Some(secret) => params.token.as_deref() == Some(secret.as_str()),
+    };
+    if psk_ok { Ok(AgentAuthResult::PskAuthenticated) }
+    else { Err("Invalid or missing PSK token".to_string()) }
+}
+
 /// WebSocket endpoint for pod agents
 pub async fn agent_ws(
     Query(params): Query<WsAuthParams>,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if !verify_ws_token(&state, &params.token) {
-        tracing::warn!("WS agent connection rejected — invalid or missing token");
-        return Err(StatusCode::UNAUTHORIZED);
+    match authenticate_agent_ws(&state, &params) {
+        Ok(auth_result) => Ok(ws.on_upgrade(move |socket| handle_agent(socket, state, auth_result))),
+        Err(reason) => {
+            tracing::warn!("WS agent connection rejected — {}", reason);
+            // WSAUTH-03: WhatsApp alert on invalid JWT (not PSK — too noisy)
+            if params.jwt.as_ref().map_or(false, |j| !j.is_empty()) {
+                let state_clone = state.clone();
+                let reason_clone = reason.clone();
+                tokio::spawn(async move {
+                    crate::whatsapp_alerter::send_admin_alert(
+                        &state_clone.config,
+                        "ws_jwt_rejected",
+                        &format!("Pod WS connection rejected: {}", reason_clone),
+                    ).await;
+                });
+            }
+            Err(StatusCode::UNAUTHORIZED)
+        }
     }
-    Ok(ws.on_upgrade(|socket| handle_agent(socket, state)))
 }
 
 /// WebSocket endpoint for dashboard clients
@@ -106,18 +160,44 @@ pub async fn dashboard_ws(
     Ok(ws.on_upgrade(|socket| handle_dashboard(socket, state)))
 }
 
-async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
+/// Phase 306: Issue a 24-hour pod JWT and queue it for sending.
+fn issue_pod_jwt_to_agent(
+    state: &AppState,
+    pod_id: &str,
+    pod_number: u32,
+    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+) {
+    match crate::auth::middleware::create_pod_jwt(&state.config.auth.jwt_secret, pod_id, pod_number, 24) {
+        Ok(token) => {
+            let expires_at = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
+            if cmd_tx.try_send(CoreToAgentMessage::IssueJwt { token, expires_at }).is_ok() {
+                tracing::info!("Phase 306: JWT issued to pod {} (expires_at={})", pod_id, expires_at);
+            } else {
+                tracing::warn!("Phase 306: Failed to queue IssueJwt for pod {}", pod_id);
+            }
+        }
+        Err(e) => tracing::error!("Phase 306: Failed to create pod JWT for {}: {}", pod_id, e),
+    }
+}
+
+async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: AgentAuthResult) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Unique ID for this connection — used to avoid stale disconnect cleanup
     static CONN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let conn_id = CONN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    tracing::info!("Pod agent connected (conn_id={})", conn_id);
+    tracing::info!("Pod agent connected (conn_id={}, auth={})", conn_id,
+        match &auth_result { AgentAuthResult::PskAuthenticated => "psk", AgentAuthResult::JwtAuthenticated { .. } => "jwt" });
 
     // Create mpsc channel for sending commands back to this agent
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreToAgentMessage>(64);
     let mut registered_pod_id: Option<String> = None;
+
+    // Phase 306: JWT was already issued if this is a JWT-authenticated connection
+    let jwt_issued_for_conn = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        matches!(auth_result, AgentAuthResult::JwtAuthenticated { .. }),
+    ));
 
     // Shared state for pending application-level ping measurement
     // send_task writes (id, Instant) when it sends a Ping; receive loop reads+clears it on Pong
@@ -183,6 +263,38 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
+    // Phase 306 WSAUTH-02: JWT rotation — issue RefreshJwt ~1h before the 24h token expires.
+    // A shared Arc<Mutex<Option<(String, u32)>>> lets the receive loop inform the rotation task
+    // which pod is registered. The task spawns a one-shot 23h sleep then sends RefreshJwt.
+    let jwt_rotation_pod_id: std::sync::Arc<tokio::sync::Mutex<Option<(String, u32)>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
+    {
+        let rotation_pod_id = jwt_rotation_pod_id.clone();
+        let rotation_state = state.clone();
+        let rotation_cmd_tx = cmd_tx.clone();
+        tokio::spawn(async move {
+            // Wait up to 60s for the pod to Register and set rotation_pod_id
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let guard = rotation_pod_id.lock().await;
+            let Some((ref pod_id, pod_number)) = *guard else { return };
+            let pod_id = pod_id.clone();
+            drop(guard);
+            // Now wait another 23h (total ~23h after connect), then refresh
+            tokio::time::sleep(Duration::from_secs(22 * 3600)).await;
+            if rotation_cmd_tx.is_closed() { return; }
+            match crate::auth::middleware::create_pod_jwt(&rotation_state.config.auth.jwt_secret, &pod_id, pod_number, 24) {
+                Ok(token) => {
+                    let expires_at = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
+                    let msg = CoreToAgentMessage::RefreshJwt { token, expires_at };
+                    if rotation_cmd_tx.try_send(msg).is_ok() {
+                        tracing::info!("Phase 306: JWT refreshed for pod {} (expires_at={})", pod_id, expires_at);
+                    }
+                }
+                Err(e) => tracing::error!("Phase 306: JWT refresh failed for {}: {}", pod_id, e),
+            }
+        });
+    }
+
     // Listen for messages from the agent
     while let Some(Ok(msg)) = ws_receiver.next().await {
         if let Message::Text(text) = msg {
@@ -194,6 +306,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let canonical_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
                             tracing::info!("Pod {} registered (conn_id={}): {}", pod_info.number, conn_id, pod_info.name);
                             registered_pod_id = Some(canonical_id.clone());
+                            // Phase 306: Tell rotation task which pod this connection serves
+                            *jwt_rotation_pod_id.lock().await = Some((canonical_id.clone(), pod_info.number));
                             log_pod_activity(&state, &canonical_id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
                             event_archive::append_event(&state.db, "pod.online", "ws", Some(&canonical_id), serde_json::json!({
                                 "pod_number": pod_info.number,
@@ -367,6 +481,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
 
+                            // Phase 306 WSAUTH-01/04: Issue JWT after PSK bootstrap.
+                            if !jwt_issued_for_conn.load(std::sync::atomic::Ordering::Relaxed) {
+                                issue_pod_jwt_to_agent(&state, &canonical_id, pod_info.number, &cmd_tx);
+                                jwt_issued_for_conn.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
                             // Phase 296 PUSH-02: Push stored full AgentConfig to pod on connect
                             if let Err(e) = crate::config_push::push_full_config_to_pod(
                                 &state, &canonical_id, &cmd_tx,
@@ -1581,6 +1700,46 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             ).await;
                         }
 
+                        // ─── Model Evaluation Sync (EVAL-03 / Phase 290) ─────────────
+                        AgentMessage::ModelEvalSync { pod_id, records } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                record_count = records.len(),
+                                "EVAL-03: received model eval sync from pod"
+                            );
+                            for rec in records.iter() {
+                                if let Err(e) = crate::fleet_kb::insert_eval_record(&state.db, rec).await {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %rec.model_id,
+                                        "EVAL-03: failed to insert eval record"
+                                    );
+                                }
+                            }
+                        }
+
+                        // ─── Model Reputation Sync (MREP-04 / Phase 292) ─────────────
+                        AgentMessage::ModelReputationSync { pod_id, rows } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                model_count = rows.len(),
+                                "MREP-04: received model reputation sync from pod"
+                            );
+                            for row in rows.iter() {
+                                if let Err(e) = crate::fleet_kb::upsert_reputation(&state.db, row, &pod_id).await {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %row.model_id,
+                                        "MREP-04: failed to upsert reputation row"
+                                    );
+                                }
+                            }
+                        }
+
                         // ─── Tier 5 WhatsApp escalation (v274) ──────────────────────
                         AgentMessage::EscalationRequest(payload) => {
                             tracing::warn!(
@@ -1595,6 +1754,34 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             tokio::spawn(async move {
                                 escalation.handle_escalation(payload_owned).await;
                             });
+                        }
+
+                        // ─── Experience Score Report (CX-06) ─────────────────────────
+                        AgentMessage::ExperienceScoreReport {
+                            pod_id,
+                            total_score,
+                            status,
+                            ..
+                        } => {
+                            let pod_id_owned = pod_id.clone();
+                            let score = *total_score;
+                            let status_owned = status.clone();
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                score = score,
+                                status = %status,
+                                "Received experience score report from pod"
+                            );
+                            let mut fleet = state.pod_fleet_health.write().await;
+                            let store = fleet.entry(pod_id_owned).or_default();
+                            store.experience_score = Some(score);
+                            store.experience_status = Some(status_owned);
+                        }
+
+                        // Phase 306: JwtAck — agent confirmed JWT receipt
+                        AgentMessage::JwtAck { pod_id } => {
+                            tracing::info!("Phase 306: JWT ack from pod {}", pod_id);
                         }
 
                         _ => { /* catch-all for future protocol additions */ }

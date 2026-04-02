@@ -2092,6 +2092,21 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 307: Hash chain columns for append-only audit integrity ────────
+    // entry_hash:    SHA-256 of (id|timestamp|category|action|details|source|previous_hash)
+    // previous_hash: hash of the preceding entry, or "GENESIS" for first hashed entry
+    // Pre-migration rows retain NULL - they are outside the chain and not verified.
+    let _ = sqlx::query("ALTER TABLE pod_activity_log ADD COLUMN entry_hash TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE pod_activity_log ADD COLUMN previous_hash TEXT")
+        .execute(pool)
+        .await;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_hash ON pod_activity_log (entry_hash)")
+        .execute(pool)
+        .await?;
+
     // ─── Unlimited trials flag for test/demo drivers ──────────────────────
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN unlimited_trials BOOLEAN DEFAULT 0")
         .execute(pool)
@@ -3216,6 +3231,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     // v26.0 Meshed Intelligence tables
     crate::fleet_kb::migrate(pool).await?;
+
+    // v35.0 Model Evaluation Store (EVAL-03)
+    crate::fleet_kb::migrate_eval_store(pool).await?;
+
+    // v35.0 Model Reputation Store (MREP-04)
+    crate::fleet_kb::migrate_reputation_store(pool).await?;
 
     // ─── Phase 251: Timer persistence columns (RESIL-02, FSM-09) ──────────────
     // elapsed_seconds: total wall-clock seconds since session start (persisted every 60s)

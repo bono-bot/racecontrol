@@ -280,5 +280,15 @@ pub async fn update_flag(
     // Broadcast FlagSync to all connected pods
     state.broadcast_flag_sync().await;
 
+    // Phase 307 AUDIT-03: Log config change for hash chain coverage
+    crate::activity_log::log_pod_activity(
+        &state,
+        "server",
+        "config",
+        "Feature Flag Updated",
+        &format!("flag={} enabled={} by={}", name, new_enabled, claims.sub),
+        "staff",
+    );
+
     Ok(Json(new_row))
 }

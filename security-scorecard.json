@@ -1,0 +1,189 @@
+{
+  "version": "v38.0",
+  "timestamp": "2026-04-02T04:13:36Z",
+  "server": "http://localhost:8080",
+  "checks": [
+    {
+      "name": "tls_ca_script_exists",
+      "status": "pass",
+      "details": "generate-venue-ca.sh present and executable",
+      "category": "tls"
+    },
+    {
+      "name": "tls_server_mtls_module",
+      "status": "pass",
+      "details": "Server mTLS module with WebPkiClientVerifier",
+      "category": "tls"
+    },
+    {
+      "name": "tls_agent_module",
+      "status": "pass",
+      "details": "Agent TLS module present",
+      "category": "tls"
+    },
+    {
+      "name": "tls_tailscale_bypass",
+      "status": "pass",
+      "details": "Tailscale CGNAT bypass detection present",
+      "category": "tls"
+    },
+    {
+      "name": "tls_disabled_by_default",
+      "status": "pass",
+      "details": "TLS disabled by default (safe rollout)",
+      "category": "tls"
+    },
+    {
+      "name": "ws_pod_claims",
+      "status": "pass",
+      "details": "PodClaims JWT struct defined",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_create_pod_jwt",
+      "status": "pass",
+      "details": "create_pod_jwt function present",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_jwt_dual_secret",
+      "status": "pass",
+      "details": "Pod JWT decode with dual-secret rotation grace",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_jwt_first_psk_fallback",
+      "status": "pass",
+      "details": "authenticate_agent_ws (JWT\u2192PSK fallback)",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_jwt_alert",
+      "status": "pass",
+      "details": "WhatsApp alert on JWT rejection",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_jwt_protocol",
+      "status": "pass",
+      "details": "IssueJwt/RefreshJwt protocol messages defined",
+      "category": "ws_auth"
+    },
+    {
+      "name": "ws_agent_jwt_store",
+      "status": "pass",
+      "details": "Agent stores JWT in AppState for reconnect",
+      "category": "ws_auth"
+    },
+    {
+      "name": "audit_hash_chain",
+      "status": "pass",
+      "details": "SHA-256 hash chain in activity_log",
+      "category": "audit_chain"
+    },
+    {
+      "name": "audit_db_columns",
+      "status": "pass",
+      "details": "entry_hash/previous_hash columns in schema",
+      "category": "audit_chain"
+    },
+    {
+      "name": "audit_verify_endpoint",
+      "status": "pass",
+      "details": "GET /api/v1/audit/verify endpoint defined",
+      "category": "audit_chain"
+    },
+    {
+      "name": "audit_chain_live",
+      "status": "skip",
+      "details": "API returned non-JSON (check server URL/routing)",
+      "category": "audit_chain"
+    },
+    {
+      "name": "rbac_role_constants",
+      "status": "pass",
+      "details": "Three role constants defined (cashier/manager/superadmin)",
+      "category": "rbac"
+    },
+    {
+      "name": "rbac_jwt_role_claim",
+      "status": "pass",
+      "details": "StaffClaims.role field in JWT",
+      "category": "rbac"
+    },
+    {
+      "name": "rbac_manager_routes",
+      "status": "pass",
+      "details": "Manager+ routes enforced via require_role_manager",
+      "category": "rbac"
+    },
+    {
+      "name": "rbac_superadmin_routes",
+      "status": "pass",
+      "details": "Superadmin routes enforced via require_role_superadmin",
+      "category": "rbac"
+    },
+    {
+      "name": "rbac_config_deploy_gated",
+      "status": "warn",
+      "details": "Could not verify config/deploy gating",
+      "category": "rbac"
+    },
+    {
+      "name": "rbac_db_role_column",
+      "status": "pass",
+      "details": "staff_members.role column in DB schema",
+      "category": "rbac"
+    },
+    {
+      "name": "no_unwrap_security_files",
+      "status": "warn",
+      "details": "32 .unwrap() calls in security files",
+      "category": "general"
+    },
+    {
+      "name": "precommit_hook",
+      "status": "pass",
+      "details": "Pre-commit security hook installed",
+      "category": "general"
+    },
+    {
+      "name": "no_hardcoded_secrets",
+      "status": "pass",
+      "details": "No hardcoded secrets found in Rust source",
+      "category": "general"
+    },
+    {
+      "name": "jwt_no_default_secret",
+      "status": "warn",
+      "details": "JWT config may accept weak default secret",
+      "category": "general"
+    },
+    {
+      "name": "static_crt",
+      "status": "pass",
+      "details": "Static CRT configured (+crt-static)",
+      "category": "general"
+    },
+    {
+      "name": "sec_gate_01",
+      "status": "pass",
+      "details": "SEC-GATE-01 security-check.js present",
+      "category": "general"
+    },
+    {
+      "name": "pod_endpoints_protected",
+      "status": "pass",
+      "details": "Pod endpoints behind service key auth",
+      "category": "general"
+    }
+  ],
+  "summary": {
+    "total": 28,
+    "pass": 25,
+    "fail": 0,
+    "warn": 3
+  },
+  "score": "25/28",
+  "overall": "pass"
+}

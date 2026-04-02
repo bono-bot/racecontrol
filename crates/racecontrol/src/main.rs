@@ -694,6 +694,29 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Phase 307: Load last audit chain hash from DB so hash chain continues correctly after restart.
+    // If no hashed entries exist yet (fresh DB or pre-migration), stays at GENESIS.
+    {
+        let db = Arc::get_mut(&mut state).expect("no other Arc refs yet").db.clone();
+        let last_hash: Option<String> = sqlx::query_scalar(
+            "SELECT entry_hash FROM pod_activity_log WHERE entry_hash IS NOT NULL ORDER BY timestamp DESC LIMIT 1"
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(hash) = last_hash {
+            let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
+            if let Ok(mut guard) = inner.audit_last_hash.lock() {
+                *guard = hash;
+            }
+            tracing::info!("Phase 307: Audit hash chain resumed from existing entry");
+        } else {
+            tracing::info!("Phase 307: Audit hash chain starting from GENESIS");
+        }
+    }
+
     // Auto-seed all 8 pods on startup so kiosk is never left with empty pod list
     // after server restart with fresh DB (BUG-01)
     seed_pods_on_startup(&state).await;
@@ -1108,7 +1131,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
-    // Start HTTPS server (if tls_port configured)
+    // Start HTTPS server (if tls_port configured -- legacy one-way TLS path)
     if let Some(tls_port) = state.config.server.tls_port {
         let tls_config = tls::load_or_generate_rustls_config(
             &state.config.server.host,
@@ -1130,8 +1153,21 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // HTTP listener (blocking — keeps main alive)
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    // Phase 305: Venue CA mTLS on main :8080 listener.
+    // When server.tls.enabled = true, binds with TLS (one-way or mTLS per require_client_cert).
+    // When false (default), falls through to plain HTTP (backward compatible).
+    // Tailscale relay listener always stays plain HTTP -- it uses a separate bind IP.
+    if state.config.server.tls.enabled {
+        let mtls_cfg = tls::load_mtls_config(&state.config.server.tls).await?;
+        let mode = if state.config.server.tls.require_client_cert { "mTLS" } else { "TLS (one-way)" };
+        tracing::info!("RaceControl {} on https://{}", mode, bind_addr);
+        axum_server::bind_rustls(listener.local_addr()?, mtls_cfg)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await?;
+    } else {
+        // HTTP listener (blocking -- keeps main alive)
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    }
 
     Ok(())
 }

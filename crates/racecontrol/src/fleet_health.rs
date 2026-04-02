@@ -90,6 +90,10 @@ pub struct FleetHealthStore {
     pub startup_timestamps: Vec<DateTime<Utc>>,
     /// True if the pod is in a detected crash loop (>3 short-uptime restarts in 5 min).
     pub crash_loop: bool,
+    /// CX-06: Pod experience score (0-100) from experience_collector.
+    pub experience_score: Option<f64>,
+    /// CX-06: "Healthy", "Maintenance", or "RemoveFromRotation"
+    pub experience_status: Option<String>,
 }
 
 /// Per-pod violation history with time-based eviction and fingerprint dedup.
@@ -313,6 +317,12 @@ pub struct PodFleetStatus {
     /// null = no heartbeat with agent_timestamp received yet.
     #[serde(default)]
     pub clock_drift_secs: Option<i64>,
+    /// CX-06: Pod experience score (0-100) from experience_collector. Updated every 5 min.
+    #[serde(default)]
+    pub experience_score: Option<f64>,
+    /// CX-06: "Healthy", "Maintenance", or "RemoveFromRotation"
+    #[serde(default)]
+    pub experience_status: Option<String>,
     /// Phase 284: Average ready_delay (duration_to_playable_ms) for this pod over last 7 days.
     pub avg_ready_delay_ms: Option<f64>,
     /// Phase 284: Number of crash recovery events for this pod in last 24 hours.
@@ -623,6 +633,8 @@ pub async fn fleet_health_handler(
                     maintenance_flag: false,
                     crashes_last_hour: 0,
                     clock_drift_secs: None,
+                    experience_score: None,
+                    experience_status: None,
                     avg_ready_delay_ms: None,
                     crash_recovery_count: 0,
                 });
@@ -702,6 +714,8 @@ pub async fn fleet_health_handler(
                     maintenance_flag,
                     crashes_last_hour,
                     clock_drift_secs,
+                    experience_score: store.and_then(|s| s.experience_score),
+                    experience_status: store.and_then(|s| s.experience_status.clone()),
                     avg_ready_delay_ms,
                     crash_recovery_count,
                 });

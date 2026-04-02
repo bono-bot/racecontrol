@@ -669,6 +669,32 @@ EOF
     record_suite 6 "3 Layers + Floor" "SKIPPED (no healing-domain changes)"
   fi
 
+  # =========================================================================
+  # Suite 7: Security Audit (v38.0 — SECAUDIT-03)
+  # Runs scripts/security-audit.sh and checks the overall result.
+  # =========================================================================
+  echo ""
+  echo "============================================================"
+  printf "Suite 7: Security Audit (v38.0)...\n"
+  echo "============================================================"
+
+  SEC_AUDIT_SCRIPT="$REPO_ROOT/scripts/security-audit.sh"
+  if [ -x "$SEC_AUDIT_SCRIPT" ]; then
+    SEC_OUTPUT=$(bash "$SEC_AUDIT_SCRIPT" --output "$REPO_ROOT/security-scorecard.json" 2>&1)
+    SEC_EXIT=$?
+    # Show summary line only
+    echo "$SEC_OUTPUT" | grep -E "Score:|Overall:" | head -2
+    if [ $SEC_EXIT -eq 0 ]; then
+      record_suite 7 "security audit" "PASS"
+    else
+      record_suite 7 "security audit" "FAIL"
+      OVERALL_FAIL=1
+    fi
+  else
+    printf "  scripts/security-audit.sh not found or not executable... %b\n" "$warn_label"
+    record_suite 7 "security audit" "SKIPPED (script missing)"
+  fi
+
 fi  # end pre-deploy
 
 # ===========================================================================
