@@ -3234,6 +3234,39 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // v38.0: Add semantic_status column to app_health_log
+    let _ = sqlx::query("ALTER TABLE app_health_log ADD COLUMN semantic_status TEXT")
+        .execute(pool)
+        .await;
+
+    // v38.0: App restart log table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS app_restart_log (
+            id TEXT PRIMARY KEY,
+            app TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            pm2_stdout TEXT,
+            timestamp TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // v38.0: Synthetic transaction probes table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS synthetic_probes (
+            id TEXT PRIMARY KEY,
+            probe_name TEXT NOT NULL,
+            passed INTEGER NOT NULL,
+            response_ms INTEGER,
+            error TEXT,
+            timestamp TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // v26.0 Meshed Intelligence tables
     crate::fleet_kb::migrate(pool).await?;
 

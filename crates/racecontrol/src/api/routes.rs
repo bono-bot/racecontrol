@@ -20673,8 +20673,24 @@ struct DeployLogRow {
 }
 
 /// GET /api/v1/app-health — current health probe results for admin, kiosk, web.
+/// v38.0: Includes semantic_status, deep_check_passed, and server_alerts summary.
 async fn get_app_health() -> Json<Value> {
     let entries = crate::app_health_monitor::get_current_health().await;
+
+    let alerts: Vec<Value> = entries
+        .iter()
+        .filter(|e| e.status != "ok")
+        .map(|e| {
+            json!({
+                "app": e.app,
+                "status": e.status,
+                "message": e.error.as_deref().unwrap_or("unhealthy"),
+                "severity": if e.status == "unreachable" { "critical" } else { "warning" },
+                "timestamp": e.last_checked,
+            })
+        })
+        .collect();
+
     let result: Vec<Value> = entries
         .into_iter()
         .map(|e| {
@@ -20686,10 +20702,16 @@ async fn get_app_health() -> Json<Value> {
                 "last_checked": e.last_checked,
                 "response_ms": e.response_ms,
                 "error": e.error,
+                "semantic_status": e.semantic_status,
+                "deep_check_passed": e.deep_check_passed,
             })
         })
         .collect();
-    Json(json!(result))
+
+    Json(json!({
+        "apps": result,
+        "server_alerts": alerts,
+    }))
 }
 
 #[cfg(test)]

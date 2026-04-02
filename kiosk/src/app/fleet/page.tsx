@@ -74,6 +74,14 @@ function CountdownRing({ remaining, allocated }: { remaining: number; allocated:
   );
 }
 
+interface ServerAlert {
+  app: string;
+  status: string;
+  message: string;
+  severity: string;
+  timestamp: string;
+}
+
 export default function FleetPage() {
   const [pods, setPods] = useState<PodFleetStatus[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
@@ -84,6 +92,7 @@ export default function FleetPage() {
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [clearing, setClearing] = useState(false);
+  const [serverAlerts, setServerAlerts] = useState<ServerAlert[]>([]);
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -101,6 +110,30 @@ export default function FleetPage() {
 
     fetchFleet();
     intervalId = setInterval(fetchFleet, 5000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // Poll server app health alerts (30s interval)
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    async function fetchServerAlerts() {
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/app-health`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setServerAlerts(data.server_alerts || []);
+        }
+      } catch {
+        // Server alerts are supplementary
+      }
+    }
+
+    fetchServerAlerts();
+    intervalId = setInterval(fetchServerAlerts, 30000);
 
     return () => clearInterval(intervalId);
   }, []);
@@ -148,6 +181,23 @@ export default function FleetPage() {
           <p className="text-yellow-500 text-xs mt-1">{error}</p>
         )}
       </div>
+
+      {/* Server App Health Alert Banner */}
+      {serverAlerts.length > 0 && (
+        <div className="mx-4 mb-2 px-3 py-2 bg-red-900/60 border border-red-500/40 rounded-lg flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+          <div className="text-xs text-red-200 flex-1">
+            <span className="font-semibold text-red-400">Server Alert: </span>
+            {serverAlerts.map((a, i) => (
+              <span key={a.app}>
+                {a.app} {a.status}
+                {a.message !== "unhealthy" && ` (${a.message})`}
+                {i < serverAlerts.length - 1 && " \u00b7 "}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 pb-4 flex-1 overflow-y-auto content-start">
         {pods.map((pod) => {

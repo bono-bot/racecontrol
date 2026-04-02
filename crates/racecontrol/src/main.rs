@@ -1004,6 +1004,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
     app_health_monitor::spawn(state.clone());
 
+    // Spawn synthetic transaction monitor (5min interval, golden-path API validation)
+    racecontrol_crate::synthetic_monitor::spawn(state.clone());
+
     // Spawn Meshed Intelligence promotion pipeline (60s: promote candidates, detect patterns, expire stale)
     racecontrol_crate::promotion::spawn(state.clone());
 
