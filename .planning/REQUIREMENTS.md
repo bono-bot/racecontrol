@@ -36,15 +36,15 @@
 ## Traceability
 | REQ | Phase | Plan | Status |
 |-----|-------|------|--------|
-| WSCMD-01 | — | — | Pending |
-| WSCMD-02 | — | — | Pending |
-| WSCMD-03 | — | — | Pending |
-| WSCMD-04 | — | — | Pending |
-| GSTATE-01 | — | — | Pending |
-| GSTATE-02 | — | — | Pending |
-| GSTATE-03 | — | — | Pending |
-| BATOM-01 | — | — | Pending |
-| BATOM-02 | — | — | Pending |
-| LBILL-01 | — | — | Pending |
-| LBILL-02 | — | — | Pending |
-| LBILL-03 | — | — | Pending |
+| LBILL-01 | 311 | — | Pending |
+| LBILL-02 | 311 | — | Pending |
+| LBILL-03 | 311 | — | Pending |
+| WSCMD-01 | 312 | — | Pending |
+| WSCMD-02 | 312 | — | Pending |
+| WSCMD-03 | 312 | — | Pending |
+| WSCMD-04 | 312 | — | Pending |
+| GSTATE-01 | 313 | — | Pending |
+| GSTATE-02 | 313 | — | Pending |
+| GSTATE-03 | 313 | — | Pending |
+| BATOM-01 | 314 | — | Pending |
+| BATOM-02 | 314 | — | Pending |

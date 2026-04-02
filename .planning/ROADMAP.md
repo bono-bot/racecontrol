@@ -12,24 +12,111 @@
 - ✅ **v32.0 Autonomous Meshed Intelligence** — Phases 273-279 (shipped 2026-04-01)
 - ✅ **v35.0 Structured Retraining & Model Lifecycle** — Phases 290-294 (shipped 2026-04-01)
 - ✅ **v38.0 Security Hardening & Operational Maturity** — Phases 305-309 (shipped 2026-04-02)
+- ✅ **v39.0 Session Trace ID & Metrics** — Phase 310 (shipped 2026-04-02)
+- 🔨 **v40.0 Game Launch Reliability** — Phases 311-314
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
 
-## v38.0 Security Hardening & Operational Maturity
+## v40.0 Game Launch Reliability
 
-**Goal:** Harden the security posture — venue CA with mTLS, JWT rotation, hash-chained audit logs, RBAC, and automated security scanning.
+**Goal:** Fix 4 critical architectural issues in the game launch workflow — WS ACK protocol, GameState loss prevention, billing lock race, billing-during-launch guard.
 
-**Phases:** 5  |  **Coverage:** 19/19 requirements mapped
+**Phases:** 4  |  **Coverage:** 12/12 requirements mapped
 
 **Dependency graph:**
 ```
-305 (TLS) ──┬──> 306 (WS Auth) ──> 308 (RBAC) ──┐
-            └──> 307 (Audit Chain) ───────────────┴──> 309 (Security Audit)
+311 (Launch-Billing Guard) ──> 312 (WS ACK Protocol) ──> 313 (GameState Resilience)
+                                                                       │
+                                                          314 (Billing Atomicity)
 ```
 
 ### Phases
+
+- [ ] **Phase 311: Launch-Billing Coordination Guard** — LBILL-01, LBILL-02, LBILL-03
+- [ ] **Phase 312: WS ACK Protocol** — WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
+- [ ] **Phase 313: Game State Resilience** — GSTATE-01, GSTATE-02, GSTATE-03
+- [ ] **Phase 314: Billing Atomicity** — BATOM-01, BATOM-02
+
+---
+
+### Phase 311: Launch-Billing Coordination Guard
+
+**Goal:** Prevent the 5-min stale cancel from killing sessions where the game is actively loading. Customer shouldn't play for free if billing is cancelled but game keeps running.
+
+**Requirements:** LBILL-01, LBILL-02, LBILL-03
+
+**Success criteria:**
+1. When game process is alive on pod but AcStatus::Live not yet received, stale cancel is deferred (not executed)
+2. If game is alive >10 min without Live signal, cancel proceeds with refund (graceful timeout)
+3. If game is dead and session is waiting_for_game >5 min, cancel with full wallet refund
+4. Log every stale cancel decision with reason (game_alive/game_dead/extended)
+
+**Key files:**
+- `crates/racecontrol/src/billing.rs` — tick_all_timers stale cancel logic (line ~1442)
+- `crates/racecontrol/src/game_launcher.rs` — GameTracker state query
+- `crates/rc-common/src/protocol.rs` — may need IsGameAlive query message
+
+---
+
+### Phase 312: WS ACK Protocol
+
+**Goal:** Server commands to agents are confirmed-delivery, not fire-and-forget. Launch and stop return success only after agent acknowledges receipt.
+
+**Requirements:** WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
+
+**Success criteria:**
+1. `/games/launch` returns `{"ok":true}` only after agent ACKs (or `{"ok":false,"error":"timeout"}` after 5s)
+2. `/games/stop` returns `{"ok":true}` only after agent ACKs
+3. Old agents (pre-v40) that don't send ACK hit the 5s timeout — server returns error, no crash
+4. ACK messages are a new `AgentMessage::CommandAck { command_id }` variant
+
+**Key files:**
+- `crates/racecontrol/src/api/routes.rs` — launch_game, stop_game endpoints
+- `crates/racecontrol/src/game_launcher.rs` — handle_dashboard_command
+- `crates/rc-common/src/protocol.rs` — AgentMessage, CoreToAgentMessage
+- `crates/rc-agent/src/ws_handler.rs` — command handlers (send ACK after processing)
+- `crates/racecontrol/src/ws/mod.rs` — receive ACK and resolve waiting future
+
+---
+
+### Phase 313: Game State Resilience
+
+**Goal:** GameTracker never gets permanently stuck. WS reconnects don't create phantom state.
+
+**Requirements:** GSTATE-01, GSTATE-02, GSTATE-03
+
+**Success criteria:**
+1. GameTracker in `Launching` for >3 min auto-transitions to `Error` (background timeout task)
+2. On WS reconnect, server queries agent for current game state and updates tracker accordingly
+3. After successful `/games/stop`, GameTracker entry is removed (not left in `Stopping`)
+4. No pod can be permanently blocked from launching games due to stale tracker state
+
+**Key files:**
+- `crates/racecontrol/src/game_launcher.rs` — GameTracker, timeout logic, stop cleanup
+- `crates/racecontrol/src/ws/mod.rs` — reconnect reconciliation
+
+---
+
+### Phase 314: Billing Atomicity
+
+**Goal:** No concurrent request window can create duplicate billing sessions for the same pod.
+
+**Requirements:** BATOM-01, BATOM-02
+
+**Success criteria:**
+1. Two simultaneous `start_billing` requests for the same pod: exactly one succeeds, one gets clear error
+2. Pre-validation check and session INSERT are atomic (no TOCTOU window)
+3. Existing `active_timers` pre-check AND DB UNIQUE constraint both prevent duplicates (defense in depth)
+
+**Key files:**
+- `crates/racecontrol/src/api/routes.rs` — start_billing function
+- `crates/racecontrol/src/billing.rs` — active_timers map
+
+---
+
+### Previous Milestone Phases (archived)
 
 - [x] **Phase 305: TLS for Internal HTTP** — Self-signed venue CA, mTLS on :8080/:8090, Tailscale bypass ✅ (2026-04-01)
 - [x] **Phase 306: WS Auth Hardening** — Per-pod JWT (24h), auto-rotation, invalid = disconnect + alert ✅ (b33e388e)
