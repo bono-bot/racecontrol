@@ -216,13 +216,13 @@ Plans:
 **Plans**: 2 plans (core propagation + dashboard events)
 
 Plans:
-- [ ] 310-01-PLAN.md -- Core: add session_id to activity_log, GameTracker, LaunchEvent
-- [ ] 310-02-PLAN.md -- Dashboard events + optional GET /sessions/{id}/trace endpoint
+- [x] 310-01-PLAN.md -- Core: add session_id to activity_log, GameTracker, LaunchEvent (3501828c)
+- [ ] 310-02-PLAN.md -- Dashboard events + optional GET /sessions/{id}/trace endpoint (deferred)
 
 ### Progress Table (v39.0)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 310. Session Trace ID | 0/2 | Pending | — |
+| 310. Session Trace ID | 1/2 | Plan 1 Complete | 2026-04-02 |
 
 *Last updated: 2026-04-02 after MI-5 gap creation*
