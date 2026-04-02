@@ -1439,11 +1439,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         }
     }
 
-    // Bug #11: Auto-cancel DB billing sessions stuck in 'pending' or 'waiting_for_game' for > 5 minutes.
+    // Bug #11 + LBILL: Auto-cancel DB billing sessions stuck in 'pending' or 'waiting_for_game' for > 5 minutes.
     // BILL-13 FIX: Also refund wallet for pre-committed sessions that were debited but never activated.
+    // LBILL-01/02/03: Check GameTracker before cancelling waiting_for_game sessions — game-aware stale cancel.
     {
-        let stale_sessions: Vec<(String, String, Option<i64>)> = sqlx::query_as(
-            "SELECT id, driver_id, wallet_debit_paise FROM billing_sessions \
+        let stale_sessions: Vec<(String, String, Option<i64>, String, String, String)> = sqlx::query_as(
+            "SELECT id, driver_id, wallet_debit_paise, pod_id, created_at, status FROM billing_sessions \
              WHERE status IN ('pending', 'waiting_for_game') \
              AND created_at < datetime('now', '-5 minutes') \
              AND ended_at IS NULL",
@@ -1452,39 +1453,97 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .await
         .unwrap_or_default();
 
-        for (session_id, driver_id, wallet_debit_paise) in &stale_sessions {
-            // Refund wallet if session had a pre-committed debit (BILL-13 kiosk path)
-            if let Some(debit) = wallet_debit_paise {
-                if *debit > 0 {
-                    let _ = crate::wallet::credit(
-                        state,
-                        driver_id,
-                        *debit,
-                        "refund_stale_cancel",
-                        Some(session_id),
-                        Some("Auto-refund: session cancelled (game never reached playable state within 5 minutes)"),
-                        None,
-                    ).await
-                    .map_err(|e| tracing::error!("Bug #11: Failed to refund {}p for stale session {}: {}", debit, session_id, e));
+        if !stale_sessions.is_empty() {
+            // LBILL-01: Snapshot active_games — never hold lock across .await
+            let game_snapshot: HashMap<String, rc_common::types::GameState> = {
+                let games = state.game_launcher.active_games.read().await;
+                games.iter().map(|(k, v)| (k.clone(), v.game_state)).collect()
+            };
+
+            let mut sessions_to_cancel: Vec<(String, String, Option<i64>)> = Vec::new();
+
+            for (session_id, driver_id, wallet_debit_paise, pod_id, created_at_str, status) in &stale_sessions {
+                // Parse created_at to compute age
+                let created_at = chrono::NaiveDateTime::parse_from_str(created_at_str, "%Y-%m-%d %H:%M:%S")
+                    .ok()
+                    .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
+                let age_minutes = created_at
+                    .map(|ca| (Utc::now() - ca).num_minutes())
+                    .unwrap_or(99); // Treat unparseable as very old → cancel
+
+                if status == "pending" {
+                    // LBILL-03: Pending sessions always cancel — no game launched yet
                     tracing::info!(
-                        "Bug #11: Refunded {}p for stale cancelled session {} (driver={})",
-                        debit, session_id, driver_id
+                        "LBILL-03: Cancelling stale pending session {} — no game launched yet (pod {}, age {}min)",
+                        session_id, pod_id, age_minutes
                     );
+                    sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                } else {
+                    // status == "waiting_for_game"
+                    let game_state = game_snapshot.get(pod_id.as_str()).copied();
+                    let game_alive = matches!(game_state, Some(rc_common::types::GameState::Launching)
+                        | Some(rc_common::types::GameState::Loading)
+                        | Some(rc_common::types::GameState::Running));
+
+                    if game_alive && age_minutes < 10 {
+                        // LBILL-02: Game is alive and under 10 min — extend, don't cancel
+                        tracing::info!(
+                            "LBILL-02: Extending stale session {} — game {:?} on pod {} (age {}min, created {})",
+                            session_id, game_state, pod_id, age_minutes, created_at_str
+                        );
+                        // Skip — do not add to sessions_to_cancel
+                    } else if game_alive && age_minutes >= 10 {
+                        // LBILL-02: Absolute timeout — cancel despite game being alive
+                        tracing::warn!(
+                            "LBILL-02: Absolute timeout — cancelling session {} despite game alive on pod {} ({}min)",
+                            session_id, pod_id, age_minutes
+                        );
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                    } else {
+                        // LBILL-03: Game is dead — cancel with refund
+                        tracing::info!(
+                            "LBILL-03: Cancelling stale session {} — no active game on pod {} (game_state={:?}, age {}min)",
+                            session_id, pod_id, game_state, age_minutes
+                        );
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                    }
                 }
             }
-        }
 
-        if !stale_sessions.is_empty() {
-            if let Err(e) = sqlx::query(
-                "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
-                 WHERE status IN ('pending', 'waiting_for_game') \
-                 AND created_at < datetime('now', '-5 minutes') \
-                 AND ended_at IS NULL",
-            )
-            .execute(&state.db)
-            .await
-            {
-                tracing::warn!("Failed to auto-cancel stale pending billing sessions: {}", e);
+            // Refund wallet for sessions being cancelled (BILL-13 kiosk path)
+            for (session_id, driver_id, wallet_debit_paise) in &sessions_to_cancel {
+                if let Some(debit) = wallet_debit_paise {
+                    if *debit > 0 {
+                        let _ = crate::wallet::credit(
+                            state,
+                            driver_id,
+                            *debit,
+                            "refund_stale_cancel",
+                            Some(session_id.as_str()),
+                            Some("Auto-refund: session cancelled (game never reached playable state)"),
+                            None,
+                        ).await
+                        .map_err(|e| tracing::error!("Bug #11: Failed to refund {}p for stale session {}: {}", debit, session_id, e));
+                        tracing::info!(
+                            "Bug #11: Refunded {}p for stale cancelled session {} (driver={})",
+                            debit, session_id, driver_id
+                        );
+                    }
+                }
+            }
+
+            // Cancel only the sessions that were not extended
+            for (session_id, _, _) in &sessions_to_cancel {
+                if let Err(e) = sqlx::query(
+                    "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
+                     WHERE id = ? AND ended_at IS NULL",
+                )
+                .bind(session_id)
+                .execute(&state.db)
+                .await
+                {
+                    tracing::warn!("Failed to auto-cancel stale billing session {}: {}", session_id, e);
+                }
             }
         }
     }
@@ -7392,5 +7451,234 @@ mod tests {
             validate_transition(BillingSessionStatus::PausedCrashRecovery, BillingEvent::GameLive).is_err(),
             "CrashRecovery + GameLive should be rejected"
         );
+    }
+
+    // ── Phase 311: LBILL — Game-aware stale cancel tests ─────────────────────
+
+    /// Helper: create a test AppState with in-memory DB that has billing_sessions + wallets tables.
+    async fn create_lbill_test_state() -> Arc<AppState> {
+        let config = crate::config::Config::default_test();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+
+        // Create minimal billing_sessions table with all columns we need
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS billing_sessions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL,
+                pod_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL DEFAULT 'test',
+                allocated_seconds INTEGER NOT NULL DEFAULT 1800,
+                status TEXT NOT NULL DEFAULT 'pending',
+                wallet_debit_paise INTEGER,
+                ended_at TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create billing_sessions");
+
+        // wallets table needed for refund logic
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallets (
+                driver_id TEXT PRIMARY KEY,
+                balance_paise INTEGER NOT NULL DEFAULT 0,
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create wallets");
+
+        // wallet_transactions table needed for credit()
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL,
+                amount_paise INTEGER NOT NULL,
+                txn_type TEXT NOT NULL,
+                reference_id TEXT,
+                notes TEXT,
+                staff_id TEXT,
+                balance_after_paise INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create wallet_transactions");
+
+        // pod_activity_log table needed for log_pod_activity (called during tick)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS pod_activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pod_id TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL DEFAULT '',
+                details TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'core',
+                session_id TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create pod_activity_log");
+
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, pool, field_cipher))
+    }
+
+    /// Insert a billing session with a specific created_at offset (minutes ago).
+    async fn insert_test_session(
+        state: &Arc<AppState>,
+        session_id: &str,
+        driver_id: &str,
+        pod_id: &str,
+        status: &str,
+        minutes_ago: i64,
+        wallet_debit_paise: Option<i64>,
+    ) {
+        sqlx::query(
+            "INSERT INTO billing_sessions (id, driver_id, pod_id, status, wallet_debit_paise, created_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now', ? || ' minutes'))",
+        )
+        .bind(session_id)
+        .bind(driver_id)
+        .bind(pod_id)
+        .bind(status)
+        .bind(wallet_debit_paise)
+        .bind(format!("-{}", minutes_ago))
+        .execute(&state.db)
+        .await
+        .expect("insert test session");
+    }
+
+    /// Insert a driver wallet for refund tests.
+    async fn insert_test_wallet(state: &Arc<AppState>, driver_id: &str, balance: i64) {
+        sqlx::query("INSERT INTO wallets (driver_id, balance_paise) VALUES (?, ?)")
+            .bind(driver_id)
+            .bind(balance)
+            .execute(&state.db)
+            .await
+            .expect("insert test wallet");
+    }
+
+    /// Add a GameTracker entry for a pod.
+    async fn set_game_tracker(
+        state: &Arc<AppState>,
+        pod_id: &str,
+        game_state: rc_common::types::GameState,
+    ) {
+        let mut games = state.game_launcher.active_games.write().await;
+        games.insert(
+            pod_id.to_string(),
+            crate::game_launcher::GameTracker {
+                pod_id: pod_id.to_string(),
+                sim_type: rc_common::types::SimType::AssettoCorsa,
+                game_state,
+                pid: Some(1234),
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+                dynamic_timeout_secs: None,
+                exit_codes: vec![],
+                max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
+                billing_session_id: None,
+            },
+        );
+    }
+
+    /// Get the status of a billing session by ID.
+    async fn get_session_status(state: &Arc<AppState>, session_id: &str) -> String {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM billing_sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .expect("query session status");
+        row.map(|r| r.0).unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn stale_cancel_game_aware_test1_no_game_cancels() {
+        // Test 1: Session waiting_for_game >5 min with NO active game -> cancelled
+        let state = create_lbill_test_state().await;
+        insert_test_wallet(&state, "d1", 100000).await;
+        insert_test_session(&state, "s1", "d1", "pod-1", "waiting_for_game", 6, Some(70000)).await;
+
+        tick_all_timers(&state).await;
+
+        let status = get_session_status(&state, "s1").await;
+        assert_eq!(status, "cancelled", "LBILL-03: Session with no active game should be cancelled");
+    }
+
+    #[tokio::test]
+    async fn stale_cancel_game_aware_test2_launching_extends() {
+        // Test 2: Session waiting_for_game >5 min with active game in Launching state -> NOT cancelled
+        let state = create_lbill_test_state().await;
+        insert_test_wallet(&state, "d1", 100000).await;
+        insert_test_session(&state, "s2", "d1", "pod-2", "waiting_for_game", 6, Some(70000)).await;
+        set_game_tracker(&state, "pod-2", rc_common::types::GameState::Launching).await;
+
+        tick_all_timers(&state).await;
+
+        let status = get_session_status(&state, "s2").await;
+        assert_eq!(status, "waiting_for_game", "LBILL-01/02: Session with Launching game should NOT be cancelled");
+    }
+
+    #[tokio::test]
+    async fn stale_cancel_game_aware_test3_running_extends() {
+        // Test 3: Session waiting_for_game >5 min with active game in Running state -> NOT cancelled
+        let state = create_lbill_test_state().await;
+        insert_test_wallet(&state, "d1", 100000).await;
+        insert_test_session(&state, "s3", "d1", "pod-3", "waiting_for_game", 6, Some(70000)).await;
+        set_game_tracker(&state, "pod-3", rc_common::types::GameState::Running).await;
+
+        tick_all_timers(&state).await;
+
+        let status = get_session_status(&state, "s3").await;
+        assert_eq!(status, "waiting_for_game", "LBILL-01: Session with Running game should NOT be cancelled");
+    }
+
+    #[tokio::test]
+    async fn stale_cancel_game_aware_test4_absolute_timeout() {
+        // Test 4: Session waiting_for_game >10 min total with active game -> cancelled regardless
+        let state = create_lbill_test_state().await;
+        insert_test_wallet(&state, "d1", 100000).await;
+        insert_test_session(&state, "s4", "d1", "pod-4", "waiting_for_game", 11, Some(70000)).await;
+        set_game_tracker(&state, "pod-4", rc_common::types::GameState::Launching).await;
+
+        tick_all_timers(&state).await;
+
+        let status = get_session_status(&state, "s4").await;
+        assert_eq!(status, "cancelled", "LBILL-02: Session >10 min should be cancelled even with active game");
+    }
+
+    #[tokio::test]
+    async fn stale_cancel_game_aware_test5_pending_always_cancels() {
+        // Test 5: Session in 'pending' status >5 min -> always cancelled (no game check needed)
+        let state = create_lbill_test_state().await;
+        insert_test_wallet(&state, "d1", 100000).await;
+        insert_test_session(&state, "s5", "d1", "pod-5", "pending", 6, Some(70000)).await;
+        // Even if there's a game tracker (shouldn't happen, but test defense in depth)
+        set_game_tracker(&state, "pod-5", rc_common::types::GameState::Launching).await;
+
+        tick_all_timers(&state).await;
+
+        let status = get_session_status(&state, "s5").await;
+        assert_eq!(status, "cancelled", "LBILL-03: Pending session should always be cancelled regardless of game state");
     }
 }
