@@ -17,7 +17,7 @@ export default function PinPad({
   disabled = false,
   error = null,
   loading = false,
-  digits = 6,
+  digits = 4,
 }: PinPadProps) {
   const [pin, setPin] = useState("");
 

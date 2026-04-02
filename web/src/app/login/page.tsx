@@ -108,7 +108,7 @@ export default function LoginPage() {
           </div>
           <p className="text-xs text-rp-grey">Racing Point Bandlaguda</p>
           <p className="text-xs text-rp-grey mt-0.5">
-            Enter your 6-digit staff PIN
+            Enter your 4-digit staff PIN
           </p>
         </div>
 
