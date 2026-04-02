@@ -480,10 +480,11 @@ pub(crate) async fn process_debit_intents(state: &Arc<AppState>) -> anyhow::Resu
                 // Record wallet transaction
                 sqlx::query(
                     "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise,
-                     txn_type, reference_id, notes, created_at)
-                     VALUES (?, ?, ?, ?, 'debit_session', ?, 'Remote booking debit', datetime('now'))",
+                     txn_type, reference_id, notes, created_at, venue_id)
+                     VALUES (?, ?, ?, ?, 'debit_session', ?, 'Remote booking debit', datetime('now'), ?)",
                 )
                 .bind(&txn_id).bind(driver_id).bind(-amount).bind(new_balance).bind(reservation_id)
+                .bind(&state.config.venue.venue_id)
                 .execute(&state.db).await?;
 
                 // Mark intent completed
@@ -1288,14 +1289,17 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
 
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
     // PII stored in _enc/_hash columns only; plaintext columns set to NULL.
+    // venue_id: preserve from cloud payload if present, else use local venue_id
+    let driver_venue_id = driver.get("venue_id").and_then(|v| v.as_str())
+        .unwrap_or(state.config.venue.venue_id.as_str());
     sqlx::query(
         "INSERT INTO drivers (id, customer_id, name, name_enc, phone_hash, phone_enc, email_enc,
             steam_guid, iracing_id, avatar_url,
             total_laps, total_time_ms, has_used_trial, unlimited_trials, pin_hash, phone_verified,
             dob, waiver_signed, waiver_signed_at, waiver_version,
             guardian_name, guardian_phone_hash, guardian_phone_enc, registration_completed, signature_data,
-            created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+            created_at, updated_at, venue_id)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
         ON CONFLICT(id) DO UPDATE SET
             customer_id = COALESCE(excluded.customer_id, drivers.customer_id),
             name = excluded.name,
@@ -1351,6 +1355,7 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
     .bind(driver.get("signature_data").and_then(|v| v.as_str()))                // ?25
     .bind(driver.get("created_at").and_then(|v| v.as_str()))                    // ?26
     .bind(cloud_updated)                                                        // ?27
+    .bind(driver_venue_id)                                                      // ?28
     .execute(&state.db)
     .await?;
 
@@ -1551,9 +1556,12 @@ async fn upsert_kiosk_experience(state: &Arc<AppState>, exp: &Value) -> anyhow::
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Experience missing id"))?;
 
+    // venue_id: preserve from cloud payload if present, else use local venue_id
+    let exp_venue_id = exp.get("venue_id").and_then(|v| v.as_str())
+        .unwrap_or(state.config.venue.venue_id.as_str());
     sqlx::query(
-        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active, updated_at, venue_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             game = excluded.game,
@@ -1579,6 +1587,7 @@ async fn upsert_kiosk_experience(state: &Arc<AppState>, exp: &Value) -> anyhow::
     .bind(exp.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(exp.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
     .bind(exp.get("updated_at").and_then(|v| v.as_str()))
+    .bind(exp_venue_id)
     .execute(&state.db)
     .await?;
 

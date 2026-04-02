@@ -69,6 +69,7 @@ pub async fn credit_in_tx(
     notes: Option<&str>,
     staff_id: Option<&str>,
     idempotency_key: Option<&str>,
+    venue_id: &str,
 ) -> Result<(i64, String), String> {
     if amount_paise <= 0 {
         return Err("Credit amount must be positive".to_string());
@@ -104,8 +105,8 @@ pub async fn credit_in_tx(
     // Record transaction
     sqlx::query(
         "INSERT INTO wallet_transactions \
-         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, idempotency_key) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, idempotency_key, venue_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&txn_id)
     .bind(driver_id)
@@ -116,6 +117,7 @@ pub async fn credit_in_tx(
     .bind(notes)
     .bind(staff_id)
     .bind(idempotency_key)
+    .bind(venue_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
@@ -157,6 +159,7 @@ pub async fn credit(
         notes,
         staff_id,
         None, // no idempotency key for standalone credit
+        &state.config.venue.venue_id,
     ).await?;
 
     tx.commit().await
@@ -205,6 +208,7 @@ pub async fn debit_in_tx(
     reference_id: Option<&str>,
     notes: Option<&str>,
     idempotency_key: Option<&str>,
+    venue_id: &str,
 ) -> Result<(i64, String), String> {
     if amount_paise <= 0 {
         return Err("Debit amount must be positive".to_string());
@@ -245,8 +249,8 @@ pub async fn debit_in_tx(
     // Record transaction after successful debit
     sqlx::query(
         "INSERT INTO wallet_transactions \
-         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, idempotency_key) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, idempotency_key, venue_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&txn_id)
     .bind(driver_id)
@@ -256,6 +260,7 @@ pub async fn debit_in_tx(
     .bind(reference_id)
     .bind(notes)
     .bind(idempotency_key)
+    .bind(venue_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
@@ -292,6 +297,7 @@ pub async fn debit(
         reference_id,
         notes,
         None, // no idempotency key for standalone debit
+        &state.config.venue.venue_id,
     ).await {
         Ok(result) => result,
         Err(e) => {

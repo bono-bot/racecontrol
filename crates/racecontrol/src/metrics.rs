@@ -58,7 +58,7 @@ pub struct LaunchEvent {
 /// Record a launch event to both SQLite and JSONL.
 /// If the DB insert fails, logs the error and writes to JSONL with `db_fallback = true`.
 /// Errors are never swallowed silently (METRICS-07).
-pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent) {
+pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id: &str) {
     let outcome_str = serde_json::to_string(&event.outcome).unwrap_or_default();
     let taxonomy_str = event
         .error_taxonomy
@@ -69,8 +69,8 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent) {
         .to_string();
 
     let db_result = sqlx::query(
-        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pod_id)
@@ -86,6 +86,7 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent) {
     .bind(&event.launch_args_hash)
     .bind(event.attempt_number)
     .bind(&now)
+    .bind(venue_id)
     .execute(db)
     .await;
 
@@ -174,13 +175,13 @@ pub struct BillingAccuracyEvent {
 
 /// Record a billing accuracy event to SQLite.
 /// Errors are logged but never swallowed (METRICS-07).
-pub async fn record_billing_accuracy_event(db: &SqlitePool, event: &BillingAccuracyEvent) {
+pub async fn record_billing_accuracy_event(db: &SqlitePool, event: &BillingAccuracyEvent, venue_id: &str) {
     let now = chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
     let result = sqlx::query(
-        "INSERT INTO billing_accuracy_events (id, session_id, pod_id, sim_type, event_type, launch_command_at, playable_signal_at, billing_start_at, delta_ms, details, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO billing_accuracy_events (id, session_id, pod_id, sim_type, event_type, launch_command_at, playable_signal_at, billing_start_at, delta_ms, details, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.session_id)
@@ -193,6 +194,7 @@ pub async fn record_billing_accuracy_event(db: &SqlitePool, event: &BillingAccur
     .bind(event.delta_ms)
     .bind(&event.details)
     .bind(&now)
+    .bind(venue_id)
     .execute(db)
     .await;
 
@@ -233,15 +235,15 @@ pub struct RecoveryEvent {
 
 /// Record a crash recovery event to SQLite.
 /// Errors are logged but never swallowed (METRICS-07).
-pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent) {
+pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent, venue_id: &str) {
     let now = chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
     let outcome_str = serde_json::to_string(&event.recovery_outcome).unwrap_or_default();
 
     let result = sqlx::query(
-        "INSERT INTO recovery_events (id, pod_id, sim_type, car, track, failure_mode, recovery_action_tried, recovery_outcome, recovery_duration_ms, error_details, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO recovery_events (id, pod_id, sim_type, car, track, failure_mode, recovery_action_tried, recovery_outcome, recovery_duration_ms, error_details, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pod_id)
@@ -254,6 +256,7 @@ pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent) {
     .bind(event.recovery_duration_ms)
     .bind(&event.error_details)
     .bind(&now)
+    .bind(venue_id)
     .execute(db)
     .await;
 

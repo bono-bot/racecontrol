@@ -1353,8 +1353,8 @@ pub async fn place_cafe_order_inner(
     // ── Step I: Insert order record ───────────────────────────────────────────
     let items_json = serde_json::to_string(&order_item_details).unwrap_or_else(|_| "[]".to_string());
     if let Err(e) = sqlx::query(
-        "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, discount_paise, applied_promo_id, wallet_txn_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')",
+        "INSERT INTO cafe_orders (id, receipt_number, driver_id, items, total_paise, discount_paise, applied_promo_id, wallet_txn_id, status, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)",
     )
     .bind(&order_id)
     .bind(&receipt_number)
@@ -1364,6 +1364,7 @@ pub async fn place_cafe_order_inner(
     .bind(discount_paise)
     .bind(&promo_result.applied_promo_id)
     .bind(&wallet_txn_id)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     {

@@ -135,11 +135,12 @@ pub async fn insert_audit_log(
     new_status: &str,
     nonce_used: Option<&str>,
     actor: &str,
+    venue_id: &str,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
     let result = sqlx::query(
-        "INSERT INTO billing_audit_log (id, session_id, pod_id, event_type, old_status, new_status, nonce_used, timestamp, actor) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)",
+        "INSERT INTO billing_audit_log (id, session_id, pod_id, event_type, old_status, new_status, nonce_used, timestamp, actor, venue_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)",
     )
     .bind(&id)
     .bind(session_id)
@@ -149,6 +150,7 @@ pub async fn insert_audit_log(
     .bind(new_status)
     .bind(nonce_used)
     .bind(actor)
+    .bind(venue_id)
     .execute(db)
     .await;
 

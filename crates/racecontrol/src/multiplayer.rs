@@ -131,8 +131,8 @@ pub async fn book_multiplayer(
         let adhoc_id = uuid::Uuid::new_v4().to_string();
         let adhoc_name = format!("Custom: {} @ {}", car, track);
         sqlx::query(
-            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'))",
+            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'), ?)",
         )
         .bind(&adhoc_id)
         .bind(&adhoc_name)
@@ -140,6 +140,7 @@ pub async fn book_multiplayer(
         .bind(track)
         .bind(car)
         .bind(duration_minutes)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error creating ad-hoc experience: {}", e))?;
@@ -200,8 +201,8 @@ pub async fn book_multiplayer(
     // Create group session
     let group_session_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, created_at)
-         VALUES (?, ?, ?, ?, ?, 'forming', ?, datetime('now'))",
+        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, 'forming', ?, datetime('now'), ?)",
     )
     .bind(&group_session_id)
     .bind(host_id)
@@ -209,6 +210,7 @@ pub async fn book_multiplayer(
     .bind(pricing_tier_id)
     .bind(&shared_pin_str)
     .bind(total_members as i64)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
@@ -274,8 +276,8 @@ pub async fn book_multiplayer(
         // Create host member record
         let host_member_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at)
-             VALUES (?, ?, ?, 'host', 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at, venue_id)
+             VALUES (?, ?, ?, 'host', 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'), ?)",
         )
         .bind(&host_member_id)
         .bind(&group_session_id)
@@ -284,6 +286,7 @@ pub async fn book_multiplayer(
         .bind(&host_reservation_id)
         .bind(&host_token.id)
         .bind(&wallet_txn_id)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
@@ -295,13 +298,14 @@ pub async fn book_multiplayer(
 
             // Pre-assign pod but don't reserve yet (reserve on accept)
             sqlx::query(
-                "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, invited_at)
-                 VALUES (?, ?, ?, 'invitee', 'pending', ?, datetime('now'))",
+                "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, invited_at, venue_id)
+                 VALUES (?, ?, ?, 'invitee', 'pending', ?, datetime('now'), ?)",
             )
             .bind(&member_id)
             .bind(&group_session_id)
             .bind(friend_id)
             .bind(friend_pod_id)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await
             .map_err(|e| format!("DB error: {}", e))?;
@@ -906,8 +910,8 @@ pub async fn staff_book_multiplayer(
         let adhoc_id = uuid::Uuid::new_v4().to_string();
         let adhoc_name = format!("Custom: {} @ {}", c, t);
         sqlx::query(
-            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'))",
+            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'), ?)",
         )
         .bind(&adhoc_id)
         .bind(&adhoc_name)
@@ -915,6 +919,7 @@ pub async fn staff_book_multiplayer(
         .bind(t)
         .bind(c)
         .bind(duration_minutes)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error creating ad-hoc experience: {}", e))?;
@@ -942,8 +947,8 @@ pub async fn staff_book_multiplayer(
 
     // Create group_sessions row with status 'all_validated'
     sqlx::query(
-        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, validated_count, created_at, started_at)
-         VALUES (?, ?, ?, ?, ?, 'all_validated', ?, ?, datetime('now'), datetime('now'))",
+        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, validated_count, created_at, started_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, 'all_validated', ?, ?, datetime('now'), datetime('now'), ?)",
     )
     .bind(&group_session_id)
     .bind(&driver_ids[0]) // host = first driver
@@ -952,6 +957,7 @@ pub async fn staff_book_multiplayer(
     .bind(&shared_pin_str)
     .bind(driver_ids.len() as i64)
     .bind(driver_ids.len() as i64) // all pre-validated
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
@@ -966,14 +972,15 @@ pub async fn staff_book_multiplayer(
             .map(|(_, tid)| tid.clone());
 
         sqlx::query(
-            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, wallet_txn_id, invited_at, accepted_at, validated_at)
-             VALUES (?, ?, ?, 'staff_assigned', 'validated', ?, ?, datetime('now'), datetime('now'), datetime('now'))",
+            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, wallet_txn_id, invited_at, accepted_at, validated_at, venue_id)
+             VALUES (?, ?, ?, 'staff_assigned', 'validated', ?, ?, datetime('now'), datetime('now'), datetime('now'), ?)",
         )
         .bind(&member_id)
         .bind(&group_session_id)
         .bind(driver_id)
         .bind(pod_id)
         .bind(wallet_txn_id)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
@@ -1581,8 +1588,8 @@ pub async fn book_multiplayer_kiosk(
         let adhoc_id = uuid::Uuid::new_v4().to_string();
         let adhoc_name = format!("Custom: {} @ {}", car, track);
         sqlx::query(
-            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'))",
+            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'), ?)",
         )
         .bind(&adhoc_id)
         .bind(&adhoc_name)
@@ -1590,6 +1597,7 @@ pub async fn book_multiplayer_kiosk(
         .bind(track)
         .bind(car)
         .bind(duration_minutes)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
@@ -1631,8 +1639,8 @@ pub async fn book_multiplayer_kiosk(
     // Create group session
     let group_session_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, created_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, datetime('now'))",
+        "INSERT INTO group_sessions (id, host_driver_id, experience_id, pricing_tier_id, shared_pin, status, total_members, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, datetime('now'), ?)",
     )
     .bind(&group_session_id)
     .bind(host_id)
@@ -1640,6 +1648,7 @@ pub async fn book_multiplayer_kiosk(
     .bind(pricing_tier_id)
     .bind("0000") // Placeholder — each participant gets unique PIN
     .bind(pod_count as i64)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
@@ -1680,8 +1689,8 @@ pub async fn book_multiplayer_kiosk(
         // Create group member record
         let member_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at)
-             VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at, venue_id)
+             VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'), ?)",
         )
         .bind(&member_id)
         .bind(&group_session_id)
@@ -1691,6 +1700,7 @@ pub async fn book_multiplayer_kiosk(
         .bind(&reservation_id)
         .bind(&token.id)
         .bind(&wallet_txn_id)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;

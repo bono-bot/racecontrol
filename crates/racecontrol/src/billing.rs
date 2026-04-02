@@ -748,7 +748,7 @@ pub async fn handle_game_status_update(
                                         delta_ms: Some(delta_ms),
                                         details: Some("multiplayer".to_string()),
                                     };
-                                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
+                                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event, &state.config.venue.venue_id).await;
                                 }
                                 Err(err) => {
                                     tracing::error!("Failed to start multiplayer billing for pod {}: {}", e.pod_id, err);
@@ -784,7 +784,7 @@ pub async fn handle_game_status_update(
                     // Log billing_timer_started event
                     let billing_start_iso = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
                     let _ = sqlx::query(
-                        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata) VALUES (?, ?, 'billing_timer_started', 0, ?)",
+                        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id) VALUES (?, ?, 'billing_timer_started', 0, ?, ?)",
                     )
                     .bind(uuid::Uuid::new_v4().to_string())
                     .bind(&session_id)
@@ -796,6 +796,7 @@ pub async fn handle_game_status_update(
                         "deferred_from_kiosk": true,
                         "wait_ms": delta_ms,
                     }).to_string())
+                    .bind(&state.config.venue.venue_id)
                     .execute(&state.db)
                     .await;
 
@@ -822,7 +823,7 @@ pub async fn handle_game_status_update(
                         delta_ms: Some(delta_ms),
                         details: Some("kiosk_deferred".to_string()),
                     };
-                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
+                    crate::metrics::record_billing_accuracy_event(&state.db, &ba_event, &state.config.venue.venue_id).await;
                 } else {
                     // ── Single-player PIN auth path: start billing (existing behavior) ──
                     let delta_ms = entry.waiting_since.elapsed().as_millis() as i64;
@@ -858,7 +859,7 @@ pub async fn handle_game_status_update(
                                 delta_ms: Some(delta_ms),
                                 details: None,
                             };
-                            crate::metrics::record_billing_accuracy_event(&state.db, &ba_event).await;
+                            crate::metrics::record_billing_accuracy_event(&state.db, &ba_event, &state.config.venue.venue_id).await;
                         }
                         Err(e) => {
                             tracing::error!("Failed to start billing on LIVE for pod {}: {}", pod_id, e);
@@ -1023,13 +1024,14 @@ pub async fn handle_game_status_update(
                     // PIN auth path — no DB record exists yet, create cancelled_no_playable record
                     let session_id = uuid::Uuid::new_v4().to_string();
                     let _ = sqlx::query(
-                        "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
-                         VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
+                        "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds, venue_id)
+                         VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0, ?)",
                     )
                     .bind(&session_id)
                     .bind(pod_id)
                     .bind(&crashed_entry.driver_id)
                     .bind(&crashed_entry.pricing_tier_id)
+                    .bind(&state.config.venue.venue_id)
                     .execute(&state.db)
                     .await
                     .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (game crash): {}", e));
@@ -1583,8 +1585,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
         // Log warning event to DB
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
@@ -1594,6 +1596,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             "warning_5min"
         })
         .bind(driving_seconds as i64)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
     }
@@ -1610,12 +1613,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .await;
 
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-             VALUES (?, ?, 'time_expired', ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+             VALUES (?, ?, 'time_expired', ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(driving_seconds as i64)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
     }
@@ -1634,13 +1638,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .await;
 
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'paused_disconnect', ?, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'paused_disconnect', ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(session_id)
         .bind(0i64) // driving_seconds not incremented during pause
         .bind(format!("{{\"pause_count\":{},\"reason\":\"disconnect\"}}", pause_count))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
 
@@ -1723,13 +1728,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         }
 
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'pause_timeout_ended', ?, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'pause_timeout_ended', ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(driving_seconds as i64)
         .bind(format!("{{\"refund_paise\":{}}}", refund_paise))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
 
@@ -1860,13 +1866,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             if let Some(ref timed_out_entry) = entry {
                 let session_id = uuid::Uuid::new_v4().to_string();
                 let _ = sqlx::query(
-                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds)
-                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0)",
+                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds, venue_id)
+                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0, ?)",
                 )
                 .bind(&session_id)
                 .bind(&timed_out_entry.pod_id)
                 .bind(&timed_out_entry.driver_id)
                 .bind(&timed_out_entry.pricing_tier_id)
+                .bind(&state.config.venue.venue_id)
                 .execute(&state.db)
                 .await
                 .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (launch timeout): {}", e));
@@ -2769,8 +2776,8 @@ pub async fn start_billing_session(
     let final_split_duration = split_duration_minutes;
 
     sqlx::query(
-        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id, split_count, split_duration_minutes)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id, split_count, split_duration_minutes, venue_id)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(&driver_id)
@@ -2782,6 +2789,7 @@ pub async fn start_billing_session(
     .bind(&staff_id)
     .bind(final_split_count as i64)
     .bind(final_split_duration.map(|d| d as i64))
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to persist billing session: {}", e))?;
@@ -2789,12 +2797,13 @@ pub async fn start_billing_session(
     // Log billing events
     for event_type in ["created", "started"] {
         if let Err(e) = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-             VALUES (?, ?, ?, 0)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+             VALUES (?, ?, ?, 0, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(event_type)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         {
@@ -2817,12 +2826,13 @@ pub async fn start_billing_session(
         "trigger": "game_live_signal"
     });
     if let Err(e) = sqlx::query(
-        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-         VALUES (?, ?, 'billing_timer_started', 0, ?)",
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+         VALUES (?, ?, 'billing_timer_started', 0, ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(&session_id)
     .bind(billing_started_meta.to_string())
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     {
@@ -2913,6 +2923,7 @@ pub async fn start_billing_session(
             &session_id,
             final_split_count,
             total_seconds,
+            &state.config.venue.venue_id,
         ).await {
             // Non-fatal: split records failing doesn't prevent session start,
             // but we log it at ERROR so it can be investigated.
@@ -2959,7 +2970,7 @@ pub async fn start_billing_session(
         "driver_id": driver_id,
         "tier": tier.1,
         "allocated_seconds": allocated_seconds,
-    }));
+    }), &state.config.venue.venue_id);
 
     Ok(session_id)
 }
@@ -3142,13 +3153,14 @@ async fn set_billing_status(
 
             // Log event
             if let Err(e) = sqlx::query(
-                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(uuid::Uuid::new_v4().to_string())
             .bind(session_id)
             .bind(event_type)
             .bind(info.driving_seconds as i64)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await
             {
@@ -3224,12 +3236,13 @@ pub async fn resume_billing_from_disconnect(
 
     // Log event
     let _ = sqlx::query(
-        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-         VALUES (?, ?, 'resumed_disconnect', ?)",
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+         VALUES (?, ?, 'resumed_disconnect', ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(session_id)
     .bind(info.driving_seconds as i64)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -3330,7 +3343,7 @@ async fn end_billing_session(
                 "driver_id": info.driver_id,
                 "driving_seconds": driving_seconds,
                 "end_status": activity_action,
-            }));
+            }), &state.config.venue.venue_id);
 
             timers.remove(&pod_id);
             drop(timers);
@@ -3385,13 +3398,14 @@ async fn end_billing_session(
             }
 
             if let Err(e) = sqlx::query(
-                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(uuid::Uuid::new_v4().to_string())
             .bind(session_id)
             .bind(event_type)
             .bind(driving_seconds as i64)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await
             {
@@ -3934,11 +3948,12 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
     // Only nudge once per driver
     if already_nudged.map(|c| c.0 == 0).unwrap_or(true) {
         let _ = sqlx::query(
-            "INSERT INTO review_nudges (id, driver_id, billing_session_id, sent_at) VALUES (?, ?, ?, NULL)",
+            "INSERT INTO review_nudges (id, driver_id, billing_session_id, sent_at, venue_id) VALUES (?, ?, ?, NULL, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(driver_id)
         .bind(session_id)
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
     }
@@ -4151,6 +4166,7 @@ pub async fn extend_billing_session(
             Some(session_id),
             Some(&format!("Extension {}s", additional_seconds)),
             None,
+            &state.config.venue.venue_id,
         )
         .await;
         if let Err(e) = debit_result {
@@ -4175,13 +4191,14 @@ pub async fn extend_billing_session(
         "extension_cost_paise": extension_cost_paise,
     });
     let _ = sqlx::query(
-        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-         VALUES (?, ?, 'extended', ?, ?)",
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+         VALUES (?, ?, 'extended', ?, ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(session_id)
     .bind(driving_seconds_snapshot as i64)
     .bind(metadata.to_string())
+    .bind(&state.config.venue.venue_id)
     .execute(&mut *tx)
     .await;
 
@@ -4274,13 +4291,14 @@ pub async fn update_driving_state(
 
             // Log state transition
             let _ = sqlx::query(
-                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(uuid::Uuid::new_v4().to_string())
             .bind(&session_id)
             .bind(event_type)
             .bind(driving_seconds as i64)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
 
@@ -4371,8 +4389,8 @@ pub async fn pause_multiplayer_group(
     // Log billing_events for each paused session (audit trail)
     for (pod_id, session_id) in &sessions_to_pause {
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'multiplayer_group_paused', 0, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'multiplayer_group_paused', 0, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(session_id)
@@ -4380,6 +4398,7 @@ pub async fn pause_multiplayer_group(
             "{{\"group_session_id\":\"{}\",\"reason\":\"{}\",\"pod_id\":\"{}\"}}",
             group_session_id, reason, pod_id
         ))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| tracing::warn!("BILL-07: Failed to log multiplayer_group_paused event for session {}: {}", session_id, e));
@@ -4471,8 +4490,8 @@ pub async fn resume_multiplayer_group(state: &Arc<AppState>, group_session_id: &
     // Log billing_events for each resumed session (audit trail)
     for (pod_id, session_id) in &sessions_to_resume {
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'multiplayer_group_resumed', 0, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'multiplayer_group_resumed', 0, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(session_id)
@@ -4480,6 +4499,7 @@ pub async fn resume_multiplayer_group(state: &Arc<AppState>, group_session_id: &
             "{{\"group_session_id\":\"{}\",\"pod_id\":\"{}\"}}",
             group_session_id, pod_id
         ))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| tracing::warn!("BILL-07: Failed to log multiplayer_group_resumed event for session {}: {}", session_id, e));
@@ -4587,6 +4607,7 @@ pub async fn create_split_records(
     parent_session_id: &str,
     split_count: u32,
     total_allocated_seconds: u32,
+    venue_id: &str,
 ) -> Result<(), String> {
     if split_count == 0 {
         return Err("split_count must be >= 1".to_string());
@@ -4598,12 +4619,13 @@ pub async fn create_split_records(
         // Last split gets remainder seconds (ensures total adds up correctly)
         let alloc = if i == split_count { per_split + remainder } else { per_split };
         sqlx::query(
-            "INSERT INTO split_sessions (parent_session_id, split_number, allocated_seconds, status) \
-             VALUES (?, ?, ?, 'pending')",
+            "INSERT INTO split_sessions (parent_session_id, split_number, allocated_seconds, status, venue_id) \
+             VALUES (?, ?, ?, 'pending', ?)",
         )
         .bind(parent_session_id)
         .bind(i as i64)
         .bind(alloc as i64)
+        .bind(venue_id)
         .execute(db)
         .await
         .map_err(|e| format!("FSM-07: Failed to create split record {}: {}", i, e))?;
@@ -6645,6 +6667,7 @@ mod tests {
                 started_at TEXT,
                 ended_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001',
                 UNIQUE(parent_session_id, split_number)
             )",
         )
@@ -6667,7 +6690,7 @@ mod tests {
     async fn test_split_create_equal_allocation() {
         let pool = create_test_db().await;
         // 3 splits of 1800s total → 600s each
-        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1800, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         let rows: Vec<(i64, i64, String)> = sqlx::query_as(
             "SELECT split_number, allocated_seconds, status FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
@@ -6691,7 +6714,7 @@ mod tests {
     async fn test_split_remainder_goes_to_last() {
         let pool = create_test_db().await;
         // 1801s / 3 = 600 remainder 1 → last split gets 601s
-        create_split_records(&pool, "test-session", 3, 1801).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1801, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         let rows: Vec<(i64, i64)> = sqlx::query_as(
             "SELECT split_number, allocated_seconds FROM split_sessions WHERE parent_session_id = 'test-session' ORDER BY split_number"
@@ -6708,7 +6731,7 @@ mod tests {
     #[tokio::test]
     async fn test_split_transition_advances_to_next() {
         let pool = create_test_db().await;
-        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1800, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         // Transition from split 1 → should activate split 2
         let next = transition_split(&pool, "test-session", 1).await.expect("transition_split failed");
@@ -6730,7 +6753,7 @@ mod tests {
     #[tokio::test]
     async fn test_split_transition_last_returns_none() {
         let pool = create_test_db().await;
-        create_split_records(&pool, "test-session", 2, 1200).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 2, 1200, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         // Complete split 1 → activates split 2
         let _ = transition_split(&pool, "test-session", 1).await.expect("first transition failed");
@@ -6742,7 +6765,7 @@ mod tests {
     #[tokio::test]
     async fn test_split_cas_rejects_non_active() {
         let pool = create_test_db().await;
-        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1800, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         // Try to complete split 2 (which is still Pending) — should fail CAS
         let result = transition_split(&pool, "test-session", 2).await;
@@ -6753,7 +6776,7 @@ mod tests {
     #[tokio::test]
     async fn test_cancel_pending_splits() {
         let pool = create_test_db().await;
-        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1800, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         cancel_pending_splits(&pool, "test-session").await.expect("cancel_pending_splits failed");
 
@@ -6774,7 +6797,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_next_pending_split_returns_lowest() {
         let pool = create_test_db().await;
-        create_split_records(&pool, "test-session", 3, 1800).await.expect("create_split_records failed");
+        create_split_records(&pool, "test-session", 3, 1800, "racingpoint-hyd-001").await.expect("create_split_records failed");
 
         // Initially split 1 is active, so next PENDING is split 2
         let next = get_next_pending_split(&pool, "test-session").await.expect("get_next_pending_split failed");
