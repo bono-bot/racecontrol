@@ -12,10 +12,10 @@
 
 ## WS Auth Hardening (WSAUTH)
 
-- [ ] **WSAUTH-01**: Per-pod JWT tokens with 24-hour expiry replace static PSK for WebSocket authentication
-- [ ] **WSAUTH-02**: JWT tokens auto-rotate 1 hour before expiry — zero-downtime refresh
-- [ ] **WSAUTH-03**: Invalid or expired JWT on WebSocket causes immediate disconnect + WhatsApp alert to staff
-- [ ] **WSAUTH-04**: PSK remains as bootstrap fallback — initial connection uses PSK, server issues JWT for subsequent auth
+- [x] **WSAUTH-01**: Per-pod JWT tokens with 24-hour expiry replace static PSK for WebSocket authentication
+- [x] **WSAUTH-02**: JWT tokens auto-rotate 1 hour before expiry — zero-downtime refresh
+- [x] **WSAUTH-03**: Invalid or expired JWT on WebSocket causes immediate disconnect + WhatsApp alert to staff
+- [x] **WSAUTH-04**: PSK remains as bootstrap fallback — initial connection uses PSK, server issues JWT for subsequent auth
 
 ## Audit Log Integrity (AUDIT)
 
@@ -45,10 +45,10 @@
 | TLS-02 | Phase 305 | Pending |
 | TLS-03 | Phase 305 | Pending |
 | TLS-04 | Phase 305 | Pending |
-| WSAUTH-01 | Phase 306 | Pending |
-| WSAUTH-02 | Phase 306 | Pending |
-| WSAUTH-03 | Phase 306 | Pending |
-| WSAUTH-04 | Phase 306 | Pending |
+| WSAUTH-01 | Phase 306 | Done (b33e388e) |
+| WSAUTH-02 | Phase 306 | Done (b33e388e) |
+| WSAUTH-03 | Phase 306 | Done (b33e388e) |
+| WSAUTH-04 | Phase 306 | Done (b33e388e) |
 | AUDIT-01 | Phase 307 | Complete (d5f9b387) |
 | AUDIT-02 | Phase 307 | Complete (d5f9b387) |
 | AUDIT-03 | Phase 307 | Complete (d5f9b387) |
