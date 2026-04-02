@@ -414,43 +414,119 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 .dashboard_tx
                                 .send(DashboardEvent::PodUpdate(pod_info.clone()));
 
-                            // Reconcile game_launcher.active_games with pod's reported state
+                            // GSTATE-02: Smart reconciliation — merge pod's actual state with server tracker
+                            // Pod is ALWAYS source of truth for what's actually running, except for
+                            // very recent Launching state (<30s) where agent may not have received command yet.
                             {
                                 let mut games = state.game_launcher.active_games.write().await;
                                 let pod_game_state = pod_info.game_state.unwrap_or(GameState::Idle);
-                                match pod_game_state {
-                                    GameState::Running | GameState::Launching | GameState::Loading => {
-                                        // Pod reports a game is active — ensure tracker exists
-                                        if let Some(tracker) = games.get_mut(&canonical_id) {
-                                            tracker.game_state = pod_game_state;
-                                        } else if let Some(sim) = pod_info.current_game {
-                                            games.insert(
-                                                canonical_id.clone(),
-                                                game_launcher::GameTracker {
-                                                    pod_id: canonical_id.clone(),
-                                                    sim_type: sim,
-                                                    game_state: pod_game_state,
-                                                    pid: None,
-                                                    launched_at: None,
-                                                    error_message: None,
-                                                    launch_args: None,
-                                                    auto_relaunch_count: 0,
-                                                    externally_tracked: true,
-                                                    dynamic_timeout_secs: None,
-                                                    exit_codes: Vec::new(),
-                                                    max_auto_relaunch: 2,
-                                                    playable_at: None,
-                                                    ready_delay_ms: None,
-                                                    billing_session_id: None,
-                                                },
-                                            );
-                                            tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
+                                let server_state = games.get(&canonical_id).map(|t| t.game_state);
+
+                                match (server_state, pod_game_state) {
+                                    // Case 1: Both agree no game running
+                                    (None, GameState::Idle) => {
+                                        // No action needed
+                                    }
+
+                                    // Case 2: Server has no tracker, pod reports active game — create tracker
+                                    (None, GameState::Running | GameState::Launching | GameState::Loading) => {
+                                        if let Some(sim) = pod_info.current_game {
+                                            games.insert(canonical_id.clone(), game_launcher::GameTracker {
+                                                pod_id: canonical_id.clone(),
+                                                sim_type: sim,
+                                                game_state: pod_game_state,
+                                                pid: None,
+                                                launched_at: None,
+                                                error_message: None,
+                                                launch_args: None,
+                                                auto_relaunch_count: 0,
+                                                externally_tracked: true,
+                                                dynamic_timeout_secs: None,
+                                                exit_codes: Vec::new(),
+                                                max_auto_relaunch: 2,
+                                                playable_at: None,
+                                                ready_delay_ms: None,
+                                                billing_session_id: None,
+                                            });
+                                            tracing::info!("GSTATE-02: Created game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
                                         }
                                     }
-                                    GameState::Idle | GameState::Stopping | GameState::Error => {
-                                        // Pod reports idle — remove any stale tracker
-                                        if games.remove(&canonical_id).is_some() {
-                                            tracing::info!("Removed stale game tracker for pod {} on reconnect", pod_info.number);
+
+                                    // Case 3: Server has tracker, pod reports active — update state from pod (source of truth)
+                                    (Some(_server_gs), GameState::Running | GameState::Launching | GameState::Loading) => {
+                                        if let Some(tracker) = games.get_mut(&canonical_id) {
+                                            let old_state = tracker.game_state;
+                                            tracker.game_state = pod_game_state;
+                                            if old_state != pod_game_state {
+                                                tracing::info!("GSTATE-02: Reconciled pod {} game state: {:?} -> {:?} (pod is source of truth)",
+                                                    pod_info.number, old_state, pod_game_state);
+                                            }
+                                        }
+                                    }
+
+                                    // Case 4: Server has Launching tracker, pod reports Idle
+                                    // Pod may not have processed a very recent launch command yet.
+                                    // Keep tracker if launched <30s ago; GSTATE-01 180s hard-cap cleans up if launch truly failed.
+                                    (Some(GameState::Launching), GameState::Idle) => {
+                                        let keep = if let Some(tracker) = games.get(&canonical_id) {
+                                            match tracker.launched_at {
+                                                Some(launched_at) => {
+                                                    let elapsed = chrono::Utc::now().signed_duration_since(launched_at).num_seconds();
+                                                    elapsed < 30
+                                                }
+                                                None => true, // No timestamp = just created, keep it
+                                            }
+                                        } else {
+                                            false
+                                        };
+                                        if keep {
+                                            tracing::info!("GSTATE-02: Keeping recent Launching tracker for pod {} despite Idle reconnect (launch may be in-flight)",
+                                                pod_info.number);
+                                        } else {
+                                            games.remove(&canonical_id);
+                                            tracing::info!("GSTATE-02: Removed stale Launching tracker for pod {} (pod reports Idle, launch >30s old)",
+                                                pod_info.number);
+                                        }
+                                    }
+
+                                    // Case 5: Server has Running/Loading/Stopping/Error tracker, pod reports Idle
+                                    // Pod is source of truth — game ended while disconnected. Remove tracker.
+                                    (Some(server_gs), GameState::Idle) => {
+                                        games.remove(&canonical_id);
+                                        tracing::info!("GSTATE-02: Removed stale {:?} tracker for pod {} on reconnect (pod reports Idle)",
+                                            server_gs, pod_info.number);
+                                    }
+
+                                    // Case 6: Pod reports Stopping or Error — update existing tracker
+                                    (Some(_), GameState::Stopping | GameState::Error) => {
+                                        if let Some(tracker) = games.get_mut(&canonical_id) {
+                                            tracker.game_state = pod_game_state;
+                                            tracing::info!("GSTATE-02: Updated tracker for pod {} to {:?} on reconnect", pod_info.number, pod_game_state);
+                                        }
+                                    }
+
+                                    // Case 7: No server tracker, pod reports Stopping/Error — create transient tracker
+                                    // So state is visible on dashboard; normal timeout will clean it up.
+                                    (None, GameState::Stopping | GameState::Error) => {
+                                        if let Some(sim) = pod_info.current_game {
+                                            games.insert(canonical_id.clone(), game_launcher::GameTracker {
+                                                pod_id: canonical_id.clone(),
+                                                sim_type: sim,
+                                                game_state: pod_game_state,
+                                                pid: None,
+                                                launched_at: Some(chrono::Utc::now()),
+                                                error_message: None,
+                                                launch_args: None,
+                                                auto_relaunch_count: 0,
+                                                externally_tracked: true,
+                                                dynamic_timeout_secs: None,
+                                                exit_codes: Vec::new(),
+                                                max_auto_relaunch: 2,
+                                                playable_at: None,
+                                                ready_delay_ms: None,
+                                                billing_session_id: None,
+                                            });
+                                            tracing::info!("GSTATE-02: Created {:?} tracker for pod {} on reconnect (transient)", pod_game_state, pod_info.number);
                                         }
                                     }
                                 }
