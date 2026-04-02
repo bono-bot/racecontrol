@@ -794,7 +794,78 @@ async fn detect_fleet_anomalies(
         }
     }
 
-    // ── 6. PIN validation failure spike ────────────────────────────────────
+    // ── 6. Dashboard orphan detection (MI Phase 1 — client-side blind spot) ─
+    // If kiosk app health is "ok" but zero dashboard WS clients connected for
+    // 10+ consecutive probe cycles (2.5 min at 15s interval), alert.
+    // This catches: WS token missing, CSP blocking JS, 401 on WS upgrade,
+    // kiosk JS crash — all invisible to HTTP health probes.
+    {
+        static DASHBOARD_ORPHAN_COUNT: AtomicI64 = AtomicI64::new(0);
+        static LAST_ORPHAN_ALERT: AtomicI64 = AtomicI64::new(0);
+
+        let dashboard_clients = crate::ws::dashboard_client_count();
+        let kiosk_healthy = crate::app_health_monitor::get_consecutive_failures("kiosk") == 0;
+
+        if kiosk_healthy && dashboard_clients == 0 {
+            let count = DASHBOARD_ORPHAN_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            if count >= 10 {
+                tracing::warn!(
+                    target: "fleet-anomaly",
+                    "DASHBOARD_ORPHAN: kiosk app healthy but 0 dashboard WS clients for {}+ probes — possible JS/auth/token issue",
+                    count
+                );
+                if now_ts - LAST_ORPHAN_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                    LAST_ORPHAN_ALERT.store(now_ts, Ordering::Relaxed);
+                    let msg = "⚠ DASHBOARD ORPHAN: Kiosk app reports healthy but NO dashboard WebSocket clients connected (>2.5 min).\n\
+                        Possible causes: WS token missing/wrong, CSP blocking JS, 401 on WS upgrade, kiosk JS crash.\n\
+                        Check: browser console, .env.production.local, racecontrol.toml terminal_secret.";
+                    crate::whatsapp_alerter::send_whatsapp(&state.config, msg).await;
+
+                    // Log fleet incident via MI bridge
+                    let incident = rc_common::mesh_types::MeshIncident {
+                        id: format!("inc_dashboard_orphan_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+                        node: "server".to_string(),
+                        problem_key: "dashboard_orphan:kiosk".to_string(),
+                        severity: rc_common::mesh_types::IncidentSeverity::High,
+                        cost: 0.0,
+                        resolution: None,
+                        time_to_resolve_secs: None,
+                        resolved_by_tier: None,
+                        detected_at: chrono::Utc::now(),
+                        resolved_at: None,
+                    };
+                    let db = state.db.clone();
+                    tokio::spawn(async move {
+                        let _ = crate::fleet_kb::insert_incident(&db, &incident).await;
+                    });
+                }
+            }
+        } else {
+            // Reset counter when clients are connected or kiosk is down
+            let prev = DASHBOARD_ORPHAN_COUNT.swap(0, Ordering::Relaxed);
+            if prev >= 10 {
+                tracing::info!(
+                    target: "fleet-anomaly",
+                    "DASHBOARD_ORPHAN: Resolved — {} dashboard client(s) connected",
+                    dashboard_clients
+                );
+                // Auto-resolve open orphan incidents
+                let db = state.db.clone();
+                tokio::spawn(async move {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    let _ = sqlx::query(
+                        "UPDATE fleet_incidents SET resolved_at = ?1, resolution = 'dashboard_reconnected'
+                         WHERE problem_key = 'dashboard_orphan:kiosk' AND resolved_at IS NULL"
+                    )
+                    .bind(&now)
+                    .execute(&db)
+                    .await;
+                });
+            }
+        }
+    }
+
+    // ── 7. PIN validation failure spike ────────────────────────────────────
     // Drain API error counts and alert if PIN failures are elevated.
     // This detects: wrong PIN entered repeatedly, kiosk → server connectivity issues,
     // or broken PIN validation logic.
@@ -1044,6 +1115,7 @@ pub async fn fleet_health_handler(
         "pods": result,
         "services": services,
         "displays": display_status,
+        "dashboard_clients": crate::ws::dashboard_client_count(),
         "timestamp": Utc::now().to_rfc3339(),
     }))
 }

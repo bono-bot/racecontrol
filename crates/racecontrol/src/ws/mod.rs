@@ -18,6 +18,16 @@ use tokio::time::{interval, Duration, MissedTickBehavior};
 static SENTINEL_ALERT_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// MI Phase 1: Count of currently connected dashboard WebSocket clients.
+/// Incremented on WS connect, decremented on disconnect.
+/// Used by detect_fleet_anomalies() to detect "kiosk healthy but no WS clients" (DASHBOARD_ORPHAN).
+static DASHBOARD_CLIENT_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Get the current number of connected dashboard WS clients.
+pub fn dashboard_client_count() -> u32 {
+    DASHBOARD_CLIENT_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Check and update sentinel alert cooldown. Returns true if the alert should fire.
 /// Cooldown key: `sentinel_{file}_{pod_number}`. Cooldown period: 300s (5 minutes).
 fn check_sentinel_cooldown(key: &str) -> bool {
@@ -1928,7 +1938,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
 async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
-    tracing::info!("Dashboard client connected");
+    // MI Phase 1: Track connected dashboard clients for DASHBOARD_ORPHAN detection
+    let prev = DASHBOARD_CLIENT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!("Dashboard client connected (total: {})", prev + 1);
 
     // Send current pod list on connect (only physical pods 1-8, exclude POS/utility agents)
     let pods = state.pods.read().await;
@@ -2175,7 +2187,9 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     }
 
     send_task.abort();
-    tracing::info!("Dashboard client disconnected");
+    // MI Phase 1: Decrement on disconnect
+    let prev = DASHBOARD_CLIENT_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!("Dashboard client disconnected (remaining: {})", prev.saturating_sub(1));
 }
 
 /// WebSocket endpoint for AI-to-AI messaging (Bono ↔ James)
