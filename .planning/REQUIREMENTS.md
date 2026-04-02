@@ -15,8 +15,8 @@
 - [ ] **GSTATE-03**: `/games/stop` clears the GameTracker entry on success (not just transition to Stopping)
 
 ## Billing Atomicity (BATOM)
-- [ ] **BATOM-01**: `start_billing` holds a consistent view — no window where concurrent requests can create duplicate sessions for the same pod
-- [ ] **BATOM-02**: If a billing session already exists for a pod (any status), new `start_billing` returns clear error
+- [x] **BATOM-01**: `start_billing` holds a consistent view — no window where concurrent requests can create duplicate sessions for the same pod
+- [x] **BATOM-02**: If a billing session already exists for a pod (any status), new `start_billing` returns clear error
 
 ## Launch-Billing Coordination (LBILL)
 - [x] **LBILL-01**: Stale session cancel (5-min timeout) checks if game process is alive on the pod before cancelling
@@ -46,5 +46,5 @@
 | GSTATE-01 | 313 | — | Pending |
 | GSTATE-02 | 313 | — | Pending |
 | GSTATE-03 | 313 | — | Pending |
-| BATOM-01 | 314 | — | Pending |
-| BATOM-02 | 314 | — | Pending |
+| BATOM-01 | 314 | 01 | Complete (3de35d50) |
+| BATOM-02 | 314 | 01 | Complete (3de35d50) |
