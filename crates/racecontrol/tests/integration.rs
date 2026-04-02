@@ -639,6 +639,14 @@ async fn run_test_migrations(pool: &SqlitePool) {
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p2_count INTEGER DEFAULT 0").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p3_count INTEGER DEFAULT 0").execute(pool).await;
 
+    // ─── Pre-existing: laps table missing production columns (pre-303 regression) ──
+    // persist_lap() requires these columns but they were absent from the test CREATE TABLE.
+    // Adding here idempotently so tests can use persist_lap() correctly.
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN assist_config_hash TEXT").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN assist_tier TEXT").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN billing_session_id TEXT").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN validity TEXT NOT NULL DEFAULT 'valid'").execute(pool).await;
+
     // ─── Phase 303: venue_id on all major operational tables ─────────────────
     // Mirrors the production ALTER TABLE block in db/mod.rs — idempotent (let _ ignores duplicate column errors)
     for table in &[
