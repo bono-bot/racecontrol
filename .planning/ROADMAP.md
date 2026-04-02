@@ -107,6 +107,11 @@ Plans:
 - `crates/racecontrol/src/game_launcher.rs` — GameTracker, timeout logic, stop cleanup
 - `crates/racecontrol/src/ws/mod.rs` — reconnect reconciliation
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 313-01-PLAN.md -- GSTATE-01/02/03: Launching hard-cap timeout, smart WS reconciliation, stop ACK cleanup
+
 ---
 
 ### Phase 314: Billing Atomicity
