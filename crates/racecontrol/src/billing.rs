@@ -1440,16 +1440,53 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     }
 
     // Bug #11: Auto-cancel DB billing sessions stuck in 'pending' or 'waiting_for_game' for > 5 minutes.
-    if let Err(e) = sqlx::query(
-        "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
-         WHERE status IN ('pending', 'waiting_for_game') \
-         AND created_at < datetime('now', '-5 minutes') \
-         AND ended_at IS NULL",
-    )
-    .execute(&state.db)
-    .await
+    // BILL-13 FIX: Also refund wallet for pre-committed sessions that were debited but never activated.
     {
-        tracing::warn!("Failed to auto-cancel stale pending billing sessions: {}", e);
+        let stale_sessions: Vec<(String, String, Option<i64>)> = sqlx::query_as(
+            "SELECT id, driver_id, wallet_debit_paise FROM billing_sessions \
+             WHERE status IN ('pending', 'waiting_for_game') \
+             AND created_at < datetime('now', '-5 minutes') \
+             AND ended_at IS NULL",
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        for (session_id, driver_id, wallet_debit_paise) in &stale_sessions {
+            // Refund wallet if session had a pre-committed debit (BILL-13 kiosk path)
+            if let Some(debit) = wallet_debit_paise {
+                if *debit > 0 {
+                    let _ = crate::wallet::credit(
+                        state,
+                        driver_id,
+                        *debit,
+                        "refund_stale_cancel",
+                        Some(session_id),
+                        Some("Auto-refund: session cancelled (game never reached playable state within 5 minutes)"),
+                        None,
+                    ).await
+                    .map_err(|e| tracing::error!("Bug #11: Failed to refund {}p for stale session {}: {}", debit, session_id, e));
+                    tracing::info!(
+                        "Bug #11: Refunded {}p for stale cancelled session {} (driver={})",
+                        debit, session_id, driver_id
+                    );
+                }
+            }
+        }
+
+        if !stale_sessions.is_empty() {
+            if let Err(e) = sqlx::query(
+                "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
+                 WHERE status IN ('pending', 'waiting_for_game') \
+                 AND created_at < datetime('now', '-5 minutes') \
+                 AND ended_at IS NULL",
+            )
+            .execute(&state.db)
+            .await
+            {
+                tracing::warn!("Failed to auto-cancel stale pending billing sessions: {}", e);
+            }
+        }
     }
 
     // Send StopGame + SessionEnded/SubSessionEnded to agents for expired sessions
