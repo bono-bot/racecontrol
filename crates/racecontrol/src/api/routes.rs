@@ -685,6 +685,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "build_id": BUILD_ID,
         "whatsapp": whatsapp_status,
+        "deploy_context": "v34-v39 merged: metrics TSDB, config management, data durability, security hardening, meshed intelligence v2, session trace ID. Skip-once pod offline detection. Audit hash chain. 44-table venue_id migration.",
     }))
 }
 

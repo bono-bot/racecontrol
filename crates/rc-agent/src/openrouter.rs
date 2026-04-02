@@ -65,7 +65,15 @@ serde field mismatch (kiosk sends ai_difficulty string but agent expects ai_leve
 CM shows 'Settings are not specified' when Quick Drive preset never configured on pod. \
 COGNITIVE GATES: All diagnoses must follow Cognitive Gate Protocol v2.0 — \
 G1: verify exact behavior path not proxies, G5: consider 2+ competing hypotheses, \
-G8: check downstream cascade impact, G4: confidence reflects verified vs assumed.";
+G8: check downstream cascade impact, G4: confidence reflects verified vs assumed. \
+DEPLOY CONTEXT (build 3d36200d, 2026-04-02): 7 milestones merged (v34-v39). Key behavioral changes: \
+pod_monitor uses skip-once pattern (2 cycles to mark Offline, not 1 — doubles initial detection time). \
+app_health_monitor retries once before unreachable. BillingTick includes tick_seq u64 for ordering. \
+LaunchGame WS send retries once with 3s delay. All activity_log entries include session_id (NULL for non-billing). \
+44 tables have venue_id column (default: racingpoint-hyd-001). Audit log hash chain active. \
+Meshed Intelligence v2: semantic probes, dependency chain, pm2 restart, synthetic monitor. \
+Known post-deploy watchpoints: initial DB migration may take 5-10s on first run, \
+skip-once pattern means pod offline detection takes ~60s instead of ~30s.";
 
 /// The 5 models used for diagnosis — trained from MMA audit methodologies
 pub const MODELS: [ModelConfig; 5] = [
