@@ -286,7 +286,10 @@ Plans:
   2. The migration runs on an existing production database without data loss -- no manual intervention required, no functional behavior change for current single-venue operation
   3. All INSERT and UPDATE queries in racecontrol pass venue_id explicitly -- no row is written without a venue_id value
   4. MULTI-VENUE-ARCHITECTURE.md exists and documents the trigger conditions, schema strategy, sync model, and breaking points for a second venue
-**Plans**: TBD
+**Plans**: 2 plans
+nPlans:
+- [x] 303-01-PLAN.md -- VenueConfig venue_id field, ALTER migrations for 44 tables, MULTI-VENUE-ARCHITECTURE.md design doc
+- [ ] 303-02-PLAN.md -- Add venue_id to ~122 INSERT statements across 22 source files
 
 ### Phase 304: Fleet Deploy Automation
 **Goal**: Staff can deploy a new binary to the entire fleet in one API call with automatic safety gates
@@ -299,7 +302,7 @@ Plans:
   4. If Pod 8 or any subsequent wave pod fails its post-deploy health check, all affected pods are automatically reverted to the previous binary
   5. GET /api/v1/fleet/deploy/status shows current wave, each pod's status (pending/deploying/healthy/rolled-back), and a log of rollback events
   6. No pod swaps its binary while it has an active billing session; the swap is deferred until the session ends naturally
-**Plans**: TBD
+**Plans**: 2 plans
 
 ## Progress
 
@@ -329,5 +332,5 @@ Plans:
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 2/2 | Complete    | 2026-04-01 |
-| 303. Multi-Venue Schema Prep | 0/TBD | Not started | - |
+| 303. Multi-Venue Schema Prep | 1/4 | In Progress|  |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |
