@@ -53,6 +53,9 @@ pub struct LaunchEvent {
     pub attempt_number: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_fallback: Option<bool>,
+    /// Phase 310: Billing session ID for trace correlation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Record a launch event to both SQLite and JSONL.
@@ -69,8 +72,8 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id:
         .to_string();
 
     let db_result = sqlx::query(
-        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at, venue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at, venue_id, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pod_id)
@@ -87,6 +90,7 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id:
     .bind(event.attempt_number)
     .bind(&now)
     .bind(venue_id)
+    .bind(&event.session_id)
     .execute(db)
     .await;
 

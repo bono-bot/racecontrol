@@ -114,7 +114,7 @@ export default function FleetPage() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Poll server app health alerts (30s interval)
+  // Poll server app health alerts (30s interval — less frequent than fleet health)
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
 
@@ -128,7 +128,7 @@ export default function FleetPage() {
           setServerAlerts(data.server_alerts || []);
         }
       } catch {
-        // Server alerts are supplementary
+        // Server alerts are supplementary — don't break fleet view
       }
     }
 
@@ -192,7 +192,7 @@ export default function FleetPage() {
               <span key={a.app}>
                 {a.app} {a.status}
                 {a.message !== "unhealthy" && ` (${a.message})`}
-                {i < serverAlerts.length - 1 && " \u00b7 "}
+                {i < serverAlerts.length - 1 && " · "}
               </span>
             ))}
           </div>

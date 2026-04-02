@@ -399,6 +399,7 @@ pub async fn handle_ws_message(
                             exit_code: None,
                             playable_at: None,
                             ready_delay_ms: None,
+                            session_id: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -468,6 +469,7 @@ pub async fn handle_ws_message(
                             exit_code: None,
                             playable_at: None,
                             ready_delay_ms: None,
+                            session_id: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -490,6 +492,7 @@ pub async fn handle_ws_message(
                                 diagnostics: None,
                                 exit_code: None,
                                 playable_at: None, ready_delay_ms: None,
+                                session_id: None,
                             };
                             if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -544,6 +547,7 @@ pub async fn handle_ws_message(
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
                     exit_code: None, playable_at: None, ready_delay_ms: None,
+                    session_id: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -575,6 +579,7 @@ pub async fn handle_ws_message(
                             }),
                             exit_code: None,
                             playable_at: None, ready_delay_ms: None,
+                            session_id: None,
                         };
                         game_process::persist_pid(result.pid);
                         state.game_process = Some(game_process::GameProcess {
@@ -630,6 +635,7 @@ pub async fn handle_ws_message(
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
  playable_at: None, ready_delay_ms: None,
+                            session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -693,6 +699,7 @@ pub async fn handle_ws_message(
                                 diagnostics: None,
                                 exit_code: None,
                                 playable_at: None, ready_delay_ms: None,
+                                session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -733,6 +740,7 @@ pub async fn handle_ws_message(
                                 diagnostics: None,
                                 exit_code: None,
                                 playable_at: None, ready_delay_ms: None,
+                                session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -794,6 +802,7 @@ pub async fn handle_ws_message(
                                 diagnostics: None,
                                 exit_code: None,
                                 playable_at: None, ready_delay_ms: None,
+                                session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             conn.launch_state = LaunchState::Idle;
@@ -827,6 +836,7 @@ pub async fn handle_ws_message(
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
  exit_code: None,
  playable_at: None, ready_delay_ms: None,
+                    session_id: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(launching_info);
                 let json_str = serde_json::to_string(&msg)?;
@@ -855,14 +865,18 @@ pub async fn handle_ws_message(
                                 launch_sim, pid
                             );
 
-                            // GAME-03: Create SessionEnforcer for ForzaHorizon5/Forza if duration provided.
+                            // GAME-03 + TIMER-SYNC: Defer SessionEnforcer to AcStatus::Live
+                            // so billing timer (server) and game timer (pod) start at the same moment.
+                            // Previously created here (LaunchGame receipt) — caused billing/game desync.
                             if matches!(launch_sim, SimType::ForzaHorizon5 | SimType::Forza) {
                                 if let Some(duration_mins) = duration_minutes {
                                     let duration_secs = (duration_mins as u64) * 60;
-                                    conn.session_enforcer = Some(SessionEnforcer::new(launch_sim, pid, duration_secs));
+                                    conn.pending_enforcer_duration_secs = Some(duration_secs);
+                                    conn.pending_enforcer_sim = Some(launch_sim);
+                                    conn.pending_enforcer_pid = Some(pid);
                                     tracing::info!(
                                         target: LOG_TARGET,
-                                        "GAME-03: SessionEnforcer created for {:?} (pid {}, {}min)",
+                                        "TIMER-SYNC: SessionEnforcer deferred to Live for {:?} (pid {}, {}min)",
                                         launch_sim, pid, duration_mins
                                     );
                                 }
@@ -874,6 +888,7 @@ pub async fn handle_ws_message(
                                 launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
                                 exit_code: None,
                                 playable_at: None, ready_delay_ms: None,
+                                session_id: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
@@ -909,6 +924,7 @@ pub async fn handle_ws_message(
                                             launched_at: Some(Utc::now()), error_message: None,
                                             diagnostics: None, exit_code: None,
                                             playable_at: None, ready_delay_ms: None,
+                                            session_id: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
                                     }
@@ -926,6 +942,7 @@ pub async fn handle_ws_message(
                                             error_message: Some(format!("Game window not detected: {}", reason)),
                                             diagnostics: None, exit_code: None,
                                             playable_at: None, ready_delay_ms: None,
+                                            session_id: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
                                     }
@@ -952,6 +969,7 @@ pub async fn handle_ws_message(
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
  playable_at: None, ready_delay_ms: None,
+                            session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
@@ -998,6 +1016,7 @@ pub async fn handle_ws_message(
                             pid: None, launched_at: None, error_message: None, diagnostics: None,
  exit_code: None,
  playable_at: None, ready_delay_ms: None,
+                            session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json = serde_json::to_string(&msg)?;

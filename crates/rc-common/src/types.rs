@@ -466,6 +466,9 @@ pub struct GameLaunchInfo {
     /// Measures actual customer wait time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_delay_ms: Option<i64>,
+    /// Phase 310: Billing session ID for end-to-end customer journey tracing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Structured diagnostics from a game launch attempt.

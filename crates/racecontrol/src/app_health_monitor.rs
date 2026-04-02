@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::state::AppState;
 use crate::whatsapp_alerter;
 
-/// Response time SLA threshold (ms). Above this -> "slow" status.
+/// Response time SLA threshold (ms). Above this → "slow" status.
 const RESPONSE_TIME_SLA_MS: u64 = 3000;
 
 /// Deep health probe interval: every 5th cycle (150s = 5 * 30s).
@@ -30,10 +30,11 @@ pub struct AppHealthEntry {
     pub last_checked: String,
     pub response_ms: u64,
     pub error: Option<String>,
-    /// Semantic status from deep health probe.
+    /// Semantic status from deep health probe (Phase 1.4).
+    /// None if deep probe hasn't run yet or isn't applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_status: Option<String>,
-    /// Whether the deep health probe passed.
+    /// Whether the deep health probe passed (Phase 1.4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deep_check_passed: Option<bool>,
 }
@@ -252,6 +253,7 @@ pub fn get_consecutive_failures(app: &str) -> u32 {
 }
 
 /// Probe a single app's health endpoint with semantic validation.
+/// If `deep_url` is provided, also runs the deep health probe.
 async fn probe_app(
     client: &reqwest::Client,
     name: &str,
@@ -300,14 +302,20 @@ async fn probe_app(
                         if let (Some(avail), Some(expected)) = (pages_available, pages_expected) {
                             if avail < expected && status == "ok" {
                                 status = "degraded".to_string();
-                                error = Some(format!("Missing pages: {}/{} available", avail, expected));
+                                error = Some(format!(
+                                    "Missing pages: {}/{} available",
+                                    avail, expected
+                                ));
                             }
                         }
 
                         // Response time SLA: slow response
                         if response_ms > RESPONSE_TIME_SLA_MS && status == "ok" {
                             status = "slow".to_string();
-                            error = Some(format!("Response time {}ms exceeds {}ms SLA", response_ms, RESPONSE_TIME_SLA_MS));
+                            error = Some(format!(
+                                "Response time {}ms exceeds {}ms SLA",
+                                response_ms, RESPONSE_TIME_SLA_MS
+                            ));
                         }
 
                         AppHealthEntry {
@@ -379,7 +387,11 @@ async fn probe_app(
                 Err(e) => {
                     entry.deep_check_passed = Some(false);
                     entry.semantic_status = Some(format!("probe_error: {}", e));
-                    tracing::warn!(target: "app_health_monitor", "Deep probe failed for {}: {}", name, e);
+                    // Don't downgrade status for deep probe errors — it's supplementary
+                    tracing::warn!(
+                        target: "app_health_monitor",
+                        "Deep probe failed for {}: {}", name, e
+                    );
                 }
             }
         }
@@ -389,7 +401,11 @@ async fn probe_app(
 }
 
 /// Run a deep health probe against a `/api/health/deep` endpoint.
-async fn probe_deep(client: &reqwest::Client, url: &str) -> Result<(bool, String), String> {
+/// Returns (passed: bool, summary: String).
+async fn probe_deep(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<(bool, String), String> {
     let resp = client
         .get(url)
         .timeout(Duration::from_secs(15))
@@ -405,13 +421,22 @@ async fn probe_deep(client: &reqwest::Client, url: &str) -> Result<(bool, String
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("invalid JSON: {}", e))?;
 
-    let passed = json.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false);
-    let summary = json.get("summary").and_then(|v| v.as_str()).unwrap_or("no summary").to_string();
+    let passed = json
+        .get("healthy")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let summary = json
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or("no summary")
+        .to_string();
 
     Ok((passed, summary))
 }
 
 /// Handle WhatsApp alerting for a single app entry (cooldown + transition detection).
+/// Public for use by dependency_chain module.
 pub async fn handle_alert(state: &AppState, entry: &AppHealthEntry) {
     let prev = {
         let map = PREV_STATUS.lock().unwrap_or_else(|e| e.into_inner());
@@ -469,6 +494,7 @@ pub async fn handle_alert(state: &AppState, entry: &AppHealthEntry) {
 }
 
 /// Log a health entry to the app_health_log table (best-effort).
+/// Phase 1.5: Includes semantic_status column.
 async fn log_health_to_db(db: &sqlx::SqlitePool, entry: &AppHealthEntry) {
     let id = uuid::Uuid::new_v4().to_string();
     let result = sqlx::query(
@@ -509,7 +535,7 @@ pub fn update_prev_status(app: &str, status: &str) {
     }
 }
 
-// ---- Phase 3: Server App Auto-Restart via pm2 ----
+// ─── Phase 3: Server App Auto-Restart via pm2 ──────────────────────────────
 
 /// pm2 app name mapping (must match ecosystem.nextjs.config.cjs).
 fn pm2_app_name(app: &str) -> Option<&'static str> {
@@ -523,13 +549,17 @@ fn pm2_app_name(app: &str) -> Option<&'static str> {
 
 /// Restart budget: max restarts per app per hour.
 const MAX_RESTARTS_PER_HOUR: u32 = 2;
+
 /// Restart cooldown auto-clear after this many seconds (1 hour).
 const RESTART_COOLDOWN_SECS: u64 = 3600;
+
 /// Consecutive "unreachable" cycles before triggering restart.
 const RESTART_UNREACHABLE_THRESHOLD: u32 = 3;
+
 /// Consecutive "degraded" cycles before triggering restart.
 const RESTART_DEGRADED_THRESHOLD: u32 = 6;
 
+/// Per-app restart tracking.
 struct RestartTracker {
     count: u32,
     first_restart_at: Instant,
@@ -540,6 +570,7 @@ static RESTART_TRACKERS: LazyLock<Mutex<HashMap<String, RestartTracker>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Check if an app should be restarted based on consecutive failures and restart budget.
+/// Called from the main probe loop.
 pub async fn maybe_restart_app(state: &AppState, app: &str) {
     let failures = get_consecutive_failures(app);
     let pm2_name = match pm2_app_name(app) {
@@ -567,19 +598,24 @@ pub async fn maybe_restart_app(state: &AppState, app: &str) {
         if tracker.in_cooldown && tracker.first_restart_at.elapsed().as_secs() >= RESTART_COOLDOWN_SECS {
             tracker.count = 0;
             tracker.in_cooldown = false;
-            tracing::info!(target: "app_health_monitor", "Restart cooldown cleared for {} -- budget reset", app);
+            tracing::info!(
+                target: "app_health_monitor",
+                "Restart cooldown cleared for {} — budget reset", app
+            );
         }
 
         if tracker.in_cooldown {
             false
         } else if tracker.count >= MAX_RESTARTS_PER_HOUR {
             tracker.in_cooldown = true;
+            // Alert on cooldown entry
             if state.config.alerting.enabled {
                 let msg = format!(
-                    "[APP RESTART] {} entered cooldown -- {} restarts exhausted, auto-clears in {}min. {}",
+                    "[APP RESTART] {} entered cooldown — {} restarts exhausted, auto-clears in {}min. {}",
                     app, MAX_RESTARTS_PER_HOUR, RESTART_COOLDOWN_SECS / 60,
                     whatsapp_alerter::ist_now_string()
                 );
+                // Fire-and-forget: we're inside a sync lock
                 let config = state.config.clone();
                 tokio::spawn(async move {
                     whatsapp_alerter::send_whatsapp(&config, &msg).await;
@@ -603,10 +639,13 @@ pub async fn maybe_restart_app(state: &AppState, app: &str) {
     if app == "kiosk" {
         if let Ok(active) = check_active_billing(state).await {
             if active {
-                tracing::warn!(target: "app_health_monitor", "Skipping kiosk restart -- active billing sessions");
+                tracing::warn!(
+                    target: "app_health_monitor",
+                    "Skipping kiosk restart — active billing sessions detected"
+                );
                 if state.config.alerting.enabled {
                     let msg = format!(
-                        "[APP RESTART] Kiosk restart DEFERRED -- active billing sessions. Staff should check. {}",
+                        "[APP RESTART] Kiosk restart DEFERRED — active billing sessions. Staff should check kiosk. {}",
                         whatsapp_alerter::ist_now_string()
                     );
                     whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
@@ -616,7 +655,12 @@ pub async fn maybe_restart_app(state: &AppState, app: &str) {
         }
     }
 
-    tracing::warn!(target: "app_health_monitor", "Restarting {} (pm2: {}) after {} consecutive failures", app, pm2_name, failures);
+    // Execute restart via pm2
+    tracing::warn!(
+        target: "app_health_monitor",
+        "Restarting {} (pm2: {}) after {} consecutive failures",
+        app, pm2_name, failures
+    );
 
     let output = tokio::process::Command::new("pm2")
         .arg("restart")
@@ -630,43 +674,77 @@ pub async fn maybe_restart_app(state: &AppState, app: &str) {
             let stderr = String::from_utf8_lossy(&out.stderr);
             let success = out.status.success();
 
-            tracing::info!(target: "app_health_monitor", "pm2 restart {} -- success={}, stdout={}, stderr={}", pm2_name, success, stdout.trim(), stderr.trim());
+            tracing::info!(
+                target: "app_health_monitor",
+                "pm2 restart {} — success={}, stdout={}, stderr={}",
+                pm2_name, success, stdout.trim(), stderr.trim()
+            );
 
-            log_restart_to_db(&state.db, app, &format!("{}x failures", failures), if success { "success" } else { "pm2_error" }, &format!("{} {}", stdout.trim(), stderr.trim())).await;
+            // Log restart attempt to DB
+            log_restart_to_db(
+                &state.db,
+                app,
+                &format!("{}x failures", failures),
+                if success { "success" } else { "pm2_error" },
+                &format!("{} {}", stdout.trim(), stderr.trim()),
+            )
+            .await;
 
             if state.config.alerting.enabled {
                 let msg = format!(
                     "[APP RESTART] {} restarted via pm2 ({}). Result: {}. {}",
-                    app, pm2_name, if success { "OK" } else { "FAILED" },
+                    app,
+                    pm2_name,
+                    if success { "OK" } else { "FAILED" },
                     whatsapp_alerter::ist_now_string()
                 );
                 whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
             }
         }
         Err(e) => {
-            tracing::error!(target: "app_health_monitor", "Failed to execute pm2 restart for {}: {}", pm2_name, e);
+            tracing::error!(
+                target: "app_health_monitor",
+                "Failed to execute pm2 restart for {}: {}", pm2_name, e
+            );
             log_restart_to_db(&state.db, app, &format!("{}x failures", failures), "exec_error", &e.to_string()).await;
         }
     }
 }
 
+/// Check if there are active billing sessions.
 async fn check_active_billing(state: &AppState) -> Result<bool, String> {
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM billing_sessions WHERE status = 'active'")
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?;
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM billing_sessions WHERE status = 'active'",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
     Ok(count.0 > 0)
 }
 
-async fn log_restart_to_db(db: &sqlx::SqlitePool, app: &str, trigger: &str, outcome: &str, pm2_stdout: &str) {
+/// Log a restart attempt to the app_restart_log table.
+async fn log_restart_to_db(
+    db: &sqlx::SqlitePool,
+    app: &str,
+    trigger: &str,
+    outcome: &str,
+    pm2_stdout: &str,
+) {
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = whatsapp_alerter::ist_now_string();
     let r = sqlx::query(
         "INSERT INTO app_restart_log (id, app, trigger, outcome, pm2_stdout, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
     )
-    .bind(&id).bind(app).bind(trigger).bind(outcome).bind(pm2_stdout).bind(&timestamp)
+    .bind(&id)
+    .bind(app)
+    .bind(trigger)
+    .bind(outcome)
+    .bind(pm2_stdout)
+    .bind(&timestamp)
     .execute(db)
     .await;
+
     if let Err(e) = r {
         tracing::warn!(target: "app_health_monitor", "Failed to log restart for {}: {}", app, e);
     }

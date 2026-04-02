@@ -2112,6 +2112,20 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 310: Session trace ID for end-to-end customer journey tracing ───
+    let _ = sqlx::query("ALTER TABLE pod_activity_log ADD COLUMN session_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE launch_events ADD COLUMN session_id TEXT")
+        .execute(pool)
+        .await;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_session ON pod_activity_log (session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_session ON launch_events (session_id)")
+        .execute(pool)
+        .await?;
+
     // ─── Unlimited trials flag for test/demo drivers ──────────────────────
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN unlimited_trials BOOLEAN DEFAULT 0")
         .execute(pool)
@@ -3234,12 +3248,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    // v38.0: Add semantic_status column to app_health_log
+    // v38.0 Phase 1.5: Add semantic_status column to app_health_log
     let _ = sqlx::query("ALTER TABLE app_health_log ADD COLUMN semantic_status TEXT")
         .execute(pool)
         .await;
 
-    // v38.0: App restart log table
+    // v38.0 Phase 3: App restart log table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS app_restart_log (
             id TEXT PRIMARY KEY,
@@ -3253,7 +3267,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    // v38.0: Synthetic transaction probes table
+    // v38.0 Phase 5: Synthetic transaction probes table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS synthetic_probes (
             id TEXT PRIMARY KEY,

@@ -1007,8 +1007,7 @@ async fn enable_pod(
             drop(pods); // release write lock before log call
             // Phase 307 AUDIT-03: Log admin pod enable action
             crate::activity_log::log_pod_activity(
-                &state, &id, "admin", "Pod Enabled", "", "staff",
-                None,
+                &state, &id, "admin", "Pod Enabled", "", "staff", None,
             );
             Json(json!({ "status": "enabled", "pod_id": id }))
         }
@@ -1029,8 +1028,7 @@ async fn disable_pod(
             drop(pods); // release write lock before log call
             // Phase 307 AUDIT-03: Log admin pod disable action
             crate::activity_log::log_pod_activity(
-                &state, &id, "admin", "Pod Disabled", "", "staff",
-                None,
+                &state, &id, "admin", "Pod Disabled", "", "staff", None,
             );
             Json(json!({ "status": "disabled", "pod_id": id }))
         }
@@ -3890,7 +3888,7 @@ async fn start_billing(
         "Session Started",
         &format!("session_id={} driver={} tier={}", session_id, driver_id, pricing_tier_id),
         "core",
-        None,
+        Some(&session_id),
     );
 
     // Phase 283: Generate nonce for replay protection
@@ -4137,7 +4135,7 @@ async fn stop_billing(
             "Session Ended",
             &format!("session_id={}", id),
             "staff",
-            None,
+            Some(&id),
         );
         // Phase 283: Audit log + nonce cleanup
         crate::billing_replay::insert_audit_log(
@@ -20711,7 +20709,7 @@ struct DeployLogRow {
 }
 
 /// GET /api/v1/app-health — current health probe results for admin, kiosk, web.
-/// v38.0: Includes semantic_status, deep_check_passed, and server_alerts summary.
+/// v38.0: Now includes semantic_status, deep_check_passed, and server_alerts summary.
 async fn get_app_health() -> Json<Value> {
     let entries = crate::app_health_monitor::get_current_health().await;
 

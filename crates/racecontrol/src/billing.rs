@@ -1670,7 +1670,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // Persist new disconnect pauses to DB
     for (pod_id, session_id, pause_count) in &new_pauses {
         log_pod_activity(state, pod_id, "billing", "Session Paused (Disconnect)",
-            &format!("Pod offline — pause {}/3", pause_count), "race_engineer", None);
+            &format!("Pod offline — pause {}/3", pause_count), "race_engineer", Some(session_id));
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'paused_disconnect', pause_count = ?, last_paused_at = datetime('now')
              WHERE id = ?",
@@ -1714,7 +1714,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // Handle pause timeout auto-end with partial refund
     for (pod_id, session_id, driving_seconds, driver_id) in pause_timeout_end {
         log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended",
-            "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer", None);
+            "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer", Some(&session_id));
 
         // Calculate partial refund
         let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
@@ -1822,7 +1822,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     for (pod_id, session_id, reason) in sessions_to_auto_end {
         tracing::warn!("Auto-ending session {} on pod {} — {}", session_id, pod_id, reason);
         log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended (Offline)",
-            &reason, "race_engineer", None);
+            &reason, "race_engineer", Some(&session_id));
 
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', ended_at = datetime('now'),
@@ -3008,7 +3008,7 @@ pub async fn start_billing_session(
         tier.1
     );
 
-    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core", None);
+    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core", Some(&session_id));
     event_archive::append_event(&state.db, "billing.session_started", "billing", Some(&pod_id), serde_json::json!({
         "driver_id": driver_id,
         "tier": tier.1,
@@ -3145,7 +3145,7 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         "Session Started",
         &format!("{} — {} ({}min)", data.driver_name, data.pricing_tier_name, data.allocated_seconds / 60),
         "core",
-        None,
+        Some(&data.session_id),
     );
 }
 
@@ -3191,7 +3191,7 @@ async fn set_billing_status(
                 BillingSessionStatus::Active => "Session Resumed",
                 _ => "Session Status Changed",
             };
-            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core", None);
+            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core", Some(session_id));
 
             drop(timers);
 
@@ -3268,7 +3268,7 @@ pub async fn resume_billing_from_disconnect(
     drop(timers);
 
     log_pod_activity(state, &pod_id, "billing", "Session Resumed (Disconnect)",
-        &driver_name, "core", None);
+        &driver_name, "core", Some(session_id));
 
     // Update DB
     let _ = sqlx::query(
@@ -3382,7 +3382,7 @@ async fn end_billing_session(
                 BillingSessionStatus::Cancelled => "Session Cancelled",
                 _ => "Session Expired",
             };
-            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core", None);
+            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core", Some(session_id));
             event_archive::append_event(&state.db, "billing.session_ended", "billing", Some(&pod_id), serde_json::json!({
                 "driver_id": info.driver_id,
                 "driving_seconds": driving_seconds,
@@ -3667,7 +3667,7 @@ async fn end_billing_session(
             }
         }
 
-        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer", None);
+        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer", Some(session_id));
 
         // Clear pod billing reference and restore idle state
         {

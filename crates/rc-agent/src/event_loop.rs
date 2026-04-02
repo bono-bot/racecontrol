@@ -110,8 +110,12 @@ pub(crate) struct ConnectionState {
     /// Created on successful game launch for all non-AC sims. Polled every 5s in event loop.
     pub(crate) process_monitor: Option<ProcessMonitor>,
     /// GAME-03: Session duration enforcer for open-world games (ForzaHorizon5, Forza Motorsport).
-    /// Created when server sends LaunchGame with duration_minutes set. Polled every 1s.
+    /// TIMER-SYNC: Now created on AcStatus::Live (not LaunchGame) so billing and enforcement start together.
     pub(crate) session_enforcer: Option<SessionEnforcer>,
+    /// TIMER-SYNC: Deferred enforcer params — stored on LaunchGame, applied on Live.
+    pub(crate) pending_enforcer_duration_secs: Option<u64>,
+    pub(crate) pending_enforcer_sim: Option<rc_common::types::SimType>,
+    pub(crate) pending_enforcer_pid: Option<u32>,
     /// Interval for ProcessMonitor 5-second polling (GAME-08).
     pub(crate) process_monitor_interval: tokio::time::Interval,
     /// Interval for SessionEnforcer 1-second polling (GAME-03).
@@ -170,6 +174,9 @@ impl ConnectionState {
             ac_live_has_input: false,
             process_monitor: None,
             session_enforcer: None,
+            pending_enforcer_duration_secs: None,
+            pending_enforcer_sim: None,
+            pending_enforcer_pid: None,
             process_monitor_interval: tokio::time::interval(Duration::from_secs(5)),
             session_enforcer_interval: tokio::time::interval(Duration::from_secs(1)),
             inactivity_monitor: None,
@@ -598,6 +605,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
+                                    session_id: None,
                                 };
                                 let loading_msg = AgentMessage::GameStateUpdate(loading_info);
                                 if let Ok(json) = serde_json::to_string(&loading_msg) {
@@ -618,6 +626,7 @@ pub async fn run(
                                 exit_code: None,
                                 playable_at: None,
                                 ready_delay_ms: None,
+                                session_id: None,
                             };
                             let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.game_pid = Some(pid);
@@ -643,6 +652,7 @@ pub async fn run(
                                 exit_code: None,
                                 playable_at: None,
                                 ready_delay_ms: None,
+                                session_id: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
@@ -871,6 +881,18 @@ pub async fn run(
                                         // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                         state.lock_screen.close_browser();
                                         tracing::info!(target: LOG_TARGET, "Splash dismissed — {:?} is Live (90s fallback)", sim_type);
+
+                                        // TIMER-SYNC: Create deferred SessionEnforcer NOW (same moment as billing)
+                                        if let Some(duration_secs) = conn.pending_enforcer_duration_secs.take() {
+                                            let enforcer_sim = conn.pending_enforcer_sim.take().unwrap_or(sim_type);
+                                            let enforcer_pid = conn.pending_enforcer_pid.take().unwrap_or(0);
+                                            conn.session_enforcer = Some(SessionEnforcer::new(enforcer_sim, enforcer_pid, duration_secs));
+                                            tracing::info!(
+                                                target: LOG_TARGET,
+                                                "TIMER-SYNC: SessionEnforcer started on Live for {:?} (pid {}, {}s) — synced with billing",
+                                                enforcer_sim, enforcer_pid, duration_secs
+                                            );
+                                        }
                                     } else {
                                         tracing::warn!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game DEAD, emitting Error not Live (BILL-08)", sim_type);
                                         let msg = AgentMessage::GameStatusUpdate {
@@ -919,6 +941,7 @@ pub async fn run(
                             exit_code,
                             playable_at: None,
                             ready_delay_ms: None,
+                            session_id: None,
                         };
                         let crash_msg = AgentMessage::GameStateUpdate(crash_info);
                         if let Ok(json) = serde_json::to_string(&crash_msg) {
@@ -1059,6 +1082,7 @@ pub async fn run(
                                 exit_code: None,
                                 playable_at: None,
                                 ready_delay_ms: None,
+                                session_id: None,
                             };
                             let expire_msg = AgentMessage::GameStateUpdate(expire_info);
                             if let Ok(json) = serde_json::to_string(&expire_msg) {
@@ -1624,6 +1648,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
+                                    session_id: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 conn.launch_state = LaunchState::WaitingForLive {
@@ -1687,6 +1712,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
+                                    session_id: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 let _ = state.failure_monitor_tx.send_modify(|s| {

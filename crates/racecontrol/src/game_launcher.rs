@@ -40,6 +40,8 @@ pub struct GameTracker {
     pub playable_at: Option<DateTime<Utc>>,
     /// Phase 282: Milliseconds from launch command to PlayableSignal.
     pub ready_delay_ms: Option<i64>,
+    /// Phase 310: Billing session ID for end-to-end customer journey tracing.
+    pub billing_session_id: Option<String>,
 }
 
 impl GameTracker {
@@ -55,6 +57,7 @@ impl GameTracker {
             exit_code: None,
             playable_at: self.playable_at,
             ready_delay_ms: self.ready_delay_ms,
+            session_id: self.billing_session_id.clone(),
         }
     }
 }
@@ -388,7 +391,7 @@ async fn launch_game(
     // Create tracker + insert with TOCTOU re-check (LAUNCH-04)
     let info = {
         let mut games = state.game_launcher.active_games.write().await;
-        // TOCTOU re-check: billing must still be present
+        // TOCTOU re-check: billing must still be present + capture session_id (Phase 310)
         let timers = state.billing.active_timers.read().await;
         let waiting = state.billing.waiting_for_game.read().await;
         if !timers.contains_key(pod_id) && !waiting.contains_key(pod_id) {
@@ -398,6 +401,7 @@ async fn launch_game(
             tracing::warn!("Launch rejected for pod {}: billing session expired (TOCTOU)", pod_id);
             return Err(format!("Pod {} billing session expired during launch", pod_id));
         }
+        let billing_session_id = timers.get(pod_id).map(|t| t.session_id.clone());
         drop(waiting);
         drop(timers);
 
@@ -416,6 +420,7 @@ async fn launch_game(
             max_auto_relaunch: max_relaunch_cap,
             playable_at: None,
             ready_delay_ms: None,
+            billing_session_id,
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -476,6 +481,9 @@ async fn launch_game(
         return Err(format!("No agent connected for pod {}", pod_id));
     }
 
+    // Clone session_id before moving info into broadcast
+    let launch_session_id = info.session_id.clone();
+
     // Broadcast to dashboards (only reached if agent IS connected)
     if let Err(e) = state
         .dashboard_tx
@@ -504,6 +512,7 @@ async fn launch_game(
             launch_args_hash,
             attempt_number: 1,
             db_fallback: None,
+            session_id: launch_session_id.clone(),
         };
         metrics::record_launch_event(&state.db, &launch_event, &state.config.venue.venue_id).await;
     }
@@ -595,6 +604,7 @@ pub async fn relaunch_game(
             launch_args_hash: relaunch_args_hash,
             attempt_number: 2,
             db_fallback: None,
+            session_id: None,
         };
         metrics::record_launch_event(&state.db, &relaunch_event, &state.config.venue.venue_id).await;
     }
@@ -674,6 +684,7 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                 launch_args_hash: None,
                 attempt_number: 1,
                 db_fallback: None,
+                session_id: None,
             };
             metrics::record_launch_event(&state.db, &stop_event, &state.config.venue.venue_id).await;
         }
@@ -753,6 +764,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             max_auto_relaunch: 2,
                             playable_at: None,
                             ready_delay_ms: None,
+                            billing_session_id: None,
                         },
                     );
                 }
@@ -817,6 +829,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             launch_args_hash: None,
             attempt_number: 1,
             db_fallback: None,
+            session_id: None,
         };
         metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id).await;
     }
@@ -1265,6 +1278,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
+            session_id: None,
         };
 
         // Update tracker
@@ -1299,6 +1313,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                 launch_args_hash: None,
                 attempt_number: 1,
                 db_fallback: None,
+                session_id: None,
             };
             metrics::record_launch_event(&state.db, &timeout_event, &state.config.venue.venue_id).await;
         }
@@ -1355,6 +1370,7 @@ async fn log_game_event(
             launch_args_hash: None,
             attempt_number: 1,
             db_fallback: Some(true),
+            session_id: None,
         };
         crate::metrics::record_launch_event_jsonl_only(&fallback_event).await;
     }
@@ -1592,6 +1608,7 @@ mod tests {
                         max_auto_relaunch: 2,
                         playable_at: None,
                         ready_delay_ms: None,
+                        billing_session_id: None,
                     },
                 );
         }
@@ -1646,6 +1663,7 @@ mod tests {
                         max_auto_relaunch: 2,
                         playable_at: None,
                         ready_delay_ms: None,
+                        billing_session_id: None,
                     },
                 );
         }
@@ -1740,6 +1758,7 @@ mod tests {
                         max_auto_relaunch: 2,
                         playable_at: None,
                         ready_delay_ms: None,
+                        billing_session_id: None,
                     },
                 );
         }
@@ -1823,6 +1842,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
+            session_id: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1863,6 +1883,7 @@ mod tests {
                         max_auto_relaunch: 2,
                         playable_at: None,
                         ready_delay_ms: None,
+                        billing_session_id: None,
                     },
                 );
         }
@@ -1879,6 +1900,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
+            session_id: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2103,6 +2125,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2134,6 +2157,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
+            session_id: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2199,6 +2223,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2233,6 +2258,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2276,6 +2302,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2313,6 +2340,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2498,6 +2526,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2585,6 +2614,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2622,6 +2652,7 @@ mod tests {
                 max_auto_relaunch: 2,
                 playable_at: None,
                 ready_delay_ms: None,
+                billing_session_id: None,
             },
         );
 
@@ -2683,6 +2714,7 @@ mod tests {
                         max_auto_relaunch: 2,
                         playable_at: None,
                         ready_delay_ms: None,
+                        billing_session_id: None,
                     },
                 );
         }
