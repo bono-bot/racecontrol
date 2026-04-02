@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 use crate::auth::middleware::StaffClaims;
 use crate::state::AppState;
 use rc_common::config_schema::AgentConfig;
-use rc_common::protocol::CoreToAgentMessage;
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 use rc_common::types::{ConfigPushPayload, FullConfigPushPayload};
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -195,7 +195,7 @@ pub async fn push_config(
                 schema_version: body.schema_version,
                 sequence: seq_num,
             };
-            match tx.send(CoreToAgentMessage::ConfigPush(push_payload)).await {
+            match tx.send(CoreMessage::wrap(CoreToAgentMessage::ConfigPush(push_payload))).await {
                 Ok(_) => {
                     delivered += 1;
                     // Update status to delivered
@@ -360,7 +360,7 @@ pub async fn get_pod_config(
 pub async fn push_full_config_to_pod(
     state: &AppState,
     pod_id: &str,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) -> Result<(), anyhow::Error> {
     match get_pod_config(&state.db, pod_id).await {
         Err(e) => {
@@ -379,7 +379,7 @@ pub async fn push_full_config_to_pod(
                 schema_version,
             };
             cmd_tx
-                .send(CoreToAgentMessage::FullConfigPush(payload))
+                .send(CoreMessage::wrap(CoreToAgentMessage::FullConfigPush(payload)))
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to send FullConfigPush to pod {}: {}", pod_id, e))
         }
@@ -511,7 +511,7 @@ pub async fn get_pod_config_handler(
 pub async fn replay_pending_config_pushes(
     state: &AppState,
     pod_id: &str,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) {
     let rows = sqlx::query_as::<_, ConfigQueueEntry>(
         "SELECT id, pod_id, payload, seq_num, status, created_at, acked_at \
@@ -549,7 +549,7 @@ pub async fn replay_pending_config_pushes(
             sequence: entry.seq_num as u64,
         };
 
-        match cmd_tx.send(CoreToAgentMessage::ConfigPush(push_payload)).await {
+        match cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::ConfigPush(push_payload))).await {
             Ok(_) => {
                 tracing::info!(
                     "Replayed config push seq={} to reconnected pod {}",
@@ -579,7 +579,7 @@ mod config_push_tests {
     use super::*;
     use rc_common::config_schema::AgentConfig;
     use rc_common::types::FullConfigPushPayload;
-    use rc_common::protocol::CoreToAgentMessage;
+    use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 
     /// Test 1: FullConfigPushPayload serializes to JSON with config, config_hash, schema_version fields
     #[test]

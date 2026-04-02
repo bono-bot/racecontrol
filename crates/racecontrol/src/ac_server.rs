@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use sqlx::SqlitePool;
 
 use crate::state::AppState;
-use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::*;
 
 pub struct AcServerInstance {
@@ -614,7 +614,7 @@ pub async fn start_ac_server(
                 force_clean: false,
                 duration_minutes: None,
             };
-            let _ = sender.send(cmd).await;
+            let _ = sender.send(CoreMessage::wrap(cmd)).await;
             tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
         } else {
             tracing::warn!("Pod {} not connected, skipping launch", pod_id);
@@ -729,7 +729,7 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
     let agent_senders = state.agent_senders.read().await;
     for pod_id in &assigned_pods {
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::StopGame).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
         }
     }
 
@@ -849,7 +849,7 @@ pub async fn retry_pod_join(
     {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::StopGame).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
         } else {
             anyhow::bail!("Pod {} is not connected", pod_id);
         }
@@ -867,7 +867,7 @@ pub async fn retry_pod_join(
                 force_clean: false,
                 duration_minutes: None,
             };
-            let _ = sender.send(cmd).await;
+            let _ = sender.send(CoreMessage::wrap(cmd)).await;
             tracing::info!(
                 "GROUP-03: Re-sent LaunchGame to pod {} for session {} (retry join)",
                 pod_id, session_id

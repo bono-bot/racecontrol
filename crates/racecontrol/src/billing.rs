@@ -10,7 +10,7 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 use tokio::sync::RwLock;
 
 use rc_common::pod_id::normalize_pod_id;
-use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
 use crate::activity_log::log_pod_activity;
@@ -626,7 +626,7 @@ pub async fn handle_game_status_update(
     pod_id: &str,
     ac_status: rc_common::types::AcStatus,
     sim_type: Option<rc_common::types::SimType>,
-    _cmd_tx: &tokio::sync::mpsc::Sender<CoreToAgentMessage>,
+    _cmd_tx: &tokio::sync::mpsc::Sender<CoreMessage>,
 ) {
     // Normalize pod_id to canonical form (pod_N) at entry
     let pod_id_normalized = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
@@ -1423,7 +1423,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let agent_senders = state.agent_senders.read().await;
         for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier, tier_nm) in agent_ticks {
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender.send(CoreToAgentMessage::BillingTick {
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BillingTick {
                     remaining_seconds: remaining,
                     allocated_seconds: allocated,
                     driver_name,
@@ -1434,7 +1434,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     paused,
                     minutes_to_next_tier: min_to_tier,
                     tier_name: tier_nm,
-                }).await;
+                })).await;
             }
         }
     }
@@ -1563,7 +1563,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 .is_some();
 
             if let Some(sender) = agent_senders.get(pod_id) {
-                let _ = sender.send(CoreToAgentMessage::StopGame).await;
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
 
                 if has_reservation {
                     // Sub-session ended — pod stays reserved, customer picks next race
@@ -1607,7 +1607,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     };
 
                     let _ = sender
-                        .send(CoreToAgentMessage::SubSessionEnded {
+                        .send(CoreMessage::wrap(CoreToAgentMessage::SubSessionEnded {
                             billing_session_id: session_id.clone(),
                             driver_name: driver_name.clone(),
                             total_laps: 0,
@@ -1616,7 +1616,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                             wallet_balance_paise: wallet_balance,
                             current_split_number: current_split,
                             total_splits,
-                        })
+                        }))
                         .await;
 
                     // If this was the last split, end the reservation
@@ -1629,13 +1629,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 } else {
                     // Full session ended — pod returns to idle
                     let _ = sender
-                        .send(CoreToAgentMessage::SessionEnded {
+                        .send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                             billing_session_id: session_id.clone(),
                             driver_name: driver_name.clone(),
                             total_laps: 0,
                             best_lap_ms: None,
                             driving_seconds: *driving_seconds,
-                        })
+                        }))
                         .await;
 
                     // BlankScreen is handled by rc-agent after showing session summary
@@ -1678,10 +1678,10 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         {
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender.send(CoreToAgentMessage::BillingCountdownWarning {
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BillingCountdownWarning {
                     remaining_secs: remaining,
                     level: level.to_string(),
-                }).await;
+                })).await;
             }
         } // agent_senders lock dropped
 
@@ -1762,11 +1762,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // Send ShowPauseOverlay to agent
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::ShowPauseOverlay {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ShowPauseOverlay {
                 session_id: session_id.clone(),
                 remaining_seconds: 600, // max pause duration
                 pause_count: *pause_count,
-            }).await;
+            })).await;
         }
     }
 
@@ -1855,18 +1855,18 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // Notify agent: session ended
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(&pod_id) {
-            let _ = sender.send(CoreToAgentMessage::StopGame).await;
-            let _ = sender.send(CoreToAgentMessage::HidePauseOverlay {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::HidePauseOverlay {
                 session_id: session_id.clone(),
-            }).await;
+            })).await;
             let _ = sender
-                .send(CoreToAgentMessage::SessionEnded {
+                .send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                     billing_session_id: session_id.clone(),
                     driver_name: "".to_string(), // Name not needed for timeout end
                     total_laps: 0,
                     best_lap_ms: None,
                     driving_seconds,
-                })
+                }))
                 .await;
         }
 
@@ -1946,12 +1946,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             // Send LaunchGame again to trigger retry
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender.send(CoreToAgentMessage::LaunchGame {
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
                     sim_type: rc_common::types::SimType::AssettoCorsa,
                     launch_args: None,
                     force_clean: false,
                     duration_minutes: None,
-                }).await;
+                })).await;
             }
         } else {
             // Second timeout: cancel with no charge
@@ -1992,9 +1992,9 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 let billing_session_id = entry
                     .map(|e| format!("deferred-{}", e.pod_id))
                     .unwrap_or_default();
-                let _ = sender.send(CoreToAgentMessage::BillingStopped {
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BillingStopped {
                     billing_session_id,
-                }).await;
+                })).await;
             }
 
             // Clear pod state back to idle
@@ -3040,12 +3040,12 @@ pub async fn start_billing_session(
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
         let _ = sender
-            .send(CoreToAgentMessage::BillingStarted {
+            .send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
                 billing_session_id: session_id.clone(),
                 driver_name: driver_name.clone(),
                 allocated_seconds,
                 session_token: Some(uuid::Uuid::new_v4().to_string()),
-            })
+            }))
             .await;
         // Note: BillingStarted sets agent state to ActiveSession, which
         // prevents is_idle_or_blanked() from returning true. Do NOT send
@@ -3174,12 +3174,12 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
     };
     if let Some(sender) = sender {
         let _ = sender
-            .send(CoreToAgentMessage::BillingStarted {
+            .send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
                 billing_session_id: data.session_id.clone(),
                 driver_name: data.driver_name.clone(),
                 allocated_seconds: data.allocated_seconds,
                 session_token: Some(uuid::Uuid::new_v4().to_string()),
-            })
+            }))
             .await;
     }
 
@@ -3359,9 +3359,9 @@ pub async fn resume_billing_from_disconnect(
     // Send HidePauseOverlay to agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::HidePauseOverlay {
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::HidePauseOverlay {
             session_id: session_id.to_string(),
-        }).await;
+        })).await;
     }
 
     tracing::info!("Billing session {} resumed from disconnect pause", session_id);
@@ -3610,14 +3610,14 @@ async fn end_billing_session(
 
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender.send(CoreToAgentMessage::StopGame).await;
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
 
                 if has_reservation && end_status != BillingSessionStatus::Cancelled {
                     let wallet_balance = crate::wallet::get_balance(state, &info.driver_id)
                         .await
                         .unwrap_or(0);
                     let _ = sender
-                        .send(CoreToAgentMessage::SubSessionEnded {
+                        .send(CoreMessage::wrap(CoreToAgentMessage::SubSessionEnded {
                             billing_session_id: session_id.to_string(),
                             driver_name: info.driver_name.clone(),
                             total_laps: 0,
@@ -3626,17 +3626,17 @@ async fn end_billing_session(
                             wallet_balance_paise: wallet_balance,
                             current_split_number: info.current_split_number,
                             total_splits: info.split_count,
-                        })
+                        }))
                         .await;
                 } else {
                     let _ = sender
-                        .send(CoreToAgentMessage::SessionEnded {
+                        .send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                             billing_session_id: session_id.to_string(),
                             driver_name: info.driver_name.clone(),
                             total_laps: 0,
                             best_lap_ms: None,
                             driving_seconds,
-                        })
+                        }))
                         .await;
 
                     // BlankScreen is handled by rc-agent after showing session summary
@@ -3745,13 +3745,13 @@ async fn end_billing_session(
         // Notify agent to deactivate overlay and show blank
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(&pod_id) {
-            let _ = sender.send(CoreToAgentMessage::SessionEnded {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                 billing_session_id: session_id.to_string(),
                 driver_name,
                 total_laps: 0,
                 best_lap_ms: None,
                 driving_seconds: 0,
-            }).await;
+            })).await;
         }
 
         return true;

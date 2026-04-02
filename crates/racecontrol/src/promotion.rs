@@ -10,7 +10,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use tokio::time::{interval, Duration};
 use rc_common::mesh_types::*;
-use rc_common::protocol::CoreToAgentMessage;
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 
 use crate::fleet_kb;
 use crate::state::AppState;
@@ -193,7 +193,7 @@ async fn broadcast_to_agents(state: &AppState, msg: &CoreToAgentMessage) {
     };
     tracing::debug!("Mesh broadcast to {} agents: {}", senders.len(), &json[..json.len().min(100)]);
     for (pod_id, tx) in senders.iter() {
-        if tx.send(msg.clone()).await.is_err() {
+        if tx.send(CoreMessage::wrap(msg.clone())).await.is_err() {
             tracing::debug!("Mesh broadcast to {pod_id} failed (channel closed)");
         }
     }

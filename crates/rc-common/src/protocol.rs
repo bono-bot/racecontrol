@@ -573,6 +573,16 @@ pub enum AgentMessage {
         pod_id: String,
     },
 
+    /// ACK for game commands (LaunchGame, StopGame). Server waits for this before returning success.
+    /// Old agents that don't send this variant trigger server-side timeout (WSCMD-04).
+    /// Phase 312: WS ACK Protocol.
+    CommandAck {
+        command_id: String,
+        success: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -2961,6 +2971,61 @@ mod tests {
         } else {
             panic!("roundtrip produced wrong variant");
         }
+    }
+
+    // ─── Phase 312: CommandAck tests ────────────────────────────────────
+
+    #[test]
+    fn test_command_ack_roundtrip_success() {
+        let msg = AgentMessage::CommandAck {
+            command_id: "abc-123".to_string(),
+            success: true,
+            error: None,
+        };
+        let json = serde_json::to_string(&msg).expect("serialize CommandAck");
+        assert!(json.contains("command_ack"), "type tag must be snake_case: {}", json);
+        assert!(json.contains("abc-123"), "command_id must appear: {}", json);
+        // error field should be skipped when None
+        assert!(!json.contains("error"), "error=None should be skipped: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).expect("deserialize CommandAck");
+        match parsed {
+            AgentMessage::CommandAck { command_id, success, error } => {
+                assert_eq!(command_id, "abc-123");
+                assert!(success);
+                assert!(error.is_none());
+            }
+            other => panic!("Expected CommandAck, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_command_ack_roundtrip_with_error() {
+        let msg = AgentMessage::CommandAck {
+            command_id: "def-456".to_string(),
+            success: false,
+            error: Some("game crash on launch".to_string()),
+        };
+        let json = serde_json::to_string(&msg).expect("serialize CommandAck with error");
+        assert!(json.contains("\"error\""), "error field must appear when Some: {}", json);
+        assert!(json.contains("game crash on launch"), "error message must appear: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).expect("deserialize CommandAck with error");
+        match parsed {
+            AgentMessage::CommandAck { command_id, success, error } => {
+                assert_eq!(command_id, "def-456");
+                assert!(!success);
+                assert_eq!(error.as_deref(), Some("game crash on launch"));
+            }
+            other => panic!("Expected CommandAck, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_command_ack_backward_compat() {
+        // Verify that adding CommandAck variant does not break parsing of other variants.
+        // An unknown type should still parse as Unknown (forward compat).
+        let unknown_json = r#"{"type":"some_future_type","data":null}"#;
+        let parsed: AgentMessage = serde_json::from_str(unknown_json).expect("unknown type still parses");
+        assert!(matches!(parsed, AgentMessage::Unknown));
     }
 }
 

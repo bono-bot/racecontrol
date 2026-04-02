@@ -19,7 +19,7 @@ use crate::activity_log::log_pod_activity;
 use crate::event_archive;
 use crate::state::{AppState, WatchdogState};
 use crate::wol;
-use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
 use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryIntent, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
@@ -1520,7 +1520,7 @@ async fn execute_heal_action(state: &Arc<AppState>, pod_ip: &str, action: &HealA
             let msg = CoreToAgentMessage::ForceRelaunchBrowser {
                 pod_id: action.pod_id.clone(),
             };
-            match sender.send(msg).await {
+            match sender.send(CoreMessage::wrap(msg)).await {
                 Ok(_) => tracing::info!(
                     "Pod healer: ForceRelaunchBrowser sent to {} (lock screen recovery)",
                     action.pod_id

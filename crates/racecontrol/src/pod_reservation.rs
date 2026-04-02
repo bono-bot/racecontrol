@@ -3,7 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::state::AppState;
-use rc_common::protocol::DashboardEvent;
+use rc_common::protocol::{CoreMessage, DashboardEvent};
 use rc_common::types::PodReservationInfo;
 
 /// Find a pod that is idle and has no active reservation.
@@ -213,13 +213,13 @@ pub async fn expire_idle_reservations(state: &Arc<AppState>) -> u32 {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
             let _ = sender
-                .send(rc_common::protocol::CoreToAgentMessage::SessionEnded {
+                .send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::SessionEnded {
                     billing_session_id: String::new(),
                     driver_name: String::new(),
                     total_laps: 0,
                     best_lap_ms: None,
                     driving_seconds: 0,
-                })
+                }))
                 .await;
         }
     }

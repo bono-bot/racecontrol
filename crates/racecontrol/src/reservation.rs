@@ -14,7 +14,7 @@ use crate::billing;
 use crate::pod_reservation;
 use crate::state::AppState;
 use crate::wallet;
-use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 
 /// Numeric-only PIN charset (0-9). All PINs across the system are 4-digit numeric.
 const PIN_CHARSET: &[u8] = b"0123456789";
@@ -711,7 +711,7 @@ pub async fn redeem_pin(state: &Arc<AppState>, pin: &str) -> Result<Value, Redee
     // 12. Clear lock screen on pod agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 

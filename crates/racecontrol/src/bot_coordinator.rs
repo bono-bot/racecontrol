@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use rc_common::protocol::CoreToAgentMessage;
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 use rc_common::types::{BillingSessionStatus, GameState, PodFailureReason};
 
 use crate::billing::end_billing_session_public;
@@ -195,7 +195,7 @@ pub async fn handle_multiplayer_failure(
     {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BlankScreen)).await;
         }
     }
 
@@ -249,7 +249,7 @@ pub async fn handle_multiplayer_failure(
         {
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(group_pod_id.as_str()) {
-                let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BlankScreen)).await;
             }
         }
         // End billing for each group pod (sends StopGame → FFB zero on each agent)

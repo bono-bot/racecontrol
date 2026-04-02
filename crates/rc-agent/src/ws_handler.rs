@@ -353,6 +353,20 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes } => {
+            // Phase 312: Send CommandAck immediately to confirm receipt (WSCMD-01).
+            // The server waits up to 5s for this ACK before returning success to the API caller.
+            // Launch failures are reported separately via GameStateUpdate(Error).
+            if let Some(ref cmd_id) = command_id {
+                let ack = AgentMessage::CommandAck {
+                    command_id: cmd_id.clone(),
+                    success: true,
+                    error: None,
+                };
+                if let Ok(json) = serde_json::to_string(&ack) {
+                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                }
+            }
+
             // SEC-10: Acquire game launch mutex before any launch-related work.
             // This serializes concurrent LaunchGame commands and ensures clean_state_reset
             // (a spawn_blocking call that can take 5+ seconds) completes before a second
@@ -980,6 +994,18 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::StopGame => {
+            // Phase 312: Send CommandAck immediately to confirm receipt (WSCMD-02).
+            if let Some(ref cmd_id) = command_id {
+                let ack = AgentMessage::CommandAck {
+                    command_id: cmd_id.clone(),
+                    success: true,
+                    error: None,
+                };
+                if let Ok(json) = serde_json::to_string(&ack) {
+                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                }
+            }
+
             // FSM-05: StopGame must be handled in every CrashRecoveryState variant.
             // If StopGame arrives during crash recovery, the recovery timer must be cancelled
             // to prevent a relaunch AFTER the session is already stopped.

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use chrono::Utc;
 use rc_common::mesh_types::*;
-use rc_common::protocol::{AgentMessage, CoreToAgentMessage};
+use rc_common::protocol::{AgentMessage, CoreMessage, CoreToAgentMessage};
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -18,7 +18,7 @@ use crate::state::AppState;
 pub async fn handle_mesh_message(
     state: &Arc<AppState>,
     agent_msg: &AgentMessage,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) {
     match agent_msg {
         AgentMessage::MeshSolutionAnnounce {
@@ -210,7 +210,7 @@ async fn handle_solution_request(
     state: &AppState,
     problem_hash: &str,
     requesting_node: &str,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) {
     match fleet_kb::get_solution_by_hash(&state.db, problem_hash).await {
         Ok(Some(sol)) => {
@@ -230,7 +230,7 @@ async fn handle_solution_request(
                     .trim_matches('"')
                     .to_string(),
             };
-            let _ = cmd_tx.send(msg).await;
+            let _ = cmd_tx.send(CoreMessage::wrap(msg)).await;
             tracing::debug!("Mesh: sent solution to {requesting_node}");
         }
         Ok(None) => {
@@ -282,7 +282,7 @@ async fn handle_experiment_announce(
     let senders = state.agent_senders.read().await;
     for (pod_id, tx) in senders.iter() {
         if pod_id != node {
-            let _ = tx.send(broadcast.clone()).await;
+            let _ = tx.send(CoreMessage::wrap(broadcast.clone())).await;
         }
     }
 

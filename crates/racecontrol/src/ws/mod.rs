@@ -201,12 +201,12 @@ fn issue_pod_jwt_to_agent(
     state: &AppState,
     pod_id: &str,
     pod_number: u32,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) {
     match crate::auth::middleware::create_pod_jwt(&state.config.auth.jwt_secret, pod_id, pod_number, 24) {
         Ok(token) => {
             let expires_at = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
-            if cmd_tx.try_send(CoreToAgentMessage::IssueJwt { token, expires_at }).is_ok() {
+            if cmd_tx.try_send(CoreMessage::wrap(CoreToAgentMessage::IssueJwt { token, expires_at })).is_ok() {
                 tracing::info!("Phase 306: JWT issued to pod {} (expires_at={})", pod_id, expires_at);
             } else {
                 tracing::warn!("Phase 306: Failed to queue IssueJwt for pod {}", pod_id);
@@ -226,8 +226,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
     tracing::info!("Pod agent connected (conn_id={}, auth={})", conn_id,
         match &auth_result { AgentAuthResult::PskAuthenticated => "psk", AgentAuthResult::JwtAuthenticated { .. } => "jwt" });
 
-    // Create mpsc channel for sending commands back to this agent
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreToAgentMessage>(64);
+    // Create mpsc channel for sending commands back to this agent.
+    // Phase 312: Channel carries CoreMessage (pre-wrapped) so callers control command_id.
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreMessage>(64);
     let mut registered_pod_id: Option<String> = None;
 
     // Phase 306: JWT was already issued if this is a JWT-authenticated connection
@@ -259,10 +260,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
             tokio::select! {
                 cmd = cmd_rx.recv() => {
                     match cmd {
-                        Some(cmd) => {
-                            // DEPLOY-05: Wrap with CoreMessage to add command_id for agent deduplication.
-                            // This is the single serialization point for all CoreToAgentMessage sends.
-                            let wrapped = CoreMessage::wrap(cmd);
+                        Some(wrapped) => {
+                            // Phase 312: Channel now carries CoreMessage (pre-wrapped by callers).
+                            // DEPLOY-05 command_id is set by CoreMessage::wrap() at the call site.
                             if let Ok(json) = serde_json::to_string(&wrapped) {
                                 // MMA-P2: Log and continue on transient send failures instead
                                 // of breaking the entire send loop. Only break on channel close.
@@ -286,7 +286,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                 _ = measure_interval.tick() => {
                     // Application-level ping for round-trip latency measurement
                     let ping_id = PING_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let msg = CoreToAgentMessage::Ping { id: ping_id };
+                    let msg = CoreMessage::wrap(CoreToAgentMessage::Ping { id: ping_id });
                     if let Ok(json) = serde_json::to_string(&msg) {
                         // Record send time before sending
                         *pending_ping_send.lock().await = Some((ping_id, Instant::now()));
@@ -321,7 +321,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
             match crate::auth::middleware::create_pod_jwt(&rotation_state.config.auth.jwt_secret, &pod_id, pod_number, 24) {
                 Ok(token) => {
                     let expires_at = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
-                    let msg = CoreToAgentMessage::RefreshJwt { token, expires_at };
+                    let msg = CoreMessage::wrap(CoreToAgentMessage::RefreshJwt { token, expires_at });
                     if rotation_cmd_tx.try_send(msg).is_ok() {
                         tracing::info!("Phase 306: JWT refreshed for pod {} (expires_at={})", pod_id, expires_at);
                     }
@@ -468,13 +468,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     ))
                                 };
                                 if let Some((session_id, driver_name, allocated_seconds, remaining)) = resync {
-                                    let _ = cmd_tx.send(CoreToAgentMessage::BillingStarted {
+                                    let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
                                         billing_session_id: session_id.clone(),
                                         driver_name: driver_name.clone(),
                                         allocated_seconds,
                                         session_token: Some(uuid::Uuid::new_v4().to_string()),
-                                    }).await;
-                                    let _ = cmd_tx.send(CoreToAgentMessage::BillingTick {
+                                    })).await;
+                                    let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::BillingTick {
                                         remaining_seconds: remaining,
                                         allocated_seconds,
                                         driver_name: driver_name.clone(),
@@ -485,7 +485,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                         paused: None,
                                         minutes_to_next_tier: None,
                                         tier_name: None,
-                                    }).await;
+                                    })).await;
                                     // Restore pod state (agent Register overwrites with Idle)
                                     {
                                         let mut pods = state.pods.write().await;
@@ -514,7 +514,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     let settings: std::collections::HashMap<String, String> =
                                         rows.into_iter().collect();
                                     let pod_settings = state.settings_for_pod(&settings, pod_info.number).await;
-                                    let _ = cmd_tx.send(CoreToAgentMessage::SettingsUpdated { settings: pod_settings }).await;
+                                    let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings: pod_settings })).await;
                                     tracing::info!("Sent initial kiosk settings to pod {}", pod_info.number);
                                 }
                             }
@@ -939,6 +939,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 });
                             } else {
                                 tracing::warn!("No pending request for request_id={}", request_id);
+                            }
+                        }
+                        // Phase 312: Handle CommandAck from agent (WSCMD-01/02)
+                        AgentMessage::CommandAck { command_id, success, error } => {
+                            tracing::info!("CommandAck from pod {:?}: cmd={} success={} err={:?}",
+                                registered_pod_id, command_id, success, error);
+                            let mut pending = state.pending_command_acks.write().await;
+                            if let Some(sender) = pending.remove(command_id) {
+                                let _ = sender.send(crate::state::CommandAckResult {
+                                    success: *success,
+                                    error: error.clone(),
+                                });
+                            } else {
+                                tracing::debug!("CommandAck for unknown command_id {} (already timed out?)", command_id);
                             }
                         }
                         AgentMessage::StartupReport {
@@ -1386,7 +1400,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     version: max_version as u64,
                                 };
                                 let _ = cmd_tx
-                                    .send(CoreToAgentMessage::FlagSync(sync_payload))
+                                    .send(CoreMessage::wrap(CoreToAgentMessage::FlagSync(sync_payload)))
                                     .await;
                             }
                             // Replay pending config pushes for this pod.
@@ -1641,7 +1655,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                         .collect()
                                 }; // lock dropped here
                                 for (target_pod_id, sender) in &sender_snapshot {
-                                    if let Err(e) = sender.send(broadcast_msg.clone()).await {
+                                    if let Err(e) = sender.send(CoreMessage::wrap(broadcast_msg.clone())).await {
                                         tracing::debug!(
                                             target: "debug-bridge",
                                             pod = %target_pod_id,
@@ -2443,11 +2457,11 @@ pub async fn ws_exec_on_pod(
     };
 
     // Send the command
-    if sender.send(rc_common::protocol::CoreToAgentMessage::Exec {
+    if sender.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::Exec {
         request_id: request_id.clone(),
         cmd: cmd.to_string(),
         timeout_ms,
-    }).await.is_err() {
+    })).await.is_err() {
         state.pending_ws_execs.write().await.remove(&request_id);
         return Err(format!("Failed to send command to pod {}", pod_id));
     }

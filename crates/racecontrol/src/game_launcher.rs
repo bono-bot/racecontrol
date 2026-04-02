@@ -9,7 +9,7 @@ use crate::catalog;
 use crate::metrics;
 use crate::state::AppState;
 use rc_common::pod_id::normalize_pod_id;
-use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType};
 
 /// In-memory tracker for a game running on a pod (mirrors BillingTimer pattern)
@@ -432,7 +432,15 @@ async fn launch_game(
         extract_launch_fields(&launch_args);
 
     // Send command to agent with 1 retry (GAP-1 fix: fire-and-forget → retry-once)
-    let launch_msg = launcher.make_launch_message(sim_type, launch_args);
+    // Phase 312: Wrap with CoreMessage to get a known command_id for ACK correlation.
+    let launch_inner = launcher.make_launch_message(sim_type, launch_args);
+    let launch_msg = CoreMessage::wrap(launch_inner);
+    let command_id = launch_msg.command_id.clone().unwrap_or_default();
+
+    // Register ACK waiter BEFORE sending (WSCMD-01)
+    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+    state.pending_command_acks.write().await.insert(command_id.clone(), ack_tx);
+
     let mut send_ok = false;
     for attempt in 1..=2 {
         let senders = state.agent_senders.read().await;
@@ -459,6 +467,8 @@ async fn launch_game(
     }
     if !send_ok {
         tracing::warn!("No agent connected for pod {} after 2 attempts", pod_id);
+        // Clean up pending ACK waiter since we never sent
+        state.pending_command_acks.write().await.remove(&command_id);
         // Update tracker to error
         if let Some(tracker) = state
             .game_launcher
@@ -479,6 +489,32 @@ async fn launch_game(
             }
         }
         return Err(format!("No agent connected for pod {}", pod_id));
+    }
+
+    // Phase 312 (WSCMD-01/03): Wait for agent ACK with 5s timeout
+    match tokio::time::timeout(std::time::Duration::from_secs(5), ack_rx).await {
+        Ok(Ok(result)) => {
+            if !result.success {
+                tracing::warn!("Agent ACK failure for launch on pod {}: {:?}", pod_id, result.error);
+                return Err(format!(
+                    "Agent failed to launch on pod {}: {}",
+                    pod_id,
+                    result.error.unwrap_or_else(|| "unknown error".to_string())
+                ));
+            }
+            tracing::info!("Launch ACK received for pod {} (command_id={})", pod_id, command_id);
+        }
+        Ok(Err(_)) => {
+            // Oneshot dropped — agent disconnected
+            tracing::warn!("ACK channel dropped for launch on pod {} (agent disconnected?)", pod_id);
+            return Err(format!("Agent disconnected before acknowledging launch on pod {}", pod_id));
+        }
+        Err(_) => {
+            // Timeout — WSCMD-03: old agent or WS drop
+            tracing::warn!("WSCMD-03: No ACK within 5s for launch on pod {} (command_id={})", pod_id, command_id);
+            state.pending_command_acks.write().await.remove(&command_id);
+            return Err(format!("Agent did not acknowledge launch command within 5s (pod {})", pod_id));
+        }
     }
 
     // Clone session_id before moving info into broadcast
@@ -575,12 +611,12 @@ pub async fn relaunch_game(
     // Send LaunchGame to agent (canonical pod_id guaranteed by normalization at entry)
     let senders = state.agent_senders.read().await;
     let tx = senders.get(pod_id).ok_or("Pod not connected")?;
-    tx.send(CoreToAgentMessage::LaunchGame {
+    tx.send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
         sim_type,
         launch_args,
         force_clean: true,
         duration_minutes: None,
-    })
+    }))
     .await
     .map_err(|e| format!("Failed to send launch command: {}", e))?;
 
@@ -647,11 +683,38 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
         // LAUNCH-19: Log actual sim_type, not empty string
         log_pod_activity(state, pod_id, "game", "Game Stopping", &info.sim_type.to_string(), "core", None);
 
-        // Send command to agent (canonical pod_id guaranteed by normalization at entry)
+        // Phase 312: Send StopGame with ACK correlation (WSCMD-02/03)
+        let stop_msg = CoreMessage::wrap(CoreToAgentMessage::StopGame);
+        let stop_command_id = stop_msg.command_id.clone().unwrap_or_default();
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        state.pending_command_acks.write().await.insert(stop_command_id.clone(), ack_tx);
+
         let senders = state.agent_senders.read().await;
         if let Some(tx) = senders.get(pod_id) {
-            if let Err(e) = tx.send(CoreToAgentMessage::StopGame).await {
+            if let Err(e) = tx.send(stop_msg).await {
                 tracing::error!("Failed to send StopGame to pod {}: {}", pod_id, e);
+                state.pending_command_acks.write().await.remove(&stop_command_id);
+            }
+        } else {
+            state.pending_command_acks.write().await.remove(&stop_command_id);
+        }
+        drop(senders);
+
+        // Wait for ACK (5s timeout, non-blocking for caller — log but don't propagate)
+        match tokio::time::timeout(std::time::Duration::from_secs(5), ack_rx).await {
+            Ok(Ok(result)) => {
+                if result.success {
+                    tracing::info!("Stop ACK received for pod {} (command_id={})", pod_id, stop_command_id);
+                } else {
+                    tracing::warn!("Agent ACK failure for stop on pod {}: {:?}", pod_id, result.error);
+                }
+            }
+            Ok(Err(_)) => {
+                tracing::warn!("ACK channel dropped for stop on pod {} (agent disconnected?)", pod_id);
+            }
+            Err(_) => {
+                tracing::warn!("WSCMD-03: No ACK within 5s for stop on pod {} (command_id={})", pod_id, stop_command_id);
+                state.pending_command_acks.write().await.remove(&stop_command_id);
             }
         }
 
@@ -1037,12 +1100,12 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                         let senders = state_clone.agent_senders.read().await;
                         if let Some(tx) = senders.get(&pod_id_owned) {
                             let _ = tx
-                                .send(CoreToAgentMessage::LaunchGame {
+                                .send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
                                     sim_type,
                                     launch_args: updated_args,
                                     force_clean: true,
                                     duration_minutes: fresh_duration,
-                                })
+                                }))
                                 .await;
                         }
                         drop(senders);

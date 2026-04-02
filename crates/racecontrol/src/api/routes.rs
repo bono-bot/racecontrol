@@ -47,7 +47,7 @@ use crate::venue_shutdown;
 use crate::wol;
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
-use rc_common::protocol::{CloudAction, CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent};
 
 /// Top-level API router: merges 5 tiered sub-routers.
 ///
@@ -1058,7 +1058,7 @@ async fn set_pod_screen(
             } else {
                 CoreToAgentMessage::ClearLockScreen
             };
-            let _ = sender.send(msg).await;
+            let _ = sender.send(CoreMessage::wrap(msg)).await;
 
             // Optimistic update: reflect blank state immediately so kiosk sees the change
             // without waiting for the next heartbeat cycle
@@ -1190,7 +1190,7 @@ async fn lockdown_pod(
         if locked { "true" } else { "false" }.to_string(),
     );
     let msg = CoreToAgentMessage::SettingsUpdated { settings };
-    let _ = sender.send(msg).await;
+    let _ = sender.send(CoreMessage::wrap(msg)).await;
 
     // Phase 307 AUDIT-03: Log admin lockdown action for hash chain coverage
     let lockdown_action = if locked { "Pod Lockdown" } else { "Pod Lockdown Released" };
@@ -1250,7 +1250,7 @@ async fn lockdown_all_pods(
             if locked { "true" } else { "false" }.to_string(),
         );
         let msg = CoreToAgentMessage::SettingsUpdated { settings };
-        let _ = sender.send(msg).await;
+        let _ = sender.send(CoreMessage::wrap(msg)).await;
         results.push(json!({ "pod_id": pod_id, "status": "sent" }));
     }
 
@@ -1278,22 +1278,22 @@ async fn unrestrict_pod(
 
     if unrestrict {
         // 1. Clear lock screen
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
         // 2. Enter debug mode (deactivates kiosk enforcement, restores taskbar)
-        let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
             employee_name: "Staff (admin panel)".to_string(),
-        }).await;
+        })).await;
         // 3. Disable kiosk lockdown via settings (prevents re-activation on next settings broadcast)
         let mut settings = std::collections::HashMap::new();
         settings.insert("kiosk_lockdown_enabled".to_string(), "false".to_string());
-        let _ = sender.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings })).await;
         tracing::info!("Pod {} UNRESTRICTED for employee training", id);
     } else {
         // Re-restrict: re-enable kiosk lockdown + blank screen
         let mut settings = std::collections::HashMap::new();
         settings.insert("kiosk_lockdown_enabled".to_string(), "true".to_string());
-        let _ = sender.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
-        let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings })).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BlankScreen)).await;
         tracing::info!("Pod {} RESTRICTED — kiosk re-engaged", id);
     }
 
@@ -1328,10 +1328,10 @@ async fn freedom_mode_pod(
     }
 
     if enabled {
-        let _ = sender.send(CoreToAgentMessage::EnterFreedomMode).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterFreedomMode)).await;
         tracing::info!("Pod {} FREEDOM MODE enabled — monitoring active", id);
     } else {
-        let _ = sender.send(CoreToAgentMessage::ExitFreedomMode).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ExitFreedomMode)).await;
         tracing::info!("Pod {} FREEDOM MODE disabled — kiosk re-engaged", id);
     }
 
@@ -1508,7 +1508,7 @@ async fn pod_self_test(
     }
 
     // 3. Send RunSelfTest command
-    if sender.send(CoreToAgentMessage::RunSelfTest { request_id: request_id.clone() }).await.is_err() {
+    if sender.send(CoreMessage::wrap(CoreToAgentMessage::RunSelfTest { request_id: request_id.clone() })).await.is_err() {
         let mut pending = state.pending_self_tests.write().await;
         pending.remove(&request_id);
         return (
@@ -1544,7 +1544,7 @@ async fn clear_maintenance_pod(
     let agent_senders = state.agent_senders.read().await;
     match agent_senders.get(&id) {
         Some(sender) => {
-            let _ = sender.send(CoreToAgentMessage::ClearMaintenance).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearMaintenance)).await;
         }
         None => {
             return Json(json!({ "error": format!("Pod {} not connected", id) }));
@@ -1901,7 +1901,7 @@ mod lockdown_tests {
         let state = make_state().await;
 
         // Create a channel then immediately drop the receiver to close the sender
-        let (tx, rx) = mpsc::channel::<CoreToAgentMessage>(16);
+        let (tx, rx) = mpsc::channel::<CoreMessage>(16);
         drop(rx); // sender is now closed
         state.agent_senders.write().await.insert("pod-1".to_string(), tx);
 
@@ -1935,16 +1935,16 @@ mod lockdown_tests {
             let timer = BillingTimer::dummy("pod-a");
             state.billing.active_timers.write().await.insert("pod-a".to_string(), timer);
         }
-        let (tx_a, _rx_a) = mpsc::channel::<CoreToAgentMessage>(16);
+        let (tx_a, _rx_a) = mpsc::channel::<CoreMessage>(16);
         state.agent_senders.write().await.insert("pod-a".to_string(), tx_a);
 
         // Pod B: closed sender — should be marked not_connected
-        let (tx_b, rx_b) = mpsc::channel::<CoreToAgentMessage>(16);
+        let (tx_b, rx_b) = mpsc::channel::<CoreMessage>(16);
         drop(rx_b);
         state.agent_senders.write().await.insert("pod-b".to_string(), tx_b);
 
         // Pod C: healthy — should receive SettingsUpdated
-        let (tx_c, mut rx_c) = mpsc::channel::<CoreToAgentMessage>(16);
+        let (tx_c, mut rx_c) = mpsc::channel::<CoreMessage>(16);
         state.agent_senders.write().await.insert("pod-c".to_string(), tx_c);
 
         let response = lockdown_all_pods(
@@ -1977,7 +1977,7 @@ mod lockdown_tests {
 
         // Verify pod-c actually received the SettingsUpdated message
         let msg = rx_c.try_recv().expect("pod-c should have received a message");
-        match msg {
+        match msg.inner {
             CoreToAgentMessage::SettingsUpdated { settings } => {
                 assert_eq!(
                     settings.get("kiosk_lockdown_enabled").map(|s| s.as_str()),
@@ -5247,7 +5247,7 @@ async fn set_pod_transmission(
         let msg = CoreToAgentMessage::SetTransmission {
             transmission: transmission.to_string(),
         };
-        if let Err(e) = tx.send(msg).await {
+        if let Err(e) = tx.send(CoreMessage::wrap(msg)).await {
             tracing::error!("Failed to send SetTransmission to {}: {}", pod_id, e);
             return Json(json!({ "error": "Failed to send to agent" }));
         }
@@ -5269,7 +5269,7 @@ async fn set_pod_ffb(
         let senders = state.agent_senders.read().await;
         if let Some(tx) = senders.get(&pod_id) {
             let msg = CoreToAgentMessage::SetFfbGain { percent };
-            if let Err(e) = tx.send(msg).await {
+            if let Err(e) = tx.send(CoreMessage::wrap(msg)).await {
                 tracing::error!("Failed to send SetFfbGain to {}: {}", pod_id, e);
                 return Json(json!({ "error": "Failed to send to agent" }));
             }
@@ -5291,7 +5291,7 @@ async fn set_pod_ffb(
         let msg = CoreToAgentMessage::SetFfb {
             preset: preset.to_string(),
         };
-        if let Err(e) = tx.send(msg).await {
+        if let Err(e) = tx.send(CoreMessage::wrap(msg)).await {
             tracing::error!("Failed to send SetFfb to {}: {}", pod_id, e);
             return Json(json!({ "error": "Failed to send to agent" }));
         }
@@ -5326,7 +5326,7 @@ async fn set_pod_assists(
             assist_type: assist_type.to_string(),
             enabled,
         };
-        if let Err(e) = tx.send(msg).await {
+        if let Err(e) = tx.send(CoreMessage::wrap(msg)).await {
             tracing::error!("Failed to send SetAssist to {}: {}", pod_id, e);
             return Json(json!({ "error": format!("Failed to send to agent: {}", e) }));
         }
@@ -5351,7 +5351,7 @@ async fn get_pod_assist_state(
     // (next time PWA opens the drawer, cache will be even fresher)
     let senders = state.agent_senders.read().await;
     if let Some(tx) = senders.get(&pod_id) {
-        if let Err(e) = tx.send(CoreToAgentMessage::QueryAssistState).await {
+        if let Err(e) = tx.send(CoreMessage::wrap(CoreToAgentMessage::QueryAssistState)).await {
             tracing::warn!("Failed to send QueryAssistState to {}: {}", pod_id, e);
         }
     }
@@ -9014,10 +9014,10 @@ async fn customer_continue_session(
         if needs_assistance {
             // Send assistance screen instead of launching
             if let Some(sender) = agent_senders.get(&reservation.pod_id) {
-                let _ = sender.send(rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen {
+                let _ = sender.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen {
                     driver_name: driver_id.clone(),
                     message: "A team member is on the way to help launch your game.".to_string(),
-                }).await;
+                })).await;
             }
             let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
                 pod_id: reservation.pod_id.clone(),
@@ -9039,12 +9039,12 @@ async fn customer_continue_session(
                     "conditions": { "damage": 0 }
                 }).to_string();
                 if let Some(sender) = agent_senders.get(&reservation.pod_id) {
-                    let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
+                    let _ = sender.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::LaunchGame {
                         sim_type,
                         launch_args: Some(launch_args),
                         force_clean: false,
                         duration_minutes: None,
-                    }).await;
+                    })).await;
                 }
             }
         }
@@ -16267,9 +16267,9 @@ async fn failover_broadcast(
 
     for (pod_id, sender) in agent_senders.iter() {
         if sender
-            .send(rc_common::protocol::CoreToAgentMessage::SwitchController {
+            .send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::SwitchController {
                 target_url: target_url.clone(),
-            })
+            }))
             .await
             .is_ok()
         {
@@ -16692,7 +16692,7 @@ async fn create_debug_incident(
                 category: category.to_string(),
                 requested_by: "staff".to_string(),
             };
-            if sender.send(diag_req).await.is_ok() {
+            if sender.send(CoreMessage::wrap(diag_req)).await.is_ok() {
                 tier_diagnosis_sent = true;
                 tracing::info!(
                     target: "debug-bridge",
@@ -16941,11 +16941,11 @@ async fn debug_apply_fix(
     if success {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::StaffActionNotify {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StaffActionNotify {
                 action: action_label.clone(),
                 reason: format!("Staff quick-fix for incident {}", incident_id),
                 correlation_id: uuid::Uuid::new_v4().to_string(),
-            }).await;
+            })).await;
         }
         drop(agent_senders);
     }

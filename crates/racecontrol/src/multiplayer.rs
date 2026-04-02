@@ -6,7 +6,7 @@ use crate::auth;
 use crate::pod_reservation;
 use crate::state::AppState;
 use crate::wallet;
-use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::{GroupMemberInfo, GroupSessionInfo};
 
 /// Find N idle pods, preferring adjacent (consecutive pod numbers).
@@ -263,12 +263,12 @@ pub async fn book_multiplayer(
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(host_pod_id) {
             let _ = sender
-                .send(CoreToAgentMessage::ShowPinLockScreen {
+                .send(CoreMessage::wrap(CoreToAgentMessage::ShowPinLockScreen {
                     token_id: host_token.id.clone(),
                     driver_name: host_name.clone(),
                     pricing_tier_name: tier_name.clone(),
                     allocated_seconds: duration_minutes as u32 * 60,
-                })
+                }))
                 .await;
         }
         drop(agent_senders);
@@ -482,12 +482,12 @@ pub async fn accept_group_invite(
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
         let _ = sender
-            .send(CoreToAgentMessage::ShowPinLockScreen {
+            .send(CoreMessage::wrap(CoreToAgentMessage::ShowPinLockScreen {
                 token_id: token.id.clone(),
                 driver_name: driver_name.clone(),
                 pricing_tier_name: tier_name,
                 allocated_seconds: duration_minutes as u32 * 60,
-            })
+            }))
             .await;
     }
     drop(agent_senders);
@@ -699,13 +699,13 @@ pub async fn on_member_validated(
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
                 let _ = sender
-                    .send(CoreToAgentMessage::ShowAssistanceScreen {
+                    .send(CoreMessage::wrap(CoreToAgentMessage::ShowAssistanceScreen {
                         driver_name,
                         message: format!(
                             "Waiting for friends... ({}/{} checked in)",
                             validated_total, accepted_total
                         ),
-                    })
+                    }))
                     .await;
             }
         }
@@ -1231,12 +1231,12 @@ async fn start_ac_lan_for_group(
                 .to_string();
 
                 let _ = sender
-                    .send(CoreToAgentMessage::LaunchGame {
+                    .send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
                         sim_type: sim_type.clone(),
                         launch_args: Some(launch_args),
                         force_clean: false,
                         duration_minutes: None,
-                    })
+                    }))
                     .await;
             }
         }
@@ -1709,12 +1709,12 @@ pub async fn book_multiplayer_kiosk(
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
             let _ = sender
-                .send(CoreToAgentMessage::ShowPinLockScreen {
+                .send(CoreMessage::wrap(CoreToAgentMessage::ShowPinLockScreen {
                     token_id: token.id.clone(),
                     driver_name: host_name.clone(),
                     pricing_tier_name: tier_name.clone(),
                     allocated_seconds: duration_minutes as u32 * 60,
-                })
+                }))
                 .await;
         }
 

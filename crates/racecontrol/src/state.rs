@@ -20,7 +20,7 @@ use crate::fleet_health::{FleetHealthStore, ViolationStore};
 use crate::recovery::{RecoveryEventStore, RecoveryIntentStore};
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
-use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{AiChannelMessage, CoreMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::recovery::ProcessOwnership;
 use rc_common::types::{ContentManifest, DeployState, PodInfo};
 use rc_common::watchdog::EscalatingBackoff;
@@ -72,6 +72,14 @@ pub struct OtpRateLimit {
 pub struct OtpFailedAttempts {
     pub count: u32,
     pub locked_until: Option<Instant>,
+}
+
+/// Result of a command ACK from an agent (LaunchGame/StopGame).
+/// Phase 312: WS ACK Protocol.
+#[derive(Debug)]
+pub struct CommandAckResult {
+    pub success: bool,
+    pub error: Option<String>,
 }
 
 /// Result of a WebSocket command sent to a pod agent.
@@ -137,8 +145,10 @@ pub struct AppState {
     pub ac_server: AcServerManager,
     pub port_allocator: PortAllocator,
     pub camera: CameraController,
-    /// Map of pod_id -> sender for pushing commands to specific agents
-    pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
+    /// Map of pod_id -> sender for pushing commands to specific agents.
+    /// Phase 312: Changed from Sender<CoreToAgentMessage> to Sender<CoreMessage> so callers
+    /// control the command_id for ACK correlation.
+    pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreMessage>>>,
     /// Map of pod_id -> connection ID (monotonic counter) to detect stale disconnects
     pub agent_conn_ids: RwLock<HashMap<String, u64>>,
     /// v22.0 Phase 177: In-memory feature flag cache. Populated from DB at startup.
@@ -194,6 +204,9 @@ pub struct AppState {
     /// Populated by ws_exec_on_pod(), resolved by ExecResult handler in ws/mod.rs.
     /// Cleaned up on agent disconnect (entries prefixed with pod_id).
     pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<WsExecResult>>>,
+    /// Phase 312: Pending command ACK responses: command_id -> oneshot sender.
+    /// Populated by launch_game/stop_game, resolved by CommandAck handler in ws/mod.rs.
+    pub pending_command_acks: RwLock<HashMap<String, tokio::sync::oneshot::Sender<CommandAckResult>>>,
     /// Phase 50: Pending self-test responses: request_id -> (pod_id, oneshot sender).
     /// Populated by pod_self_test handler, resolved by SelfTestResult in ws/mod.rs.
     /// Cleaned up on agent disconnect (entries matching pod_id).
@@ -326,6 +339,7 @@ impl AppState {
             fleet_deploy_session: std::sync::Arc::new(RwLock::new(None)),
             assist_cache: RwLock::new(HashMap::new()),
             pending_ws_execs: RwLock::new(HashMap::new()),
+            pending_command_acks: RwLock::new(HashMap::new()),
             pending_self_tests: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
@@ -430,7 +444,7 @@ impl AppState {
             }
 
             let msg = CoreToAgentMessage::SettingsUpdated { settings: pod_settings };
-            let _ = sender.send(msg).await;
+            let _ = sender.send(CoreMessage::wrap(msg)).await;
         }
     }
 
@@ -549,7 +563,7 @@ impl AppState {
                 .collect();
             let payload = FlagSyncPayload { flags, version };
             if let Err(e) = sender
-                .send(rc_common::protocol::CoreToAgentMessage::FlagSync(payload))
+                .send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::FlagSync(payload)))
                 .await
             {
                 tracing::warn!("Failed to send FlagSync to pod {}: {}", pod_id, e);

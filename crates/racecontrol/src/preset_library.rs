@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::StaffClaims;
 use crate::state::AppState;
-use rc_common::protocol::CoreToAgentMessage;
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 use rc_common::types::{GamePreset, GamePresetWithReliability, PresetPushPayload};
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ pub async fn list_presets_with_reliability(
 pub async fn push_presets_to_pod(
     state: &AppState,
     pod_id: &str,
-    cmd_tx: &mpsc::Sender<CoreToAgentMessage>,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
 ) -> Result<(), anyhow::Error> {
     let threshold = state.config.presets.unreliable_threshold;
     let presets = list_presets_with_reliability(&state.db, threshold)
@@ -124,7 +124,7 @@ pub async fn push_presets_to_pod(
     let count = presets.len();
     let payload = PresetPushPayload { presets };
     cmd_tx
-        .send(CoreToAgentMessage::PresetPush(payload))
+        .send(CoreMessage::wrap(CoreToAgentMessage::PresetPush(payload)))
         .await
         .map_err(|e| anyhow::anyhow!("Failed to send PresetPush to pod {}: {}", pod_id, e))?;
 

@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::billing;
 use crate::crypto::redaction::redact_phone;
 use crate::state::AppState;
-use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::AuthTokenInfo;
 
 // ─── PIN Validation Constants ─────────────────────────────────────────────
@@ -191,7 +191,7 @@ pub async fn create_auth_token(
                 allocated_seconds,
             },
         };
-        let _ = sender.send(msg).await;
+        let _ = sender.send(CoreMessage::wrap(msg)).await;
     }
     drop(agent_senders);
 
@@ -323,10 +323,10 @@ pub(crate) async fn launch_or_assist(
         if !pod_has_game(state, pod_id, sim_type).await {
             // Game not installed on this pod — show assistance screen
             let _ = sender
-                .send(CoreToAgentMessage::ShowAssistanceScreen {
+                .send(CoreMessage::wrap(CoreToAgentMessage::ShowAssistanceScreen {
                     driver_name: driver_name.to_string(),
                     message: format!("{} is not installed on this pod — staff will assist", game),
-                })
+                }))
                 .await;
 
             // Broadcast assistance needed to kiosk dashboards
@@ -344,12 +344,12 @@ pub(crate) async fn launch_or_assist(
         } else {
             // Auto-spawn game
             let _ = sender
-                .send(CoreToAgentMessage::LaunchGame {
+                .send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
                     sim_type,
                     launch_args: Some(launch_args_json),
                     force_clean: false,
                     duration_minutes: None,
-                })
+                }))
                 .await;
 
             tracing::info!(
@@ -523,7 +523,7 @@ pub async fn validate_pin(
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 
@@ -660,7 +660,7 @@ pub async fn validate_qr(
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 
@@ -777,7 +777,7 @@ pub async fn start_now(
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 
@@ -835,7 +835,7 @@ pub async fn cancel_auth_token(
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 
@@ -873,7 +873,7 @@ pub async fn expire_stale_tokens(state: &Arc<AppState>) {
         // Clear lock screen
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
         }
         drop(agent_senders);
 
@@ -1423,7 +1423,7 @@ pub async fn handle_dashboard_command(
             // Clear the assistance screen on the agent
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
             }
         }
         _ => {}
@@ -1447,9 +1447,9 @@ pub async fn handle_pin_entered(state: &Arc<AppState>, pod_id: String, pin: Stri
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
                 let _ = sender
-                    .send(CoreToAgentMessage::PinFailed {
+                    .send(CoreMessage::wrap(CoreToAgentMessage::PinFailed {
                         reason: e.clone(),
-                    })
+                    }))
                     .await;
             }
         }
@@ -1633,7 +1633,7 @@ pub async fn validate_pin_kiosk(
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
     drop(agent_senders);
 
@@ -1724,10 +1724,10 @@ pub async fn validate_employee_pin(
     // Clear lock screen and enter debug mode
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
-        let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
             employee_name: "Staff".to_string(),
-        }).await;
+        })).await;
     }
     drop(agent_senders);
 
@@ -1751,10 +1751,10 @@ pub async fn validate_employee_pin_kiosk(
     if let Some(ref pid) = pod_id {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pid) {
-            let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
-            let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
                 employee_name: "Staff".to_string(),
-            }).await;
+            })).await;
         }
         drop(agent_senders);
         tracing::info!("Employee debug mode on pod {} (kiosk)", pid);
