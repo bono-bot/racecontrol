@@ -307,8 +307,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Driver rating history (staff-only — Phase 253)
         .route("/drivers/{id}/rating-history", get(staff_driver_rating_history))
-        // Phase 302: Event archive query API
-        .route("/events", get(get_events))
+        // Phase 302: Event archive query API (system_events table — not /events which is hotlap competition)
+        .route("/system-events", get(get_events))
         // MMA-P1: Debug endpoints moved from public_routes — require staff JWT
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/debug/activity", get(debug_activity))
@@ -2161,7 +2161,7 @@ async fn create_driver(
     };
 
     let result = sqlx::query(
-        "INSERT INTO drivers (id, name, name_enc, phone_hash, phone_enc, email_enc, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
+        "INSERT INTO drivers (id, name, name_enc, phone_hash, phone_enc, email_enc, steam_guid, updated_at, venue_id) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)"
     )
     .bind(&id)
     .bind(name) // Keep plaintext name for leaderboard backward compat
@@ -2170,6 +2170,7 @@ async fn create_driver(
     .bind(&phone_enc)
     .bind(&email_enc)
     .bind(steam_guid)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -2422,13 +2423,14 @@ async fn create_session(
     let car_class = body.get("car_class").and_then(|v| v.as_str());
 
     let result = sqlx::query(
-        "INSERT INTO sessions (id, type, sim_type, track, car_class, status) VALUES (?, ?, ?, ?, ?, 'pending')"
+        "INSERT INTO sessions (id, type, sim_type, track, car_class, status, venue_id) VALUES (?, ?, ?, ?, ?, 'pending', ?)"
     )
     .bind(&id)
     .bind(session_type)
     .bind(sim_type)
     .bind(track)
     .bind(car_class)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -3227,14 +3229,15 @@ async fn record_coupon_redemption(
     discount_paise: i64,
 ) {
     let _ = sqlx::query(
-        "INSERT INTO coupon_redemptions (id, coupon_id, driver_id, billing_session_id, discount_paise)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO coupon_redemptions (id, coupon_id, driver_id, billing_session_id, discount_paise, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(coupon_id)
     .bind(driver_id)
     .bind(billing_session_id)
     .bind(discount_paise)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -3634,6 +3637,7 @@ async fn start_billing(
             Some(&session_id),
             Some(&debit_notes),
             idempotency_key.as_deref(),
+            &state.config.venue.venue_id,
         ).await {
             Ok(_) => Some(final_price_paise),
             Err(e) => {
@@ -3666,8 +3670,8 @@ async fn start_billing(
          (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
           started_at, staff_id, split_count, split_duration_minutes, \
           wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key, \
-          guardian_present, is_minor_session) \
-         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          guardian_present, is_minor_session, venue_id) \
+         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(driver_id)
@@ -3687,6 +3691,7 @@ async fn start_billing(
     .bind(idempotency_key.as_deref())
     .bind(guardian_present_flag)
     .bind(is_minor)
+    .bind(&state.config.venue.venue_id)
     .execute(&mut *tx)
     .await {
         drop(tx); // rolls back wallet debit atomically
@@ -3702,11 +3707,12 @@ async fn start_billing(
     // Step 3: Log billing events within the same transaction
     for event_type in ["created", "started"] {
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event) VALUES (?, ?, ?, 0)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id) VALUES (?, ?, ?, 0, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(event_type)
+        .bind(&state.config.venue.venue_id)
         .execute(&mut *tx)
         .await;
     }
@@ -3828,6 +3834,7 @@ async fn start_billing(
         "waiting_for_game",
         Some(&billing_nonce),
         staff_id.as_deref().unwrap_or("system"),
+        &state.config.venue.venue_id,
     )
     .await;
 
@@ -4052,7 +4059,7 @@ async fn stop_billing(
     if found {
         // Phase 283: Audit log + nonce cleanup
         crate::billing_replay::insert_audit_log(
-            &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff",
+            &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff", &state.config.venue.venue_id,
         ).await;
         state.billing_nonce_store.remove(&id).await;
         Json(json!({ "ok": true }))
@@ -4115,7 +4122,7 @@ async fn pause_billing(
 ) -> Json<Value> {
     // Phase 283: Audit log for pause
     crate::billing_replay::insert_audit_log(
-        &state.db, &id, "unknown", "pause", "active", "paused", None, "staff",
+        &state.db, &id, "unknown", "pause", "active", "paused", None, "staff", &state.config.venue.venue_id,
     ).await;
 
     let cmd = rc_common::protocol::DashboardCommand::PauseBilling {
@@ -4131,7 +4138,7 @@ async fn resume_billing(
 ) -> Json<Value> {
     // Phase 283: Audit log for resume
     crate::billing_replay::insert_audit_log(
-        &state.db, &id, "unknown", "resume", "paused", "active", None, "staff",
+        &state.db, &id, "unknown", "resume", "paused", "active", None, "staff", &state.config.venue.venue_id,
     ).await;
 
     // Check if this is a disconnect-paused session (needs special handling)
@@ -4746,8 +4753,8 @@ async fn refund_billing_session(
 
     // Record in refunds table (include idempotency_key for FATM-02)
     let result = sqlx::query(
-        "INSERT INTO refunds (id, billing_session_id, driver_id, amount_paise, method, reason, notes, staff_id, wallet_txn_id, idempotency_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO refunds (id, billing_session_id, driver_id, amount_paise, method, reason, notes, staff_id, wallet_txn_id, idempotency_key, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&refund_id)
     .bind(&session_id)
@@ -4759,6 +4766,7 @@ async fn refund_billing_session(
     .bind(staff_id.as_deref()) // staff_id from JWT (POS-05)
     .bind(wallet_txn_id.as_deref())
     .bind(req.idempotency_key.as_deref())
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -7979,6 +7987,7 @@ async fn payment_gateway_webhook(
         Some("Payment gateway credit"),
         None,
         Some(&req.transaction_id), // idempotency_key = gateway's transaction_id
+        &state.config.venue.venue_id,
     )
     .await
     {
@@ -8280,8 +8289,8 @@ async fn refund_wallet(
         }
 
         if let Err(e) = sqlx::query(
-            "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id) \
-             VALUES (?, ?, ?, (SELECT balance_paise FROM wallets WHERE driver_id = ?), 'refund_manual', ?, ?, ?)"
+            "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, venue_id) \
+             VALUES (?, ?, ?, (SELECT balance_paise FROM wallets WHERE driver_id = ?), 'refund_manual', ?, ?, ?, ?)"
         )
         .bind(&txn_id)
         .bind(&driver_id)
@@ -8290,6 +8299,7 @@ async fn refund_wallet(
         .bind(ref_id.as_str())
         .bind(req.notes.as_deref())
         .bind(staff_id.as_deref())
+        .bind(&state.config.venue.venue_id)
         .execute(&mut *tx)
         .await {
             return Json(json!({ "error": format!("DB error: {}", e) }));
@@ -9027,8 +9037,8 @@ async fn create_kiosk_experience(
     let sort_order = body.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(10);
 
     let result = sqlx::query(
-        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(name)
@@ -9040,6 +9050,7 @@ async fn create_kiosk_experience(
     .bind(start_type)
     .bind(ac_preset_id)
     .bind(sort_order)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -10203,8 +10214,8 @@ async fn sync_push(
             if id.is_empty() { continue; }
             let r = sqlx::query(
                 "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car,
-                    lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                    lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
                  ON CONFLICT(id) DO NOTHING",
             )
             .bind(id)
@@ -10221,6 +10232,7 @@ async fn sync_push(
             .bind(lap.get("sector3_ms").and_then(|v| v.as_i64()))
             .bind(lap.get("valid").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(lap.get("created_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10234,8 +10246,8 @@ async fn sync_push(
             let car = rec.get("car").and_then(|v| v.as_str()).unwrap_or_default();
             if track.is_empty() || car.is_empty() { continue; }
             let r = sqlx::query(
-                "INSERT INTO track_records (track, car, driver_id, best_lap_ms, lap_id, achieved_at)
-                 VALUES (?1,?2,?3,?4,?5,?6)
+                "INSERT INTO track_records (track, car, driver_id, best_lap_ms, lap_id, achieved_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)
                  ON CONFLICT(track, car) DO UPDATE SET
                     driver_id = CASE WHEN excluded.best_lap_ms < track_records.best_lap_ms
                         THEN excluded.driver_id ELSE track_records.driver_id END,
@@ -10251,6 +10263,7 @@ async fn sync_push(
             .bind(rec.get("best_lap_ms").and_then(|v| v.as_i64()).unwrap_or(i64::MAX))
             .bind(rec.get("lap_id").and_then(|v| v.as_str()))
             .bind(rec.get("achieved_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10265,8 +10278,8 @@ async fn sync_push(
             let car = pb.get("car").and_then(|v| v.as_str()).unwrap_or_default();
             if driver_id.is_empty() || track.is_empty() || car.is_empty() { continue; }
             let r = sqlx::query(
-                "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, lap_id, achieved_at)
-                 VALUES (?1,?2,?3,?4,?5,?6)
+                "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, lap_id, achieved_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)
                  ON CONFLICT(driver_id, track, car) DO UPDATE SET
                     best_lap_ms = MIN(excluded.best_lap_ms, personal_bests.best_lap_ms),
                     lap_id = CASE WHEN excluded.best_lap_ms < personal_bests.best_lap_ms
@@ -10280,6 +10293,7 @@ async fn sync_push(
             .bind(pb.get("best_lap_ms").and_then(|v| v.as_i64()).unwrap_or(i64::MAX))
             .bind(pb.get("lap_id").and_then(|v| v.as_str()))
             .bind(pb.get("achieved_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10297,8 +10311,8 @@ async fn sync_push(
                     started_at, ended_at, created_at, experience_id, car, track, sim_type,
                     split_count, split_duration_minutes,
                     wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason,
-                    pause_count, total_paused_seconds, refund_paise)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)
+                    pause_count, total_paused_seconds, refund_paise, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)
                  ON CONFLICT(id) DO UPDATE SET
                     driving_seconds = excluded.driving_seconds,
                     status = excluded.status,
@@ -10338,6 +10352,7 @@ async fn sync_push(
             .bind(s.get("pause_count").and_then(|v| v.as_i64()))
             .bind(s.get("total_paused_seconds").and_then(|v| v.as_i64()))
             .bind(s.get("refund_paise").and_then(|v| v.as_i64()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10412,8 +10427,8 @@ async fn sync_push(
 
             // Update DB
             let _ = sqlx::query(
-                "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen)
-                 VALUES (?1,?2,?3,?4,?5,?6,datetime('now'))
+                "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,datetime('now'),?7)
                  ON CONFLICT(id) DO UPDATE SET
                     status = excluded.status,
                     ip_address = excluded.ip_address,
@@ -10425,6 +10440,7 @@ async fn sync_push(
             .bind(pod.get("ip_address").and_then(|v| v.as_str()))
             .bind(pod.get("sim_type").and_then(|v| v.as_str()).unwrap_or("assetto_corsa"))
             .bind(status)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
 
@@ -10538,8 +10554,8 @@ async fn sync_push(
             if id.is_empty() { continue; }
             let r = sqlx::query(
                 "INSERT OR IGNORE INTO wallet_transactions
-                    (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                    (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, created_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             )
             .bind(id)
             .bind(txn.get("driver_id").and_then(|v| v.as_str()))
@@ -10550,6 +10566,7 @@ async fn sync_push(
             .bind(txn.get("notes").and_then(|v| v.as_str()))
             .bind(txn.get("staff_id").and_then(|v| v.as_str()))
             .bind(txn.get("created_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10605,8 +10622,8 @@ async fn sync_push(
             if id.is_empty() { continue; }
             let r = sqlx::query(
                 "INSERT OR IGNORE INTO billing_events
-                    (id, billing_session_id, event_type, driving_seconds_at_event, metadata, created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6)",
+                    (id, billing_session_id, event_type, driving_seconds_at_event, metadata, created_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
             )
             .bind(id)
             .bind(ev.get("billing_session_id").and_then(|v| v.as_str()))
@@ -10614,6 +10631,7 @@ async fn sync_push(
             .bind(ev.get("driving_seconds_at_event").and_then(|v| v.as_i64()).unwrap_or(0))
             .bind(ev.get("metadata").and_then(|v| v.as_str()))
             .bind(ev.get("created_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -10671,8 +10689,8 @@ async fn sync_push(
             let res = sqlx::query(
                 "INSERT INTO reservations (id, driver_id, experience_id, pin, status,
                     pod_number, debit_intent_id, created_at, expires_at, redeemed_at,
-                    cancelled_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                    cancelled_at, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
                  ON CONFLICT(id) DO UPDATE SET
                     status = excluded.status,
                     pod_number = COALESCE(excluded.pod_number, reservations.pod_number),
@@ -10693,6 +10711,7 @@ async fn sync_push(
             .bind(r.get("redeemed_at").and_then(|v| v.as_str()))
             .bind(r.get("cancelled_at").and_then(|v| v.as_str()))
             .bind(r.get("updated_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if res.is_ok() { total += 1; }
@@ -10707,8 +10726,8 @@ async fn sync_push(
             let res = sqlx::query(
                 "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id,
                     status, failure_reason, wallet_txn_id, origin, created_at,
-                    processed_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                    processed_at, updated_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
                  ON CONFLICT(id) DO UPDATE SET
                     status = excluded.status,
                     failure_reason = COALESCE(excluded.failure_reason, debit_intents.failure_reason),
@@ -10727,6 +10746,7 @@ async fn sync_push(
             .bind(di.get("created_at").and_then(|v| v.as_str()))
             .bind(di.get("processed_at").and_then(|v| v.as_str()))
             .bind(di.get("updated_at").and_then(|v| v.as_str()))
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
             if res.is_ok() { total += 1; }
@@ -12829,13 +12849,14 @@ async fn customer_subscribe_membership(
 
     let membership_id = uuid::Uuid::new_v4().to_string();
     let _ = sqlx::query(
-        "INSERT INTO memberships (id, driver_id, tier_id, hours_used_minutes, price_paise, expires_at, auto_renew, status)
-         VALUES (?, ?, ?, 0, ?, datetime('now', '+30 days'), 0, 'active')",
+        "INSERT INTO memberships (id, driver_id, tier_id, hours_used_minutes, price_paise, expires_at, auto_renew, status, venue_id)
+         VALUES (?, ?, ?, 0, ?, datetime('now', '+30 days'), 0, 'active', ?)",
     )
     .bind(&membership_id)
     .bind(&driver_id)
     .bind(tier_id)
     .bind(tier.1)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -14702,8 +14723,8 @@ async fn create_tournament(
     };
 
     let result = sqlx::query(
-        "INSERT INTO tournaments (id, name, description, track, car, format, max_participants, entry_fee_paise, prize_pool_paise, status, registration_start, registration_end, event_date, rules)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?)",
+        "INSERT INTO tournaments (id, name, description, track, car, format, max_participants, entry_fee_paise, prize_pool_paise, status, registration_start, registration_end, event_date, rules, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(name)
@@ -14718,6 +14739,7 @@ async fn create_tournament(
     .bind(body.get("registration_end").and_then(|v| v.as_str()))
     .bind(body.get("event_date").and_then(|v| v.as_str()))
     .bind(body.get("rules").and_then(|v| v.as_str()))
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -14912,8 +14934,8 @@ async fn generate_bracket(
         match_count += 1;
         let match_id = uuid::Uuid::new_v4().to_string();
         let _ = sqlx::query(
-            "INSERT INTO tournament_matches (id, tournament_id, round, match_number, driver_a, driver_b, status)
-             VALUES (?, ?, 1, ?, ?, ?, ?)",
+            "INSERT INTO tournament_matches (id, tournament_id, round, match_number, driver_a, driver_b, status, venue_id)
+             VALUES (?, ?, 1, ?, ?, ?, ?, ?)",
         )
         .bind(&match_id)
         .bind(&id)
@@ -14921,6 +14943,7 @@ async fn generate_bracket(
         .bind(driver_a)
         .bind(driver_b)
         .bind(if driver_b.is_some() { "pending" } else { "completed" })
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
 
@@ -15021,8 +15044,8 @@ async fn record_match_result(
 
                     let mid = uuid::Uuid::new_v4().to_string();
                     let _ = sqlx::query(
-                        "INSERT INTO tournament_matches (id, tournament_id, round, match_number, driver_a, driver_b, status)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO tournament_matches (id, tournament_id, round, match_number, driver_a, driver_b, status, venue_id)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     )
                     .bind(&mid)
                     .bind(&tournament_id)
@@ -15031,6 +15054,7 @@ async fn record_match_result(
                     .bind(driver_a)
                     .bind(driver_b)
                     .bind(if driver_b.is_some() { "pending" } else { "completed" })
+                    .bind(&state.config.venue.venue_id)
                     .execute(&state.db)
                     .await;
 
@@ -15164,11 +15188,12 @@ async fn customer_register_tournament(
 
     let reg_id = uuid::Uuid::new_v4().to_string();
     let result = sqlx::query(
-        "INSERT INTO tournament_registrations (id, tournament_id, driver_id) VALUES (?, ?, ?)",
+        "INSERT INTO tournament_registrations (id, tournament_id, driver_id, venue_id) VALUES (?, ?, ?, ?)",
     )
     .bind(&reg_id)
     .bind(&id)
     .bind(&driver_id)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -17645,8 +17670,8 @@ async fn create_hotlap_event(
     let result = sqlx::query(
         "INSERT INTO hotlap_events
             (id, name, description, track, car, car_class, sim_type, status,
-             starts_at, ends_at, reference_time_ms, rule_107_percent, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, datetime('now'), datetime('now'))",
+             starts_at, ends_at, reference_time_ms, rule_107_percent, created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, datetime('now'), datetime('now'), ?)",
     )
     .bind(&id)
     .bind(&name)
@@ -17659,6 +17684,7 @@ async fn create_hotlap_event(
     .bind(&ends_at)
     .bind(reference_time_ms)
     .bind(rule_107_percent)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -17858,8 +17884,8 @@ async fn create_championship(
         "INSERT INTO championships
             (id, name, description, car_class, sim_type, season,
              status, scoring_system, total_rounds, completed_rounds,
-             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'upcoming', 'f1_2010', 0, 0, datetime('now'), datetime('now'))",
+             created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'upcoming', 'f1_2010', 0, 0, datetime('now'), datetime('now'), ?)",
     )
     .bind(&id)
     .bind(&name)
@@ -17867,6 +17893,7 @@ async fn create_championship(
     .bind(&car_class)
     .bind(&sim_type)
     .bind(&season)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -18024,12 +18051,13 @@ async fn add_championship_round(
     };
 
     let result = sqlx::query(
-        "INSERT INTO championship_rounds (championship_id, event_id, round_number)
-         VALUES (?, ?, ?)",
+        "INSERT INTO championship_rounds (championship_id, event_id, round_number, venue_id)
+         VALUES (?, ?, ?, ?)",
     )
     .bind(&championship_id)
     .bind(&event_id)
     .bind(round_number)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -18103,7 +18131,7 @@ async fn complete_group_session(
     }
 
     // Score the event from multiplayer_results
-    if let Err(e) = crate::lap_tracker::score_group_event(&state.db, &session_id, &hotlap_event_id).await {
+    if let Err(e) = crate::lap_tracker::score_group_event(&state.db, &session_id, &hotlap_event_id, &state.config.venue.venue_id).await {
         return Json(json!({ "error": format!("Session marked complete but scoring failed: {e}") }));
     }
 
@@ -18734,13 +18762,14 @@ async fn pwa_game_request(
     // BILL-03: Insert into game_launch_requests with 10-minute server-side TTL
     let sim_type_str = format!("{:?}", body.sim_type);
     if let Err(e) = sqlx::query(
-        "INSERT INTO game_launch_requests (id, driver_id, pod_id, sim_type, status, expires_at)
-         VALUES (?, ?, ?, ?, 'pending', datetime('now', '+10 minutes'))",
+        "INSERT INTO game_launch_requests (id, driver_id, pod_id, sim_type, status, expires_at, venue_id)
+         VALUES (?, ?, ?, ?, 'pending', datetime('now', '+10 minutes'), ?)",
     )
     .bind(&request_id)
     .bind(&driver_id)
     .bind(&body.pod_id)
     .bind(&sim_type_str)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     {
@@ -19272,13 +19301,14 @@ async fn create_dispute_handler(
 
     // BILL-08: Insert dispute — UNIQUE index will reject duplicates
     let insert_result = sqlx::query(
-        "INSERT INTO dispute_requests (id, billing_session_id, driver_id, reason, status)
-         VALUES (?, ?, ?, ?, 'pending')",
+        "INSERT INTO dispute_requests (id, billing_session_id, driver_id, reason, status, venue_id)
+         VALUES (?, ?, ?, ?, 'pending', ?)",
     )
     .bind(&dispute_id)
     .bind(&billing_session_id)
     .bind(&driver_id)
     .bind(&reason)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 
@@ -19551,6 +19581,7 @@ async fn resolve_dispute_handler(
                 Some(&format!("Dispute {} approved by staff", dispute_id)),
                 Some(&staff_id),
                 None,
+                &state.config.venue.venue_id,
             )
             .await
             {
@@ -19580,8 +19611,8 @@ async fn resolve_dispute_handler(
 
         // BILL-08: Log 'dispute_refund' billing_event for audit trail
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'dispute_refund', ?, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'dispute_refund', ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&billing_session_id)
@@ -19590,6 +19621,7 @@ async fn resolve_dispute_handler(
             "{{\"dispute_id\":\"{}\",\"refund_paise\":{},\"resolved_by\":\"{}\"}}",
             dispute_id, refund_paise, staff_id
         ))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| tracing::warn!("BILL-08: Failed to log dispute_refund event: {}", e));
@@ -19619,8 +19651,8 @@ async fn resolve_dispute_handler(
 
         // BILL-08: Log 'dispute_denied' billing_event for audit trail
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'dispute_denied', ?, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'dispute_denied', ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&billing_session_id)
@@ -19631,6 +19663,7 @@ async fn resolve_dispute_handler(
             resolution_reason.replace('"', "'"),
             staff_id
         ))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await
         .map_err(|e| tracing::warn!("BILL-08: Failed to log dispute_denied event: {}", e));
@@ -21360,14 +21393,15 @@ async fn queue_join_handler(
 
     // Insert the new queue entry
     if let Err(e) = sqlx::query(
-        "INSERT INTO virtual_queue (id, driver_id, driver_name, phone, party_size, status)
-         VALUES (?, ?, ?, ?, ?, 'waiting')",
+        "INSERT INTO virtual_queue (id, driver_id, driver_name, phone, party_size, status, venue_id)
+         VALUES (?, ?, ?, ?, ?, 'waiting', ?)",
     )
     .bind(&id)
     .bind(&body.driver_id)
     .bind(&body.driver_name)
     .bind(&body.phone)
     .bind(party_size)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     {
