@@ -405,7 +405,10 @@ fn security_headers_layer() -> HelmetLayer {
 
     let mut directives = std::collections::HashMap::new();
     directives.insert("default-src", vec!["'self'"]);
-    directives.insert("script-src", vec!["'self'"]);
+    // 'unsafe-inline' needed for portal.html, status.html, register.html which use
+    // inline <script> tags for health checks and clock. Without it, CSP blocks the
+    // scripts and portal shows permanent "Connecting" (orange) status.
+    directives.insert("script-src", vec!["'self'", "'unsafe-inline'"]);
     directives.insert("style-src", vec!["'self'", "'unsafe-inline'"]);
     directives.insert("img-src", vec!["'self'", "data:"]);
     directives.insert("connect-src", vec!["'self'", "ws:", "wss:"]);

@@ -547,10 +547,212 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                 }
             }
 
+            // ── Fleet anomaly detection (Phase 310+) ────────────────────────
+            // Snapshot fleet state, drop write lock, then check for anomalies.
+            // Never hold lock across async WhatsApp calls (standing rule).
+            let fleet_snapshot_for_anomalies = fleet.clone();
+            drop(fleet);
+            detect_fleet_anomalies(&state, &fleet_snapshot_for_anomalies).await;
+
             // Services health is handled by app_health_monitor (30s, WhatsApp alerts, DB logging).
             // No duplicate probing needed here.
         }
     });
+}
+
+/// Fleet anomaly detection — checks 4 dimensions after each probe cycle:
+/// 1. Build version skew (majority build_id vs outliers)
+/// 2. Clock drift >30s
+/// 3. Ready delay >60s
+/// 4. Guard violation spike
+///
+/// Uses static cooldowns (15 min per class) to prevent alert fatigue.
+async fn detect_fleet_anomalies(
+    state: &Arc<AppState>,
+    fleet: &HashMap<String, FleetHealthStore>,
+) {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    // Cooldown: one alert per class per 15 minutes
+    static LAST_BUILD_ALERT: AtomicI64 = AtomicI64::new(0);
+    static LAST_DRIFT_ALERT: AtomicI64 = AtomicI64::new(0);
+    static LAST_DELAY_ALERT: AtomicI64 = AtomicI64::new(0);
+    static LAST_VIOLATION_ALERT: AtomicI64 = AtomicI64::new(0);
+    const COOLDOWN_SECS: i64 = 900; // 15 minutes
+
+    let now_ts = Utc::now().timestamp();
+
+    // ── 1. Build version skew ──────────────────────────────────────────────
+    // Find the majority build_id among reachable pods, flag outliers.
+    {
+        let mut build_counts: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (pod_id, store) in fleet.iter() {
+            if store.http_reachable {
+                if let Some(ref bid) = store.build_id {
+                    build_counts.entry(bid.as_str()).or_default().push(pod_id.as_str());
+                }
+            }
+        }
+
+        if build_counts.len() > 1 {
+            // Find majority
+            let (majority_build, _majority_pods) = build_counts
+                .iter()
+                .max_by_key(|(_, pods)| pods.len())
+                .unwrap();
+
+            let outliers: Vec<(&str, &str)> = build_counts
+                .iter()
+                .filter(|(bid, _)| *bid != majority_build)
+                .flat_map(|(bid, pods)| pods.iter().map(move |p| (*p, *bid)))
+                .collect();
+
+            if !outliers.is_empty() {
+                for (pod_id, bid) in &outliers {
+                    tracing::warn!(
+                        target: "fleet-anomaly",
+                        "BUILD_SKEW: {} running {} (fleet majority: {})",
+                        pod_id, bid, majority_build
+                    );
+                }
+
+                if now_ts - LAST_BUILD_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                    LAST_BUILD_ALERT.store(now_ts, Ordering::Relaxed);
+                    let outlier_list: Vec<String> = outliers
+                        .iter()
+                        .map(|(p, b)| format!("{} ({})", p, b))
+                        .collect();
+                    let msg = format!(
+                        "⚠ BUILD SKEW: {} pod(s) running different build than fleet majority ({}):\n{}",
+                        outliers.len(), majority_build,
+                        outlier_list.join(", ")
+                    );
+                    crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                }
+            }
+        }
+    }
+
+    // ── 2. Clock drift >30s ────────────────────────────────────────────────
+    {
+        const CLOCK_DRIFT_THRESHOLD_SECS: i64 = 30;
+        let mut drifted: Vec<(&str, i64)> = Vec::new();
+
+        for (pod_id, store) in fleet.iter() {
+            if let Some(drift) = store.clock_drift_secs {
+                if drift.abs() > CLOCK_DRIFT_THRESHOLD_SECS {
+                    drifted.push((pod_id.as_str(), drift));
+                    tracing::warn!(
+                        target: "fleet-anomaly",
+                        "CLOCK_DRIFT: {} drifted {}s (threshold: {}s)",
+                        pod_id, drift, CLOCK_DRIFT_THRESHOLD_SECS
+                    );
+                }
+            }
+        }
+
+        if !drifted.is_empty() && now_ts - LAST_DRIFT_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+            LAST_DRIFT_ALERT.store(now_ts, Ordering::Relaxed);
+            let list: Vec<String> = drifted.iter().map(|(p, d)| format!("{}: {}s", p, d)).collect();
+            let msg = format!(
+                "⚠ CLOCK DRIFT: {} pod(s) drifted >{}s from server:\n{}",
+                drifted.len(), CLOCK_DRIFT_THRESHOLD_SECS, list.join(", ")
+            );
+            crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+        }
+    }
+
+    // ── 3. Guard violation spike (fleet-wide) ──────────────────────────────
+    // Check violation stores for recent surge (>10 in last hour across fleet).
+    {
+        let violations = state.pod_violations.read().await;
+        let now = Utc::now();
+        let mut total_violations_1h: u32 = 0;
+        let mut pods_with_violations: Vec<(&str, u32)> = Vec::new();
+
+        for (pod_id, vstore) in violations.iter() {
+            let count_24h = vstore.violation_count_24h(now);
+            if count_24h > 0 {
+                pods_with_violations.push((pod_id.as_str(), count_24h));
+                total_violations_1h += count_24h;
+            }
+        }
+
+        // Fleet-wide pattern: if ALL pods have violations, it's likely a config issue
+        let pod_count = fleet.values().filter(|s| s.http_reachable).count();
+        let pods_affected = pods_with_violations.len();
+
+        if pods_affected > 0 && (total_violations_1h > 20 || pods_affected >= pod_count.max(1)) {
+            tracing::warn!(
+                target: "fleet-anomaly",
+                "VIOLATION_SPIKE: {} violations across {}/{} pods in 24h — possible config issue",
+                total_violations_1h, pods_affected, pod_count
+            );
+
+            if now_ts - LAST_VIOLATION_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                LAST_VIOLATION_ALERT.store(now_ts, Ordering::Relaxed);
+                let list: Vec<String> = pods_with_violations
+                    .iter()
+                    .map(|(p, c)| format!("{}: {}", p, c))
+                    .collect();
+                let msg = format!(
+                    "⚠ VIOLATION SPIKE: {} total violations across {}/{} pods (24h):\n{}\nIf ALL pods affected, check allowlist config.",
+                    total_violations_1h, pods_affected, pod_count, list.join(", ")
+                );
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
+
+    // ── 4. Ready delay >60s (from DB, checked less frequently) ─────────────
+    // This runs every probe cycle (15s) but the DB query is lightweight.
+    // Only alert if a pod consistently has >60s avg ready delay over 7 days.
+    {
+        const READY_DELAY_THRESHOLD_MS: f64 = 60_000.0;
+
+        let rows: Vec<(String, f64)> = match sqlx::query_as(
+            "SELECT pod_id, AVG(CAST(duration_to_playable_ms AS REAL))
+             FROM launch_events
+             WHERE duration_to_playable_ms IS NOT NULL
+               AND created_at >= datetime('now', '-7 days')
+             GROUP BY pod_id
+             HAVING AVG(CAST(duration_to_playable_ms AS REAL)) > ?",
+        )
+        .bind(READY_DELAY_THRESHOLD_MS)
+        .fetch_all(&state.db)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    target: "fleet-anomaly",
+                    "SLOW_READY DB query failed: {} — skipping check this cycle",
+                    e
+                );
+                vec![]
+            }
+        };
+
+        if !rows.is_empty() {
+            for (pod_id, avg_ms) in &rows {
+                tracing::warn!(
+                    target: "fleet-anomaly",
+                    "SLOW_READY: {} avg ready delay {:.0}ms (threshold: {:.0}ms)",
+                    pod_id, avg_ms, READY_DELAY_THRESHOLD_MS
+                );
+            }
+
+            if now_ts - LAST_DELAY_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                LAST_DELAY_ALERT.store(now_ts, Ordering::Relaxed);
+                let list: Vec<String> = rows.iter().map(|(p, ms)| format!("{}: {:.0}ms", p, ms)).collect();
+                let msg = format!(
+                    "⚠ SLOW READY: {} pod(s) with avg game launch delay >{}s:\n{}",
+                    rows.len(), READY_DELAY_THRESHOLD_MS / 1000.0, list.join(", ")
+                );
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
 }
 
 /// GET /api/v1/fleet/health handler.
