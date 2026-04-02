@@ -182,6 +182,10 @@ pub struct AppState {
     /// Per-pod pending deploy binary URLs (set when pod has active billing at rolling deploy time)
     /// When a billing session ends, the deploy is triggered automatically.
     pub pending_deploys: RwLock<HashMap<String, String>>,
+    /// Phase 304: Active fleet deploy session (deploy_id, waves, rollback events).
+    /// In-memory only — does not persist across server restarts (per locked decision).
+    /// Arc so the background task can hold a reference independently of the full AppState.
+    pub fleet_deploy_session: std::sync::Arc<RwLock<Option<crate::fleet_deploy::FleetDeploySession>>>,
     /// Per-pod cached assist state (abs, tc, auto_shifter, ffb_percent).
     /// Updated by WS handlers on AssistChanged/FfbGainChanged/AssistState messages.
     /// Read by GET /pods/{pod_id}/assist-state to return real values immediately.
@@ -315,6 +319,7 @@ impl AppState {
             pod_manifests: RwLock::new(HashMap::new()),
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
             pending_deploys: RwLock::new(HashMap::new()),
+            fleet_deploy_session: std::sync::Arc::new(RwLock::new(None)),
             assist_cache: RwLock::new(HashMap::new()),
             pending_ws_execs: RwLock::new(HashMap::new()),
             pending_self_tests: RwLock::new(HashMap::new()),

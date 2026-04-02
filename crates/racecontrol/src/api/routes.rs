@@ -611,6 +611,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/ota/deploy", post(ota_deploy_handler))
                 .route("/ota/status", get(ota_status_handler))
                 .route("/pipeline/config", get(pipeline_config_get).post(pipeline_config_set))
+                // Phase 304: Fleet deploy automation (canary-first, billing-drain, auto-rollback)
+                .route("/fleet/deploy", post(fleet_deploy_handler))
+                .route("/fleet/deploy/status", get(fleet_deploy_status_handler))
                 .layer(axum::middleware::from_fn(require_role_superadmin))
         )
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
@@ -17483,6 +17486,83 @@ async fn deploy_rolling_handler(
             "force_override": req.force,
         })),
     )
+}
+
+/// Phase 304 DEPLOY-01: Initiate fleet deploy with canary-first safety gates.
+/// Returns 202 Accepted with deploy_id. Background task handles orchestration.
+/// Returns 409 Conflict if a deploy is already Running or Pending.
+/// Returns 423 Locked if weekend peak hours and force=false.
+async fn fleet_deploy_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,
+    Json(req): Json<crate::fleet_deploy::FleetDeployRequest>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    // DEPLOY-03: Check weekend peak-hour deploy window lock
+    if let Err(msg) = crate::deploy::is_deploy_window_locked(req.force, &claims.sub) {
+        return (
+            axum::http::StatusCode::LOCKED,
+            Json(json!({ "error": msg })),
+        );
+    }
+
+    // Check-and-set fleet_deploy_session atomically (prevents double-trigger — Pitfall 4)
+    let session_lock = std::sync::Arc::clone(&state.fleet_deploy_session);
+    let deploy_id = {
+        let mut guard = session_lock.write().await;
+        if let Some(ref existing) = *guard {
+            if existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Running
+                || existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Pending
+            {
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "Fleet deploy already in progress",
+                        "deploy_id": existing.deploy_id
+                    })),
+                );
+            }
+        }
+        // Create new session and store it
+        let new_session = crate::fleet_deploy::create_session(&req, &claims.sub);
+        let id = new_session.deploy_id.clone();
+        *guard = Some(new_session);
+        id
+    }; // write guard dropped here — safe to .await below
+
+    // Spawn background orchestration task
+    let state_clone = std::sync::Arc::clone(&state);
+    let session_lock_clone = std::sync::Arc::clone(&state.fleet_deploy_session);
+    tokio::spawn(async move {
+        crate::fleet_deploy::run_fleet_deploy(state_clone, session_lock_clone).await;
+    });
+
+    (
+        axum::http::StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "started",
+            "deploy_id": deploy_id,
+            "canary": "pod_8"
+        })),
+    )
+}
+
+/// Phase 304 DEPLOY-05: Fleet deploy status with per-pod results and rollback log.
+/// Returns the active or most-recently-completed session, or "idle" if none.
+async fn fleet_deploy_status_handler(
+    State(state): State<Arc<AppState>>,
+    _claims: axum::Extension<crate::auth::middleware::StaffClaims>,
+) -> Json<Value> {
+    let guard = state.fleet_deploy_session.read().await;
+    match &*guard {
+        Some(session) => Json(
+            serde_json::to_value(session)
+                .unwrap_or_else(|_| json!({ "error": "serialization failed" })),
+        ),
+        None => Json(json!({
+            "status": "idle",
+            "message": "No fleet deploy in progress or completed"
+        })),
+    }
 }
 
 // ─── OTA Pipeline (v22.0 Phase 179) ──────────────────────────────────────────
