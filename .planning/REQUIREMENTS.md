@@ -26,10 +26,10 @@
 
 ## Role-Based Access Control (RBAC)
 
-- [ ] **RBAC-01**: Three roles defined: cashier (billing only), manager (billing + config), superadmin (everything)
-- [ ] **RBAC-02**: JWT tokens include role claim — server extracts and enforces on every protected endpoint
-- [ ] **RBAC-03**: Cashier role can only access billing, customer, and cafe endpoints — config/deploy/admin returns 403
-- [ ] **RBAC-04**: Admin dashboard UI shows/hides sections based on role — but enforcement is server-side (UI is convenience)
+- [x] **RBAC-01**: Three roles defined: cashier (billing only), manager (billing + config), superadmin (everything)
+- [x] **RBAC-02**: JWT tokens include role claim — server extracts and enforces on every protected endpoint
+- [x] **RBAC-03**: Cashier role can only access billing, customer, and cafe endpoints — config/deploy/admin returns 403
+- [x] **RBAC-04**: Admin dashboard UI shows/hides sections based on role — but enforcement is server-side (UI is convenience)
 
 ## Security Audit Script (SECAUDIT)
 
@@ -53,10 +53,10 @@
 | AUDIT-02 | Phase 307 | Complete (d5f9b387) |
 | AUDIT-03 | Phase 307 | Complete (d5f9b387) |
 | AUDIT-04 | Phase 307 | Complete (d5f9b387) |
-| RBAC-01 | Phase 308 | Pending |
-| RBAC-02 | Phase 308 | Pending |
-| RBAC-03 | Phase 308 | Pending |
-| RBAC-04 | Phase 308 | Pending |
+| RBAC-01 | Phase 308 | Done (pre-built) |
+| RBAC-02 | Phase 308 | Done (pre-built) |
+| RBAC-03 | Phase 308 | Done (pre-built) |
+| RBAC-04 | Phase 308 | Done (pre-built) |
 | SECAUDIT-01 | Phase 309 | Pending |
 | SECAUDIT-02 | Phase 309 | Pending |
 | SECAUDIT-03 | Phase 309 | Pending |
