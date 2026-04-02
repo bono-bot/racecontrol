@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-02 11:18 IST | James | 8252500f | docs(303-04): complete Phase 303 verification sign-off — all 4 VENUE requirements PASS, 856 tests pass |
+| 2026-04-02 11:18 IST | James | b976ebf9 | chore(303-04): create verification plan for Phase 303 |
+| 2026-04-02 11:00 IST | James | 61657471 | docs(303-02): complete venue_id INSERT propagation plan summary, state update |
 | 2026-04-02 11:00 IST | James | 60854e09 | fix(303-03): add missing laps columns to integration test schema (assist_config_hash, assist_tier, billing_session_id, validity) + Phase 303 ALTER TABLE block |
 | 2026-04-02 11:00 IST | James | a60d69fa | feat(303-03): add venue_id to INSERT statements in remaining source files (16 files: activity_log, event_archive, game_launcher, lap_tracker, driver_rating, ac_server, scheduler, auth, reservation, deploy, metric_alerts, pod_healer, ws/mod, main) |
 | 2026-04-02 11:00 IST | James | 0015e644 | feat(303-03): add venue_id to INSERT statements in high-volume files (billing, cafe, cloud_sync, multiplayer, billing_replay, metrics, wallet) |
