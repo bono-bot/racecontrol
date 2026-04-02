@@ -1550,6 +1550,9 @@ async fn main() -> Result<()> {
         // SEC-10: Mutex serializing LaunchGame and clean_state_reset.
         // Lives in AppState to survive WS reconnections (mutex state must persist across reconnects).
         game_launch_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        // Phase 306: JWT fields — start with no JWT (first connect uses PSK bootstrap)
+        current_jwt: None,
+        jwt_expires_at: None,
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
@@ -1721,16 +1724,16 @@ async fn main() -> Result<()> {
 
     // Phase 68: Runtime URL switching via SwitchController
     // Append ?token=SECRET for WS authentication (H1 audit fix)
-    let ws_token_suffix = state.config.core.ws_secret.as_ref()
+    let ws_psk_suffix = state.config.core.ws_secret.as_ref()
         .filter(|s| !s.is_empty())
         .map(|s| format!("?token={}", s))
         .unwrap_or_default();
-    let authed_url = format!("{}{}", state.config.core.url, ws_token_suffix);
+    let authed_url = format!("{}{}", state.config.core.url, ws_psk_suffix);
     let active_url: std::sync::Arc<RwLock<String>> =
         std::sync::Arc::new(RwLock::new(authed_url));
-    let primary_url: String = format!("{}{}", state.config.core.url, ws_token_suffix);
+    let primary_url: String = format!("{}{}", state.config.core.url, ws_psk_suffix);
     let failover_url: Option<String> = state.config.core.failover_url.as_ref()
-        .map(|u| format!("{}{}", u, ws_token_suffix));
+        .map(|u| format!("{}{}", u, ws_psk_suffix));
 
     // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
     #[cfg(feature = "http-client")]
@@ -1746,12 +1749,37 @@ async fn main() -> Result<()> {
         // version + uptime after it restarts (fixes null version/uptime for long-running pods)
         _startup_report_sent = false;
 
-        // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
-        let url = active_url.read().await.clone();
-        tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core at {}...", url);
+        // Phase 306: JWT-aware URL — use JWT if we have a valid (non-expired) one,
+        // otherwise fall back to PSK URL. JWT expires 24h after issue; we require
+        // at least 60s remaining to avoid racing against server-side expiry.
+        let connect_url = {
+            let now_ts = chrono::Utc::now().timestamp();
+            if let (Some(jwt), Some(exp)) = (&state.current_jwt, state.jwt_expires_at) {
+                if exp > now_ts + 60 {
+                    // Valid JWT — build URL with ?jwt= param
+                    let base = state.config.core.url.trim_end_matches('/');
+                    // Determine if this is the primary or failover URL by matching active_url
+                    let active = active_url.read().await.clone();
+                    // Strip any existing query string from the base URL stored in active_url
+                    let base_url = if let Some(pos) = active.find('?') { &active[..pos] } else { &active[..] };
+                    format!("{}?jwt={}", base_url, jwt)
+                } else {
+                    // JWT expired or about to expire — clear it and fall back to PSK
+                    tracing::info!(target: LOG_TARGET, "Phase 306: JWT expired (exp={}, now={}), clearing — falling back to PSK", exp, now_ts);
+                    state.current_jwt = None;
+                    state.jwt_expires_at = None;
+                    active_url.read().await.clone()
+                }
+            } else {
+                // No JWT yet — use PSK URL (bootstrap flow)
+                active_url.read().await.clone()
+            }
+        };
+        tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core (auth={})...",
+            if state.current_jwt.is_some() { "jwt" } else { "psk" });
         let ws_result = tokio::time::timeout(
             Duration::from_secs(10),
-            connect_async(&url),
+            connect_async(&connect_url),
         ).await;
 
         let (ws_stream, _) = match ws_result {
@@ -1762,6 +1790,15 @@ async fn main() -> Result<()> {
             }
             Ok(Err(e)) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
+                // Phase 306: detect 401 Unauthorized — clear JWT so next retry uses PSK
+                let err_str = e.to_string();
+                if err_str.contains("401") || err_str.contains("Unauthorized") {
+                    if state.current_jwt.is_some() {
+                        tracing::warn!(target: LOG_TARGET, "Phase 306: JWT rejected (401) — clearing JWT, next reconnect will use PSK bootstrap");
+                        state.current_jwt = None;
+                        state.jwt_expires_at = None;
+                    }
+                }
                 tracing::warn!(target: LOG_TARGET, "Failed to connect to core: {}. Attempt {}. Retrying in {:?}...", e, reconnect_attempt, delay);
                 // SESSION-04: Only show Disconnected after 30s grace window
                 {

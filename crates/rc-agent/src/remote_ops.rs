@@ -518,11 +518,15 @@ fn start_checked_tls_inner(
             }
         };
 
-        if let Err(e) = axum_server::from_tcp_rustls(std_listener, rustls_cfg)
-            .serve(app.into_make_service())
-            .await
-        {
-            tracing::error!(target: LOG_TARGET, "Remote ops TLS server error: {}", e);
+        match axum_server::from_tcp_rustls(std_listener, rustls_cfg) {
+            Ok(server) => {
+                if let Err(e) = server.serve(app.into_make_service()).await {
+                    tracing::error!(target: LOG_TARGET, "Remote ops TLS server error: {}", e);
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: LOG_TARGET, "Failed to create TLS server: {}", e);
+            }
         }
     });
     rx

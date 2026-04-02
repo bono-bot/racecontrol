@@ -561,6 +561,14 @@ pub enum AgentMessage {
         rows: Vec<ReputationPayload>,
     },
 
+    // ─── WS Auth (Phase 306) ─────────────────────────────────────────────────
+
+    /// Agent acknowledges receipt of a JWT token (observability only).
+    /// Sent in response to CoreToAgentMessage::IssueJwt or RefreshJwt.
+    JwtAck {
+        pod_id: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -903,6 +911,32 @@ pub enum CoreToAgentMessage {
         reason: String,
         /// Correlation ID for audit trail
         correlation_id: String,
+    },
+
+    // ─── WS Auth (Phase 306) ─────────────────────────────────────────────────
+
+    /// Server issues a per-pod JWT after successful PSK bootstrap authentication.
+    ///
+    /// WSAUTH-01/04: After the first PSK-authenticated connection, the server signs
+    /// a 24-hour PodClaims JWT and sends it to the agent. The agent stores this
+    /// and presents it as ?jwt=<token> on all subsequent reconnects.
+    ///
+    /// expires_at is a UNIX timestamp (seconds since epoch) so the agent can
+    /// check expiry without parsing the JWT.
+    IssueJwt {
+        token: String,
+        /// UNIX timestamp when this token expires
+        expires_at: i64,
+    },
+
+    /// Server rotates the pod JWT before it expires (WSAUTH-02).
+    ///
+    /// Sent ~1h before the current token expires. The agent replaces its stored
+    /// token immediately — no reconnect required.
+    RefreshJwt {
+        token: String,
+        /// UNIX timestamp when the new token expires
+        expires_at: i64,
     },
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.
