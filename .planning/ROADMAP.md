@@ -125,6 +125,11 @@ Plans:
 2. Pre-validation check and session INSERT are atomic (no TOCTOU window)
 3. Existing `active_timers` pre-check AND DB UNIQUE constraint both prevent duplicates (defense in depth)
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 314-01-PLAN.md -- Per-pod billing start lock + dual pre-validation (active_timers + waiting_for_game)
+
 **Key files:**
 - `crates/racecontrol/src/api/routes.rs` — start_billing function
 - `crates/racecontrol/src/billing.rs` — active_timers map
@@ -302,7 +307,7 @@ Plans:
 
 ## v39.0 Observability & Session Traceability (Next)
 
-**Goal:** Single-query debugging across the full customer session lifecycle — Launch → Billing → Crash → Refund.
+**Goal:** Single-query debugging across the full customer session lifecycle — Launch -> Billing -> Crash -> Refund.
 
 **Phases:** 1 (expandable)
 
