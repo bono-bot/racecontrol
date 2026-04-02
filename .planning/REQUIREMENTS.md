@@ -34,7 +34,7 @@
 
 - [x] **VENUE-01**: All major tables have venue_id column (default: 'racingpoint-hyd-001')
 - [x] **VENUE-02**: Migration is backward compatible — existing data gets default venue_id, no functional change
-- [ ] **VENUE-03**: All INSERT/UPDATE queries include venue_id (prepared for multi-venue)
+- [x] **VENUE-03**: All INSERT/UPDATE queries include venue_id (prepared for multi-venue)
 - [x] **VENUE-04**: Design doc created: MULTI-VENUE-ARCHITECTURE.md with trigger conditions for venue 2
 
 ### Fleet Deploy Automation (DEPLOY)
@@ -89,7 +89,7 @@
 | EVENT-05 | Phase 302 | Complete |
 | VENUE-01 | Phase 303 | Complete |
 | VENUE-02 | Phase 303 | Complete |
-| VENUE-03 | Phase 303 | Pending |
+| VENUE-03 | Phase 303 | Complete |
 | VENUE-04 | Phase 303 | Complete |
 | DEPLOY-01 | Phase 304 | Pending |
 | DEPLOY-02 | Phase 304 | Pending |
