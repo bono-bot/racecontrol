@@ -3,6 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-02 11:59 IST | James | d0f8cc82 | docs(304-01): complete fleet_deploy module plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-04-02 11:59 IST | James | 161746ec | feat(304-01): add fleet_deploy.rs — FleetDeploySession, run_fleet_deploy(), canary-first orchestration, 11 tests pass |
 | 2026-04-02 11:18 IST | James | 8252500f | docs(303-04): complete Phase 303 verification sign-off — all 4 VENUE requirements PASS, 856 tests pass |
 | 2026-04-02 11:18 IST | James | b976ebf9 | chore(303-04): create verification plan for Phase 303 |
 | 2026-04-02 11:00 IST | James | 61657471 | docs(303-02): complete venue_id INSERT propagation plan summary, state update |
