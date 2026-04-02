@@ -786,21 +786,22 @@ async fn run_graduated_recovery(
                 return;
             }
 
-            // Attempt restart via pod-agent :8090/exec
-            let restart_cmd = r#"cd /d C:\RacingPoint & start /b rc-agent.exe"#;
-            let exec_url = format!("http://{}:{}/exec", pod.ip_address, POD_AGENT_PORT);
+            // Attempt restart via rc-sentry :8091/exec (NOT rc-agent :8090 which is dead).
+            // rc-sentry runs independently and is confirmed reachable at this point.
+            // Use schtasks to start rc-agent in the user's interactive session (Session 1).
+            let restart_cmd = r#"schtasks /Run /TN StartRCAgent"#;
+            let exec_url = format!("http://{}:8091/exec", pod.ip_address);
             let result = state
-                .http_client
-                .post(&exec_url)
-                .json(&serde_json::json!({ "cmd": restart_cmd, "timeout_ms": 10000 }))
-                .timeout(std::time::Duration::from_secs(15))
+                .sentry_post(&exec_url)
+                .json(&serde_json::json!({ "cmd": restart_cmd, "timeout": 15 }))
+                .timeout(std::time::Duration::from_secs(20))
                 .send()
                 .await;
             match result {
                 Ok(resp) if resp.status().is_success() => {
                     tracing::info!(
                         target: "pod_healer",
-                        "Pod {} Tier 1 restart sent",
+                        "Pod {} Tier 1 restart sent via rc-sentry (schtasks StartRCAgent)",
                         pod.id
                     );
                     log_pod_activity(
@@ -808,7 +809,7 @@ async fn run_graduated_recovery(
                         &pod.id,
                         "race_engineer",
                         "Graduated Restart (Tier 1)",
-                        "rc-agent restart via pod-agent (graduated step 2)",
+                        "rc-agent restart via rc-sentry schtasks (graduated step 2)",
                         "race_engineer",
                         None,
                     );
@@ -816,7 +817,7 @@ async fn run_graduated_recovery(
                 _ => {
                     tracing::warn!(
                         target: "pod_healer",
-                        "Pod {} Tier 1 restart failed (pod-agent unreachable)",
+                        "Pod {} Tier 1 restart failed (rc-sentry exec failed)",
                         pod.id
                     );
                 }
@@ -917,6 +918,41 @@ async fn run_graduated_recovery(
                 );
                 tracker.step = PodRecoveryStep::AlertStaff;
                 return;
+            }
+
+            // PRE-WoL: If rc-sentry IS reachable, try rc-agent restart via sentry first.
+            // WoL is useless when the machine is already on — sentry restart is the right action.
+            let sentry_health = format!("http://{}:8091/health", pod.ip_address);
+            let sentry_alive = state
+                .sentry_get(&sentry_health)
+                .timeout(std::time::Duration::from_secs(3))
+                .send()
+                .await
+                .is_ok();
+            if sentry_alive {
+                tracing::info!(
+                    target: "pod_healer",
+                    "Pod {} — rc-sentry alive (machine is ON), retrying rc-agent restart via sentry before WoL",
+                    pod.id
+                );
+                let restart_cmd = r#"schtasks /Run /TN StartRCAgent"#;
+                let restart_url = format!("http://{}:8091/exec", pod.ip_address);
+                let _ = state
+                    .sentry_post(&restart_url)
+                    .json(&serde_json::json!({ "cmd": restart_cmd, "timeout": 15 }))
+                    .timeout(std::time::Duration::from_secs(20))
+                    .send()
+                    .await;
+                log_pod_activity(
+                    state,
+                    &pod.id,
+                    "race_engineer",
+                    "Graduated Recovery (Tier 2: Sentry Restart)",
+                    "rc-agent restart via rc-sentry schtasks before WoL (machine is on, WoL would be useless)",
+                    "race_engineer",
+                    None,
+                );
+                // Still advance to WoL step — next cycle will check if pod recovered
             }
 
             // CHECK 3: Write WOL_SENT sentinel via rc-sentry /exec BEFORE sending magic packet.
