@@ -45,9 +45,10 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 **Goal:** Ensure operational data survives hardware failure and prepare the data layer for a potential second venue.
 **Status:** Paused — partially shipped (venue_id migration done, fleet deploy done). Backup pipeline and cloud sync v2 pending.
 
-## Current Milestone: v40.0 Game Launch Reliability
+## In Progress Milestone: v40.0 Game Launch Reliability
 
 **Goal:** Fix 4 critical architectural issues in the game launch workflow that cause silent failures, revenue loss, and pod lockouts. Found during E2E regression test of PWA → POS cash payment → AC single-player launch.
+**Status:** Phase 311 complete, Phases 312-314 remaining.
 
 **Target features:**
 - WS ACK Protocol — Server waits for agent ACK before returning success on /games/launch and /games/stop (currently fire-and-forget, commands silently lost on WS drop)
@@ -63,6 +64,27 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - 8 pods in production — changes must deploy fleet-wide atomically
 - Standing rules: no .unwrap() in production, no lock held across .await
 - Pod 8 canary-first for all agent-side changes
+
+## Current Milestone: v41.0 Game Intelligence System
+
+**Goal:** Proactive game availability management and launch failure observability — stop showing customers games they can't play, flag broken AC combos before launch, and surface failures instantly through Meshed Intelligence.
+
+**Target features:**
+- Per-Pod Game Inventory — Extend content_scanner to all games (Steam + non-Steam), kiosk only shows games installed on THAT pod. Fixes showing Forza on pods without it.
+- Proactive Combo Validation — Boot-time cross-reference presets vs content manifest, auto-disable invalid combos, per-pod availability tracking for AC car+track combos
+- Launch Intelligence — Launch timeline tracing, timeout watchdog (90s default, dynamic per-combo), crash loop detection, chain failure WhatsApp alerts — all wired through Meshed Intelligence 5-tier engine
+- Non-functional Combo Flagging — Validate AC car+track+config combos against filesystem (car folder, track folder, AI lines, pit stalls), flag broken combos before customer sees them
+- Reliability Dashboard — Per-combo success rates, fleet game matrix (which pods have which games), flagged combos UI, launch timeline viewer
+
+**Constraints:**
+- Rust/Axum stack — changes to rc-agent (content_scanner, game_doctor, tier_engine) + racecontrol (game_launcher, preset_library, API routes)
+- content_scanner.rs currently only scans AC content — must extend to Steam library + non-Steam games
+- combo_reliability table and GamePresetWithReliability already exist — extend, don't recreate
+- Game Doctor 12-point check exists but runs reactively at launch — must also run proactively at boot
+- Meshed Intelligence tier_engine.rs already handles GameLaunchFail — wire new triggers (GameLaunchTimeout, CrashLoop)
+- Kiosk game selection UI must filter by pod — requires server API changes + kiosk frontend changes
+- Pod 8 canary-first for all agent-side changes
+- Must not break existing billing, launch, or session management
 
 ## Paused Milestone: v32.0 Autonomous Meshed Intelligence
 
@@ -395,7 +417,7 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
-Last updated: 2026-04-01
+Last updated: 2026-04-03 after milestone v41.0 Game Intelligence System started
 
 ## Planned Milestone: v13.0 Multi-Game Launcher
 
