@@ -94,6 +94,21 @@ use overlay::OverlayManager;
 const LOG_TARGET: &str = "rc-agent";
 pub(crate) const BUILD_ID: &str = env!("GIT_HASH");
 
+/// MI hardening: Get the Windows session ID of the current process.
+/// Session 0 = non-interactive (Services), Session 1+ = interactive (Console).
+/// Returns None on non-Windows or if the API call fails.
+fn get_windows_session_id() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        let mut session_id: u32 = 0;
+        let pid = unsafe { winapi::um::processthreadsapi::GetCurrentProcessId() };
+        let ok = unsafe { winapi::um::processthreadsapi::ProcessIdToSessionId(pid, &mut session_id) };
+        if ok != 0 { Some(session_id) } else { None }
+    }
+    #[cfg(not(windows))]
+    { None }
+}
+
 /// DEPLOY-02: Write a sentinel file recording an interrupted billing session.
 /// Called when the server is unreachable during shutdown. The sentinel is processed
 /// on the next startup to ensure the server can issue a partial refund.
@@ -1918,6 +1933,8 @@ async fn main() -> Result<()> {
                 // Phase 50: Startup self-test verdict
                 startup_self_test_verdict: state.startup_self_test_verdict.clone(),
                 startup_probe_failures: state.startup_probe_failures,
+                // MI hardening: Send Windows session ID so server can detect Session 0
+                windows_session_id: get_windows_session_id(),
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {

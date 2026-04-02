@@ -620,11 +620,11 @@ async fn detect_fleet_anomalies(
         }
 
         if build_counts.len() > 1 {
-            // Find majority
-            let (majority_build, _majority_pods) = build_counts
+            // Find majority (safe: only reached when build_counts.len() > 1)
+            if let Some((majority_build, _majority_pods)) = build_counts
                 .iter()
                 .max_by_key(|(_, pods)| pods.len())
-                .unwrap();
+            {
 
             let outliers: Vec<(&str, &str)> = build_counts
                 .iter()
@@ -655,6 +655,7 @@ async fn detect_fleet_anomalies(
                     crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
                 }
             }
+            } // end if let Some(majority_build)
         }
     }
 

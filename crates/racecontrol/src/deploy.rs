@@ -1367,22 +1367,19 @@ mod tests {
 
     #[test]
     fn deploy_window_error_message_contains_expected_text() {
-        // The error message (if triggered) must contain the peak-hour text
-        // We test this by testing the is_deploy_window_locked path for a case
-        // where we know the day/hour is NOT weekend peak (to avoid false failures
-        // in CI running on weekends). Since we can't mock time, we just verify
-        // the force=false path doesn't panic and returns the correct error shape
-        // by running is_deploy_window_locked with force=false and checking result type.
+        // The error message (if triggered) must contain venue-open text.
+        // Since we can't mock venue_state, we test the function doesn't panic
+        // and returns correct error shape when venue is open.
         let result = is_deploy_window_locked(false, "superadmin");
         match result {
             Ok(()) => {
-                // Not currently in peak hours — test passes (correct behavior)
+                // Venue is closed — test passes (deploy allowed)
             }
             Err(msg) => {
-                // In peak hours — verify error message contains expected text
+                // Venue is open — verify error message contains expected text
                 assert!(
-                    msg.contains("Deploy blocked") && msg.contains("weekend peak hours"),
-                    "DEPLOY-03 error must mention 'Deploy blocked' and 'weekend peak hours', got: {}",
+                    msg.contains("Deploy blocked") && msg.contains("venue is open"),
+                    "DEPLOY-03 error must mention 'Deploy blocked' and 'venue is open', got: {}",
                     msg
                 );
                 assert!(

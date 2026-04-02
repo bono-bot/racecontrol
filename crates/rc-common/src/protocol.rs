@@ -204,6 +204,10 @@ pub enum AgentMessage {
         /// Phase 50: Number of failed probes at startup (0 = all pass)
         #[serde(default)]
         startup_probe_failures: u8,
+        /// MI hardening: Windows session ID (1 = interactive/Console, 0 = Services/Session 0).
+        /// None = old agent without this field. Session 0 blocks ALL GUI operations.
+        #[serde(default)]
+        windows_session_id: Option<u32>,
     },
 
     /// Agent detected a hardware failure (USB disconnect, FFB fault)
@@ -2486,6 +2490,7 @@ mod tests {
             udp_ports_bound: vec![],
             startup_self_test_verdict: None,
             startup_probe_failures: 0,
+            windows_session_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("startup_report"), "JSON must contain 'startup_report', got: {}", json);
@@ -2518,6 +2523,7 @@ mod tests {
             udp_ports_bound: vec![],
             startup_self_test_verdict: None,
             startup_probe_failures: 0,
+            windows_session_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
@@ -2544,6 +2550,7 @@ mod tests {
             udp_ports_bound: vec![9996, 20777, 5300],
             startup_self_test_verdict: None,
             startup_probe_failures: 0,
+            windows_session_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("lock_screen_port_bound"));
@@ -2851,6 +2858,7 @@ mod tests {
             udp_ports_bound: vec![9996],
             startup_self_test_verdict: Some("HEALTHY".to_string()),
             startup_probe_failures: 0,
+            windows_session_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();

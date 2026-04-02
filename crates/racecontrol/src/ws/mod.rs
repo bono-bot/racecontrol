@@ -945,6 +945,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             crash_recovery, repairs,
                             lock_screen_port_bound, remote_ops_port_bound,
                             hid_detected, udp_ports_bound,
+                            windows_session_id,
                             ..
                         } => {
                             tracing::info!(
@@ -964,6 +965,24 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             }
                             if !remote_ops_port_bound {
                                 tracing::warn!("Pod {} BOOT WARNING: remote ops port 8090 NOT bound!", pod_id);
+                            }
+                            // MI hardening: Session 0 detection (closes incident #3)
+                            if let Some(session) = windows_session_id {
+                                if *session == 0 {
+                                    tracing::error!(
+                                        target: "fleet-anomaly",
+                                        "SESSION_0: Pod {} rc-agent running in Session 0 (Services) — ALL GUI features broken (Edge, overlay, game launch, blanking)",
+                                        pod_id
+                                    );
+                                    let msg = format!(
+                                        "🚨 SESSION 0: Pod {} rc-agent running in Session 0!\nGUI features (blanking, game launch, overlay) WILL NOT WORK.\nFix: kill rc-agent → RCWatchdog restarts in Session 1. Never use schtasks directly.",
+                                        pod_id
+                                    );
+                                    let config = state.config.clone();
+                                    tokio::spawn(async move {
+                                        crate::whatsapp_alerter::send_whatsapp(&config, &msg).await;
+                                    });
+                                }
                             }
                             log_pod_activity(
                                 &state,
