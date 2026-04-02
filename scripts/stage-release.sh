@@ -150,6 +150,12 @@ if ! cargo test $TEST_PKGS 2>&1 | tail -10; then
 fi
 pass "All tests passed"
 
+info "Ensuring fresh GIT_HASH (standing rule: touch build.rs before release builds)..."
+touch crates/racecontrol/build.rs crates/rc-agent/build.rs crates/rc-sentry/build.rs 2>/dev/null
+# Force rebuild of crates that embed GIT_HASH to prevent stale build_id
+cargo clean -p racecontrol-crate -p rc-agent-crate 2>/dev/null || true
+pass "build.rs touched + crate cache cleared"
+
 info "Building release binaries (this may take a few minutes)..."
 echo "  cargo build --release${BUILD_TARGETS}"
 if ! cargo build --release $BUILD_TARGETS 2>&1 | tail -5; then

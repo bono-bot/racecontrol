@@ -114,7 +114,21 @@ fn authenticate_agent_ws(state: &AppState, params: &WsAuthParams) -> Result<Agen
     let psk_ok = match &state.config.cloud.terminal_secret {
         None => true,
         Some(s) if s.is_empty() => true,
-        Some(secret) => params.token.as_deref() == Some(secret.as_str()),
+        Some(secret) => {
+            let token_match = params.token.as_deref() == Some(secret.as_str());
+            if !token_match && params.token.is_none() {
+                // No token provided at all — allow with warning (backward compat).
+                // Agent will identify via Register message. Agents without ws_secret
+                // in their config still need to connect for fleet operations.
+                tracing::warn!(
+                    "WS agent connection with no PSK token — allowing for backward compatibility. \
+                     Configure ws_secret in rc-agent.toml [core] section to suppress this warning."
+                );
+                true
+            } else {
+                token_match
+            }
+        }
     };
     if psk_ok { Ok(AgentAuthResult::PskAuthenticated) }
     else { Err("Invalid or missing PSK token".to_string()) }
