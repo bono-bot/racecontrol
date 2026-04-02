@@ -33,9 +33,9 @@
 
 ## Security Audit Script (SECAUDIT)
 
-- [ ] **SECAUDIT-01**: `scripts/security-audit.sh` scans: open ports, TLS config, JWT validity, default credentials, chain integrity
-- [ ] **SECAUDIT-02**: Output is structured JSON scorecard with pass/fail per check and overall score
-- [ ] **SECAUDIT-03**: Script integrates with existing `gate-check.sh` as a pre-deploy security gate
+- [x] **SECAUDIT-01**: `scripts/security-audit.sh` scans: open ports, TLS config, JWT validity, default credentials, chain integrity
+- [x] **SECAUDIT-02**: Output is structured JSON scorecard with pass/fail per check and overall score
+- [x] **SECAUDIT-03**: Script integrates with existing `gate-check.sh` as a pre-deploy security gate
 
 ## Traceability
 
@@ -57,9 +57,9 @@
 | RBAC-02 | Phase 308 | Done (pre-built) |
 | RBAC-03 | Phase 308 | Done (pre-built) |
 | RBAC-04 | Phase 308 | Done (pre-built) |
-| SECAUDIT-01 | Phase 309 | Pending |
-| SECAUDIT-02 | Phase 309 | Pending |
-| SECAUDIT-03 | Phase 309 | Pending |
+| SECAUDIT-01 | Phase 309 | Done |
+| SECAUDIT-02 | Phase 309 | Done |
+| SECAUDIT-03 | Phase 309 | Done |
 
 ## Future Requirements (deferred)
 
