@@ -226,7 +226,7 @@ Plans:
 - [x] **Phase 301: Cloud Data Sync v2** - cloud_sync.rs extended with fleet_solutions, model_evaluations, metrics_rollups; cross-venue authority model; conflict handling; admin status (completed 2026-04-01)
 - [x] **Phase 302: Structured Event Archive** - SQLite events table with structured schema, daily JSONL export, 90-day SQLite retention, nightly SCP to VPS, REST query API (completed 2026-04-01)
 - [x] **Phase 303: Multi-Venue Schema Prep** - venue_id column on all major tables, backward-compatible migration, INSERT/UPDATE coverage, design doc for venue 2 trigger (completed 2026-04-02)
-- [ ] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint
+- [x] **Phase 304: Fleet Deploy Automation** - POST /fleet/deploy endpoint with canary (Pod 8), health verify, auto-rollout, auto-rollback, billing drain, deploy status endpoint (completed 2026-04-02)
 
 ## Phase Details
 
@@ -307,7 +307,7 @@ Plans:
 
 Plans:
 - [x] 304-01-PLAN.md -- FleetDeploySession types, run_fleet_deploy orchestration, wave/rollback/billing logic, unit tests
-- [ ] 304-02-PLAN.md -- AppState field, route handlers (POST /fleet/deploy + GET /fleet/deploy/status), superadmin route registration
+- [x] 304-02-PLAN.md -- AppState field, route handlers (POST /fleet/deploy + GET /fleet/deploy/status), superadmin route registration
 
 ## Progress
 
@@ -338,4 +338,4 @@ Plans:
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 2/2 | Complete    | 2026-04-01 |
 | 303. Multi-Venue Schema Prep | 4/1 | Complete    | 2026-04-02 |
-| 304. Fleet Deploy Automation | 1/2 | In Progress|  |
+| 304. Fleet Deploy Automation | 2/2 | Complete   | 2026-04-02 |
