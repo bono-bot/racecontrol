@@ -3923,3 +3923,103 @@ pub async fn migrate_pii_encryption(db: &SqlitePool, cipher: &FieldCipher) -> Re
     tracing::info!("PII migration complete: {migrated}/{total} rows encrypted");
     Ok(())
 }
+
+// ─── Phase 303: venue_id migration tests ──────────────────────────────────────
+
+#[cfg(test)]
+mod venue_id_tests {
+    use super::*;
+
+    /// Helper: query pragma_table_info for a given table and return column names.
+    async fn column_names(pool: &SqlitePool, table: &str) -> Vec<String> {
+        let rows: Vec<(i64, String, String, i64, Option<String>, i64)> =
+            sqlx::query_as(&format!("PRAGMA table_info({})", table))
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+        rows.into_iter().map(|r| r.1).collect()
+    }
+
+    /// Test 1: billing_sessions has venue_id column after migration.
+    #[tokio::test]
+    async fn test_venue_id_migration_billing_sessions() {
+        let pool = init_pool(":memory:").await.expect("init_pool failed");
+        let cols = column_names(&pool, "billing_sessions").await;
+        assert!(
+            cols.contains(&"venue_id".to_string()),
+            "billing_sessions missing venue_id column. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test 2: laps has venue_id column after migration.
+    #[tokio::test]
+    async fn test_venue_id_migration_laps() {
+        let pool = init_pool(":memory:").await.expect("init_pool failed");
+        let cols = column_names(&pool, "laps").await;
+        assert!(
+            cols.contains(&"venue_id".to_string()),
+            "laps missing venue_id column. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test 3: drivers has venue_id column after migration.
+    #[tokio::test]
+    async fn test_venue_id_migration_drivers() {
+        let pool = init_pool(":memory:").await.expect("init_pool failed");
+        let cols = column_names(&pool, "drivers").await;
+        assert!(
+            cols.contains(&"venue_id".to_string()),
+            "drivers missing venue_id column. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test 4: wallets has venue_id column after migration.
+    #[tokio::test]
+    async fn test_venue_id_migration_wallets() {
+        let pool = init_pool(":memory:").await.expect("init_pool failed");
+        let cols = column_names(&pool, "wallets").await;
+        assert!(
+            cols.contains(&"venue_id".to_string()),
+            "wallets missing venue_id column. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test 5: system_events has venue_id column after migration.
+    #[tokio::test]
+    async fn test_venue_id_migration_system_events() {
+        let pool = init_pool(":memory:").await.expect("init_pool failed");
+        let cols = column_names(&pool, "system_events").await;
+        assert!(
+            cols.contains(&"venue_id".to_string()),
+            "system_events missing venue_id column. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test: running migrate() twice does not error (idempotent).
+    #[tokio::test]
+    async fn test_venue_id_migration_idempotent() {
+        let pool = init_pool(":memory:").await.expect("first init_pool failed");
+        // Running migrate() again on the same pool must not panic or error.
+        let result = migrate(&pool).await;
+        assert!(result.is_ok(), "Second migrate() call failed: {:?}", result.err());
+    }
+
+    /// Test: VenueConfig deserializes from empty TOML with default venue_id.
+    #[test]
+    fn test_venue_config_default_venue_id() {
+        use crate::config::VenueConfig;
+
+        let toml_str = r#"name = "Racing Point""#;
+        let cfg: VenueConfig = toml::from_str(toml_str).expect("toml parse failed");
+        assert_eq!(
+            cfg.venue_id,
+            "racingpoint-hyd-001",
+            "VenueConfig.venue_id default mismatch"
+        );
+    }
+}
