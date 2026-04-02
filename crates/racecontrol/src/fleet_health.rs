@@ -793,12 +793,47 @@ async fn detect_fleet_anomalies(
             }
         }
     }
+
+    // ── 6. PIN validation failure spike ────────────────────────────────────
+    // Drain API error counts and alert if PIN failures are elevated.
+    // This detects: wrong PIN entered repeatedly, kiosk → server connectivity issues,
+    // or broken PIN validation logic.
+    {
+        static LAST_PIN_ALERT: AtomicI64 = AtomicI64::new(0);
+        let error_counts = state.drain_api_error_counts();
+        let pin_failures: u32 = error_counts.iter()
+            .filter(|(k, _)| k.contains("pin") || k.contains("validate"))
+            .map(|(_, v)| *v)
+            .sum();
+
+        if pin_failures >= 5 {
+            tracing::warn!(
+                target: "fleet-anomaly",
+                "PIN_FAILURE_SPIKE: {} PIN validation failures since last check",
+                pin_failures
+            );
+
+            if now_ts - LAST_PIN_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                LAST_PIN_ALERT.store(now_ts, Ordering::Relaxed);
+                let details: Vec<String> = error_counts.iter()
+                    .filter(|(k, _)| k.contains("pin") || k.contains("validate"))
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect();
+                let msg = format!(
+                    "⚠ PIN FAILURE SPIKE: {} failed PIN attempts in last 15s:\n{}\nCheck kiosk connectivity + staff PIN in DB.",
+                    pin_failures, details.join(", ")
+                );
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
 }
 
 /// GET /api/v1/fleet/health handler.
 ///
-/// Returns a JSON object with `pods` (8 entries sorted by pod_number 1–8) and
-/// `timestamp`. No authentication required — designed for Uday's phone on the LAN.
+/// Returns a JSON object with `pods` (9 entries sorted by pod_number 1–9,
+/// pod 9 = POS) and `timestamp`.
+/// No authentication required — designed for Uday's phone on the LAN.
 ///
 /// Pods that have never sent a WS message still appear with
 /// ws_connected=false, http_reachable=false, and all optional fields null.

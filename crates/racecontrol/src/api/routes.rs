@@ -91,6 +91,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
         .route("/fleet/blocked-start", post(fleet_health::blocked_start_handler))
+        .route("/telemetry/client-error", post(client_error_handler))
         // MMA-P1: Debug endpoints moved to staff_routes (below) to prevent information
         // disclosure. Kiosk debug UI must use staff JWT to access these endpoints.
         // Previously public: /debug/activity, /debug/playbooks, /debug/incidents, /debug/pod-events
@@ -688,6 +689,32 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "whatsapp": whatsapp_status,
         "deploy_context": "v34-v39 merged: metrics TSDB, config management, data durability, security hardening, meshed intelligence v2, session trace ID. Skip-once pod offline detection. Audit hash chain. 44-table venue_id migration.",
     }))
+}
+
+// ─── Client error telemetry (MI integration) ────────────────────────────────
+/// POST /api/v1/telemetry/client-error — receive error reports from kiosk/web browsers.
+/// Public endpoint (no auth) — rate-limited by caller (browser-side).
+/// Logs errors and increments API error counters for MI anomaly detection.
+async fn client_error_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> axum::http::StatusCode {
+    let page = body.get("page").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let endpoint = body.get("endpoint").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let status = body.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+    let error = body.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("kiosk");
+
+    tracing::warn!(
+        target: "client-telemetry",
+        "CLIENT_ERROR: {} on {} → {} (HTTP {}, error: {})",
+        source, page, endpoint, status, error
+    );
+
+    // Feed into API error counter so detect_fleet_anomalies picks it up
+    state.record_api_error(&format!("client/{}/{}", source, endpoint));
+
+    axum::http::StatusCode::OK
 }
 
 // ─── Phase 300-02: Backup Status endpoint ────────────────────────────────────

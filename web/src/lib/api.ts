@@ -41,9 +41,26 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     }
 
     return res.json();
+  } catch (err) {
+    // Report error to server for MI anomaly detection (best-effort)
+    reportClientError(path, err instanceof Error ? err.message : String(err), options?.method || "GET");
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/** Best-effort error telemetry to server — never throws, never blocks */
+function reportClientError(endpoint: string, error: string, method: string) {
+  try {
+    const page = typeof window !== "undefined" ? window.location.pathname : "unknown";
+    fetch(`${API_BASE}/api/v1/telemetry/client-error`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page, endpoint, error: error.slice(0, 200), method, source: "web", ts: new Date().toISOString() }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* swallow */ }
 }
 
 // Public endpoint fetcher — no auth header, no 401 redirect.

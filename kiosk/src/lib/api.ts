@@ -56,7 +56,23 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     }
   }
 
+  // Report error to server for MI anomaly detection (best-effort, fire-and-forget)
+  reportClientError(path, lastError?.message || "unknown", options?.method || "GET");
+
   throw lastError!;
+}
+
+/** Best-effort error telemetry to server — never throws, never blocks */
+function reportClientError(endpoint: string, error: string, method: string) {
+  try {
+    const page = typeof window !== "undefined" ? window.location.pathname : "unknown";
+    fetch(`${API_BASE}/api/v1/telemetry/client-error`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page, endpoint, error: error.slice(0, 200), method, source: "kiosk", ts: new Date().toISOString() }),
+      keepalive: true,
+    }).catch(() => {}); // swallow — telemetry must never cause additional errors
+  } catch { /* swallow */ }
 }
 
 export const api = {
