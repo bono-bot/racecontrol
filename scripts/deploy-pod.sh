@@ -308,6 +308,16 @@ trap "kill $HTTP_PID 2>/dev/null; rm -f '$LOCK_FILE'" EXIT
 sleep 1
 
 if [ "$TARGET" = "all" ]; then
+    # Standing rule: enumerate ALL targets — pods 1-8 + POS.
+    # Never skip POS. Source: MEMORY.md "Deploy all targets" rule.
+    for i in $(seq 1 8); do
+        deploy_pod "pod-$i"
+    done
+    echo ""
+    echo "─── POS Terminal ───"
+    deploy_pod "pos"
+elif [ "$TARGET" = "pods-only" ]; then
+    # Explicit opt-out for pod-only deploys (e.g., pod-specific binary)
     for i in $(seq 1 8); do
         deploy_pod "pod-$i"
     done

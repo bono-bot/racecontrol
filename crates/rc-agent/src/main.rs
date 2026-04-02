@@ -469,6 +469,18 @@ async fn main() -> Result<()> {
                     writeln!(f, "[{}] [BLOCKED] rc-agent on '{}' — not in pod allowlist",
                         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), hostname)
                 });
+            // Notify server so blocked starts are visible in fleet health (best-effort).
+            // Agent hasn't initialized config/WS yet, so use a simple HTTP POST.
+            let notify_msg = format!(
+                "{{\"hostname\":\"{}\",\"reason\":\"not_in_allowlist\",\"timestamp\":\"{}\"}}",
+                hostname, chrono::Local::now().format("%Y-%m-%dT%H:%M:%S")
+            );
+            let _ = std::process::Command::new("curl.exe")
+                .args(["-sf", "--max-time", "3", "-X", "POST",
+                       "http://192.168.31.23:8080/api/v1/fleet/blocked-start",
+                       "-H", "Content-Type: application/json",
+                       "-d", &notify_msg])
+                .output();
             std::process::exit(1);
         }
     }

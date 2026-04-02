@@ -90,6 +90,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
+        .route("/fleet/blocked-start", post(fleet_health::blocked_start_handler))
         // MMA-P1: Debug endpoints moved to staff_routes (below) to prevent information
         // disclosure. Kiosk debug UI must use staff JWT to access these endpoints.
         // Previously public: /debug/activity, /debug/playbooks, /debug/incidents, /debug/pod-events

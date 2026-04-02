@@ -840,9 +840,11 @@ pub async fn fleet_health_handler(
     .unwrap_or_default();
     let crash_recovery_map: HashMap<String, i64> = crash_recovery_rows.into_iter().collect();
 
-    let mut result: Vec<PodFleetStatus> = Vec::with_capacity(8);
+    // Include pods 1-8 + pod 9 (POS). Standing rule: never exclude POS from fleet view.
+    // Pod 9 slot is empty if POS hasn't connected, just like any unregistered pod.
+    let mut result: Vec<PodFleetStatus> = Vec::with_capacity(9);
 
-    for pod_number in 1u32..=8 {
+    for pod_number in 1u32..=9 {
         // Find registered PodInfo for this slot (if any).
         let pod_info = pods_snapshot
             .values()
@@ -1035,6 +1037,36 @@ pub async fn sentry_crash_handler(
         new_store.last_sentry_crash = Some(report);
         fleet.insert(pod_id, new_store);
     }
+
+    axum::http::StatusCode::OK
+}
+
+// ── Blocked start notification (prevents silent deploy failures) ─────────────
+
+/// POST /api/v1/fleet/blocked-start — receive notification when rc-agent
+/// is blocked from starting on an unknown hostname.
+///
+/// This makes silent deploy failures visible: if someone deploys rc-agent
+/// to a machine not in the allowlist, the server logs a warning and sends
+/// a WhatsApp alert instead of the failure being silently hidden.
+pub async fn blocked_start_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> axum::http::StatusCode {
+    let hostname = body.get("hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let reason = body.get("reason").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+    tracing::warn!(
+        target: "fleet-health",
+        "BLOCKED START: rc-agent on '{}' refused to start (reason: {})",
+        hostname, reason
+    );
+
+    let msg = format!(
+        "⚠ BLOCKED START: rc-agent on '{}' refused to start.\nReason: {}\nAdd hostname to ALLOWED_HOSTS in rc-agent/src/main.rs and redeploy.",
+        hostname, reason
+    );
+    crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
 
     axum::http::StatusCode::OK
 }
