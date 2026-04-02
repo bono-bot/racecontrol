@@ -289,7 +289,7 @@ Plans:
 **Plans**: 2 plans
 nPlans:
 - [x] 303-01-PLAN.md -- VenueConfig venue_id field, ALTER migrations for 44 tables, MULTI-VENUE-ARCHITECTURE.md design doc
-- [ ] 303-02-PLAN.md -- Add venue_id to ~122 INSERT statements across 22 source files
+- [x] 303-02-PLAN.md -- Add venue_id to ~122 INSERT statements across 22 source files
 
 ### Phase 304: Fleet Deploy Automation
 **Goal**: Staff can deploy a new binary to the entire fleet in one API call with automatic safety gates
@@ -332,5 +332,5 @@ nPlans:
 | 300. SQLite Backup Pipeline | 2/2 | Complete    | 2026-04-01 |
 | 301. Cloud Data Sync v2 | 2/2 | Complete    | 2026-04-01 |
 | 302. Structured Event Archive | 2/2 | Complete    | 2026-04-01 |
-| 303. Multi-Venue Schema Prep | 2/4 | In Progress|  |
+| 303. Multi-Venue Schema Prep | 3/4 | In Progress|  |
 | 304. Fleet Deploy Automation | 0/TBD | Not started | - |
