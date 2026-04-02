@@ -34,7 +34,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 
 ### Phases
 
-- [ ] **Phase 311: Launch-Billing Coordination Guard** — LBILL-01, LBILL-02, LBILL-03
+- [x] **Phase 311: Launch-Billing Coordination Guard** — LBILL-01, LBILL-02, LBILL-03
 - [ ] **Phase 312: WS ACK Protocol** — WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
 - [ ] **Phase 313: Game State Resilience** — GSTATE-01, GSTATE-02, GSTATE-03
 - [ ] **Phase 314: Billing Atomicity** — BATOM-01, BATOM-02
@@ -56,7 +56,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 **Plans:** 1 plan
 
 Plans:
-- [ ] 311-01-PLAN.md -- Game-aware stale cancel: check GameTracker before cancelling waiting_for_game sessions
+- [x] 311-01-PLAN.md -- Game-aware stale cancel: check GameTracker before cancelling waiting_for_game sessions (4488f48a)
 
 **Key files:**
 - `crates/racecontrol/src/billing.rs` — tick_all_timers stale cancel logic (line ~1442)

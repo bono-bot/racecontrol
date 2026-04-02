@@ -19,9 +19,9 @@
 - [ ] **BATOM-02**: If a billing session already exists for a pod (any status), new `start_billing` returns clear error
 
 ## Launch-Billing Coordination (LBILL)
-- [ ] **LBILL-01**: Stale session cancel (5-min timeout) checks if game process is alive on the pod before cancelling
-- [ ] **LBILL-02**: If game is alive but not yet Live, extend the waiting period (up to 10 minutes total for slow-loading games)
-- [ ] **LBILL-03**: If game is dead AND session is waiting_for_game >5 min, cancel with full wallet refund (existing fix from 8184d4f3)
+- [x] **LBILL-01**: Stale session cancel (5-min timeout) checks if game process is alive on the pod before cancelling
+- [x] **LBILL-02**: If game is alive but not yet Live, extend the waiting period (up to 10 minutes total for slow-loading games)
+- [x] **LBILL-03**: If game is dead AND session is waiting_for_game >5 min, cancel with full wallet refund (existing fix from 8184d4f3)
 
 ## Future Requirements
 - WS command delivery for other endpoints (fleet/exec, config push)
@@ -36,9 +36,9 @@
 ## Traceability
 | REQ | Phase | Plan | Status |
 |-----|-------|------|--------|
-| LBILL-01 | 311 | — | Pending |
-| LBILL-02 | 311 | — | Pending |
-| LBILL-03 | 311 | — | Pending |
+| LBILL-01 | 311 | 01 | Complete (4488f48a) |
+| LBILL-02 | 311 | 01 | Complete (4488f48a) |
+| LBILL-03 | 311 | 01 | Complete (4488f48a) |
 | WSCMD-01 | 312 | — | Pending |
 | WSCMD-02 | 312 | — | Pending |
 | WSCMD-03 | 312 | — | Pending |
