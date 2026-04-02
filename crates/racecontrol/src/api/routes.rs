@@ -3400,6 +3400,12 @@ async fn start_billing(
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
     }
 
+    // BATOM-01: Acquire per-pod lock to serialize concurrent start_billing calls.
+    // This eliminates the TOCTOU window between pre-validation and waiting_for_game write.
+    // Different pods are not blocked — only same-pod concurrent requests are serialized.
+    let billing_lock_arc = state.billing.get_billing_start_lock(&pod_id);
+    let _billing_lock = billing_lock_arc.lock().await;
+
     // FATM-02: Idempotency check — return original result if key was already processed
     if let Some(ref key) = idempotency_key {
         let existing = sqlx::query_as::<_, (String, Option<i64>)>(
@@ -3420,11 +3426,17 @@ async fn start_billing(
         }
     }
 
-    // Pre-validate: check in-memory timer (fast path; DB constraint is primary guard)
+    // BATOM-02: Pre-validate — check BOTH in-memory maps (fast path; DB UNIQUE index is defense-in-depth)
     {
         let timers = state.billing.active_timers.read().await;
         if timers.contains_key(pod_id.as_str()) {
             return Json(json!({ "error": format!("Pod {} already has an active billing session", pod_id) }));
+        }
+    }
+    {
+        let waiting = state.billing.waiting_for_game.read().await;
+        if waiting.contains_key(pod_id.as_str()) {
+            return Json(json!({ "error": format!("Pod {} already has a billing session waiting for game", pod_id) }));
         }
     }
 

@@ -506,6 +506,12 @@ pub struct BillingManager {
     pub multiplayer_waiting: RwLock<HashMap<String, MultiplayerBillingWait>>,
     /// Cached billing rate tiers, sorted by tier_order. Refreshed from DB periodically.
     pub rate_tiers: RwLock<Vec<BillingRateTier>>,
+    /// Per-pod lock to serialize start_billing calls — prevents TOCTOU race (BATOM-01).
+    /// Key = normalized pod_id. Lock held for entire start_billing duration.
+    /// Uses std::sync::Mutex wrapping a HashMap of Arc<tokio::sync::Mutex<()>> so the
+    /// outer lock is only held briefly (to get/insert the inner Arc), and the inner
+    /// tokio::Mutex is held across async work without blocking other pods.
+    pub billing_start_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl BillingManager {
@@ -515,7 +521,18 @@ impl BillingManager {
             waiting_for_game: RwLock::new(HashMap::new()),
             multiplayer_waiting: RwLock::new(HashMap::new()),
             rate_tiers: RwLock::new(default_billing_rate_tiers()),
+            billing_start_locks: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Get or create a per-pod lock for serializing start_billing.
+    /// The outer std::sync::Mutex is held only briefly (HashMap lookup/insert).
+    /// The returned Arc<tokio::sync::Mutex<()>> can be .lock().await'd across async work.
+    pub fn get_billing_start_lock(&self, pod_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.billing_start_locks.lock().unwrap_or_else(|e| e.into_inner());
+        locks.entry(pod_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 }
 
