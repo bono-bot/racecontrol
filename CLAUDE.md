@@ -12,7 +12,7 @@
 - **Proxy metrics are NOT proof:** health OK, ws=True, build_id match are supplementary only.
 - **Multi-probe before "offline":** Check ping + sentry + agent + SSH. Single failed probe proves nothing.
 - **TEMPORARY vs PERMANENT:** Label every fix. TEMPORARY requires follow-up in G4.
-- **Quick-start bat for schtask:** Use minimal 4-line bat for schtask recovery. Full bat only for HKLM Run at login.
+- **No file redirects on `start` in bat files:** `start "" prog.exe 2>> file.log` fails silently in schtask context (exit code 1, process never created). Use `start "" prog.exe` without redirects — log via the binary's own logging instead.
 - **Delete-before-SCP:** Windows SCP silently fails to overwrite. Always `del` first, then SCP, then verify.
 - **"Good Catch" = G9 trigger:** Every user correction → immediate root cause analysis. Target: 0 per session.
 
@@ -187,6 +187,8 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
   **NEVER combine taskkill + download in one exec chain** — racecontrol hosts :8090, killing it kills the exec handler mid-download.
   **Server uses a PowerShell watchdog** (`start-racecontrol-watchdog.ps1`) that auto-restarts racecontrol on crash. Each `schtasks /Run /TN StartRCTemp` call starts the bat which kills existing watchdogs via WMIC before starting a new one. The watchdog has a singleton mutex (`Global\RaceControlWatchdog`) to prevent multiplication. If watchdog multiplication occurs (multiple PowerShell instances fighting over port 8080), kill ALL powershell first: `taskkill /F /IM powershell.exe`, then restart.
   _Why: 2026-03-24 — 16 orphan watchdog PowerShell instances accumulated (~960MB RAM) from repeated schtasks calls. Each watchdog respawned racecontrol after taskkill, preventing binary swap. Fixed by adding WMIC watchdog cleanup to bat + singleton mutex to watchdog.ps1. SSH `start` command doesn't persist — use schtasks. `timeout` command fails in non-interactive SSH — use `ping -n N 127.0.0.1` for delays._
+- **Never use file redirects (`>`, `>>`) on `start` commands in bat files.** `start "" /D dir prog.exe 2>> file.log` fails in Windows Task Scheduler context — returns exit code 1, child process never created, no error message. The `start` command needs full control of console/file handles; a `2>>` redirect conflicts with how `start` sets up the child process in non-interactive sessions. Use `start "" /D dir prog.exe` without redirects. Stderr capture should be done inside the binary itself (e.g., tracing to file). Same class of bug as `timeout` failing in schtask context — both are cmd.exe commands that assume interactive console I/O.
+  _Why: 2026-04-03 — `start-rcagent.bat` via schtask failed on ALL 8 pods (not just Pod 6 as initially believed). `start "" /D C:\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log` returned exit code 1 with `The process cannot access the file because it is being used by another process`. Removing `2>> rc-agent-stderr.log` fixed it instantly — `Last Result: 0`, rc-agent running in Session 1. Misdiagnosed as Pod 6-specific for weeks because quick-start workaround masked the fleet-wide issue._
 - **NEVER run pod binaries on James's PC** (rc-agent.exe, pod-agent.exe, ConspitLink.exe) — crashes workstation.
   _Why: Pod binaries assume hardware/ports that don't exist on James's machine; crash is instant._
 - **Test before upload** = `cargo test` + size check + deploy to Pod 8 first, verify, then other pods.

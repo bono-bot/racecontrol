@@ -75,4 +75,4 @@ ping -n 2 127.0.0.1 >nul
 if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul
 ren "%STAGED%" rc-agent.exe 1>nul
 :start_agent
-start "" /D C:\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log
+start "" /D C:\RacingPoint rc-agent.exe
