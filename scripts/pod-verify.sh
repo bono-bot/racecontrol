@@ -2,11 +2,27 @@
 # Pod Fleet Verification Script — CGP G1/G4 Automated Proof
 # Runs behavioral checks, NOT proxy metrics
 # Exit code 0 = all pass, non-zero = failures found
+#
+# Usage:
+#   bash scripts/pod-verify.sh              # Behavioral checks only
+#   bash scripts/pod-verify.sh --visual     # + screenshot capture & visual analysis
+#   bash scripts/pod-verify.sh --visual --compare <dir>  # + compare against previous
 
 PASS=0
 FAIL=0
 WARN=0
 KEY="478a3688339737fb5945f9b89d8bb533f2569fe0b1fea46b504656eee455b9ab"
+VISUAL=0
+COMPARE_DIR=""
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --visual) VISUAL=1; shift ;;
+        --compare) COMPARE_DIR="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
 
 echo "=== POD FLEET VERIFICATION ($(date '+%Y-%m-%d %H:%M IST')) ==="
 echo ""
@@ -73,6 +89,28 @@ done
 
 echo ""
 echo "=== SUMMARY: PASS=$PASS FAIL=$FAIL WARN=$WARN ==="
+
+# Visual verification (captures actual screenshots as G1 evidence)
+if [ $VISUAL -eq 1 ]; then
+    echo ""
+    echo "=== VISUAL VERIFICATION ==="
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    VISUAL_ARGS=""
+    if [ -n "$COMPARE_DIR" ]; then
+        VISUAL_ARGS="--compare $COMPARE_DIR"
+    fi
+    node "$SCRIPT_DIR/visual-verify.js" $VISUAL_ARGS
+    VISUAL_EXIT=$?
+    if [ $VISUAL_EXIT -ne 0 ]; then
+        ((FAIL++))
+        echo "[FAIL] Visual verification found issues"
+    else
+        echo "[PASS] Visual verification complete — screenshots saved"
+    fi
+    echo ""
+    echo "=== FINAL SUMMARY: PASS=$PASS FAIL=$FAIL WARN=$WARN ==="
+fi
+
 if [ $FAIL -gt 0 ]; then
     echo "STATUS: FAIL — DO NOT claim 'done' or 'fixed'"
     exit 1

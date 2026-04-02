@@ -1,5 +1,6 @@
 /target
 /data
+scripts/visual-evidence/
 *.db
 *.db-wal
 *.db-shm
