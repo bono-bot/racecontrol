@@ -786,22 +786,50 @@ async fn run_graduated_recovery(
                 return;
             }
 
-            // Attempt restart via rc-sentry :8091/exec (NOT rc-agent :8090 which is dead).
-            // rc-sentry runs independently and is confirmed reachable at this point.
-            // Use schtasks to start rc-agent in the user's interactive session (Session 1).
-            let restart_cmd = r#"schtasks /Run /TN StartRCAgent"#;
+            // Restart strategy: ensure RCWatchdog service is running, then kill rc-agent.
+            // RCWatchdog detects the dead process and uses WTSQueryUserToken +
+            // CreateProcessAsUser to spawn start-rcagent.bat in Session 1 (interactive).
+            // schtasks /Run /TN StartRCAgent does NOT work from non-interactive contexts
+            // because the bat's `start ""` command doesn't persist processes in Session 0.
             let exec_url = format!("http://{}:8091/exec", pod.ip_address);
-            let result = state
+
+            // Step A: Ensure RCWatchdog service is running (it may have stopped)
+            let watchdog_result = state
                 .sentry_post(&exec_url)
-                .json(&serde_json::json!({ "cmd": restart_cmd, "timeout": 15 }))
-                .timeout(std::time::Duration::from_secs(20))
+                .json(&serde_json::json!({ "cmd": "sc start RCWatchdog", "timeout": 10 }))
+                .timeout(std::time::Duration::from_secs(15))
                 .send()
                 .await;
-            match result {
+            match &watchdog_result {
                 Ok(resp) if resp.status().is_success() => {
                     tracing::info!(
                         target: "pod_healer",
-                        "Pod {} Tier 1 restart sent via rc-sentry (schtasks StartRCAgent)",
+                        "Pod {} Tier 1: ensured RCWatchdog service is running",
+                        pod.id
+                    );
+                }
+                _ => {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Pod {} Tier 1: failed to ensure RCWatchdog (sentry exec failed)",
+                        pod.id
+                    );
+                }
+            }
+
+            // Step B: Kill rc-agent (may already be dead, that's fine).
+            // RCWatchdog polls every 5s and will restart via spawn_in_session1.
+            let kill_result = state
+                .sentry_post(&exec_url)
+                .json(&serde_json::json!({ "cmd": "taskkill /F /IM rc-agent.exe", "timeout": 10 }))
+                .timeout(std::time::Duration::from_secs(15))
+                .send()
+                .await;
+            match kill_result {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} Tier 1 restart: killed rc-agent, RCWatchdog will respawn in Session 1",
                         pod.id
                     );
                     log_pod_activity(
@@ -809,7 +837,7 @@ async fn run_graduated_recovery(
                         &pod.id,
                         "race_engineer",
                         "Graduated Restart (Tier 1)",
-                        "rc-agent restart via rc-sentry schtasks (graduated step 2)",
+                        "rc-agent killed via sentry, RCWatchdog respawns in Session 1 (graduated step 2)",
                         "race_engineer",
                         None,
                     );
@@ -817,7 +845,7 @@ async fn run_graduated_recovery(
                 _ => {
                     tracing::warn!(
                         target: "pod_healer",
-                        "Pod {} Tier 1 restart failed (rc-sentry exec failed)",
+                        "Pod {} Tier 1 restart failed (sentry exec failed — auth mismatch?)",
                         pod.id
                     );
                 }
@@ -922,6 +950,7 @@ async fn run_graduated_recovery(
 
             // PRE-WoL: If rc-sentry IS reachable, try rc-agent restart via sentry first.
             // WoL is useless when the machine is already on — sentry restart is the right action.
+            // Strategy: ensure RCWatchdog + kill rc-agent (same as Tier 1 — watchdog respawns in Session 1).
             let sentry_health = format!("http://{}:8091/health", pod.ip_address);
             let sentry_alive = state
                 .sentry_get(&sentry_health)
@@ -932,23 +961,30 @@ async fn run_graduated_recovery(
             if sentry_alive {
                 tracing::info!(
                     target: "pod_healer",
-                    "Pod {} — rc-sentry alive (machine is ON), retrying rc-agent restart via sentry before WoL",
+                    "Pod {} — rc-sentry alive (machine is ON), retrying rc-agent restart via watchdog before WoL",
                     pod.id
                 );
-                let restart_cmd = r#"schtasks /Run /TN StartRCAgent"#;
                 let restart_url = format!("http://{}:8091/exec", pod.ip_address);
+                // Ensure watchdog is running
                 let _ = state
                     .sentry_post(&restart_url)
-                    .json(&serde_json::json!({ "cmd": restart_cmd, "timeout": 15 }))
-                    .timeout(std::time::Duration::from_secs(20))
+                    .json(&serde_json::json!({ "cmd": "sc start RCWatchdog", "timeout": 10 }))
+                    .timeout(std::time::Duration::from_secs(15))
+                    .send()
+                    .await;
+                // Kill rc-agent — watchdog respawns in Session 1
+                let _ = state
+                    .sentry_post(&restart_url)
+                    .json(&serde_json::json!({ "cmd": "taskkill /F /IM rc-agent.exe", "timeout": 10 }))
+                    .timeout(std::time::Duration::from_secs(15))
                     .send()
                     .await;
                 log_pod_activity(
                     state,
                     &pod.id,
                     "race_engineer",
-                    "Graduated Recovery (Tier 2: Sentry Restart)",
-                    "rc-agent restart via rc-sentry schtasks before WoL (machine is on, WoL would be useless)",
+                    "Graduated Recovery (Tier 2: Watchdog Restart)",
+                    "rc-agent killed via sentry before WoL, RCWatchdog respawns in Session 1 (machine is on, WoL useless)",
                     "race_engineer",
                     None,
                 );

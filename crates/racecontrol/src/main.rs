@@ -557,7 +557,7 @@ async fn main() -> anyhow::Result<()> {
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info,debug=info".into());
+        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info,debug=info,pod_healer=info".into());
 
     // Error rate monitoring — broadcast bridge from sync Layer to async alerters
     let (alert_tx, _) = tokio::sync::broadcast::channel::<()>(4);
