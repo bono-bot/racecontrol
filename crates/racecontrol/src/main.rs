@@ -1004,6 +1004,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn deployment awareness (60s interval, fleet version consistency + crash detection)
     deploy_awareness::spawn(state.clone());
 
+    // Spawn venue state monitor (60s interval, ping-based venue open detection)
+    racecontrol_crate::venue_state::spawn();
+
     // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
     app_health_monitor::spawn(state.clone());
 

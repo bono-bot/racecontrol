@@ -582,6 +582,31 @@ async fn detect_fleet_anomalies(
 
     let now_ts = Utc::now().timestamp();
 
+    // ── 0. Empty fleet guard (closes incident #5: pods DB desync) ──────────
+    // If fleet map is empty but agents are connected, something is wrong.
+    {
+        static LAST_EMPTY_ALERT: AtomicI64 = AtomicI64::new(0);
+        let agents_connected = {
+            let senders = state.agent_senders.read().await;
+            senders.values().filter(|s| !s.is_closed()).count()
+        };
+        if fleet.is_empty() && agents_connected > 0 {
+            tracing::error!(
+                target: "fleet-anomaly",
+                "PODS_EMPTY: fleet health store is empty but {} agents connected — kiosk may show 'Waiting for pods'",
+                agents_connected
+            );
+            if now_ts - LAST_EMPTY_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                LAST_EMPTY_ALERT.store(now_ts, Ordering::Relaxed);
+                let msg = format!(
+                    "⚠ PODS EMPTY: Fleet health store empty but {} WS agents connected.\nKiosk may show 'Waiting for pods'. Server may need restart or pods need to reconnect.",
+                    agents_connected
+                );
+                crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
+
     // ── 1. Build version skew ──────────────────────────────────────────────
     // Find the majority build_id among reachable pods, flag outliers.
     {
@@ -865,7 +890,39 @@ async fn detect_fleet_anomalies(
         }
     }
 
-    // ── 7. PIN validation failure spike ────────────────────────────────────
+    // ── 7. Mass pod offline (MI bridge — network/power issue) ───────────────
+    // If >=3 pods are offline simultaneously while venue is open, this is
+    // likely a network/power issue, not individual pod crashes.
+    {
+        static LAST_MASS_OFFLINE_ALERT: AtomicI64 = AtomicI64::new(0);
+
+        if crate::venue_state::venue_is_open() {
+            let offline_pods: Vec<&str> = fleet.iter()
+                .filter(|(_, s)| !s.http_reachable)
+                .map(|(id, _)| id.as_str())
+                .collect();
+
+            if offline_pods.len() >= 3 {
+                tracing::warn!(
+                    target: "fleet-anomaly",
+                    "MASS_OFFLINE: {} pods unreachable while venue is open — possible network/power issue: {:?}",
+                    offline_pods.len(), offline_pods
+                );
+
+                if now_ts - LAST_MASS_OFFLINE_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                    LAST_MASS_OFFLINE_ALERT.store(now_ts, Ordering::Relaxed);
+                    let msg = format!(
+                        "⚠ MASS OFFLINE: {} pods unreachable while venue is open:\n{}\nPossible network outage or power issue. Check router/switch/UPS.",
+                        offline_pods.len(),
+                        offline_pods.join(", ")
+                    );
+                    crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                }
+            }
+        }
+    }
+
+    // ── 8. PIN validation failure spike ────────────────────────────────────
     // Drain API error counts and alert if PIN failures are elevated.
     // This detects: wrong PIN entered repeatedly, kiosk → server connectivity issues,
     // or broken PIN validation logic.
@@ -895,6 +952,50 @@ async fn detect_fleet_anomalies(
                     pin_failures, details.join(", ")
                 );
                 crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+            }
+        }
+    }
+
+    // ── 8. Bat file hash drift (closes incident #16, #22) ─────────────────
+    // If bat_sha256 differs across the fleet, startup scripts are out of sync.
+    // Stale bat files miss process kills, power settings, ConspitLink guards.
+    // Data already collected in fleet health store from agent /health probe.
+    {
+        static LAST_BAT_ALERT: AtomicI64 = AtomicI64::new(0);
+        let mut bat_hashes: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (pod_id, store) in fleet.iter() {
+            if store.http_reachable {
+                if let Some(ref hash) = store.bat_sha256 {
+                    bat_hashes.entry(hash.as_str()).or_default().push(pod_id.as_str());
+                }
+            }
+        }
+
+        if bat_hashes.len() > 1 {
+            let (majority_hash, _) = bat_hashes.iter().max_by_key(|(_, pods)| pods.len()).unwrap();
+            let drifted: Vec<(&str, &str)> = bat_hashes.iter()
+                .filter(|(h, _)| *h != majority_hash)
+                .flat_map(|(h, pods)| pods.iter().map(move |p| (*p, *h)))
+                .collect();
+
+            if !drifted.is_empty() {
+                for (pod_id, hash) in &drifted {
+                    tracing::warn!(
+                        target: "fleet-anomaly",
+                        "BAT_DRIFT: {} has bat_sha256={} (fleet majority: {})",
+                        pod_id, &hash[..16.min(hash.len())], &majority_hash[..16.min(majority_hash.len())]
+                    );
+                }
+
+                if now_ts - LAST_BAT_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
+                    LAST_BAT_ALERT.store(now_ts, Ordering::Relaxed);
+                    let list: Vec<String> = drifted.iter().map(|(p, _)| p.to_string()).collect();
+                    let msg = format!(
+                        "⚠ BAT DRIFT: {} pod(s) have different start-rcagent.bat than fleet majority:\n{}\nDeploy bat sync needed — stale bat causes settings regression.",
+                        drifted.len(), list.join(", ")
+                    );
+                    crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                }
             }
         }
     }
@@ -1116,6 +1217,7 @@ pub async fn fleet_health_handler(
         "services": services,
         "displays": display_status,
         "dashboard_clients": crate::ws::dashboard_client_count(),
+        "venue_open": crate::venue_state::venue_is_open(),
         "timestamp": Utc::now().to_rfc3339(),
     }))
 }

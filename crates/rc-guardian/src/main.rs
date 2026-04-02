@@ -149,27 +149,19 @@ async fn main() -> anyhow::Result<()> {
             if !billing_safe {
                 warn!("Active billing sessions detected — restart is unsafe");
 
-                // Check if peak hours
-                let ist_hour = {
-                    let utc_now = chrono::Utc::now();
-                    // IST = UTC + 5:30
-                    let ist = utc_now + chrono::Duration::hours(5) + chrono::Duration::minutes(30);
-                    ist.hour()
-                };
-                let is_peak = (12..=22).contains(&ist_hour);
-
-                if is_peak {
-                    // EG-05: WhatsApp escalation for active sessions during peak
+                // EG-05: Active billing = always unsafe, regardless of time.
+                // Replaced hardcoded peak hours (12-22 IST) — if there are active
+                // billing sessions, it's always revenue-impacting.
+                {
                     error!(
-                        ist_hour,
-                        "UNSAFE RESTART — active billing during peak hours, escalating to WhatsApp"
+                        "UNSAFE RESTART — active billing sessions detected, escalating to WhatsApp"
                     );
                     alert::send_whatsapp(
                         &http_client,
                         &config,
                         &format!(
-                            "[rc-guardian] SERVER DOWN ({} consecutive failures) but active billing sessions exist during peak hours ({}:00 IST). Manual intervention required.",
-                            failures, ist_hour
+                            "[rc-guardian] SERVER DOWN ({} consecutive failures) but active billing sessions exist. Manual intervention required.",
+                            failures
                         ),
                     ).await;
 

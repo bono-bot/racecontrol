@@ -47,12 +47,11 @@ pub async fn check_business_alerts(pool: &sqlx::SqlitePool) -> Vec<BusinessAlert
         });
     }
 
-    // Check: Occupancy below 40% during peak hours
-    // IST = UTC + 5:30 — compute correctly via chrono Duration to avoid modular arithmetic bugs
-    let now_ist = Utc::now() + chrono::Duration::minutes(330);
-    let hour = now_ist.hour();
-    let is_peak = hour >= 16 && hour < 22;
-    if is_peak {
+    // Check: Occupancy below 40% when venue is open
+    // Replaced hardcoded peak hours (16-22 IST) with ping-based venue state.
+    // Rule: "If server or James is on, venue is open."
+    let is_venue_open = crate::venue_state::venue_is_open();
+    if is_venue_open {
         // MMA-R1: occupancy_rate_pct is REAL in DB — f64 is correct here
         let occ: f64 = sqlx::query_scalar(
             "SELECT COALESCE(occupancy_rate_pct, 0.0) FROM daily_business_metrics WHERE date = ?1"

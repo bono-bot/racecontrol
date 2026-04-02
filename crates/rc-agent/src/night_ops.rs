@@ -1,18 +1,19 @@
-//! Night Operations — autonomous midnight maintenance cycle for Meshed Intelligence.
+//! Night Operations — autonomous maintenance cycle for Meshed Intelligence.
 //!
-//! Runs during off-hours (midnight to 6am IST) when no customers are present.
+//! Runs when the venue is closed (server WS disconnected for >30 min).
 //! Full self-maintenance: health check → diagnose → fix → audit → report.
 //!
 //! Phase 238 — Meshed Intelligence NIGHT-01 to NIGHT-04.
+//! Replaced hardcoded midnight-6am IST schedule with WS-disconnect gate.
 //!
-//! The night ops cycle:
-//!   00:00 IST — Full fleet health check (Tier 1-2 deterministic, free)
-//!   00:30 — Apply pending fleet-verified fixes from KB
-//!   01:00 — Full 5-model MMA diagnostic on any lingering issues (~$4)
-//!   02:00 — Archive expired KB solutions (TTL cleanup)
-//!   03:00 — Clear old logs (>7 days)
-//!   05:00 — Morning readiness check (MMA-trained: 8 checks)
-//!   06:00 — Report to Uday: "Fleet ready. X issues found, Y auto-resolved."
+//! The night ops cycle (when venue is closed):
+//!   Full fleet health check (Tier 1-2 deterministic, free)
+//!   Apply pending fleet-verified fixes from KB
+//!   Full 5-model MMA diagnostic on any lingering issues (~$4)
+//!   Archive expired KB solutions (TTL cleanup)
+//!   Clear old logs (>7 days)
+//!   Morning readiness check (MMA-trained: 8 checks)
+//!   Report to Uday: "Fleet ready. X issues found, Y auto-resolved."
 //!
 //! This module defines the night ops pipeline. Scheduling is done via Windows
 //! Task Scheduler (schtasks) — the pipeline itself is a function that can be

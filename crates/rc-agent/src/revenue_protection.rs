@@ -25,9 +25,10 @@ const POLL_INTERVAL_SECS: u64 = 10;
 /// Allows time for game launch after billing starts.
 const BILLING_IDLE_GRACE_SECS: u64 = 120;
 
-/// IST peak hours: 12:00 - 22:00 (venue operating hours).
-const PEAK_HOUR_START: u32 = 12;
-const PEAK_HOUR_END: u32 = 22;
+// Removed hardcoded peak hours (was 12-22 IST).
+// Revenue protection is now always active when billing is running —
+// if billing_active=true, a customer is being charged, so degradation
+// is always revenue-impacting regardless of time.
 
 /// Spawn the revenue protection background task.
 ///
@@ -106,31 +107,23 @@ pub fn spawn(
                 billing_idle_ticks = 0;
             }
 
-            // REV-03: Peak hour priority — check if current IST hour is in peak range
-            // IST = UTC + 5:30 (computed manually per CLAUDE.md — NEVER use TZ=Asia/Kolkata)
-            let utc_now = Utc::now();
-            let ist_total_minutes = utc_now.timestamp() / 60 + 5 * 60 + 30;
-            let ist_hour = ((ist_total_minutes % (24 * 60)) / 60) as u32;
-            let is_peak = ist_hour >= PEAK_HOUR_START && ist_hour < PEAK_HOUR_END;
-
-            if is_peak {
-                // During peak hours, if pod health is degraded (no game, no billing,
-                // but we expect activity), emit a higher-priority event.
-                // "Degraded" here = game was recently running but now gone unexpectedly
-                // while billing is still active (crash during peak).
+            // REV-03: Revenue-at-risk detection — billing active + pod degraded.
+            // Replaced hardcoded peak hours (12-22 IST) with billing state check.
+            // If billing is active, a customer is being charged — degradation is
+            // ALWAYS revenue-impacting regardless of time of day.
+            {
                 if state.billing_active && state.game_pid.is_none() && state.billing_paused {
                     tracing::warn!(
                         target: LOG_TARGET,
                         node = %node_id,
-                        ist_hour = ist_hour,
-                        "REV-03: Pod degraded during peak hours — prioritize recovery"
+                        "REV-03: Pod degraded while billing active — prioritize recovery"
                     );
                     let _ = fleet_tx.send(FleetEvent::RevenueAnomaly {
-                        anomaly_type: "peak_hour_degraded".to_string(),
+                        anomaly_type: "billing_active_degraded".to_string(),
                         node_id: node_id.clone(),
                         detail: format!(
-                            "Pod {} degraded during peak hour {} IST — recovery priority HIGH",
-                            node_id, ist_hour
+                            "Pod {} degraded while billing active — recovery priority HIGH",
+                            node_id
                         ),
                         timestamp: Utc::now(),
                     });

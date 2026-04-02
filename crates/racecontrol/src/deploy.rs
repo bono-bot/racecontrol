@@ -1117,43 +1117,28 @@ pub async fn deploy_status(state: &Arc<AppState>) -> HashMap<String, DeployState
     state.pod_deploy_states.read().await.clone()
 }
 
-/// DEPLOY-03: Deploy window lock — blocks deploys during weekend peak hours.
+/// DEPLOY-03: Deploy window lock — blocks deploys when venue is open.
 ///
-/// Protected window: Saturday (6) and Sunday (0) from 18:00–22:59 IST.
-/// All times computed in IST (UTC+5:30).
+/// Replaced hardcoded weekend peak hours with venue_is_open() check.
+/// Rule: block if venue is open (server or James reachable), allow if closed.
 ///
 /// Returns Ok(()) if deploy is allowed, Err(message) if blocked.
 /// If `force` is true and the window is locked, a WARN is logged but Ok is returned.
 /// `actor` is used only for the force-override warning log.
 pub fn is_deploy_window_locked(force: bool, actor: &str) -> Result<(), String> {
-    // Compute current IST time: UTC + 5h30m
-    let utc_now = Utc::now();
-    let ist_offset = chrono::Duration::hours(5) + chrono::Duration::minutes(30);
-    let ist_now = utc_now + ist_offset;
+    let venue_open = crate::venue_state::venue_is_open();
 
-    let weekday = ist_now.weekday();
-    let hour = ist_now.hour();
-
-    // Weekend: Saturday = 5 (Mon=0), Sunday = 6 in chrono::Weekday
-    let is_weekend = weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun;
-    // Peak hours: 18:00–22:59 IST (6 PM to 11 PM IST)
-    let is_peak_hour = (18..=22).contains(&hour);
-
-    if is_weekend && is_peak_hour {
+    if venue_open {
         if force {
             tracing::warn!(
                 actor = %actor,
-                ist_time = %ist_now.format("%Y-%m-%d %H:%M:%S IST"),
-                weekday = ?weekday,
-                hour = hour,
-                "DEPLOY-03: Deploy forced during weekend peak hours (18:00-23:00 IST)"
+                "DEPLOY-03: Deploy forced while venue is open"
             );
             return Ok(());
         }
-        return Err(format!(
-            "Deploy blocked: weekend peak hours (18:00-23:00 IST). Current IST time: {}. Use force=true to override.",
-            ist_now.format("%Y-%m-%d %H:%M:%S")
-        ));
+        return Err(
+            "Deploy blocked: venue is open (server/James reachable). Use force=true to override.".to_string()
+        );
     }
 
     Ok(())

@@ -139,6 +139,29 @@ async fn check_all_pods(
                         ip: pod.ip_address.clone(),
                         tailscale_ip: None,
                     });
+
+                    // MI Bridge: Auto-resolve open pod_offline incidents on recovery
+                    let db = state.db.clone();
+                    let pod_id_for_resolve = pod.id.clone();
+                    tokio::spawn(async move {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let result = sqlx::query(
+                            "UPDATE fleet_incidents SET resolved_at = ?1, resolution = 'auto_recovered'
+                             WHERE problem_key = ?2 AND resolved_at IS NULL"
+                        )
+                        .bind(&now)
+                        .bind(&format!("pod_offline:{}", pod_id_for_resolve))
+                        .execute(&db)
+                        .await;
+                        if let Ok(r) = result {
+                            if r.rows_affected() > 0 {
+                                tracing::info!(
+                                    "MI Bridge: Resolved {} pod_offline incident(s) for {}",
+                                    r.rows_affected(), pod_id_for_resolve
+                                );
+                            }
+                        }
+                    });
                 }
             }
             drop(backoffs);
@@ -217,6 +240,31 @@ async fn check_all_pods(
                 pod_number: pod.number,
                 ip: pod.ip_address.clone(),
                 last_seen_secs_ago: 0,
+            });
+
+            // MI Bridge: Log fleet incident for pod going offline.
+            // Severity depends on venue state — High if open (revenue impact), Low if closed.
+            let incident = rc_common::mesh_types::MeshIncident {
+                id: format!("inc_pod_offline_{}_{}", pod.id, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+                node: pod.id.clone(),
+                problem_key: format!("pod_offline:{}", pod.id),
+                severity: if crate::venue_state::venue_is_open() {
+                    rc_common::mesh_types::IncidentSeverity::High
+                } else {
+                    rc_common::mesh_types::IncidentSeverity::Low
+                },
+                cost: 0.0,
+                resolution: None,
+                time_to_resolve_secs: None,
+                resolved_by_tier: None,
+                detected_at: chrono::Utc::now(),
+                resolved_at: None,
+            };
+            let db = state.db.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::fleet_kb::insert_incident(&db, &incident).await {
+                    tracing::warn!("MI Bridge: Failed to log pod offline incident: {}", e);
+                }
             });
         }
 

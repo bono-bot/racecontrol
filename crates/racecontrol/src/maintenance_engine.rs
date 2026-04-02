@@ -822,14 +822,9 @@ pub fn calculate_priority(severity: &str, _pod_id: u8, is_peak: bool, has_active
     score as u8
 }
 
-/// Check if the current IST time is within peak hours.
-/// Peak: 4pm-10pm IST (weekdays), 11am-10pm IST (weekends).
+/// Check if the venue is currently operating (ping-based, not clock-based).
+/// Replaces hardcoded peak hours with venue_state reachability check.
+/// Rule: "If server or James is on, venue is open."
 pub fn is_peak_hours() -> bool {
-    let now = Utc::now() + chrono::Duration::hours(5) + chrono::Duration::minutes(30);
-    let hour = now.hour();
-    let weekday = now.weekday();
-    match weekday {
-        chrono::Weekday::Sat | chrono::Weekday::Sun => hour >= 11 && hour < 22,
-        _ => hour >= 16 && hour < 22,
-    }
+    crate::venue_state::venue_is_open()
 }
