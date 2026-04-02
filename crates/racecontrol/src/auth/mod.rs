@@ -136,8 +136,8 @@ pub async fn create_auth_token(
 
     // Insert into DB
     sqlx::query(
-        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args, created_at, expires_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&token_id)
     .bind(&pod_id)
@@ -151,6 +151,7 @@ pub async fn create_auth_token(
     .bind(&custom_launch_args)
     .bind(now.to_rfc3339())
     .bind(expires_at.to_rfc3339())
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB insert error: {}", e))?;
@@ -1047,13 +1048,14 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendResul
                 .map_err(|e| format!("Encrypt error: {}", e))?;
 
             sqlx::query(
-                "INSERT INTO drivers (id, name, phone_hash, phone_enc, customer_id, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                "INSERT INTO drivers (id, name, phone_hash, phone_enc, customer_id, updated_at, venue_id) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
             )
             .bind(&id)
             .bind(format!("Customer {}", &phone[phone.len().saturating_sub(4)..]))
             .bind(&phone_hash)
             .bind(&phone_enc)
             .bind(&customer_id)
+            .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await
             .map_err(|e| format!("DB error creating driver: {}", e))?;

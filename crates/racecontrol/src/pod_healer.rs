@@ -473,7 +473,7 @@ async fn heal_pod(
                 "action": action.action,
                 "target": action.target,
                 "reason": action.reason,
-            }));
+            }), &state.config.venue.venue_id);
             execute_heal_action(state, &pod.ip_address, action).await;
         }
         // NOTE: The healer does NOT call record_attempt() here.

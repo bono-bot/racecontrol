@@ -198,7 +198,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             event_archive::append_event(&state.db, "pod.online", "ws", Some(&canonical_id), serde_json::json!({
                                 "pod_number": pod_info.number,
                                 "conn_id": conn_id,
-                            }));
+                            }), &state.config.venue.venue_id);
 
                             // MMA-109: Scope each lock tightly — never hold across .await
                             // Lock order: agent_senders → agent_conn_ids → pods (consistent)
@@ -222,8 +222,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             // - Awaited (not spawned) to prevent race with disconnect (MMA F-01)
                             {
                                 let db_result = sqlx::query(
-                                    "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen)
-                                     VALUES (?, ?, ?, ?, 'assetto_corsa', 'online', datetime('now'))
+                                    "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen, venue_id)
+                                     VALUES (?, ?, ?, ?, 'assetto_corsa', 'online', datetime('now'), ?)
                                      ON CONFLICT(id) DO UPDATE SET
                                        ip_address = excluded.ip_address,
                                        status = CASE WHEN pods.status IN ('disabled', 'maintenance') THEN pods.status ELSE 'online' END,
@@ -233,6 +233,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 .bind(pod_info.number as i64)
                                 .bind(&pod_info.name)
                                 .bind(&pod_info.ip_address)
+                                .bind(&state.config.venue.venue_id)
                                 .execute(&state.db)
                                 .await;
 
@@ -906,7 +907,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
-                            event_archive::append_event(&state.db, "pod.offline", "ws", Some(pod_id), serde_json::json!({ "reason": "agent_disconnect" }));
+                            event_archive::append_event(&state.db, "pod.offline", "ws", Some(pod_id), serde_json::json!({ "reason": "agent_disconnect" }), &state.config.venue.venue_id);
                             let has_active_billing = state
                                 .billing
                                 .active_timers

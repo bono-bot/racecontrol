@@ -430,7 +430,7 @@ async fn deploy_pod_inner(
     );
     event_archive::append_event(&state.db, "deploy.started", "deploy", Some(&pod_id), serde_json::json!({
         "binary_url": binary_url,
-    }));
+    }), &state.config.venue.venue_id);
 
     // Hash-based versioning: download as rc-agent-<hash>.exe
     // The bat file swap logic finds any rc-agent-????????*.exe and renames it
@@ -456,7 +456,7 @@ async fn deploy_pod_inner(
                     .await;
                 send_deploy_failure_alert(&state, &pod_id, &reason).await;
                 log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
-                event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }));
+                event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }), &state.config.venue.venue_id);
                 return;
             }
         }
@@ -465,7 +465,7 @@ async fn deploy_pod_inner(
             set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
             send_deploy_failure_alert(&state, &pod_id, &reason).await;
             log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
-            event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }));
+            event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": reason }), &state.config.venue.venue_id);
             return;
         }
     }
@@ -666,7 +666,7 @@ async fn deploy_pod_inner(
             );
             event_archive::append_event(&state.db, "deploy.completed", "deploy", Some(&pod_id), serde_json::json!({
                 "verify_delay_secs": delay,
-            }));
+            }), &state.config.venue.venue_id);
             // Reset to Idle after a brief delay so dashboard can show Complete
             tokio::time::sleep(Duration::from_secs(10)).await;
             set_deploy_state(&state, &pod_id, DeployState::Idle).await;
@@ -831,7 +831,7 @@ async fn deploy_pod_inner(
             &failure_reason,
             "deploy",
         );
-        event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": failure_reason }));
+        event_archive::append_event(&state.db, "deploy.failed", "deploy", Some(&pod_id), serde_json::json!({ "reason": failure_reason }), &state.config.venue.venue_id);
     }
 }
 

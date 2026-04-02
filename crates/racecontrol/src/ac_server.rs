@@ -1368,8 +1368,8 @@ pub async fn collect_results(
             .unwrap_or_else(|| "unknown".to_string());
 
         let _ = sqlx::query(
-            "INSERT INTO multiplayer_results (id, group_session_id, ac_session_id, driver_id, position, best_lap_ms, total_time_ms, laps_completed, dnf)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO multiplayer_results (id, group_session_id, ac_session_id, driver_id, position, best_lap_ms, total_time_ms, laps_completed, dnf, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&result_id)
         .bind(&group_session_id)
@@ -1380,6 +1380,7 @@ pub async fn collect_results(
         .bind(result.total_time_ms)
         .bind(result.laps_completed as i64)
         .bind(if result.laps_completed == 0 { 1i64 } else { 0i64 })
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
     }

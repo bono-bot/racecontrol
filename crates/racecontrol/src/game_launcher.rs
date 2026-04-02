@@ -486,7 +486,7 @@ async fn launch_game(
             attempt_number: 1,
             db_fallback: None,
         };
-        metrics::record_launch_event(&state.db, &launch_event).await;
+        metrics::record_launch_event(&state.db, &launch_event, &state.config.venue.venue_id).await;
     }
     Ok(())
 }
@@ -577,7 +577,7 @@ pub async fn relaunch_game(
             attempt_number: 2,
             db_fallback: None,
         };
-        metrics::record_launch_event(&state.db, &relaunch_event).await;
+        metrics::record_launch_event(&state.db, &relaunch_event, &state.config.venue.venue_id).await;
     }
     let info = {
         let games = state.game_launcher.active_games.read().await;
@@ -656,7 +656,7 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                 attempt_number: 1,
                 db_fallback: None,
             };
-            metrics::record_launch_event(&state.db, &stop_event).await;
+            metrics::record_launch_event(&state.db, &stop_event, &state.config.venue.venue_id).await;
         }
 
         // STATE-01: Spawn 30s Stopping timeout — auto-transitions to Error if game doesn't stop
@@ -799,7 +799,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             attempt_number: 1,
             db_fallback: None,
         };
-        metrics::record_launch_event(&state.db, &state_event).await;
+        metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id).await;
     }
 
     // Broadcast to dashboards
@@ -1029,7 +1029,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             recovery_duration_ms: Some(recovery_duration_ms),
                             error_details: Some(format!("exit_code: {:?}", current_exit_code)),
                         };
-                        metrics::record_recovery_event(&state_clone.db, &recovery_event).await;
+                        metrics::record_recovery_event(&state_clone.db, &recovery_event, &state_clone.config.venue.venue_id).await;
                     }
                 });
             } else {
@@ -1111,7 +1111,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             current_exit_code
                         )),
                     };
-                    metrics::record_recovery_event(&state.db, &recovery_event).await;
+                    metrics::record_recovery_event(&state.db, &recovery_event, &state.config.venue.venue_id).await;
                 }
             }
         }
@@ -1279,7 +1279,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                 attempt_number: 1,
                 db_fallback: None,
             };
-            metrics::record_launch_event(&state.db, &timeout_event).await;
+            metrics::record_launch_event(&state.db, &timeout_event, &state.config.venue.venue_id).await;
         }
 
         // LAUNCH-18: Route timeout through handle_game_state_update so Race Engineer
@@ -1302,8 +1302,8 @@ async fn log_game_event(
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
     let result = sqlx::query(
-        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(pod_id)
@@ -1312,6 +1312,7 @@ async fn log_game_event(
     .bind(pid.map(|p| p as i64))
     .bind(error_message)
     .bind(&now)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await;
 

@@ -51,11 +51,12 @@ pub fn log_pod_activity(
     let action = action.to_string();
     let details = details.to_string();
     let source = source.to_string();
+    let venue_id = state.config.venue.venue_id.clone();
 
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO pod_activity_log (id, pod_id, pod_number, timestamp, category, action, details, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO pod_activity_log (id, pod_id, pod_number, timestamp, category, action, details, source, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&pod_id)
@@ -65,6 +66,7 @@ pub fn log_pod_activity(
         .bind(&action)
         .bind(&details)
         .bind(&source)
+        .bind(&venue_id)
         .execute(&db)
         .await;
     });

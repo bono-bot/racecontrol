@@ -219,13 +219,14 @@ async fn expire_reservations(state: &Arc<AppState>) -> anyhow::Result<()> {
                         // Create refund debit_intent (negative amount)
                         let refund_id = uuid::Uuid::new_v4().to_string();
                         sqlx::query(
-                            "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at)
-                             VALUES (?, ?, ?, ?, 'pending', 'local', datetime('now'), datetime('now'))"
+                            "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at, venue_id)
+                             VALUES (?, ?, ?, ?, 'pending', 'local', datetime('now'), datetime('now'), ?)"
                         )
                         .bind(&refund_id)
                         .bind(driver_id)
                         .bind(-amount_paise)  // negative = refund
                         .bind(res_id)
+                        .bind(&state.config.venue.venue_id)
                         .execute(&state.db)
                         .await?;
                         tracing::info!("[scheduler] Created refund intent {} for expired reservation {} ({}p)", refund_id, res_id, amount_paise);

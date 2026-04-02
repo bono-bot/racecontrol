@@ -910,6 +910,7 @@ async fn test_billing_timer_counting() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Tick 30 times
@@ -952,6 +953,7 @@ async fn test_billing_manual_pause() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Drive 10 seconds
@@ -1001,6 +1003,7 @@ async fn test_billing_disconnect_pause() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // Drive 5 seconds
@@ -1062,6 +1065,7 @@ async fn test_billing_max_pauses() {
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: racecontrol_crate::billing::PauseReason::None,
+        nonce: String::new(),
     };
 
     // With pause_count = 3 and status = Active, tick should still count
@@ -2577,7 +2581,7 @@ async fn test_auto_event_entry() {
     ).bind(driver_id).execute(&pool).await.unwrap();
 
     // Call auto_enter_event directly (mirrors what persist_lap calls after INSERT)
-    auto_enter_event(&pool, Some("ae-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+    auto_enter_event(&pool, Some("ae-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None, "racingpoint-hyd-001").await;
 
     let entry = sqlx::query_as::<_, (String, i64)>(
         "SELECT driver_id, lap_time_ms FROM hotlap_event_entries WHERE event_id = ?"
@@ -2613,7 +2617,7 @@ async fn test_auto_entry_no_match() {
     ).bind(driver_id).execute(&pool).await.unwrap();
 
     // gt4 class should not match gt3 event
-    auto_enter_event(&pool, Some("nm-lap-1"), driver_id, "monza", "gt4", "assetto_corsa", 90000, None, None, None).await;
+    auto_enter_event(&pool, Some("nm-lap-1"), driver_id, "monza", "gt4", "assetto_corsa", 90000, None, None, None, "racingpoint-hyd-001").await;
 
     let count = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM hotlap_event_entries WHERE event_id = ?"
@@ -2649,7 +2653,7 @@ async fn test_auto_entry_date_range() {
     ).bind(driver_id).execute(&pool).await.unwrap();
 
     // Expired event should not receive entry
-    auto_enter_event(&pool, Some("dr-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+    auto_enter_event(&pool, Some("dr-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None, "racingpoint-hyd-001").await;
 
     let count = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM hotlap_event_entries WHERE event_id = ?"
@@ -2690,7 +2694,7 @@ async fn test_auto_entry_faster_lap() {
     ).bind(driver_id).execute(&pool).await.unwrap();
 
     // Faster lap should replace the existing 90000ms entry
-    auto_enter_event(&pool, Some("fl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 85000, None, None, None).await;
+    auto_enter_event(&pool, Some("fl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 85000, None, None, None, "racingpoint-hyd-001").await;
 
     let lap_time = sqlx::query_as::<_, (i64,)>(
         "SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2731,7 +2735,7 @@ async fn test_auto_entry_no_replace_slower() {
     ).bind(driver_id).execute(&pool).await.unwrap();
 
     // Slower lap should NOT replace the existing 85000ms best entry
-    auto_enter_event(&pool, Some("sl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+    auto_enter_event(&pool, Some("sl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None, "racingpoint-hyd-001").await;
 
     let lap_time = sqlx::query_as::<_, (i64,)>(
         "SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2848,7 +2852,7 @@ async fn test_badge_gold() {
 
     // 81500ms = 101.875% of 80000 => within gold threshold (<=102%)
     // auto_enter_event computes badge at insert time from the event's reference_time_ms
-    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81500, None, None, None).await;
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81500, None, None, None, "racingpoint-hyd-001").await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2876,7 +2880,7 @@ async fn test_badge_silver() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // 83500ms = 104.375% of 80000 => silver (>102% and <=105%)
-    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 83500, None, None, None).await;
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 83500, None, None, None, "racingpoint-hyd-001").await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2904,7 +2908,7 @@ async fn test_badge_bronze() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // 86000ms = 107.5% of 80000 => bronze (>105% and <=108%)
-    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 86000, None, None, None).await;
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 86000, None, None, None, "racingpoint-hyd-001").await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2932,7 +2936,7 @@ async fn test_badge_no_reference() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // When event has no reference_time_ms, badge must be NULL (not "none")
-    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81000, None, None, None).await;
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81000, None, None, None, "racingpoint-hyd-001").await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2981,7 +2985,7 @@ async fn test_f1_points_scoring() {
     }
 
     // Call score_group_event() to process multiplayer_results into hotlap_event_entries
-    score_group_event(&pool, gs_id, event_id).await.expect("score_group_event failed");
+    score_group_event(&pool, gs_id, event_id, "racingpoint-hyd-001").await.expect("score_group_event failed");
 
     let points: Vec<(String, i64)> = sqlx::query_as(
         "SELECT driver_id, points FROM hotlap_event_entries WHERE event_id = ? ORDER BY position"
@@ -3028,7 +3032,7 @@ async fn test_dns_dnf_zero_points() {
     ).bind(gs_id).execute(&pool).await.unwrap();
 
     // Call score_group_event() to process multiplayer_results including DNF driver
-    score_group_event(&pool, gs_id, event_id).await.expect("score_group_event failed");
+    score_group_event(&pool, gs_id, event_id, "racingpoint-hyd-001").await.expect("score_group_event failed");
 
     let dnf_points = sqlx::query_as::<_, (i64,)>(
         "SELECT points FROM hotlap_event_entries WHERE event_id = ? AND driver_id = 'dnf-drv-2'"
@@ -3126,7 +3130,7 @@ async fn test_championship_standings_sum() {
     }
 
     // Call compute_championship_standings() to aggregate points and persist standings
-    compute_championship_standings(&pool, champ_id).await.expect("compute_championship_standings failed");
+    compute_championship_standings(&pool, champ_id, "racingpoint-hyd-001").await.expect("compute_championship_standings failed");
 
     let standing = sqlx::query_as::<_, (i64,)>(
         "SELECT total_points FROM championship_standings WHERE championship_id = ? AND driver_id = ?"

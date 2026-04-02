@@ -37,14 +37,14 @@ pub struct DriverRating {
 ///
 /// The worker processes `RatingRequest`s sequentially — it never blocks lap insertion
 /// because the caller uses `try_send` (non-blocking).
-pub fn spawn_rating_worker(db: SqlitePool) -> mpsc::Sender<RatingRequest> {
+pub fn spawn_rating_worker(db: SqlitePool, venue_id: String) -> mpsc::Sender<RatingRequest> {
     let (tx, mut rx) = mpsc::channel::<RatingRequest>(256);
 
     tokio::spawn(async move {
         tracing::info!("driver-rating worker started");
 
         while let Some(req) = rx.recv().await {
-            if let Err(e) = compute_and_store_rating(&db, &req.driver_id, &req.sim_type).await {
+            if let Err(e) = compute_and_store_rating(&db, &req.driver_id, &req.sim_type, &venue_id).await {
                 tracing::warn!(
                     driver_id = %req.driver_id,
                     sim_type = %req.sim_type,
@@ -65,6 +65,7 @@ async fn compute_and_store_rating(
     db: &SqlitePool,
     driver_id: &str,
     sim_type: &str,
+    venue_id: &str,
 ) -> Result<(), sqlx::Error> {
     // --- 1. Total valid laps for this driver+sim_type ---
     let total_laps: i64 = sqlx::query_as::<_, (i64,)>(
@@ -172,8 +173,8 @@ async fn compute_and_store_rating(
 
     // --- 7. Upsert into driver_ratings ---
     sqlx::query(
-        "INSERT INTO driver_ratings (driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        "INSERT INTO driver_ratings (driver_id, sim_type, composite_rating, rating_class, pace_score, consistency_score, experience_score, total_laps, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
          ON CONFLICT(driver_id, sim_type) DO UPDATE SET
             composite_rating = excluded.composite_rating,
             rating_class = excluded.rating_class,
@@ -191,6 +192,7 @@ async fn compute_and_store_rating(
     .bind(consistency_score)
     .bind(experience_score)
     .bind(total_laps)
+    .bind(venue_id)
     .execute(db)
     .await?;
 
@@ -208,7 +210,7 @@ async fn compute_and_store_rating(
 /// Backfill ratings for all drivers with 3+ laps.
 /// Called once at startup if driver_ratings is empty but laps exist.
 /// Processes in batches of 100 with 100ms sleep between.
-pub async fn backfill_ratings(db: SqlitePool) {
+pub async fn backfill_ratings(db: SqlitePool, venue_id: String) {
     // Check if ratings table is empty
     let count: i64 = match sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM driver_ratings",
@@ -265,7 +267,7 @@ pub async fn backfill_ratings(db: SqlitePool) {
 
     for (batch_idx, chunk) in pairs.chunks(100).enumerate() {
         for (driver_id, sim_type) in chunk {
-            if let Err(e) = compute_and_store_rating(&db, driver_id, sim_type).await {
+            if let Err(e) = compute_and_store_rating(&db, driver_id, sim_type, &venue_id).await {
                 tracing::warn!(
                     driver_id = %driver_id,
                     sim_type = %sim_type,

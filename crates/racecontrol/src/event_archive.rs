@@ -35,12 +35,14 @@ const LOG_TARGET: &str = "event_archive";
 /// - `source`     — subsystem that emitted the event, e.g. `"billing"`
 /// - `pod`        — optional pod identifier (e.g. `"pod_4"`); None for server-level events
 /// - `payload`    — arbitrary JSON data for this event type
+/// - `venue_id`   — venue identifier for multi-venue partitioning
 pub fn append_event(
     db: &SqlitePool,
     event_type: &str,
     source: &str,
     pod: Option<&str>,
     payload: serde_json::Value,
+    venue_id: &str,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
     // IST timestamp — standing rule: never use plain Utc for stored timestamps
@@ -55,10 +57,11 @@ pub fn append_event(
     let source = source.to_string();
     let pod = pod.map(|s| s.to_string());
     let payload_str = payload.to_string();
+    let venue_id = venue_id.to_string();
 
     tokio::spawn(async move {
         let result = insert_event_direct(
-            &db, &id, &event_type, &source, pod.as_deref(), &payload_str, &timestamp,
+            &db, &id, &event_type, &source, pod.as_deref(), &payload_str, &timestamp, &venue_id,
         )
         .await;
         if let Err(e) = result {
@@ -77,10 +80,11 @@ pub(crate) async fn insert_event_direct(
     pod: Option<&str>,
     payload_str: &str,
     timestamp: &str,
+    venue_id: &str,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO system_events (id, event_type, source, pod, timestamp, payload)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO system_events (id, event_type, source, pod, timestamp, payload, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(event_type)
@@ -88,6 +92,7 @@ pub(crate) async fn insert_event_direct(
     .bind(pod)
     .bind(timestamp)
     .bind(payload_str)
+    .bind(venue_id)
     .execute(db)
     .await?;
     Ok(())
@@ -438,7 +443,8 @@ mod tests {
                 source TEXT NOT NULL,
                 pod TEXT,
                 timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-                payload TEXT NOT NULL DEFAULT '{}'
+                payload TEXT NOT NULL DEFAULT '{}',
+                venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
             )",
         )
         .execute(&pool)
@@ -467,6 +473,7 @@ mod tests {
             Some("pod_1"),
             r#"{"driver_id":"d1","tier":"standard"}"#,
             &timestamp,
+            "racingpoint-hyd-001",
         )
         .await
         .unwrap();
@@ -514,6 +521,7 @@ mod tests {
                 None,
                 "{}",
                 &ts,
+                "racingpoint-hyd-001",
             )
             .await
             .unwrap();
@@ -550,7 +558,7 @@ mod tests {
 
         let id = uuid::Uuid::new_v4().to_string();
         let ts = format!("{}T10:00:00", date_str);
-        insert_event_direct(&db, &id, "test.event", "test", None, "{}", &ts)
+        insert_event_direct(&db, &id, "test.event", "test", None, "{}", &ts, "racingpoint-hyd-001")
             .await
             .unwrap();
 
@@ -561,7 +569,7 @@ mod tests {
 
         // Insert another event — second export should NOT include it (idempotent)
         let id2 = uuid::Uuid::new_v4().to_string();
-        insert_event_direct(&db, &id2, "test.event2", "test", None, "{}", &ts)
+        insert_event_direct(&db, &id2, "test.event2", "test", None, "{}", &ts, "racingpoint-hyd-001")
             .await
             .unwrap();
 

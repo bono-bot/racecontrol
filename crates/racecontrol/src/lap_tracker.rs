@@ -236,8 +236,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     };
 
     let result = sqlx::query(
-        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, assist_config_hash, assist_tier, billing_session_id, validity, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', datetime('now'))",
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, assist_config_hash, assist_tier, billing_session_id, validity, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', datetime('now'), ?)",
     )
     .bind(&lap.id)
     .bind(&lap.session_id)
@@ -258,6 +258,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&assist_config_hash)
     .bind(&assist_tier)
     .bind(&billing_session_id)
+    .bind(&state.config.venue.venue_id)
     .execute(&mut *tx)
     .await;
 
@@ -302,8 +303,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
 
     if is_pb {
         let _ = sqlx::query(
-            "INSERT INTO personal_bests (driver_id, track, car, sim_type, best_lap_ms, lap_id, achieved_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            "INSERT INTO personal_bests (driver_id, track, car, sim_type, best_lap_ms, lap_id, achieved_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
              ON CONFLICT(driver_id, track, car, sim_type) DO UPDATE SET
                 best_lap_ms = excluded.best_lap_ms,
                 lap_id = excluded.lap_id,
@@ -315,6 +316,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         .bind(&sim_type_str)
         .bind(lap.lap_time_ms as i64)
         .bind(&lap.id)
+        .bind(&state.config.venue.venue_id)
         .execute(&mut *tx)
         .await;
 
@@ -404,8 +406,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
 
         // STEP 3: Execute the UPSERT (sim_type-scoped).
         let _ = sqlx::query(
-            "INSERT INTO track_records (track, car, sim_type, driver_id, best_lap_ms, lap_id, achieved_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            "INSERT INTO track_records (track, car, sim_type, driver_id, best_lap_ms, lap_id, achieved_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
              ON CONFLICT(track, car, sim_type) DO UPDATE SET
                 driver_id = excluded.driver_id,
                 best_lap_ms = excluded.best_lap_ms,
@@ -418,6 +420,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         .bind(&lap.driver_id)
         .bind(lap.lap_time_ms as i64)
         .bind(&lap.id)
+        .bind(&state.config.venue.venue_id)
         .execute(&mut *tx)
         .await;
 
@@ -531,6 +534,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
                 lap.sector1_ms,
                 lap.sector2_ms,
                 lap.sector3_ms,
+                &state.config.venue.venue_id,
             )
             .await;
         }
@@ -553,6 +557,7 @@ pub async fn auto_enter_event(
     sector1_ms: Option<u32>,
     sector2_ms: Option<u32>,
     sector3_ms: Option<u32>,
+    venue_id: &str,
 ) {
     // Query matching active/upcoming events for this track+car_class+sim_type in the current date range
     let events = sqlx::query_as::<_, (String, Option<i64>)>(
@@ -610,8 +615,8 @@ pub async fn auto_enter_event(
         // UPSERT the entry (ON CONFLICT updates if this lap is faster)
         let upsert_result = sqlx::query(
             "INSERT INTO hotlap_event_entries
-                (id, event_id, driver_id, lap_id, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, badge, result_status, entered_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finished', datetime('now'))
+                (id, event_id, driver_id, lap_id, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, badge, result_status, entered_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finished', datetime('now'), ?)
              ON CONFLICT(event_id, driver_id) DO UPDATE SET
                 lap_id = excluded.lap_id,
                 lap_time_ms = excluded.lap_time_ms,
@@ -631,6 +636,7 @@ pub async fn auto_enter_event(
         .bind(sector2_ms.map(|v| v as i64))
         .bind(sector3_ms.map(|v| v as i64))
         .bind(badge)
+        .bind(venue_id)
         .execute(pool)
         .await;
 
@@ -800,6 +806,7 @@ pub async fn score_group_event(
     pool: &sqlx::SqlitePool,
     group_session_id: &str,
     hotlap_event_id: &str,
+    venue_id: &str,
 ) -> Result<(), String> {
     // Fetch all results ordered by position
     let results: Vec<(String, i64, Option<i64>, i64)> = sqlx::query_as(
@@ -850,8 +857,8 @@ pub async fn score_group_event(
         sqlx::query(
             "INSERT INTO hotlap_event_entries
                 (id, event_id, driver_id, lap_time_ms, position, points,
-                 gap_to_leader_ms, within_107_percent, result_status, entered_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 gap_to_leader_ms, within_107_percent, result_status, entered_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
              ON CONFLICT(event_id, driver_id) DO UPDATE SET
                 lap_time_ms = excluded.lap_time_ms,
                 position = excluded.position,
@@ -869,6 +876,7 @@ pub async fn score_group_event(
         .bind(gap_to_leader_ms)
         .bind(within_107)
         .bind(result_status)
+        .bind(venue_id)
         .execute(pool)
         .await
         .map_err(|e| format!("Failed to upsert hotlap_event_entry for driver {driver_id}: {e}"))?;
@@ -892,6 +900,7 @@ pub async fn score_group_event(
 pub async fn compute_championship_standings(
     pool: &sqlx::SqlitePool,
     championship_id: &str,
+    venue_id: &str,
 ) -> Result<(), String> {
     // Aggregate points and counts from hotlap_event_entries across all rounds
     let rows: Vec<(String, i64, i64, i64, i64, i64, Option<i64>)> = sqlx::query_as(
@@ -916,8 +925,8 @@ pub async fn compute_championship_standings(
     for (driver_id, total_points, rounds_entered, wins, p2_count, p3_count, best_result) in &rows {
         sqlx::query(
             "INSERT INTO championship_standings
-                (championship_id, driver_id, total_points, rounds_entered, wins, p2_count, p3_count, best_result, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                (championship_id, driver_id, total_points, rounds_entered, wins, p2_count, p3_count, best_result, updated_at, venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
              ON CONFLICT(championship_id, driver_id) DO UPDATE SET
                 total_points = excluded.total_points,
                 rounds_entered = excluded.rounds_entered,
@@ -935,6 +944,7 @@ pub async fn compute_championship_standings(
         .bind(p2_count)
         .bind(p3_count)
         .bind(best_result)
+        .bind(venue_id)
         .execute(pool)
         .await
         .map_err(|e| format!("Failed to upsert standing for driver {driver_id}: {e}"))?;

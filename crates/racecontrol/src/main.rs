@@ -685,11 +685,12 @@ async fn main() -> anyhow::Result<()> {
     // Phase 253: Spawn driver rating worker and set up backfill
     {
         let inner = Arc::get_mut(&mut state).expect("no other Arc refs yet");
-        let rating_tx = racecontrol_crate::driver_rating::spawn_rating_worker(inner.db.clone());
+        let rating_venue_id = inner.config.venue.venue_id.clone();
+        let rating_tx = racecontrol_crate::driver_rating::spawn_rating_worker(inner.db.clone(), rating_venue_id.clone());
         inner.rating_tx = Some(rating_tx);
         let backfill_db = inner.db.clone();
         tokio::spawn(async move {
-            racecontrol_crate::driver_rating::backfill_ratings(backfill_db).await;
+            racecontrol_crate::driver_rating::backfill_ratings(backfill_db, rating_venue_id).await;
         });
     }
 

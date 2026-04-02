@@ -3589,7 +3589,8 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             source TEXT NOT NULL,
             pod TEXT,
             timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            payload TEXT NOT NULL DEFAULT '{}'
+            payload TEXT NOT NULL DEFAULT '{}',
+            venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
         )"
     )
     .execute(pool)

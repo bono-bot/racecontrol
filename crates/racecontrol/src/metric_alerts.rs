@@ -99,7 +99,7 @@ pub async fn metric_alert_task(state: Arc<AppState>) {
                 "value": display_value,
                 "threshold": rule.threshold,
                 "severity": rule.severity,
-            }));
+            }), &state.config.venue.venue_id);
             crate::whatsapp_alerter::send_whatsapp(&state.config, &message).await;
         }
     }

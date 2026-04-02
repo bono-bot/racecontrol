@@ -122,13 +122,14 @@ pub async fn create_reservation(
     // Create reservation
     let reservation_id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO reservations (id, driver_id, experience_id, pin, status, expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending_debit', datetime('now', '+24 hours'), datetime('now'), datetime('now'))",
+        "INSERT INTO reservations (id, driver_id, experience_id, pin, status, expires_at, created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, 'pending_debit', datetime('now', '+24 hours'), datetime('now'), datetime('now'), ?)",
     )
     .bind(&reservation_id)
     .bind(driver_id)
     .bind(&req.experience_id)
     .bind(&pin)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error creating reservation: {}", e))?;
@@ -136,13 +137,14 @@ pub async fn create_reservation(
     // Create debit_intent
     let intent_id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'))",
+        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'), ?)",
     )
     .bind(&intent_id)
     .bind(driver_id)
     .bind(price_paise)
     .bind(&reservation_id)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error creating debit intent: {}", e))?;
@@ -308,13 +310,14 @@ pub async fn cancel_reservation(
                     // Create a refund debit_intent (negative amount)
                     let refund_id = Uuid::new_v4().to_string();
                     sqlx::query(
-                        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'))",
+                        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at, venue_id)
+                         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'), ?)",
                     )
                     .bind(&refund_id)
                     .bind(driver_id)
                     .bind(-amount) // Negative = refund
                     .bind(&reservation_id)
+                    .bind(&state.config.venue.venue_id)
                     .execute(&state.db)
                     .await
                     .map_err(|e| format!("DB error creating refund intent: {}", e))?;
@@ -410,14 +413,15 @@ pub async fn modify_reservation(
     // Create new reservation with ORIGINAL expires_at (preserves TTL)
     let reservation_id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO reservations (id, driver_id, experience_id, pin, status, expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending_debit', ?, datetime('now'), datetime('now'))",
+        "INSERT INTO reservations (id, driver_id, experience_id, pin, status, expires_at, created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, 'pending_debit', ?, datetime('now'), datetime('now'), ?)",
     )
     .bind(&reservation_id)
     .bind(driver_id)
     .bind(&req.experience_id)
     .bind(&pin)
     .bind(&original_expires_at) // Preserve original TTL
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error creating reservation: {}", e))?;
@@ -425,13 +429,14 @@ pub async fn modify_reservation(
     // Create new debit_intent
     let intent_id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'))",
+        "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at, venue_id)
+         VALUES (?, ?, ?, ?, 'pending', 'cloud', datetime('now'), datetime('now'), ?)",
     )
     .bind(&intent_id)
     .bind(driver_id)
     .bind(price_paise)
     .bind(&reservation_id)
+    .bind(&state.config.venue.venue_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error creating debit intent: {}", e))?;
