@@ -16,7 +16,8 @@ export type BillingSessionStatus =
   | "completed"            // Session ended normally (time elapsed)
   | "ended_early"          // Session ended before allocated time (staff action)
   | "cancelled"            // Session cancelled before starting
-  | "cancelled_no_playable"; // Session ended before PlayableSignal — customer charged nothing (BILL-06)
+  | "cancelled_no_playable" // Session ended before PlayableSignal — customer charged nothing (BILL-06)
+  | "paused_crash_recovery"; // Game crashed mid-session, auto-recovery in progress (v31.0)
 
 /** Maps to Rust BillingSessionInfo in crates/rc-common/src/types.rs */
 export interface BillingSession {

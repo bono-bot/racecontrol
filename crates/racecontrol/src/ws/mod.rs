@@ -161,13 +161,25 @@ pub async fn agent_ws(
     }
 }
 
-/// WebSocket endpoint for dashboard clients
+/// WebSocket endpoint for dashboard clients.
+/// Accepts token via query param (`?token=...`) OR Sec-WebSocket-Protocol header.
+/// The kiosk sends the token via protocol header (NEXT_PUBLIC_WS_TOKEN),
+/// while direct browser connections use the query param.
 pub async fn dashboard_ws(
     Query(params): Query<WsAuthParams>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if !verify_ws_token(&state, &params.token) {
+    // Try query param first, then Sec-WebSocket-Protocol header
+    let mut token = params.token.clone();
+    if token.is_none() || token.as_deref() == Some("") {
+        token = headers
+            .get("sec-websocket-protocol")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+    }
+    if !verify_ws_token(&state, &token) {
         tracing::warn!("WS dashboard connection rejected — invalid or missing token");
         return Err(StatusCode::UNAUTHORIZED);
     }
