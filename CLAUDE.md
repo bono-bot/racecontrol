@@ -1,12 +1,20 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.1 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.2 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.1: 2026-04-02).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03).**
 
-**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 37 corrections over 10 days. Rules are declarative; gates are procedural.
+**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 42 corrections over 11 days. Rules are declarative; gates are procedural.
 
-**v3.1 critical fix:** G1/G4 had ZERO enforcement — only G0 was enforced by hooks. James declared "all pods online" based on `ws=True` while blanking screens were broken (Session 0). **Two-Phase Completion Rule:** NEVER claim "done" in the same message as the last fix. **Proxy metrics (health OK, ws=True, build_id) are NOT proof** — verify the actual user-visible behavior.
+**v3.2 rules (from 5 user corrections in one session):**
+- **Automated verification:** Run `bash scripts/pod-verify.sh` before ANY pod-related completion claim. Checks Session context, edge count, blanking state. FAIL = do not claim done.
+- **Two-Phase Completion:** NEVER claim "done" in same message as last fix. Fix first, verify next turn.
+- **Proxy metrics are NOT proof:** health OK, ws=True, build_id match are supplementary only.
+- **Multi-probe before "offline":** Check ping + sentry + agent + SSH. Single failed probe proves nothing.
+- **TEMPORARY vs PERMANENT:** Label every fix. TEMPORARY requires follow-up in G4.
+- **Quick-start bat for schtask:** Use minimal 4-line bat for schtask recovery. Full bat only for HKLM Run at login.
+- **Delete-before-SCP:** Windows SCP silently fails to overwrite. Always `del` first, then SCP, then verify.
+- **"Good Catch" = G9 trigger:** Every user correction → immediate root cause analysis. Target: 0 per session.
 
 ### The 10 Gates (embedded in lifecycle phases)
 

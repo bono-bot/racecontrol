@@ -1,16 +1,26 @@
-# Cognitive Gate Protocol v3.1
+# Cognitive Gate Protocol v3.2
 
 **Purpose:** Single protocol governing every phase of Racing Point operations — Plan, Create, Verify, Deploy, Ship, and Debug — with 10 embedded anti-bias gates that fire at specific lifecycle moments. All standing rules, debugging methodology, audit phases, and the Multi-Model AI Audit Protocol are mapped to the phase where they activate.
 
-**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking goals. 37 documented corrections over 10 days. 147+ standing rules failed because rules are declarative; gates are procedural. Gates require visible output at specific moments, making skips visible.
+**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking goals. 42 documented corrections over 11 days. 147+ standing rules failed because rules are declarative; gates are procedural. Gates require visible output at specific moments, making skips visible.
 
 **v3.1 incident (2026-04-02):** G0 had hard hook enforcement; G1/G4 had ZERO enforcement. James recovered 7 pods, declared "all fixes deployed" based on `ws=True` (proxy metric). All recovered pods were in Session 0 — blanking screens broken on every pod. User caught it. Fix: hook now injects G1/G4 checklist every prompt + two-phase completion rule.
+
+**v3.2 additions (2026-04-03):** 5 user corrections in one session exposed systemic failures. New rules:
+1. **Automated verification script** (`scripts/pod-verify.sh`) — behavioral checks (Session context, edge_process_count, blanking state) replace manual proxy checks. Run BEFORE any completion claim.
+2. **Quick-start bat pattern** — schtask uses minimal 4-line bat (just starts rc-agent). Full bat only for HKLM Run at login. Prevents schtask failures from bloatware commands.
+3. **Delete-before-SCP** — SCP silently fails to overwrite on Windows. Always `del` first, then SCP, then verify.
+4. **Multi-probe before "offline"** — NEVER conclude a system is "off/dead/down" from a single probe. Require: ping + sentry health + rc-agent health. If any responds, system is ON.
+5. **TEMPORARY vs PERMANENT fix labels** — every fix must be labeled. TEMPORARY requires follow-up in G4.
+6. **"Good Catch" anti-metric** — every user correction triggers immediate G9 retrospective. Target: 0 per session.
 
 **Meta-gate:** The bias that causes all failures will try to skip these gates ("I already know the answer"). Writing the proof IS the fix. Thinking you know the answer without writing it IS the bias.
 
 **Two-Phase Completion Rule (v3.1):** NEVER claim "done/fixed/deployed" in the same message as the last fix action. Separate the FIX step from the VERIFY step into different turns. This structural separation prevents the rush-to-declare-done bias.
 
-**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02.
+**Automated Verification (v3.2):** Before ANY pod-related completion claim, run `bash scripts/pod-verify.sh`. Script checks: pod count (8 gaming), Session context (Console not Services), edge_process_count > 0, lock_screen_state. Returns PASS/FAIL. If FAIL → DO NOT claim done.
+
+**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03.
 
 ---
 
@@ -344,8 +354,8 @@ _Why (v3.1): 2026-04-02 — 7 pods recovered, declared "all fixes deployed" base
 "Complete" is invalid if Follow-up Plan is empty and Not Tested contains HIGH-risk items. An empty "Not Tested" list is a lie — there is ALWAYS something untested.
 _Why (v3.1): 2026-04-02 — G4 block listed "PROOFS: [Y — health API evidence]" without any Not Tested list. Session context (HIGH risk) and blanking screens (HIGH risk) were never listed._
 
-#### ⛩️ G5: Competing Hypotheses
-**Trigger:** Unexpected data, unusual values, surprising system state.
+#### ⛩️ G5: Competing Hypotheses (v3.2 hardened)
+**Trigger:** Unexpected data, unusual values, surprising system state. **Also triggers before ANY "offline/down/dead/off" conclusion.**
 **Proof:**
 ```
 Hypothesis A: [explanation] → Test: [specific command/check]
@@ -353,6 +363,9 @@ Hypothesis B: [explanation] → Test: [specific command/check]
 Status: [which tested, which eliminated, which confirmed]
 ```
 Single hypothesis = insufficient. Emergency override: act first during Phase E, document hypotheses after.
+
+**Multi-probe rule (v3.2):** Before concluding ANY system is "off" or "dead": check ping, rc-sentry :8091/health, rc-agent :8090/health, and SSH. If ANY of these responds, the system is ON — investigate why others fail (Tailscale, firewall, port conflict) instead of assuming powered off. A single failed ping proves NOTHING.
+_Why (v3.2): 2026-04-02 — Pod 6 declared "physically off" from single failed ping. Pod was on the entire time. User had to correct this._
 
 #### Phase 3 Gate
 - [ ] Exact behavior path tested (not proxies) — G1 proof
@@ -637,6 +650,7 @@ Cost ceiling hit → AI audits fall back to mechanical-only (grep-based). Never 
 | 2.1 | 2026-03-31 | Active enforcement. Session hooks, compliance checker, inline CLAUDE.md. |
 | 3.0 | 2026-04-01 | Merged with Unified Operations Protocol v3.0. Gates embedded in lifecycle phases. Single source of truth. |
 | 3.1 | 2026-04-02 | G1/G4 enforcement gap. Only G0 had hard enforcement; G1/G4 had zero. James declared "done" from proxy metrics (ws=True) while blanking screens broken on all pods. Fix: session-inject hook now includes G1/G4 checklist. Two-phase completion rule. Proxy metrics explicitly prohibited as primary proof. |
+| 3.2 | 2026-04-03 | 5 user corrections in one session. Automated verification script (pod-verify.sh). Quick-start bat pattern for schtask. Delete-before-SCP rule. Multi-probe before "offline" (G5 hardened). TEMPORARY/PERMANENT fix labels. "Good Catch" anti-metric (G9 trigger). |
 
 ### MMA Audit Trail (v2.0)
 
