@@ -449,7 +449,7 @@ async fn main() -> Result<()> {
     {
         const ALLOWED_HOSTS: &[&str] = &[
             "SIM1", "SIM2", "SIM3", "SIM4", "SIM5", "SIM6", "SIM7", "SIM8",
-            "POS1",
+            "POS1", "DESKTOP-MRVPQ3E",
         ];
         let hostname = std::env::var("COMPUTERNAME").unwrap_or_default();
         let is_allowed = ALLOWED_HOSTS.iter().any(|h| hostname.eq_ignore_ascii_case(h));
