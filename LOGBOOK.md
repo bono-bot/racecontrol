@@ -1110,3 +1110,5 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 
 | 2026-04-03 13:12 IST | James | cc9236c1 | feat(318-01): Task 1 — LaunchTimedOut CoreToAgentMessage, GameLaunchTimeout DiagnosticTrigger, AgentConfig.launch_timeout field. All exhaustive match arms updated. 3 tests pass. |
 | 2026-04-03 13:12 IST | James | 97083b5a | feat(318-01): Task 2 — wire LaunchTimedOut into ws_handler + emit from check_game_health. No lock across .await. Fixed pre-existing bugs: PodFleetStatus missing field, config test init. All tests pass. |
+| 2026-04-03 13:50 IST | James | a9578f74 | feat(318-02): Task 1 — launch_timeline_spans migration + GameTracker launch_id field. Fixed pre-existing ws/mod.rs missing arg + 15 test construction sites. 2 DB tests pass. |
+| 2026-04-03 13:54 IST | James | 6de5625a | feat(318-02): Task 2 — agent LaunchTimelineReport on success/timeout, server WS persist via tokio::spawn, GET /api/v1/launch-timeline/:launch_id. 4 tests pass. |
