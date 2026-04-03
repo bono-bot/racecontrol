@@ -60,29 +60,29 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INV-01 | TBD | Pending |
-| INV-02 | TBD | Pending |
-| INV-03 | TBD | Pending |
-| INV-04 | TBD | Pending |
-| COMBO-01 | TBD | Pending |
-| COMBO-02 | TBD | Pending |
-| COMBO-03 | TBD | Pending |
-| COMBO-04 | TBD | Pending |
-| COMBO-05 | TBD | Pending |
-| LAUNCH-01 | TBD | Pending |
-| LAUNCH-02 | TBD | Pending |
-| LAUNCH-03 | TBD | Pending |
-| LAUNCH-04 | TBD | Pending |
-| LAUNCH-05 | TBD | Pending |
-| DASH-01 | TBD | Pending |
-| DASH-02 | TBD | Pending |
-| DASH-03 | TBD | Pending |
+| INV-01 | Phase 316 | Pending |
+| INV-02 | Phase 317 | Pending |
+| INV-03 | Phase 320 | Pending |
+| INV-04 | Phase 316 | Pending |
+| COMBO-01 | Phase 316 | Pending |
+| COMBO-02 | Phase 316 | Pending |
+| COMBO-03 | Phase 317 | Pending |
+| COMBO-04 | Phase 317 | Pending |
+| COMBO-05 | Phase 320 | Pending |
+| LAUNCH-01 | Phase 318 | Pending |
+| LAUNCH-02 | Phase 315 | Pending |
+| LAUNCH-03 | Phase 317 | Pending |
+| LAUNCH-04 | Phase 317 | Pending |
+| LAUNCH-05 | Phase 318 | Pending |
+| DASH-01 | Phase 319 | Pending |
+| DASH-02 | Phase 319 | Pending |
+| DASH-03 | Phase 319 | Pending |
 
 **Coverage:**
 - v41.0 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-03*
-*Last updated: 2026-04-03 after initial definition*
+*Last updated: 2026-04-03 — traceability filled after roadmap creation*

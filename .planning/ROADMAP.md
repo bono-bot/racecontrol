@@ -14,6 +14,7 @@
 - ✅ **v38.0 Security Hardening & Operational Maturity** — Phases 305-309 (shipped 2026-04-02)
 - ✅ **v39.0 Session Trace ID & Metrics** — Phase 310 (shipped 2026-04-02)
 - 🔨 **v40.0 Game Launch Reliability** — Phases 311-314
+- 📋 **v41.0 Game Intelligence System** — Phases 315-320
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -333,3 +334,148 @@ Plans:
 | 310. Session Trace ID | 1/2 | Plan 1 Complete | 2026-04-02 |
 
 *Last updated: 2026-04-02 after MI-5 gap creation*
+
+---
+
+## v41.0 Game Intelligence System
+
+**Goal:** Proactive game availability management — stop showing customers games they can't play, flag broken AC combos before launch, surface failures instantly through Meshed Intelligence.
+
+**Phases:** 6  |  **Coverage:** 17/17 requirements mapped
+
+**Dependency graph:**
+```
+315 (Shared Types Foundation)
+  └──> 316 (Agent Content Scanner & Boot Validation)
+         └──> 317 (Server Inventory & Fleet Intelligence)
+                └──> 318 (Launch Intelligence)
+                └──> 319 (Reliability Dashboard)
+                └──> 320 (Kiosk Game Filtering)
+```
+
+### Phases
+
+- [ ] **Phase 315: Shared Types Foundation** — LAUNCH-02
+- [ ] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02
+- [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
+- [ ] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05
+- [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
+- [ ] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05
+
+---
+
+## Phase Details (v41.0)
+
+### Phase 315: Shared Types Foundation
+**Goal**: All rc-common shared types needed by v41.0 are defined with correct serde compatibility before any crate uses them
+**Depends on**: Phase 314 (v40.0 complete)
+**Requirements**: LAUNCH-02
+**Success Criteria** (what must be TRUE):
+  1. `DiagnosticTrigger::GameLaunchTimeout` and `DiagnosticTrigger::CrashLoop` variants exist in rc-common and the enum has `#[serde(other)]` on an `Unknown` catch-all variant
+  2. Old KB entries stored as JSON (e.g. `"GameLaunchFail"`) deserialize without error after the change — verified by a test that round-trips an old trigger name through the new enum
+  3. `tier_engine.rs` has match arms for both new trigger variants: `GameLaunchTimeout` (Tier 1: kill stale process + retry once) and `CrashLoop` (Tier 0: disable combo + escalate via EscalationRequest)
+  4. `cargo test -p rc-common` passes with zero failures after all type additions
+**Plans**: TBD
+
+Plans:
+- [ ] 315-01-PLAN.md -- Add #[serde(other)] Unknown to DiagnosticTrigger; add GameLaunchTimeout + CrashLoop variants; add GameInventoryUpdate, ComboValidationResult, LaunchTimelineReport AgentMessage variants; wire tier_engine match arms for new triggers
+
+### Phase 316: Agent Content Scanner & Boot Validation
+**Goal**: rc-agent auto-detects all installed games (Steam + non-Steam) at boot and proactively validates AC combos against the filesystem before any customer session starts
+**Depends on**: Phase 315
+**Requirements**: INV-01, INV-04, COMBO-01, COMBO-02
+**Success Criteria** (what must be TRUE):
+  1. After pod boot, the server receives a `GameInventoryUpdate` WS message listing all installed SimTypes — including Steam games detected via `libraryfolders.vdf` parsing (not hardcoded paths only)
+  2. Every 5 minutes, rc-agent rescans and sends a fresh `GameInventoryUpdate` — the server's pod inventory reflects changes within one scan cycle without pod restart
+  3. After receiving the first preset push from the server, rc-agent sends `ComboValidationResult` messages for each AC preset — each result includes whether car folder, track folder, and AI lines exist on that pod
+  4. Combo validation log shows "Presets received" before "Combo validation complete" — validation does not run against an empty preset list if the server is slow at boot
+  5. A game installed to a non-default Steam library path (D:\ or E:\) appears in the inventory scan result
+**Plans**: TBD
+
+Plans:
+- [ ] 316-01-PLAN.md -- Extend content_scanner.rs: scan_steam_library (VDF parsing), scan_non_steam_games (exe-path probing), build_full_manifest; ExtendedManifest type; cascade-audit ContentManifest consumers via cargo build
+- [ ] 316-02-PLAN.md -- game_doctor::run_boot_validation (car dir + track dir + ai/ subdir checks per AC preset); boot sequencing gate (watch channel: wait for preset push before validating); ComboValidationResult WS send; 5-min periodic rescan + rescan on WS reconnect
+
+### Phase 317: Server Inventory & Fleet Intelligence
+**Goal**: The server persists per-pod game inventory and combo validation results, aggregates fleet availability, auto-disables universally broken combos, and alerts staff on crash loops and chain launch failures
+**Depends on**: Phase 316
+**Requirements**: INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
+**Success Criteria** (what must be TRUE):
+  1. After a pod sends `GameInventoryUpdate`, rows exist in `pod_game_inventory` for that pod — data survives server restart and shows the last scan result for any pod that has connected
+  2. Fleet combo aggregation categorizes each AC preset as: valid (installed on all pods), partial (some pods), or invalid (no pods) — visible via `GET /api/v1/presets` which includes a `fleet_validity` field
+  3. An AC preset that is invalid on ALL pods has `enabled = false` set in `game_presets` and a WhatsApp alert fires to staff naming the preset and the missing filesystem component
+  4. A pod sending more than 3 `StartupReport` messages in 5 minutes with `uptime_secs < 30` produces `crash_loop: true` in `/api/v1/fleet/health`, an ERROR-level server log, and a WhatsApp alert naming the pod and restart count
+  5. Three consecutive game launch failures for the same pod and SimType within 10 minutes trigger an `EscalationRequest` WS message routed to WhatsApp — Uday receives a message naming the pod and game
+**Plans**: TBD
+
+Plans:
+- [ ] 317-01-PLAN.md -- game_inventory.rs: pod_game_inventory table + upsert, ws/mod.rs GameInventoryUpdate handler; combo_validator.rs: cross fleet presets vs manifests, combo_validation_flags table, fleet_validity aggregation, auto-disable + WhatsApp alert on all-pods-invalid
+- [ ] 317-02-PLAN.md -- fleet_health.rs crash loop extension: ERROR log + WhatsApp alert on transition to crash_loop=true; chain failure background task: rolling 10-min window per (pod_id, sim_type), EscalationRequest on 3+ consecutive failures
+
+### Phase 318: Launch Intelligence
+**Goal**: Every game launch has a timeout watchdog that prevents permanent pod lockout and records step-level timeline spans so launch failures can be debugged at the exact checkpoint where they stalled
+**Depends on**: Phase 317, Phase 312 (v40.0 WS ACK — confirmed deployed b7359a02)
+**Requirements**: LAUNCH-01, LAUNCH-05
+**Success Criteria** (what must be TRUE):
+  1. If a game process does not reach playable state within 90 seconds (default) after launch, `GameTracker` auto-transitions to `Error` state and `DiagnosticTrigger::GameLaunchTimeout` is emitted to the tier engine channel
+  2. After any launch (success or failure), rows exist in `launch_timeline_spans` for at least `ws_sent`, `agent_received`, `process_spawned`, and `playable_signal` checkpoints — each with millisecond-resolution elapsed time
+  3. A combo with historical p95 launch time under 45 seconds receives a shorter timeout than the 90-second default — configurable via AgentConfig push from server
+  4. Timeline span data is returned by `GET /api/v1/launch-timeline/{launch_id}` within one second of launch completion
+**Plans**: TBD
+
+Plans:
+- [ ] 318-01-PLAN.md -- Launch timeout watchdog: tokio::time::timeout wrapping retry_game_launch, on timeout emit GameLaunchTimeout to diagnostic_engine channel; dynamic per-combo timeout via AgentConfig.game_launch_timeout_secs push from server
+- [ ] 318-02-PLAN.md -- Launch timeline tracing: launch_timeline_spans table (pod rusqlite + server sqlx migration), record_span() at each checkpoint (ws_sent, agent_received, process_spawned, playable_signal), LaunchTimelineReport WS message on completion, GET /api/v1/launch-timeline/{id} endpoint
+
+### Phase 319: Reliability Dashboard
+**Goal**: Staff can see at a glance which pods have which games installed, which AC combos are flagged unreliable, and drill into any specific launch incident to find the checkpoint where it stalled
+**Depends on**: Phase 317, Phase 318
+**Requirements**: DASH-01, DASH-02, DASH-03
+**Success Criteria** (what must be TRUE):
+  1. Opening `/reliability` in the admin dashboard shows an 8-pod x 8-game matrix with install status badges (installed / not installed) sourced live from `pod_game_inventory`
+  2. The reliability page shows per-combo success rates sortable by rate, with combos below a configurable threshold highlighted in red — data refreshes within 30 seconds of a new launch event
+  3. Clicking any combo row expands it to show the most recent launch timeline — checkpoint timestamps visible for ws_sent, agent_received, process_spawned, and playable_signal
+  4. The dashboard loads in under 3 seconds when opened from James's machine (not from the server itself) — static files serve correctly from a remote browser
+**Plans**: TBD
+
+Plans:
+- [ ] 319-01-PLAN.md -- UI-SPEC.md (gsd-ui-researcher gate required before planning); fleet game matrix component (recharts + plain HTML table, swr 30s polling), flagged combo list with sort and red highlight threshold
+- [ ] 319-02-PLAN.md -- Launch timeline viewer: per-combo expandable row, timeline span endpoint query, checkpoint display; UI-REVIEW.md (gsd-ui-auditor gate required before ship)
+
+**UI hint**: yes
+
+### Phase 320: Kiosk Game Filtering
+**Goal**: Customers on each pod only see games and AC combos that are actually available on that specific pod — no silent launch failures from showing unavailable content
+**Depends on**: Phase 317
+**Requirements**: INV-03, COMBO-05
+**Success Criteria** (what must be TRUE):
+  1. On the kiosk at Pod 3, a SimType absent from Pod 3's `pod_game_inventory` does not appear in the game selection screen — verified by opening the kiosk in a browser from James's machine pointed at a Pod 3 session
+  2. AC presets with `combo_valid: false` for the current pod are either hidden or shown with an "Unavailable" badge — the customer cannot launch an unlaunchable combo
+  3. The kiosk game list reflects inventory changes within 30 seconds of a new `GameInventoryUpdate` being processed by the server
+  4. The kiosk does not flicker or re-render mid-browse when inventory updates arrive — changes apply only between sessions or after a debounce interval
+**Plans**: TBD
+
+Plans:
+- [ ] 320-01-PLAN.md -- Kiosk game filter: read installed_games from pod heartbeat WS state, filter GAME_DISPLAY list client-side; show unavailable badge on flagged AC combos; debounce inventory updates; UI-REVIEW.md gate before ship
+
+**UI hint**: yes
+
+---
+
+## Progress (v41.0)
+
+**Execution Order:**
+315 -> 316 -> 317 -> 318
+317 -> 319
+317 -> 320
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 315. Shared Types Foundation | 0/1 | Not started | - |
+| 316. Agent Content Scanner & Boot Validation | 0/2 | Not started | - |
+| 317. Server Inventory & Fleet Intelligence | 0/2 | Not started | - |
+| 318. Launch Intelligence | 0/2 | Not started | - |
+| 319. Reliability Dashboard | 0/2 | Not started | - |
+| 320. Kiosk Game Filtering | 0/1 | Not started | - |
+
+*Last updated: 2026-04-03 — v41.0 roadmap created*
