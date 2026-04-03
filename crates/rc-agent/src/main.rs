@@ -16,6 +16,7 @@ mod debug_server;
 mod diagnostic_engine;
 mod diagnostic_log;
 mod driving_detector;
+mod dxgi_capture;
 mod failure_monitor;
 mod ffb_controller;
 mod firewall;

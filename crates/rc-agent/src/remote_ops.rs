@@ -1048,6 +1048,9 @@ async fn write_file(Json(req): Json<WriteRequest>) -> Result<Json<serde_json::Va
 struct ScreenshotQuery {
     quality: Option<u8>,
     scale: Option<u8>,
+    /// Capture method: "gdi" (default, PowerShell CopyFromScreen) or "dxgi" (GPU framebuffer).
+    /// Use "dxgi" to capture D3D exclusive fullscreen games that GDI misses.
+    method: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1116,6 +1119,26 @@ fn scale_coordinate(coord: [i32; 2], from_w: i32, from_h: i32, to_w: i32, to_h: 
 async fn screenshot(Query(q): Query<ScreenshotQuery>) -> Result<impl IntoResponse, (StatusCode, String)> {
     let quality = q.quality.unwrap_or(60).max(1).min(100);
     let scale = q.scale.unwrap_or(100).max(10).min(100);
+    let method = q.method.as_deref().unwrap_or("gdi");
+
+    // DXGI path: capture GPU framebuffer directly (works with D3D exclusive fullscreen)
+    if method == "dxgi" {
+        return tokio::task::spawn_blocking(move || {
+            let frame = crate::dxgi_capture::capture_frame()
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DXGI capture failed: {}", e)))?;
+            let jpg = crate::dxgi_capture::encode_jpeg(&frame, quality)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JPEG encode failed: {}", e)))?;
+            let headers = [
+                ("content-type", "image/jpeg".to_string()),
+                ("content-length", jpg.len().to_string()),
+            ];
+            Ok((headers, jpg))
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DXGI task panicked: {}", e)))?;
+    }
+
+    // GDI path (default): PowerShell CopyFromScreen
     let tmp_name = format!("rc_screenshot_{}.jpg", SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis());
     let tmp_path = std::env::temp_dir().join(&tmp_name);

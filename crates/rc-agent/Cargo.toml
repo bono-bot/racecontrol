@@ -79,6 +79,15 @@ walkdir = { version = "2", optional = true }
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
 
+# DXGI Desktop Duplication API for D3D fullscreen game screenshots
+windows = { version = "0.58", features = [
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Foundation",
+] }
+
 [features]
 default = ["ai-debugger", "process-guard", "keyboard-hook", "http-client"]
 ai-debugger = ["dep:reqwest"]

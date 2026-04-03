@@ -1128,20 +1128,24 @@ pub async fn handle_game_status_update(
                     if let Some((debit_paise, wallet_owner)) = debit_row {
                         if debit_paise > 0 {
                             let refund_target = wallet_owner.as_deref().unwrap_or(&pre_driver_id);
-                            let _ = crate::wallet::credit(
+                            match crate::wallet::credit(
                                 state,
                                 refund_target,
                                 debit_paise,
-                                "refund_no_playable",
+                                "refund_session",
                                 Some(&pre_session_id),
                                 Some("Auto-refund: game never reached playable state"),
                                 None, // staff_id — system-initiated refund
-                            ).await
-                            .map_err(|e| tracing::error!("BILL-13: Failed to refund {}p for session {}: {}", debit_paise, pre_session_id, e));
-                            tracing::info!(
-                                "BILL-13: Refunded {}p for cancelled_no_playable session {} (pod={}, driver={})",
-                                debit_paise, pre_session_id, pod_id, pre_driver_id
-                            );
+                            ).await {
+                                Ok(_) => tracing::info!(
+                                    "BILL-13: Refunded {}p for cancelled_no_playable session {} (pod={}, driver={})",
+                                    debit_paise, pre_session_id, pod_id, pre_driver_id
+                                ),
+                                Err(e) => tracing::error!(
+                                    "BILL-13: Failed to refund {}p for session {}: {}",
+                                    debit_paise, pre_session_id, e
+                                ),
+                            }
                         }
                     }
                     tracing::warn!(
@@ -1729,20 +1733,24 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 if let Some(debit) = wallet_debit_paise {
                     if *debit > 0 {
                         let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
-                        let _ = crate::wallet::credit(
+                        match crate::wallet::credit(
                             state,
                             refund_target,
                             *debit,
-                            "refund_stale_cancel",
+                            "refund_session",
                             Some(session_id.as_str()),
                             Some("Auto-refund: session cancelled (game never reached playable state)"),
                             None,
-                        ).await
-                        .map_err(|e| tracing::error!("Bug #11: Failed to refund {}p for stale session {}: {}", debit, session_id, e));
-                        tracing::info!(
-                            "Bug #11: Refunded {}p for stale cancelled session {} (driver={})",
-                            debit, session_id, driver_id
-                        );
+                        ).await {
+                            Ok(_) => tracing::info!(
+                                "Bug #11: Refunded {}p for stale cancelled session {} (driver={})",
+                                debit, session_id, driver_id
+                            ),
+                            Err(e) => tracing::error!(
+                                "Bug #11: Failed to refund {}p for stale session {}: {}",
+                                debit, session_id, e
+                            ),
+                        }
                     }
                 }
             }
@@ -2180,26 +2188,66 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             log_pod_activity(state, &pod_id, "billing", "Launch Failed",
                 "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer", None);
 
-            // BILL-06: Insert cancelled_no_playable record — no charge for customer
+            // BILL-06: Cancel session — handle both pre-committed (BILL-13) and PIN-auth paths
             if let Some(ref timed_out_entry) = entry {
-                let session_id = uuid::Uuid::new_v4().to_string();
-                let _ = sqlx::query(
-                    "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds, venue_id)
-                     VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0, ?)",
-                )
-                .bind(&session_id)
-                .bind(&timed_out_entry.pod_id)
-                .bind(&timed_out_entry.driver_id)
-                .bind(&timed_out_entry.pricing_tier_id)
-                .bind(&state.config.venue.venue_id)
-                .execute(&state.db)
-                .await
-                .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (launch timeout): {}", e));
+                if let Some(ref pre_data) = timed_out_entry.pre_committed {
+                    // BILL-13: Pre-committed session already in DB — UPDATE existing record + refund
+                    let _ = sqlx::query(
+                        "UPDATE billing_sessions SET status = 'cancelled_no_playable', ended_at = datetime('now'), driving_seconds = 0 WHERE id = ?",
+                    )
+                    .bind(&pre_data.session_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("Failed to update cancelled_no_playable for session {}: {}", pre_data.session_id, e));
+                    // Refund wallet debit
+                    let debit_row: Option<(i64, Option<String>)> = sqlx::query_as(
+                        "SELECT wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+                    )
+                    .bind(&pre_data.session_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some((debit_paise, wallet_owner)) = debit_row {
+                        if debit_paise > 0 {
+                            let refund_target = wallet_owner.as_deref().unwrap_or(&timed_out_entry.driver_id);
+                            match crate::wallet::credit(
+                                state, refund_target, debit_paise, "refund_session",
+                                Some(&pre_data.session_id),
+                                Some("Auto-refund: launch timeout (game never reached playable state)"),
+                                None,
+                            ).await {
+                                Ok(_) => tracing::info!(
+                                    "Launch timeout refund: {}p for session {} (pod={}, driver={})",
+                                    debit_paise, pre_data.session_id, timed_out_entry.pod_id, timed_out_entry.driver_id
+                                ),
+                                Err(e) => tracing::error!(
+                                    "Launch timeout refund FAILED: {}p for session {}: {}",
+                                    debit_paise, pre_data.session_id, e
+                                ),
+                            }
+                        }
+                    }
+                } else {
+                    // PIN auth path — no DB record exists yet, create cancelled_no_playable record
+                    let session_id = uuid::Uuid::new_v4().to_string();
+                    let _ = sqlx::query(
+                        "INSERT INTO billing_sessions (id, pod_id, driver_id, pricing_tier_id, allocated_seconds, status, created_at, ended_at, driving_seconds, total_paused_seconds, venue_id)
+                         VALUES (?, ?, ?, ?, 0, 'cancelled_no_playable', datetime('now'), datetime('now'), 0, 0, ?)",
+                    )
+                    .bind(&session_id)
+                    .bind(&timed_out_entry.pod_id)
+                    .bind(&timed_out_entry.driver_id)
+                    .bind(&timed_out_entry.pricing_tier_id)
+                    .bind(&state.config.venue.venue_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("Failed to insert cancelled_no_playable record (launch timeout): {}", e));
+                }
                 tracing::warn!(
                     "Session cancelled_no_playable: pod={} driver={} (launch timeout attempt 2)",
                     timed_out_entry.pod_id, timed_out_entry.driver_id
                 );
-                // TODO Phase 199: WhatsApp staff alert for cancelled_no_playable
             }
 
             // Send BillingStopped to agent so it shows session cancelled
