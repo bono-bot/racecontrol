@@ -3661,8 +3661,10 @@ async fn test_financial_e2e_compute_refund_integer_only() {
     use racecontrol_crate::billing::compute_refund;
 
     // Standard 30-min session at ₹700
-    assert_eq!(compute_refund(1800, 600, 70000), 46666, "20min remaining of 30min @ ₹700");
-    assert_eq!(compute_refund(1800, 900, 70000), 35000, "15min remaining of 30min @ ₹700");
+    // best_rate_for_minutes: 10min used × ₹25/min = ₹250, refund = ₹700 - ₹250 = ₹450
+    assert_eq!(compute_refund(1800, 600, 70000), 45000, "20min remaining of 30min @ ₹700 (tiered)");
+    // best_rate_for_minutes: 15min used × ₹25/min = ₹375, refund = ₹700 - ₹375 = ₹325
+    assert_eq!(compute_refund(1800, 900, 70000), 32500, "15min remaining of 30min @ ₹700 (tiered)");
     assert_eq!(compute_refund(1800, 0, 70000), 70000, "full refund when 0 driven");
     assert_eq!(compute_refund(1800, 1800, 70000), 0, "no refund when fully used");
     assert_eq!(compute_refund(1800, 1900, 70000), 0, "no refund when overtime");
@@ -3694,12 +3696,12 @@ async fn test_financial_e2e_full_wallet_lifecycle() {
 
     // Step 3: Early end — refund proportional (drove 600s of 1800s)
     let refund_paise = racecontrol_crate::billing::compute_refund(1800, 600, 70000);
-    assert_eq!(refund_paise, 46666, "refund for 20min remaining should be 46666");
+    assert_eq!(refund_paise, 45000, "refund for 20min remaining should be 45000 (tiered)");
 
     let balance = racecontrol_crate::wallet::refund(
         &state, "fin-e2e-1", refund_paise, Some("sess-fin-1"), Some("early-end refund"),
     ).await.unwrap();
-    assert_eq!(balance, 76666, "balance after refund should be 30000 + 46666 = 76666");
+    assert_eq!(balance, 75000, "balance after refund should be 30000 + 45000 = 75000");
 
     // Step 4: Verify transaction audit trail
     let txn_count = sqlx::query_as::<_, (i64,)>(
@@ -3717,7 +3719,7 @@ async fn test_financial_e2e_full_wallet_lifecycle() {
     .fetch_one(&state.db)
     .await
     .unwrap();
-    assert_eq!(credited, 100000 + refund_paise, "total_credited should include topup + refund");
+    assert_eq!(credited, 100000 + refund_paise as i64, "total_credited should include topup + refund");
     assert_eq!(debited, 70000, "total_debited should be session charge only");
 }
 

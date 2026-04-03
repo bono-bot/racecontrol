@@ -167,25 +167,11 @@ async fn main() -> anyhow::Result<()> {
 
                     comms::send_event(&config, &comms::GuardianEvent::EscalatedUnsafe {
                         consecutive_failures: failures,
-                        ist_hour,
                     }).await;
 
                     comms::release_guardian_lock(&config).await;
                     continue;
                 }
-                // Off-peak with billing: still escalate but less urgently
-                warn!("Active billing during off-peak — escalating but less urgent");
-                alert::send_whatsapp(
-                    &http_client,
-                    &config,
-                    &format!(
-                        "[rc-guardian] SERVER DOWN ({} consecutive failures). Active billing sessions exist (off-peak). Deferring restart. Check manually.",
-                        failures
-                    ),
-                ).await;
-
-                comms::release_guardian_lock(&config).await;
-                continue;
             }
 
             // EG-07: Graduated restart

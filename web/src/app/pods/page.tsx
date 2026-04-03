@@ -83,14 +83,6 @@ export default function PodsPage() {
     []
   );
 
-  const handleAssign = useCallback(
-    (data: { pod_id: string; driver_id: string; pricing_tier_id: string; auth_type: string }) => {
-      api.assignCustomer(data).catch(console.error);
-      setModalPod(null);
-    },
-    []
-  );
-
   const isLoading = pods.length === 0 && !connected;
 
   return (
@@ -299,7 +291,7 @@ export default function PodsPage() {
           podName={`Pod ${String(modalPod.number).padStart(2, "0")} - ${modalPod.name}`}
           onClose={() => setModalPod(null)}
           onStart={handleStartSession}
-          onAssign={handleAssign}
+
         />
       )}
     </DashboardLayout>

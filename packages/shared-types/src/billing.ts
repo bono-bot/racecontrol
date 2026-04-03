@@ -38,6 +38,7 @@ export interface BillingSession {
   elapsed_seconds?: number;
   cost_paise?: number;
   rate_per_min_paise?: number;
+  billing_mode?: string;
 }
 
 export interface PricingTier {

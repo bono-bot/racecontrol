@@ -41,7 +41,6 @@ pub enum GuardianEvent {
     /// Escalated as unsafe (active billing during peak)
     EscalatedUnsafe {
         consecutive_failures: u32,
-        ist_hour: u32,
     },
 }
 

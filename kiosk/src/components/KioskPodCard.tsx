@@ -287,7 +287,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
             <div>
               <div className="flex justify-between text-[10px] text-rp-grey mb-0.5">
                 <span className={billing.status !== "active" ? "text-amber-400" : ""}>{fsmLabel(billing.status) ?? ""}</span>
-                {(billing as Record<string, unknown>).billing_mode === "per_minute" ? (
+                {billing.billing_mode === "per_minute" ? (
                   <span className="font-mono text-emerald-400">
                     {formatTime(billing.elapsed_seconds ?? 0)} &middot; {Math.floor((billing.cost_paise ?? 0) / 100)} cr
                   </span>
@@ -300,12 +300,12 @@ export const KioskPodCard = React.memo(function KioskPodCard({
               <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-1000 ${
-                    (billing as Record<string, unknown>).billing_mode === "per_minute"
+                    billing.billing_mode === "per_minute"
                       ? "bg-emerald-500"
                       : hasWarning ? "bg-amber-500" : "bg-rp-red"
                   }`}
                   style={{
-                    width: (billing as Record<string, unknown>).billing_mode === "per_minute"
+                    width: billing.billing_mode === "per_minute"
                       ? "100%"
                       : `${Math.max(0, (displayRemaining / billing.allocated_seconds) * 100)}%`,
                   }}
