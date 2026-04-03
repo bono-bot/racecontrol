@@ -1,6 +1,27 @@
-# Cognitive Gate Protocol v3.5
+# Cognitive Gate Protocol v3.6
 
-**Purpose:** Single protocol governing every phase of Racing Point operations — Plan, Create, Verify, Deploy, Ship, and Debug — with 10 embedded anti-bias gates that fire at specific lifecycle moments. All standing rules, debugging methodology, audit phases, and the Multi-Model AI Audit Protocol are mapped to the phase where they activate.
+**Purpose:** The first and final authority for every decision, command, and action across the entire Racing Point ecosystem. Nothing executes without passing through CGP. No deploy, no commit, no test claim, no "done" — without CGP gates satisfied.
+
+**Scope: THE ENTIRE ECOSYSTEM — not just venue.** Racing Point is not a venue with some cloud services. It is a unified system spanning:
+
+| System | What It Is | Why CGP Governs It |
+|--------|-----------|-------------------|
+| **Venue Server (.23)** | Rust racecontrol, 3 Next.js apps | Core billing, fleet, games |
+| **8 Racing Pods** | rc-agent, games, kiosk displays | Customer experience |
+| **POS Terminal (.20)** | Billing dashboard, Edge kiosk | Staff operations, payments |
+| **Cloud VPS (Bono)** | racecontrol, PWA, admin, web, comms-link | Customer registration, remote admin |
+| **PWA (app.racingpoint.cloud)** | Customer mobile app | **Customer entry point** — registration, wallet, racers |
+| **Cloud Admin (admin.racingpoint.cloud)** | Remote admin dashboard | Uday's management interface |
+| **Cloud Web (racingpoint.cloud)** | Public website + dashboard | Public-facing, SEO, status |
+| **WhatsApp (3 numbers)** | OTP, receipts, staff PINs, alerts | Customer comms, staff comms, system alerts |
+| **James (.27)** | On-site AI, go2rtc, Ollama, comms-link | Automation, cameras, diagnostics |
+| **Comms-Link** | James↔Bono relay | Cross-AI coordination |
+
+**Every gate applies to every system — present and future.** G1 "verify behavior" means verify on ALL systems the change touches — including cloud, PWA, and WhatsApp. G2 "fleet scope" means ALL of the above, not just pods. E2E means the **customer's journey from their phone to the race seat**, not infrastructure round-trips. When a new system is added (new venue, new app, new integration, new partner service), it is automatically under CGP governance. CGP is not a static checklist — it grows with the ecosystem. If it's part of Racing Point, CGP applies.
+
+**The customer journey crosses environments:** PWA (cloud) → WhatsApp OTP (cloud) → Walk to venue → POS lookup (venue) → Wallet topup (venue) → Session start (venue) → Game launch (pod) → Payment reconciliation (cloud sync). Testing only the venue half and calling it "E2E PASS" is a false claim.
+
+**v3.6 addition (2026-04-04): ECOSYSTEM-WIDE SCOPE** — Cloud racecontrol ran weeks-stale while venue had Acts 1-4 billing redesign. Customer PWA hit old API. Act 1 "passed" without ever testing from `app.racingpoint.cloud`. Root cause: CGP was venue-centric. E2E meant infrastructure, not customer journey. G1/G2 scope excluded cloud.
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes, declares "done" before checking goals. 42 documented corrections over 11 days. 147+ standing rules failed because rules are declarative; gates are procedural. Gates require visible output at specific moments, making skips visible.
 
@@ -62,7 +83,7 @@
 3. Contradiction test FAIL = action did NOT succeed. Do NOT claim done.
 4. Before executing any E2E test plan → `node scripts/validate-plan.mjs '<plan_json>'`
 
-**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03. v3.4: 2026-04-03. v3.5: 2026-04-03.
+**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03. v3.4: 2026-04-03. v3.5: 2026-04-03. v3.6: 2026-04-04.
 
 ---
 
@@ -494,13 +515,34 @@ cd C:/Users/bono/racingpoint/comms-link && COMMS_PSK="..." bash test/run-all.sh
 ```
 Exit 0 = PASS. Contract tests + integration + syntax + security.
 
-#### 5.2 — E2E Live Round-Trip (Layer 2)
+#### 5.2 — E2E Verification (Layer 2)
+
+**Two types of E2E — BOTH required for milestone ships:**
+
+**5.2a — Infrastructure E2E (comms-link round-trip):**
 ```bash
 curl -s -X POST http://localhost:8766/relay/exec/run -d '{"command":"node_version"}'
 curl -s -X POST http://localhost:8766/relay/chain/run -d '{"steps":[{"command":"node_version"}]}'
 curl -s http://localhost:8766/relay/health
 ```
 All three must return valid responses with REALTIME connection mode.
+
+**5.2b — Customer Journey E2E (from the customer's entry point):**
+```bash
+node scripts/web-verify.js          # All 8+ pages (venue + cloud)
+node scripts/flow-verify.js         # Interactive user flows
+```
+The customer journey starts at `app.racingpoint.cloud`, not at the venue API. Test from where the customer starts. If the test doesn't touch the PWA, it's not an E2E test of the customer flow.
+
+Minimum customer journey verification:
+1. `app.racingpoint.cloud` loads and renders (not stuck at "Loading...")
+2. Registration form is reachable and interactive
+3. Cloud racecontrol `build_id` matches venue (or is within 1 deploy)
+4. Cloud sync delivers registration data to venue within 30s
+5. POS can look up the cloud-registered customer
+6. WhatsApp OTP delivery works (if phone-based registration)
+
+**Testing only venue-side APIs and calling it "customer E2E" is a false claim.** (v3.6: Act 1 was "passed" without ever testing from the PWA.)
 
 #### 5.3 — Standing Rules Compliance (Layer 3)
 - [ ] Auto-push clean (no unpushed commits)

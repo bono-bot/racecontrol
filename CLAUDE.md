@@ -1,8 +1,10 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.5 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.6 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03, v3.4: 2026-04-03, v3.5: 2026-04-03).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2-3.5: 2026-04-03, v3.6: 2026-04-04).**
+
+**v3.6: ECOSYSTEM-WIDE SCOPE.** CGP governs the ENTIRE Racing Point ecosystem — venue, cloud, PWA, WhatsApp, websites, and all future systems. E2E means the customer's journey from phone to race seat, not infrastructure round-trips. Testing only venue APIs and calling it "customer E2E" is a false claim. Every gate applies to every system, present and future.
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 65 documented failures across 6 categories. Root cause: open-loop architecture (Transcript Trust Problem). Rules are declarative and fail; gates + contradiction tests are procedural and work.
 
