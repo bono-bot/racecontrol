@@ -1098,18 +1098,42 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 // Newly detected crash loop (transition false → true)
                                 !was_looping && store.crash_loop
                             };
-                            // Phase 9b: WhatsApp alert on crash loop detection (once per loop)
+                            // Phase 317 (LAUNCH-03): WhatsApp alert via EscalationRequest path — NOT direct Evolution API.
+                            // incident_id deduplicates: 30-min suppression window built into WhatsAppEscalation.
                             if crash_loop_just_detected {
-                                let alert_msg = format!(
-                                    "🔴 CRASH LOOP: Pod {} is restarting every ~17s (uptime={}s). Likely OS/hardware issue. Needs reboot.",
-                                    pod_id, uptime_secs
+                                let restart_count = {
+                                    let fleet = state.pod_fleet_health.read().await;
+                                    fleet.get(pod_id.as_str())
+                                        .map(|s| s.startup_timestamps.len())
+                                        .unwrap_or(0)
+                                };
+                                let summary = format!(
+                                    "CRASH LOOP: Pod {} is restarting every ~{}s ({} restarts in 5 min). Likely OS/hardware issue. Reboot required.",
+                                    pod_id, uptime_secs, restart_count
                                 );
-                                tracing::error!("{}", alert_msg);
-                                crate::whatsapp_alerter::send_admin_alert(
-                                    &state.config,
-                                    "crash_loop",
-                                    &alert_msg,
-                                ).await;
+                                tracing::error!(
+                                    target: "fleet-health",
+                                    pod_id = %pod_id,
+                                    restart_count = restart_count,
+                                    uptime_secs = uptime_secs,
+                                    "{}",
+                                    summary
+                                );
+                                let escalation = state.whatsapp_escalation.clone();
+                                let pod_id_owned = pod_id.clone();
+                                tokio::spawn(async move {
+                                    escalation.handle_escalation(rc_common::protocol::EscalationPayload {
+                                        pod_id: pod_id_owned.clone(),
+                                        incident_id: format!("crash_loop_{}", pod_id_owned),
+                                        severity: "critical".to_string(),
+                                        trigger: "CrashLoop".to_string(),
+                                        summary,
+                                        actions_tried: vec!["monitoring_only".to_string()],
+                                        impact: format!("Pod {} unavailable — all customer sessions on this pod are broken", pod_id_owned),
+                                        dashboard_url: "http://192.168.31.23:8080/api/v1/fleet/health".to_string(),
+                                        timestamp: crate::whatsapp_alerter::ist_now_string(),
+                                    }).await;
+                                });
                             }
                         }
                         AgentMessage::HardwareFailure { pod_id, reason, detail } => {
