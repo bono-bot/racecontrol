@@ -1,10 +1,17 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.4 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.5 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03, v3.4: 2026-04-03).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03, v3.4: 2026-04-03, v3.5: 2026-04-03).**
 
-**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 42 corrections over 11 days. Rules are declarative; gates are procedural.
+**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 65 documented failures across 6 categories. Root cause: open-loop architecture (Transcript Trust Problem). Rules are declarative and fail; gates + contradiction tests are procedural and work.
+
+**v3.5: CLOSED-LOOP VERIFICATION (from 65-incident analysis + MMA research):**
+- **Contradiction testing:** After ANY physical-world action, run `bash scripts/verify-action.sh <action> <args>`. FAIL = do NOT proceed.
+- **Plan validation:** Before executing E2E tests, run `node scripts/validate-plan.mjs '<plan_json>'`. Validates game-tier combos, fleet targets.
+- **Server sync verification:** `/games/launch` returns `verified: true/false` — poll for 20s until game process confirmed.
+- **Domain rules:** `scripts/domain-rules.json` — machine-readable rules (trial=AC only, fleet targets, verification requirements).
+- **Standing rule:** `ok: true` from ANY API is NOT proof. ONLY `verify-action.sh PASS` or `verified: true` in response is proof.
 
 **v3.2 rules (from 5 user corrections in one session):**
 - **Automated verification:** Run `bash scripts/pod-verify.sh` before ANY pod-related completion claim. Checks Session context, edge count, blanking state. FAIL = do not claim done.

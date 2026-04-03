@@ -1,4 +1,4 @@
-# Cognitive Gate Protocol v3.3
+# Cognitive Gate Protocol v3.5
 
 **Purpose:** Single protocol governing every phase of Racing Point operations — Plan, Create, Verify, Deploy, Ship, and Debug — with 10 embedded anti-bias gates that fire at specific lifecycle moments. All standing rules, debugging methodology, audit phases, and the Multi-Model AI Audit Protocol are mapped to the phase where they activate.
 
@@ -33,7 +33,36 @@
 3. **Automated staleness enforcement.** Two hooks: `memory-staleness-check.js` (SessionStart — warns about stale OPEN/CRITICAL claims) and `memory-commit-reminder.js` (PostToolUse — reminds after fix commits). Same enforcement pattern as G0: manual rules failed, hooks succeed.
 4. **Root pattern identified:** Any rule James must "remember to follow" will be forgotten. Every critical behavioral rule needs hook enforcement, not just documentation. This is the 3rd occurrence (CGP gates → hooks v3.1, memory updates → hooks v3.4, and this meta-pattern itself).
 
-**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03.
+**v3.5 additions (2026-04-03, session 4): CLOSED-LOOP VERIFICATION** — Deep root cause analysis of 65 CGP failures + MMA research (Perplexity + DeepSeek R1). The fundamental problem: James operates in an open-loop system. API `ok: true` creates a cognitive anchor that biases all subsequent observations (Transcript Trust Problem, 25pp agreement bias). 50+ rules failed because rules are declarative; the bias is structural.
+
+**Three fixes (all built, tested, and deployed):**
+
+1. **Contradiction Testing (`scripts/verify-action.sh`)** — MANDATORY after every physical-world action. Deterministic checks that would FAIL if the action didn't work. Not proxy metrics — actual downstream effects.
+   - `verify-action.sh game-launch <pod> <sim>` — checks process running on pod via SSH tasklist
+   - `verify-action.sh deploy-agent <pod> <build>` — checks build_id + Session context = Console
+   - `verify-action.sh session-end <pod>` — checks no game processes + blanking active
+   - `verify-action.sh blanking <pod>` — checks edge_count > 0 + screen_blanked
+   - FAIL = do NOT proceed. Evidence printed.
+
+2. **Plan Validation (`scripts/validate-plan.mjs`)** — MANDATORY before executing any test matrix. Validates game-tier combos, pod availability, fleet targets against `domain-rules.json`. Machine-readable JSON rules (94-98% accuracy) vs LLM judgment (70%).
+   - Catches: F1+trial (trial=AC only), unknown pods, invalid tiers, missing fleet targets.
+
+3. **Server Synchronous Verification (`game_launcher.rs`)** — After agent ACK, server polls GameTracker for 20s waiting for Running/Loading state. API returns `verified: true/false`. The response itself is evidence — eliminates open-loop at the source.
+
+**Research basis (MMA 3-model consensus):**
+- Transcript Trust Problem (AI agents over-validate own actions, 25pp bias)
+- NASA DO-178C Runtime Assurance (certified fallback runs in parallel)
+- NabaOS HMAC-signed verification receipts (91% hallucination detection)
+- VerifiAgent two-level pattern (meta-verification + tool-based adaptive verification)
+- DeepSeek R1: "Open-loop → closed-loop is the fundamental fix"
+
+**Standing rule (v3.5):** After ANY physical-world action (game launch, deploy, billing start, screen change):
+1. If API returns `verified` field → check it. `verified: false` = STOP.
+2. ALWAYS run `bash scripts/verify-action.sh <action> <args>` regardless.
+3. Contradiction test FAIL = action did NOT succeed. Do NOT claim done.
+4. Before executing any E2E test plan → `node scripts/validate-plan.mjs '<plan_json>'`
+
+**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03. v3.4: 2026-04-03. v3.5: 2026-04-03.
 
 ---
 
