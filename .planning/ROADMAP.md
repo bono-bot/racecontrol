@@ -157,7 +157,7 @@ Plans:
 
 - [x] **Phase 315: Shared Types Foundation** — LAUNCH-02
 - [x] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02 (completed 2026-04-03)
-- [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
+- [x] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04 (completed 2026-04-03)
 - [ ] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05
 - [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
 - [ ] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05
@@ -204,7 +204,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 317-01-PLAN.md -- game_inventory.rs: pod_game_inventory table + upsert, ws/mod.rs GameInventoryUpdate handler; combo_validator.rs: cross fleet presets vs manifests, combo_validation_flags table, fleet_validity aggregation, auto-disable + WhatsApp alert on all-pods-invalid
+- [x] 317-01-PLAN.md -- game_inventory.rs: pod_game_inventory table + upsert, ws/mod.rs GameInventoryUpdate handler; combo_validator.rs: cross fleet presets vs manifests, combo_validation_flags table, fleet_validity aggregation, auto-disable + WhatsApp alert on all-pods-invalid
 - [ ] 317-02-PLAN.md -- fleet_health.rs crash loop extension: ERROR log + WhatsApp alert on transition to crash_loop=true; chain failure background task: rolling 10-min window per (pod_id, sim_type), EscalationRequest on 3+ consecutive failures
 
 ### Phase 318: Launch Intelligence
@@ -272,7 +272,7 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans:** 2/2 plans complete
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution
