@@ -165,6 +165,8 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Phase 298 PRESET-01: Preset reads are public (pods/kiosk need the list without JWT)
         .route("/presets", get(preset_library::list_presets))
         .route("/presets/{id}", get(preset_library::get_preset))
+        // Phase 320 INV-03: Per-pod game inventory — public (kiosk fetches without JWT)
+        .route("/fleet/pod-inventory/{pod_id}", get(pod_inventory_handler))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -22611,6 +22613,72 @@ async fn get_events(
 // Returns which games are installed on which pods, sourced from pod_game_inventory.
 // Response: { games: [{ game_id, display_name, sim_type, pods: { pod_id: { installed, launchable, scanned_at } } }] }
 
+// ─── Phase 320: Pod Inventory (INV-03, COMBO-05) ────────────────────────────
+
+/// Convert the Rust Debug format of SimType (e.g. "AssettoCorsa") to snake_case API string.
+fn debug_sim_type_to_snake(s: &str) -> Option<&str> {
+    match s {
+        "AssettoCorsa" => Some("assetto_corsa"),
+        "AssettoCorsaEvo" => Some("assetto_corsa_evo"),
+        "AssettoCorsaRally" => Some("assetto_corsa_rally"),
+        "Iracing" => Some("iracing"),
+        "LeManUltimate" | "LeMansUltimate" => Some("le_mans_ultimate"),
+        "F125" | "F1_25" => Some("f1_25"),
+        "Forza" => Some("forza"),
+        "ForzaHorizon5" => Some("forza_horizon_5"),
+        _ => None,
+    }
+}
+
+/// GET /api/v1/fleet/pod-inventory/{pod_id}
+///
+/// Returns per-pod installed games (sim_types) and per-preset validity for AC experiences.
+/// Public endpoint — kiosk fetches without auth (no JWT required).
+/// Unknown pod_id returns 200 with empty response (backward compat).
+pub async fn pod_inventory_handler(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    // 1. Query pod_game_inventory for launchable games on this pod
+    let game_rows: Vec<(Option<String>,)> = sqlx::query_as(
+        "SELECT sim_type FROM pod_game_inventory WHERE pod_id = ? AND launchable = 1"
+    )
+    .bind(&pod_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // 2. Build installed_sim_types — convert Debug format to snake_case, filter unknowns
+    let installed_sim_types: Vec<&str> = game_rows
+        .iter()
+        .filter_map(|(st,)| st.as_deref().and_then(debug_sim_type_to_snake))
+        .collect();
+
+    // 3. Query combo_validation_flags for per-preset validity
+    let combo_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT preset_id, status FROM combo_validation_flags WHERE pod_id = ?"
+    )
+    .bind(&pod_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // 4. Build preset_validity: "Available" → "valid", anything else → "invalid"
+    let preset_validity: serde_json::Map<String, Value> = combo_rows
+        .into_iter()
+        .map(|(id, status)| {
+            let v = if status == "Available" { "valid" } else { "invalid" };
+            (id, Value::String(v.to_string()))
+        })
+        .collect();
+
+    Json(json!({
+        "pod_id": pod_id,
+        "installed_sim_types": installed_sim_types,
+        "preset_validity": preset_validity,
+    }))
+}
+
 pub async fn game_matrix_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
     // Fetch distinct games ordered by display_name
     let game_rows: Vec<(String, String, String)> = sqlx::query_as(
@@ -23079,5 +23147,177 @@ mod game_matrix_tests {
         for (_, launchable, _) in &pod_rows {
             assert_eq!(*launchable, 1i64, "launchable must be 1");
         }
+    }
+}
+
+// ─── Phase 320: Pod Inventory tests (INV-03, COMBO-05) ───────────────────────
+
+#[cfg(test)]
+mod pod_inventory_tests {
+    use sqlx::SqlitePool;
+    use serde_json::Value;
+
+    /// Build a minimal in-memory DB with pod_game_inventory and combo_validation_flags tables.
+    async fn make_pod_inventory_db() -> SqlitePool {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS pod_game_inventory (
+                pod_id TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                sim_type TEXT,
+                exe_path TEXT NOT NULL,
+                launchable INTEGER NOT NULL DEFAULT 1,
+                scan_method TEXT NOT NULL,
+                steam_app_id INTEGER,
+                scanned_at TEXT NOT NULL,
+                server_received_at TEXT NOT NULL,
+                PRIMARY KEY (pod_id, game_id)
+            )",
+        )
+        .execute(&db)
+        .await
+        .expect("create pod_game_inventory");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS combo_validation_flags (
+                pod_id TEXT NOT NULL,
+                preset_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                failure_reasons TEXT,
+                validated_at TEXT NOT NULL,
+                PRIMARY KEY (pod_id, preset_id)
+            )",
+        )
+        .execute(&db)
+        .await
+        .expect("create combo_validation_flags");
+
+        db
+    }
+
+    /// Helper: run the same query logic as pod_inventory_handler against a test db.
+    async fn query_pod_inventory(db: &SqlitePool, pod_id: &str) -> Value {
+        let game_rows: Vec<(Option<String>,)> = sqlx::query_as(
+            "SELECT sim_type FROM pod_game_inventory WHERE pod_id = ? AND launchable = 1"
+        )
+        .bind(pod_id)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+        let installed_sim_types: Vec<String> = game_rows
+            .iter()
+            .filter_map(|(st,)| {
+                st.as_deref().and_then(super::debug_sim_type_to_snake).map(|s| s.to_string())
+            })
+            .collect();
+
+        let combo_rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT preset_id, status FROM combo_validation_flags WHERE pod_id = ?"
+        )
+        .bind(pod_id)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+        let mut preset_validity = serde_json::Map::new();
+        for (id, status) in combo_rows {
+            let v = if status == "Available" { "valid" } else { "invalid" };
+            preset_validity.insert(id, serde_json::Value::String(v.to_string()));
+        }
+
+        serde_json::json!({
+            "pod_id": pod_id,
+            "installed_sim_types": installed_sim_types,
+            "preset_validity": preset_validity,
+        })
+    }
+
+    /// Test 1: pod with no inventory rows returns empty response.
+    #[tokio::test]
+    async fn test_pod_inventory_empty_pod() {
+        let db = make_pod_inventory_db().await;
+        let result = query_pod_inventory(&db, "pod-999").await;
+
+        let sim_types = result["installed_sim_types"].as_array().expect("array");
+        assert!(sim_types.is_empty(), "No inventory rows should yield empty installed_sim_types");
+
+        let preset_validity = result["preset_validity"].as_object().expect("object");
+        assert!(preset_validity.is_empty(), "No combo rows should yield empty preset_validity");
+    }
+
+    /// Test 2: pod with assetto_corsa installed + Available combo returns valid.
+    #[tokio::test]
+    async fn test_pod_inventory_valid_combo() {
+        let db = make_pod_inventory_db().await;
+        let now = "2026-04-03T00:00:00Z";
+
+        sqlx::query(
+            "INSERT INTO pod_game_inventory (pod_id, game_id, display_name, sim_type, exe_path, launchable, scan_method, scanned_at, server_received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("pod-1").bind("assetto_corsa").bind("Assetto Corsa").bind("AssettoCorsa")
+        .bind("C:/AC/acs.exe").bind(1i64).bind("steam").bind(now).bind(now)
+        .execute(&db).await.expect("insert game");
+
+        sqlx::query(
+            "INSERT INTO combo_validation_flags (pod_id, preset_id, status, validated_at)
+             VALUES (?, ?, ?, ?)"
+        )
+        .bind("pod-1").bind("preset-123").bind("Available").bind(now)
+        .execute(&db).await.expect("insert combo");
+
+        let result = query_pod_inventory(&db, "pod-1").await;
+
+        let sim_types = result["installed_sim_types"].as_array().expect("array");
+        assert_eq!(sim_types.len(), 1, "One game installed");
+        assert_eq!(sim_types[0].as_str().unwrap(), "assetto_corsa");
+
+        let pv = result["preset_validity"].as_object().expect("object");
+        assert_eq!(pv.get("preset-123").and_then(|v| v.as_str()), Some("valid"));
+    }
+
+    /// Test 3: CarMissing status → preset_validity["preset-123"] == "invalid".
+    #[tokio::test]
+    async fn test_pod_inventory_invalid_combo() {
+        let db = make_pod_inventory_db().await;
+        let now = "2026-04-03T00:00:00Z";
+
+        sqlx::query(
+            "INSERT INTO pod_game_inventory (pod_id, game_id, display_name, sim_type, exe_path, launchable, scan_method, scanned_at, server_received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("pod-1").bind("assetto_corsa").bind("Assetto Corsa").bind("AssettoCorsa")
+        .bind("C:/AC/acs.exe").bind(1i64).bind("steam").bind(now).bind(now)
+        .execute(&db).await.expect("insert game");
+
+        sqlx::query(
+            "INSERT INTO combo_validation_flags (pod_id, preset_id, status, validated_at)
+             VALUES (?, ?, ?, ?)"
+        )
+        .bind("pod-1").bind("preset-123").bind("CarMissing").bind(now)
+        .execute(&db).await.expect("insert combo");
+
+        let result = query_pod_inventory(&db, "pod-1").await;
+
+        let pv = result["preset_validity"].as_object().expect("object");
+        assert_eq!(pv.get("preset-123").and_then(|v| v.as_str()), Some("invalid"),
+            "CarMissing status must map to 'invalid'");
+    }
+
+    /// Test 4: unknown pod_id returns 200 with empty response (backward compat — not 404).
+    #[tokio::test]
+    async fn test_pod_inventory_unknown_pod_returns_empty() {
+        let db = make_pod_inventory_db().await;
+        let result = query_pod_inventory(&db, "pod-does-not-exist").await;
+
+        assert_eq!(result["pod_id"].as_str().unwrap(), "pod-does-not-exist");
+        assert!(result["installed_sim_types"].as_array().unwrap().is_empty());
+        assert!(result["preset_validity"].as_object().unwrap().is_empty());
     }
 }
