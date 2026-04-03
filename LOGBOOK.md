@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-03 20:30 IST | James | 865470fd | feat: Act 1 customer workflow — linked racers, POS wallet topup, kiosk cleanup, CGP v3.3. 2307 lines removed. |
 | 2026-04-03 03:44 IST | James | eb0db70b | feat(313-01): GSTATE-02 — smart WS reconnect reconciliation with 7-case merge, pod as source of truth |
 | 2026-04-03 03:44 IST | James | c0219f30 | feat(313-01): GSTATE-01 + GSTATE-03 — 180s hard-cap timeout for Launching, stop ACK cleanup removes tracker |
 | 2026-04-03 03:32 IST | James | b7359a02 | feat(312-01): WS ACK Protocol — CommandAck variant, agent_senders channel type CoreMessage, launch/stop wait 5s for ACK. 3 new tests, 807+235 lib tests pass. |
