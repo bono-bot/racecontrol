@@ -708,7 +708,9 @@ async fn detect_fleet_anomalies(
 
     // ── 2. Clock drift >30s ────────────────────────────────────────────────
     {
-        const CLOCK_DRIFT_THRESHOLD_SECS: i64 = 30;
+        // v3.6: Lowered from 30s to 10s — 13s drift across fleet was undetected at old threshold.
+        // 10s catches drift before it impacts log correlation, JWT validation, and cloud sync.
+        const CLOCK_DRIFT_THRESHOLD_SECS: i64 = 10;
         let mut drifted: Vec<(&str, i64)> = Vec::new();
 
         for (pod_id, store) in fleet.iter() {

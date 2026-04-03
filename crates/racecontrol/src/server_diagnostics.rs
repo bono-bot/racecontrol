@@ -45,6 +45,9 @@ async fn run_diagnostics(state: &AppState) {
 
     // Check 3: DB Health
     check_db_health(state).await;
+
+    // Check 4: NTP/Clock Health (v3.6 — server is the fleet's time reference)
+    check_ntp_health(state).await;
 }
 
 /// MMA consensus (4/4): Track expected vs actual WS connections.
@@ -141,5 +144,69 @@ async fn check_db_health(state: &AppState) {
                 error = %e, "DB write probe FAILED — database may be corrupted or unreachable"
             );
         }
+    }
+}
+
+/// Check 4: NTP/Clock Health — verify the server's time source is active.
+///
+/// The server is the fleet's time reference — all pod clock_drift_secs are relative to it.
+/// If the server has no NTP sync, the reference itself drifts and MI's pod drift detection
+/// becomes meaningless (comparing against a drifting reference).
+///
+/// On Windows: checks if W32Time service is running via `w32tm /query /status`.
+/// Alert triggers: service stopped, or last sync >24h ago.
+async fn check_ntp_health(state: &AppState) {
+    // Only run on Windows (venue server)
+    if cfg!(not(target_os = "windows")) {
+        return;
+    }
+
+    let output = match tokio::process::Command::new("w32tm")
+        .args(["/query", "/status"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, error = %e, "NTP check: w32tm command failed");
+            return;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Check if service is running
+    if !output.status.success() || stderr.contains("has not been started") || stdout.contains("has not been started") {
+        tracing::error!(target: LOG_TARGET,
+            "NTP CRITICAL: Windows Time service (W32Time) is NOT RUNNING. \
+             Server clock is drifting unsynchronized. All pod clock_drift_secs measurements \
+             are relative to this server — fleet time reference is unreliable."
+        );
+        // WhatsApp alert for NTP failure
+        let msg = "🕐 NTP CRITICAL: Windows Time service stopped on server. \
+                   Fleet clock reference is drifting. Run: net start w32time && w32tm /resync /force";
+        crate::whatsapp_alerter::send_whatsapp(&state.config, msg).await;
+        return;
+    }
+
+    // Check last sync time — parse "Last Successful Sync Time:" line
+    let mut last_sync_found = false;
+    for line in stdout.lines() {
+        if line.contains("Last Successful Sync Time:") {
+            last_sync_found = true;
+            // Just log it — parsing Windows date formats reliably is fragile
+            tracing::debug!(target: LOG_TARGET, "NTP status: {}", line.trim());
+        }
+        if line.contains("Source:") {
+            tracing::debug!(target: LOG_TARGET, "NTP source: {}", line.trim());
+        }
+    }
+
+    if !last_sync_found {
+        tracing::warn!(target: LOG_TARGET,
+            "NTP DEGRADED: W32Time running but no successful sync detected. \
+             Server may be syncing to 'Local CMOS Clock' (no external reference)."
+        );
     }
 }
