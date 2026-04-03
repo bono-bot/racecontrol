@@ -4,6 +4,7 @@
 //! This ensures a single source of truth for pod config (SCHEMA-01).
 
 use serde::{Deserialize, Serialize};
+use crate::types::LaunchTimeoutConfig;
 
 // ─── Schema Version ───────────────────────────────────────────────────────────
 
@@ -369,6 +370,12 @@ pub struct AgentConfig {
     /// MMA-First Protocol config (v31.0).
     #[serde(default)]
     pub mma: MmaConfig,
+    /// Phase 318 (LAUNCH-01): Launch timeout configuration per sim type.
+    /// Default: 90s for all games. Server pushes updated config when historical p95 data
+    /// shows a combo consistently launches faster or slower.
+    /// `#[serde(default)]` ensures backward compatibility with agents that lack this field.
+    #[serde(default)]
+    pub launch_timeout: LaunchTimeoutConfig,
 }
 
 impl Default for AgentConfig {
@@ -388,6 +395,7 @@ impl Default for AgentConfig {
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
             ac_evo_telemetry_enabled: false,
             mma: MmaConfig::default(),
+            launch_timeout: LaunchTimeoutConfig::default(),
         }
     }
 }
@@ -489,5 +497,22 @@ url = "ws://127.0.0.1:8080/ws/agent"
         let mma = MmaConfig::default();
         assert_eq!(mma.daily_budget_for_node(&NodeType::Pod), 10.0);
         assert_eq!(mma.daily_budget_for_node(&NodeType::Pos), 5.0);
+    }
+
+    /// Phase 318 (LAUNCH-01): AgentConfig.launch_timeout default_secs should be 90.
+    #[test]
+    fn test_launch_timeout_default_secs() {
+        let cfg = AgentConfig::default();
+        assert_eq!(cfg.launch_timeout.default_secs, 90);
+    }
+
+    /// Phase 318 (LAUNCH-01): AgentConfig with launch_timeout_config field round-trips through JSON.
+    #[test]
+    fn test_launch_timeout_round_trip() {
+        let cfg = AgentConfig::default();
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("launch_timeout"), "JSON should contain launch_timeout field, got: {}", json);
+        let cfg2: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg2.launch_timeout.default_secs, 90);
     }
 }

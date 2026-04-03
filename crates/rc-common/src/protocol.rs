@@ -919,6 +919,19 @@ pub enum CoreToAgentMessage {
     /// Phase 298 PRESET-02: Full preset library push on pod connect.
     PresetPush(crate::types::PresetPushPayload),
 
+    // ─── Phase 318 (LAUNCH-01): Launch timeout watchdog ──────────────────────
+
+    /// Server detected a game launch timeout on this pod — no playable signal within
+    /// the configured window. Agent feeds this into the tier engine diagnostic channel
+    /// so Game Doctor can run and attempt recovery.
+    ///
+    /// elapsed_secs: how long the game was in Launching state before the timeout fired.
+    /// sim_type: which game timed out (for context in tier engine logs).
+    LaunchTimedOut {
+        sim_type: crate::types::SimType,
+        elapsed_secs: u64,
+    },
+
     // ─── Mesh Intelligence (v26.0 Phase 233) ────────────────────────────────
 
     /// Server broadcasts a fleet-verified or newly-announced solution to all pods.
@@ -3318,6 +3331,23 @@ mod process_guard_protocol_tests {
             assert_eq!(payload.cached_version, 5);
         } else {
             panic!("Expected FlagCacheSync variant");
+        }
+    }
+
+    /// Phase 318 (LAUNCH-01): LaunchTimedOut round-trip serialization test.
+    #[test]
+    fn test_launch_timed_out_round_trip() {
+        use crate::types::SimType;
+        let msg = CoreToAgentMessage::LaunchTimedOut { sim_type: SimType::AssettoCorsa, elapsed_secs: 95 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("launch_timed_out"), "JSON should contain launch_timed_out tag, got: {}", json);
+        let msg2: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        match msg2 {
+            CoreToAgentMessage::LaunchTimedOut { sim_type, elapsed_secs } => {
+                assert_eq!(sim_type, SimType::AssettoCorsa);
+                assert_eq!(elapsed_secs, 95);
+            }
+            _ => panic!("wrong variant"),
         }
     }
 }

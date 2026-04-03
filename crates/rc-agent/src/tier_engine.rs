@@ -309,6 +309,12 @@ async fn check_trigger_resolved(
         | DiagnosticTrigger::PostSessionAnalysis { .. }
         | DiagnosticTrigger::DeployVerification { .. } => true,
 
+        // Phase 318 (LAUNCH-01): launch timeout — resolved once game_pid is set
+        DiagnosticTrigger::GameLaunchTimeout { .. } => {
+            let state = failure_monitor_rx.borrow().clone();
+            state.game_pid.is_some()
+        }
+
         // POS-specific triggers
         DiagnosticTrigger::PosKioskDown { .. } => {
             // Check if Edge is running on POS
@@ -1050,6 +1056,8 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::DeployVerification { new_build_id } => {
             format!("DeployVerification_{}", new_build_id)
         }
+        // Phase 318 (LAUNCH-01)
+        DiagnosticTrigger::GameLaunchTimeout { .. } => "GameLaunchTimeout".to_string(),
     }
 }
 
@@ -2028,6 +2036,16 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
         | DiagnosticTrigger::PreShiftAudit
         | DiagnosticTrigger::DeployVerification { .. } => {
             tracing::info!(target: LOG_TARGET, trigger = ?trigger, "MMA-First trigger — no Tier 1 deterministic fix, escalating to MMA");
+        }
+
+        // Phase 318 (LAUNCH-01): launch timeout — Tier 1 does not fix launch issues,
+        // escalate to Game Doctor via tier engine (same path as GameLaunchFail).
+        DiagnosticTrigger::GameLaunchTimeout { elapsed_secs } => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                elapsed_secs = elapsed_secs,
+                "Tier 1: game launch timeout detected — no deterministic fix, escalating to tier engine"
+            );
         }
     }
 

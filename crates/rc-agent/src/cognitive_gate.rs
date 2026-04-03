@@ -451,6 +451,9 @@ fn trigger_to_problem(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::DeployVerification { new_build_id } =>
             format!("Post-deploy verification for build {}", new_build_id),
         DiagnosticTrigger::PosNetworkDown { .. } => "POS network connectivity lost".into(),
+        // Phase 318 (LAUNCH-01)
+        DiagnosticTrigger::GameLaunchTimeout { elapsed_secs } =>
+            format!("Game launch timed out ({elapsed_secs}s — no playable signal)"),
     }
 }
 
@@ -585,6 +588,7 @@ fn trigger_to_domain(trigger: &DiagnosticTrigger) -> &'static str {
         | DiagnosticTrigger::PosKioskEscaped { .. } => "windows_os",
 
         DiagnosticTrigger::GameLaunchFail
+        | DiagnosticTrigger::GameLaunchTimeout { .. }
         | DiagnosticTrigger::GameMidSessionCrash { .. }
         | DiagnosticTrigger::PostSessionAnalysis { .. } => "rust_backend",
 

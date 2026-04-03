@@ -998,6 +998,8 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::DeployVerification { new_build_id } => {
             format!("deploy_verification:{}", new_build_id)
         }
+        // Phase 318 (LAUNCH-01)
+        DiagnosticTrigger::GameLaunchTimeout { .. } => "game_launch_timeout".to_string(),
     }
 }
 

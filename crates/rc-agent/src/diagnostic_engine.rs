@@ -105,6 +105,11 @@ pub enum DiagnosticTrigger {
     PreShiftAudit,
     /// Post-deploy verification — validates new binary after OTA deploy.
     DeployVerification { new_build_id: String },
+
+    /// Phase 318 (LAUNCH-01): Server detected game launch timeout — no playable signal
+    /// within the configured window. Agent feeds this into tier engine for recovery.
+    /// elapsed_secs: total seconds from launch command to timeout.
+    GameLaunchTimeout { elapsed_secs: u64 },
 }
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.
