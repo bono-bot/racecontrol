@@ -28,10 +28,17 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
         signal: controller.signal,
         ...options,
       });
-      // P2-005: Handle 401 — clear stale token and redirect to staff login
+      // P2-005: Handle 401 — clear stale token and redirect to lock screen.
+      // Only redirect if we HAD a token (session expired). If no token existed,
+      // this is a pre-auth API call (e.g., game catalog) — just throw, don't redirect.
+      // Also skip redirect on /staff page — it has its own client-side auth gate.
       if (res.status === 401 && typeof window !== "undefined") {
+        const hadToken = !!sessionStorage.getItem("kiosk_staff_token");
+        const onStaffPage = window.location.pathname.includes("/staff");
         sessionStorage.removeItem("kiosk_staff_token");
-        window.location.href = "/";
+        if (hadToken && !onStaffPage) {
+          window.location.href = "/";
+        }
         throw new Error("Unauthorized — session expired");
       }
       if (!res.ok) {

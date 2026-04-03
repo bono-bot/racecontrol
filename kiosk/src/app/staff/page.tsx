@@ -110,10 +110,11 @@ export default function StaffTerminal() {
   }, []);
 
   useEffect(() => {
+    if (!staffName) return; // Don't fetch before auth — 401 triggers redirect loop
     fetchRecentSessions();
     const interval = setInterval(fetchRecentSessions, 30000);
     return () => clearInterval(interval);
-  }, [fetchRecentSessions]);
+  }, [fetchRecentSessions, staffName]);
 
   // Fetch pod inventory when a pod is selected; refresh every 30s (INV-03, SC-3)
   useEffect(() => {

@@ -16,7 +16,10 @@ import type { NextRequest } from "next/server";
  */
 
 // Routes that require staff authentication
-const STAFF_ROUTES = ["/staff", "/control", "/settings", "/shutdown", "/debug", "/fleet"];
+// /staff is NOT protected here — it has its own client-side auth gate (StaffLoginScreen)
+// that renders the login form for unauthenticated users. Protecting it in middleware
+// creates a chicken-and-egg: JWT needed to reach the form that creates the JWT.
+const STAFF_ROUTES = ["/control", "/settings", "/shutdown", "/debug", "/fleet"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
