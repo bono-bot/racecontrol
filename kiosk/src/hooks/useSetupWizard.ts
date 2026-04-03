@@ -37,9 +37,7 @@ export interface WizardState {
   drivingDifficulty: string;
   transmission: string;
   ffb: string;
-  // Session splits (AC only)
-  splitCount: number;
-  splitDurationMinutes: number | null;
+  // Session splits removed (Act 2: one continuous timer)
   // Multiplayer
   multiplayerMode: "create" | "join" | null;
   serverIp: string;
@@ -65,8 +63,6 @@ const INITIAL_STATE: WizardState = {
   drivingDifficulty: "easy",
   transmission: "auto",
   ffb: "medium",
-  splitCount: 1,
-  splitDurationMinutes: null,
   multiplayerMode: null,
   serverIp: "",
   serverPort: "",
@@ -87,12 +83,11 @@ const AI_DIFFICULTY_TO_LEVEL: Record<string, number> = {
   hard: 98,   // Alien midpoint
 };
 
-// Step flow for single player
+// Step flow for single player (Act 2: no splits — one continuous timer)
 const SINGLE_FLOW: SetupStep[] = [
   "register_driver",
   "select_plan",
   "select_game",
-  "session_splits",
   "player_mode",
   "session_type",
   "ai_config",
@@ -138,7 +133,6 @@ export function useSetupWizard() {
     // just picks a preset experience (duration) and launches via Steam.
     if (!isAc) {
       const acOnlySteps: SetupStep[] = [
-        "session_splits",
         "player_mode",
         "session_type",
         "ai_config",
@@ -155,11 +149,6 @@ export function useSetupWizard() {
     }
 
     // AC-specific flow below
-    // Skip session_splits if tier duration < 20 min (no valid splits)
-    const duration = state.selectedTier?.duration_minutes ?? 0;
-    if (duration < 20) {
-      filtered = filtered.filter((s) => s !== "session_splits");
-    }
     // If experience mode is "preset", skip select_track and select_car
     if (state.experienceMode === "preset") {
       return filtered.filter((s) => s !== "select_track" && s !== "select_car");

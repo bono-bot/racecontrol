@@ -4392,6 +4392,145 @@ pub async fn extend_billing_session(
     Ok(())
 }
 
+/// Act 2: Upgrade a package billing session to a higher tier (e.g. 30min → 60min).
+/// Only allows upgrading to a tier with longer duration. Charges the price difference only.
+/// Per-minute sessions cannot be upgraded to packages (and vice versa).
+pub async fn upgrade_billing_tier(
+    state: &Arc<AppState>,
+    session_id: &str,
+    new_tier_id: &str,
+) -> Result<(), String> {
+    // Look up current session
+    let session = sqlx::query_as::<_, (String, String, String, i64, i64, String)>(
+        "SELECT bs.id, bs.driver_id, bs.pricing_tier_id, bs.allocated_seconds, bs.wallet_debit_paise, \
+         COALESCE(bs.billing_mode, 'package') \
+         FROM billing_sessions bs WHERE bs.id = ? AND bs.status IN ('active', 'paused_manual', 'paused_game_pause', 'waiting_for_game')",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| format!("Active session '{}' not found", session_id))?;
+
+    let (_sid, driver_id, current_tier_id, current_allocated, current_debit, billing_mode) = session;
+
+    // Only package sessions can be upgraded
+    if billing_mode != "package" {
+        return Err("Per-minute sessions cannot be upgraded to a package tier".to_string());
+    }
+
+    // Look up new tier
+    let new_tier = sqlx::query_as::<_, (String, i64, i64, String)>(
+        "SELECT name, duration_minutes, price_paise, COALESCE(billing_mode, 'package') FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(new_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| format!("Tier '{}' not found or inactive", new_tier_id))?;
+
+    let (new_tier_name, new_duration_min, new_price_paise, new_billing_mode) = new_tier;
+
+    // New tier must also be a package
+    if new_billing_mode != "package" {
+        return Err("Cannot upgrade to a per-minute tier".to_string());
+    }
+
+    // New tier must have longer duration (upgrade only, no downgrade)
+    let new_allocated = new_duration_min * 60;
+    if new_allocated <= current_allocated {
+        return Err(format!(
+            "New tier '{}' ({}min) is not longer than current ({}min) — upgrade only",
+            new_tier_name, new_duration_min, current_allocated / 60
+        ));
+    }
+
+    // Charge the difference only
+    let difference_paise = new_price_paise - current_debit;
+    if difference_paise < 0 {
+        return Err("New tier is cheaper — use refund instead".to_string());
+    }
+
+    // Resolve wallet owner (linked racers)
+    let wallet_owner = crate::wallet::resolve_wallet_owner(state, &driver_id).await?;
+
+    // Atomic transaction: debit wallet + update session
+    let mut tx = state.db.begin().await
+        .map_err(|e| format!("DB error: {}", e))?;
+
+    if difference_paise > 0 {
+        crate::wallet::debit_in_tx(
+            &mut tx,
+            &wallet_owner,
+            difference_paise,
+            "tier_upgrade",
+            Some(session_id),
+            Some(&format!("Upgrade to {}", new_tier_name)),
+            None,
+            &state.config.venue.venue_id,
+        )
+        .await
+        .map_err(|e| format!("Insufficient balance for upgrade: {}", e))?;
+    }
+
+    sqlx::query(
+        "UPDATE billing_sessions SET pricing_tier_id = ?, allocated_seconds = ?, wallet_debit_paise = ? WHERE id = ?",
+    )
+    .bind(new_tier_id)
+    .bind(new_allocated)
+    .bind(new_price_paise)
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("DB error updating session: {}", e))?;
+
+    // Log upgrade event
+    let metadata = serde_json::json!({
+        "from_tier": current_tier_id,
+        "to_tier": new_tier_id,
+        "difference_paise": difference_paise,
+        "new_allocated_seconds": new_allocated,
+    });
+    let _ = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, metadata, venue_id)
+         VALUES (?, ?, 'tier_upgrade', ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(session_id)
+    .bind(metadata.to_string())
+    .bind(&state.config.venue.venue_id)
+    .execute(&mut *tx)
+    .await;
+
+    tx.commit().await.map_err(|e| format!("DB commit failed: {}", e))?;
+
+    // Update in-memory timer
+    let info = {
+        let rate_tiers = state.billing.rate_tiers.read().await;
+        let mut timers = state.billing.active_timers.write().await;
+        let pod_id = timers.iter().find(|(_, t)| t.session_id == session_id).map(|(k, _)| k.clone());
+        if let Some(pod_id) = pod_id {
+            if let Some(timer) = timers.get_mut(&pod_id) {
+                timer.allocated_seconds = new_allocated as u32;
+                timer.warning_5min_sent = false;
+                timer.warning_1min_sent = false;
+                Some(timer.to_info(&rate_tiers))
+            } else { None }
+        } else { None }
+    };
+
+    if let Some(info) = info {
+        let _ = state.dashboard_tx.send(DashboardEvent::BillingSessionChanged(info));
+    }
+
+    tracing::info!(
+        "Tier upgrade: session {} from {} to {} (difference={}p, new_allocated={}s)",
+        session_id, current_tier_id, new_tier_id, difference_paise, new_allocated
+    );
+
+    Ok(())
+}
+
 /// Update the driving state for a pod's billing timer
 pub async fn update_driving_state(
     state: &Arc<AppState>,

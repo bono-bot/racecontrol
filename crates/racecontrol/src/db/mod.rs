@@ -279,6 +279,28 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Per-minute billing mode columns (Act 2: package vs per_minute pricing)
+    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN billing_mode TEXT DEFAULT 'package'")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN rate_paise_per_minute INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN minimum_hold_paise INTEGER DEFAULT 10000")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN low_balance_warning_paise INTEGER DEFAULT 5000")
+        .execute(pool)
+        .await;
+
+    // Seed per-minute tier
+    sqlx::query(
+        "INSERT OR IGNORE INTO pricing_tiers (id, name, duration_minutes, price_paise, is_trial, sort_order, billing_mode, rate_paise_per_minute, minimum_hold_paise, low_balance_warning_paise)
+         VALUES ('tier_per_minute', 'Per Minute', 0, 0, 0, 3, 'per_minute', 2500, 10000, 5000)",
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS billing_sessions (
             id TEXT PRIMARY KEY,
@@ -1015,6 +1037,16 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN sim_type TEXT")
+        .execute(pool)
+        .await;
+    // Act 2: per-minute billing mode tracking per session
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN billing_mode TEXT DEFAULT 'package'")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN rate_paise_per_minute INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN total_debited_paise INTEGER DEFAULT 0")
         .execute(pool)
         .await;
     let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN experience_id TEXT")

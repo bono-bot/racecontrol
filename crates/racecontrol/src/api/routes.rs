@@ -5092,6 +5092,25 @@ async fn launch_game(
         return Json(json!({ "error": "pod_id and sim_type are required" }));
     }
 
+    // Act 2: Trial sessions are AC-only — reject game launches for other sims during trials
+    let is_trial_session = sqlx::query_as::<_, (bool,)>(
+        "SELECT pt.is_trial FROM billing_sessions bs \
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id \
+         WHERE bs.pod_id = ? AND bs.status IN ('active', 'waiting_for_game') \
+         ORDER BY bs.created_at DESC LIMIT 1",
+    )
+    .bind(pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|(t,)| t)
+    .unwrap_or(false);
+
+    if is_trial_session && sim_type_str != "assetto_corsa" {
+        return Json(json!({ "error": "Free trial sessions are limited to Assetto Corsa only" }));
+    }
+
     // Inject duration_minutes from active billing session into launch_args.
     // Uses REMAINING time (not allocated) so mid-session relaunches get correct duration.
     // Ceiling division ensures AC session >= billing time (no early AC expiry).

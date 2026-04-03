@@ -48,7 +48,7 @@ pub(crate) enum CrashRecoveryState {
     /// Billing paused, waiting for game relaunch to succeed.
     PausedWaitingRelaunch {
         attempt: u8,                                               // 1 or 2
-        timer: std::pin::Pin<Box<tokio::time::Sleep>>,             // 60s per attempt
+        timer: std::pin::Pin<Box<tokio::time::Sleep>>,             // 30s per attempt (Act 2)
         last_sim_type: SimType,
         last_launch_args: Option<String>,
     },
@@ -758,9 +758,11 @@ pub async fn run(
                                 } else {
                                     state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
                                     let last_sim = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
+                                    // Act 2: 30s crash recovery countdown — gives staff time to
+                                    // switch games via kiosk if customer wants a different game
                                     conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
                                         attempt: 1,
-                                        timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+                                        timer: Box::pin(tokio::time::sleep(Duration::from_secs(30))),
                                         last_sim_type: last_sim,
                                         last_launch_args: conn.last_launch_args_stored.clone(),
                                     };
@@ -796,8 +798,8 @@ pub async fn run(
                 // Per-sim PlayableSignal dispatch (runs every game_check tick = 2s)
                 // AC billing is triggered via AcStatus::Live from telemetry_interval (100ms) — no action here.
                 // F1 25: UdpActive from DrivingDetector sets f1_udp_playable_received; fire billing on next tick.
-                // iRacing: IsOnTrack shared-memory signal replaces 90s fallback.
-                // LMU: IsOnTrack from rF2 shared memory replaces 90s fallback.
+                // iRacing: IsOnTrack shared-memory signal replaces 180s fallback.
+                // LMU: IsOnTrack from rF2 shared memory replaces 180s fallback.
                 // Other sims (EVO, WRC, Forza, etc.): 90s process-based fallback.
                 if state.game_process.is_some() {
                     match conn.current_sim_type {
@@ -871,12 +873,15 @@ pub async fn run(
                             // Process-based fallback for EVO, WRC, Forza, etc.
                             // BILL-08: Gate on game still running — crashed games must not be billed.
                             if let LaunchState::WaitingForLive { launched_at, .. } = &conn.launch_state {
-                                if launched_at.elapsed() >= Duration::from_secs(90) {
+                                // 180s grace period for games without telemetry/shared-memory
+                            // detection (EVO, WRC, Forza, FH5). Gives customers time to
+                            // navigate in-game menus before billing starts.
+                            if launched_at.elapsed() >= Duration::from_secs(180) {
                                     let game_alive = state.game_process.as_mut()
                                         .map(|g| g.is_running())
                                         .unwrap_or(false);
                                     if game_alive {
-                                        tracing::info!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game alive, emitting AcStatus::Live", sim_type);
+                                        tracing::info!(target: LOG_TARGET, "{:?} process fallback (180s elapsed) — game alive, emitting AcStatus::Live", sim_type);
                                         let msg = AgentMessage::GameStatusUpdate {
                                             pod_id: state.pod_id.clone(),
                                             ac_status: AcStatus::Live,
@@ -888,7 +893,7 @@ pub async fn run(
                                         conn.launch_state = LaunchState::Live;
                                         // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                         state.lock_screen.close_browser();
-                                        tracing::info!(target: LOG_TARGET, "Splash dismissed — {:?} is Live (90s fallback)", sim_type);
+                                        tracing::info!(target: LOG_TARGET, "Splash dismissed — {:?} is Live (180s fallback)", sim_type);
 
                                         // TIMER-SYNC: Create deferred SessionEnforcer NOW (same moment as billing)
                                         if let Some(duration_secs) = conn.pending_enforcer_duration_secs.take() {
@@ -902,7 +907,7 @@ pub async fn run(
                                             );
                                         }
                                     } else {
-                                        tracing::warn!(target: LOG_TARGET, "{:?} process fallback (90s elapsed) — game DEAD, emitting Error not Live (BILL-08)", sim_type);
+                                        tracing::warn!(target: LOG_TARGET, "{:?} process fallback (180s elapsed) — game DEAD, emitting Error not Live (BILL-08)", sim_type);
                                         let msg = AgentMessage::GameStatusUpdate {
                                             pod_id: state.pod_id.clone(),
                                             ac_status: AcStatus::Off,
@@ -1013,7 +1018,7 @@ pub async fn run(
                             let last_sim = conn.current_sim_type.unwrap_or(sim);
                             conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
                                 attempt: 1,
-                                timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+                                timer: Box::pin(tokio::time::sleep(Duration::from_secs(30))),
                                 last_sim_type: last_sim,
                                 last_launch_args: conn.last_launch_args_stored.clone(),
                             };
@@ -1744,7 +1749,7 @@ pub async fn run(
 
                             conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
                                 attempt: 2,
-                                timer: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+                                timer: Box::pin(tokio::time::sleep(Duration::from_secs(30))),
                                 last_sim_type,
                                 last_launch_args,
                             };
@@ -2043,7 +2048,7 @@ mod tests {
     async fn test_crash_recovery_state_paused_prevents_exit_grace() {
         let state = CrashRecoveryState::PausedWaitingRelaunch {
             attempt: 1,
-            timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(60))),
+            timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(30))),
             last_sim_type: rc_common::types::SimType::AssettoCorsa,
             last_launch_args: None,
         };

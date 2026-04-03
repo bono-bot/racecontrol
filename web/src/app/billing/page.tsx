@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Server } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import CountdownTimer from "@/components/CountdownTimer";
-import BillingStartModal from "@/components/BillingStartModal";
 import WalletTopupModal from "@/components/WalletTopupModal";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
@@ -14,7 +13,6 @@ import type { Pod } from "@/lib/api";
 
 export default function BillingPage() {
   const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand } = useWebSocket();
-  const [modalPod, setModalPod] = useState<Pod | null>(null);
   const [showTopup, setShowTopup] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const { toast } = useToast();
@@ -25,20 +23,7 @@ export default function BillingPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  function handleStart(data: {
-    pod_id: string;
-    driver_id: string;
-    pricing_tier_id: string;
-    custom_price_paise?: number;
-    custom_duration_minutes?: number;
-    payment_method: string;
-    staff_discount_paise?: number;
-    discount_reason?: string;
-  }) {
-    sendCommand("start_billing", data);
-    setModalPod(null);
-    toast({ message: "Session started", type: "success" });
-  }
+  // POS is monitoring-only — billing starts from Staff Kiosk (:3300/staff)
 
 
 
@@ -291,33 +276,19 @@ export default function BillingPage() {
                   </div>
                 ) : (
                   <div className="pt-2">
-                    <button
-                      onClick={() => setModalPod(pod)}
-                      disabled={pod.status === "offline"}
-                      className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
-                        pod.status === "offline"
-                          ? "bg-rp-card text-rp-grey cursor-not-allowed"
-                          : "bg-rp-red text-white hover:bg-rp-red active:bg-rp-red"
-                      }`}
-                    >
-                      Start Session
-                    </button>
+                    <div className={`w-full rounded-lg py-2.5 text-sm font-medium text-center ${
+                      pod.status === "offline"
+                        ? "bg-rp-card text-rp-grey"
+                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    }`}>
+                      {pod.status === "offline" ? "Offline" : "Idle — Start from Staff Kiosk"}
+                    </div>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
-      )}
-
-      {/* Start Modal */}
-      {modalPod && (
-        <BillingStartModal
-          podId={modalPod.id}
-          podName={`Pod ${String(modalPod.number).padStart(2, "0")} - ${modalPod.name}`}
-          onClose={() => setModalPod(null)}
-          onStart={handleStart}
-        />
       )}
 
       {/* Wallet Top-Up Modal */}

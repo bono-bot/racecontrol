@@ -496,9 +496,14 @@ impl SimAdapter for F125Adapter {
             return Ok(None);
         }
 
-        // Signal driving detector that we're receiving telemetry
-        if let Some(ref tx) = self.signal_tx {
-            let _ = tx.try_send(DetectorSignal::UdpActive);
+        // Only signal UdpActive when we have valid on-track telemetry (speed > 0).
+        // F1 25 sends button-event packets in pre-race menus (tyre strategy, formation
+        // lap setup) that pass parse_header but contain no motion data. Firing UdpActive
+        // on those would start billing while the customer is still in menus.
+        if self.speed_kmh > 0 {
+            if let Some(ref tx) = self.signal_tx {
+                let _ = tx.try_send(DetectorSignal::UdpActive);
+            }
         }
 
         // ERS percentage
