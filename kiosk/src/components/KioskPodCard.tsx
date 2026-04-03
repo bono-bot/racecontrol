@@ -267,29 +267,47 @@ export const KioskPodCard = React.memo(function KioskPodCard({
             <p className="text-zinc-600 text-xs">Offline</p>
           )}
 
-          {/* Loading count-up timer (compact) */}
+          {/* Loading / grace period display (compact) */}
           {state === "loading" && (
-            <span className="text-amber-400 font-mono text-xs px-2 py-1">
-              {Math.floor(loadingElapsed / 60)}:{(loadingElapsed % 60).toString().padStart(2, "0")}
-            </span>
+            <div className="flex items-center gap-2">
+              {loadingElapsed < 180 ? (
+                <span className="text-blue-400 font-mono text-xs px-2 py-0.5 bg-blue-500/10 rounded">
+                  Free Period {Math.floor((180 - loadingElapsed) / 60)}:{((180 - loadingElapsed) % 60).toString().padStart(2, "0")}
+                </span>
+              ) : (
+                <span className="text-amber-400 font-mono text-xs px-2 py-1">
+                  {Math.floor(loadingElapsed / 60)}:{(loadingElapsed % 60).toString().padStart(2, "0")}
+                </span>
+              )}
+            </div>
           )}
 
-          {/* Timer bar (compact) */}
+          {/* Timer bar (compact) — Act 2: per-minute = count-up (green), package = countdown (red) */}
           {billing && state === "on_track" && (
             <div>
               <div className="flex justify-between text-[10px] text-rp-grey mb-0.5">
                 <span className={billing.status !== "active" ? "text-amber-400" : ""}>{fsmLabel(billing.status) ?? ""}</span>
-                <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
-                  {formatTime(displayRemaining)}
-                </span>
+                {(billing as Record<string, unknown>).billing_mode === "per_minute" ? (
+                  <span className="font-mono text-emerald-400">
+                    {formatTime(billing.elapsed_seconds ?? 0)} &middot; {Math.floor((billing.cost_paise ?? 0) / 100)} cr
+                  </span>
+                ) : (
+                  <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
+                    {formatTime(displayRemaining)}
+                  </span>
+                )}
               </div>
               <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-1000 ${
-                    hasWarning ? "bg-amber-500" : "bg-rp-red"
+                    (billing as Record<string, unknown>).billing_mode === "per_minute"
+                      ? "bg-emerald-500"
+                      : hasWarning ? "bg-amber-500" : "bg-rp-red"
                   }`}
                   style={{
-                    width: `${Math.max(0, (displayRemaining / billing.allocated_seconds) * 100)}%`,
+                    width: (billing as Record<string, unknown>).billing_mode === "per_minute"
+                      ? "100%"
+                      : `${Math.max(0, (displayRemaining / billing.allocated_seconds) * 100)}%`,
                   }}
                 />
               </div>
