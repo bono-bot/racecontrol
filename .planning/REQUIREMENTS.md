@@ -1,50 +1,88 @@
-# Requirements: v40.0 Game Launch Reliability
+# Requirements: v41.0 Game Intelligence System
 
 **Defined:** 2026-04-03
-**Core Value:** Fix 4 critical architectural issues in the game launch workflow that cause silent failures, revenue loss, and pod lockouts
+**Core Value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
 
-## WS Command Delivery (WSCMD)
-- [x] **WSCMD-01**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/launch`
-- [x] **WSCMD-02**: Server waits for agent ACK (with 5s timeout) before returning success on `/games/stop`
-- [x] **WSCMD-03**: If agent doesn't ACK within timeout, server returns error to caller (not silent success)
-- [x] **WSCMD-04**: ACK protocol is backward compatible — old agents that don't ACK trigger timeout path gracefully
+## v41.0 Requirements
 
-## Game State Resilience (GSTATE)
-- [ ] **GSTATE-01**: GameTracker stuck in `Launching` for >3 minutes auto-transitions to `Error` with clear message
-- [ ] **GSTATE-02**: On WS reconnect, reconciliation correctly merges pod's actual game state with server tracker (not blind overwrite)
-- [ ] **GSTATE-03**: `/games/stop` clears the GameTracker entry on success (not just transition to Stopping)
+Requirements for Game Intelligence System. Each maps to roadmap phases.
 
-## Billing Atomicity (BATOM)
-- [x] **BATOM-01**: `start_billing` holds a consistent view — no window where concurrent requests can create duplicate sessions for the same pod
-- [x] **BATOM-02**: If a billing session already exists for a pod (any status), new `start_billing` returns clear error
+### Game Inventory
 
-## Launch-Billing Coordination (LBILL)
-- [x] **LBILL-01**: Stale session cancel (5-min timeout) checks if game process is alive on the pod before cancelling
-- [x] **LBILL-02**: If game is alive but not yet Live, extend the waiting period (up to 10 minutes total for slow-loading games)
-- [x] **LBILL-03**: If game is dead AND session is waiting_for_game >5 min, cancel with full wallet refund (existing fix from 8184d4f3)
+- [ ] **INV-01**: Agent scans Steam library (libraryfolders.vdf parsing) + configured non-Steam paths at boot and reports all installed games to server via GameInventoryUpdate WS message
+- [ ] **INV-02**: Server persists per-pod game inventory in `pod_game_inventory` table, updated on each agent connect/heartbeat
+- [ ] **INV-03**: Kiosk game picker only shows games installed on the current pod (filtered by server-side pod_game_inventory)
+- [ ] **INV-04**: Agent re-scans game inventory every 5 minutes (periodic re-fetch pattern per boot resilience standing rule)
+
+### Combo Validation
+
+- [ ] **COMBO-01**: Agent validates all enabled AC presets against local filesystem at boot — car folder exists, track folder exists, track config subfolder exists, AI line files present
+- [ ] **COMBO-02**: Agent sends `ComboValidationResult` per preset to server after boot-time validation completes (async-decoupled from WS connect)
+- [ ] **COMBO-03**: Server aggregates combo validation across fleet — marks presets as valid (all pods), partial (some pods), or invalid (no pods) with per-pod availability list
+- [ ] **COMBO-04**: Presets invalid on ALL pods are auto-disabled with reason logged and staff notification
+- [ ] **COMBO-05**: Kiosk only shows AC car+track combos that are valid for the current pod
+
+### Launch Intelligence
+
+- [ ] **LAUNCH-01**: Launch timeout watchdog — if no GameStateUpdate ACK within 90s default (or dynamic per-combo from historical data), auto-transition GameTracker to Error state and trigger DiagnosticTrigger::GameLaunchTimeout
+- [ ] **LAUNCH-02**: New `DiagnosticTrigger::GameLaunchTimeout` variant wired into tier_engine Tier 1 Game Doctor diagnostic, with `#[serde(other)]` added to enum BEFORE new variant (backward compat)
+- [ ] **LAUNCH-03**: Crash loop detection — 3+ agent restarts in 5min triggers ERROR log + WhatsApp alert + `crash_loop: true` flag in fleet health response
+- [ ] **LAUNCH-04**: Chain failure detection — 3+ consecutive game launch failures on same pod/combo triggers `MeshSystemicAlert` with severity=Critical via EscalationRequest WS path to WhatsApp
+- [ ] **LAUNCH-05**: Launch timeline events (ws_sent, agent_received, process_spawned, playable_signal) stored in `launch_timeline_spans` table with incident-level timestamps
+
+### Reliability Dashboard
+
+- [ ] **DASH-01**: Admin dashboard page shows fleet game matrix — which pods have which games installed, with install status badges
+- [ ] **DASH-02**: Admin dashboard page shows per-combo reliability scores with flagged unreliable combos highlighted in red, sortable by success rate
+- [ ] **DASH-03**: Admin dashboard page shows launch timeline for debugging specific incidents — expandable per-launch event view with checkpoint timestamps
 
 ## Future Requirements
-- WS command delivery for other endpoints (fleet/exec, config push)
-- Billing reconciliation dashboard showing desync events
-- Per-game launch timeout configuration
+
+### Enhanced Intelligence (v42.0+)
+
+- **INTEL-01**: Dynamic timeout displayed in kiosk UI so staff knows if "still launching" is normal
+- **INTEL-02**: Per-combo crash spiral detection — combos with >90% failure rate auto-escalate max_auto_relaunch
+- **INTEL-03**: Chaos testing for WS drop during launch (automated test suite)
+- **INTEL-04**: Post-relaunch billing audit test (relaunch must NOT create new BillingTimer)
+- **INTEL-05**: race.ini content verification — parse and verify config matches user selection post-generation
 
 ## Out of Scope
-- Full bidirectional NTP-style time sync (200ms desync acceptable)
-- Rewriting the WS protocol to binary format (JSON sufficient for 8 pods)
-- Client-side retry logic in kiosk (server handles retries)
+
+| Feature | Reason |
+|---------|--------|
+| Real-time filesystem watcher for game installs | Unreliable on Windows/Steam — polling at 5min intervals is safer and simpler |
+| Automated combo disable without staff review | Hides transient failures — only auto-disable when invalid on ALL pods |
+| Cross-pod combo sync (pod A installs → pod B shows) | Each pod reports its own state independently; no cross-pod push needed |
+| Dynamic timeout display in kiosk UI | Infrastructure exists (LAUNCH-08 from v24.0), UI deferred to future |
+| Non-AC combo validation (F1, iRacing, Forza) | Non-AC games are binary (installed or not) — no car+track combos to validate |
 
 ## Traceability
-| REQ | Phase | Plan | Status |
-|-----|-------|------|--------|
-| LBILL-01 | 311 | 01 | Complete (4488f48a) |
-| LBILL-02 | 311 | 01 | Complete (4488f48a) |
-| LBILL-03 | 311 | 01 | Complete (4488f48a) |
-| WSCMD-01 | 312 | 01 | Complete (b7359a02) |
-| WSCMD-02 | 312 | 01 | Complete (b7359a02) |
-| WSCMD-03 | 312 | 01 | Complete (b7359a02) |
-| WSCMD-04 | 312 | 01 | Complete (b7359a02) |
-| GSTATE-01 | 313 | — | Pending |
-| GSTATE-02 | 313 | — | Pending |
-| GSTATE-03 | 313 | — | Pending |
-| BATOM-01 | 314 | 01 | Complete (3de35d50) |
-| BATOM-02 | 314 | 01 | Complete (3de35d50) |
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| INV-01 | TBD | Pending |
+| INV-02 | TBD | Pending |
+| INV-03 | TBD | Pending |
+| INV-04 | TBD | Pending |
+| COMBO-01 | TBD | Pending |
+| COMBO-02 | TBD | Pending |
+| COMBO-03 | TBD | Pending |
+| COMBO-04 | TBD | Pending |
+| COMBO-05 | TBD | Pending |
+| LAUNCH-01 | TBD | Pending |
+| LAUNCH-02 | TBD | Pending |
+| LAUNCH-03 | TBD | Pending |
+| LAUNCH-04 | TBD | Pending |
+| LAUNCH-05 | TBD | Pending |
+| DASH-01 | TBD | Pending |
+| DASH-02 | TBD | Pending |
+| DASH-03 | TBD | Pending |
+
+**Coverage:**
+- v41.0 requirements: 17 total
+- Mapped to phases: 0
+- Unmapped: 17 ⚠️
+
+---
+*Requirements defined: 2026-04-03*
+*Last updated: 2026-04-03 after initial definition*
