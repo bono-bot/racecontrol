@@ -28,8 +28,10 @@ const path = require('path');
 const fs = require('fs');
 
 const SERVER = process.env.RC_SERVER || '192.168.31.23';
+const CLOUD = process.env.RC_CLOUD || 'racingpoint.cloud';
 
 // ─── Page Registry ──────────────────────────────────────────────────────────
+// Venue (local) + Cloud pages. Run with "all" to check both environments.
 const PAGES = {
   billing: {
     name: 'Billing Dashboard',
@@ -84,6 +86,41 @@ const PAGES = {
     expectAny: [],
     expectText: [],
     forbidText: ['Cannot GET', 'Internal Server Error'],
+    forbidUrl: [],
+  },
+
+  // ─── Cloud Pages ────────────────────────────────────────────────────────
+  'cloud-app': {
+    name: 'Cloud PWA (app.racingpoint.cloud)',
+    url: `https://app.${CLOUD}`,
+    viewport: { width: 375, height: 812 },  // mobile viewport — it's a PWA
+    waitMs: 5000,
+    expectTitle: /RacingPoint/i,
+    expectAny: ['button', 'div', 'section'],
+    expectText: [],
+    forbidText: ['Application error', 'Internal Server Error', 'Cannot GET', '502 Bad Gateway'],
+    forbidUrl: [],
+  },
+  'cloud-admin': {
+    name: 'Cloud Admin (admin.racingpoint.cloud)',
+    url: `https://admin.${CLOUD}`,
+    viewport: { width: 1440, height: 900 },
+    waitMs: 4000,
+    expectTitle: /Admin|RacingPoint/i,
+    expectAny: [],
+    expectText: [],
+    forbidText: ['Cannot GET', 'Application error', '502 Bad Gateway'],
+    forbidUrl: [],
+  },
+  'cloud-web': {
+    name: 'Cloud Web Dashboard',
+    url: `https://${CLOUD}`,
+    viewport: { width: 1024, height: 768 },
+    waitMs: 4000,
+    expectTitle: /RacingPoint|RaceControl/i,
+    expectAny: [],
+    expectText: [],
+    forbidText: ['Cannot GET', 'Application error', '502 Bad Gateway'],
     forbidUrl: [],
   },
 };

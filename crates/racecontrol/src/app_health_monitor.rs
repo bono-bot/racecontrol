@@ -40,7 +40,9 @@ pub struct AppHealthEntry {
 }
 
 /// App targets to probe (name, health URL, deep health URL).
+/// Includes both venue (LAN) and cloud (public) frontends.
 const APP_TARGETS: &[(&str, &str, Option<&str>)] = &[
+    // Venue apps (LAN)
     ("admin", "http://192.168.31.23:3201/api/health", None),
     (
         "kiosk",
@@ -52,17 +54,25 @@ const APP_TARGETS: &[(&str, &str, Option<&str>)] = &[
         "http://192.168.31.23:3200/api/health",
         Some("http://192.168.31.23:3200/api/health/deep"),
     ),
+    // Cloud apps (MI Gap 3: cloud frontend health probes)
+    ("cloud-admin", "https://admin.racingpoint.cloud/api/health", None),
+    ("cloud-app", "https://app.racingpoint.cloud", None),
+    ("cloud-web", "https://racingpoint.cloud", None),
 ];
 
 /// Critical pages to probe — if ANY returns 404, the app is broken even if /api/health says "ok".
 /// Checked every deep-probe cycle (not every 30s — reduces load).
 /// Format: (app_name, page_url, expected_status_code)
 const CRITICAL_PAGE_PROBES: &[(&str, &str, u16)] = &[
+    // Venue pages
     ("kiosk", "http://192.168.31.23:3300/kiosk", 200),           // main lock screen
-    ("kiosk", "http://192.168.31.23:3300/kiosk/staff", 307),     // staff page (307 = auth redirect = page exists)
+    ("kiosk", "http://192.168.31.23:3300/kiosk/staff", 200),     // staff login (was 307 before middleware fix ea0f6f82)
     ("kiosk", "http://192.168.31.23:3300/kiosk/spectator", 200), // spectator display
     ("web", "http://192.168.31.23:3200/billing", 200),            // POS billing page
     ("admin", "http://192.168.31.23:3201/pods", 200),             // admin pod view
+    // Cloud pages (MI Gap 3: cloud frontend page probes)
+    ("cloud-app", "https://app.racingpoint.cloud", 200),          // customer PWA
+    ("cloud-admin", "https://admin.racingpoint.cloud", 200),      // admin dashboard
 ];
 
 /// Current health state for all apps (updated every probe cycle).

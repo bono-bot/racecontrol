@@ -80,6 +80,12 @@ pub struct FleetDeployStatus {
     pub manifest_missing: bool,
     /// Whether manifest is stale (>24h old)
     pub manifest_stale: bool,
+    /// Cloud racecontrol build_id (None if cloud unreachable or not configured)
+    pub cloud_build_id: Option<String>,
+    /// Whether cloud build matches venue server build
+    pub cloud_in_sync: bool,
+    /// Cloud API reachable
+    pub cloud_reachable: bool,
     /// Overall deployment health: "healthy", "degraded", "critical"
     pub status: String,
     /// Human-readable issues
@@ -465,10 +471,25 @@ async fn compute_fleet_deploy_status(state: &Arc<AppState>) -> FleetDeployStatus
         issues.push(format!("Server restart detection degraded: {}", reason));
     }
 
+    // --- Cloud health probe (MI Gap 1-2) ---
+    let (cloud_build_id, cloud_reachable, cloud_in_sync) = probe_cloud_health(state).await;
+    if cloud_reachable {
+        if !cloud_in_sync {
+            if let Some(ref cb) = cloud_build_id {
+                issues.push(format!(
+                    "Cloud build diverged: cloud={} venue={} — rebuild cloud racecontrol binary",
+                    truncate_build_id(cb), truncate_build_id(SERVER_BUILD_ID)
+                ));
+            }
+        }
+    } else if state.config.cloud.enabled && state.config.cloud.api_url.is_some() {
+        issues.push("Cloud racecontrol unreachable — cannot verify build sync".to_string());
+    }
+
     // Determine overall status
     let status = if issues.is_empty() {
         "healthy".to_string()
-    } else if !server_current || !pods_stale.is_empty() || server_restarts_1h >= 3 {
+    } else if !server_current || !pods_stale.is_empty() || server_restarts_1h >= 3 || (cloud_reachable && !cloud_in_sync) {
         "critical".to_string()
     } else {
         "degraded".to_string()
@@ -485,8 +506,56 @@ async fn compute_fleet_deploy_status(state: &Arc<AppState>) -> FleetDeployStatus
         server_restarts_1h,
         manifest_missing,
         manifest_stale,
+        cloud_build_id,
+        cloud_in_sync,
+        cloud_reachable,
         status,
         issues,
+    }
+}
+
+/// Probe cloud racecontrol health and compare build_id (MI Gap 1-2).
+/// Returns (cloud_build_id, reachable, in_sync_with_venue).
+async fn probe_cloud_health(state: &Arc<AppState>) -> (Option<String>, bool, bool) {
+    let api_url = match &state.config.cloud.api_url {
+        Some(url) if state.config.cloud.enabled => url.clone(),
+        _ => return (None, false, true), // No cloud configured — consider "in sync"
+    };
+
+    // Strip trailing /api/v1 if present, then append /api/v1/health
+    let base = api_url.trim_end_matches('/').trim_end_matches("/api/v1").trim_end_matches('/');
+    let health_url = format!("{}/api/v1/health", base);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .danger_accept_invalid_certs(true)
+        .build();
+
+    let client = match client {
+        Ok(c) => c,
+        Err(_) => return (None, false, true),
+    };
+
+    match client.get(&health_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            #[derive(Deserialize)]
+            struct HealthResp {
+                build_id: Option<String>,
+            }
+            match resp.json::<HealthResp>().await {
+                Ok(h) => {
+                    let cloud_bid = h.build_id.and_then(|b| sanitize_build_id(&b));
+                    let in_sync = match &cloud_bid {
+                        Some(cb) => cb == SERVER_BUILD_ID,
+                        None => true, // Can't determine — assume ok
+                    };
+                    (cloud_bid, true, in_sync)
+                }
+                Err(_) => (None, true, true), // Reachable but bad JSON — degrade gracefully
+            }
+        }
+        Ok(_) => (None, true, true), // Non-success status — reachable but unhealthy
+        Err(_) => (None, false, true), // Unreachable
     }
 }
 
