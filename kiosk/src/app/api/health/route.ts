@@ -4,8 +4,8 @@ import path from 'path';
 
 /** Every page the kiosk app serves — the deploy contract. */
 const EXPECTED_PAGES = [
-  '/', '/book', '/control', '/debug', '/fleet',
-  '/settings', '/spectator', '/staff',
+  '/', '/control', '/debug', '/fleet',
+  '/register', '/settings', '/shutdown', '/spectator', '/staff',
 ];
 
 const EXPECTED_APIS = ['/api/health'];
