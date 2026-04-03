@@ -206,7 +206,7 @@ Plans:
 
 Plans:
 - [ ] 317-01-PLAN.md -- game_inventory.rs (pod_game_inventory + combo_validation_flags tables, upsert fns, fleet_validity, auto-disable), WS handlers for GameInventoryUpdate + ComboValidationReport, fleet_validity in GET /api/v1/presets
-- [ ] 317-02-PLAN.md -- crash loop WhatsApp fix (EscalationRequest path), ChainFailureState in AppState, chain failure detection in GameStateUpdate handler
+- [x] 317-02-PLAN.md -- crash loop WhatsApp fix (EscalationRequest path), ChainFailureState in AppState, chain failure detection in GameStateUpdate handler
 
 ### Phase 318: Launch Intelligence
 **Goal**: Every game launch has a timeout watchdog that prevents permanent pod lockout and records step-level timeline spans so launch failures can be debugged at the exact checkpoint where they stalled
@@ -273,7 +273,7 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans:** 2/2 plans complete
+**Plans:** 1/2 plans executed
 
 Plans:
 - [x] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution

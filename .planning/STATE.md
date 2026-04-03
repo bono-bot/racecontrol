@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 316-02-PLAN.md
-last_updated: "2026-04-03T06:16:03.484Z"
+status: verifying
+stopped_at: Completed 317-02-PLAN.md
+last_updated: "2026-04-03T07:11:43.769Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 
 Phase: 316 (Agent Content Scanner & Boot Validation) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
@@ -51,6 +51,8 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 - Phase 319 + 320: UI phases require gsd-ui-researcher before plan, gsd-ui-auditor before ship
 - [Phase 316]: validate_ac_combos_at internal variant enables testing without global path injection
 - [Phase 316]: unwrap_or_default on spawn_blocking JoinHandle is intentional — empty vec on panic
+- [Phase 317]: incident_id=crash_loop_{pod_id} gives 30-min built-in dedup in WhatsAppEscalation
+- [Phase 317]: ChainFailureState alerted flag prevents repeated escalation within same 10-min window
 
 ## Blockers/Concerns
 
@@ -59,6 +61,6 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-04-03T06:16:03.480Z
-Stopped at: Completed 316-02-PLAN.md
+Last session: 2026-04-03T07:11:43.765Z
+Stopped at: Completed 317-02-PLAN.md
 Resume file: None
