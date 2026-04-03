@@ -173,3 +173,29 @@ export function getComboList(params?: {
     : "";
   return metricsGet<ComboListRow[]>(`/admin/combo-list${qs ? `?${qs}` : ""}`);
 }
+
+// TEMP VERIFICATION ADDITIONS (319-02)
+export interface TimelineSummary {
+  launch_id: string;
+  pod_id: string;
+  sim_type: string;
+  preset_id: string | null;
+  outcome: string;
+  total_duration_ms: number;
+  started_at: string;
+}
+export interface TimelineEvent {
+  [key: string]: unknown;
+}
+export interface TimelineDetail extends TimelineSummary {
+  billing_session_id: string | null;
+  events: TimelineEvent[];
+  created_at: string;
+}
+export function getRecentTimelines(limit?: number): Promise<TimelineSummary[]> {
+  const qs = limit ? `?limit=${limit}` : "";
+  return metricsGet<TimelineSummary[]>(`/launch-timeline/recent${qs}`);
+}
+export function getTimeline(launchId: string): Promise<TimelineDetail> {
+  return metricsGet<TimelineDetail>(`/launch-timeline/${encodeURIComponent(launchId)}`);
+}
