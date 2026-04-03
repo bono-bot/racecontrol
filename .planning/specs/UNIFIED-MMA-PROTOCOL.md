@@ -445,6 +445,17 @@ MeshExperimentBroadcast {
 ```
 Any other pod with the same `problem_key` waits instead of launching its own diagnosis. One pod pays, all pods learn.
 
+### Memory Sync (CGP v3.4)
+
+After Step 4 VERIFY passes, update the cross-AI shared resolution ledger:
+```bash
+# From comms-link directory:
+cd ~/racingpoint/comms-link
+node -e "import('./shared/memory-sync.js').then(s => s.resolve('issue_key', 'james', 'commit_hash', 'Fix description'))"
+git add data/memory-sync.json && git commit -m "sync: resolve issue_key" && git push
+```
+This ensures both James and Bono know the issue is resolved. The `memory-staleness-check.js` SessionStart hook will warn if either AI's local memory contradicts the shared ledger. For automated MI diagnosis on pods, the knowledge_base already tracks solutions — the shared ledger is for cross-AI (James↔Bono) coordination, not pod-level MI.
+
 ### Solution Gossip
 
 After Step 4 VERIFY passes, broadcast the solution to all pods:

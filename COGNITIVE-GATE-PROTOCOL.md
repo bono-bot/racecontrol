@@ -27,6 +27,12 @@
 4. **Workflow Assumptions** — code traces ≠ business intent. Ask user before building features on code assumptions.
 5. **G9 counter** — track per session, report in Gate Summary Block.
 
+**v3.4 additions (2026-04-03, session 3):** Forgetfulness root cause — fixes ship but James reports them as broken in later sessions because memory files aren't updated.
+1. **Memory update is part of G1.** After proving a fix works, G1 now requires: "Memory updated: [file] → RESOLVED" or "No memory file for this issue." The fix isn't done until the record says it's done.
+2. **Cross-AI memory sync.** Shared resolution ledger (`comms-link/data/memory-sync.json`) propagates fix status between James and Bono. Both AIs check it at session start via hooks.
+3. **Automated staleness enforcement.** Two hooks: `memory-staleness-check.js` (SessionStart — warns about stale OPEN/CRITICAL claims) and `memory-commit-reminder.js` (PostToolUse — reminds after fix commits). Same enforcement pattern as G0: manual rules failed, hooks succeed.
+4. **Root pattern identified:** Any rule James must "remember to follow" will be forgotten. Every critical behavioral rule needs hook enforcement, not just documentation. This is the 3rd occurrence (CGP gates → hooks v3.1, memory updates → hooks v3.4, and this meta-pattern itself).
+
 **Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03.
 
 ---
@@ -339,17 +345,19 @@ Model stack: Qwen3 235B (scanner) + DeepSeek V3 (code) + DeepSeek R1 (reasoner) 
 #### 3.5 — Financial Flow E2E (if billing touched)
 Trace actual currency values: create customer → topup → book → launch → end (early/normal/cancel) → verify refund/balance. Any function that UPDATEs then SELECTs same column = audit for overwrite bug.
 
-#### ⛩️ G1: Outcome Verification (NO BYPASS — v3.1 hardened)
+#### ⛩️ G1: Outcome Verification (NO BYPASS — v3.1 hardened, v3.4 extended)
 **Trigger:** Before writing "fixed", "verified", "done", "complete", "PASS", "all X online", "deployed".
-**Proof — all 3 mandatory:**
+**Proof — all 4 mandatory:**
 1. **Behavior tested:** Name the specific behavior (NOT "health endpoint" or "build_id" or "ws=True")
 2. **Method of observation:** Command run + output, visual check, API call + response body. Same domain as the change.
 3. **Raw evidence:** Paste actual output, or "Asked user to visually confirm — awaiting response"
+4. **Memory updated (v3.4):** If any memory file (`project_*.md`) describes this issue as OPEN/CRITICAL, update it to RESOLVED with commit hash and date. State which file was updated, or "No memory file for this issue." The fix isn't done until the record says it's done. Also call `sync.resolve()` on the shared ledger if the issue has cross-AI relevance.
 
 **PROHIBITED as primary proof (v3.1):** `health 200`, `build_id` match, `ws=True`, `http=True`, `status: ok`. These are supplementary only — they prove the binary runs, NOT that the bug is fixed.
 **For pod changes:** MUST verify `tasklist /V` shows `Session=Console` (not Services), `edge_process_count > 0` at `:18924/debug`, blanking screen visible.
 **For API changes:** Test the EXACT changed endpoint with actual data, not just health check.
 _Why (v3.1): 2026-04-02 — 7 pods recovered, declared "all fixes deployed" based on ws=True. All pods were in Session 0. Blanking screens broken on every pod. Proxy metrics passed; actual behavior failed._
+_Why (v3.4): 2026-04-03 — 6+ issues reported as OPEN when code already had fixes. ACK protocol, rc-sentry restart, blanking screen, pods DB desync, VSD Craft — all fixed in shipped code but memory files still said CRITICAL/OPEN. User corrected this pattern 3+ times across sessions. Root cause: G1 verified the fix worked but never updated the record. Next session reads stale memory → reports fixed issue as broken → wastes user's time._
 
 #### ⛩️ G4: Confidence Calibration (NO BYPASS — v3.1 hardened)
 **Trigger:** Before any success/probability/confidence claim.
@@ -660,6 +668,8 @@ Cost ceiling hit → AI audits fall back to mechanical-only (grep-based). Never 
 | 3.0 | 2026-04-01 | Merged with Unified Operations Protocol v3.0. Gates embedded in lifecycle phases. Single source of truth. |
 | 3.1 | 2026-04-02 | G1/G4 enforcement gap. Only G0 had hard enforcement; G1/G4 had zero. James declared "done" from proxy metrics (ws=True) while blanking screens broken on all pods. Fix: session-inject hook now includes G1/G4 checklist. Two-phase completion rule. Proxy metrics explicitly prohibited as primary proof. |
 | 3.2 | 2026-04-03 | 5 user corrections in one session. Automated verification script (pod-verify.sh). Quick-start bat pattern for schtask. Delete-before-SCP rule. Multi-probe before "offline" (G5 hardened). TEMPORARY/PERMANENT fix labels. "Good Catch" anti-metric (G9 trigger). |
+| 3.3 | 2026-04-03 | G9 requires CGP UPDATE field. Summary Fidelity. Verify Before URLs. Workflow Assumptions. G9 counter tracked per session. |
+| 3.4 | 2026-04-03 | Forgetfulness fix. G1 extended: 4th proof item = "Memory updated" (file → RESOLVED + shared ledger sync). Cross-AI memory sync via comms-link/data/memory-sync.json (17 seeded resolutions). Two enforcement hooks: memory-staleness-check.js (SessionStart) + memory-commit-reminder.js (PostToolUse). Meta-pattern identified: any rule requiring James to "remember" will fail — every critical rule needs hook enforcement. |
 
 ### MMA Audit Trail (v2.0)
 

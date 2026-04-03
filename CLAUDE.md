@@ -1,8 +1,8 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.3 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.4 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03, v3.4: 2026-04-03).**
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 42 corrections over 11 days. Rules are declarative; gates are procedural.
 
