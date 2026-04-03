@@ -398,6 +398,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/games/catalog", get(games_catalog))
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
+        .route("/launch-timeline/recent", get(get_recent_launch_timelines))
         .route("/launch-timeline/:launch_id", get(get_launch_timeline))
         .route("/games/pod/{pod_id}", get(pod_game_state))
         // AC LAN
@@ -5501,6 +5502,11 @@ async fn active_games(State(state): State<Arc<AppState>>) -> Json<Value> {
 }
 
 #[derive(Deserialize)]
+struct RecentTimelineQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
 struct GameHistoryQuery {
     pod_id: Option<String>,
     limit: Option<i64>,
@@ -5547,6 +5553,38 @@ async fn game_launch_history(
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+/// Phase 319-02 (DASH-03): GET /api/v1/launch-timeline/recent?limit=50
+/// Returns a list of recent launch timeline summaries (without events_json) for the dashboard list view.
+/// Default limit=50, max=200, min=1. Returns [] for empty table.
+/// Route must be registered BEFORE /launch-timeline/:launch_id to prevent Axum treating "recent" as a param.
+async fn get_recent_launch_timelines(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RecentTimelineQuery>,
+) -> Json<Value> {
+    let limit = params.limit.unwrap_or(50).min(200).max(1);
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String)>(
+        "SELECT launch_id, pod_id, sim_type, preset_id, outcome, total_duration_ms, started_at
+         FROM launch_timeline_spans
+         ORDER BY started_at DESC
+         LIMIT ?"
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let list: Vec<Value> = rows.iter().map(|r| json!({
+        "launch_id": r.0,
+        "pod_id": r.1,
+        "sim_type": r.2,
+        "preset_id": r.3,
+        "outcome": r.4,
+        "total_duration_ms": r.5,
+        "started_at": r.6,
+    })).collect();
+    Json(json!(list))
 }
 
 /// Phase 318 (LAUNCH-05): GET /api/v1/launch-timeline/:launch_id
@@ -22817,5 +22855,77 @@ mod launch_timeline_tests {
             event_kinds.contains(&"playable_signal"),
             "events must contain playable_signal, got: {:?}", event_kinds
         );
+    }
+
+    /// Behavior 3 (Phase 319-02): GET /launch-timeline/recent on empty DB returns empty array [].
+    #[tokio::test]
+    async fn test_recent_timelines_empty_returns_empty_array() {
+        let pool = setup_timeline_pool().await;
+
+        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String)>(
+            "SELECT launch_id, pod_id, sim_type, preset_id, outcome, total_duration_ms, started_at
+             FROM launch_timeline_spans
+             ORDER BY started_at DESC
+             LIMIT ?"
+        )
+        .bind(50i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+        assert_eq!(rows.len(), 0, "Empty DB should return 0 rows");
+    }
+
+    /// Behavior 4 (Phase 319-02): GET /launch-timeline/recent returns most recent first (ORDER BY started_at DESC).
+    #[tokio::test]
+    async fn test_recent_timelines_ordered_desc() {
+        let pool = setup_timeline_pool().await;
+
+        // Insert two rows with different started_at values
+        sqlx::query(
+            "INSERT INTO launch_timeline_spans (launch_id, pod_id, sim_type, outcome, total_duration_ms, started_at, events_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("older-launch-001")
+        .bind("pod_1")
+        .bind("assetto_corsa")
+        .bind("Success")
+        .bind(25000i64)
+        .bind("2026-04-03T08:00:00Z")
+        .bind("[]")
+        .execute(&pool)
+        .await
+        .expect("INSERT older row failed");
+
+        sqlx::query(
+            "INSERT INTO launch_timeline_spans (launch_id, pod_id, sim_type, outcome, total_duration_ms, started_at, events_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("newer-launch-002")
+        .bind("pod_2")
+        .bind("f1_25")
+        .bind("Timeout")
+        .bind(60000i64)
+        .bind("2026-04-03T09:00:00Z")
+        .bind("[]")
+        .execute(&pool)
+        .await
+        .expect("INSERT newer row failed");
+
+        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String)>(
+            "SELECT launch_id, pod_id, sim_type, preset_id, outcome, total_duration_ms, started_at
+             FROM launch_timeline_spans
+             ORDER BY started_at DESC
+             LIMIT ?"
+        )
+        .bind(50i64)
+        .fetch_all(&pool)
+        .await
+        .expect("SELECT failed");
+
+        assert_eq!(rows.len(), 2, "Should return 2 rows");
+        // Most recent (09:00) must be first
+        assert_eq!(rows[0].0, "newer-launch-002", "Most recent should be first, got: {}", rows[0].0);
+        assert_eq!(rows[1].0, "older-launch-001", "Older should be second, got: {}", rows[1].0);
     }
 }
