@@ -1107,3 +1107,6 @@ Standing rule: any bug taking >30 min to isolate MUST use `bash scripts/fix_log.
 | 2026-04-02 16:55 IST | James | — | ops(mma): MMA audit v3.0 launched via OpenRouter ($3 budget, 5-model consensus). Auditing deployment fixes commit 4fc6c3e8. |
 | 2026-04-03 04:18 IST | James | 3de35d50 | feat(314-01): per-pod billing start lock + dual pre-validation (BATOM-01/02). Eliminates TOCTOU race in start_billing — concurrent same-pod requests serialized, different pods unblocked. |
 | 2026-04-03 11:07 IST | James | 4e6a2717 | feat(315-01): v41.0 game intelligence shared types in rc-common. InstalledGame/GameInventory, ComboAvailabilityStatus/ComboValidationResult/ComboAvailabilityMatrix, LaunchTimeline/LaunchTimeoutConfig, ComboHealthSummary, CrashLoopReport. 4 new AgentMessage variants. 235 tests pass. |
+
+| 2026-04-03 13:12 IST | James | cc9236c1 | feat(318-01): Task 1 — LaunchTimedOut CoreToAgentMessage, GameLaunchTimeout DiagnosticTrigger, AgentConfig.launch_timeout field. All exhaustive match arms updated. 3 tests pass. |
+| 2026-04-03 13:12 IST | James | 97083b5a | feat(318-01): Task 2 — wire LaunchTimedOut into ws_handler + emit from check_game_health. No lock across .await. Fixed pre-existing bugs: PodFleetStatus missing field, config test init. All tests pass. |
