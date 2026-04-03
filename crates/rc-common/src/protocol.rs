@@ -7,6 +7,8 @@ use crate::types::{
     PodInfo, PodFailureReason, ProcessViolation, SessionInfo, SimType, TelemetryFrame,
     FlagSyncPayload, ConfigPushPayload, OtaDownloadPayload, OtaAckPayload, ConfigAckPayload,
     KillSwitchPayload, FlagCacheSyncPayload,
+    // v41.0 Game Intelligence (Phase 315)
+    GameInventory, ComboValidationResult, LaunchTimeline, CrashLoopReport,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -582,6 +584,31 @@ pub enum AgentMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+
+    // ─── Game Intelligence (v41.0 Phase 315) ─────────────────────────────────
+
+    /// Pod reports its full game inventory after boot scan or on WS reconnect.
+    /// Server updates pod_game_inventory table and fleet game matrix for dashboard.
+    /// Phase 316: Extended content scanner produces this via all-games scan.
+    GameInventoryUpdate(GameInventory),
+
+    /// Pod reports combo validation results after proactive boot-time check.
+    /// Server updates combo_availability table and ComboAvailabilityMatrix for kiosk.
+    /// Phase 317: Proactive combo validation produces these results.
+    ComboValidationReport {
+        pod_id: String,
+        results: Vec<ComboValidationResult>,
+    },
+
+    /// Pod reports a complete launch timeline after a game launch attempt.
+    /// Server stores in launch_timelines table for the Reliability Dashboard.
+    /// Phase 318: Launch Intelligence wires this into game_launcher.rs.
+    LaunchTimelineReport(LaunchTimeline),
+
+    /// Pod detected a game crash loop (N crashes within time window).
+    /// Server updates ComboHealthStatus to Flagged and sends WhatsApp alert.
+    /// Phase 318: Crash loop detection in game_process.rs triggers this.
+    CrashLoopDetected(CrashLoopReport),
 
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
