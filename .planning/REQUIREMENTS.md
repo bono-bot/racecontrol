@@ -16,8 +16,8 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 ### Combo Validation
 
-- [ ] **COMBO-01**: Agent validates all enabled AC presets against local filesystem at boot — car folder exists, track folder exists, track config subfolder exists, AI line files present
-- [ ] **COMBO-02**: Agent sends `ComboValidationResult` per preset to server after boot-time validation completes (async-decoupled from WS connect)
+- [x] **COMBO-01**: Agent validates all enabled AC presets against local filesystem at boot — car folder exists, track folder exists, track config subfolder exists, AI line files present
+- [x] **COMBO-02**: Agent sends `ComboValidationResult` per preset to server after boot-time validation completes (async-decoupled from WS connect)
 - [ ] **COMBO-03**: Server aggregates combo validation across fleet — marks presets as valid (all pods), partial (some pods), or invalid (no pods) with per-pod availability list
 - [ ] **COMBO-04**: Presets invalid on ALL pods are auto-disabled with reason logged and staff notification
 - [ ] **COMBO-05**: Kiosk only shows AC car+track combos that are valid for the current pod
@@ -64,8 +64,8 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 | INV-02 | Phase 317 | Pending |
 | INV-03 | Phase 320 | Pending |
 | INV-04 | Phase 316 | Complete |
-| COMBO-01 | Phase 316 | Pending |
-| COMBO-02 | Phase 316 | Pending |
+| COMBO-01 | Phase 316 | Complete |
+| COMBO-02 | Phase 316 | Complete |
 | COMBO-03 | Phase 317 | Pending |
 | COMBO-04 | Phase 317 | Pending |
 | COMBO-05 | Phase 320 | Pending |

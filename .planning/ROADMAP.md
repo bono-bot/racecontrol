@@ -156,7 +156,7 @@ Plans:
 ### Phases
 
 - [x] **Phase 315: Shared Types Foundation** — LAUNCH-02
-- [ ] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02
+- [x] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02 (completed 2026-04-03)
 - [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
 - [ ] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05
 - [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
@@ -188,8 +188,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 316-01-PLAN.md -- Steam VDF library scanning + non-Steam game exe probing + GameInventoryUpdate WS send + 5-min periodic rescan loop
-- [ ] 316-02-PLAN.md -- validate_ac_combo/validate_ac_combos (car/track/ai checks) + PresetPush handler gate + ComboValidationReport WS send
+- [x] 316-01-PLAN.md -- Steam VDF library scanning + non-Steam game exe probing + GameInventoryUpdate WS send + 5-min periodic rescan loop
+- [x] 316-02-PLAN.md -- validate_ac_combo/validate_ac_combos (car/track/ai checks) + PresetPush handler gate + ComboValidationReport WS send
 
 ### Phase 317: Server Inventory & Fleet Intelligence
 **Goal**: The server persists per-pod game inventory and combo validation results, aggregates fleet availability, auto-disables universally broken combos, and alerts staff on crash loops and chain launch failures
