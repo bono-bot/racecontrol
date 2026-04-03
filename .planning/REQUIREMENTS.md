@@ -24,7 +24,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 ### Launch Intelligence
 
-- [ ] **LAUNCH-01**: Launch timeout watchdog — if no GameStateUpdate ACK within 90s default (or dynamic per-combo from historical data), auto-transition GameTracker to Error state and trigger DiagnosticTrigger::GameLaunchTimeout
+- [x] **LAUNCH-01**: Launch timeout watchdog — if no GameStateUpdate ACK within 90s default (or dynamic per-combo from historical data), auto-transition GameTracker to Error state and trigger DiagnosticTrigger::GameLaunchTimeout
 - [ ] **LAUNCH-02**: New `DiagnosticTrigger::GameLaunchTimeout` variant wired into tier_engine Tier 1 Game Doctor diagnostic, with `#[serde(other)]` added to enum BEFORE new variant (backward compat)
 - [x] **LAUNCH-03**: Crash loop detection — 3+ agent restarts in 5min triggers ERROR log + WhatsApp alert + `crash_loop: true` flag in fleet health response
 - [x] **LAUNCH-04**: Chain failure detection — 3+ consecutive game launch failures on same pod/combo triggers `MeshSystemicAlert` with severity=Critical via EscalationRequest WS path to WhatsApp
@@ -69,7 +69,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 | COMBO-03 | Phase 317 | Complete |
 | COMBO-04 | Phase 317 | Complete |
 | COMBO-05 | Phase 320 | Pending |
-| LAUNCH-01 | Phase 318 | Pending |
+| LAUNCH-01 | Phase 318 | Complete |
 | LAUNCH-02 | Phase 315 | Pending |
 | LAUNCH-03 | Phase 317 | Complete |
 | LAUNCH-04 | Phase 317 | Complete |

@@ -1,4 +1,4 @@
-# Cognitive Gate Protocol v3.2
+# Cognitive Gate Protocol v3.3
 
 **Purpose:** Single protocol governing every phase of Racing Point operations — Plan, Create, Verify, Deploy, Ship, and Debug — with 10 embedded anti-bias gates that fire at specific lifecycle moments. All standing rules, debugging methodology, audit phases, and the Multi-Model AI Audit Protocol are mapped to the phase where they activate.
 
@@ -20,7 +20,14 @@
 
 **Automated Verification (v3.2):** Before ANY pod-related completion claim, run `bash scripts/pod-verify.sh`. Script checks: pod count (8 gaming), Session context (Console not Services), edge_process_count > 0, lock_screen_state. Returns PASS/FAIL. If FAIL → DO NOT claim done.
 
-**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03.
+**v3.3 additions (2026-04-03, session 2):** 3 G9 triggers in customer workflow session. New rules:
+1. **G9 requires CGP UPDATE field** — every G9 must produce a permanent preventive rule, not just root cause. G9 without rule update is incomplete.
+2. **Summary Fidelity** — only report items explicitly discussed with user. Never pad summaries.
+3. **Verify Before URLs** — curl the URL before giving it to user. Empty/error = say so.
+4. **Workflow Assumptions** — code traces ≠ business intent. Ask user before building features on code assumptions.
+5. **G9 counter** — track per session, report in Gate Summary Block.
+
+**Predecessors:** Merges CGP v2.1 (10 gates) + Unified Operations Protocol v3.0 (6 lifecycle phases + special phases). Date: 2026-04-01. v3.1: 2026-04-02. v3.2: 2026-04-03. v3.3: 2026-04-03.
 
 ---
 
@@ -571,13 +578,15 @@ All pass → **SHIPPED**. Any fail → **DO NOT SHIP**.
 (See Phase 3 for full proof requirements. Also fires during Phase D anomaly detection.)
 
 #### ⛩️ G9: Retrospective
-**Trigger:** After resolving any issue requiring >3 exchanges or that triggered G5.
+**Trigger:** After resolving any issue requiring >3 exchanges or that triggered G5. Also triggered by ANY user correction ("good catch").
 **Proof:**
 ```
 ROOT CAUSE: [actual cause, not symptom]
 PREVENTION: [code/config/monitoring change preventing recurrence]
 SIMILAR PAST: [past incidents with same root cause — check LOGBOOK]
+CGP UPDATE: [new rule added to CGP/CLAUDE.md/hook — file + section + exact text]
 ```
+**G9 is incomplete without a CGP UPDATE.** The root cause analysis is session-local; the CGP rule is permanent. Every mistake must produce a rule that prevents the same class of mistake from recurring.
 
 #### D.9.1 — Post-Incident MMA Audit [M:post-incident]
 After any production incident: R1 + MiMo targeted audit on affected + adjacent modules. Finds near-miss patterns.

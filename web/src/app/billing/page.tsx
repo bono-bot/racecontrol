@@ -40,20 +40,7 @@ export default function BillingPage() {
     toast({ message: "Session started", type: "success" });
   }
 
-  function handleAssign(data: {
-    pod_id: string;
-    driver_id: string;
-    pricing_tier_id: string;
-    auth_type: string;
-    custom_price_paise?: number;
-    custom_duration_minutes?: number;
-    payment_method: string;
-    staff_discount_paise?: number;
-    discount_reason?: string;
-  }) {
-    sendCommand("assign_customer", data);
-    setModalPod(null);
-  }
+
 
   function handleCancelToken(tokenId: string) {
     sendCommand("cancel_assignment", { token_id: tokenId });
@@ -330,7 +317,6 @@ export default function BillingPage() {
           podName={`Pod ${String(modalPod.number).padStart(2, "0")} - ${modalPod.name}`}
           onClose={() => setModalPod(null)}
           onStart={handleStart}
-          onAssign={handleAssign}
         />
       )}
 

@@ -17,19 +17,12 @@ interface BillingStartData {
   discount_reason?: string;
 }
 
-interface BillingAssignData extends BillingStartData {
-  auth_type: string;
-}
-
 interface BillingStartModalProps {
   podId: string;
   podName: string;
   onClose: () => void;
   onStart: (data: BillingStartData) => void;
-  onAssign?: (data: BillingAssignData) => void;
 }
-
-type StartMode = "pin" | "qr" | "direct";
 
 const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
 
@@ -38,9 +31,7 @@ export default function BillingStartModal({
   podName,
   onClose,
   onStart,
-  onAssign,
 }: BillingStartModalProps) {
-  const [startMode, setStartMode] = useState<StartMode>("pin");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [tiers, setTiers] = useState<PricingTier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,11 +103,7 @@ export default function BillingStartModal({
       base.discount_reason = discountReason.trim();
     }
 
-    if (startMode === "direct") {
-      onStart(base);
-    } else if (onAssign) {
-      onAssign({ ...base, auth_type: startMode });
-    }
+    onStart(base);
   }
 
   return (
@@ -150,38 +137,6 @@ export default function BillingStartModal({
         ) : (
           <div className="space-y-6">
             {/* Start Mode */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-300 mb-2">
-                Start Method
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { mode: "pin" as StartMode, label: "Assign PIN", desc: "Customer enters PIN" },
-                    { mode: "qr" as StartMode, label: "Assign QR", desc: "Customer scans QR" },
-                    { mode: "direct" as StartMode, label: "Direct Start", desc: "Staff override" },
-                  ] as const
-                ).map(({ mode, label, desc }) => (
-                  <button
-                    key={mode}
-                    onClick={() => setStartMode(mode)}
-                    className={`rounded-lg border p-2.5 text-left transition-all ${
-                      startMode === mode
-                        ? "border-rp-red bg-rp-red/10"
-                        : "border-rp-border bg-rp-card hover:border-rp-border"
-                    }`}
-                  >
-                    <div className="text-xs font-medium text-neutral-200">
-                      {label}
-                    </div>
-                    <div className="text-[10px] text-rp-grey mt-0.5">
-                      {desc}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Driver Selection */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-2">
@@ -464,13 +419,7 @@ export default function BillingStartModal({
                   : "bg-rp-card text-rp-grey cursor-not-allowed"
               }`}
             >
-              {starting
-                ? "Processing..."
-                : startMode === "direct"
-                ? "Start Session"
-                : startMode === "pin"
-                ? "Assign with PIN"
-                : "Assign with QR"}
+              {starting ? "Processing..." : "Start Session"}
             </button>
           </div>
         )}

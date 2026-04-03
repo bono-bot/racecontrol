@@ -1,3 +1,4 @@
+use rand::Rng;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
@@ -98,6 +99,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         // MMA-v29: /debug/db-stats also moved to staff_routes (was leaking table names, row counts)
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
+        .route("/venue/register", post(venue_register))
         .route("/customer/register", post(customer_register))
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
         // Public leaderboards, events, championships (no auth)
@@ -456,6 +458,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Staff
         .route("/staff", get(list_staff).post(create_staff))
         .route("/staff/{id}", put(update_staff).delete(delete_staff))
+        .route("/staff/{id}/reset-pin", post(reset_staff_pin))
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
         .route("/employee/debug-unlock", post(employee_debug_unlock))
@@ -7149,6 +7152,110 @@ async fn customer_register(
     }
 }
 
+// ─── Venue-Local Registration (no phone required) ──────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VenueRegisterRequest {
+    name: String,
+    dob: String,
+    waiver_consent: bool,
+    guardian_name: Option<String>,
+}
+
+async fn venue_register(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<VenueRegisterRequest>,
+) -> Json<Value> {
+    if !req.waiver_consent {
+        return Json(json!({ "error": "Waiver consent is required" }));
+    }
+
+    let name = match crate::input_validation::validate_name(&req.name) {
+        Ok(n) => n,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let dob = match chrono::NaiveDate::parse_from_str(&req.dob, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return Json(json!({ "error": "Invalid date format. Use YYYY-MM-DD" })),
+    };
+
+    let today = chrono::Utc::now().date_naive();
+    let age = (today - dob).num_days() / 365;
+
+    if age < 5 {
+        return Json(json!({ "error": "Minimum age is 5 years" }));
+    }
+
+    if age < 18 {
+        if req.guardian_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
+            return Json(json!({ "error": "Guardian name required for customers under 18" }));
+        }
+    }
+
+    // Duplicate check
+    let duplicate: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, customer_id FROM drivers WHERE name = ? AND dob = ? AND registration_completed = 1",
+    )
+    .bind(&name)
+    .bind(&req.dob)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if let Some((existing_id, existing_cid)) = duplicate {
+        return Json(json!({
+            "status": "existing",
+            "driver_id": existing_id,
+            "customer_id": existing_cid,
+            "message": "Customer already registered"
+        }));
+    }
+
+    let driver_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
+    let customer_id = {
+        let max: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+        let next_num = max
+            .and_then(|m| m.0)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0) + 1;
+        format!("{:06}", next_num)
+    };
+
+    let result = sqlx::query(
+        "INSERT INTO drivers (id, name, dob, customer_id, waiver_signed, waiver_signed_at, waiver_version, guardian_name, registration_completed, created_at)
+         VALUES (?, ?, ?, ?, 1, datetime('now'), 'v1.0', ?, 1, datetime('now'))",
+    )
+    .bind(&driver_id)
+    .bind(&name)
+    .bind(&req.dob)
+    .bind(&customer_id)
+    .bind(&req.guardian_name)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            let _ = wallet::ensure_wallet(&state, &driver_id).await;
+            tracing::info!("Venue registration: {} (age: {}, id: {}, cid: {})", name, age, driver_id, customer_id);
+            Json(json!({
+                "status": "registered",
+                "driver_id": driver_id,
+                "customer_id": customer_id,
+                "name": name,
+                "is_minor": age < 18,
+            }))
+        }
+        Err(e) => Json(json!({ "error": format!("Registration failed: {}", e) })),
+    }
+}
+
 // ─── Linked Racers ──────────────────────────────────────────────────────────
 
 const MAX_LINKED_RACERS: i64 = 3;
@@ -8121,6 +8228,44 @@ async fn topup_wallet(
         &state.config, "Wallet Topup",
         &format!("{} paise for driver {}", req.amount_paise, driver_id),
     ).await;
+
+    // Send WhatsApp receipt to customer (best-effort, non-blocking)
+    {
+        let receipt_state = state.clone();
+        let receipt_driver_id = driver_id.clone();
+        let receipt_amount = req.amount_paise;
+        let receipt_method = req.method.clone();
+        let receipt_balance = new_balance;
+        let receipt_bonus = bonus_paise;
+        tokio::spawn(async move {
+            // Look up customer phone
+            let phone: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT phone FROM drivers WHERE id = ?",
+            )
+            .bind(&receipt_driver_id)
+            .fetch_optional(&receipt_state.db)
+            .await
+            .unwrap_or(None);
+
+            if let Some((Some(phone),)) = phone {
+                if !phone.is_empty() {
+                    let bonus_text = if receipt_bonus > 0 {
+                        format!(" (+{} bonus credits)", receipt_bonus / 100)
+                    } else {
+                        String::new()
+                    };
+                    let msg = format!(
+                        "Racing Point - {} credits added to your wallet via {}{}.\\nNew balance: {} credits.\\nThank you for racing with us!",
+                        receipt_amount / 100,
+                        receipt_method,
+                        bonus_text,
+                        receipt_balance / 100,
+                    );
+                    whatsapp_alerter::send_whatsapp_to(&receipt_state.config, &phone, &msg).await;
+                }
+            }
+        });
+    }
 
     // LEGAL-08: Update last_activity_at — wallet topup is customer activity.
     // Non-critical: failure does not affect the topup result.
@@ -11884,6 +12029,49 @@ async fn delete_staff(
         }
         Err(e) => Json(json!({ "error": format!("{}", e) })),
     }
+}
+
+async fn reset_staff_pin(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // Look up staff member
+    let staff = sqlx::query_as::<_, (String, String)>(
+        "SELECT name, phone FROM staff_members WHERE id = ? AND is_active = 1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let (name, phone) = match staff {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Staff member not found" })),
+    };
+
+    let new_pin = format!("{:04}", rand::thread_rng().gen_range(1000u32..=9999));
+
+    if let Err(e) = sqlx::query("UPDATE staff_members SET pin = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(&new_pin)
+        .bind(&id)
+        .execute(&state.db)
+        .await
+    {
+        return Json(json!({ "error": format!("Failed to reset PIN: {}", e) }));
+    }
+
+    // Send via WhatsApp
+    let msg = format!("Racing Point - Your new staff PIN is: {}\nReset by admin.", new_pin);
+    whatsapp_alerter::send_whatsapp_to(&state.config, &phone, &msg).await;
+
+    tracing::info!("Staff PIN reset for {} ({}) by admin", name, id);
+
+    Json(json!({
+        "status": "ok",
+        "staff_id": id,
+        "staff_name": name,
+        "new_pin": new_pin,
+    }))
 }
 
 // ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────

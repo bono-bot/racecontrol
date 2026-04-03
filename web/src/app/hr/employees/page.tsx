@@ -160,6 +160,7 @@ export default function EmployeesPage() {
                   <th className="px-4 py-3 font-medium">Phone</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Hired</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -199,6 +200,28 @@ export default function EmployeesPage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-400">
                       {new Date(emp.hired_at).toLocaleDateString("en-IN")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await fetchApi<{ status?: string; new_pin?: string; error?: string }>(
+                              `/staff/${emp.id}/reset-pin`,
+                              { method: "POST" }
+                            );
+                            if (res.error) {
+                              alert(`Error: ${res.error}`);
+                            } else {
+                              alert(`New PIN for ${emp.name}: ${res.new_pin}\nAlso sent via WhatsApp.`);
+                            }
+                          } catch {
+                            alert("Network error");
+                          }
+                        }}
+                        className="px-2 py-1 text-xs bg-amber-500/20 text-amber-400 rounded hover:bg-amber-500/30 transition-colors"
+                      >
+                        Reset PIN
+                      </button>
                     </td>
                   </tr>
                 ))}

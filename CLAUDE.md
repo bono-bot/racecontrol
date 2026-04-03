@@ -1,8 +1,8 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.2 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v3.3 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2: 2026-04-03, v3.3: 2026-04-03).**
 
 **Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 42 corrections over 11 days. Rules are declarative; gates are procedural.
 
@@ -308,6 +308,13 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
   _Why: POS was forgotten during 14-model MMA audit deploy because codebase scan found "8 gaming pods" but not POS. POS would have remained on old build with 29 unpatched vulnerabilities._
 - **Background agents lose Bash permissions.** Never use `run_in_background: true` for GSD executor agents. Background agents can't surface the Bash approval prompt. Use multiple foreground Agent calls in a single message for parallelism. Only use background for research/read-only agents that don't need Bash.
   _Why: v12.1 Phase 104 — two parallel background executors both failed silently because Bash was denied._
+
+- **Summary Fidelity — only report what was discussed.** Only include items in summaries/walkthroughs that were explicitly discussed with the user. Never pad with own observations, suggestions, or items not yet raised. If you want to surface something new, present it as a separate question — not embedded in a summary.
+  _Why: 2026-04-03 — listed 8 "remaining items" including POS color scheme, staff PIN hashing, and kiosk page archival that were never discussed. User had to correct._
+- **Verify Before Providing URLs.** Before giving any URL to the user (localhost, LAN, or cloud), verify the service is actually running: `curl -s --connect-timeout 5 <URL> | head -c 100`. If the response is empty, an error, or the service isn't running, say so — don't provide the URL with a "should be at" caveat.
+  _Why: 2026-04-03 — gave `http://localhost:3300` before verifying dev server started. Server had a TurboPack error._
+- **Workflow Assumptions Require User Confirmation.** When tracing code paths to understand a business workflow, ALWAYS present findings as "here's what the code does — is this how it actually works?" before building features on top. Code traces reveal implementation, not intent. The user's description of the real workflow overrides code.
+  _Why: 2026-04-03 — assumed customer enters PIN on kiosk (code has PIN modal), that wallet top-up exists on POS (it didn't), that 12-step wizard is the customer flow (it's staff-only). All wrong._
 
 ### Testing & Verification
 
