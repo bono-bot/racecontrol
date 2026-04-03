@@ -247,10 +247,10 @@ Plans:
   2. AC presets with `combo_valid: false` for the current pod are either hidden or shown with an "Unavailable" badge — the customer cannot launch an unlaunchable combo
   3. The kiosk game list reflects inventory changes within 30 seconds of a new `GameInventoryUpdate` being processed by the server
   4. The kiosk does not flicker or re-render mid-browse when inventory updates arrive — changes apply only between sessions or after a debounce interval
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 320-01-PLAN.md -- Kiosk game filter: read installed_games from pod heartbeat WS state, filter GAME_DISPLAY list client-side; show unavailable badge on flagged AC combos; debounce inventory updates; UI-REVIEW.md gate before ship
+- [ ] 320-01-PLAN.md -- GET /api/v1/fleet/pod-inventory/{pod_id} (server) + kiosk game picker from server inventory + Unavailable badge on invalid AC combos (INV-03, COMBO-05)
 
 ---
 
