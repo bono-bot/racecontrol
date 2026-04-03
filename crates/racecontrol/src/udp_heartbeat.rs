@@ -34,14 +34,24 @@ pub fn spawn(state: Arc<AppState>) {
     });
 }
 
+/// Bind a UDP socket with SO_REUSEADDR to avoid os error 10048 after fast restarts.
+fn bind_udp_reuse(port: u16) -> anyhow::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    sock.set_reuse_address(true)?;
+    sock.set_nonblocking(true)?;
+    sock.bind(&std::net::SocketAddr::from(([0, 0, 0, 0], port)).into())?;
+    Ok(UdpSocket::from_std(sock.into())?)
+}
+
 async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
-    // Retry bind with backoff — previous instance may still hold the port in TIME_WAIT.
-    // Without retry, a fast restart kills the entire heartbeat subsystem permanently.
+    // Use SO_REUSEADDR to allow binding even if a previous instance's socket is in TIME_WAIT.
+    // This eliminates the os error 10048 that occurs after server restarts.
     let socket = {
         let mut last_err = None;
         let mut bound = None;
         for attempt in 0..5 {
-            match UdpSocket::bind(format!("0.0.0.0:{}", HEARTBEAT_PORT)).await {
+            match bind_udp_reuse(HEARTBEAT_PORT) {
                 Ok(s) => {
                     if attempt > 0 {
                         tracing::info!(

@@ -379,6 +379,7 @@ fn detect_unexpected_sentinels() -> Vec<String> {
         "RCAGENT_SELF_RESTART",
         "GRACEFUL_RELAUNCH",
         "rcagent-restart-sentinel.txt",
+        "MAINT_CLEAR_COUNT",
     ];
     let sentinel_indicators = &["MAINTENANCE_MODE", "FORCE_CLEAN", "SAFE_MODE"];
 
