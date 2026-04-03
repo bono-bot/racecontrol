@@ -234,6 +234,38 @@ async fn fetch_server_allowlist(client: &reqwest::Client, base_url: &str) -> any
     Ok(names)
 }
 
+/// Periodic game inventory rescan loop (INV-04).
+///
+/// Runs every 5 minutes. Calls `content_scanner::build_game_inventory` in a blocking task,
+/// then sends the result as `AgentMessage::GameInventoryUpdate` via `ws_result_tx`.
+/// Fail-open: errors log WARN and continue to next tick.
+async fn inventory_rescan_loop(
+    pod_id: String,
+    is_pos: bool,
+    ws_result_tx: mpsc::Sender<AgentMessage>,
+) {
+    tracing::info!(target: LOG_TARGET, "Inventory rescan loop started (5-min interval)");
+    let mut interval = tokio::time::interval(Duration::from_secs(300));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        let pid = pod_id.clone();
+        let pos = is_pos;
+        match tokio::task::spawn_blocking(move || content_scanner::build_game_inventory(&pid, pos)).await {
+            Ok(inventory) => {
+                tracing::info!(target: LOG_TARGET, "Inventory rescan: {} games found", inventory.games.len());
+                let msg = AgentMessage::GameInventoryUpdate(inventory);
+                if ws_result_tx.send(msg).await.is_err() {
+                    tracing::warn!(target: LOG_TARGET, "Inventory rescan: failed to send GameInventoryUpdate (channel closed?)");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, "Inventory rescan: spawn_blocking failed: {}", e);
+            }
+        }
+    }
+}
+
 /// Poll the server allowlist every ALLOWLIST_REFRESH_SECS.
 ///
 /// First tick fires immediately (at startup) so kiosk enforcement on first scan
@@ -1430,6 +1462,16 @@ async fn main() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Allowlist poll loop started (refresh every {}s)", kiosk::ALLOWLIST_REFRESH_SECS);
     }
 
+    // INV-04: Periodic game inventory rescan — every 5 min, sends fresh GameInventoryUpdate via ws_exec_result_tx
+    {
+        let rescan_pod_id = pod_id.clone();
+        let rescan_is_pos = is_pos;
+        let rescan_tx = ws_exec_result_tx.clone();
+        tokio::spawn(async move {
+            inventory_rescan_loop(rescan_pod_id, rescan_is_pos, rescan_tx).await;
+        });
+    }
+
     // SAFETY-02: Wait for remote ops bind result — exit on failure.
     // Started early (before FFB/HID init) so the 30s retry window runs concurrently.
     let remote_ops_bound = match tokio::time::timeout(
@@ -1953,6 +1995,21 @@ async fn main() -> Result<()> {
         if let Ok(json) = serde_json::to_string(&manifest_msg) {
             if ws_tx.send(Message::Text(json.into())).await.is_err() {
                 tracing::warn!(target: LOG_TARGET, "Failed to send content manifest");
+            }
+        }
+
+        // INV-01: Send game inventory after ContentManifest so server knows all installed games
+        let inventory = tokio::task::spawn_blocking({
+            let pid = state.pod_id.clone();
+            let pos = is_pos;
+            move || content_scanner::build_game_inventory(&pid, pos)
+        }).await.unwrap_or_else(|_| rc_common::types::GameInventory {
+            pod_id: state.pod_id.clone(), games: vec![], scanned_at: String::new()
+        });
+        tracing::info!(target: LOG_TARGET, "Game inventory built: {} games", inventory.games.len());
+        if let Ok(json) = serde_json::to_string(&AgentMessage::GameInventoryUpdate(inventory)) {
+            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                tracing::warn!(target: LOG_TARGET, "Failed to send game inventory update");
             }
         }
 
