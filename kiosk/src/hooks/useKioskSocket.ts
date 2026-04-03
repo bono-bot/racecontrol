@@ -328,13 +328,18 @@ export function useKioskSocket() {
     };
 
     socket.onclose = () => {
-      // Exponential backoff with jitter: 1s base, 30s max
+      // WS-HARDEN: Exponential backoff with jitter: 1s base, 30s max, cap at 20 retries
       const attempt = reconnectAttemptRef.current;
+      if (attempt >= 20) {
+        console.error("[Kiosk] Max reconnect attempts (20) reached — giving up. Refresh page to retry.");
+        setConnected(false);
+        return;
+      }
       const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30_000);
       const jitter = Math.random() * baseDelay * 0.3;
       const delay = Math.round(baseDelay + jitter);
       reconnectAttemptRef.current = attempt + 1;
-      console.log(`[Kiosk] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1})...`);
+      console.log(`[Kiosk] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1}/20)...`);
       // Two-phase UI debounce:
       // 1. After 5s: show "Reconnecting..." (soft indicator, no alarm)
       // 2. After 15s: show "Disconnected" (hard indicator, something is wrong)

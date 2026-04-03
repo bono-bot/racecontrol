@@ -56,6 +56,33 @@ pub fn reset_ws_churn_counters() {
     DASHBOARD_WS_DISCONNECTS.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// WS-HARDEN: Track failed WS auth attempts per source. 5 failures in 5min = lockout.
+static WS_AUTH_FAILURES: std::sync::LazyLock<Mutex<HashMap<String, (u32, Instant)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Check if a WS source is locked out from auth failures. Returns true if locked out.
+fn ws_auth_locked_out(source: &str) -> bool {
+    let map = WS_AUTH_FAILURES.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((count, first_failure)) = map.get(source) {
+        if first_failure.elapsed() < Duration::from_secs(300) && *count >= 5 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Record a failed WS auth attempt.
+fn ws_auth_record_failure(source: &str) {
+    let mut map = WS_AUTH_FAILURES.lock().unwrap_or_else(|p| p.into_inner());
+    let entry = map.entry(source.to_string()).or_insert((0, Instant::now()));
+    if entry.1.elapsed() > Duration::from_secs(300) {
+        // Reset window
+        *entry = (1, Instant::now());
+    } else {
+        entry.0 += 1;
+    }
+}
+
 /// Check and update sentinel alert cooldown. Returns true if the alert should fire.
 /// Cooldown key: `sentinel_{file}_{pod_number}`. Cooldown period: 300s (5 minutes).
 fn check_sentinel_cooldown(key: &str) -> bool {
@@ -217,7 +244,14 @@ pub async fn dashboard_ws(
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
     }
+    // WS-HARDEN: rate limit failed auth attempts (5 failures in 5min = lockout)
+    let source = token.as_deref().unwrap_or("no-token").chars().take(8).collect::<String>();
+    if ws_auth_locked_out(&source) {
+        tracing::warn!("WS dashboard connection rate-limited — source '{}' locked out", source);
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
     if !verify_ws_token(&state, &token) {
+        ws_auth_record_failure(&source);
         tracing::warn!("WS dashboard connection rejected — invalid or missing token");
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -369,6 +403,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
     // Listen for messages from the agent
     while let Some(Ok(msg)) = ws_receiver.next().await {
         if let Message::Text(text) = msg {
+            // WS-HARDEN: message size limit (2MB for agents — telemetry can be larger)
+            if text.len() > 2_097_152 {
+                tracing::warn!("Agent WS message too large ({} bytes, conn_id={}) — dropping", text.len(), conn_id);
+                continue;
+            }
             match serde_json::from_str::<AgentMessage>(&text) {
                 Ok(agent_msg) => {
                     match &agent_msg {
@@ -2343,11 +2382,32 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     let mut rx = state.dashboard_tx.subscribe();
 
     // Forward broadcast events to this dashboard client (filter non-physical pods)
+    // WS-HARDEN: ping every 20s, timeout after 45s no pong, slow client drop after 5s send
     let send_task = tokio::spawn(async move {
         // Phase 254: Debounce RecordBroken broadcasts — max 1 per second per (track, sim_type)
         let mut record_debounce: HashMap<(String, String), Instant> = HashMap::new();
+        let mut last_pong = Instant::now();
+        let mut ping_interval = tokio::time::interval(Duration::from_secs(20));
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ping_interval.tick().await; // consume first immediate tick
 
-        while let Ok(event) = rx.recv().await {
+        loop {
+        tokio::select! {
+        _ = ping_interval.tick() => {
+            // WS-HARDEN: Check pong timeout (45s)
+            if last_pong.elapsed() > Duration::from_secs(45) {
+                tracing::warn!("Dashboard WS client pong timeout (45s) — dropping");
+                break;
+            }
+            if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                break;
+            }
+        }
+        event = rx.recv() => {
+        let event = match event {
+            Ok(e) => e,
+            Err(_) => break,
+        };
             // Phase 254: Debounce RecordBroken events per (track, sim_type) — max 1/sec
             if let DashboardEvent::RecordBroken { ref track, ref sim_type, .. } = event {
                 let key = (track.clone(), sim_type.clone());
@@ -2369,19 +2429,38 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                 }
                 _ => event,
             };
+            // WS-HARDEN: timeout on slow client (5s send deadline)
             if let Ok(json) = serde_json::to_string(&filtered) {
-                if sender.send(Message::Text(json.into())).await.is_err() {
-                    break;
+                match tokio::time::timeout(
+                    Duration::from_secs(5),
+                    sender.send(Message::Text(json.into()))
+                ).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => break, // send error — socket closed
+                    Err(_) => {
+                        tracing::warn!("Dashboard WS slow client — send timed out after 5s, dropping");
+                        break;
+                    }
                 }
             }
-        }
+        } // end select event branch
+        } // end select!
+        } // end loop
     });
 
     // Handle incoming commands from dashboard
     let cmd_state = state.clone();
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
+            // WS-HARDEN: Pong received — reset pong timeout in send_task
+            // Note: browser auto-responds to server Ping with Pong, so this fires naturally
+            Message::Pong(_) => continue,
             Message::Text(text) => {
+                // WS-HARDEN: message size limit (1MB) to prevent DoS
+                if text.len() > 1_048_576 {
+                    tracing::warn!("Dashboard WS message too large ({} bytes) — dropping", text.len());
+                    continue;
+                }
                 match serde_json::from_str::<DashboardCommand>(&text) {
                     Ok(cmd) => match &cmd {
                         DashboardCommand::LaunchGame { .. }

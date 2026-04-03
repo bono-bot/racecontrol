@@ -236,12 +236,17 @@ export function useWebSocket() {
 
     socket.onclose = () => {
       setConnected(false);
+      // WS-HARDEN: Exponential backoff with jitter + max 20 retries
       const attempt = reconnectAttemptRef.current;
+      if (attempt >= 20) {
+        console.error("[RaceControl] Max reconnect attempts (20) reached — refresh page to retry.");
+        return;
+      }
       const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30_000);
       const jitter = Math.random() * baseDelay * 0.3;
       const delay = Math.round(baseDelay + jitter);
       reconnectAttemptRef.current = attempt + 1;
-      console.log(`[RaceControl] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1})...`);
+      console.log(`[RaceControl] Disconnected, retrying in ${delay}ms (attempt ${attempt + 1}/20)...`);
       setTimeout(connect, delay);
     };
 
