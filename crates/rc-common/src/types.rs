@@ -1033,6 +1033,233 @@ pub struct PresetPushPayload {
     pub presets: Vec<GamePresetWithReliability>,
 }
 
+// ─── Game Intelligence (v41.0 Phase 315) ──────────────────────────────────────
+
+/// A single game installed on a pod with its scan metadata.
+/// Produced by the extended content_scanner (Phase 316) that covers Steam + non-Steam games.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledGame {
+    /// Game identifier (e.g. "assetto_corsa", "forza_horizon_5")
+    pub game_id: String,
+    /// Display name (e.g. "Assetto Corsa", "Forza Horizon 5")
+    pub display_name: String,
+    /// Sim type mapping (None if game_id not in known SimType list)
+    pub sim_type: Option<SimType>,
+    /// Executable path detected during scan (e.g. "C:\\...\\acs.exe")
+    pub exe_path: String,
+    /// Whether the game is currently launchable (exe exists and not flagged)
+    pub launchable: bool,
+    /// Scan method used: "steam_library", "non_steam_shortcut", "direct_scan"
+    pub scan_method: String,
+    /// Steam app ID if discovered via Steam (None for non-Steam)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steam_app_id: Option<u64>,
+    /// ISO-8601 UTC timestamp when this entry was last scanned
+    pub scanned_at: String,
+}
+
+/// Full game inventory for a pod — replaces the simple Vec<SimType> in PodInfo for v41.0.
+/// Sent from agent to server via AgentMessage::GameInventoryUpdate.
+/// Server uses this to build the per-pod game matrix shown on the Reliability Dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GameInventory {
+    pub pod_id: String,
+    pub games: Vec<InstalledGame>,
+    /// ISO-8601 UTC timestamp of this scan
+    pub scanned_at: String,
+}
+
+/// Availability status for a single game preset/combo on a specific pod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComboAvailabilityStatus {
+    /// Game installed, combo passes all filesystem checks
+    Available,
+    /// Game not installed on this pod
+    GameNotInstalled,
+    /// Game installed but combo fails filesystem validation (missing car/track/ai_lines/pit_stalls)
+    Invalid,
+    /// Temporarily disabled by staff or system (e.g., pending investigation)
+    Disabled,
+    /// Validation not yet run on this pod (post-boot pending)
+    Unknown,
+}
+
+/// Result of validating a single game preset combo on a pod.
+/// Produced by proactive boot-time validation (Phase 317) and reactive launch checks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComboValidationResult {
+    /// Game preset ID (from preset_library)
+    pub preset_id: String,
+    /// Human-readable preset name
+    pub preset_name: String,
+    /// The pod this result is for
+    pub pod_id: String,
+    /// Availability status
+    pub status: ComboAvailabilityStatus,
+    /// Reasons for Invalid/Disabled status (empty if Available)
+    pub failure_reasons: Vec<String>,
+    /// Files/paths checked (for debugging)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checked_paths: Vec<String>,
+    /// ISO-8601 UTC timestamp of validation
+    pub validated_at: String,
+}
+
+/// Per-pod status entry in the fleet-wide combo availability matrix.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PodComboStatus {
+    pub pod_id: String,
+    pub pod_number: u32,
+    pub status: ComboAvailabilityStatus,
+}
+
+/// Entry in the fleet-wide combo availability matrix for one preset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComboAvailabilityEntry {
+    pub preset_id: String,
+    pub preset_name: String,
+    pub pod_availability: Vec<PodComboStatus>,
+}
+
+/// Fleet-wide combo availability matrix — server aggregates ComboValidationResults for the dashboard.
+/// Maps preset_id → pod_id → status.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ComboAvailabilityMatrix {
+    pub entries: Vec<ComboAvailabilityEntry>,
+    pub generated_at: String,
+}
+
+/// A single event in the game launch timeline.
+/// Accumulated by rc-agent during launch and forwarded to server via LaunchTimeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchTimelineEvent {
+    /// Event kind: "launch_command", "process_detected", "playable_signal",
+    ///              "billing_started", "ack_received", "timeout", "error", "crash"
+    pub kind: String,
+    /// Optional detail (e.g. pid, error message, sim_type string)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Milliseconds since launch command was issued
+    pub elapsed_ms: u64,
+    /// ISO-8601 UTC timestamp of this event
+    pub timestamp: String,
+}
+
+/// Complete launch timeline for a single game launch attempt.
+/// Sent from rc-agent to server on launch completion (success or failure).
+/// Server stores in launch_timelines table for the Reliability Dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchTimeline {
+    pub pod_id: String,
+    /// Unique launch attempt ID (UUID v4)
+    pub launch_id: String,
+    /// Billing session ID if billing was started for this launch
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_session_id: Option<String>,
+    pub sim_type: SimType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_id: Option<String>,
+    pub events: Vec<LaunchTimelineEvent>,
+    /// Final outcome: "success", "timeout", "crash", "ack_timeout", "billing_guard"
+    pub outcome: String,
+    /// Total milliseconds from launch command to final outcome
+    pub total_duration_ms: u64,
+    /// ISO-8601 UTC timestamp when the launch command was issued
+    pub started_at: String,
+}
+
+/// Per-sim launch timeout override entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimLaunchTimeout {
+    pub sim_type: SimType,
+    pub timeout_secs: u32,
+}
+
+/// Timeout configuration for game launch — per-sim defaults with per-combo overrides.
+/// Stored in AgentConfig (Phase 295) and pushed server→agent via ConfigPush.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchTimeoutConfig {
+    /// Default timeout in seconds (90s default per v41.0 spec)
+    pub default_secs: u32,
+    /// Per-sim overrides
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sim_overrides: Vec<SimLaunchTimeout>,
+}
+
+impl Default for LaunchTimeoutConfig {
+    fn default() -> Self {
+        Self {
+            default_secs: 90,
+            sim_overrides: Vec::new(),
+        }
+    }
+}
+
+/// Health classification for a game preset combo based on recent launch history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComboHealthStatus {
+    /// No issues detected — success rate >= 80%
+    Healthy,
+    /// Some failures — success rate 50-79%, watch but don't flag
+    Degraded,
+    /// High failure rate < 50% or crash loop detected — flag for staff review
+    Flagged,
+    /// Manually disabled by staff
+    Disabled,
+    /// Not enough data (fewer than 3 launches)
+    InsufficientData,
+}
+
+/// Per-combo health summary aggregated from launch history.
+/// Server computes this from launch_timelines table; served to kiosk for filtering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComboHealthSummary {
+    pub preset_id: String,
+    pub preset_name: String,
+    pub sim_type: SimType,
+    pub status: ComboHealthStatus,
+    /// Total launches recorded for this combo (all pods)
+    pub total_launches: u32,
+    /// Successful launches (reached PlayableSignal)
+    pub successful_launches: u32,
+    /// Success rate 0.0-1.0 (None if total_launches < 3)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success_rate: Option<f32>,
+    /// Average time to PlayableSignal in ms (None if no successes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avg_launch_ms: Option<u64>,
+    /// Reasons for Flagged/Degraded status
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flag_reasons: Vec<String>,
+    /// ISO-8601 UTC timestamp of last launch (any outcome)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_launch_at: Option<String>,
+}
+
+/// Crash loop detection report from rc-agent.
+/// Fired when a game crashes N times within a time window.
+/// Server uses this to update ComboHealthStatus to Flagged and send WhatsApp alert.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrashLoopReport {
+    pub pod_id: String,
+    pub sim_type: SimType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_id: Option<String>,
+    /// Number of crashes detected within the window
+    pub crash_count: u32,
+    /// Time window in seconds
+    pub window_secs: u32,
+    /// Exit codes of crash events (for diagnosis)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exit_codes: Vec<i32>,
+    /// ISO-8601 UTC timestamp of first crash in this window
+    pub first_crash_at: String,
+    /// ISO-8601 UTC timestamp of most recent crash
+    pub latest_crash_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
