@@ -587,7 +587,8 @@ function CompleteView({
   billing: BillingSession;
   isStandalone: boolean;
 }) {
-  const [countdown, setCountdown] = useState(15);
+  // Act 3: 60-second session complete screen with summary + leaderboard + review links
+  const [countdown, setCountdown] = useState(60);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -598,26 +599,79 @@ function CompleteView({
 
   const droveMins = Math.floor(billing.driving_seconds / 60);
   const droveSecs = billing.driving_seconds % 60;
+  const costCredits = billing.cost_paise ? Math.floor(billing.cost_paise / 100) : 0;
 
+  if (!isStandalone) {
+    // Compact pod card view — just show basic info
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-2">
+        <p className="font-bold text-white text-sm">Session Complete</p>
+        <p className="text-rp-grey text-[10px] mt-1">{droveMins}m {droveSecs}s</p>
+        <p className="text-rp-grey text-[9px]">Resetting in {countdown}s</p>
+      </div>
+    );
+  }
+
+  // Full standalone pod kiosk view — 60 second summary screen
   return (
-    <div className="flex-1 flex flex-col items-center justify-center">
-      <svg
-        className={`text-green-500 ${isStandalone ? "w-16 h-16 mb-4" : "w-8 h-8 mb-2"}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-      <p className={`font-bold text-white ${isStandalone ? "text-3xl" : "text-sm"}`}>
-        Session Complete!
+    <div className="flex-1 flex flex-col items-center justify-center px-8 py-6 text-center">
+      {/* Thank you header */}
+      <div className="mb-6">
+        <svg className="text-rp-red w-16 h-16 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        <p className="text-3xl font-bold text-white">Thank you for racing!</p>
+      </div>
+
+      {/* Session summary */}
+      <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-5 mb-5 w-full max-w-md">
+        <p className="text-sm text-rp-grey uppercase tracking-wider mb-3">Session Summary</p>
+        <div className="space-y-2 text-left">
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-400">Driver</span>
+            <span className="text-white font-medium">{billing.driver_name}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-400">Time on Track</span>
+            <span className="text-white font-medium">{droveMins}m {droveSecs}s</span>
+          </div>
+          {costCredits > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-zinc-400">Session Cost</span>
+              <span className="text-white font-medium">{costCredits} credits</span>
+            </div>
+          )}
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-400">Plan</span>
+            <span className="text-white font-medium">{billing.pricing_tier_name}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Review & follow CTA */}
+      <div className="bg-zinc-800/30 border border-zinc-700/50 rounded-xl p-4 mb-5 w-full max-w-md">
+        <p className="text-sm text-zinc-300 mb-2">Enjoyed your session?</p>
+        <div className="flex gap-4 justify-center text-xs">
+          <div className="text-center">
+            <div className="text-amber-400 font-bold">50 credits</div>
+            <div className="text-zinc-500">Review on Google</div>
+          </div>
+          <div className="text-center">
+            <div className="text-blue-400 font-bold">25 credits</div>
+            <div className="text-zinc-500">Follow on Instagram</div>
+          </div>
+        </div>
+        <p className="text-zinc-600 text-[10px] mt-2">Show your review to staff to claim credits</p>
+      </div>
+
+      {/* Your stats on the app */}
+      <p className="text-zinc-500 text-sm mb-4">
+        Full stats available on your Racing Point app
       </p>
-      <p className={`text-rp-grey mt-2 ${isStandalone ? "text-lg" : "text-[10px]"}`}>
-        Driving time: {droveMins}m {droveSecs}s
-      </p>
-      <p className={`text-rp-grey mt-1 ${isStandalone ? "text-sm" : "text-[9px]"}`}>
-        Resetting in {countdown}s...
+
+      {/* Countdown to reset */}
+      <p className="text-zinc-600 text-xs">
+        Resetting in {countdown}s
       </p>
     </div>
   );
