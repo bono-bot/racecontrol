@@ -9,10 +9,10 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 ### Game Inventory
 
-- [ ] **INV-01**: Agent scans Steam library (libraryfolders.vdf parsing) + configured non-Steam paths at boot and reports all installed games to server via GameInventoryUpdate WS message
+- [x] **INV-01**: Agent scans Steam library (libraryfolders.vdf parsing) + configured non-Steam paths at boot and reports all installed games to server via GameInventoryUpdate WS message
 - [ ] **INV-02**: Server persists per-pod game inventory in `pod_game_inventory` table, updated on each agent connect/heartbeat
 - [ ] **INV-03**: Kiosk game picker only shows games installed on the current pod (filtered by server-side pod_game_inventory)
-- [ ] **INV-04**: Agent re-scans game inventory every 5 minutes (periodic re-fetch pattern per boot resilience standing rule)
+- [x] **INV-04**: Agent re-scans game inventory every 5 minutes (periodic re-fetch pattern per boot resilience standing rule)
 
 ### Combo Validation
 
@@ -60,10 +60,10 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INV-01 | Phase 316 | Pending |
+| INV-01 | Phase 316 | Complete |
 | INV-02 | Phase 317 | Pending |
 | INV-03 | Phase 320 | Pending |
-| INV-04 | Phase 316 | Pending |
+| INV-04 | Phase 316 | Complete |
 | COMBO-01 | Phase 316 | Pending |
 | COMBO-02 | Phase 316 | Pending |
 | COMBO-03 | Phase 317 | Pending |
