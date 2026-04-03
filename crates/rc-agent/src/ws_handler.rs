@@ -1833,6 +1833,24 @@ pub async fn handle_ws_message(
             let _ = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() });
         }
 
+        // Phase 318 (LAUNCH-01): Server detected game launch timeout on this pod.
+        // Feed GameLaunchTimeout into the tier engine so Game Doctor can run recovery.
+        // Standing rule: borrow() on a watch channel returns an owned snapshot — no lock held across .await.
+        CoreToAgentMessage::LaunchTimedOut { sim_type, elapsed_secs } => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                sim_type = ?sim_type,
+                elapsed_secs = elapsed_secs,
+                "LAUNCH-01: Server detected launch timeout — feeding GameLaunchTimeout to tier engine"
+            );
+            let pod_state = state.failure_monitor_tx.borrow().clone();
+            diagnostic_engine::emit_external_event(
+                &state.diagnostic_event_tx,
+                diagnostic_engine::DiagnosticTrigger::GameLaunchTimeout { elapsed_secs },
+                &pod_state,
+            );
+        }
+
         other => {
             tracing::warn!(target: LOG_TARGET, "Unhandled CoreToAgentMessage: {:?}", other);
         }

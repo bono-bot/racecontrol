@@ -1431,6 +1431,26 @@ pub async fn check_game_health(state: &Arc<AppState>) {
         // auto-relaunch logic fires on timeout (same path as crash events).
         // handle_game_state_update handles dashboard broadcast too — do NOT broadcast here.
         handle_game_state_update(state, info).await;
+
+        // LAUNCH-01 (Phase 318): Notify agent so it can feed GameLaunchTimeout into
+        // its tier engine (Game Doctor runs, attempts recovery).
+        // Standing rule: snapshot the sender BEFORE awaiting — never hold a lock across .await.
+        let sender_opt = {
+            let senders = state.agent_senders.read().await;
+            senders.get(&pod_id).cloned()
+        };
+        if let Some(tx) = sender_opt {
+            let msg = CoreMessage::wrap(CoreToAgentMessage::LaunchTimedOut {
+                sim_type,
+                elapsed_secs: timeout_secs as u64,
+            });
+            if let Err(e) = tx.send(msg).await {
+                tracing::warn!(
+                    "LAUNCH-01: Failed to send LaunchTimedOut to pod {}: {}",
+                    pod_id, e
+                );
+            }
+        }
     }
 }
 
@@ -2835,6 +2855,53 @@ mod tests {
         assert!(
             err.contains("launch args unavailable") || err.contains("externally tracked") || err.contains("null"),
             "Error must mention launch args unavailability, got: {}", err
+        );
+    }
+
+    /// Phase 318 (LAUNCH-01): check_game_health should transition a stale Launching tracker to Error
+    /// and attempt to send LaunchTimedOut to the agent (fire-and-forget — no receiver needed in test).
+    #[tokio::test]
+    async fn test_check_game_health_timeout_emits_launch_timed_out() {
+        let state = make_state().await;
+
+        // Insert a Launching tracker with launched_at 200s ago — well past the 90s default timeout
+        let old_time = Utc::now() - chrono::Duration::seconds(200);
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::AssettoCorsa,
+                game_state: GameState::Launching,
+                pid: None,
+                launched_at: Some(old_time),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+                dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
+                billing_session_id: None,
+            },
+        );
+
+        // Run check_game_health — should detect timeout, send LaunchTimedOut (no receiver = dropped),
+        // and transition the tracker to Error.
+        check_game_health(&state).await;
+
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get("pod_1").expect("tracker should still exist");
+        assert_eq!(
+            tracker.game_state,
+            GameState::Error,
+            "Launching state should transition to Error after timeout"
+        );
+        assert!(
+            tracker.error_message.as_ref().map_or(false, |m| m.contains("timed out")),
+            "Error message should mention 'timed out', got: {:?}",
+            tracker.error_message
         );
     }
 

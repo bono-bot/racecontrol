@@ -1207,6 +1207,7 @@ mod tests {
             reliability_score: None,
             total_launches: 0,
             flagged_unreliable: false,
+            fleet_validity: "unknown".to_string(),
         }
     }
 

@@ -683,4 +683,19 @@ mod tests {
         assert_eq!(gates.len(), 5);
         // Phase D should always produce results, never panic
     }
+
+    /// Phase 318 (LAUNCH-01): GameLaunchTimeout trigger should produce a non-empty problem
+    /// definition and be handled identically to GameLaunchFail by cognitive gate.
+    #[test]
+    fn game_launch_timeout_cgp_gate_produces_problem_definition() {
+        let event = make_test_event(DiagnosticTrigger::GameLaunchTimeout { elapsed_secs: 95 });
+        let result = CgpEngine::gate_g0_problem_definition(&event);
+        assert_eq!(result.status, CgpGateStatus::Passed);
+        let problem = result.evidence["problem"].as_str().unwrap_or("");
+        assert!(
+            problem.contains("95") || problem.contains("timed out"),
+            "G0 problem should reference timeout context, got: {}",
+            problem
+        );
+    }
 }

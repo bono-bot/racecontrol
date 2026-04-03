@@ -94,6 +94,8 @@ pub struct FleetHealthStore {
     pub experience_score: Option<f64>,
     /// CX-06: "Healthy", "Maintenance", or "RemoveFromRotation"
     pub experience_status: Option<String>,
+    /// Windows session ID from last StartupReport: 0 = Session 0 (broken GUI), 1+ = interactive.
+    pub windows_session_id: Option<u32>,
 }
 
 /// Per-pod violation history with time-based eviction and fingerprint dedup.
@@ -328,6 +330,9 @@ pub struct PodFleetStatus {
     /// Phase 284: Number of crash recovery events for this pod in last 24 hours.
     #[serde(default)]
     pub crash_recovery_count: i64,
+    /// Windows session ID: 0 = Session 0 (Services, GUI broken), 1+ = interactive (Console).
+    /// null = old agent or no StartupReport received yet.
+    pub windows_session_id: Option<u32>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -344,6 +349,7 @@ pub fn store_startup_report(
     remote_ops_port_bound: bool,
     hid_detected: bool,
     udp_ports_bound: &[u16],
+    windows_session_id: Option<u32>,
 ) {
     store.version = Some(version.to_string());
     store.agent_started_at = Some(
@@ -354,6 +360,7 @@ pub fn store_startup_report(
     store.remote_ops_port_bound = Some(remote_ops_port_bound);
     store.hid_detected = Some(hid_detected);
     store.udp_ports_bound = Some(udp_ports_bound.to_vec());
+    store.windows_session_id = windows_session_id;
 
     // Bug #8: Clear last_sentry_crash on recovery — pod is healthy again
     if store.last_sentry_crash.is_some() {
@@ -1137,6 +1144,8 @@ pub async fn fleet_health_handler(
                     experience_status: None,
                     avg_ready_delay_ms: None,
                     crash_recovery_count: 0,
+                    // Phase 318 (Rule 1 - Bug): missing field in None branch — pod not yet registered
+                    windows_session_id: None,
                 });
             }
             Some(info) => {
@@ -1189,6 +1198,7 @@ pub async fn fleet_health_handler(
                 let clock_drift_secs = store.and_then(|s| s.clock_drift_secs);
                 let avg_ready_delay_ms = ready_delay_map.get(pod_id).copied();
                 let crash_recovery_count = crash_recovery_map.get(pod_id).copied().unwrap_or(0);
+                let windows_session_id = store.and_then(|s| s.windows_session_id);
 
                 result.push(PodFleetStatus {
                     pod_number,
@@ -1218,6 +1228,7 @@ pub async fn fleet_health_handler(
                     experience_status: store.and_then(|s| s.experience_status.clone()),
                     avg_ready_delay_ms,
                     crash_recovery_count,
+                    windows_session_id,
                 });
             }
         }
@@ -1353,7 +1364,7 @@ mod tests {
     #[test]
     fn fleet_health_store_startup_report_sets_version() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 3600, false, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 3600, false, false, false, false, &[], None);
         assert_eq!(store.version, Some("0.5.2".to_string()));
     }
 
@@ -1361,7 +1372,7 @@ mod tests {
     fn fleet_health_store_startup_report_computes_agent_started_at() {
         let before = Utc::now();
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[], None);
         let after = Utc::now();
 
         let started = store.agent_started_at.expect("agent_started_at should be set");
@@ -1377,11 +1388,11 @@ mod tests {
     #[test]
     fn fleet_health_store_startup_report_sets_crash_recovery() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 0, true, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 0, true, false, false, false, &[], None);
         assert_eq!(store.crash_recovery, Some(true));
 
         let mut store2 = FleetHealthStore::default();
-        store_startup_report(&mut store2, "0.5.2", 0, false, false, false, false, &[]);
+        store_startup_report(&mut store2, "0.5.2", 0, false, false, false, false, &[], None);
         assert_eq!(store2.crash_recovery, Some(false));
     }
 
@@ -1389,7 +1400,7 @@ mod tests {
     fn fleet_health_store_startup_report_does_not_clear_http_reachable() {
         let mut store = FleetHealthStore::default();
         store.http_reachable = true;
-        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[], None);
         assert!(store.http_reachable, "http_reachable must not be modified by store_startup_report");
     }
 
@@ -1398,7 +1409,7 @@ mod tests {
     #[test]
     fn fleet_health_clear_on_disconnect_clears_version_and_started_at() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 100, true, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 100, true, false, false, false, &[], None);
 
         // Verify preconditions
         assert!(store.version.is_some());
@@ -1417,7 +1428,7 @@ mod tests {
         let mut store = FleetHealthStore::default();
         store.http_reachable = true;
         store.last_http_check = Some(Utc::now());
-        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[], None);
 
         clear_on_disconnect(&mut store);
 
@@ -1444,7 +1455,7 @@ mod tests {
     #[test]
     fn fleet_health_version_from_store_is_propagated() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[]);
+        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[], None);
         // Verify the store correctly holds the version for handler use
         assert_eq!(store.version.as_deref(), Some("0.5.2"));
     }
@@ -1538,7 +1549,7 @@ mod tests {
     #[test]
     fn fleet_health_store_startup_report_stores_boot_verification() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.6.0", 10, false, true, true, true, &[9996, 20777]);
+        store_startup_report(&mut store, "0.6.0", 10, false, true, true, true, &[9996, 20777], None);
         assert_eq!(store.lock_screen_port_bound, Some(true));
         assert_eq!(store.remote_ops_port_bound, Some(true));
         assert_eq!(store.hid_detected, Some(true));

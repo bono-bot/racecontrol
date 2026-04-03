@@ -574,6 +574,7 @@ mod tests {
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
             ac_evo_telemetry_enabled: false,
             mma: MmaConfig::default(),
+            launch_timeout: rc_common::types::LaunchTimeoutConfig::default(),
         }
     }
 
