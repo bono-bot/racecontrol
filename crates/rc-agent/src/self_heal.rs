@@ -38,6 +38,12 @@ powercfg /SETACTIVE SCHEME_CURRENT 1>nul 2>nul\r\n\
 rem --- Firewall rule ---\r\n\
 netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
 \r\n\
+rem --- NTP enforcement (sync to venue server, v3.6 permanent fix) ---\r\n\
+sc config w32time start= auto 1>nul 2>nul\r\n\
+net start w32time 1>nul 2>nul\r\n\
+w32tm /config /manualpeerlist:\"192.168.31.23\" /syncfromflags:manual /update 1>nul 2>nul\r\n\
+w32tm /resync /nowait 1>nul 2>nul\r\n\
+\r\n\
 rem --- Kill bloatware and prevent process multiplication ---\r\n\
 taskkill /F /IM Variable_dump.exe 1>nul 2>nul\r\n\
 taskkill /F /IM \"Creative Cloud UI Helper.exe\" 1>nul 2>nul\r\n\
