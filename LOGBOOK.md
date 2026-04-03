@@ -8,6 +8,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-04-03 14:28 IST | James | d4a3a6c2 | feat(319-02): /games/timeline page — expandable launch timeline viewer, 30s auto-refresh, color-coded outcomes |
 | 2026-04-03 14:28 IST | James | 2c0f2578 | feat(319-02): GET /api/v1/launch-timeline/recent endpoint — returns 50 most recent launches by started_at DESC |
 | 2026-04-03 20:30 IST | James | 865470fd | feat: Act 1 customer workflow — linked racers, POS wallet topup, kiosk cleanup, CGP v3.3. 2307 lines removed. |
+| 2026-04-04 00:49 IST | James | ea0f6f82 | fix: POS dashboard + kiosk staff auth (3-layer) + visual verification tools (screenshot-url, web-verify, flow-verify). Edge auto-launch race condition, middleware chicken-and-egg, 401 redirect loop. |
 | 2026-04-03 03:44 IST | James | eb0db70b | feat(313-01): GSTATE-02 — smart WS reconnect reconciliation with 7-case merge, pod as source of truth |
 | 2026-04-03 03:44 IST | James | c0219f30 | feat(313-01): GSTATE-01 + GSTATE-03 — 180s hard-cap timeout for Launching, stop ACK cleanup removes tracker |
 | 2026-04-03 03:32 IST | James | b7359a02 | feat(312-01): WS ACK Protocol — CommandAck variant, agent_senders channel type CoreMessage, launch/stop wait 5s for ACK. 3 new tests, 807+235 lib tests pass. |
