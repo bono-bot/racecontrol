@@ -159,6 +159,17 @@ pub fn spawn_server_guard(state: std::sync::Arc<crate::state::AppState>) {
         return;
     }
 
+    // v3.6: Process guard is designed for Windows venue machines only.
+    // On cloud (Linux VPS), it flags normal system processes (docker, postgres, node)
+    // as violations — producing thousands of false WARNs per day.
+    if state.config.cloud.origin_id == "cloud" {
+        tracing::info!(
+            "[server-guard] Skipping server guard on cloud instance (origin_id=cloud) — \
+             process guard is venue-only"
+        );
+        return;
+    }
+
     let config = state.config.process_guard.clone();
 
     // Sanity check: enabled=true but empty allowlist is almost certainly a config loading failure.
@@ -234,6 +245,14 @@ pub fn spawn_server_guard(state: std::sync::Arc<crate::state::AppState>) {
                 // Self-exclusion: skip racecontrol.exe (own binary)
                 let name_lower = name.to_lowercase();
                 if name_lower == "racecontrol.exe" {
+                    continue;
+                }
+                // v3.6: Skip infrastructure processes that are always valid on the server
+                // ssh.exe = Tailscale SSH tunnels, sshd.exe = OpenSSH server,
+                // w32tm.exe = NTP client, node.exe = Next.js frontends
+                if matches!(name_lower.as_str(),
+                    "ssh.exe" | "sshd.exe" | "w32tm.exe" | "node.exe" | "conhost.exe"
+                ) {
                     continue;
                 }
 
