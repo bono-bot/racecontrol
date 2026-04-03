@@ -364,8 +364,6 @@ Plans:
 
 ---
 
-## Phase Details (v41.0)
-
 ### Phase 315: Shared Types Foundation
 **Goal**: All rc-common shared types needed by v41.0 are defined with correct serde compatibility before any crate uses them
 **Depends on**: Phase 314 (v40.0 complete)
