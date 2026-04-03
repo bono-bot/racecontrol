@@ -217,11 +217,11 @@ Plans:
   2. After any launch (success or failure), rows exist in `launch_timeline_spans` for at least `ws_sent`, `agent_received`, `process_spawned`, and `playable_signal` checkpoints — each with millisecond-resolution elapsed time
   3. A combo with historical p95 launch time under 45 seconds receives a shorter timeout than the 90-second default — configurable via AgentConfig push from server
   4. Timeline span data is returned by `GET /api/v1/launch-timeline/{launch_id}` within one second of launch completion
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 318-01-PLAN.md -- Launch timeout watchdog: tokio::time::timeout wrapping retry_game_launch, on timeout emit GameLaunchTimeout to diagnostic_engine channel; dynamic per-combo timeout via AgentConfig.game_launch_timeout_secs push from server
-- [ ] 318-02-PLAN.md -- Launch timeline tracing: launch_timeline_spans table (pod rusqlite + server sqlx migration), record_span() at each checkpoint (ws_sent, agent_received, process_spawned, playable_signal), LaunchTimelineReport WS message on completion, GET /api/v1/launch-timeline/{id} endpoint
+- [ ] 318-01-PLAN.md -- LaunchTimedOut WS message server→agent, GameLaunchTimeout DiagnosticTrigger variant, launch_timeout_config in AgentConfig, emit from check_game_health
+- [ ] 318-02-PLAN.md -- launch_timeline_spans table migration, GameTracker launch_id, agent LaunchTimelineReport send, server WS handler + GET /api/v1/launch-timeline/{launch_id}
 
 ### Phase 319: Reliability Dashboard
 **Goal**: Staff can see at a glance which pods have which games installed, which AC combos are flagged unreliable, and drill into any specific launch incident to find the checkpoint where it stalled
