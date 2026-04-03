@@ -134,6 +134,12 @@ pub(crate) struct ConnectionState {
     pub(crate) dedup_cleanup_ticks: u32,
     /// RESIL-04: Track previous wheelbase connection state to detect disconnects.
     pub(crate) prev_wheelbase_connected: bool,
+    /// Phase 318 (LAUNCH-05): Instant when current game launch command was received.
+    /// Used to compute elapsed_ms for timeline events. Reset on each new LaunchGame command.
+    pub(crate) launch_start: Option<std::time::Instant>,
+    /// Phase 318 (LAUNCH-05): UUID v4 generated when LaunchGame is received.
+    /// Used to correlate LaunchTimeline spans with this specific launch attempt.
+    pub(crate) current_launch_id: Option<String>,
 }
 
 impl ConnectionState {
@@ -184,6 +190,8 @@ impl ConnectionState {
             seen_command_ids: std::collections::HashMap::new(),
             dedup_cleanup_ticks: 0,
             prev_wheelbase_connected: true, // Intentional default: assume connected at start to avoid false disconnect on first heartbeat
+            launch_start: None,
+            current_launch_id: None,
         }
     }
 }
