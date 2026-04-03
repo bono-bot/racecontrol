@@ -13,7 +13,8 @@
 - ✅ **v35.0 Structured Retraining & Model Lifecycle** — Phases 290-294 (shipped 2026-04-01)
 - ✅ **v38.0 Security Hardening & Operational Maturity** — Phases 305-309 (shipped 2026-04-02)
 - ✅ **v39.0 Session Trace ID & Metrics** — Phase 310 (shipped 2026-04-02)
-- 🔨 **v40.0 Game Launch Reliability** — Phases 311-314
+- ✅ **v40.0 Game Launch Reliability** — Phases 311-314 (shipped 2026-04-03)
+- 🔨 **v41.0 Game Intelligence System** — Phases 315+
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -133,6 +134,23 @@ Plans:
 **Key files:**
 - `crates/racecontrol/src/api/routes.rs` — start_billing function
 - `crates/racecontrol/src/billing.rs` — active_timers map
+
+---
+
+## v41.0 Game Intelligence System
+
+**Goal:** Proactive game availability management and launch failure observability — stop showing customers games they can't play, flag broken AC combos before launch, and surface failures instantly through Meshed Intelligence.
+
+**Phases:** 5+  |  **Status:** In progress
+
+### Phase 315: Shared Types Foundation
+
+**Goal:** Add rc-common types for all v41.0 data contracts — game inventory, combo validation, launch timelines, combo health, crash loop detection.
+
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 315-01-PLAN.md -- v41.0 game intelligence shared types: InstalledGame, GameInventory, ComboValidationResult, LaunchTimeline, ComboHealthSummary, CrashLoopReport (4e6a2717)
 
 ---
 

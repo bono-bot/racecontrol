@@ -1,17 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v41.0
-milestone_name: Game Intelligence System
-status: defining_requirements
-stopped_at: Milestone started
-last_updated: "2026-04-03"
-last_activity: 2026-04-03
+milestone: v40.0
+milestone_name: Game Launch Reliability
+status: executing
+last_updated: "2026-04-03T05:38:22.019Z"
+last_activity: 2026-04-03 — Phase 314 Plan 01 complete (BATOM-01/02)
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 8
+  completed_phases: 8
+  total_plans: 11
+  completed_plans: 14
 ---
 
 # Project State
@@ -25,14 +23,15 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 
 ## Current Position
 
-Phase: 314 (Billing Atomicity)
+Phase: 315 (Game Intelligence Shared Types)
 Plan: 01 complete
 Status: Executing
-Last activity: 2026-04-03 — Phase 314 Plan 01 complete (BATOM-01/02)
+Last activity: 2026-04-03 — Phase 315 Plan 01 complete (v41.0 shared types foundation)
 
 ## Accumulated Context
 
 - v40.0 Game Launch Reliability: Phase 311 complete, Phase 312 complete (b7359a02), Phase 313 Plan 01 complete (eb0db70b), Phase 314 Plan 01 complete (3de35d50)
+- v41.0 Game Intelligence System: Phase 315 Plan 01 complete (4e6a2717) — shared types foundation in rc-common
 - content_scanner.rs only scans AC content — Steam/non-Steam games invisible to system
 - combo_reliability table + GamePresetWithReliability exist from Phase 298 (Config Management)
 - Game Doctor (12-point check) exists but runs reactively at launch, not proactively
@@ -46,3 +45,4 @@ Last activity: 2026-04-03 — Phase 314 Plan 01 complete (BATOM-01/02)
 - 180s hard cap chosen to exceed any reasonable dynamic timeout (AC max ~120s) — GSTATE-01
 - Backfill launched_at=None on first health tick rather than inline during reconciliation — GSTATE-01
 - Per-pod lock: std::sync::Mutex<HashMap> for outer (brief hold), tokio::sync::Mutex for inner (held across .await) — BATOM-01
+- [Phase 315]: All new types added to rc-common/types.rs to avoid cross-crate import cycles between rc-agent and racecontrol
