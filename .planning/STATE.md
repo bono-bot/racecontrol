@@ -3,13 +3,15 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-03T05:38:22.019Z"
-last_activity: 2026-04-03 — Phase 314 Plan 01 complete (BATOM-01/02)
+stopped_at: Roadmap created — ready to plan Phase 315
+last_updated: "2026-04-03T05:26:59.792Z"
+last_activity: 2026-04-03 -- Phase 315 execution started
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 11
-  completed_plans: 14
+  total_phases: 20
+  completed_phases: 10
+  total_plans: 15
+  completed_plans: 18
+  percent: 0
 ---
 
 # Project State
@@ -19,30 +21,42 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
-**Current focus:** Defining requirements
+**Current focus:** Phase 315 — Shared Types Foundation
 
 ## Current Position
 
-Phase: 315 (Game Intelligence Shared Types)
-Plan: 01 complete
-Status: Executing
-Last activity: 2026-04-03 — Phase 315 Plan 01 complete (v41.0 shared types foundation)
+Phase: 315 (Shared Types Foundation) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 315
+Last activity: 2026-04-03 -- Phase 315 execution started
+
+Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Accumulated Context
 
-- v40.0 Game Launch Reliability: Phase 311 complete, Phase 312 complete (b7359a02), Phase 313 Plan 01 complete (eb0db70b), Phase 314 Plan 01 complete (3de35d50)
-- v41.0 Game Intelligence System: Phase 315 Plan 01 complete (4e6a2717) — shared types foundation in rc-common
-- content_scanner.rs only scans AC content — Steam/non-Steam games invisible to system
-- combo_reliability table + GamePresetWithReliability exist from Phase 298 (Config Management)
-- Game Doctor (12-point check) exists but runs reactively at launch, not proactively
-- Meshed Intelligence tier_engine.rs handles GameLaunchFail — needs new triggers (GameLaunchTimeout, CrashLoop)
-- Not all pods have the same games (e.g., Forza Horizon 5) — showing unavailable games hurts business
-- Per-combo reliability scoring infrastructure exists in preset_library.rs but isn't surfaced to kiosk
+- v40.0 Phase 312 WS ACK confirmed deployed (b7359a02) — Phase 318 dependency satisfied
+- content_scanner.rs only scans AC content; Steam/non-Steam games invisible to system
+- combo_reliability table + GamePresetWithReliability exist from Phase 298 — extend, do not rebuild
+- Game Doctor (12-point check) runs reactively at launch only — Phase 316 adds proactive boot path
+- Meshed Intelligence tier_engine.rs handles GameLaunchFail — Phase 315 adds GameLaunchTimeout + CrashLoop
+- Crash loop detection already in fleet_health.rs — Phase 317 extends it, does NOT re-implement in rc-agent
 
 ## Decisions
 
-- Pod is always source of truth for game state, except Launching <30s (in-flight protection) — GSTATE-02
-- 180s hard cap chosen to exceed any reasonable dynamic timeout (AC max ~120s) — GSTATE-01
-- Backfill launched_at=None on first health tick rather than inline during reconciliation — GSTATE-01
-- Per-pod lock: std::sync::Mutex<HashMap> for outer (brief hold), tokio::sync::Mutex for inner (held across .await) — BATOM-01
-- [Phase 315]: All new types added to rc-common/types.rs to avoid cross-crate import cycles between rc-agent and racecontrol
+- Phase 315: DiagnosticTrigger gets #[serde(other)] Unknown before new variants — protects existing KB entries
+- Phase 316: libraryfolders.vdf parsing required (not hardcoded C/D/E paths) — correctness constraint
+- Phase 316: Boot combo validation gated on preset push received via watch channel (Pitfall 5)
+- Phase 317: Crash loop single source of truth stays in fleet_health.rs (Pitfall 7)
+- Phase 317: WhatsApp alerts route through EscalationRequest WS path — never direct Evolution API (Pitfall 8)
+- Phase 319 + 320: UI phases require gsd-ui-researcher before plan, gsd-ui-auditor before ship
+
+## Blockers/Concerns
+
+- v40.0 Phase 313 (Game State Resilience) in progress — Phase 315 can start now (independent), but confirm Phase 313 shipped before planning Phase 318 (shared GameTracker)
+- Phase 319 (Reliability Dashboard) requires gsd-ui-researcher subagent before plan-phase is called
+
+## Session Continuity
+
+Last session: 2026-04-03
+Stopped at: Roadmap created — ready to plan Phase 315
+Resume file: None
