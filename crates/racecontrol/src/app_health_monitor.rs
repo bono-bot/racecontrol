@@ -54,6 +54,17 @@ const APP_TARGETS: &[(&str, &str, Option<&str>)] = &[
     ),
 ];
 
+/// Critical pages to probe — if ANY returns 404, the app is broken even if /api/health says "ok".
+/// Checked every deep-probe cycle (not every 30s — reduces load).
+/// Format: (app_name, page_url, expected_status_code)
+const CRITICAL_PAGE_PROBES: &[(&str, &str, u16)] = &[
+    ("kiosk", "http://192.168.31.23:3300/kiosk", 200),           // main lock screen
+    ("kiosk", "http://192.168.31.23:3300/kiosk/staff", 307),     // staff page (307 = auth redirect = page exists)
+    ("kiosk", "http://192.168.31.23:3300/kiosk/spectator", 200), // spectator display
+    ("web", "http://192.168.31.23:3200/billing", 200),            // POS billing page
+    ("admin", "http://192.168.31.23:3201/pods", 200),             // admin pod view
+];
+
 /// Current health state for all apps (updated every probe cycle).
 static CURRENT_HEALTH: LazyLock<RwLock<Vec<AppHealthEntry>>> =
     LazyLock::new(|| RwLock::new(Vec::new()));
@@ -118,6 +129,46 @@ pub fn spawn(state: Arc<AppState>) {
             );
 
             let entries = vec![admin, kiosk, web];
+
+            // Critical page probes — run during deep-probe cycles only
+            if run_deep {
+                for (app_name, page_url, expected_status) in CRITICAL_PAGE_PROBES {
+                    match client.get(*page_url).send().await {
+                        Ok(resp) => {
+                            let status = resp.status().as_u16();
+                            if status == 404 {
+                                tracing::error!(
+                                    target: "app_health_monitor",
+                                    "CRITICAL PAGE FAILURE: {app_name} page {page_url} returned 404 — \
+                                     page is missing from deploy. Portal health says 'ok' but the page \
+                                     is unreachable for users."
+                                );
+                                // Log as MI incident
+                                let _ = sqlx::query(
+                                    "INSERT OR IGNORE INTO fleet_incidents \
+                                     (id, node, problem_key, severity, detected_at) \
+                                     VALUES (?, 'server', ?, 'high', datetime('now'))"
+                                )
+                                .bind(format!("inc_page_{}_{}", app_name, chrono::Utc::now().timestamp()))
+                                .bind(format!("frontend_page_failure:{}", app_name))
+                                .execute(&state.db)
+                                .await;
+                            } else if status != *expected_status && status != 200 && status != 307 {
+                                tracing::warn!(
+                                    target: "app_health_monitor",
+                                    "Page probe {app_name} {page_url}: expected {expected_status}, got {status}"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "app_health_monitor",
+                                "Page probe {app_name} {page_url} failed: {e}"
+                            );
+                        }
+                    }
+                }
+            }
 
             // Update static health state
             if let Ok(mut health) = CURRENT_HEALTH.write() {

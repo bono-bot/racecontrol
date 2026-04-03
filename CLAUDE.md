@@ -242,6 +242,8 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
 
 ### Code Quality
 
+- **Next.js middleware redirects: use `"/"` not `"/basePath"`.** When a Next.js app has `basePath` configured (e.g., `/kiosk`), `url.pathname` in middleware is auto-prefixed with basePath. Setting `url.pathname = "/kiosk"` doubles it to `/kiosk/kiosk` → 404. Always use `url.pathname = "/"` for root redirects. After any middleware change, test the actual browser URL — not just curl.
+  _Why: 2026-04-03 — cache-busting middleware expanded matcher to all routes. Staff page redirect used `url.pathname = "/kiosk"` → doubled to `/kiosk/kiosk` → 404 for all staff access. Portal showed "ok" (health API endpoint worked), MI didn't detect it (no page-level probes)._
 - **No `.unwrap()` in production Rust** — use `?`, `.ok()`, or match.
   _Why: Unwrap panics crash the entire service; production code must degrade gracefully._
 - **No `any` in TypeScript** — type everything explicitly.
