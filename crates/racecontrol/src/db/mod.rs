@@ -513,6 +513,56 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Game Intelligence (v41.0 Phase 317) ────────────────────────────────
+
+    // pod_game_inventory: per-pod game install scan results (INV-02).
+    // Upserted on each GameInventoryUpdate WS message. PRIMARY KEY (pod_id, game_id).
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_game_inventory (
+            pod_id TEXT NOT NULL,
+            game_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            sim_type TEXT,
+            exe_path TEXT NOT NULL,
+            launchable INTEGER NOT NULL DEFAULT 1,
+            scan_method TEXT NOT NULL,
+            steam_app_id INTEGER,
+            scanned_at TEXT NOT NULL,
+            server_received_at TEXT NOT NULL,
+            PRIMARY KEY (pod_id, game_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_pod_game_inv_game ON pod_game_inventory(game_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    // combo_validation_flags: per-pod per-preset combo validation results (COMBO-03/04).
+    // Upserted on each ComboValidationReport WS message. PRIMARY KEY (pod_id, preset_id).
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS combo_validation_flags (
+            pod_id TEXT NOT NULL,
+            preset_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Unknown',
+            failure_reasons TEXT NOT NULL DEFAULT '[]',
+            validated_at TEXT NOT NULL,
+            server_received_at TEXT NOT NULL,
+            PRIMARY KEY (pod_id, preset_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_combo_val_preset ON combo_validation_flags(preset_id)",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(
@@ -4142,6 +4192,30 @@ mod venue_id_tests {
         drop(pool);
         let _ = std::fs::remove_file(&path);
         assert!(result.is_ok(), "Second migrate() call failed: {:?}", result.err());
+    }
+
+    /// Test (Phase 317): pod_game_inventory and combo_validation_flags tables exist after migrate().
+    #[tokio::test]
+    async fn test_game_intelligence_tables_exist() {
+        let (pool, path) = test_pool().await;
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('pod_game_inventory', 'combo_validation_flags') ORDER BY name"
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("query failed");
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            tables.contains(&"combo_validation_flags".to_string()),
+            "combo_validation_flags table missing. Got: {:?}",
+            tables
+        );
+        assert!(
+            tables.contains(&"pod_game_inventory".to_string()),
+            "pod_game_inventory table missing. Got: {:?}",
+            tables
+        );
     }
 
     /// Test: VenueConfig deserializes from empty TOML with default venue_id.
