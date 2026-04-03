@@ -185,11 +185,11 @@ Plans:
   3. After receiving the first preset push from the server, rc-agent sends `ComboValidationResult` messages for each AC preset — each result includes whether car folder, track folder, and AI lines exist on that pod
   4. Combo validation log shows "Presets received" before "Combo validation complete" — validation does not run against an empty preset list if the server is slow at boot
   5. A game installed to a non-default Steam library path (D:\ or E:\) appears in the inventory scan result
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 316-01-PLAN.md -- Extend content_scanner.rs: scan_steam_library (VDF parsing), scan_non_steam_games (exe-path probing), build_full_manifest; ExtendedManifest type; cascade-audit ContentManifest consumers via cargo build
-- [ ] 316-02-PLAN.md -- game_doctor::run_boot_validation (car dir + track dir + ai/ subdir checks per AC preset); boot sequencing gate (watch channel: wait for preset push before validating); ComboValidationResult WS send; 5-min periodic rescan + rescan on WS reconnect
+- [ ] 316-01-PLAN.md -- Steam VDF library scanning + non-Steam game exe probing + GameInventoryUpdate WS send + 5-min periodic rescan loop
+- [ ] 316-02-PLAN.md -- validate_ac_combo/validate_ac_combos (car/track/ai checks) + PresetPush handler gate + ComboValidationReport WS send
 
 ### Phase 317: Server Inventory & Fleet Intelligence
 **Goal**: The server persists per-pod game inventory and combo validation results, aggregates fleet availability, auto-disables universally broken combos, and alerts staff on crash loops and chain launch failures
