@@ -1938,6 +1938,35 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             tracing::info!("Phase 306: JWT ack from pod {}", pod_id);
                         }
 
+                        // Phase 317: Persist pod game inventory to pod_game_inventory table (INV-02)
+                        AgentMessage::GameInventoryUpdate(inventory) => {
+                            tracing::info!(
+                                target: "fleet-inventory",
+                                "GameInventoryUpdate from pod {}: {} games",
+                                inventory.pod_id, inventory.games.len()
+                            );
+                            let state_clone = state.clone();
+                            let inv = inventory.clone();
+                            tokio::spawn(async move {
+                                crate::game_inventory::handle_game_inventory_update(&state_clone, inv).await;
+                            });
+                        }
+
+                        // Phase 317: Persist combo validation results + auto-disable invalid presets (COMBO-03/04)
+                        AgentMessage::ComboValidationReport { pod_id, results } => {
+                            tracing::info!(
+                                target: "fleet-inventory",
+                                "ComboValidationReport from pod {}: {} results",
+                                pod_id, results.len()
+                            );
+                            let state_clone = state.clone();
+                            let pid = pod_id.clone();
+                            let res = results.clone();
+                            tokio::spawn(async move {
+                                crate::game_inventory::handle_combo_validation_report(&state_clone, pid, res).await;
+                            });
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }
