@@ -1272,11 +1272,19 @@ pub async fn fleet_health_handler(
         }).collect()
     };
 
+    let (ws_connects, ws_disconnects) = crate::ws::dashboard_ws_churn();
+    let churn_json = json!({
+        "connects_per_min": ws_connects,
+        "disconnects_per_min": ws_disconnects,
+        "healthy": ws_connects < 10,
+    });
+
     Json(json!({
         "pods": result,
         "services": services,
         "displays": display_status,
         "dashboard_clients": crate::ws::dashboard_client_count(),
+        "dashboard_ws_churn": churn_json,
         "venue_open": crate::venue_state::venue_is_open(),
         "timestamp": Utc::now().to_rfc3339(),
     }))

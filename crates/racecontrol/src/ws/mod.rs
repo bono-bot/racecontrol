@@ -31,9 +31,29 @@ const REGISTER_COOLDOWN_SECS: u64 = 2;
 /// Used by detect_fleet_anomalies() to detect "kiosk healthy but no WS clients" (DASHBOARD_ORPHAN).
 static DASHBOARD_CLIENT_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// Rolling count of WS connect events in the last 60s. High churn = stale frontend build.
+static DASHBOARD_WS_CONNECTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Rolling count of WS disconnect events in the last 60s.
+static DASHBOARD_WS_DISCONNECTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// Get the current number of connected dashboard WS clients.
 pub fn dashboard_client_count() -> u32 {
     DASHBOARD_CLIENT_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Get WS churn metrics (connects, disconnects in rolling window).
+/// Churn > 10/min indicates a client in a connect/disconnect loop (stale frontend build).
+pub fn dashboard_ws_churn() -> (u32, u32) {
+    (
+        DASHBOARD_WS_CONNECTS.load(std::sync::atomic::Ordering::Relaxed),
+        DASHBOARD_WS_DISCONNECTS.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+/// Reset churn counters (called every 60s by a background task).
+pub fn reset_ws_churn_counters() {
+    DASHBOARD_WS_CONNECTS.store(0, std::sync::atomic::Ordering::Relaxed);
+    DASHBOARD_WS_DISCONNECTS.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Check and update sentinel alert cooldown. Returns true if the alert should fire.
@@ -2240,6 +2260,7 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
     // MI Phase 1: Track connected dashboard clients for DASHBOARD_ORPHAN detection
     let prev = DASHBOARD_CLIENT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    DASHBOARD_WS_CONNECTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     tracing::info!("Dashboard client connected (total: {})", prev + 1);
 
     // Send current pod list on connect (only physical pods 1-8, exclude POS/utility agents)
@@ -2489,6 +2510,7 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     send_task.abort();
     // MI Phase 1: Decrement on disconnect
     let prev = DASHBOARD_CLIENT_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    DASHBOARD_WS_DISCONNECTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     tracing::info!("Dashboard client disconnected (remaining: {})", prev.saturating_sub(1));
 }
 

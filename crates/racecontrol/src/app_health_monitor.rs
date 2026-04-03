@@ -98,6 +98,18 @@ pub fn spawn(state: Arc<AppState>) {
 
             let run_deep = cycle_count % DEEP_PROBE_EVERY_N_CYCLES == 0;
 
+            // Reset WS churn counters every 60s (every 2nd cycle)
+            if cycle_count % 2 == 0 {
+                let (connects, disconnects) = crate::ws::dashboard_ws_churn();
+                if connects > 10 || disconnects > 10 {
+                    tracing::warn!(
+                        target: "app_health_monitor",
+                        "Dashboard WS churn detected: {connects} connects, {disconnects} disconnects in 60s — stale frontend build?"
+                    );
+                }
+                crate::ws::reset_ws_churn_counters();
+            }
+
             // Probe all 3 apps concurrently
             let (admin, kiosk, web) = tokio::join!(
                 probe_app(&client, APP_TARGETS[0].0, APP_TARGETS[0].1, if run_deep { APP_TARGETS[0].2 } else { None }),
