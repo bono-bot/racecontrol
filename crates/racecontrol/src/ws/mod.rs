@@ -201,7 +201,14 @@ pub async fn dashboard_ws(
         tracing::warn!("WS dashboard connection rejected — invalid or missing token");
         return Err(StatusCode::UNAUTHORIZED);
     }
-    Ok(ws.on_upgrade(|socket| handle_dashboard(socket, state)))
+    // Echo back the Sec-WebSocket-Protocol so browsers don't close the connection.
+    // When a client sends subprotocols and the server doesn't echo one back,
+    // some browsers (Chrome/Edge) silently close the WS immediately after handshake.
+    let mut response = ws.on_upgrade(|socket| handle_dashboard(socket, state)).into_response();
+    if let Some(proto) = headers.get("sec-websocket-protocol") {
+        response.headers_mut().insert("sec-websocket-protocol", proto.clone());
+    }
+    Ok(response)
 }
 
 /// Phase 306: Issue a 24-hour pod JWT and queue it for sending.
