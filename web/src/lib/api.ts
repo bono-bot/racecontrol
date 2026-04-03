@@ -771,6 +771,9 @@ export interface Driver {
   steam_guid?: string;
   total_laps: number;
   total_time_ms: number;
+  linked_to?: string | null;
+  has_used_trial?: boolean;
+  waiver_signed?: boolean;
 }
 
 export interface KioskPinResponse {

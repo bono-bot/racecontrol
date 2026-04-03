@@ -1126,7 +1126,29 @@ export const api = {
 
   getCafeOrderHistory: () =>
     fetchApi<CafeOrderHistoryResponse>("/customer/cafe/orders/history"),
+
+  // Linked Racers
+  listRacers: () =>
+    fetchApi<{ racers: Racer[]; max_racers: number }>("/customer/racers"),
+
+  addRacer: (data: { name: string; dob: string; waiver_consent: boolean }) =>
+    fetchApi<{ status?: string; racer_id?: string; name?: string; error?: string }>(
+      "/customer/racers",
+      { method: "POST", body: JSON.stringify(data) }
+    ),
 };
+
+export interface Racer {
+  id: string;
+  name: string;
+  dob: string | null;
+  customer_id: string;
+  total_laps: number;
+  total_time_ms: number;
+  has_used_trial: boolean;
+  age: number;
+  is_minor: boolean;
+}
 
 // ─── Leaderboard Types ────────────────────────────────────────────────────
 

@@ -21,6 +21,23 @@ pub async fn ensure_wallet(state: &Arc<AppState>, driver_id: &str) -> Result<(),
 }
 
 /// Get wallet balance in paise. Returns 0 if wallet doesn't exist yet.
+/// Resolve the wallet owner for a driver. If the driver is a linked racer,
+/// returns the parent's driver_id (whose wallet is charged). Otherwise returns the driver's own id.
+pub async fn resolve_wallet_owner(state: &Arc<AppState>, driver_id: &str) -> Result<String, String> {
+    let linked_to: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT linked_to FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    match linked_to {
+        Some((Some(parent_id),)) => Ok(parent_id),
+        _ => Ok(driver_id.to_string()),
+    }
+}
+
 pub async fn get_balance(state: &Arc<AppState>, driver_id: &str) -> Result<i64, String> {
     let row = sqlx::query_as::<_, (i64,)>(
         "SELECT balance_paise FROM wallets WHERE driver_id = ?",

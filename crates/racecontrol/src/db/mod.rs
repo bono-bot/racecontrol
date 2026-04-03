@@ -3769,6 +3769,19 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
     }
 
+    // ─── Linked racers: parent account can add up to 3 guest racers ────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN linked_to TEXT REFERENCES drivers(id)")
+        .execute(pool)
+        .await;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_drivers_linked_to ON drivers(linked_to)")
+        .execute(pool)
+        .await?;
+
+    // Wallet owner for billing sessions — tracks who gets refunded (parent for linked racers)
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN wallet_owner_id TEXT")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

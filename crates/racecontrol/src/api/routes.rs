@@ -206,6 +206,7 @@ fn customer_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/customer/waiver-status", get(customer_waiver_status))
         .route("/customer/profile", get(customer_profile).put(customer_update_profile))
+        .route("/customer/racers", get(customer_list_racers).post(customer_add_racer))
         .route("/customer/sessions", get(customer_sessions))
         .route("/customer/sessions/{id}", get(customer_session_detail))
         .route("/customer/laps", get(customer_laps))
@@ -2138,9 +2139,9 @@ async fn list_drivers(
             return Json(json!({ "error": "Search query too short or invalid" }));
         }
         let q = format!("%{}%", sanitized);
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>)>(
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>)>(
             "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
-                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at
+                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at, linked_to
              FROM drivers
              WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?2 OR customer_id LIKE ?3
              ORDER BY name LIMIT 50",
@@ -2151,9 +2152,9 @@ async fn list_drivers(
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>)>(
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>)>(
             "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
-                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at
+                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at, linked_to
              FROM drivers ORDER BY created_at DESC",
         )
         .fetch_all(&state.db)
@@ -2183,6 +2184,7 @@ async fn list_drivers(
                     "id": d.0, "name": d.1, "email": email, "phone": phone,
                     "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
                     "waiver_signed": d.7, "has_used_trial": d.8, "created_at": d.9,
+                    "linked_to": d.10,
                 })
             }).collect();
             Json(json!({ "drivers": list, "total": total, "waiver_count": waiver_count }))
@@ -3514,9 +3516,34 @@ async fn start_billing(
         }
     }
 
-    // Trial eligibility check
-    if is_trial && has_used_trial && !unlimited_trials {
-        return Json(json!({ "error": "Driver has already used their free trial" }));
+    // Trial eligibility check — per-racer AND per-account group cap
+    if is_trial && !unlimited_trials {
+        if has_used_trial {
+            return Json(json!({ "error": "This racer has already used their free trial" }));
+        }
+        // Check group trial cap: count trials used by parent + all linked racers
+        let group_parent = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT linked_to FROM drivers WHERE id = ?",
+        )
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.0);
+        // The "root" of the group is either the parent (if this driver is linked) or this driver itself
+        let root_id = group_parent.as_deref().unwrap_or(&driver_id);
+        let group_trials: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM drivers WHERE (id = ?1 OR linked_to = ?1) AND has_used_trial = 1",
+        )
+        .bind(root_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+        // Max 4 trials per group (1 parent + 3 racers)
+        if group_trials.0 >= 4 {
+            return Json(json!({ "error": "Maximum free trials reached for this account" }));
+        }
     }
 
     // Validate pod exists
@@ -3643,9 +3670,15 @@ async fn start_billing(
         );
     }
 
+    // Resolve wallet owner: linked racers use parent's wallet
+    let wallet_owner_id = match wallet::resolve_wallet_owner(&state, driver_id).await {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": format!("Wallet error: {}", e) })),
+    };
+
     // Pre-check balance (optimistic, before acquiring tx) to return a clear error
     if !is_trial && final_price_paise > 0 {
-        let balance = match wallet::get_balance(&state, driver_id).await {
+        let balance = match wallet::get_balance(&state, &wallet_owner_id).await {
             Ok(b) => b,
             Err(e) => return Json(json!({ "error": format!("Wallet error: {}", e) })),
         };
@@ -3701,7 +3734,7 @@ async fn start_billing(
         };
         match wallet::debit_in_tx(
             &mut tx,
-            driver_id,
+            &wallet_owner_id,
             final_price_paise,
             "debit_session",
             Some(&session_id),
@@ -3740,8 +3773,8 @@ async fn start_billing(
          (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
           started_at, staff_id, split_count, split_duration_minutes, \
           wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key, \
-          guardian_present, is_minor_session, venue_id) \
-         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          guardian_present, is_minor_session, venue_id, wallet_owner_id) \
+         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(driver_id)
@@ -3762,6 +3795,7 @@ async fn start_billing(
     .bind(guardian_present_flag)
     .bind(is_minor)
     .bind(&state.config.venue.venue_id)
+    .bind(&wallet_owner_id)
     .execute(&mut *tx)
     .await {
         drop(tx); // rolls back wallet debit atomically
@@ -7113,6 +7147,173 @@ async fn customer_register(
         }
         Err(e) => Json(json!({ "error": format!("Registration failed: {}", e) })),
     }
+}
+
+// ─── Linked Racers ──────────────────────────────────────────────────────────
+
+const MAX_LINKED_RACERS: i64 = 3;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddRacerRequest {
+    name: String,
+    dob: String,
+    waiver_consent: bool,
+}
+
+async fn customer_add_racer(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AddRacerRequest>,
+) -> Json<Value> {
+    let parent_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    if !req.waiver_consent {
+        return Json(json!({ "error": "Waiver consent is required" }));
+    }
+
+    let name = match crate::input_validation::validate_name(&req.name) {
+        Ok(n) => n,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let dob = match chrono::NaiveDate::parse_from_str(&req.dob, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return Json(json!({ "error": "Invalid date format. Use YYYY-MM-DD" })),
+    };
+
+    let today = chrono::Utc::now().date_naive();
+    let age = (today - dob).num_days() / 365;
+
+    if age < 5 {
+        return Json(json!({ "error": "Minimum age for racers is 5 years" }));
+    }
+
+    // Check racer cap (max 3 linked racers per account)
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE linked_to = ?")
+        .bind(&parent_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+
+    if count.0 >= MAX_LINKED_RACERS {
+        return Json(json!({ "error": format!("Maximum {} racers per account", MAX_LINKED_RACERS) }));
+    }
+
+    // Check duplicate name+DOB
+    let duplicate: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM drivers WHERE name = ? AND dob = ? AND registration_completed = 1",
+    )
+    .bind(&name)
+    .bind(&req.dob)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if duplicate.is_some() {
+        return Json(json!({ "error": "A racer with this name and date of birth already exists" }));
+    }
+
+    // Get parent info for guardian fields
+    let parent = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT name, phone FROM drivers WHERE id = ?",
+    )
+    .bind(&parent_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let (guardian_name, guardian_phone) = match parent {
+        Some((pname, pphone)) => (Some(pname), pphone),
+        None => return Json(json!({ "error": "Parent account not found" })),
+    };
+
+    let racer_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
+    let customer_id = {
+        let max: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+        let next_num = max
+            .and_then(|m| m.0)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0) + 1;
+        format!("{:06}", next_num)
+    };
+
+    let result = sqlx::query(
+        "INSERT INTO drivers (id, name, dob, customer_id, linked_to, waiver_signed, waiver_signed_at, waiver_version, guardian_name, guardian_phone, registration_completed, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, datetime('now'), 'v1.0', ?, ?, 1, datetime('now'))",
+    )
+    .bind(&racer_id)
+    .bind(&name)
+    .bind(&req.dob)
+    .bind(&customer_id)
+    .bind(&parent_id)
+    .bind(&guardian_name)
+    .bind(&guardian_phone)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            // Create empty wallet for tracking (can be imported to own account later)
+            let _ = wallet::ensure_wallet(&state, &racer_id).await;
+
+            tracing::info!("Racer {} added by parent {} (age: {})", racer_id, parent_id, age);
+            Json(json!({
+                "status": "ok",
+                "racer_id": racer_id,
+                "name": name,
+                "customer_id": customer_id,
+                "is_minor": age < 18,
+            }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to add racer: {}", e) })),
+    }
+}
+
+async fn customer_list_racers(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let parent_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, String, i64, i64, bool)>(
+        "SELECT id, name, dob, customer_id, total_laps, total_time_ms, COALESCE(has_used_trial, 0)
+         FROM drivers WHERE linked_to = ? ORDER BY created_at",
+    )
+    .bind(&parent_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let racers: Vec<serde_json::Value> = rows.iter().map(|r| {
+        let age = r.2.as_ref().and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+            .map(|dob| (chrono::Utc::now().date_naive() - dob).num_days() / 365)
+            .unwrap_or(0);
+        json!({
+            "id": r.0,
+            "name": r.1,
+            "dob": r.2,
+            "customer_id": r.3,
+            "total_laps": r.4,
+            "total_time_ms": r.5,
+            "has_used_trial": r.6,
+            "age": age,
+            "is_minor": age < 18,
+        })
+    }).collect();
+
+    Json(json!({ "racers": racers, "max_racers": MAX_LINKED_RACERS }))
 }
 
 async fn customer_waiver_status(
@@ -15608,13 +15809,39 @@ async fn bot_book(
     let price_paise = tier.3;
     let duration_minutes = tier.2;
 
-    // Trial check (skip for unlimited_trials drivers)
-    if is_trial && has_used_trial && !unlimited_trials {
-        return Json(json!({
-            "status": "error",
-            "error": "trial_used",
-            "message": "You've already used your free trial.",
-        }));
+    // Trial check — per-racer AND per-account group cap (skip for unlimited_trials)
+    if is_trial && !unlimited_trials {
+        if has_used_trial {
+            return Json(json!({
+                "status": "error",
+                "error": "trial_used",
+                "message": "You've already used your free trial.",
+            }));
+        }
+        let group_parent = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT linked_to FROM drivers WHERE id = ?",
+        )
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.0);
+        let root_id = group_parent.as_deref().unwrap_or(&driver_id);
+        let group_trials: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM drivers WHERE (id = ?1 OR linked_to = ?1) AND has_used_trial = 1",
+        )
+        .bind(root_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+        if group_trials.0 >= 4 {
+            return Json(json!({
+                "status": "error",
+                "error": "trial_used",
+                "message": "Maximum free trials reached for this account.",
+            }));
+        }
     }
 
     // Wallet balance check for non-trial

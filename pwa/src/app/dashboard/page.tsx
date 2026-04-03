@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import type { DriverProfile, CustomerStats, BillingSession, GroupSessionInfo } from "@/lib/api";
+import type { DriverProfile, CustomerStats, BillingSession, GroupSessionInfo, Racer } from "@/lib/api";
 import SessionCard from "@/components/SessionCard";
 
 export default function DashboardPage() {
@@ -12,6 +12,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<CustomerStats | null>(null);
   const [recentSessions, setRecentSessions] = useState<BillingSession[]>([]);
   const [groupInvite, setGroupInvite] = useState<GroupSessionInfo | null>(null);
+  const [racers, setRacers] = useState<Racer[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,15 +22,17 @@ export default function DashboardPage() {
     }
     async function load() {
       try {
-        const [pRes, sRes, sessRes, gRes] = await Promise.all([
+        const [pRes, sRes, sessRes, gRes, rRes] = await Promise.all([
           api.profile(),
           api.stats(),
           api.sessions(),
           api.groupSession(),
+          api.listRacers(),
         ]);
         if (pRes.driver) setProfile(pRes.driver);
         if (sRes.stats) setStats(sRes.stats);
         if (sessRes.sessions) setRecentSessions(sessRes.sessions.slice(0, 3));
+        if (rRes.racers) setRacers(rRes.racers);
         if (gRes.group_session) {
           // Only show banner if user is a pending invitee
           const me = pRes.driver;
@@ -171,6 +174,31 @@ export default function DashboardPage() {
           <div className="space-y-3">
             {recentSessions.map((session) => (
               <SessionCard key={session.id} session={session} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* My Racers */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-medium text-rp-grey">My Racers</h2>
+          <a href="/racers" className="text-rp-red text-xs font-medium">
+            {racers.length > 0 ? "Manage" : "Add Racer"}
+          </a>
+        </div>
+        {racers.length === 0 ? (
+          <p className="text-neutral-500 text-sm">Add children or guests to race under your account</p>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {racers.map((r) => (
+              <div key={r.id} className="bg-rp-card border border-rp-border rounded-xl p-3 min-w-[120px] text-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-rp-red/20 flex items-center justify-center text-rp-red font-bold text-sm mx-auto mb-1">
+                  {r.name.charAt(0).toUpperCase()}
+                </div>
+                <p className="text-white text-sm font-medium truncate">{r.name}</p>
+                <p className="text-neutral-500 text-xs">{r.total_laps} laps</p>
+              </div>
             ))}
           </div>
         )}

@@ -188,31 +188,59 @@ export default function BillingStartModal({
                 Driver
               </label>
               {selectedDriver ? (
-                <div className="flex items-center justify-between bg-rp-card border border-rp-border rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-rp-red/20 flex items-center justify-center text-rp-red font-bold text-sm">
-                      {selectedDriver.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="text-sm text-neutral-200">
-                        {selectedDriver.name}
+                <div>
+                  <div className="flex items-center justify-between bg-rp-card border border-rp-border rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-rp-red/20 flex items-center justify-center text-rp-red font-bold text-sm">
+                        {selectedDriver.name.charAt(0).toUpperCase()}
                       </div>
-                      {selectedDriver.phone && (
-                        <div className="text-xs text-rp-grey">
-                          {selectedDriver.phone}
+                      <div>
+                        <div className="text-sm text-neutral-200">
+                          {selectedDriver.name}
+                          {selectedDriver.linked_to && (
+                            <span className="ml-2 text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">Racer</span>
+                          )}
                         </div>
-                      )}
+                        {selectedDriver.phone && (
+                          <div className="text-xs text-rp-grey">
+                            {selectedDriver.phone}
+                          </div>
+                        )}
+                        {selectedDriver.linked_to && (
+                          <div className="text-xs text-blue-400 mt-0.5">
+                            Wallet charged to parent account
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    <button
+                      onClick={() => {
+                        setSelectedDriver(null);
+                        setDriverSearch("");
+                      }}
+                      className="text-xs text-rp-grey hover:text-neutral-300"
+                    >
+                      Change
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedDriver(null);
-                      setDriverSearch("");
-                    }}
-                    className="text-xs text-rp-grey hover:text-neutral-300"
-                  >
-                    Change
-                  </button>
+                  {/* Show linked racers if this is a parent account */}
+                  {!selectedDriver.linked_to && drivers.filter(d => d.linked_to === selectedDriver.id).length > 0 && (
+                    <div className="mt-2 border border-blue-500/20 rounded-lg overflow-hidden">
+                      <div className="px-3 py-1.5 bg-blue-500/5 text-xs text-blue-400 font-medium">Linked Racers</div>
+                      {drivers.filter(d => d.linked_to === selectedDriver.id).map(racer => (
+                        <button
+                          key={racer.id}
+                          onClick={() => setSelectedDriver(racer)}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-blue-500/5 text-left text-sm text-neutral-300 border-t border-blue-500/10"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold">
+                            {racer.name.charAt(0)}
+                          </span>
+                          {racer.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div>
