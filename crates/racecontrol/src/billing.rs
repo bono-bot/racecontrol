@@ -463,6 +463,8 @@ impl BillingTimer {
             elapsed_seconds: Some(self.elapsed_seconds),
             cost_paise: Some(cost.total_paise),
             rate_per_min_paise: Some(cost.rate_per_min_paise),
+            // Act 2: Billing mode for frontend display (countdown vs count-up)
+            billing_mode: Some(self.billing_mode.clone()),
             // BILL-06: Recovery pause time excluded from billing
             recovery_pause_seconds: if self.recovery_pause_seconds > 0 {
                 Some(self.recovery_pause_seconds)
@@ -1609,6 +1611,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 elapsed_seconds: Some(entry.waiting_since.elapsed().as_secs() as u32),
                 cost_paise: Some(0),
                 rate_per_min_paise: Some(0),
+                billing_mode: None, // Not yet known during waiting_for_game
                 recovery_pause_seconds: None,
             };
             events_to_broadcast.push(DashboardEvent::BillingTick(info));

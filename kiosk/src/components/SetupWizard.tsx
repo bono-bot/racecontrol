@@ -167,6 +167,12 @@ export function SetupWizard({
 
   function handleSelectTier(tier: PricingTier) {
     setField("selectedTier", tier);
+    // Act 2: Trial = AC only — auto-set game and skip game selection
+    if (tier.is_trial) {
+      setField("selectedGame", "assetto_corsa");
+      goToStep("select_experience"); // Skip game, player mode, session type, AI — go straight to presets
+      return;
+    }
     goNext();
   }
 
@@ -284,6 +290,16 @@ export function SetupWizard({
         {/* ─── SELECT PLAN ──────────────────────────────────────── */}
         {step === "select_plan" && (
           <div data-testid="step-select-plan" className="space-y-3">
+            {/* Act 2: Pricing disclaimer — shown before tier selection */}
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3 text-xs text-zinc-400 space-y-1">
+              <p className="font-medium text-zinc-300">Pricing</p>
+              <div className="flex justify-between"><span>Per Minute</span><span className="text-white">25 cr/min</span></div>
+              <div className="flex justify-between"><span>30 min Package</span><span className="text-white">700 cr <span className="text-emerald-400">(save 7%)</span></span></div>
+              <div className="flex justify-between"><span>60 min Package</span><span className="text-white">900 cr <span className="text-emerald-400">(save 40%)</span></span></div>
+              <p className="text-zinc-500 mt-1 pt-1 border-t border-zinc-700">
+                Packages ended early are charged at best applicable rate. Full terms in waiver.
+              </p>
+            </div>
             <ScarcityBanner />
             <PricingDisplay
               onSelectTier={(tier) => handleSelectTier(tier)}

@@ -410,6 +410,9 @@ pub struct BillingSessionInfo {
     /// Current rate per minute in paise (2330 standard, 1500 value). None for legacy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_per_min_paise: Option<i64>,
+    /// Act 2: Billing mode — "package" (countdown) or "per_minute" (count-up).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_mode: Option<String>,
     /// BILL-06: Seconds excluded from billing due to crash recovery pauses.
     /// Shown on dashboard and receipt so customers can see excluded time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
