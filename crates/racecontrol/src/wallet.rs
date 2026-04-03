@@ -241,6 +241,62 @@ pub async fn debit_wallet(
     Ok(new_balance)
 }
 
+/// Act 3: Standalone wallet credit — for incentive bonuses (review, follow, registration).
+/// Unlike credit() which needs AppState for accounting, this is a simple DB credit.
+pub async fn credit_wallet(
+    db: &sqlx::SqlitePool,
+    driver_id: &str,
+    amount_paise: i64,
+    txn_type: &str,
+    reference_id: Option<&str>,
+    notes: Option<&str>,
+    venue_id: &str,
+) -> Result<i64, String> {
+    if amount_paise <= 0 {
+        return Err("Credit amount must be positive".to_string());
+    }
+    // Ensure wallet exists
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, venue_id) VALUES (?, 0, ?)",
+    )
+    .bind(driver_id)
+    .bind(venue_id)
+    .execute(db)
+    .await;
+
+    // Credit wallet
+    let result = sqlx::query_as::<_, (i64,)>(
+        "UPDATE wallets SET balance_paise = balance_paise + ?, total_credited_paise = total_credited_paise + ?, \
+         updated_at = datetime('now') WHERE driver_id = ? RETURNING balance_paise",
+    )
+    .bind(amount_paise)
+    .bind(amount_paise)
+    .bind(driver_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    let new_balance = result.map(|(b,)| b).unwrap_or(0);
+
+    // Log transaction
+    let txn_id = uuid::Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, txn_type, reference_id, notes, venue_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&txn_id)
+    .bind(driver_id)
+    .bind(amount_paise)
+    .bind(txn_type)
+    .bind(reference_id)
+    .bind(notes)
+    .bind(venue_id)
+    .execute(db)
+    .await;
+
+    Ok(new_balance)
+}
+
 /// Debit wallet within an EXISTING transaction (FATM-01).
 /// Caller owns the transaction and commits/rolls back.
 /// Does NOT post accounting journal — caller must do that after commit.

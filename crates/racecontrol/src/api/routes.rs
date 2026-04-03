@@ -388,8 +388,14 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/{id}/extend", post(extend_billing))
         // Act 2: Package upgrade (30→60 only, charges difference)
         .route("/billing/{id}/upgrade", post(upgrade_billing))
-        // Act 3: Visit lifecycle
+        // Act 3: Visit lifecycle + receipts
         .route("/visits/end/{id}", post(end_visit))
+        .route("/billing/{id}/receipt", get(staff_session_receipt))
+        .route("/visits/{id}/receipt", get(visit_receipt))
+        // Act 3: Review/follow incentive tracking
+        .route("/incentive/review/{driver_id}", get(track_review_click))
+        .route("/incentive/follow/{driver_id}", get(track_follow_click))
+        .route("/incentive/approve/{driver_id}", post(approve_incentive_bonus))
         // STAFF-01: Discount approval — cashier+ access, manager approval code required above threshold
         .route("/billing/{id}/discount", post(apply_billing_discount))
         .route("/billing/{id}/refund", post(refund_billing_session))
@@ -4331,6 +4337,244 @@ async fn extend_billing(
         Ok(()) => Json(json!({ "ok": true })),
         Err(e) => Json(json!({ "ok": false, "error": e })),
     }
+}
+
+/// Act 3: Track review link click — redirects to Google Maps, logs click.
+async fn track_review_click(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> axum::response::Redirect {
+    // Log the click
+    let _ = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, metadata, venue_id) \
+         VALUES (?, ?, 'review_click', ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&driver_id) // using driver_id as reference
+    .bind(format!("{{\"driver_id\":\"{}\",\"type\":\"google_review\"}}", driver_id))
+    .bind(&state.config.venue.venue_id)
+    .execute(&state.db)
+    .await;
+
+    tracing::info!("Review link clicked by driver {}", driver_id);
+
+    // TODO: Send WhatsApp to staff: "Driver X clicked review link — verify and approve"
+    // Redirect to Google Maps review page (place ID to be configured)
+    axum::response::Redirect::temporary("https://g.page/r/racingpoint/review")
+}
+
+/// Act 3: Track follow link click — redirects to Instagram, logs click.
+async fn track_follow_click(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> axum::response::Redirect {
+    let _ = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, metadata, venue_id) \
+         VALUES (?, ?, 'follow_click', ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&driver_id)
+    .bind(format!("{{\"driver_id\":\"{}\",\"type\":\"instagram_follow\"}}", driver_id))
+    .bind(&state.config.venue.venue_id)
+    .execute(&state.db)
+    .await;
+
+    tracing::info!("Follow link clicked by driver {}", driver_id);
+    axum::response::Redirect::temporary("https://instagram.com/racingpoint.esports")
+}
+
+/// Act 3: Staff approves review/follow bonus — credits wallet.
+async fn approve_incentive_bonus(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let bonus_type = body.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let (amount_paise, flag_column) = match bonus_type {
+        "review" => (5000i64, "review_bonus_claimed"),  // ₹50
+        "follow" => (2500i64, "follow_bonus_claimed"),  // ₹25
+        _ => return Json(json!({ "error": "type must be 'review' or 'follow'" })),
+    };
+
+    // Check if already claimed
+    let already_claimed: Option<(bool,)> = sqlx::query_as(
+        &format!("SELECT COALESCE({}, 0) FROM drivers WHERE id = ?", flag_column),
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((true,)) = already_claimed {
+        return Json(json!({ "error": format!("{} bonus already claimed", bonus_type) }));
+    }
+
+    // Resolve wallet owner (linked racers → parent)
+    let wallet_owner = crate::wallet::resolve_wallet_owner(&state, &driver_id)
+        .await
+        .unwrap_or_else(|_| driver_id.clone());
+
+    // Credit wallet
+    match crate::wallet::credit_wallet(
+        &state.db,
+        &wallet_owner,
+        amount_paise,
+        &format!("{}_bonus", bonus_type),
+        Some(&driver_id),
+        Some(&format!("{} incentive bonus", bonus_type)),
+        &state.config.venue.venue_id,
+    ).await {
+        Ok(_) => {
+            // Set flag
+            let _ = sqlx::query(
+                &format!("UPDATE drivers SET {} = 1 WHERE id = ?", flag_column),
+            )
+            .bind(&driver_id)
+            .execute(&state.db)
+            .await;
+
+            tracing::info!("Incentive bonus approved: {} for driver {} ({}p)", bonus_type, driver_id, amount_paise);
+            Json(json!({ "ok": true, "bonus_credits": amount_paise / 100 }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// Act 3: Staff-accessible session receipt (for POS printing).
+async fn staff_session_receipt(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Json<Value> {
+    let session = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<i64>, i64, Option<String>)>(
+        "SELECT d.name, bs.pricing_tier_id, bs.driving_seconds, COALESCE(bs.wallet_debit_paise, 0), bs.status, \
+         bs.started_at, bs.ended_at, bs.refund_paise, bs.allocated_seconds, \
+         COALESCE(bs.billing_mode, 'package') \
+         FROM billing_sessions bs JOIN drivers d ON bs.driver_id = d.id WHERE bs.id = ?",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match session {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    let (driver_name, tier_id, driving_secs, debit, status, started_at, ended_at, refund_opt, allocated, billing_mode) = session;
+    let refund = refund_opt.unwrap_or(0);
+    let duration_min = driving_secs / 60;
+    let cost_credits = debit / 100;
+    let refund_credits = refund / 100;
+
+    // Tier name lookup
+    let tier_name: String = sqlx::query_scalar("SELECT name FROM pricing_tiers WHERE id = ?")
+        .bind(&tier_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| tier_id.clone());
+
+    // Wallet balance
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(balance_paise, 0) FROM wallets WHERE driver_id = (SELECT driver_id FROM billing_sessions WHERE id = ?)",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(0);
+
+    Json(json!({
+        "session_id": session_id,
+        "driver_name": driver_name,
+        "tier_name": tier_name,
+        "billing_mode": billing_mode,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "duration_minutes": duration_min,
+        "duration_seconds": driving_secs,
+        "cost_credits": cost_credits,
+        "cost_paise": debit,
+        "refund_credits": refund_credits,
+        "refund_paise": refund,
+        "wallet_balance_credits": balance / 100,
+        "wallet_balance_paise": balance,
+        "status": status,
+        "allocated_seconds": allocated,
+    }))
+}
+
+/// Act 3: Visit-level receipt (cumulative — all sessions + cafe for one visit).
+async fn visit_receipt(
+    State(state): State<Arc<AppState>>,
+    Path(visit_id): Path<String>,
+) -> Json<Value> {
+    // Visit info
+    let visit = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64)>(
+        "SELECT v.id, d.name, v.started_at, v.ended_at, v.total_sessions, v.total_spent_paise \
+         FROM visits v JOIN drivers d ON v.driver_id = d.id WHERE v.id = ?",
+    )
+    .bind(&visit_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let visit = match visit {
+        Ok(Some(v)) => v,
+        Ok(None) => return Json(json!({ "error": "Visit not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    let (_vid, driver_name, started, ended, total_sessions, total_spent) = visit;
+
+    // All sessions in this visit
+    let sessions: Vec<(String, String, i64, i64, String)> = sqlx::query_as(
+        "SELECT bs.id, pt.name, bs.driving_seconds, COALESCE(bs.wallet_debit_paise, 0), bs.status \
+         FROM billing_sessions bs \
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id \
+         WHERE bs.visit_id = ? ORDER BY bs.started_at",
+    )
+    .bind(&visit_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let session_list: Vec<Value> = sessions.iter().map(|(id, tier, secs, cost, status)| {
+        json!({
+            "session_id": id,
+            "tier_name": tier,
+            "duration_minutes": secs / 60,
+            "cost_credits": cost / 100,
+            "status": status,
+        })
+    }).collect();
+
+    // Wallet balance
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(w.balance_paise, 0) FROM wallets w \
+         JOIN visits v ON w.driver_id = v.driver_id WHERE v.id = ?",
+    )
+    .bind(&visit_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(0);
+
+    Json(json!({
+        "visit_id": visit_id,
+        "driver_name": driver_name,
+        "started_at": started,
+        "ended_at": ended,
+        "total_sessions": total_sessions,
+        "total_spent_credits": total_spent / 100,
+        "total_spent_paise": total_spent,
+        "wallet_balance_credits": balance / 100,
+        "sessions": session_list,
+    }))
 }
 
 /// Act 2: Upgrade a package billing session to a higher tier (e.g. 30min → 60min).
