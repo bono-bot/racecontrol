@@ -3,6 +3,7 @@ import { Montserrat, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
 import { ChunkErrorRecovery } from "@/components/ChunkErrorRecovery";
+import { ToastProvider } from "@/components/Toast";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -32,7 +33,9 @@ export default function RootLayout({
         className={`${montserrat.variable} antialiased bg-rp-black text-white font-sans`}
       >
         <ChunkErrorRecovery />
-        <AuthGate>{children}</AuthGate>
+        <ToastProvider>
+          <AuthGate>{children}</AuthGate>
+        </ToastProvider>
       </body>
     </html>
   );

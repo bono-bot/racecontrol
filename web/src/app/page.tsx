@@ -34,8 +34,8 @@ export default function LiveOverview() {
       });
   }, []);
 
-  const sortedPods = [...pods].sort((a, b) => a.number - b.number);
-  const podsOnline = pods.filter((p) => p.status !== "offline").length;
+  const sortedPods = pods ? [...pods].sort((a, b) => a.number - b.number) : [];
+  const podsOnline = pods ? pods.filter((p) => p.status !== "offline").length : 0;
 
   return (
     <DashboardLayout>
