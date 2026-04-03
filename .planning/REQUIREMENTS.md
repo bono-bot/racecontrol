@@ -11,7 +11,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 - [x] **INV-01**: Agent scans Steam library (libraryfolders.vdf parsing) + configured non-Steam paths at boot and reports all installed games to server via GameInventoryUpdate WS message
 - [x] **INV-02**: Server persists per-pod game inventory in `pod_game_inventory` table, updated on each agent connect/heartbeat
-- [ ] **INV-03**: Kiosk game picker only shows games installed on the current pod (filtered by server-side pod_game_inventory)
+- [x] **INV-03**: Kiosk game picker only shows games installed on the current pod (filtered by server-side pod_game_inventory)
 - [x] **INV-04**: Agent re-scans game inventory every 5 minutes (periodic re-fetch pattern per boot resilience standing rule)
 
 ### Combo Validation
@@ -20,7 +20,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 - [x] **COMBO-02**: Agent sends `ComboValidationResult` per preset to server after boot-time validation completes (async-decoupled from WS connect)
 - [x] **COMBO-03**: Server aggregates combo validation across fleet — marks presets as valid (all pods), partial (some pods), or invalid (no pods) with per-pod availability list
 - [x] **COMBO-04**: Presets invalid on ALL pods are auto-disabled with reason logged and staff notification
-- [ ] **COMBO-05**: Kiosk only shows AC car+track combos that are valid for the current pod
+- [x] **COMBO-05**: Kiosk only shows AC car+track combos that are valid for the current pod
 
 ### Launch Intelligence
 
@@ -62,13 +62,13 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 |-------------|-------|--------|
 | INV-01 | Phase 316 | Complete |
 | INV-02 | Phase 317 | Complete |
-| INV-03 | Phase 320 | Pending |
+| INV-03 | Phase 320 | Complete |
 | INV-04 | Phase 316 | Complete |
 | COMBO-01 | Phase 316 | Complete |
 | COMBO-02 | Phase 316 | Complete |
 | COMBO-03 | Phase 317 | Complete |
 | COMBO-04 | Phase 317 | Complete |
-| COMBO-05 | Phase 320 | Pending |
+| COMBO-05 | Phase 320 | Complete |
 | LAUNCH-01 | Phase 318 | Complete |
 | LAUNCH-02 | Phase 315 | Pending |
 | LAUNCH-03 | Phase 317 | Complete |

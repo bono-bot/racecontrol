@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: verifying
-stopped_at: Completed 319-02-PLAN.md
-last_updated: "2026-04-03T08:59:55.102Z"
+stopped_at: Completed 320-01-PLAN.md
+last_updated: "2026-04-03T09:24:22.062Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
-**Current focus:** Phase 318 — Launch Intelligence
+**Current focus:** Phase 320 — Kiosk Game Filtering
 
 ## Current Position
 
-Phase: 318 (Launch Intelligence) — EXECUTING
-Plan: 2 of 2
+Phase: 320 (Kiosk Game Filtering) — EXECUTING
+Plan: 1 of 1
 Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 - [Phase 318]: launch_id generated in rc-agent at LaunchGame receipt — keeps agent self-contained
 - [Phase 318]: launch tracking fields in ConnectionState not AppState — resets per WS connection matching launch lifecycle
 - [Phase 319]: Route /launch-timeline/recent registered before /:launch_id to prevent Axum treating 'recent' as param
+- [Phase 320-kiosk-game-filtering]: pod-inventory in public_routes (no JWT); unknown pod returns 200 empty; sim_type converted from Rust Debug to snake_case at API boundary
 
 ## Blockers/Concerns
 
@@ -65,6 +66,6 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-04-03T08:59:55.098Z
-Stopped at: Completed 319-02-PLAN.md
+Last session: 2026-04-03T09:24:22.058Z
+Stopped at: Completed 320-01-PLAN.md
 Resume file: None
