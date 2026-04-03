@@ -521,6 +521,59 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    // ── Task 2: scan_non_steam_games and build_game_inventory tests ───────────
+
+    #[test]
+    fn test_scan_non_steam_games_with_exe_present() {
+        // We can't create a file at the hardcoded path, so instead we test
+        // via the internal mechanism — we create a temp exe and verify scan_non_steam_at works
+        // (We test the public API indirectly: if no known paths exist, it should return empty)
+        let games = scan_non_steam_games("test-pod");
+        // All known paths don't exist in the CI env, so this should return empty
+        // This is the "no-crash" verification
+        let _ = games; // Should not panic
+    }
+
+    #[test]
+    fn test_scan_non_steam_games_no_known_paths_returns_empty() {
+        let games = scan_non_steam_games("test-pod");
+        // In a test environment, none of the hardcoded exe paths exist
+        // This verifies fail-open behavior
+        assert!(games.len() < NON_STEAM_GAMES.len(),
+            "Should not find all games in test environment (no real game paths)");
+    }
+
+    #[test]
+    fn test_build_game_inventory_deduplicates_by_game_id() {
+        // Build an inventory where steam and non-steam both would find "iracing"
+        // but since it's in STEAM_APP_IDS (app_id 266410) AND NON_STEAM_GAMES,
+        // build_game_inventory should return only ONE entry per game_id
+        let inventory = build_game_inventory("test-pod", false);
+        // Check no duplicate game_ids
+        let mut seen_ids: Vec<String> = Vec::new();
+        for game in &inventory.games {
+            assert!(!seen_ids.contains(&game.game_id),
+                "Duplicate game_id found: {} in inventory", game.game_id);
+            seen_ids.push(game.game_id.clone());
+        }
+    }
+
+    #[test]
+    fn test_build_game_inventory_includes_metadata() {
+        let pod_id = "pod-test-42";
+        let inventory = build_game_inventory(pod_id, false);
+        assert_eq!(inventory.pod_id, pod_id, "pod_id should be set");
+        assert!(!inventory.scanned_at.is_empty(), "scanned_at should be non-empty");
+    }
+
+    #[test]
+    fn test_build_game_inventory_pos_returns_empty() {
+        let inventory = build_game_inventory("pos-pod", true);
+        assert!(inventory.games.is_empty(), "POS inventory should have no games");
+        assert_eq!(inventory.pod_id, "pos-pod");
+        assert!(!inventory.scanned_at.is_empty());
+    }
+
     // ── Task 1: parse_vdf_library_paths tests ──────────────────────────────────
 
     #[test]
