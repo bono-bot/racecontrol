@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
-milestone: v40.0
-milestone_name: Game Launch Reliability
+milestone: v41.0
+milestone_name: Game Intelligence System
 status: executing
 stopped_at: Roadmap created — ready to plan Phase 315
 last_updated: "2026-04-03T05:26:59.792Z"
