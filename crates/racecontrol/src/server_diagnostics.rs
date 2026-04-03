@@ -194,17 +194,30 @@ async fn check_ntp_health(state: &AppState) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Check if service is running
+    // Check if service is running — AUTO-FIX if stopped
     if !output.status.success() || stderr.contains("has not been started") || stdout.contains("has not been started") {
         tracing::error!(target: LOG_TARGET,
-            "NTP CRITICAL: Windows Time service (W32Time) is NOT RUNNING. \
-             Server clock is drifting unsynchronized. All pod clock_drift_secs measurements \
-             are relative to this server — fleet time reference is unreliable."
+            "NTP CRITICAL: W32Time stopped — attempting auto-fix"
         );
-        // WhatsApp alert for NTP failure
-        let msg = "🕐 NTP CRITICAL: Windows Time service stopped on server. \
-                   Fleet clock reference is drifting. Run: net start w32time && w32tm /resync /force";
-        crate::whatsapp_alerter::send_whatsapp(&state.config, msg).await;
+
+        // AUTO-FIX: Start the service and force resync
+        let fix_result = tokio::process::Command::new("cmd")
+            .args(["/C", "net start w32time && w32tm /resync /force"])
+            .output()
+            .await;
+
+        match fix_result {
+            Ok(r) if r.status.success() => {
+                tracing::info!(target: LOG_TARGET, "NTP AUTO-FIX: W32Time started and resynced successfully");
+                let msg = "🕐 NTP: W32Time was stopped — MI auto-started it and forced resync";
+                crate::whatsapp_alerter::send_whatsapp(&state.config, msg).await;
+            }
+            _ => {
+                tracing::error!(target: LOG_TARGET, "NTP AUTO-FIX FAILED: could not start W32Time");
+                let msg = "🕐 NTP CRITICAL: W32Time stopped, auto-fix FAILED. Manual: net start w32time";
+                crate::whatsapp_alerter::send_whatsapp(&state.config, msg).await;
+            }
+        }
         return;
     }
 
@@ -417,9 +430,30 @@ async fn check_sentry_reachable(_state: &AppState) {
 
     if !dead_sentries.is_empty() {
         tracing::warn!(target: LOG_TARGET,
-            "SENTRY DOWN on {}: {} — pod self-healing degraded",
+            "SENTRY DOWN on {}: {} — attempting auto-restart via rc-agent exec",
             dead_sentries.join(", "), dead_sentries.len()
         );
+
+        // AUTO-FIX: restart rc-sentry via rc-agent :8090 exec endpoint
+        for (name, ip) in &pod_ips {
+            if !dead_sentries.contains(name) { continue; }
+            let exec_url = format!("http://{}:8090/exec", ip);
+            let body = serde_json::json!({
+                "cmd": "schtasks /Run /TN StartRCSentry"
+            });
+            match client.post(&exec_url)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!(target: LOG_TARGET, "SENTRY AUTO-FIX: restarted {} via rc-agent exec", name);
+                }
+                _ => {
+                    tracing::warn!(target: LOG_TARGET, "SENTRY AUTO-FIX FAILED on {} — rc-agent may also be down", name);
+                }
+            }
+        }
     } else {
         tracing::debug!(target: LOG_TARGET, "All 8 rc-sentry instances reachable");
     }

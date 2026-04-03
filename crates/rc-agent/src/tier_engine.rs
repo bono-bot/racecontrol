@@ -2039,9 +2039,14 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
         | DiagnosticTrigger::PosWifiDegraded { .. } => {
             tracing::warn!(target: LOG_TARGET, trigger = ?trigger, "POS network/billing/WiFi issue — no Tier 1 fix, escalating");
         }
-        // POS kiosk escape: log + alert staff (Tier 1 can't fix foreground window takeover)
+        // POS kiosk escape: AUTO-FIX — minimize intruder, bring Edge to front
         DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
-            tracing::warn!(target: LOG_TARGET, foreground = %foreground_process, "POS kiosk escape — non-Edge window in foreground, alerting staff");
+            tracing::warn!(target: LOG_TARGET, foreground = %foreground_process, "POS kiosk escape — auto-fixing: minimize intruder, restore Edge");
+            if tier1_restore_pos_kiosk(&foreground_process) {
+                actions_taken.push(format!("POS: minimized '{}', restored Edge kiosk to foreground", foreground_process));
+            } else {
+                tracing::warn!(target: LOG_TARGET, "POS: kiosk restore failed — escalating to staff");
+            }
         }
         // MMA-First Protocol triggers — no deterministic fix, escalate to MMA
         DiagnosticTrigger::GameMidSessionCrash { .. }
@@ -2220,6 +2225,51 @@ fn tier1_kill_orphans() -> Vec<String> {
 /// POS Tier 1: Restart Edge kiosk browser.
 /// Only called when billing is NOT active. Kills all msedge.exe, then launches
 /// Edge in kiosk mode pointing at the billing dashboard.
+/// POS kiosk escape auto-fix: minimize the intruder window and bring Edge back to foreground.
+/// Lighter than tier1_restart_edge_kiosk — doesn't kill Edge, just restores focus.
+fn tier1_restore_pos_kiosk(foreground_process: &str) -> bool {
+    // Use PowerShell to minimize non-Edge windows and bring Edge to front
+    let ps_script = r#"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class W32 {
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+}
+"@
+Get-Process cmd,powershell,WindowsTerminal -EA SilentlyContinue | % {
+    if ($_.MainWindowHandle -ne [IntPtr]::Zero) { [W32]::ShowWindow($_.MainWindowHandle, 6) | Out-Null }
+}
+$edge = Get-Process msedge -EA SilentlyContinue | ? { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select -First 1
+if ($edge) {
+    [W32]::ShowWindow($edge.MainWindowHandle, 3) | Out-Null
+    [W32]::SetForegroundWindow($edge.MainWindowHandle) | Out-Null
+    Write-Host "RESTORED"
+} else { Write-Host "NO_EDGE" }
+"#;
+
+    match std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script])
+        .output()
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("RESTORED") {
+                tracing::info!(target: LOG_TARGET, "POS kiosk restored to foreground (was: {})", foreground_process);
+                true
+            } else {
+                tracing::warn!(target: LOG_TARGET, "POS kiosk restore: Edge not found in foreground");
+                false
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "POS kiosk restore PowerShell failed: {}", e);
+            false
+        }
+    }
+}
+
 /// Returns true if restart was initiated successfully.
 ///
 /// MMA Round 1 fixes (3/3 consensus):

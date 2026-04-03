@@ -620,6 +620,59 @@ fn pm2_app_name(app: &str) -> Option<&'static str> {
     }
 }
 
+/// Cloud app pm2 names — restarted via comms-link relay to Bono VPS.
+fn cloud_pm2_app_name(app: &str) -> Option<&'static str> {
+    match app {
+        "cloud-admin" => Some("racingpoint-admin"),
+        "cloud-app" => Some("racecontrol-pwa"),
+        "cloud-web" => Some("racingpoint-web"),
+        _ => None,
+    }
+}
+
+/// Restart a cloud app via comms-link relay exec (Bono VPS pm2 restart).
+async fn restart_cloud_app(state: &AppState, app: &str) {
+    let pm2_name = match cloud_pm2_app_name(app) {
+        Some(n) => n,
+        None => return,
+    };
+
+    tracing::info!(target: "app_health_monitor", "Cloud auto-restart: pm2 restart {} via relay", pm2_name);
+
+    // Use comms-link relay to execute pm2 restart on Bono VPS
+    let relay_url = "http://localhost:8766/relay/exec/run";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap_or_default();
+
+    let body = serde_json::json!({
+        "command": "custom",
+        "args": format!("pm2 restart {}", pm2_name),
+        "reason": format!("MI auto-restart: {} unhealthy", app)
+    });
+
+    match client.post(relay_url).json(&body).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!(target: "app_health_monitor",
+                "Cloud auto-restart SUCCESS: pm2 restart {} via relay", pm2_name
+            );
+            let msg = format!("☁️ Cloud app {} restarted by MI (was unhealthy)", app);
+            crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+        }
+        Ok(resp) => {
+            tracing::warn!(target: "app_health_monitor",
+                "Cloud auto-restart FAILED: relay returned {}", resp.status()
+            );
+        }
+        Err(e) => {
+            tracing::warn!(target: "app_health_monitor",
+                "Cloud auto-restart FAILED: relay error — {}", e
+            );
+        }
+    }
+}
+
 /// Restart budget: max restarts per app per hour.
 const MAX_RESTARTS_PER_HOUR: u32 = 2;
 
@@ -646,6 +699,15 @@ static RESTART_TRACKERS: LazyLock<Mutex<HashMap<String, RestartTracker>>> =
 /// Called from the main probe loop.
 pub async fn maybe_restart_app(state: &AppState, app: &str) {
     let failures = get_consecutive_failures(app);
+
+    // Cloud apps: restart via comms-link relay instead of local pm2
+    if cloud_pm2_app_name(app).is_some() {
+        if failures >= RESTART_UNREACHABLE_THRESHOLD {
+            restart_cloud_app(state, app).await;
+        }
+        return;
+    }
+
     let pm2_name = match pm2_app_name(app) {
         Some(n) => n,
         None => return,
