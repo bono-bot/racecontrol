@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v40.0
-milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Completed 320-01-PLAN.md
-last_updated: "2026-04-03T09:24:22.062Z"
+milestone: v42.0
+milestone_name: Meshed Intelligence Migration
+status: defining
+stopped_at: null
+last_updated: "2026-04-03T17:30:00.000Z"
 last_activity: 2026-04-03
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -20,17 +20,17 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-03)
 
-**Core value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
-**Current focus:** Phase 320 — Kiosk Game Filtering
+**Core value:** Move MI tier engine from rc-agent to rc-sentry — eliminate blind spot where rc-agent death kills the self-healing system.
+**Current focus:** Defining requirements for v42.0
 
 ## Current Position
 
-Phase: 320 (Kiosk Game Filtering) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
-Last activity: 2026-04-03
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-03 — Milestone v42.0 started
 
-Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
+Progress: [░░░░░░░░░░] 0% (0/0 plans complete)
 
 ## Accumulated Context
 

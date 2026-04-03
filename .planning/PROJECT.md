@@ -65,6 +65,33 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Standing rules: no .unwrap() in production, no lock held across .await
 - Pod 8 canary-first for all agent-side changes
 
+## Current Milestone: v42.0 Meshed Intelligence Migration
+
+**Goal:** Move the MI tier engine from rc-agent to rc-sentry so it can autonomously diagnose and heal rc-agent from the outside — eliminating the blind spot where rc-agent's death kills the entire self-healing system.
+
+**Target features:**
+- MI Core Migration — Move tier_engine, diagnostic_engine, mma_engine, knowledge_base, cognitive_gate, diagnosis_planner from rc-agent to rc-sentry
+- External Health Monitor — rc-sentry monitors rc-agent via health polling, process inspection, and log analysis (not via rc-agent's own API)
+- Server-Side Pod Healer Enhancement — Server pod_healer falls back to rc-sentry :8091 when rc-agent :8090 is unreachable
+- Watchdog Loop Prevention — Rate-limit restart cycles, detect and break crash loops automatically (128+ restart storm observed 2026-04-03)
+- Alert Chain Fix — Deploy COMMS_PSK to all pods so watchdog alerts reach Bono/staff when rc-agent is down
+
+**Constraints:**
+- rc-sentry is a lightweight Rust binary (~9MB) — must stay lean, no tokio runtime (uses std threads)
+- MI modules depend on tokio, reqwest, serde_json — rc-sentry currently has minimal deps
+- rc-sentry runs as a Windows service (Session 0) — cannot do GUI operations
+- 21 MI source files in rc-agent — migration must be incremental (not big-bang)
+- rc-agent must still work during migration (keep thin MI proxy until fully migrated)
+- Budget tracking, OpenRouter calls, model reputation — all must work from rc-sentry context
+- Pod 8 canary-first for all changes
+- Must not break existing billing, lock screen, game launch, or session management
+
+**Evidence (2026-04-03):**
+- Pod 1 and Pod 7: rc-agent dead for hours, MI completely blind, zero diagnosis, zero alerting
+- rc-watchdog attempted 128+ restarts, all failed (bat file redirect bug + crash loop)
+- Server pod_healer couldn't reach pods (connects via rc-agent :8090)
+- COMMS_PSK not set on any pod — no alerts sent
+
 ## Current Milestone: v41.0 Game Intelligence System
 
 **Goal:** Proactive game availability management and launch failure observability — stop showing customers games they can't play, flag broken AC combos before launch, and surface failures instantly through Meshed Intelligence.
