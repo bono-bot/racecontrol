@@ -159,7 +159,7 @@ Plans:
 - [x] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02
  (completed 2026-04-03)
 - [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
-- [ ] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05
+- [x] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05 (completed 2026-04-03)
 - [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
 - [ ] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05
 
@@ -221,7 +221,7 @@ Plans:
 
 Plans:
 - [x] 318-01-PLAN.md -- LaunchTimedOut WS message server→agent, GameLaunchTimeout DiagnosticTrigger variant, launch_timeout_config in AgentConfig, emit from check_game_health
-- [ ] 318-02-PLAN.md -- launch_timeline_spans table migration, GameTracker launch_id, agent LaunchTimelineReport send, server WS handler + GET /api/v1/launch-timeline/{launch_id}
+- [x] 318-02-PLAN.md -- launch_timeline_spans table migration, GameTracker launch_id, agent LaunchTimelineReport send, server WS handler + GET /api/v1/launch-timeline/{launch_id}
 
 ### Phase 319: Reliability Dashboard
 **Goal**: Staff can see at a glance which pods have which games installed, which AC combos are flagged unreliable, and drill into any specific launch incident to find the checkpoint where it stalled
@@ -273,7 +273,7 @@ Plans:
   2. A row written with a future venue_id on Bono VPS flows back to the venue database on the next sync (cloud-authoritative direction established)
   3. When two writes target the same row, the row with the later updated_at timestamp wins; if timestamps are equal, the row with the lexicographically smaller venue_id wins
   4. Admin dashboard sync panel shows last sync timestamp, number of tables synced, and running conflict count
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 301-01-PLAN.md -- DB migrations + cloud_sync.rs push/receive/pull for fleet_solutions, model_evaluations, metrics_rollups with LWW conflict resolution

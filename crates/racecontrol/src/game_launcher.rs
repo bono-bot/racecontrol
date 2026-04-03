@@ -42,6 +42,9 @@ pub struct GameTracker {
     pub ready_delay_ms: Option<i64>,
     /// Phase 310: Billing session ID for end-to-end customer journey tracing.
     pub billing_session_id: Option<String>,
+    /// Phase 318 (LAUNCH-05): UUID v4 generated when tracking starts.
+    /// Used to correlate timeline spans with this specific launch attempt.
+    pub launch_id: String,
 }
 
 impl GameTracker {
@@ -421,6 +424,7 @@ async fn launch_game(
             playable_at: None,
             ready_delay_ms: None,
             billing_session_id,
+            launch_id: uuid::Uuid::new_v4().to_string(),
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -846,6 +850,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             playable_at: None,
                             ready_delay_ms: None,
                             billing_session_id: None,
+                            launch_id: uuid::Uuid::new_v4().to_string(),
                         },
                     );
                 }
@@ -1738,6 +1743,7 @@ mod tests {
                         playable_at: None,
                         ready_delay_ms: None,
                         billing_session_id: None,
+                    launch_id: "test-launch-001".to_string(),
                     },
                 );
         }
@@ -1793,6 +1799,7 @@ mod tests {
                         playable_at: None,
                         ready_delay_ms: None,
                         billing_session_id: None,
+                    launch_id: "test-launch-001".to_string(),
                     },
                 );
         }
@@ -1888,6 +1895,7 @@ mod tests {
                         playable_at: None,
                         ready_delay_ms: None,
                         billing_session_id: None,
+                    launch_id: "test-launch-001".to_string(),
                     },
                 );
         }
@@ -2013,6 +2021,7 @@ mod tests {
                         playable_at: None,
                         ready_delay_ms: None,
                         billing_session_id: None,
+                    launch_id: "test-launch-001".to_string(),
                     },
                 );
         }
@@ -2255,6 +2264,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2353,6 +2363,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2388,6 +2399,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2432,6 +2444,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2470,6 +2483,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2656,6 +2670,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2744,6 +2759,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2782,6 +2798,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 
@@ -2844,6 +2861,7 @@ mod tests {
                         playable_at: None,
                         ready_delay_ms: None,
                         billing_session_id: None,
+                    launch_id: "test-launch-001".to_string(),
                     },
                 );
         }
@@ -2884,6 +2902,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+            launch_id: "test-launch-001".to_string(),
             },
         );
 

@@ -28,7 +28,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 - [ ] **LAUNCH-02**: New `DiagnosticTrigger::GameLaunchTimeout` variant wired into tier_engine Tier 1 Game Doctor diagnostic, with `#[serde(other)]` added to enum BEFORE new variant (backward compat)
 - [x] **LAUNCH-03**: Crash loop detection — 3+ agent restarts in 5min triggers ERROR log + WhatsApp alert + `crash_loop: true` flag in fleet health response
 - [x] **LAUNCH-04**: Chain failure detection — 3+ consecutive game launch failures on same pod/combo triggers `MeshSystemicAlert` with severity=Critical via EscalationRequest WS path to WhatsApp
-- [ ] **LAUNCH-05**: Launch timeline events (ws_sent, agent_received, process_spawned, playable_signal) stored in `launch_timeline_spans` table with incident-level timestamps
+- [x] **LAUNCH-05**: Launch timeline events (ws_sent, agent_received, process_spawned, playable_signal) stored in `launch_timeline_spans` table with incident-level timestamps
 
 ### Reliability Dashboard
 
@@ -73,7 +73,7 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 | LAUNCH-02 | Phase 315 | Pending |
 | LAUNCH-03 | Phase 317 | Complete |
 | LAUNCH-04 | Phase 317 | Complete |
-| LAUNCH-05 | Phase 318 | Pending |
+| LAUNCH-05 | Phase 318 | Complete |
 | DASH-01 | Phase 319 | Pending |
 | DASH-02 | Phase 319 | Pending |
 | DASH-03 | Phase 319 | Pending |

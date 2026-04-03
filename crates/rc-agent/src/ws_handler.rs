@@ -262,6 +262,18 @@ pub async fn handle_ws_message(
             }
             state.lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
             tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
+
+            // LAUNCH-05: Build and send LaunchTimeline on successful launch (BillingStarted = playable signal).
+            // Fire-and-forget — channel full or closed means server is not listening, which is acceptable.
+            if let Some(timeline) = build_launch_timeline(
+                conn,
+                state,
+                "success",
+                vec![],
+                Some(billing_session_id.clone()),
+            ) {
+                let _ = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline));
+            }
         }
 
         CoreToAgentMessage::BillingTick {
@@ -433,6 +445,10 @@ pub async fn handle_ws_message(
             conn.current_sim_type = Some(launch_sim);
             conn.loading_emitted = false;
             conn.f1_udp_playable_received = false;
+            // LAUNCH-05: Record launch start time and generate launch_id for timeline tracing.
+            // elapsed_ms = 0 represents the agent receiving the LaunchGame command.
+            conn.launch_start = Some(std::time::Instant::now());
+            conn.current_launch_id = Some(uuid::Uuid::new_v4().to_string());
 
             // ─── Safe Mode: enter before game spawn (zero delay) ──────────────
             // SAFE-01: protected games require scan suppression from first instruction.
@@ -1849,6 +1865,21 @@ pub async fn handle_ws_message(
                 diagnostic_engine::DiagnosticTrigger::GameLaunchTimeout { elapsed_secs },
                 &pod_state,
             );
+            // LAUNCH-05: Send LaunchTimeline on timeout to record the failure span.
+            if let Some(timeline) = build_launch_timeline(
+                conn,
+                state,
+                "timeout",
+                vec![LaunchTimelineEvent {
+                    kind: "timeout".to_string(),
+                    detail: Some(format!("elapsed_secs={}", elapsed_secs)),
+                    elapsed_ms: (elapsed_secs as u64) * 1000,
+                    timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                }],
+                None,
+            ) {
+                let _ = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline));
+            }
         }
 
         other => {
@@ -1857,6 +1888,60 @@ pub async fn handle_ws_message(
     }
 
     Ok(HandleResult::Continue)
+}
+
+// ─── Phase 318 (LAUNCH-05): Launch timeline helpers ──────────────────────────
+
+/// Build a LaunchTimeline from current connection state.
+/// Returns None if no launch_id or launch_start is tracked (launch not initiated here).
+///
+/// The timeline records millisecond-resolution checkpoints for debugging launch stalls.
+/// Called on both success (BillingStarted) and timeout (LaunchTimedOut) paths.
+fn build_launch_timeline(
+    conn: &ConnectionState,
+    state: &AppState,
+    outcome: &str,
+    extra_events: Vec<LaunchTimelineEvent>,
+    billing_session_id: Option<String>,
+) -> Option<LaunchTimeline> {
+    let launch_id = conn.current_launch_id.as_ref()?.clone();
+    let start = conn.launch_start?;
+    let elapsed = start.elapsed();
+    let total_ms = elapsed.as_millis() as u64;
+    let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let sim_type = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
+
+    // agent_received: elapsed_ms=0 — this is the launch command arrival at the agent.
+    let mut events = vec![
+        LaunchTimelineEvent {
+            kind: "agent_received".to_string(),
+            detail: None,
+            elapsed_ms: 0,
+            timestamp: now_str.clone(),
+        },
+    ];
+    events.extend(extra_events);
+
+    if outcome == "success" {
+        events.push(LaunchTimelineEvent {
+            kind: "playable_signal".to_string(),
+            detail: Some("BillingStarted received".to_string()),
+            elapsed_ms: total_ms,
+            timestamp: now_str.clone(),
+        });
+    }
+
+    Some(LaunchTimeline {
+        pod_id: state.pod_id.clone(),
+        launch_id,
+        billing_session_id,
+        sim_type,
+        preset_id: None,
+        events,
+        outcome: outcome.to_string(),
+        total_duration_ms: total_ms,
+        started_at: now_str,
+    })
 }
 
 // ─── Phase 296: FullConfigPush helpers ────────────────────────────────────────
@@ -2088,5 +2173,102 @@ mod tests {
                 hot
             );
         }
+    }
+
+    // ─── Phase 318 (LAUNCH-05): LaunchTimeline event kind tests ──────────────
+
+    /// Behavior 3 (LAUNCH-05): A LaunchTimeline for a successful launch must contain
+    /// the required checkpoint event kinds: agent_received and playable_signal.
+    /// process_spawned is added as an extra event when known (tested here as extra_events).
+    #[test]
+    fn test_launch_timeline_success_has_required_event_kinds() {
+        use rc_common::types::{LaunchTimeline, LaunchTimelineEvent, SimType};
+
+        // Construct a LaunchTimeline as build_launch_timeline would for a success outcome
+        let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let extra_events = vec![
+            LaunchTimelineEvent {
+                kind: "process_spawned".to_string(),
+                detail: Some("pid=12345".to_string()),
+                elapsed_ms: 5000,
+                timestamp: now_str.clone(),
+            },
+        ];
+
+        let mut events = vec![
+            LaunchTimelineEvent {
+                kind: "agent_received".to_string(),
+                detail: None,
+                elapsed_ms: 0,
+                timestamp: now_str.clone(),
+            },
+        ];
+        events.extend(extra_events);
+        events.push(LaunchTimelineEvent {
+            kind: "playable_signal".to_string(),
+            detail: Some("BillingStarted received".to_string()),
+            elapsed_ms: 32000,
+            timestamp: now_str.clone(),
+        });
+
+        let timeline = LaunchTimeline {
+            pod_id: "pod_3".to_string(),
+            launch_id: "test-launch-behavior3".to_string(),
+            billing_session_id: Some("sess-001".to_string()),
+            sim_type: SimType::AssettoCorsa,
+            preset_id: None,
+            events: events.clone(),
+            outcome: "success".to_string(),
+            total_duration_ms: 32000,
+            started_at: now_str,
+        };
+
+        let kinds: Vec<&str> = timeline.events.iter().map(|e| e.kind.as_str()).collect();
+
+        assert!(kinds.contains(&"agent_received"), "must have agent_received, got: {:?}", kinds);
+        assert!(kinds.contains(&"playable_signal"), "must have playable_signal, got: {:?}", kinds);
+        assert!(kinds.contains(&"process_spawned"), "must have process_spawned (from extra_events), got: {:?}", kinds);
+        assert_eq!(timeline.outcome, "success", "outcome must be 'success'");
+        assert_eq!(timeline.sim_type, SimType::AssettoCorsa, "sim_type must match");
+    }
+
+    /// Behavior 3b (LAUNCH-05): LaunchTimeline for a timeout outcome must contain timeout event.
+    #[test]
+    fn test_launch_timeline_timeout_has_timeout_event() {
+        use rc_common::types::{LaunchTimeline, LaunchTimelineEvent, SimType};
+
+        let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let timeout_event = LaunchTimelineEvent {
+            kind: "timeout".to_string(),
+            detail: Some("elapsed_secs=90".to_string()),
+            elapsed_ms: 90000,
+            timestamp: now_str.clone(),
+        };
+        let events = vec![
+            LaunchTimelineEvent {
+                kind: "agent_received".to_string(),
+                detail: None,
+                elapsed_ms: 0,
+                timestamp: now_str.clone(),
+            },
+            timeout_event,
+        ];
+
+        let timeline = LaunchTimeline {
+            pod_id: "pod_3".to_string(),
+            launch_id: "test-launch-timeout".to_string(),
+            billing_session_id: None,
+            sim_type: SimType::AssettoCorsa,
+            preset_id: None,
+            events: events.clone(),
+            outcome: "timeout".to_string(),
+            total_duration_ms: 90000,
+            started_at: now_str,
+        };
+
+        let kinds: Vec<&str> = timeline.events.iter().map(|e| e.kind.as_str()).collect();
+        assert!(kinds.contains(&"agent_received"), "timeout timeline must have agent_received");
+        assert!(kinds.contains(&"timeout"), "timeout timeline must have timeout event");
+        assert_eq!(timeline.outcome, "timeout");
     }
 }

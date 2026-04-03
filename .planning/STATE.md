@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 318-01-PLAN.md
-last_updated: "2026-04-03T07:43:44.650Z"
+status: verifying
+stopped_at: Completed 318-02-PLAN.md
+last_updated: "2026-04-03T08:30:01.236Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 
 Phase: 318 (Launch Intelligence) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
@@ -54,6 +54,8 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 - [Phase 317]: incident_id=crash_loop_{pod_id} gives 30-min built-in dedup in WhatsAppEscalation
 - [Phase 317]: ChainFailureState alerted flag prevents repeated escalation within same 10-min window
 - [Phase 318-launch-intelligence]: LaunchTimedOut → GameLaunchTimeout path: server detects timeout → sends WS → agent feeds tier engine for Game Doctor recovery
+- [Phase 318]: launch_id generated in rc-agent at LaunchGame receipt — keeps agent self-contained
+- [Phase 318]: launch tracking fields in ConnectionState not AppState — resets per WS connection matching launch lifecycle
 
 ## Blockers/Concerns
 
@@ -62,6 +64,6 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-04-03T07:43:44.646Z
-Stopped at: Completed 318-01-PLAN.md
+Last session: 2026-04-03T08:30:01.232Z
+Stopped at: Completed 318-02-PLAN.md
 Resume file: None

@@ -474,6 +474,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                                 playable_at: None,
                                                 ready_delay_ms: None,
                                                 billing_session_id: None,
+                                                launch_id: uuid::Uuid::new_v4().to_string(),
                                             });
                                             tracing::info!("GSTATE-02: Created game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
                                         }
@@ -552,6 +553,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                                 playable_at: None,
                                                 ready_delay_ms: None,
                                                 billing_session_id: None,
+                                                launch_id: uuid::Uuid::new_v4().to_string(),
                                             });
                                             tracing::info!("GSTATE-02: Created {:?} tracker for pod {} on reconnect (transient)", pod_game_state, pod_info.number);
                                         }
@@ -2076,6 +2078,46 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             let res = results.clone();
                             tokio::spawn(async move {
                                 crate::game_inventory::handle_combo_validation_report(&state_clone, pid, res).await;
+                            });
+                        }
+
+                        // Phase 318 (LAUNCH-05): Persist agent launch timeline to launch_timeline_spans table.
+                        AgentMessage::LaunchTimelineReport(timeline) => {
+                            let db = state.db.clone();
+                            let events_json = serde_json::to_string(&timeline.events)
+                                .unwrap_or_else(|_| "[]".to_string());
+                            let created_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                            let tl = timeline.clone();
+                            tokio::spawn(async move {
+                                let result = sqlx::query(
+                                    "INSERT OR REPLACE INTO launch_timeline_spans
+                                     (launch_id, pod_id, sim_type, preset_id, billing_session_id,
+                                      outcome, total_duration_ms, started_at, events_json, created_at)
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                )
+                                .bind(&tl.launch_id)
+                                .bind(&tl.pod_id)
+                                .bind(tl.sim_type.to_string())
+                                .bind(&tl.preset_id)
+                                .bind(&tl.billing_session_id)
+                                .bind(&tl.outcome)
+                                .bind(tl.total_duration_ms as i64)
+                                .bind(&tl.started_at)
+                                .bind(&events_json)
+                                .bind(&created_at)
+                                .execute(&db)
+                                .await;
+                                if let Err(e) = result {
+                                    tracing::error!(
+                                        "LAUNCH-05: Failed to insert launch_timeline_spans for {}: {}",
+                                        tl.launch_id, e
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        "LAUNCH-05: Persisted launch timeline for {} (outcome={})",
+                                        tl.launch_id, tl.outcome
+                                    );
+                                }
                             });
                         }
 
