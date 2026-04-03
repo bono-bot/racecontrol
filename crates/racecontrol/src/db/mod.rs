@@ -1462,6 +1462,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         "drivers", "wallets", "billing_sessions", "pricing_tiers",
         "kiosk_experiences", "reservations", "debit_intents",
         "kiosk_settings", "cafe_orders", "staff_members",
+        "fleet_solutions", "metrics_rollups", "model_evaluations",
     ] {
         let _ = sqlx::query(&format!("ALTER TABLE {} ADD COLUMN updated_at TEXT", table))
             .execute(pool)
