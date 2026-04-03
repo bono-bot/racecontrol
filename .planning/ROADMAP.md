@@ -159,7 +159,7 @@ Plans:
 - [x] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02
  (completed 2026-04-03)
 - [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
-- [x] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05 (completed 2026-04-03)
+- [x] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05 (completed 2026-04-03)
 - [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
 - [ ] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05
 
@@ -232,13 +232,11 @@ Plans:
   2. The reliability page shows per-combo success rates sortable by rate, with combos below a configurable threshold highlighted in red — data refreshes within 30 seconds of a new launch event
   3. Clicking any combo row expands it to show the most recent launch timeline — checkpoint timestamps visible for ws_sent, agent_received, process_spawned, and playable_signal
   4. The dashboard loads in under 3 seconds when opened from James's machine (not from the server itself) — static files serve correctly from a remote browser
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 319-01-PLAN.md -- UI-SPEC.md (gsd-ui-researcher gate required before planning); fleet game matrix component (recharts + plain HTML table, swr 30s polling), flagged combo list with sort and red highlight threshold
-- [ ] 319-02-PLAN.md -- Launch timeline viewer: per-combo expandable row, timeline span endpoint query, checkpoint display; UI-REVIEW.md (gsd-ui-auditor gate required before ship)
-
-**UI hint**: yes
+- [ ] 319-01-PLAN.md -- Fleet game matrix (GET /api/v1/fleet/game-matrix from pod_game_inventory) + combo reliability table (GET /api/v1/admin/combo-list from combo_reliability, sortable, red highlight < 70%) added to /games/reliability page
+- [ ] 319-02-PLAN.md -- Launch timeline viewer at /games/timeline: GET /api/v1/launch-timeline/recent endpoint + expandable per-launch detail with checkpoint timestamps
 
 ### Phase 320: Kiosk Game Filtering
 **Goal**: Customers on each pod only see games and AC combos that are actually available on that specific pod — no silent launch failures from showing unavailable content
