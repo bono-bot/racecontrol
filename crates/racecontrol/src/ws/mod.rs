@@ -447,6 +447,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                                 playable_at: None,
                                                 ready_delay_ms: None,
                                                 billing_session_id: None,
+                                                launch_id: uuid::Uuid::new_v4().to_string(),
                                             });
                                             tracing::info!("GSTATE-02: Created game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
                                         }
@@ -525,6 +526,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                                 playable_at: None,
                                                 ready_delay_ms: None,
                                                 billing_session_id: None,
+                                                launch_id: uuid::Uuid::new_v4().to_string(),
                                             });
                                             tracing::info!("GSTATE-02: Created {:?} tracker for pod {} on reconnect (transient)", pod_game_state, pod_info.number);
                                         }
@@ -1154,6 +1156,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     store, version, *uptime_secs, *crash_recovery,
                                     *lock_screen_port_bound, *remote_ops_port_bound,
                                     *hid_detected, udp_ports_bound,
+                                    *windows_session_id,
                                 );
                                 // Newly detected crash loop (transition false → true)
                                 !was_looping && store.crash_loop

@@ -7613,6 +7613,7 @@ mod tests {
                 playable_at: None,
                 ready_delay_ms: None,
                 billing_session_id: None,
+                launch_id: "test-launch-001".to_string(),
             },
         );
     }

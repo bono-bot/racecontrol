@@ -563,6 +563,36 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // launch_timeline_spans: per-launch step-level timeline spans (LAUNCH-05).
+    // Stores LaunchTimeline as serialized JSON events per launch attempt.
+    // launch_id is a UUID v4 generated on the agent when tracking starts.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS launch_timeline_spans (
+            launch_id   TEXT PRIMARY KEY,
+            pod_id      TEXT NOT NULL,
+            sim_type    TEXT NOT NULL,
+            preset_id   TEXT,
+            billing_session_id TEXT,
+            outcome     TEXT NOT NULL,
+            total_duration_ms INTEGER NOT NULL,
+            started_at  TEXT NOT NULL,
+            events_json TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_launch_timeline_pod ON launch_timeline_spans(pod_id)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_launch_timeline_created ON launch_timeline_spans(created_at)",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(
@@ -4243,5 +4273,55 @@ mod venue_id_tests {
             "racingpoint-hyd-001",
             "VenueConfig.venue_id default mismatch"
         );
+    }
+
+    /// Phase 318 (LAUNCH-05): launch_timeline_spans table exists after migrate().
+    #[tokio::test]
+    async fn test_launch_timeline_spans_table_exists() {
+        let (pool, path) = test_pool().await;
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='launch_timeline_spans'"
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("query failed");
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert!(row.is_some(), "launch_timeline_spans table missing");
+        assert_eq!(row.unwrap().0, "launch_timeline_spans");
+    }
+
+    /// Phase 318 (LAUNCH-05): launch_timeline_spans INSERT and SELECT by launch_id round-trips.
+    #[tokio::test]
+    async fn test_launch_timeline_spans_round_trip() {
+        let (pool, path) = test_pool().await;
+        let launch_id = "test-launch-abc123";
+        let events_json = r#"[{"kind":"ws_sent","elapsed_ms":0,"timestamp":"2026-04-03T00:00:00Z"}]"#;
+        sqlx::query(
+            "INSERT INTO launch_timeline_spans (launch_id, pod_id, sim_type, outcome, total_duration_ms, started_at, events_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(launch_id)
+        .bind("pod_3")
+        .bind("AssettoCorsa")
+        .bind("success")
+        .bind(35000i64)
+        .bind("2026-04-03T00:00:00Z")
+        .bind(events_json)
+        .execute(&pool)
+        .await
+        .expect("INSERT failed");
+
+        let row: (String,) = sqlx::query_as(
+            "SELECT events_json FROM launch_timeline_spans WHERE launch_id = ?"
+        )
+        .bind(launch_id)
+        .fetch_one(&pool)
+        .await
+        .expect("SELECT failed");
+
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(row.0, events_json);
     }
 }
