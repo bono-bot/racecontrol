@@ -32,8 +32,8 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 
 ### Reliability Dashboard
 
-- [ ] **DASH-01**: Admin dashboard page shows fleet game matrix — which pods have which games installed, with install status badges
-- [ ] **DASH-02**: Admin dashboard page shows per-combo reliability scores with flagged unreliable combos highlighted in red, sortable by success rate
+- [x] **DASH-01**: Admin dashboard page shows fleet game matrix — which pods have which games installed, with install status badges
+- [x] **DASH-02**: Admin dashboard page shows per-combo reliability scores with flagged unreliable combos highlighted in red, sortable by success rate
 - [ ] **DASH-03**: Admin dashboard page shows launch timeline for debugging specific incidents — expandable per-launch event view with checkpoint timestamps
 
 ## Future Requirements
@@ -74,8 +74,8 @@ Requirements for Game Intelligence System. Each maps to roadmap phases.
 | LAUNCH-03 | Phase 317 | Complete |
 | LAUNCH-04 | Phase 317 | Complete |
 | LAUNCH-05 | Phase 318 | Complete |
-| DASH-01 | Phase 319 | Pending |
-| DASH-02 | Phase 319 | Pending |
+| DASH-01 | Phase 319 | Complete |
+| DASH-02 | Phase 319 | Complete |
 | DASH-03 | Phase 319 | Pending |
 
 **Coverage:**

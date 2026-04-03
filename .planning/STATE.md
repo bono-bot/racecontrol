@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Completed 318-02-PLAN.md
-last_updated: "2026-04-03T08:30:01.236Z"
+status: executing
+stopped_at: Completed 319-01-PLAN.md
+last_updated: "2026-04-03T08:57:22.455Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
-**Current focus:** Phase 318 — Launch Intelligence
+**Current focus:** Phase 319 — Reliability Dashboard
 
 ## Current Position
 
-Phase: 318 (Launch Intelligence) — EXECUTING
+Phase: 319 (Reliability Dashboard) — EXECUTING
 Plan: 2 of 2
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
@@ -56,6 +56,8 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 - [Phase 318-launch-intelligence]: LaunchTimedOut → GameLaunchTimeout path: server detects timeout → sends WS → agent feeds tier engine for Game Doctor recovery
 - [Phase 318]: launch_id generated in rc-agent at LaunchGame receipt — keeps agent self-contained
 - [Phase 318]: launch tracking fields in ConnectionState not AppState — resets per WS connection matching launch lifecycle
+- [Phase 319-reliability-dashboard]: game_matrix_handler in routes.rs not metrics.rs — queries fleet inventory table not metrics tables
+- [Phase 319-reliability-dashboard]: sort_by whitelist prevents SQL injection in combo-list ORDER BY column interpolation
 
 ## Blockers/Concerns
 
@@ -64,6 +66,6 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-04-03T08:30:01.232Z
-Stopped at: Completed 318-02-PLAN.md
+Last session: 2026-04-03T08:57:22.451Z
+Stopped at: Completed 319-01-PLAN.md
 Resume file: None
