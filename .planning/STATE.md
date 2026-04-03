@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 319-01-PLAN.md
-last_updated: "2026-04-03T08:57:22.455Z"
+status: verifying
+stopped_at: Completed 319-02-PLAN.md
+last_updated: "2026-04-03T08:59:55.102Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Proactive game availability management — stop showing customers games they can't play, flag broken combos before launch, surface failures instantly through Meshed Intelligence.
-**Current focus:** Phase 319 — Reliability Dashboard
+**Current focus:** Phase 318 — Launch Intelligence
 
 ## Current Position
 
-Phase: 319 (Reliability Dashboard) — EXECUTING
+Phase: 318 (Launch Intelligence) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
@@ -56,8 +56,7 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 - [Phase 318-launch-intelligence]: LaunchTimedOut → GameLaunchTimeout path: server detects timeout → sends WS → agent feeds tier engine for Game Doctor recovery
 - [Phase 318]: launch_id generated in rc-agent at LaunchGame receipt — keeps agent self-contained
 - [Phase 318]: launch tracking fields in ConnectionState not AppState — resets per WS connection matching launch lifecycle
-- [Phase 319-reliability-dashboard]: game_matrix_handler in routes.rs not metrics.rs — queries fleet inventory table not metrics tables
-- [Phase 319-reliability-dashboard]: sort_by whitelist prevents SQL injection in combo-list ORDER BY column interpolation
+- [Phase 319]: Route /launch-timeline/recent registered before /:launch_id to prevent Axum treating 'recent' as param
 
 ## Blockers/Concerns
 
@@ -66,6 +65,6 @@ Progress: [░░░░░░░░░░] 0% (0/10 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-04-03T08:57:22.451Z
-Stopped at: Completed 319-01-PLAN.md
+Last session: 2026-04-03T08:59:55.098Z
+Stopped at: Completed 319-02-PLAN.md
 Resume file: None

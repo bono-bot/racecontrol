@@ -17,6 +17,7 @@ function BackButton() {
     "/billing/pricing": "/billing",
     "/billing/history": "/billing",
     "/games/reliability": "/games",
+    "/games/timeline": "/games",
   };
   const target = parentMap[pathname];
 

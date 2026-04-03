@@ -235,8 +235,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 319-01-PLAN.md -- Fleet game matrix (GET /api/v1/fleet/game-matrix from pod_game_inventory) + combo reliability table (GET /api/v1/admin/combo-list from combo_reliability, sortable, red highlight < 70%) added to /games/reliability page
-- [ ] 319-02-PLAN.md -- Launch timeline viewer at /games/timeline: GET /api/v1/launch-timeline/recent endpoint + expandable per-launch detail with checkpoint timestamps
+- [ ] 319-01-PLAN.md -- Fleet game matrix (GET /api/v1/fleet/game-matrix from pod_game_inventory) + combo reliability table (GET /api/v1/admin/combo-list from combo_reliability, sortable, red highlight < 70%) added to /games/reliability page
+- [x] 319-02-PLAN.md -- Launch timeline viewer at /games/timeline: GET /api/v1/launch-timeline/recent endpoint + expandable per-launch detail with checkpoint timestamps
 
 ### Phase 320: Kiosk Game Filtering
 **Goal**: Customers on each pod only see games and AC combos that are actually available on that specific pod — no silent launch failures from showing unavailable content
