@@ -1011,19 +1011,20 @@ pub async fn handle_game_status_update(
                     .map_err(|e| tracing::error!("BILL-13: Failed to cancel pre-committed session {}: {}", pre_session_id, e));
 
                     // Refund the wallet debit — game never reached playable
-                    let debit_row: Option<(i64,)> = sqlx::query_as(
-                        "SELECT wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                    let debit_row: Option<(i64, Option<String>)> = sqlx::query_as(
+                        "SELECT wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
                     )
                     .bind(&pre_session_id)
                     .fetch_optional(&state.db)
                     .await
                     .ok()
                     .flatten();
-                    if let Some((debit_paise,)) = debit_row {
+                    if let Some((debit_paise, wallet_owner)) = debit_row {
                         if debit_paise > 0 {
+                            let refund_target = wallet_owner.as_deref().unwrap_or(&pre_driver_id);
                             let _ = crate::wallet::credit(
                                 state,
-                                &pre_driver_id,
+                                refund_target,
                                 debit_paise,
                                 "refund_no_playable",
                                 Some(&pre_session_id),
@@ -1460,8 +1461,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // BILL-13 FIX: Also refund wallet for pre-committed sessions that were debited but never activated.
     // LBILL-01/02/03: Check GameTracker before cancelling waiting_for_game sessions — game-aware stale cancel.
     {
-        let stale_sessions: Vec<(String, String, Option<i64>, String, String, String)> = sqlx::query_as(
-            "SELECT id, driver_id, wallet_debit_paise, pod_id, created_at, status FROM billing_sessions \
+        let stale_sessions: Vec<(String, String, Option<i64>, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, driver_id, wallet_debit_paise, pod_id, created_at, status, wallet_owner_id FROM billing_sessions \
              WHERE status IN ('pending', 'waiting_for_game') \
              AND created_at < datetime('now', '-5 minutes') \
              AND ended_at IS NULL",
@@ -1477,9 +1478,9 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 games.iter().map(|(k, v)| (k.clone(), v.game_state)).collect()
             };
 
-            let mut sessions_to_cancel: Vec<(String, String, Option<i64>)> = Vec::new();
+            let mut sessions_to_cancel: Vec<(String, String, Option<i64>, Option<String>)> = Vec::new();
 
-            for (session_id, driver_id, wallet_debit_paise, pod_id, created_at_str, status) in &stale_sessions {
+            for (session_id, driver_id, wallet_debit_paise, pod_id, created_at_str, status, wallet_owner_id) in &stale_sessions {
                 // Parse created_at to compute age
                 let created_at = chrono::NaiveDateTime::parse_from_str(created_at_str, "%Y-%m-%d %H:%M:%S")
                     .ok()
@@ -1494,7 +1495,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                         "LBILL-03: Cancelling stale pending session {} — no game launched yet (pod {}, age {}min)",
                         session_id, pod_id, age_minutes
                     );
-                    sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                    sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
                 } else {
                     // status == "waiting_for_game"
                     let game_state = game_snapshot.get(pod_id.as_str()).copied();
@@ -1515,25 +1516,26 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                             "LBILL-02: Absolute timeout — cancelling session {} despite game alive on pod {} ({}min)",
                             session_id, pod_id, age_minutes
                         );
-                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
                     } else {
                         // LBILL-03: Game is dead — cancel with refund
                         tracing::info!(
                             "LBILL-03: Cancelling stale session {} — no active game on pod {} (game_state={:?}, age {}min)",
                             session_id, pod_id, game_state, age_minutes
                         );
-                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise));
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
                     }
                 }
             }
 
             // Refund wallet for sessions being cancelled (BILL-13 kiosk path)
-            for (session_id, driver_id, wallet_debit_paise) in &sessions_to_cancel {
+            for (session_id, driver_id, wallet_debit_paise, wallet_owner) in &sessions_to_cancel {
                 if let Some(debit) = wallet_debit_paise {
                     if *debit > 0 {
+                        let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
                         let _ = crate::wallet::credit(
                             state,
-                            driver_id,
+                            refund_target,
                             *debit,
                             "refund_stale_cancel",
                             Some(session_id.as_str()),
@@ -1550,7 +1552,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             }
 
             // Cancel only the sessions that were not extended
-            for (session_id, _, _) in &sessions_to_cancel {
+            for (session_id, _, _, _) in &sessions_to_cancel {
                 if let Err(e) = sqlx::query(
                     "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
                      WHERE id = ? AND ended_at IS NULL",
@@ -1793,8 +1795,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer", Some(&session_id));
 
         // Calculate partial refund
-        let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
-            "SELECT allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+        let session_info = sqlx::query_as::<_, (i64, Option<i64>, Option<String>)>(
+            "SELECT allocated_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
         )
         .bind(&session_id)
         .fetch_optional(&state.db)
@@ -1803,14 +1805,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .flatten();
 
         let mut refund_paise: i64 = 0;
-        if let Some((allocated, Some(debit))) = session_info {
+        if let Some((allocated, Some(debit), wallet_owner)) = session_info {
             // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
             refund_paise = compute_refund(allocated, driving_seconds as i64, debit);
             if refund_paise > 0 {
+                let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                 // L2-01 fix: handle refund failure explicitly (not let _ =)
                 match crate::wallet::refund(
                     state,
-                    &driver_id,
+                    refund_target,
                     refund_paise,
                     Some(&session_id),
                     Some("Auto-refund: disconnect pause timeout"),
@@ -2374,18 +2377,19 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                         if already_refunded {
                             tracing::warn!("ORPHAN REFUND SKIPPED: session {} already refunded (idempotency guard)", session_id);
                         } else {
-                            let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
-                                "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                            let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<String>)>(
+                                "SELECT driver_id, allocated_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
                             )
                             .bind(session_id)
                             .fetch_optional(&state.db)
                             .await
                             .ok()
                             .flatten();
-                            if let Some((driver_id, allocated, Some(debit))) = wallet_info {
+                            if let Some((driver_id, allocated, Some(debit), wallet_owner)) = wallet_info {
+                                let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                                 let refund = crate::billing::compute_refund(allocated, *driving_secs, debit);
                                 if refund > 0 {
-                                    match crate::wallet::credit(state, &driver_id, refund, "refund_session", Some(session_id), Some("Orphan auto-end refund"), Some(&format!("orphan_refund_{}", session_id))).await {
+                                    match crate::wallet::credit(state, refund_target, refund, "refund_session", Some(session_id), Some("Orphan auto-end refund"), Some(&format!("orphan_refund_{}", session_id))).await {
                                         Ok(_) => tracing::info!("ORPHAN REFUND: {}p for session {}", refund, session_id),
                                         Err(e) => tracing::error!("ORPHAN REFUND FAILED: session {} ({}p): {}", session_id, refund, e),
                                     }
@@ -3548,8 +3552,8 @@ async fn end_billing_session(
 
             // Proportional refund for early end with wallet debit
             if end_status == BillingSessionStatus::EndedEarly {
-                let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
-                    "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<String>)>(
+                    "SELECT driver_id, allocated_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
                 )
                 .bind(session_id)
                 .fetch_optional(&state.db)
@@ -3557,14 +3561,15 @@ async fn end_billing_session(
                 .ok()
                 .flatten();
 
-                if let Some((driver_id, allocated, Some(debit))) = wallet_info {
+                if let Some((driver_id, allocated, Some(debit), wallet_owner)) = wallet_info {
                     // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
                     let refund_amount = compute_refund(allocated, driving_seconds as i64, debit);
                     if refund_amount > 0 {
+                        let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                         // L2-01 fix: handle refund failure explicitly
                         match crate::wallet::refund(
                             state,
-                            &driver_id,
+                            refund_target,
                             refund_amount,
                             Some(session_id),
                             Some("Early end — proportional refund"),
@@ -3580,8 +3585,8 @@ async fn end_billing_session(
 
             // Full refund for cancelled sessions (never drove)
             if end_status == BillingSessionStatus::Cancelled {
-                let wallet_info = sqlx::query_as::<_, (String, Option<i64>)>(
-                    "SELECT driver_id, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                let wallet_info = sqlx::query_as::<_, (String, Option<i64>, Option<String>)>(
+                    "SELECT driver_id, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
                 )
                 .bind(session_id)
                 .fetch_optional(&state.db)
@@ -3589,12 +3594,13 @@ async fn end_billing_session(
                 .ok()
                 .flatten();
 
-                if let Some((driver_id, Some(debit))) = wallet_info {
+                if let Some((driver_id, Some(debit), wallet_owner)) = wallet_info {
                     if debit > 0 {
+                        let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                         // L2-01 fix: handle refund failure explicitly
                         match crate::wallet::refund(
                             state,
-                            &driver_id,
+                            refund_target,
                             debit,
                             Some(session_id),
                             Some("Cancelled session — full refund"),
@@ -3718,8 +3724,8 @@ async fn end_billing_session(
         }
 
         // CRITICAL-3 fix: issue refund for orphaned sessions (previously skipped entirely)
-        let refund_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>)>(
-            "SELECT driver_id, allocated_seconds, wallet_debit_paise, driving_seconds FROM billing_sessions WHERE id = ?",
+        let refund_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, Option<String>)>(
+            "SELECT driver_id, allocated_seconds, wallet_debit_paise, driving_seconds, wallet_owner_id FROM billing_sessions WHERE id = ?",
         )
         .bind(session_id)
         .fetch_optional(&state.db)
@@ -3727,15 +3733,16 @@ async fn end_billing_session(
         .ok()
         .flatten();
 
-        if let Some((driver_id, allocated, Some(debit), driving_secs)) = refund_info {
+        if let Some((driver_id, allocated, Some(debit), driving_secs, wallet_owner)) = refund_info {
             let driven = driving_secs.unwrap_or(0);
+            let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
             let refund_amount = if end_status == BillingSessionStatus::Cancelled {
                 debit // full refund for cancellation
             } else {
                 compute_refund(allocated, driven, debit)
             };
             if refund_amount > 0 {
-                match crate::wallet::refund(state, &driver_id, refund_amount, Some(session_id),
+                match crate::wallet::refund(state, refund_target, refund_amount, Some(session_id),
                     Some("Orphaned session refund after restart")).await {
                     Ok(_) => tracing::info!("BILLING: orphaned session {} refund {}p to {}", session_id, refund_amount, driver_id),
                     Err(e) => tracing::error!("CRITICAL: orphaned session {} refund FAILED for {}: {}", session_id, driver_id, e),
@@ -7491,6 +7498,7 @@ mod tests {
                 allocated_seconds INTEGER NOT NULL DEFAULT 1800,
                 status TEXT NOT NULL DEFAULT 'pending',
                 wallet_debit_paise INTEGER,
+                wallet_owner_id TEXT,
                 ended_at TEXT,
                 created_at TEXT DEFAULT (datetime('now')),
                 venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'
