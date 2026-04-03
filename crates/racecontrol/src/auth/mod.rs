@@ -117,11 +117,30 @@ pub async fn create_auth_token(
     let duration_minutes = custom_duration_minutes.unwrap_or(tier.2 as u32);
     let allocated_seconds = duration_minutes * 60;
 
-    // Generate token
+    // Generate token (with collision retry for PINs)
     let token = match auth_type.as_str() {
         "pin" => {
-            let pin: u32 = rand::thread_rng().gen_range(1000..=9999);
-            format!("{:04}", pin)
+            let mut pin_str = String::new();
+            for _ in 0..10 {
+                let pin: u32 = rand::thread_rng().gen_range(1000..=9999);
+                let candidate = format!("{:04}", pin);
+                // Check no active (pending) auth_token already uses this PIN
+                let collision = sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM auth_tokens WHERE token = ? AND status = 'pending' AND expires_at > datetime('now')",
+                )
+                .bind(&candidate)
+                .fetch_one(&state.db)
+                .await
+                .unwrap_or(0);
+                if collision == 0 {
+                    pin_str = candidate;
+                    break;
+                }
+            }
+            if pin_str.is_empty() {
+                return Err("Could not generate a unique PIN after 10 attempts".to_string());
+            }
+            pin_str
         }
         "qr" => Uuid::new_v4().to_string(),
         _ => return Err("auth_type must be 'pin' or 'qr'".to_string()),

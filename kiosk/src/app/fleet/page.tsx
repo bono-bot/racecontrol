@@ -302,11 +302,11 @@ export default function FleetPage() {
 
               {!pinVerified ? (
                 <div>
-                  <p className="text-sm text-gray-400 mb-3">Enter 6-digit staff PIN</p>
+                  <p className="text-sm text-gray-400 mb-3">Enter staff PIN</p>
 
                   {/* PIN dot display */}
                   <div className="flex gap-2 justify-center mb-4">
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                    {Array.from({ length: Math.max(4, pin.length) }, (_, i) => i).map((i) => (
                       <div key={i} className={`w-10 h-12 rounded border-2 flex items-center justify-center
                         ${i < pin.length ? "border-[#E10600] bg-[#E10600]/10" : "border-[#333333] bg-[#1A1A1A]"}`}>
                         {pin[i] ? <span className="text-white text-xl">*</span> : null}
@@ -341,7 +341,7 @@ export default function FleetPage() {
                   {/* Verify button */}
                   <button
                     onClick={async () => {
-                      if (pin.length !== 6) return;
+                      if (pin.length < 4) return;
                       try {
                         const res = await api.validateStaffPin(pin);
                         if (res.error) { setPinError(res.error); return; }
@@ -349,7 +349,7 @@ export default function FleetPage() {
                         setPinVerified(true);
                       } catch { setPinError("Network error"); }
                     }}
-                    disabled={pin.length < 6}
+                    disabled={pin.length < 4}
                     className="w-full py-3 rounded text-sm font-bold text-white disabled:opacity-40 min-h-[44px]"
                     style={{ backgroundColor: "#E10600" }}
                   >

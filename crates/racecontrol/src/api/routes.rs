@@ -12270,6 +12270,32 @@ async fn create_staff(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateStaffRequest>,
 ) -> Json<Value> {
+    // Prevent duplicate names (case-insensitive)
+    let existing = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM staff_members WHERE LOWER(name) = LOWER(?) AND is_active = 1",
+    )
+    .bind(&req.name)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    if existing > 0 {
+        return Json(json!({ "error": format!("Staff member '{}' already exists. Use update instead.", req.name) }));
+    }
+
+    // Prevent duplicate PINs
+    let pin_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM staff_members WHERE pin = ? AND is_active = 1",
+    )
+    .bind(&req.pin)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    if pin_exists > 0 {
+        return Json(json!({ "error": "PIN already in use by another staff member. Choose a different PIN." }));
+    }
+
     let id = format!("staff_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
 
     match sqlx::query(
@@ -12362,6 +12388,18 @@ async fn update_staff(
         binds.push(phone.clone());
     }
     if let Some(ref pin) = req.pin {
+        // Check PIN not already in use by another active staff member
+        let pin_conflict = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM staff_members WHERE pin = ? AND id != ? AND is_active = 1",
+        )
+        .bind(pin)
+        .bind(&id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+        if pin_conflict > 0 {
+            return Json(json!({ "error": "PIN already in use by another staff member." }));
+        }
         sets.push("pin = ?".to_string());
         binds.push(pin.clone());
     }
@@ -12434,7 +12472,26 @@ async fn reset_staff_pin(
         None => return Json(json!({ "error": "Staff member not found" })),
     };
 
-    let new_pin = format!("{:04}", rand::thread_rng().gen_range(1000u32..=9999));
+    // Generate unique PIN with collision retry
+    let mut new_pin = String::new();
+    for _ in 0..10 {
+        let candidate = format!("{:04}", rand::thread_rng().gen_range(1000u32..=9999));
+        let conflict = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM staff_members WHERE pin = ? AND id != ? AND is_active = 1",
+        )
+        .bind(&candidate)
+        .bind(&id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+        if conflict == 0 {
+            new_pin = candidate;
+            break;
+        }
+    }
+    if new_pin.is_empty() {
+        return Json(json!({ "error": "Could not generate unique PIN after 10 attempts" }));
+    }
 
     if let Err(e) = sqlx::query("UPDATE staff_members SET pin = ?, updated_at = datetime('now') WHERE id = ?")
         .bind(&new_pin)
