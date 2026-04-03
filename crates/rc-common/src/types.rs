@@ -1515,11 +1515,13 @@ mod tests {
             elapsed_seconds: Some(900),
             cost_paise: Some(34950),
             rate_per_min_paise: Some(2330),
+            billing_mode: Some("per_minute".to_string()),
             recovery_pause_seconds: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"elapsed_seconds\":900"));
         assert!(json.contains("\"cost_paise\":34950"));
+        assert!(json.contains("\"billing_mode\":\"per_minute\""));
         assert!(json.contains("\"rate_per_min_paise\":2330"));
         let parsed: BillingSessionInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.elapsed_seconds, Some(900));
