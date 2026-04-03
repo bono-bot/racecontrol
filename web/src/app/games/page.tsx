@@ -78,6 +78,12 @@ export default function GamesPage() {
           >
             Reliability Matrix
           </Link>
+          <Link
+            href="/games/timeline"
+            className="text-xs px-3 py-1.5 rounded-lg bg-rp-card border border-rp-border text-neutral-300 hover:border-rp-red hover:text-white transition-colors"
+          >
+            Launch Timeline
+          </Link>
         </div>
       </div>
 

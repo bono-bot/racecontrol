@@ -114,3 +114,42 @@ export function getLaunchMatrix(game: string): Promise<LaunchMatrixRow[]> {
   const qs = new URLSearchParams({ game }).toString();
   return metricsGet<LaunchMatrixRow[]>(`/admin/launch-matrix?${qs}`);
 }
+
+// ─── Launch Timeline Types ────────────────────────────────────────────────────
+
+export interface TimelineSummary {
+  launch_id: string;
+  pod_id: string;
+  sim_type: string;
+  preset_id: string | null;
+  outcome: string;
+  total_duration_ms: number;
+  started_at: string;
+}
+
+export interface TimelineEvent {
+  [key: string]: unknown;
+}
+
+export interface TimelineDetail extends TimelineSummary {
+  billing_session_id: string | null;
+  events: TimelineEvent[];
+  created_at: string;
+}
+
+/**
+ * GET /api/v1/launch-timeline/recent?limit={limit}
+ * Returns a list of recent launch timeline summaries (without full events).
+ */
+export function getRecentTimelines(limit?: number): Promise<TimelineSummary[]> {
+  const qs = limit ? `?limit=${limit}` : "";
+  return metricsGet<TimelineSummary[]>(`/launch-timeline/recent${qs}`);
+}
+
+/**
+ * GET /api/v1/launch-timeline/{launchId}
+ * Returns the full detail including checkpoint events for a specific launch.
+ */
+export function getTimeline(launchId: string): Promise<TimelineDetail> {
+  return metricsGet<TimelineDetail>(`/launch-timeline/${encodeURIComponent(launchId)}`);
+}
