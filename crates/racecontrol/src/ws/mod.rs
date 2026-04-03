@@ -443,6 +443,19 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 "conn_id": conn_id,
                             }), &state.config.venue.venue_id);
 
+                            // WS stability tracking: record reconnect for MI diagnostic detection.
+                            // The fleet health API exposes ws_reconnects_5m per pod.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(canonical_id.clone()).or_default();
+                                store.ws_reconnect_count += 1;
+                                store.ws_reconnect_times.push(chrono::Utc::now());
+                                // Keep only last 20 timestamps
+                                if store.ws_reconnect_times.len() > 20 {
+                                    store.ws_reconnect_times.remove(0);
+                                }
+                            }
+
                             // MMA-109: Scope each lock tightly — never hold across .await
                             // Lock order: agent_senders → agent_conn_ids → pods (consistent)
                             {
@@ -2406,7 +2419,11 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         event = rx.recv() => {
         let event = match event {
             Ok(e) => e,
-            Err(_) => break,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::debug!("Dashboard WS broadcast lagged by {n} messages — skipping");
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
         };
             // Phase 254: Debounce RecordBroken events per (track, sim_type) — max 1/sec
             if let DashboardEvent::RecordBroken { ref track, ref sim_type, .. } = event {
