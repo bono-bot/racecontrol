@@ -292,11 +292,11 @@ pub struct BillingTimer {
     pub warning_1min_sent: bool,
     /// When the pod went offline (None if online)
     pub offline_since: Option<DateTime<Utc>>,
-    /// Number of sub-sessions (1 = no split)
+    /// Number of sub-sessions (1 = no split) — DEPRECATED (Act 2: one continuous timer)
     pub split_count: u32,
-    /// Duration of each sub-session in minutes (None = no split)
+    /// Duration of each sub-session in minutes — DEPRECATED
     pub split_duration_minutes: Option<u32>,
-    /// Which sub-session is currently running (1-indexed)
+    /// Which sub-session is currently running — DEPRECATED
     pub current_split_number: u32,
     /// Number of disconnect-pauses used in this session (max 3)
     pub pause_count: u32,
@@ -321,6 +321,23 @@ pub struct BillingTimer {
     pub pause_reason: PauseReason,
     /// Phase 283: Session nonce for replay protection. Rotated after each billing mutation.
     pub nonce: String,
+    // ─── Act 2: Per-minute billing mode ────────────────────────────────────
+    /// "package" (countdown from allocated_seconds) or "per_minute" (count-up, periodic debit)
+    pub billing_mode: String,
+    /// Per-minute rate in paise (e.g. 2500 = ₹25/min). Only used when billing_mode = "per_minute".
+    pub rate_paise_per_minute: u32,
+    /// Initial hold deducted at session start (pre-payment, not extra charge).
+    pub hold_paise: u32,
+    /// Total paise debited so far (hold + periodic debits). For reconciliation at session end.
+    pub total_debited_paise: u32,
+    /// Elapsed seconds since last per-minute debit. When this reaches 60, debit one minute.
+    pub seconds_since_last_debit: u32,
+    /// Wallet owner ID (parent for linked racers). Used for periodic debits.
+    pub wallet_owner_id: String,
+    /// Low balance warning threshold in paise. Alert staff when wallet approaches this.
+    pub low_balance_warning_paise: u32,
+    /// Whether low-balance warning has been sent for this session.
+    pub low_balance_warned: bool,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -335,6 +352,48 @@ pub enum PauseReason {
     CrashRecovery,
     /// Pod WS connection dropped (reconnect pending)
     Disconnect,
+}
+
+impl Default for BillingTimer {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            driver_id: String::new(),
+            driver_name: String::new(),
+            pod_id: String::new(),
+            pricing_tier_name: String::new(),
+            allocated_seconds: 1800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Idle,
+            started_at: None,
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+            nonce: String::new(),
+            billing_mode: "package".to_string(),
+            rate_paise_per_minute: 0,
+            hold_paise: 0,
+            total_debited_paise: 0,
+            seconds_since_last_debit: 0,
+            wallet_owner_id: String::new(),
+            low_balance_warning_paise: 5000,
+            low_balance_warned: false,
+        }
+    }
 }
 
 impl BillingTimer {
@@ -373,9 +432,22 @@ impl BillingTimer {
         }
     }
 
+    /// Whether this session needs a per-minute wallet debit on the next tick cycle.
+    /// The caller checks this after tick() and performs the async DB debit.
+    pub fn needs_per_minute_debit(&self) -> bool {
+        self.billing_mode == "per_minute" && self.seconds_since_last_debit >= 60
+    }
+
+    /// Record that a per-minute debit was performed.
+    pub fn record_debit(&mut self, amount_paise: u32) {
+        self.seconds_since_last_debit = 0;
+        self.total_debited_paise += amount_paise;
+    }
+
     /// Tick the timer by 1 second. Returns true if session should auto-end.
     ///
     /// - Active: increments elapsed_seconds + driving_seconds. Returns true on hard max cap.
+    ///   Per-minute mode: also increments seconds_since_last_debit (caller handles async debit).
     /// - PausedGamePause: increments pause_seconds. Returns true on 10-min pause timeout.
     ///   If pause_reason == CrashRecovery, also increments recovery_pause_seconds (BILL-06).
     /// - WaitingForGame: no increments, returns false.
@@ -385,7 +457,17 @@ impl BillingTimer {
             BillingSessionStatus::Active => {
                 self.elapsed_seconds += 1;
                 self.driving_seconds += 1;
-                self.elapsed_seconds >= self.max_session_seconds
+                // Per-minute mode: track seconds toward next debit
+                if self.billing_mode == "per_minute" {
+                    self.seconds_since_last_debit += 1;
+                }
+                // Package mode: auto-end when allocated time reached
+                // Per-minute mode: auto-end handled by wallet-empty check in caller
+                if self.billing_mode == "package" {
+                    self.elapsed_seconds >= self.allocated_seconds
+                } else {
+                    self.elapsed_seconds >= self.max_session_seconds // hard 3-hour cap
+                }
             }
             BillingSessionStatus::PausedGamePause => {
                 self.pause_seconds += 1;
@@ -428,28 +510,10 @@ impl BillingTimer {
             driver_name: "Test Driver".into(),
             pod_id: pod_id.to_string(),
             pricing_tier_name: "30 Minutes".into(),
-            allocated_seconds: 1800,
-            driving_seconds: 0,
             status: BillingSessionStatus::Active,
             driving_state: DrivingState::Active,
             started_at: Some(Utc::now()),
-            warning_5min_sent: false,
-            warning_1min_sent: false,
-            offline_since: None,
-            split_count: 1,
-            split_duration_minutes: None,
-            current_split_number: 1,
-            pause_count: 0,
-            total_paused_seconds: 0,
-            last_paused_at: None,
-            max_pause_duration_secs: 600,
-            elapsed_seconds: 0,
-            pause_seconds: 0,
-            max_session_seconds: 1800,
-            sim_type: None,
-            recovery_pause_seconds: 0,
-            pause_reason: PauseReason::None,
-            nonce: String::new(),
+            ..Default::default()
         }
     }
 }
@@ -1209,6 +1273,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut warnings = Vec::new();
     let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>, Option<String>)> = Vec::new();
     let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
+    // Act 2: Per-minute debits collected inside lock, processed after lock release
+    let mut per_minute_debits: Vec<(String, String, String, u32)> = Vec::new(); // (session_id, pod_id, wallet_owner_id, rate_paise)
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
     let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
 
@@ -1342,6 +1408,17 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let expired = timer.tick();
         let remaining = timer.remaining_seconds();
 
+        // Act 2: Per-minute debit check — collect for async processing after lock release
+        if timer.needs_per_minute_debit() {
+            per_minute_debits.push((
+                timer.session_id.clone(),
+                pod_id.clone(),
+                timer.wallet_owner_id.clone(),
+                timer.rate_paise_per_minute,
+            ));
+            timer.record_debit(timer.rate_paise_per_minute);
+        }
+
         // Check 5-minute warning
         if remaining <= 300 && !timer.warning_5min_sent {
             timer.warning_5min_sent = true;
@@ -1392,6 +1469,82 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
+
+    // Act 2: Process per-minute wallet debits (async DB operations, lock released)
+    for (session_id, pod_id, wallet_owner_id, rate_paise) in &per_minute_debits {
+        let debit_result = crate::wallet::debit_wallet(
+            &state.db,
+            wallet_owner_id,
+            *rate_paise as i64,
+            "per_minute_billing",
+            Some(session_id),
+            Some(&format!("Per-minute billing ({}p/min)", rate_paise)),
+            &state.config.venue.venue_id,
+        )
+        .await;
+        match debit_result {
+            Ok(_) => {
+                // Update DB total_debited_paise
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET total_debited_paise = total_debited_paise + ? WHERE id = ?",
+                )
+                .bind(*rate_paise as i64)
+                .bind(session_id)
+                .execute(&state.db)
+                .await;
+            }
+            Err(e) => {
+                // Wallet empty — auto-end this session
+                tracing::warn!(
+                    "Per-minute debit failed for session {} (pod {}): {} — auto-ending session",
+                    session_id, pod_id, e
+                );
+                // Re-acquire lock to mark session as ended
+                let rate_tiers = state.billing.rate_tiers.read().await;
+                let mut timers = state.billing.active_timers.write().await;
+                if let Some(timer) = timers.get_mut(pod_id.as_str()) {
+                    if let Ok(new_status) = crate::billing_fsm::validate_transition(
+                        timer.status,
+                        crate::billing_fsm::BillingEvent::End,
+                    ) {
+                        timer.status = new_status;
+                        events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
+                    }
+                    expired_sessions.push((
+                        pod_id.clone(),
+                        timer.session_id.clone(),
+                        timer.driving_seconds,
+                        timer.driver_name.clone(),
+                    ));
+                    timers.remove(pod_id.as_str());
+                }
+                drop(timers);
+                drop(rate_tiers);
+            }
+        }
+
+        // Check low balance warning
+        if let Ok(Some((balance,))) = sqlx::query_as::<_, (i64,)>(
+            "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+        )
+        .bind(wallet_owner_id)
+        .fetch_optional(&state.db)
+        .await
+        {
+            // Re-acquire lock briefly to check/set warning flag
+            let mut timers = state.billing.active_timers.write().await;
+            if let Some(timer) = timers.get_mut(pod_id.as_str()) {
+                if balance <= timer.low_balance_warning_paise as i64 && !timer.low_balance_warned {
+                    timer.low_balance_warned = true;
+                    tracing::info!(
+                        "Low balance warning: session {} (pod {}), wallet balance {}p",
+                        session_id, pod_id, balance
+                    );
+                    // TODO: Send WS event to kiosk for audible alert
+                }
+            }
+        }
+    }
 
     // BILL-05: Broadcast WaitingForGame status each tick so kiosk shows "Loading..."
     // WaitingForGame entries are NOT in active_timers — they live in the waiting_for_game map.
@@ -2196,6 +2349,15 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            // Act 2: Per-minute fields — defaults for recovery (will be enhanced with DB lookup)
+            billing_mode: "package".to_string(),
+            rate_paise_per_minute: 0,
+            hold_paise: 0,
+            total_debited_paise: 0,
+            seconds_since_last_debit: 0,
+            wallet_owner_id: row.1.clone(), // default to driver_id
+            low_balance_warning_paise: 5000,
+            low_balance_warned: false,
         };
 
         tracing::info!(
@@ -2970,6 +3132,26 @@ pub async fn start_billing_session(
             .await;
     }
 
+    // Look up billing_mode from pricing tier
+    let billing_mode_info = sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT COALESCE(billing_mode, 'package'), rate_paise_per_minute, minimum_hold_paise, low_balance_warning_paise \
+         FROM pricing_tiers WHERE id = ?",
+    )
+    .bind(&pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (billing_mode, rate_per_min, hold, low_warn) = billing_mode_info
+        .unwrap_or(("package".to_string(), None, None, None));
+
+    let is_per_minute = billing_mode == "per_minute";
+    // Resolve wallet owner for per-minute periodic debits
+    let wallet_owner = crate::wallet::resolve_wallet_owner(state, &driver_id)
+        .await
+        .unwrap_or_else(|_| driver_id.clone());
+
     // Create in-memory timer
     let timer = BillingTimer {
         session_id: session_id.clone(),
@@ -2994,11 +3176,24 @@ pub async fn start_billing_session(
         max_pause_duration_secs: 600,
         elapsed_seconds: 0,
         pause_seconds: 0,
-        max_session_seconds: allocated_seconds,
+        max_session_seconds: if is_per_minute { 10800 } else { allocated_seconds }, // 3hr hard cap for per-minute
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
         nonce: String::new(),
+        // Act 2: Per-minute billing fields
+        billing_mode,
+        rate_paise_per_minute: rate_per_min.unwrap_or(0) as u32,
+        hold_paise: if is_per_minute { hold.unwrap_or(10000) as u32 } else { 0 },
+        total_debited_paise: if is_per_minute {
+            hold.unwrap_or(10000) as u32 // hold was already debited at session start
+        } else {
+            0
+        },
+        seconds_since_last_debit: 0,
+        wallet_owner_id: wallet_owner,
+        low_balance_warning_paise: low_warn.unwrap_or(5000) as u32,
+        low_balance_warned: false,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -3146,6 +3341,15 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
         nonce: String::new(), // Populated below after nonce store generation
+        // Act 2: Per-minute defaults for finalize path
+        billing_mode: "package".to_string(),
+        rate_paise_per_minute: 0,
+        hold_paise: 0,
+        total_debited_paise: 0,
+        seconds_since_last_debit: 0,
+        wallet_owner_id: data.driver_id.clone(),
+        low_balance_warning_paise: 5000,
+        low_balance_warned: false,
     };
 
     // Phase 283: Generate session nonce for replay protection
@@ -5164,6 +5368,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Should count when driving
@@ -5212,6 +5417,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // One more tick should expire
@@ -5250,6 +5456,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -5285,6 +5492,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Active tick — driving_seconds should increment
@@ -5330,6 +5538,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -5458,6 +5667,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert!(!timer.tick());
@@ -5498,6 +5708,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert!(!timer.tick());
@@ -5535,6 +5746,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert!(timer.tick()); // Should return true (elapsed == max)
@@ -5571,6 +5783,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // One more tick should hit 600s pause timeout
@@ -5610,6 +5823,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         let cost = timer.current_cost(&rate_tiers);
@@ -5649,6 +5863,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         let info = timer.to_info(&rate_tiers);
@@ -5891,27 +6106,11 @@ mod tests {
             pod_id: pod_id.to_string(),
             pricing_tier_name: "per-minute".to_string(),
             allocated_seconds: 10800,
-            driving_seconds: 0,
             status: BillingSessionStatus::Active,
             driving_state: DrivingState::Active,
             started_at: Some(Utc::now()),
-            warning_5min_sent: false,
-            warning_1min_sent: false,
-            offline_since: None,
-            split_count: 1,
-            split_duration_minutes: None,
-            current_split_number: 1,
-            pause_count: 0,
-            total_paused_seconds: 0,
-            last_paused_at: None,
-            max_pause_duration_secs: 600,
-            elapsed_seconds: 0,
-            pause_seconds: 0,
             max_session_seconds: 10800,
-            sim_type: None,
-            recovery_pause_seconds: 0,
-            pause_reason: PauseReason::None,
-            nonce: String::new(),
+            ..Default::default()
         }
     }
 
@@ -6381,6 +6580,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert!(!timer.tick());
@@ -7231,6 +7431,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // At 600s (10 min), still in Standard tier (threshold=1800s=30min)
@@ -7278,6 +7479,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Verify: completed sessions are terminal — cannot be extended
@@ -7323,6 +7525,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         assert_eq!(timer.recovery_pause_seconds, 0, "recovery_pause_seconds must start at 0");
@@ -7360,6 +7563,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Simulate crash recovery: set PausedGamePause + CrashRecovery
@@ -7407,6 +7611,7 @@ mod tests {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::GamePause, // Manual ESC pause
             nonce: String::new(),
+            ..Default::default()
         };
 
         // Tick 20 times
@@ -7453,6 +7658,7 @@ mod tests {
             recovery_pause_seconds: 120,
             pause_reason: PauseReason::None,
             nonce: String::new(),
+            ..Default::default()
         };
 
         let cost = timer.current_cost(&tiers);

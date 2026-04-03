@@ -213,6 +213,34 @@ pub async fn credit(
     Ok(new_balance)
 }
 
+/// Act 2: Standalone wallet debit — creates its own transaction.
+/// Used for per-minute periodic debits where the caller doesn't need a transaction.
+/// Returns Ok(new_balance) or Err(reason).
+pub async fn debit_wallet(
+    db: &sqlx::SqlitePool,
+    driver_id: &str,
+    amount_paise: i64,
+    txn_type: &str,
+    reference_id: Option<&str>,
+    notes: Option<&str>,
+    venue_id: &str,
+) -> Result<i64, String> {
+    let mut tx = db.begin().await.map_err(|e| format!("DB error: {}", e))?;
+    let (new_balance, _txn_id) = debit_in_tx(
+        &mut tx,
+        driver_id,
+        amount_paise,
+        txn_type,
+        reference_id,
+        notes,
+        None, // no idempotency key for periodic debits
+        venue_id,
+    )
+    .await?;
+    tx.commit().await.map_err(|e| format!("DB commit failed: {}", e))?;
+    Ok(new_balance)
+}
+
 /// Debit wallet within an EXISTING transaction (FATM-01).
 /// Caller owns the transaction and commits/rolls back.
 /// Does NOT post accounting journal — caller must do that after commit.

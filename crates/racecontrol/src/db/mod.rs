@@ -333,6 +333,32 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Acts 1-4: Customer visits (groups sessions + cafe into one visit) ─────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS visits (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            started_at TEXT DEFAULT (datetime('now')),
+            ended_at TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            end_method TEXT,
+            total_sessions INTEGER DEFAULT 0,
+            total_spent_paise INTEGER DEFAULT 0,
+            receipt_sent BOOLEAN DEFAULT 0,
+            venue_id TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_visits_driver ON visits(driver_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status)")
+        .execute(pool)
+        .await?;
+
     // ─── FSM-07: Split session entitlement table ──────────────────────────────
     // Each child split is an immutable record with allocated_seconds and status.
     // parent_session_id references billing_sessions(id). UNIQUE on (parent, split_number)
@@ -3841,6 +3867,27 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     // Wallet owner for billing sessions — tracks who gets refunded (parent for linked racers)
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN wallet_owner_id TEXT")
+        .execute(pool)
+        .await;
+
+    // Acts 1-4: Bonus tracking flags on drivers (one-time per customer)
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN review_bonus_claimed BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN follow_bonus_claimed BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN registration_bonus_credited BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+
+    // Acts 1-4: Link billing sessions to visits
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN visit_id TEXT REFERENCES visits(id)")
+        .execute(pool)
+        .await;
+
+    // Acts 1-4: Per-minute hold tracking on billing sessions
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN hold_paise INTEGER DEFAULT 0")
         .execute(pool)
         .await;
 
