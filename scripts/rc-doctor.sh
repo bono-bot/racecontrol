@@ -294,6 +294,48 @@ cmd_venue() {
   fi
   echo ""
 
+  # ── 4b. WebSocket Health (from fleet/health API) ─────────────────────
+  echo "━━━ WebSocket Connections ━━━"
+  if [ -n "$fleet_json" ]; then
+    # Dashboard WS churn metrics
+    local ws_connects ws_disconnects ws_healthy ws_clients
+    ws_connects=$(echo "$fleet_json" | jq '.dashboard_ws_churn.connects_per_min // "?"' 2>/dev/null)
+    ws_disconnects=$(echo "$fleet_json" | jq '.dashboard_ws_churn.disconnects_per_min // "?"' 2>/dev/null)
+    ws_healthy=$(echo "$fleet_json" | jq '.dashboard_ws_churn.healthy // false' 2>/dev/null)
+    ws_clients=$(echo "$fleet_json" | jq '.dashboard_clients // 0' 2>/dev/null)
+
+    if [ "$ws_healthy" = "true" ]; then
+      echo "  ✓ Dashboard WS churn: ${ws_connects}/min connects, ${ws_disconnects}/min disconnects (healthy)"
+    else
+      echo "  ✗ Dashboard WS churn: ${ws_connects}/min connects, ${ws_disconnects}/min disconnects (UNHEALTHY — stale frontend?)"
+    fi
+    echo "  ℹ Dashboard clients: $ws_clients"
+
+    # Per-pod WS reconnects
+    echo "  ── Per-Pod WS Stability ──"
+    local pod_ws_issues=0
+    echo "$fleet_json" | jq -r '.pods[] | select(.pod_number <= 8) | "\(.pod_number)|\(.ws_connected)|\(.ws_reconnects_5m // 0)|\(.ws_reconnect_count // 0)"' 2>/dev/null | \
+    while IFS='|' read -r pnum pws precon5 precontotal; do
+      local ws_status="✓"
+      local detail=""
+      if [ "$pws" != "true" ]; then
+        ws_status="✗"
+        detail=" WS_DISCONNECTED"
+        pod_ws_issues=$((pod_ws_issues + 1))
+      fi
+      if [ "${precon5:-0}" -ge 3 ] 2>/dev/null; then
+        ws_status="⚠"
+        detail=" UNSTABLE(${precon5} reconnects/5min)"
+        pod_ws_issues=$((pod_ws_issues + 1))
+      fi
+      printf "    %s Pod %-2s  ws:%s  reconnects_5m:%-3s  lifetime:%-3s%s\n" \
+        "$ws_status" "$pnum" "$pws" "${precon5:-0}" "${precontotal:-0}" "$detail"
+    done
+  else
+    echo "  ⚠ Fleet health API unreachable — cannot check WS metrics"
+  fi
+  echo ""
+
   # ── 5. Cloud services (Bono VPS — self) ─────────────────────────────
   echo "━━━ Cloud (Bono VPS — self) ━━━"
   local cloud_ok=0 cloud_total=0
