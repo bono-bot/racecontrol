@@ -325,6 +325,14 @@ else
     deploy_pod "$TARGET"
 fi
 
+# ─── Post-deploy behavioral verification (enforcement) ──────────────
+VERIFY_SCRIPT="${SCRIPT_DIR}/verify-fix.sh"
+if [ "$FAILURES" -eq 0 ] && [ -f "$VERIFY_SCRIPT" ]; then
+    echo ""
+    echo "─── Post-Deploy Verification ───"
+    bash "$VERIFY_SCRIPT" --scope pods --fix "deploy ${EXPECTED_BUILD_ID:-unknown}" || true
+fi
+
 echo ""
 echo "=========================================="
 if [ "$FAILURES" -eq 0 ]; then

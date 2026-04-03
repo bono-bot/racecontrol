@@ -54,6 +54,23 @@ if [ $GATE_FAIL -ne 0 ]; then
   exit 1
 fi
 
+# Check 3: Fleet sync awareness (WARN only — does not block push)
+echo ""
+echo "Checking fleet sync status..."
+FLEET_SCRIPT="${REPO_ROOT}/scripts/fleet-sync-status.sh"
+if [ -f "$FLEET_SCRIPT" ]; then
+    SYNC_ISSUES=$(bash "$FLEET_SCRIPT" --repos 2>&1 | grep -E "(\!\!|STALE)" || true)
+    if [ -n "$SYNC_ISSUES" ]; then
+        echo ""
+        echo "============================================================"
+        echo "FLEET SYNC WARNINGS (non-blocking):"
+        echo "$SYNC_ISSUES"
+        echo "============================================================"
+        echo "NOTE: Other repos may need attention. Push continues."
+    fi
+fi
+
+echo ""
 echo "============================================================"
 echo "PRE-PUSH GATE: PASS — push allowed"
 echo "============================================================"

@@ -18,6 +18,7 @@
 #   bash scripts/verify-fix.sh --scope cloud            # cloud/VPS only
 #   bash scripts/verify-fix.sh --scope frontend         # frontend apps only
 #   bash scripts/verify-fix.sh --scope comms            # comms-link only
+#   bash scripts/verify-fix.sh --scope mesh             # meshed intelligence only
 #   bash scripts/verify-fix.sh --scope all              # everything (default)
 #   bash scripts/verify-fix.sh --fix "description"      # tag the report
 #   bash scripts/verify-fix.sh --save                   # save report to file
@@ -457,6 +458,86 @@ else:
     print('  No status changes between baseline and current run')
     print('  (The fix may not have had the expected effect)')
 PYEOF
+fi
+
+# =======================================================================
+# SECTION 7: MESHED INTELLIGENCE
+# =======================================================================
+
+if [ "$SCOPE" = "all" ] || [ "$SCOPE" = "mesh" ] || [ "$SCOPE" = "server" ]; then
+    section "MESHED INTELLIGENCE"
+
+    # 7a: Fleet KB on server (check via SSH to avoid auth requirement)
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes "ADMIN@${SERVER_TS}" "echo ok" > /dev/null 2>&1; then
+        # Check fleet_kb solution count
+        KB_COUNT=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "ADMIN@${SERVER_TS}" \
+            "cd C:\\RacingPoint && sqlite3 fleet_kb.db \"SELECT COUNT(*) FROM solutions\" 2>nul || echo ERROR" \
+            2>/dev/null | tr -d '\r\n ' || echo "ERROR")
+
+        if [ "$KB_COUNT" = "ERROR" ] || [ -z "$KB_COUNT" ]; then
+            record "WARN" "mesh-fleet-kb" "Fleet KB database not accessible on server"
+        elif [ "$KB_COUNT" = "0" ]; then
+            record "WARN" "mesh-fleet-kb" "Fleet KB exists but 0 solutions (may be expected for fresh install)"
+        else
+            record "PASS" "mesh-fleet-kb" "Fleet KB has ${KB_COUNT} solutions"
+        fi
+
+        # Check mesh deploy-status (curl localhost on server — bypasses auth)
+        MESH_DEPLOY=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "ADMIN@${SERVER_TS}" \
+            "curl -s --max-time 5 http://localhost:8080/api/v1/mesh/deploy-status 2>nul" \
+            2>/dev/null || echo "")
+        if [ -n "$MESH_DEPLOY" ] && ! echo "$MESH_DEPLOY" | grep -qi "unauthorized"; then
+            record "PASS" "mesh-deploy-status" "Mesh deploy-status endpoint responding"
+        elif echo "$MESH_DEPLOY" | grep -qi "unauthorized"; then
+            record "WARN" "mesh-deploy-status" "Mesh deploy-status requires auth even from localhost"
+        else
+            record "SKIP" "mesh-deploy-status" "Mesh deploy-status not responding" "MED"
+        fi
+    else
+        record "SKIP" "mesh-server-ssh" "Cannot SSH to server — mesh checks skipped" "HIGH"
+        NOT_TESTED+=("mesh-fleet-kb [HIGH]" "mesh-deploy-status [HIGH]")
+    fi
+
+    # 7b: Pod knowledge bases (spot-check pod 1 if reachable)
+    POD1_IP=$(pod_ip 1)
+    if ping -c 1 -W 2 "$POD1_IP" > /dev/null 2>&1; then
+        KB_POD=$(curl -s --max-time 5 -X POST "http://${POD1_IP}:${SENTRY_PORT}/exec" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd":"if exist C:\\RacingPoint\\data\\knowledge_base.db (echo KB_EXISTS) else (echo KB_MISSING)"}' \
+            2>/dev/null || echo "")
+        if echo "$KB_POD" | grep -qi "KB_EXISTS"; then
+            record "PASS" "mesh-pod-kb" "Pod 1 knowledge_base.db exists"
+        elif echo "$KB_POD" | grep -qi "KB_MISSING"; then
+            record "WARN" "mesh-pod-kb" "Pod 1 knowledge_base.db missing (mesh may not be synced)"
+        else
+            record "SKIP" "mesh-pod-kb" "Pod 1 rc-sentry exec failed" "LOW"
+        fi
+    else
+        record "SKIP" "mesh-pod-kb" "Pod 1 not reachable (venue closed?)" "MED"
+    fi
+
+    # 7c: Cloud mesh sync (if cloud is reachable)
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes "root@${BONO_VPS}" "echo ok" > /dev/null 2>&1; then
+        CLOUD_KB=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "root@${BONO_VPS}" \
+            "sqlite3 /root/racingpoint/racecontrol/fleet_kb.db 'SELECT COUNT(*) FROM solutions' 2>/dev/null || echo ERROR" \
+            2>/dev/null | tr -d '\r\n ' || echo "ERROR")
+        if [ "$CLOUD_KB" = "ERROR" ] || [ -z "$CLOUD_KB" ]; then
+            record "WARN" "mesh-cloud-kb" "Cloud fleet KB not accessible"
+        else
+            record "PASS" "mesh-cloud-kb" "Cloud fleet KB has ${CLOUD_KB} solutions"
+
+            # Compare venue vs cloud KB counts
+            if [ -n "${KB_COUNT:-}" ] && [ "$KB_COUNT" != "ERROR" ] && [ "$CLOUD_KB" != "ERROR" ]; then
+                if [ "$KB_COUNT" = "$CLOUD_KB" ]; then
+                    record "PASS" "mesh-sync" "Venue and cloud KB in sync (${KB_COUNT} solutions)"
+                else
+                    record "WARN" "mesh-sync" "KB count mismatch: venue=${KB_COUNT} cloud=${CLOUD_KB}"
+                fi
+            fi
+        fi
+    else
+        record "SKIP" "mesh-cloud-kb" "Bono VPS unreachable" "MED"
+    fi
 fi
 
 # =======================================================================

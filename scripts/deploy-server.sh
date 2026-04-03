@@ -244,6 +244,14 @@ for i in $(seq 1 12); do
         echo -e "${GREEN}=== Venue server deploy successful! ===${NC}"
         echo -e "${YELLOW}NOTE: Verify the EXACT fix, not just health. Test the specific endpoint/behavior that changed.${NC}"
 
+        # ─── Post-deploy behavioral verification (enforcement) ──────
+        VERIFY_SCRIPT="${SCRIPT_DIR}/verify-fix.sh"
+        if [ -f "$VERIFY_SCRIPT" ]; then
+            echo ""
+            echo "─── Post-Deploy Verification ───"
+            bash "$VERIFY_SCRIPT" --scope server --fix "deploy ${ACTUAL_BUILD}" || true
+        fi
+
         # ─── Cloud sync (standing rule: deploy ALL targets) ──────────
         CLOUD_SCRIPT="${SCRIPT_DIR}/deploy-cloud.sh"
         if [ -f "$CLOUD_SCRIPT" ]; then
