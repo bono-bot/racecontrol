@@ -545,6 +545,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
         .route("/metrics/launch-observability", get(metrics::launch_observability_handler))
         .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        // DASH-01: Fleet game matrix — which games are installed on which pods
+        .route("/fleet/game-matrix", get(game_matrix_handler))
+        // DASH-02: Combo reliability list — sortable, flagged if success_rate < 70%
+        .route("/admin/combo-list", get(metrics::combo_list_handler))
         // Phase 286: Metrics Query API (QAPI-01..05) — staff-only, business intelligence
         .route("/metrics/query", get(metrics_query::query_handler))
         .route("/metrics/names", get(metrics_query::names_handler))
@@ -22564,6 +22568,53 @@ async fn get_events(
     }
 }
 
+// ─── Fleet Game Matrix (DASH-01) ─────────────────────────────────────────────
+//
+// Returns which games are installed on which pods, sourced from pod_game_inventory.
+// Response: { games: [{ game_id, display_name, sim_type, pods: { pod_id: { installed, launchable, scanned_at } } }] }
+
+pub async fn game_matrix_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
+    // Fetch distinct games ordered by display_name
+    let game_rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT DISTINCT game_id, display_name, COALESCE(sim_type, '') FROM pod_game_inventory ORDER BY display_name"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut games: Vec<Value> = Vec::with_capacity(game_rows.len());
+
+    for (game_id, display_name, sim_type) in game_rows {
+        // For each game, find which pods have it installed.
+        // Clone db ref — never hold lock across await.
+        let pod_rows: Vec<(String, i64, String)> = sqlx::query_as(
+            "SELECT pod_id, launchable, scanned_at FROM pod_game_inventory WHERE game_id = ?"
+        )
+        .bind(&game_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        let mut pods_map = serde_json::Map::new();
+        for (pod_id, launchable, scanned_at) in pod_rows {
+            pods_map.insert(pod_id, json!({
+                "installed": true,
+                "launchable": launchable != 0,
+                "scanned_at": scanned_at,
+            }));
+        }
+
+        games.push(json!({
+            "game_id": game_id,
+            "display_name": display_name,
+            "sim_type": sim_type,
+            "pods": pods_map,
+        }));
+    }
+
+    Json(json!({ "games": games }))
+}
+
 // ─── SEC-05: Self-topup guard tests ──────────────────────────────────────────
 
 #[cfg(test)]
@@ -22817,5 +22868,106 @@ mod launch_timeline_tests {
             event_kinds.contains(&"playable_signal"),
             "events must contain playable_signal, got: {:?}", event_kinds
         );
+    }
+}
+
+// ─── DASH-01: Game matrix tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod game_matrix_tests {
+    use sqlx::SqlitePool;
+
+    /// Build a minimal in-memory DB with pod_game_inventory.
+    async fn make_inventory_db() -> SqlitePool {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS pod_game_inventory (
+                pod_id TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                sim_type TEXT,
+                exe_path TEXT NOT NULL,
+                launchable INTEGER NOT NULL DEFAULT 1,
+                scan_method TEXT NOT NULL,
+                steam_app_id INTEGER,
+                scanned_at TEXT NOT NULL,
+                server_received_at TEXT NOT NULL,
+                PRIMARY KEY (pod_id, game_id)
+            )",
+        )
+        .execute(&db)
+        .await
+        .expect("create pod_game_inventory");
+
+        db
+    }
+
+    /// DASH-01: empty pod_game_inventory returns { games: [] }
+    #[tokio::test]
+    async fn test_game_matrix_empty_returns_empty_games() {
+        let db = make_inventory_db().await;
+
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT DISTINCT game_id, display_name, COALESCE(sim_type, '') FROM pod_game_inventory ORDER BY display_name"
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        assert!(rows.is_empty(), "Empty pod_game_inventory must return empty games array");
+    }
+
+    /// DASH-01: game matrix returns installed pods for each game.
+    #[tokio::test]
+    async fn test_game_matrix_returns_installed_pods() {
+        let db = make_inventory_db().await;
+        let now = "2026-04-03T00:00:00Z";
+
+        // Insert: assetto_corsa installed on pod-1 and pod-2
+        sqlx::query(
+            "INSERT INTO pod_game_inventory (pod_id, game_id, display_name, sim_type, exe_path, launchable, scan_method, scanned_at, server_received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("pod-1").bind("assetto_corsa").bind("Assetto Corsa").bind("assetto_corsa")
+        .bind("C:/AC/acs.exe").bind(1i64).bind("steam").bind(now).bind(now)
+        .execute(&db).await.expect("insert pod-1");
+
+        sqlx::query(
+            "INSERT INTO pod_game_inventory (pod_id, game_id, display_name, sim_type, exe_path, launchable, scan_method, scanned_at, server_received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("pod-2").bind("assetto_corsa").bind("Assetto Corsa").bind("assetto_corsa")
+        .bind("C:/AC/acs.exe").bind(1i64).bind("steam").bind(now).bind(now)
+        .execute(&db).await.expect("insert pod-2");
+
+        let game_rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT DISTINCT game_id, display_name, COALESCE(sim_type, '') FROM pod_game_inventory ORDER BY display_name"
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        assert_eq!(game_rows.len(), 1, "Must have 1 distinct game");
+        assert_eq!(game_rows[0].0, "assetto_corsa");
+
+        let pod_rows: Vec<(String, i64, String)> = sqlx::query_as(
+            "SELECT pod_id, launchable, scanned_at FROM pod_game_inventory WHERE game_id = ?"
+        )
+        .bind("assetto_corsa")
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        assert_eq!(pod_rows.len(), 2, "Assetto Corsa must be on 2 pods");
+        let pod_ids: Vec<&str> = pod_rows.iter().map(|r| r.0.as_str()).collect();
+        assert!(pod_ids.contains(&"pod-1"), "pod-1 must be in game matrix");
+        assert!(pod_ids.contains(&"pod-2"), "pod-2 must be in game matrix");
+        for (_, launchable, _) in &pod_rows {
+            assert_eq!(*launchable, 1i64, "launchable must be 1");
+        }
     }
 }

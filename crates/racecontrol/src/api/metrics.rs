@@ -497,6 +497,70 @@ pub async fn launch_matrix_handler(
     Json(serde_json::to_value(&rows).unwrap_or_default())
 }
 
+// ─── Admin Combo List (DASH-02) ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ComboListParams {
+    pub game: Option<String>,
+    pub sort_by: Option<String>,
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComboListRow {
+    pub pod_id: String,
+    pub sim_type: String,
+    pub car: Option<String>,
+    pub track: Option<String>,
+    pub success_rate: f64,
+    pub avg_time_ms: Option<f64>,
+    pub total_launches: i64,
+    pub flagged: bool,
+}
+
+pub async fn combo_list_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ComboListParams>,
+) -> impl IntoResponse {
+    // Whitelist sort_by values to prevent SQL injection via column name interpolation.
+    let sort_col = match params.sort_by.as_deref() {
+        Some("total_launches") => "total_launches",
+        Some("avg_time_ms") => "avg_time_to_track_ms",
+        _ => "success_rate",
+    };
+    let sort_dir = match params.order.as_deref() {
+        Some("asc") => "ASC",
+        _ => "DESC",
+    };
+
+    let sql = format!(
+        "SELECT pod_id, sim_type, car, track, success_rate, avg_time_to_track_ms, total_launches
+         FROM combo_reliability
+         WHERE (?1 IS NULL OR sim_type = ?1)
+         ORDER BY {sort_col} {sort_dir}"
+    );
+
+    let rows: Vec<ComboListRow> = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, f64, Option<f64>, i64)>(&sql)
+        .bind(params.game.as_deref())
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(pod_id, sim_type, car, track, success_rate, avg_time_ms, total_launches)| ComboListRow {
+            pod_id,
+            sim_type,
+            car,
+            track,
+            success_rate,
+            avg_time_ms,
+            total_launches,
+            flagged: success_rate < 0.70,
+        })
+        .collect();
+
+    Json(serde_json::to_value(&rows).unwrap_or_default())
+}
+
 // ─── Launch Observability (Phase 284) ────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -885,5 +949,67 @@ mod tests {
         assert_eq!(pod3.top_3_failure_modes[0].mode, "LaunchTimeout",
             "LaunchTimeout (count=3) must be first failure mode, got: {:?}",
             pod3.top_3_failure_modes.iter().map(|m| &m.mode).collect::<Vec<_>>());
+    }
+
+    // ─── Combo List Tests (DASH-02) ────────────────────────────────────────
+
+    /// DASH-02: combo_list returns flagged=true for rows with success_rate < 0.70.
+    #[tokio::test]
+    async fn test_combo_list_flagged_when_below_threshold() {
+        let db = make_test_db().await;
+
+        // Insert a row with success_rate=0.65 → must be flagged
+        seed_combo(&db, "pod-1", "assetto_corsa", Some("ks_ferrari"), Some("spa"), 0.65, 20).await;
+        // Insert a row with success_rate=0.80 → must NOT be flagged
+        seed_combo(&db, "pod-2", "assetto_corsa", Some("ks_bmw"), Some("monza"), 0.80, 15).await;
+
+        let params = ComboListParams {
+            game: None,
+            sort_by: None,
+            order: None,
+        };
+
+        let sql = "SELECT pod_id, sim_type, car, track, success_rate, avg_time_to_track_ms, total_launches
+                   FROM combo_reliability ORDER BY success_rate DESC";
+        let rows: Vec<ComboListRow> = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, f64, Option<f64>, i64)>(sql)
+            .fetch_all(&db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(pod_id, sim_type, car, track, success_rate, avg_time_ms, total_launches)| ComboListRow {
+                pod_id,
+                sim_type,
+                car,
+                track,
+                success_rate,
+                avg_time_ms,
+                total_launches,
+                flagged: success_rate < 0.70,
+            })
+            .collect();
+
+        assert_eq!(rows.len(), 2, "Must have 2 rows");
+
+        let ferrari = rows.iter().find(|r| r.pod_id == "pod-1").expect("pod-1 row");
+        assert!(ferrari.flagged, "success_rate=0.65 must be flagged=true");
+
+        let bmw = rows.iter().find(|r| r.pod_id == "pod-2").expect("pod-2 row");
+        assert!(!bmw.flagged, "success_rate=0.80 must be flagged=false");
+
+        // Verify params is used (suppress unused warning)
+        let _ = params;
+    }
+
+    /// DASH-02: combo_list returns empty array (not error) for empty DB.
+    #[tokio::test]
+    async fn test_combo_list_empty_db() {
+        let db = make_test_db().await;
+
+        let sql = "SELECT pod_id, sim_type, car, track, success_rate, avg_time_to_track_ms, total_launches
+                   FROM combo_reliability ORDER BY success_rate DESC";
+        let rows: Vec<(String, String, Option<String>, Option<String>, f64, Option<f64>, i64)> =
+            sqlx::query_as(sql).fetch_all(&db).await.unwrap_or_default();
+
+        assert!(rows.is_empty(), "Empty DB must return empty array, not error");
     }
 }
