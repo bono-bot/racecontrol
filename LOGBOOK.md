@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-03 15:02 IST | James | c0193f2e | feat: Act 1+2 customer workflow — billing redesign, per-minute pricing, 7 conflict fixes, F1 25 billing fix, 180s grace, 30s crash recovery |
 | 2026-04-03 14:28 IST | James | d4a3a6c2 | feat(319-02): /games/timeline page — expandable launch timeline viewer, 30s auto-refresh, color-coded outcomes |
 | 2026-04-03 14:28 IST | James | 2c0f2578 | feat(319-02): GET /api/v1/launch-timeline/recent endpoint — returns 50 most recent launches by started_at DESC |
 | 2026-04-03 20:30 IST | James | 865470fd | feat: Act 1 customer workflow — linked racers, POS wallet topup, kiosk cleanup, CGP v3.3. 2307 lines removed. |
