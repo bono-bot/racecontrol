@@ -411,7 +411,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
         .route("/launch-timeline/recent", get(get_recent_launch_timelines))
-        .route("/launch-timeline/:launch_id", get(get_launch_timeline))
+        .route("/launch-timeline/{launch_id}", get(get_launch_timeline))
         .route("/games/pod/{pod_id}", get(pod_game_state))
         // AC LAN
         .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
