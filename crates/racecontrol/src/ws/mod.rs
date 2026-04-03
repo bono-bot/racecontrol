@@ -808,6 +808,66 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             };
                             log_pod_activity(&state, &info.pod_id, "game", gs_action, &gs_details, "agent", None);
                             game_launcher::handle_game_state_update(&state, info.clone()).await;
+                            // ─── Phase 317 (LAUNCH-04): Chain failure detection ──────────────
+                            {
+                                let sim_key = format!("{}:{:?}", info.pod_id, info.sim_type);
+                                match info.game_state {
+                                    GameState::Error => {
+                                        // Snapshot needed data, drop lock BEFORE any .await
+                                        let should_escalate = {
+                                            let mut tracker = state.chain_failure_tracker.write().await;
+                                            let entry = tracker.entry(sim_key.clone()).or_default();
+                                            // Reset if window expired
+                                            if entry.is_window_expired() {
+                                                entry.reset();
+                                            }
+                                            // Start window on first failure
+                                            if entry.window_start.is_none() {
+                                                entry.window_start = Some(std::time::Instant::now());
+                                            }
+                                            entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+                                            // Escalate on 3rd failure if not already alerted this window
+                                            let should = entry.consecutive_failures >= 3 && !entry.alerted;
+                                            if should {
+                                                entry.alerted = true;
+                                            }
+                                            (should, entry.consecutive_failures)
+                                        };
+                                        // Write lock is dropped — now safe to do async work
+                                        if should_escalate.0 {
+                                            let escalation = state.whatsapp_escalation.clone();
+                                            let pod_id_esc = info.pod_id.clone();
+                                            let sim_type_str = format!("{}", info.sim_type);
+                                            let count = should_escalate.1;
+                                            let incident_id = format!("chain_fail_{}_{:?}", pod_id_esc, info.sim_type);
+                                            tokio::spawn(async move {
+                                                escalation.handle_escalation(rc_common::protocol::EscalationPayload {
+                                                    pod_id: pod_id_esc.clone(),
+                                                    incident_id,
+                                                    severity: "critical".to_string(),
+                                                    trigger: "ChainLaunchFailure".to_string(),
+                                                    summary: format!(
+                                                        "Chain failure: {} on {} failed {} times in 10 min",
+                                                        sim_type_str, pod_id_esc, count
+                                                    ),
+                                                    actions_tried: vec!["auto_relaunch_attempted".to_string()],
+                                                    impact: format!("{} is unlaunchable on {} — customers cannot start sessions", sim_type_str, pod_id_esc),
+                                                    dashboard_url: "http://192.168.31.23:3201/fleet".to_string(),
+                                                    timestamp: crate::whatsapp_alerter::ist_now_string(),
+                                                }).await;
+                                            });
+                                        }
+                                    }
+                                    GameState::Running => {
+                                        // Launch succeeded — reset chain failure for this pod+sim
+                                        let mut tracker = state.chain_failure_tracker.write().await;
+                                        if let Some(entry) = tracker.get_mut(&sim_key) {
+                                            entry.reset();
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                         AgentMessage::AiDebugResult(suggestion) => {
                             tracing::info!(
