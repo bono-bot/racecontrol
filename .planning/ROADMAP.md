@@ -14,7 +14,8 @@
 - ✅ **v38.0 Security Hardening & Operational Maturity** — Phases 305-309 (shipped 2026-04-02)
 - ✅ **v39.0 Session Trace ID & Metrics** — Phase 310 (shipped 2026-04-02)
 - ✅ **v40.0 Game Launch Reliability** — Phases 311-314 (shipped 2026-04-03)
-- 🔨 **v41.0 Game Intelligence System** — Phases 315+
+- 🔨 **v41.0 Game Intelligence System** — Phases 315-320
+- 📋 **v42.0 Meshed Intelligence Migration** — Phases 321-324
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -161,7 +162,7 @@ Plans:
 - [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
 - [x] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05 (completed 2026-04-03)
 - [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
-- [x] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05 (completed 2026-04-03)
+- [x] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05 (completed 2026-04-03)
 
 ---
 
@@ -451,3 +452,85 @@ Plans:
 | 310. Session Trace ID | 1/2 | Plan 1 Complete | 2026-04-02 |
 
 *Last updated: 2026-04-02 after MI-5 gap creation*
+
+---
+
+## v42.0 Meshed Intelligence Migration
+
+**Goal:** Move the MI tier engine from rc-agent to rc-sentry so it can autonomously diagnose and heal rc-agent from the outside — eliminating the blind spot where rc-agent's death kills the entire self-healing system. Motivated by real incident: 2026-04-03 Pod 1+7 had rc-agent dead for hours with MI completely blind.
+
+**Phases:** 4  |  **Coverage:** 14/14 requirements mapped
+
+**Dependency graph:**
+```
+321 (External Monitoring & Alert Chain)
+  └──> 322 (MI Core Engine Migration)
+         └──> 323 (MMA Engine & Cognitive Gate Migration)
+                └──> 324 (True Mesh Intelligence)
+```
+
+### Phases
+
+- [ ] **Phase 321: External Monitoring & Alert Chain** — MON-01, MON-02, MON-03, MON-04, MON-05
+- [ ] **Phase 322: MI Core Engine Migration** — MIG-01, MIG-02, MIG-03, MIG-05
+- [ ] **Phase 323: MMA Engine & Cognitive Gate Migration** — MIG-04, MIG-06
+- [ ] **Phase 324: True Mesh Intelligence** — MESH-01, MESH-02, MESH-03
+
+---
+
+### Phase 321: External Monitoring & Alert Chain
+**Goal**: rc-sentry can observe rc-agent's health from the outside and alert staff/Bono when rc-agent is dead — independent of rc-agent's own API
+**Depends on**: Nothing (foundation for v42.0)
+**Requirements**: MON-01, MON-02, MON-03, MON-04, MON-05
+**Success Criteria** (what must be TRUE):
+  1. When rc-agent process is dead on a pod, rc-sentry detects it within 30 seconds via `tasklist` inspection and `:8090/health` polling — without calling any rc-agent API
+  2. The server's pod_healer successfully recovers a pod when rc-agent :8090 is unreachable by falling back to rc-sentry :8091 — verified by killing rc-agent and watching the pod recover
+  3. After 3 rc-agent restarts within 10 minutes, rc-sentry stops restarting (exponential backoff applies), clears the `MAINTENANCE_MODE` sentinel automatically after the backoff window, and sends a WhatsApp alert naming the pod and restart count
+  4. When rc-agent dies on any pod, a WhatsApp message reaches Uday/staff naming the pod — COMMS_PSK is deployed to all 8 pods and the watchdog alert path is live
+  5. rc-sentry can capture a pod screenshot and analyze pixel patterns to verify that the blanking screen is actually displayed (not just that the Edge process exists)
+**Plans**: TBD
+
+### Phase 322: MI Core Engine Migration
+**Goal**: The tier engine, diagnostic engine, knowledge base, and telemetry proxy are running in rc-sentry — rc-agent continues working via a thin forwarding proxy during and after migration
+**Depends on**: Phase 321 (monitoring foundation must be live before adding complex MI logic to sentry)
+**Requirements**: MIG-01, MIG-02, MIG-03, MIG-05
+**Success Criteria** (what must be TRUE):
+  1. rc-sentry runs the 5-tier decision tree and produces a `TierDiagnosis` when triggered by a `DiagnosticTrigger` — independent of whether rc-agent is alive
+  2. rc-sentry's diagnostic engine classifies anomalies and fires `DiagnosticTrigger` events through an internal std::sync channel (no tokio dependency) — observable via rc-sentry's :8091 `/debug` endpoint
+  3. rc-sentry's knowledge base can query the SQLite solution DB and return a `SolutionRecord` for a given failure pattern — the KB is accessible even when rc-agent is dead
+  4. rc-agent's MI modules are replaced with a thin proxy that forwards telemetry to rc-sentry :8091 via HTTP — rc-agent still compiles and all existing WS messages continue working
+**Plans**: TBD
+
+### Phase 323: MMA Engine & Cognitive Gate Migration
+**Goal**: The MMA audit engine and cognitive gate planner run in rc-sentry — multi-model diagnosis is available even when rc-agent is fully dead
+**Depends on**: Phase 322 (MMA engine consumes tier + diagnostic output that must already be in sentry)
+**Requirements**: MIG-04, MIG-06
+**Success Criteria** (what must be TRUE):
+  1. rc-sentry can initiate an MMA audit via OpenRouter (reading COMMS_PSK/OPENROUTER_KEY from environment) and record the consensus finding in the knowledge base — without rc-agent running
+  2. MMA budget tracker in rc-sentry enforces the $5/session cap and logs spend to a local file readable via :8091 `/mma/status` endpoint
+  3. rc-sentry's cognitive gate evaluates a diagnosis and produces a structured fix plan (JSON array of actions with risk + rollback) — the plan is visible at :8091 `/gate/last-plan`
+  4. Diagnosis planner in rc-sentry can generate a structured fix sequence for at least the 5 most common failure patterns (rc-agent crash, game stuck, MAINTENANCE_MODE, WS disconnect, blanking failure)
+**Plans**: TBD
+
+### Phase 324: True Mesh Intelligence
+**Goal**: Pods can coordinate directly with each other without routing through the server — solutions discovered on one pod propagate to the fleet and multiplayer game sessions can self-coordinate
+**Depends on**: Phase 323 (MI must be fully in rc-sentry before adding cross-pod communication)
+**Requirements**: MESH-01, MESH-02, MESH-03
+**Success Criteria** (what must be TRUE):
+  1. Pod 1 can send a message directly to Pod 2 via rc-sentry's peer channel (UDP or TCP on a dedicated port) without the server involved — verified by killing the server and watching a direct pod-to-pod ping succeed
+  2. When Pods 3 and 5 are in the same F1 25 multiplayer session, rc-sentry on both pods can coordinate a synchronized launch — both pods receive `LaunchGame` within 500ms of each other without server orchestration
+  3. When rc-sentry on Pod 4 records a solution to a known failure pattern (e.g. "MAINTENANCE_MODE clear + restart"), that solution propagates to all other pods via direct gossip within 60 seconds — verified by checking each pod's :8091 `/kb/solutions` count
+**Plans**: TBD
+
+---
+
+### Progress Table (v42.0)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 321. External Monitoring & Alert Chain | 0/TBD | Not started | - |
+| 322. MI Core Engine Migration | 0/TBD | Not started | - |
+| 323. MMA Engine & Cognitive Gate Migration | 0/TBD | Not started | - |
+| 324. True Mesh Intelligence | 0/TBD | Not started | - |
+
+*Last updated: 2026-04-03 — roadmap created*

@@ -21,7 +21,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **MON-01**: rc-sentry monitors rc-agent via process inspection (tasklist) + health endpoint polling, independent of rc-agent API
 - [ ] **MON-02**: Server pod_healer falls back to rc-sentry :8091 when rc-agent :8090 is unreachable
 - [ ] **MON-03**: Crash loop breaker detects 3+ restarts in 10min, applies exponential backoff, clears stale sentinels automatically
-- [ ] **MON-04**: COMMS_PSK deployed to all 8 pods, watchdog sends WhatsApp/Bono alerts when rc-agent dies
+- [ ] **MON-04**: COMMS_PSK deployed to all 8 pods + POS, watchdog sends WhatsApp/Bono alerts when rc-agent dies
 - [ ] **MON-05**: rc-sentry captures and analyzes pod screenshots for visual verification of blanking/kiosk state
 
 ### True Mesh Intelligence (MESH)
@@ -57,26 +57,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MIG-01 | TBD | Pending |
-| MIG-02 | TBD | Pending |
-| MIG-03 | TBD | Pending |
-| MIG-04 | TBD | Pending |
-| MIG-05 | TBD | Pending |
-| MIG-06 | TBD | Pending |
-| MON-01 | TBD | Pending |
-| MON-02 | TBD | Pending |
-| MON-03 | TBD | Pending |
-| MON-04 | TBD | Pending |
-| MON-05 | TBD | Pending |
-| MESH-01 | TBD | Pending |
-| MESH-02 | TBD | Pending |
-| MESH-03 | TBD | Pending |
+| MIG-01 | Phase 322 | Pending |
+| MIG-02 | Phase 322 | Pending |
+| MIG-03 | Phase 322 | Pending |
+| MIG-04 | Phase 323 | Pending |
+| MIG-05 | Phase 322 | Pending |
+| MIG-06 | Phase 323 | Pending |
+| MON-01 | Phase 321 | Pending |
+| MON-02 | Phase 321 | Pending |
+| MON-03 | Phase 321 | Pending |
+| MON-04 | Phase 321 | Pending |
+| MON-05 | Phase 321 | Pending |
+| MESH-01 | Phase 324 | Pending |
+| MESH-02 | Phase 324 | Pending |
+| MESH-03 | Phase 324 | Pending |
 
 **Coverage:**
 - v42.0 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14 (pending roadmap creation)
+- Mapped to phases: 14
+- Unmapped: 0 (100% coverage)
 
 ---
 *Requirements defined: 2026-04-03*
-*Last updated: 2026-04-03 after initial definition*
+*Last updated: 2026-04-03 — traceability filled after roadmap creation*
