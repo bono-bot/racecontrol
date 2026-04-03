@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use rc_common::types::{
-    CarManifestEntry, ContentManifest, GameInventory, InstalledGame, SimType,
+    CarManifestEntry, ComboAvailabilityStatus, ComboValidationResult, ContentManifest,
+    GameInventory, GamePreset, GamePresetWithReliability, InstalledGame, SimType,
     TrackConfigManifest, TrackManifestEntry,
 };
 
@@ -359,6 +360,167 @@ pub fn build_game_inventory(pod_id: &str, is_pos: bool) -> GameInventory {
         games,
         scanned_at: Utc::now().to_rfc3339(),
     }
+}
+
+// ─── AC Combo Validation (v41.0 Phase 316 Plan 02) ───────────────────────────
+
+/// Find the Assetto Corsa install root directory.
+///
+/// Prefers the default Steam path, then tries alternate drive letters.
+/// Returns the path to the AC root (the directory containing content/, system/, etc.)
+/// NOT the content/ subdirectory.
+pub fn find_ac_base_path() -> Option<std::path::PathBuf> {
+    // Primary: check the default Steam path
+    let default = std::path::Path::new(
+        r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa"
+    );
+    if default.is_dir() {
+        return Some(default.to_path_buf());
+    }
+    // Fallback: check non-default Steam libraries
+    let alt_roots = [
+        r"D:\Steam\steamapps\common\assettocorsa",
+        r"E:\Steam\steamapps\common\assettocorsa",
+        r"D:\SteamLibrary\steamapps\common\assettocorsa",
+        r"E:\SteamLibrary\steamapps\common\assettocorsa",
+    ];
+    for p in &alt_roots {
+        if std::path::Path::new(p).is_dir() {
+            return Some(std::path::Path::new(p).to_path_buf());
+        }
+    }
+    None
+}
+
+/// Validate a single AC preset combo against the pod filesystem.
+///
+/// Checks:
+/// - AC base path exists (GameNotInstalled if not)
+/// - car dir present at {ac_base}/content/cars/{car} (if preset.car is Some)
+/// - track dir present at {ac_base}/content/tracks/{track} (if preset.track is Some)
+/// - AI lines dir has at least one file (if track dir exists)
+///
+/// No .unwrap() — all I/O uses fail-open patterns.
+pub fn validate_ac_combo(pod_id: &str, preset: &GamePreset, ac_base: Option<&Path>) -> ComboValidationResult {
+    let mut failure_reasons: Vec<String> = Vec::new();
+    let mut checked_paths: Vec<String> = Vec::new();
+
+    // Guard: only call this for AC presets
+    if preset.game != "assettoCorsa" {
+        return ComboValidationResult {
+            preset_id: preset.id.clone(),
+            preset_name: preset.name.clone(),
+            pod_id: pod_id.to_string(),
+            status: ComboAvailabilityStatus::Unknown,
+            failure_reasons: vec!["not_ac_preset".to_string()],
+            checked_paths: vec![],
+            validated_at: Utc::now().to_rfc3339(),
+        };
+    }
+
+    // Check AC base path exists
+    let base = match ac_base {
+        Some(p) if p.is_dir() => p,
+        other => {
+            let path_str = other.map(|p| p.display().to_string()).unwrap_or_default();
+            checked_paths.push(path_str.clone());
+            return ComboValidationResult {
+                preset_id: preset.id.clone(),
+                preset_name: preset.name.clone(),
+                pod_id: pod_id.to_string(),
+                status: ComboAvailabilityStatus::GameNotInstalled,
+                failure_reasons: vec!["AC not installed".to_string()],
+                checked_paths,
+                validated_at: Utc::now().to_rfc3339(),
+            };
+        }
+    };
+
+    // Check car dir
+    if let Some(ref car_id) = preset.car {
+        let car_path = base.join("content").join("cars").join(car_id);
+        checked_paths.push(car_path.display().to_string());
+        if !car_path.is_dir() {
+            failure_reasons.push(format!("car '{}' not found", car_id));
+        }
+    }
+
+    // Check track dir and AI lines
+    if let Some(ref track_id) = preset.track {
+        let track_path = base.join("content").join("tracks").join(track_id);
+        checked_paths.push(track_path.display().to_string());
+        if !track_path.is_dir() {
+            failure_reasons.push(format!("track '{}' not found", track_id));
+        } else {
+            // Track dir exists — check AI lines (default config "")
+            if !check_has_ai(&track_path, "") {
+                failure_reasons.push(format!("ai lines missing for track '{}'", track_id));
+            }
+        }
+    }
+
+    let status = if failure_reasons.is_empty() {
+        ComboAvailabilityStatus::Available
+    } else {
+        ComboAvailabilityStatus::Invalid
+    };
+
+    ComboValidationResult {
+        preset_id: preset.id.clone(),
+        preset_name: preset.name.clone(),
+        pod_id: pod_id.to_string(),
+        status,
+        failure_reasons,
+        checked_paths,
+        validated_at: Utc::now().to_rfc3339(),
+    }
+}
+
+/// Validate all AC presets in a list against the pod filesystem.
+///
+/// Resolves the AC base path from `find_ac_base_path()`.
+/// Skips non-AC presets (game != "assettoCorsa").
+/// Logs a summary line on completion.
+///
+/// No .unwrap() — all paths use fail-open patterns.
+pub fn validate_ac_combos(pod_id: &str, presets: &[GamePresetWithReliability]) -> Vec<ComboValidationResult> {
+    let ac_base = find_ac_base_path();
+    validate_ac_combos_at(pod_id, presets, ac_base.as_deref())
+}
+
+/// Internal: validate combos against a provided ac_base path (enables testing).
+pub(crate) fn validate_ac_combos_at(
+    pod_id: &str,
+    presets: &[GamePresetWithReliability],
+    ac_base: Option<&Path>,
+) -> Vec<ComboValidationResult> {
+    let ac_presets: Vec<&GamePresetWithReliability> = presets
+        .iter()
+        .filter(|p| p.preset.game == "assettoCorsa")
+        .collect();
+
+    let results: Vec<ComboValidationResult> = ac_presets
+        .iter()
+        .map(|p| validate_ac_combo(pod_id, &p.preset, ac_base))
+        .collect();
+
+    let available_count = results
+        .iter()
+        .filter(|r| matches!(r.status, ComboAvailabilityStatus::Available))
+        .count();
+
+    let invalid_count = results.len() - available_count;
+
+    tracing::info!(
+        target: LOG_TARGET,
+        "Combo validation complete: {}/{} AC presets checked ({} available, {} invalid)",
+        results.len(),
+        presets.len(),
+        available_count,
+        invalid_count,
+    );
+
+    results
 }
 
 /// Enumerate car folders under `content/cars/`.
@@ -1021,5 +1183,173 @@ mod tests {
         let track_ids: Vec<&str> = manifest.tracks.iter().map(|t| t.id.as_str()).collect();
         assert!(track_ids.contains(&"monza"));
         assert!(track_ids.contains(&"spa"));
+    }
+
+    // ── Task 1 (Plan 02): validate_ac_combo and validate_ac_combos tests ──────
+
+    fn make_preset(id: &str, name: &str, game: &str, car: Option<&str>, track: Option<&str>) -> GamePreset {
+        GamePreset {
+            id: id.to_string(),
+            name: name.to_string(),
+            game: game.to_string(),
+            car: car.map(|s| s.to_string()),
+            track: track.map(|s| s.to_string()),
+            session_type: None,
+            notes: None,
+            enabled: true,
+            created_at: None,
+        }
+    }
+
+    fn make_preset_with_reliability(preset: GamePreset) -> GamePresetWithReliability {
+        GamePresetWithReliability {
+            preset,
+            reliability_score: None,
+            total_launches: 0,
+            flagged_unreliable: false,
+        }
+    }
+
+    /// Create a minimal AC content directory with car, track, and ai files.
+    fn create_ac_env(
+        base: &Path,
+        car_id: Option<&str>,
+        track_id: Option<&str>,
+        with_ai: bool,
+    ) {
+        if let Some(car) = car_id {
+            fs::create_dir_all(base.join("content").join("cars").join(car)).unwrap();
+        }
+        if let Some(track) = track_id {
+            let track_dir = base.join("content").join("tracks").join(track);
+            fs::create_dir_all(track_dir.join("data")).unwrap();
+            if with_ai {
+                let ai_dir = track_dir.join("ai");
+                fs::create_dir_all(&ai_dir).unwrap();
+                fs::write(ai_dir.join("fast_lane.ai"), "dummy").unwrap();
+            }
+        }
+    }
+
+    // Test 1: All content present → Available
+    #[test]
+    fn test_validate_ac_combo_all_present_returns_available() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, Some("ks_ferrari_488"), Some("monza"), true);
+        let preset = make_preset("p1", "Ferrari Monza", "assettoCorsa", Some("ks_ferrari_488"), Some("monza"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        assert_eq!(result.status, ComboAvailabilityStatus::Available);
+        assert!(result.failure_reasons.is_empty(), "Expected no failure reasons: {:?}", result.failure_reasons);
+    }
+
+    // Test 2: Missing car dir → Invalid with "car '...' not found"
+    #[test]
+    fn test_validate_ac_combo_missing_car_returns_invalid() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, None, Some("monza"), true);
+        let preset = make_preset("p2", "Missing Car", "assettoCorsa", Some("missing_car"), Some("monza"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        assert_eq!(result.status, ComboAvailabilityStatus::Invalid);
+        assert!(result.failure_reasons.iter().any(|r| r.contains("missing_car") && r.contains("not found")),
+            "Expected car not found error, got: {:?}", result.failure_reasons);
+    }
+
+    // Test 3: Missing track dir → Invalid with "track '...' not found"
+    #[test]
+    fn test_validate_ac_combo_missing_track_returns_invalid() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, Some("ks_ferrari_488"), None, false);
+        let preset = make_preset("p3", "Missing Track", "assettoCorsa", Some("ks_ferrari_488"), Some("missing_track"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        assert_eq!(result.status, ComboAvailabilityStatus::Invalid);
+        assert!(result.failure_reasons.iter().any(|r| r.contains("missing_track") && r.contains("not found")),
+            "Expected track not found error, got: {:?}", result.failure_reasons);
+    }
+
+    // Test 4: Track dir present but empty ai/ dir → Invalid with "ai lines missing"
+    #[test]
+    fn test_validate_ac_combo_empty_ai_returns_invalid() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, Some("ks_ferrari_488"), Some("monza"), false);
+        // Create ai/ dir but leave it empty
+        let ai_dir = ac_base.join("content").join("tracks").join("monza").join("ai");
+        fs::create_dir_all(&ai_dir).unwrap();
+        let preset = make_preset("p4", "Empty AI", "assettoCorsa", Some("ks_ferrari_488"), Some("monza"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        assert_eq!(result.status, ComboAvailabilityStatus::Invalid);
+        assert!(result.failure_reasons.iter().any(|r| r.contains("ai lines missing")),
+            "Expected ai lines missing error, got: {:?}", result.failure_reasons);
+    }
+
+    // Test 5: car=None and track=None → Available (no content to check)
+    #[test]
+    fn test_validate_ac_combo_no_car_no_track_returns_available() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        // Just create the AC base dir so it "exists"
+        fs::create_dir_all(&ac_base).unwrap();
+        let preset = make_preset("p5", "Any Car Any Track", "assettoCorsa", None, None);
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        assert_eq!(result.status, ComboAvailabilityStatus::Available);
+        assert!(result.failure_reasons.is_empty());
+    }
+
+    // Test 6: ac_base does not exist → GameNotInstalled
+    #[test]
+    fn test_validate_ac_combo_no_ac_base_returns_game_not_installed() {
+        let tmp = TempDir::new().unwrap();
+        let nonexistent = tmp.path().join("not_there");
+        let preset = make_preset("p6", "No AC", "assettoCorsa", Some("some_car"), Some("some_track"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&nonexistent));
+        assert_eq!(result.status, ComboAvailabilityStatus::GameNotInstalled);
+    }
+
+    // Test 7: validate_ac_combos with 2 AC presets + 1 non-AC → exactly 2 results
+    #[test]
+    fn test_validate_ac_combos_skips_non_ac_presets() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, Some("car_a"), Some("track_a"), true);
+        create_ac_env(&ac_base, Some("car_b"), Some("track_b"), true);
+
+        let presets = vec![
+            make_preset_with_reliability(make_preset("p1", "AC Preset 1", "assettoCorsa", Some("car_a"), Some("track_a"))),
+            make_preset_with_reliability(make_preset("p2", "AC Preset 2", "assettoCorsa", Some("car_b"), Some("track_b"))),
+            make_preset_with_reliability(make_preset("p3", "F1 Preset", "f125", Some("car_c"), Some("track_c"))),
+        ];
+        // We call the internal testable version by using validate_ac_combos_at (which we need to add)
+        // Or we can test via validate_ac_combos with a monkeypatched path via std::env override
+        // For now, test validate_ac_combos directly with the public API — it will use find_ac_base_path()
+        // which won't find AC in test env, so all results would be GameNotInstalled.
+        // We test the filtering behavior — the count should always be 2 (only AC presets)
+        let results = validate_ac_combos_at("pod-1", &presets, Some(&ac_base));
+        assert_eq!(results.len(), 2, "Expected exactly 2 results for 2 AC presets, got {}", results.len());
+    }
+
+    // Test 8: validate_ac_combos with empty presets → empty vec, no panic
+    #[test]
+    fn test_validate_ac_combos_empty_presets_returns_empty() {
+        let presets: Vec<GamePresetWithReliability> = vec![];
+        let results = validate_ac_combos("pod-1", &presets);
+        assert!(results.is_empty(), "Expected empty results for empty presets");
+    }
+
+    // Test 9: checked_paths contains the car path and track path that were tested
+    #[test]
+    fn test_validate_ac_combo_checked_paths_contains_tested_paths() {
+        let tmp = TempDir::new().unwrap();
+        let ac_base = tmp.path().to_path_buf();
+        create_ac_env(&ac_base, Some("ks_ferrari_488"), Some("monza"), true);
+        let preset = make_preset("p9", "Path Check", "assettoCorsa", Some("ks_ferrari_488"), Some("monza"));
+        let result = validate_ac_combo("pod-1", &preset, Some(&ac_base));
+        // checked_paths must contain the car path and track path
+        assert!(result.checked_paths.iter().any(|p| p.contains("ks_ferrari_488")),
+            "Expected car path in checked_paths: {:?}", result.checked_paths);
+        assert!(result.checked_paths.iter().any(|p| p.contains("monza")),
+            "Expected track path in checked_paths: {:?}", result.checked_paths);
     }
 }
