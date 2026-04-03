@@ -30,7 +30,13 @@ export function middleware(request: NextRequest) {
   );
 
   if (!isStaffRoute) {
-    return NextResponse.next();
+    // WS-HARDEN: Prevent browser caching HTML pages — ensures fresh JS chunk
+    // references are loaded after deploys. Static assets (_next/static/) have
+    // content-hash filenames and are cached separately by the browser.
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    response.headers.set("Pragma", "no-cache");
+    return response;
   }
 
   // MMA iter1: Validate JWT structure, not just cookie existence.
@@ -72,17 +78,16 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  return response;
 }
 
 export const config = {
-  // Match all kiosk routes except static files and API routes
+  // Match all kiosk routes except static files (_next/static) and API routes
+  // Broader matcher ensures cache-busting headers apply to ALL HTML pages
   matcher: [
-    "/kiosk/staff/:path*",
-    "/kiosk/control/:path*",
-    "/kiosk/settings/:path*",
-    "/kiosk/shutdown/:path*",
-    "/kiosk/debug/:path*",
-    "/kiosk/fleet/:path*",
+    "/((?!_next/static|_next/image|favicon.ico|api/).*)",
   ],
 };
