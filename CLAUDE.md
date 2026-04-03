@@ -1,53 +1,28 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v3.6 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v4.0 (MANDATORY — READ FIRST)
 
-**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md` — merged CGP + Unified Operations Protocol into single source of truth (2026-04-01, v3.2-3.5: 2026-04-03, v3.6: 2026-04-04).**
+**This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
 
-**v3.6: ECOSYSTEM-WIDE SCOPE.** CGP governs the ENTIRE Racing Point ecosystem — venue, cloud, PWA, WhatsApp, websites, and all future systems. E2E means the customer's journey from phone to race seat, not infrastructure round-trips. Testing only venue APIs and calling it "customer E2E" is a false claim. Every gate applies to every system, present and future.
+**Root cause (researched):** RLHF trains AI agents to produce completion-signaling language. 45.4% of AI PRs claim unimplemented changes. 147 rules created compliance theater. v4.0: 5 hard gates + 13 standing rules, measured by False Claim Rate.
 
-**Root cause being fixed:** Task-completion bias — James treats step execution as step success, verifies mechanisms instead of outcomes. 65 documented failures across 6 categories. Root cause: open-loop architecture (Transcript Trust Problem). Rules are declarative and fail; gates + contradiction tests are procedural and work.
+**5 Hard Gates (hook-enforced, cannot skip):**
 
-**v3.5: CLOSED-LOOP VERIFICATION (from 65-incident analysis + MMA research):**
-- **Contradiction testing:** After ANY physical-world action, run `bash scripts/verify-action.sh <action> <args>`. FAIL = do NOT proceed.
-- **Plan validation:** Before executing E2E tests, run `node scripts/validate-plan.mjs '<plan_json>'`. Validates game-tier combos, fleet targets.
-- **Server sync verification:** `/games/launch` returns `verified: true/false` — poll for 20s until game process confirmed.
-- **Domain rules:** `scripts/domain-rules.json` — machine-readable rules (trial=AC only, fleet targets, verification requirements).
-- **Standing rule:** `ok: true` from ANY API is NOT proof. ONLY `verify-action.sh PASS` or `verified: true` in response is proof.
+| Gate | Trigger | Enforcement |
+|------|---------|-------------|
+| **H1** | Before action tools | Hook blocks until PROBLEM + PLAN produced |
+| **H2** | Completion claims | Fix and verify in SEPARATE messages |
+| **H3** | Before "done/fixed/PASS" | Exact behavior + raw output + NOT TESTED list. Proxies NOT evidence. |
+| **H4** | Before "all/everywhere" | Grep + per-target list BEFORE assertion |
+| **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0 |
 
-**v3.2 rules (from 5 user corrections in one session):**
-- **Automated verification:** Run `bash scripts/pod-verify.sh` before ANY pod-related completion claim. Checks Session context, edge count, blanking state. FAIL = do not claim done.
-- **Two-Phase Completion:** NEVER claim "done" in same message as last fix. Fix first, verify next turn.
-- **Proxy metrics are NOT proof:** health OK, ws=True, build_id match are supplementary only.
-- **Multi-probe before "offline":** Check ping + sentry + agent + SSH. Single failed probe proves nothing.
-- **TEMPORARY vs PERMANENT:** Label every fix. TEMPORARY requires follow-up in G4.
-- **No file redirects on `start` in bat files:** `start "" prog.exe 2>> file.log` fails silently in schtask context (exit code 1, process never created). Use `start "" prog.exe` without redirects — log via the binary's own logging instead.
-- **Delete-before-SCP:** Windows SCP silently fails to overwrite. Always `del` first, then SCP, then verify.
-- **"Good Catch" = G9 trigger:** Every user correction → immediate root cause analysis. Target: 0 per session.
+**Scope:** All systems — venue, cloud, PWA, WhatsApp, comms-link. E2E = customer journey.
 
-### The 10 Gates (embedded in lifecycle phases)
+**Tools:** `check-alive.sh` (multi-probe), `verify-action.sh` (contradiction test), `pod-verify.sh` (fleet check).
 
-| Gate | Trigger | Required Proof | Phase(s) | Bypass? |
-|------|---------|----------------|----------|---------|
-| **G0** | New non-trivial task | `PROBLEM:` + `SYMPTOMS:` + `PLAN:` block | 0, 1 | YES |
-| **G1** | Before "done/fixed/PASS" | Behavior + method + raw evidence (not proxies) | 3, 5 | NO |
-| **G2** | After any fix | Per-target fleet scope table with evidence | 4, 5 | NO |
-| **G3** | User shares info during problem | Application (command+output), not summary | D | YES |
-| **G4** | Before success claims | Tested / Not Tested (risk) / Follow-up Plan | 3, 5 | NO |
-| **G5** | Anomalous data | 2+ hypotheses with falsification tests | D, 3 | YES |
-| **G6** | Topic change while work open | `PAUSED:` + `STATUS:` + `NEXT:` + `RESUME BY:` | Any | YES |
-| **G7** | Before selecting tool | Requirement + Tool + Compatibility Check | 2, 4 | YES |
-| **G8** | Before deploying shared changes | Changed + downstream consumers + verification | 2, 4 | YES |
-| **G9** | After resolving issue (>3 exchanges) | Root cause + prevention + similar past | D exit | YES |
+**Metrics:** `Claims: N | Corrections: N | FCR: N% | G9s: N` — reported at session end.
 
-### Lifecycle: Phase 0 (Session Start) → 1 (Plan) → 2 (Create) → 3 (Verify) → 4 (Deploy) → 5 (Ship) | Phase D (Debug) | Phase E (Emergency) | Phase B (Break-Glass) | Phase I (Island Mode)
-
-### Enforcement
-- **Gate Summary Block** required at end of any completion claim: `GATES TRIGGERED: [...] | PROOFS: [Y/N each] | SKIPPED: [reason]`
-- **User is Supervisor:** "done" without G1 proof or fix without G2 table → reject.
-- **Emergency bypass:** Phase E defers G0/5/6/7/8/9. Gates 1/2/4 always apply.
-- **Session Bootstrap:** `.claude/hooks/cgp-session-bootstrap.sh` + `cgp-enforce.js` (hard) + `cgp-session-inject.js` (soft).
-- **Compliance Checker:** `scripts/cgp-compliance-check.sh` (exit 0 = compliant).
+**Hooks:** `cgp-enforce.js` (H1 hard block) + `cgp-session-inject.js` (H1-H5 reminders).
 
 ---
 
@@ -651,7 +626,7 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.0 — 10 gates + lifecycle phases + emergency/debug/audit (merged from CGP v2.1 + Unified Protocol v3.0) |
+| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.6 — 10 gates + lifecycle phases + emergency/debug/audit + ecosystem-wide scope |
 | `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
 | `.cargo\config.toml` | Static CRT build config |
 
