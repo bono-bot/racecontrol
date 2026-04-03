@@ -44,12 +44,14 @@ export KIOSK_BASE_URL="${KIOSK_BASE_URL:-http://192.168.31.23:3300}"
 # ─── Phase status tracking (bash 3 compatible -- no associative arrays) ──────
 PREFLIGHT_EXIT=0
 API_EXIT=0
+WS_EXIT=0
 BROWSER_EXIT=0
 DEPLOY_EXIT=0
 FLEET_HEALTH_EXIT=0
 
 PREFLIGHT_STATUS="SKIP"
 API_STATUS="SKIP"
+WS_STATUS="SKIP"
 BROWSER_STATUS="SKIP"
 DEPLOY_STATUS="SKIP"
 FLEET_HEALTH_STATUS="SKIP"
@@ -135,6 +137,29 @@ if [ "$PREFLIGHT_STATUS" = "PASS" ]; then
     fi
 fi
 
+# ─── Phase 2.5: WebSocket Tests (only if preflight passed) ──────────────────
+if [ "$PREFLIGHT_STATUS" = "PASS" ]; then
+    run_phase "ws-smoke" bash "$SCRIPT_DIR/ws/ws-smoke.sh"
+    WS_SMOKE_EXIT="${PIPESTATUS[0]}"
+
+    run_phase "ws-churn" bash "$SCRIPT_DIR/ws/ws-churn.sh"
+    WS_CHURN_EXIT="${PIPESTATUS[0]}"
+
+    run_phase "ws-roundtrip" bash "$SCRIPT_DIR/ws/ws-roundtrip.sh"
+    WS_ROUNDTRIP_EXIT="${PIPESTATUS[0]}"
+
+    run_phase "ws-frontend-staleness" bash "$SCRIPT_DIR/ws/frontend-staleness.sh"
+    WS_STALENESS_EXIT="${PIPESTATUS[0]}"
+
+    WS_EXIT=$((WS_SMOKE_EXIT + WS_CHURN_EXIT + WS_ROUNDTRIP_EXIT + WS_STALENESS_EXIT))
+    TOTAL_FAIL=$((TOTAL_FAIL + WS_EXIT))
+    if [ "$WS_EXIT" -eq 0 ]; then
+        WS_STATUS="PASS"
+    else
+        WS_STATUS="FAIL"
+    fi
+fi
+
 # ─── Phase 3: Browser Tests (only if preflight passed, unless --skip-browser) ─
 if [ "$PREFLIGHT_STATUS" = "PASS" ] && [ "$SKIP_BROWSER" = "false" ]; then
     run_phase "browser" npx playwright test --config "$REPO_ROOT/playwright.config.ts"
@@ -193,6 +218,7 @@ printf "  %-20s %s\n" "Phase" "Status"
 printf "  %-20s %s\n" "--------------------" "------"
 printf "  %-20s %s\n" "Preflight" "$PREFLIGHT_STATUS"
 printf "  %-20s %s\n" "API Tests" "$API_STATUS"
+printf "  %-20s %s\n" "WebSocket Tests" "$WS_STATUS"
 printf "  %-20s %s\n" "Browser Tests" "$BROWSER_STATUS"
 printf "  %-20s %s\n" "Deploy Verify" "$DEPLOY_STATUS"
 printf "  %-20s %s\n" "Fleet Health" "$FLEET_HEALTH_STATUS"
@@ -212,6 +238,7 @@ summary = {
     'phases': {
         'preflight': {'status': '${PREFLIGHT_STATUS}', 'exit_code': ${PREFLIGHT_EXIT}},
         'api': {'status': '${API_STATUS}', 'exit_code': ${API_EXIT}},
+        'websocket': {'status': '${WS_STATUS}', 'exit_code': ${WS_EXIT}},
         'browser': {'status': '${BROWSER_STATUS}', 'exit_code': ${BROWSER_EXIT}},
         'deploy': {'status': '${DEPLOY_STATUS}', 'exit_code': ${DEPLOY_EXIT}},
         'fleet_health': {'status': '${FLEET_HEALTH_STATUS}', 'exit_code': ${FLEET_HEALTH_EXIT}}

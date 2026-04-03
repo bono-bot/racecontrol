@@ -96,6 +96,10 @@ pub struct FleetHealthStore {
     pub experience_status: Option<String>,
     /// Windows session ID from last StartupReport: 0 = Session 0 (broken GUI), 1+ = interactive.
     pub windows_session_id: Option<u32>,
+    /// WS reconnect count: incremented each time the agent re-registers over WS.
+    pub ws_reconnect_count: u32,
+    /// Timestamps of recent WS reconnects for this pod (sliding window, max 20).
+    pub ws_reconnect_times: Vec<DateTime<Utc>>,
 }
 
 /// Per-pod violation history with time-based eviction and fingerprint dedup.
@@ -333,6 +337,12 @@ pub struct PodFleetStatus {
     /// Windows session ID: 0 = Session 0 (Services, GUI broken), 1+ = interactive (Console).
     /// null = old agent or no StartupReport received yet.
     pub windows_session_id: Option<u32>,
+    /// WS reconnect count in the last 5 minutes.
+    #[serde(default)]
+    pub ws_reconnects_5m: u32,
+    /// Total WS reconnect count since last server restart.
+    #[serde(default)]
+    pub ws_reconnect_count: u32,
 }
 
 /// Called from the WS StartupReport handler.
@@ -1146,6 +1156,8 @@ pub async fn fleet_health_handler(
                     crash_recovery_count: 0,
                     // Phase 318 (Rule 1 - Bug): missing field in None branch — pod not yet registered
                     windows_session_id: None,
+                    ws_reconnects_5m: 0,
+                    ws_reconnect_count: 0,
                 });
             }
             Some(info) => {
@@ -1200,6 +1212,12 @@ pub async fn fleet_health_handler(
                 let crash_recovery_count = crash_recovery_map.get(pod_id).copied().unwrap_or(0);
                 let windows_session_id = store.and_then(|s| s.windows_session_id);
 
+                let five_min_ago = Utc::now() - chrono::Duration::seconds(300);
+                let ws_reconnects_5m = store
+                    .map(|s| s.ws_reconnect_times.iter().filter(|t| **t > five_min_ago).count() as u32)
+                    .unwrap_or(0);
+                let ws_reconnect_count = store.map(|s| s.ws_reconnect_count).unwrap_or(0);
+
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -1229,6 +1247,8 @@ pub async fn fleet_health_handler(
                     avg_ready_delay_ms,
                     crash_recovery_count,
                     windows_session_id,
+                    ws_reconnects_5m,
+                    ws_reconnect_count,
                 });
             }
         }

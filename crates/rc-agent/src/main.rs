@@ -2039,6 +2039,18 @@ async fn main() -> Result<()> {
 
         state.heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
 
+        // WS stability tracking: record reconnect events for MI diagnostic probe.
+        if state.heartbeat_status.ws_uptime_secs() > 0 {
+            state.heartbeat_status.record_ws_reconnect();
+            tracing::info!(
+                target: LOG_TARGET,
+                reconnects_5m = state.heartbeat_status.ws_reconnects_in_window(300),
+                lifetime = state.heartbeat_status.ws_reconnect_count_lifetime.load(std::sync::atomic::Ordering::Relaxed),
+                "WS reconnected (stability tracking)"
+            );
+        }
+        state.heartbeat_status.record_first_connect();
+
         // WS connected successfully — reset restart counter so transient budget is restored.
         self_monitor::reset_restart_count();
 

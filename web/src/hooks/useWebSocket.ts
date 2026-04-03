@@ -46,6 +46,8 @@ export function useWebSocket() {
   );
 
   const connect = useCallback(() => {
+    // SSR guard: WebSocket must only run in the browser, not during server-side rendering.
+    if (typeof window === 'undefined') return;
     if (ws.current?.readyState === WebSocket.OPEN) return;
 
     const socket = new WebSocket(WS_URL);

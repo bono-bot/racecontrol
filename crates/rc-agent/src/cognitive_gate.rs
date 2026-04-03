@@ -454,6 +454,8 @@ fn trigger_to_problem(trigger: &DiagnosticTrigger) -> String {
         // Phase 318 (LAUNCH-01)
         DiagnosticTrigger::GameLaunchTimeout { elapsed_secs } =>
             format!("Game launch timed out ({elapsed_secs}s — no playable signal)"),
+        DiagnosticTrigger::WsInstability { reconnects_5m, reconnects_lifetime } =>
+            format!("WebSocket instability: {} reconnects in 5 min ({} lifetime)", reconnects_5m, reconnects_lifetime),
     }
 }
 

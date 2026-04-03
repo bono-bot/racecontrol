@@ -61,6 +61,8 @@ pub enum DiagnosticTrigger {
     ErrorSpike { errors_per_min: u64 },
     /// WebSocket disconnected for more than 30s
     WsDisconnect { disconnected_secs: u64 },
+    /// WebSocket instability — high reconnect frequency (>=3 reconnects in 5 min).
+    WsInstability { reconnects_5m: u64, reconnects_lifetime: u64 },
     /// Unexpected sentinel file found in C:\RacingPoint\
     SentinelUnexpected { file_name: String },
     /// Process guard violation count spiked (delta >50 in 5 min)
@@ -200,6 +202,26 @@ pub fn spawn(
                 if secs >= WS_DISCONNECT_TRIGGER_SECS {
                     events.push(make_event(
                         DiagnosticTrigger::WsDisconnect { disconnected_secs: secs },
+                        &pod_state,
+                    ));
+                }
+            }
+
+            // WS instability check — high reconnect frequency
+            {
+                let reconnects_5m = heartbeat_status.ws_reconnects_in_window(300);
+                if reconnects_5m >= 3 {
+                    let reconnects_lifetime = heartbeat_status.ws_reconnect_count_lifetime
+                        .load(Ordering::Relaxed);
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        reconnects_5m,
+                        reconnects_lifetime,
+                        "WS instability detected — {} reconnects in last 5 min",
+                        reconnects_5m,
+                    );
+                    events.push(make_event(
+                        DiagnosticTrigger::WsInstability { reconnects_5m, reconnects_lifetime },
                         &pod_state,
                     ));
                 }

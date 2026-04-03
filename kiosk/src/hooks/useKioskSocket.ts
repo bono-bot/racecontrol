@@ -82,6 +82,10 @@ export function useKioskSocket() {
   );
 
   const connect = useCallback(() => {
+    // SSR guard: WebSocket must only run in the browser, not during server-side rendering.
+    // Without this, Next.js SSR creates WS connections that immediately disconnect,
+    // causing 74-150 connects/min churn visible in dashboard_ws_churn metrics.
+    if (typeof window === 'undefined') return;
     if (ws.current?.readyState === WebSocket.OPEN) return;
 
     const socket = WS_TOKEN

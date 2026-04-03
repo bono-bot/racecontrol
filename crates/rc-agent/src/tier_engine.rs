@@ -360,6 +360,7 @@ async fn check_trigger_resolved(
             let state = failure_monitor_rx.borrow().clone();
             state.game_pid.is_some()
         }
+        DiagnosticTrigger::WsInstability { .. } => true,
     }
 }
 
@@ -1058,6 +1059,10 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         }
         // Phase 318 (LAUNCH-01)
         DiagnosticTrigger::GameLaunchTimeout { .. } => "GameLaunchTimeout".to_string(),
+        DiagnosticTrigger::WsInstability { reconnects_5m, .. } => {
+            let severity = if *reconnects_5m >= 6 { "severe" } else { "moderate" };
+            format!("WsInstability_{}", severity)
+        }
     }
 }
 
@@ -1840,6 +1845,14 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
         }
         DiagnosticTrigger::ProcessCrash { process_name } => {
             tracing::info!(target: LOG_TARGET, action = "crash_detected", process = %process_name, "Tier 1: crash detected");
+        }
+        DiagnosticTrigger::WsInstability { reconnects_5m, reconnects_lifetime } => {
+            tracing::warn!(
+                target: LOG_TARGET, action = "ws_instability",
+                reconnects_5m, reconnects_lifetime, billing_active,
+                "Tier 1: WS instability — {} reconnects in 5 min", reconnects_5m,
+            );
+            actions_taken.push(format!("WS instability logged: reconnects_5m={}, lifetime={}", reconnects_5m, reconnects_lifetime));
         }
         DiagnosticTrigger::PreFlightFailed { check_name, detail } => {
             // Tier 1 deterministic fixes for pre-flight failures.

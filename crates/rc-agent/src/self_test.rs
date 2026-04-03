@@ -92,6 +92,23 @@ async fn probe_ws_connected(status: &Arc<HeartbeatStatus>) -> ProbeResult {
     }
 }
 
+/// Probe 1b: WebSocket stability — checks reconnect frequency.
+async fn probe_ws_stability(status: &Arc<HeartbeatStatus>) -> ProbeResult {
+    let reconnects_5m = status.ws_reconnects_in_window(300);
+    let reconnects_lifetime = status.ws_reconnect_count_lifetime.load(Ordering::Relaxed);
+    let uptime_secs = status.ws_uptime_secs();
+    let connected = status.ws_connected.load(Ordering::Relaxed);
+    let stable = reconnects_5m < 3;
+    ProbeResult {
+        name: "ws_stability".to_string(),
+        status: if stable { ProbeStatus::Pass } else { ProbeStatus::Fail },
+        detail: format!(
+            "reconnects_5m={}, lifetime={}, uptime={}s, connected={}",
+            reconnects_5m, reconnects_lifetime, uptime_secs, connected
+        ),
+    }
+}
+
 /// Probe 2–5: TCP port reachability (lock_screen, remote_ops, overlay, debug_server).
 async fn probe_tcp_port(name: &str, addr: &str) -> ProbeResult {
     let addr = addr.to_string();
@@ -615,6 +632,7 @@ pub async fn run_all_probes(
 
     let (
         r_ws,
+        r_ws_stability,
         r_lock_screen,
         r_remote_ops,
         r_overlay,
@@ -638,6 +656,7 @@ pub async fn run_all_probes(
         r_steam,
     ) = tokio::join!(
         timed_probe("ws_connected", || probe_ws_connected(&status)),
+        timed_probe("ws_stability", || probe_ws_stability(&status)),
         timed_probe("lock_screen", || probe_tcp_port("lock_screen", "127.0.0.1:18923")),
         timed_probe("remote_ops", || probe_tcp_port("remote_ops", "127.0.0.1:8090")),
         timed_probe("overlay", || probe_tcp_port("overlay", "127.0.0.1:18925")),
@@ -663,6 +682,7 @@ pub async fn run_all_probes(
 
     let probes = vec![
         r_ws,
+        r_ws_stability,
         r_lock_screen,
         r_remote_ops,
         r_overlay,

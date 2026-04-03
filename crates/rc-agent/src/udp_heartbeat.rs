@@ -4,8 +4,9 @@
 //! If 3 pongs are missed (6s), signals the main loop to force-reconnect WebSocket.
 //! Independent of TCP state — detects half-open connections faster.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
@@ -38,6 +39,13 @@ pub struct HeartbeatStatus {
     /// Epoch-millis of last SwitchController received. 0 = no recent switch.
     /// self_monitor suppresses WS-dead relaunch for 60s after a switch.
     pub last_switch_ms: AtomicU64,
+    /// WS stability tracking: timestamps of recent reconnect events.
+    /// Used by self_test probe and diagnostic_engine to detect WS instability.
+    ws_reconnect_times: Mutex<VecDeque<Instant>>,
+    /// Total WS reconnect count since boot (monotonically increasing).
+    pub ws_reconnect_count_lifetime: AtomicU64,
+    /// Timestamp of the first WS connection (boot time baseline for uptime).
+    ws_first_connect: Mutex<Option<Instant>>,
 }
 
 impl HeartbeatStatus {
@@ -49,6 +57,51 @@ impl HeartbeatStatus {
             billing_active: AtomicBool::new(false),
             game_id: AtomicU32::new(0),
             last_switch_ms: AtomicU64::new(0),
+            ws_reconnect_times: Mutex::new(VecDeque::with_capacity(20)),
+            ws_reconnect_count_lifetime: AtomicU64::new(0),
+            ws_first_connect: Mutex::new(None),
+        }
+    }
+
+    /// Record a WS reconnect event.
+    pub fn record_ws_reconnect(&self) {
+        let now = Instant::now();
+        if let Ok(mut times) = self.ws_reconnect_times.lock() {
+            times.push_back(now);
+            while times.len() > 20 {
+                times.pop_front();
+            }
+        }
+        self.ws_reconnect_count_lifetime.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record the first WS connection (only set once).
+    pub fn record_first_connect(&self) {
+        if let Ok(mut first) = self.ws_first_connect.lock() {
+            if first.is_none() {
+                *first = Some(Instant::now());
+            }
+        }
+    }
+
+    /// Count reconnects within the last `window_secs` seconds.
+    pub fn ws_reconnects_in_window(&self, window_secs: u64) -> u64 {
+        let now = Instant::now();
+        let threshold = now.checked_sub(Duration::from_secs(window_secs))
+            .unwrap_or(now);
+        if let Ok(times) = self.ws_reconnect_times.lock() {
+            times.iter().filter(|t| **t >= threshold).count() as u64
+        } else {
+            0
+        }
+    }
+
+    /// Get WS connection uptime in seconds since first connect.
+    pub fn ws_uptime_secs(&self) -> u64 {
+        if let Ok(first) = self.ws_first_connect.lock() {
+            first.map(|t| t.elapsed().as_secs()).unwrap_or(0)
+        } else {
+            0
         }
     }
 }

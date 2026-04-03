@@ -337,6 +337,7 @@ test('PIN flow produces no uncaught JS errors on happy path', async ({ page }) =
   await page.getByRole('button', { name: /submit/i }).click();
   await expect(page.getByText('Head to Pod')).toBeVisible({ timeout: 5_000 });
 
-  // No JS errors should have occurred
-  expect(jsErrors.filter(e => !e.includes('WebSocket'))).toEqual([]);
+  // No JS errors should have occurred (including WebSocket errors — WS failures
+  // indicate stale frontend builds or server message format changes)
+  expect(jsErrors).toEqual([]);
 });

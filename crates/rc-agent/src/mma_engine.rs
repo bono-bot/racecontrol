@@ -220,6 +220,7 @@ pub fn classify_domain(trigger: &DiagnosticTrigger) -> IssueDomain {
 
         // Phase 318 (LAUNCH-01): launch timeout is a game/Rust backend concern
         DiagnosticTrigger::GameLaunchTimeout { .. } => IssueDomain::RustBackend,
+        DiagnosticTrigger::WsInstability { .. } => IssueDomain::Network,
     }
 }
 
