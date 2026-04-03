@@ -1602,6 +1602,57 @@ pub async fn handle_ws_message(
             }
         }
 
+        // ─── Phase 316-02: PresetPush handler — boot-time AC combo validation ──────
+        // COMBO-01 / COMBO-02: When the server pushes presets, validate each AC preset
+        // against the pod filesystem and send back a ComboValidationReport.
+        // Sequencing gate: validation only runs AFTER presets are received — never before.
+        CoreToAgentMessage::PresetPush(payload) => {
+            tracing::info!(
+                target: LOG_TARGET,
+                "Presets received: {} preset(s) from server",
+                payload.presets.len()
+            );
+
+            if !payload.presets.is_empty() {
+                let pod_id = state.pod_id.clone();
+                let presets = payload.presets.clone();
+                let result_tx = state.ws_exec_result_tx.clone();
+                tokio::spawn(async move {
+                    let pod_id_inner = pod_id.clone();
+                    let results = tokio::task::spawn_blocking(move || {
+                        crate::content_scanner::validate_ac_combos(&pod_id_inner, &presets)
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "Combo validation complete: {}/{} AC combos validated",
+                        results.iter().filter(|r| matches!(r.status, rc_common::types::ComboAvailabilityStatus::Available)).count(),
+                        results.len()
+                    );
+
+                    if !results.is_empty() {
+                        let report = rc_common::protocol::AgentMessage::ComboValidationReport {
+                            pod_id: pod_id.clone(),
+                            results,
+                        };
+                        if result_tx.send(report).await.is_err() {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                "Failed to queue ComboValidationReport — ws_exec_result_tx closed"
+                            );
+                        }
+                    }
+                });
+            } else {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "PresetPush received with 0 presets — skipping combo validation"
+                );
+            }
+        }
+
         CoreToAgentMessage::ForceRelaunchBrowser { pod_id: _ } => {
             // Phase 139: Server-initiated lock screen recovery.
             // Guard: never relaunch during an active billing session (standing rule #10).
