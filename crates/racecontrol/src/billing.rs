@@ -6897,6 +6897,7 @@ mod tests {
             elapsed_seconds: Some(e.waiting_since.elapsed().as_secs() as u32),
             cost_paise: Some(0),
             rate_per_min_paise: Some(0),
+            billing_mode: None,
             recovery_pause_seconds: None,
         };
         // Verify the simulated tick has the correct status
