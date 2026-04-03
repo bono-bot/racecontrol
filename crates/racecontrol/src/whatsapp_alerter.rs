@@ -101,6 +101,51 @@ pub(crate) async fn send_whatsapp(config: &Config, message: &str) {
     }
 }
 
+/// Send a WhatsApp message to a specific phone number (not just Uday).
+/// Used for staff PIN rotation and other per-person notifications.
+pub async fn send_whatsapp_to(config: &Config, phone: &str, message: &str) {
+    let (evo_url, evo_key, evo_instance) = match (
+        &config.auth.evolution_url,
+        &config.auth.evolution_api_key,
+        &config.auth.evolution_instance,
+    ) {
+        (Some(url), Some(key), Some(inst)) => (url, key, inst),
+        _ => {
+            tracing::warn!(target: "whatsapp_alerter", "Evolution API not configured, skipping WA message to {}", phone);
+            return;
+        }
+    };
+
+    let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+    let body = serde_json::json!({
+        "number": phone,
+        "text": message
+    });
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(target: "whatsapp_alerter", "Failed to build HTTP client: {}", e);
+            return;
+        }
+    };
+
+    match client.post(&url).header("apikey", evo_key).json(&body).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!(target: "whatsapp_alerter", "WA message sent to {}", phone);
+        }
+        Ok(resp) => {
+            tracing::warn!(target: "whatsapp_alerter", "Evolution API returned {} for WA message to {}", resp.status(), phone);
+        }
+        Err(e) => {
+            tracing::warn!(target: "whatsapp_alerter", "WA message send to {} failed: {}", phone, e);
+        }
+    }
+}
+
 /// Send a WhatsApp alert for sensitive admin actions (login, topup, fleet exec).
 /// Best-effort: uses existing send_whatsapp() + ist_now_string().
 pub(crate) async fn send_admin_alert(config: &Config, action: &str, details: &str) {

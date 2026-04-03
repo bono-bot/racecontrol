@@ -5,6 +5,7 @@ import { AlertTriangle, Server } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import CountdownTimer from "@/components/CountdownTimer";
 import BillingStartModal from "@/components/BillingStartModal";
+import WalletTopupModal from "@/components/WalletTopupModal";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
@@ -14,6 +15,7 @@ import type { Pod } from "@/lib/api";
 export default function BillingPage() {
   const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand } = useWebSocket();
   const [modalPod, setModalPod] = useState<Pod | null>(null);
+  const [showTopup, setShowTopup] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const { toast } = useToast();
 
@@ -97,7 +99,13 @@ export default function BillingPage() {
           <h1 className="text-2xl font-bold text-white">Billing</h1>
           <p className="text-sm text-rp-grey">Session management</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <button
+            onClick={() => setShowTopup(true)}
+            className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition-colors"
+          >
+            Top Up Wallet
+          </button>
           <span className="bg-rp-card border border-rp-border rounded-lg px-3 py-1.5 text-xs text-neutral-300">
             {billingTimers.size} active
           </span>
@@ -323,6 +331,14 @@ export default function BillingPage() {
           onClose={() => setModalPod(null)}
           onStart={handleStart}
           onAssign={handleAssign}
+        />
+      )}
+
+      {/* Wallet Top-Up Modal */}
+      {showTopup && (
+        <WalletTopupModal
+          onClose={() => setShowTopup(false)}
+          onSuccess={() => toast({ message: "Wallet topped up", type: "success" })}
         />
       )}
     </DashboardLayout>

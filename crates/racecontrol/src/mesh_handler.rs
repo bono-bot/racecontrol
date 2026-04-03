@@ -83,6 +83,49 @@ pub async fn handle_mesh_message(
             handle_diagnosis_audit(state, incident_id, audit_json).await;
         }
 
+        AgentMessage::MeshInterimResult {
+            problem_key,
+            step_number,
+            consensus_json,
+            source_node,
+            cost_so_far,
+            ..
+        } => {
+            // Relay interim MMA results to all other pods for collaborative diagnosis
+            let broadcast = CoreToAgentMessage::MeshInterimBroadcast {
+                problem_key: problem_key.clone(),
+                step_number: *step_number,
+                consensus_json: consensus_json.clone(),
+                source_node: source_node.clone(),
+                cost_so_far: *cost_so_far,
+            };
+
+            // Broadcast to all pods except the source — same pattern as experiment announce.
+            // Clone senders snapshot, drop lock, then send (standing rule: no lock across await).
+            let senders: Vec<_> = {
+                let guard = state.agent_senders.read().await;
+                guard.iter()
+                    .filter(|(pod_id, _)| pod_id.as_str() != source_node.as_str())
+                    .map(|(pod_id, tx)| (pod_id.clone(), tx.clone()))
+                    .collect()
+            };
+
+            for (_, tx) in &senders {
+                let _ = tx.send(CoreMessage::wrap(broadcast.clone())).await;
+            }
+
+            tracing::info!(
+                target: "mesh-handler",
+                problem_key = %problem_key,
+                step_number,
+                source_node = %source_node,
+                cost_so_far,
+                peers = senders.len(),
+                "Relayed MMA interim result (step {}) from {} to {} peers",
+                step_number, source_node, senders.len()
+            );
+        }
+
         _ => {} // Non-mesh messages handled elsewhere
     }
 }

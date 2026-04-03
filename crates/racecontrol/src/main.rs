@@ -11,6 +11,8 @@ use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
 use tower_helmet::HelmetLayer;
 
+use rand::Rng;
+
 use racecontrol_crate::config::Config;
 use racecontrol_crate::crypto::encryption::load_encryption_keys;
 use racecontrol_crate::db::migrate_pii_encryption;
@@ -895,6 +897,58 @@ async fn main() -> anyhow::Result<()> {
         let retention_state = state.clone();
         tokio::spawn(async move {
             api::routes::spawn_data_retention_job(retention_state).await;
+        });
+    }
+
+    // Spawn daily staff PIN rotation (10:00 AM IST every day)
+    {
+        let pin_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                // Compute delay until next 10:00 AM IST (UTC+5:30 = 04:30 UTC)
+                let now = chrono::Utc::now();
+                let today_target = now.date_naive().and_hms_opt(4, 30, 0).unwrap();
+                let target = if now.naive_utc() < today_target {
+                    today_target
+                } else {
+                    today_target + chrono::Duration::days(1)
+                };
+                let delay = (target - now.naive_utc()).to_std().unwrap_or(std::time::Duration::from_secs(3600));
+                tracing::info!("staff-pin-rotation: next run in {}s", delay.as_secs());
+                tokio::time::sleep(delay).await;
+
+                // Generate new 4-digit PINs for all active staff
+                let staff = sqlx::query_as::<_, (String, String, String)>(
+                    "SELECT id, name, phone FROM staff_members WHERE is_active = 1",
+                )
+                .fetch_all(&pin_state.db)
+                .await
+                .unwrap_or_default();
+
+                for (id, name, phone) in &staff {
+                    let new_pin = format!("{:04}", rand::thread_rng().gen_range(1000u32..=9999));
+                    if let Err(e) = sqlx::query("UPDATE staff_members SET pin = ?, updated_at = datetime('now') WHERE id = ?")
+                        .bind(&new_pin)
+                        .bind(id)
+                        .execute(&pin_state.db)
+                        .await
+                    {
+                        tracing::error!("staff-pin-rotation: failed to update PIN for {}: {}", name, e);
+                        continue;
+                    }
+
+                    let msg = format!(
+                        "Racing Point - Your new staff PIN for today is: {}\nValid until tomorrow 10 AM.",
+                        new_pin
+                    );
+                    racecontrol_crate::whatsapp_alerter::send_whatsapp_to(&pin_state.config, phone, &msg).await;
+                    tracing::info!("staff-pin-rotation: rotated PIN for {} ({})", name, id);
+                }
+
+                if !staff.is_empty() {
+                    tracing::info!("staff-pin-rotation: rotated PINs for {} staff members", staff.len());
+                }
+            }
         });
     }
 

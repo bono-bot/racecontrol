@@ -52,6 +52,8 @@ mod self_test;
 mod mma_engine;
 mod model_reputation;
 mod model_reputation_store;
+mod budget_tracker_store;
+mod mma_cache;
 mod revenue_protection;
 mod tier_engine;
 mod sims;

@@ -393,6 +393,18 @@ pub enum AgentMessage {
         requesting_node: String,
     },
 
+    /// Pod broadcasts interim MMA step results so other pods can skip completed steps.
+    /// Sent after Steps 1 (DIAGNOSE) and 2 (PLAN) complete — allows fleet collaboration
+    /// on long diagnoses instead of each pod running the full protocol independently.
+    MeshInterimResult {
+        problem_key: String,
+        step_number: u8,
+        consensus_json: String,
+        source_node: String,
+        cost_so_far: f64,
+        timestamp: String,
+    },
+
     /// Pod announces it is actively diagnosing an issue — other pods should wait.
     MeshExperimentAnnounce {
         problem_key: String,
@@ -927,6 +939,16 @@ pub enum CoreToAgentMessage {
         hypothesis: String,
         node: String,
         estimated_cost: f64,
+    },
+
+    /// Server broadcasts interim MMA results from one pod to all others.
+    /// Receiving pods can skip already-completed steps in their own MMA runs.
+    MeshInterimBroadcast {
+        problem_key: String,
+        step_number: u8,
+        consensus_json: String,
+        source_node: String,
+        cost_so_far: f64,
     },
 
     /// Server alerts all pods of a systemic issue (3+ pods same symptom).

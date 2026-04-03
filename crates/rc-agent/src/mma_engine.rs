@@ -860,9 +860,10 @@ pub async fn run_protocol(
 
     let domain = classify_domain(&event.trigger);
     let domain_str = format!("{:?}", domain);
+    let issue_key = crate::knowledge_base::normalize_problem_key(&event.trigger);
     let base_symptoms = openrouter::format_symptoms(
         &format!("{:?}", event.trigger),
-        &crate::knowledge_base::normalize_problem_key(&event.trigger),
+        &issue_key,
         &format!("build_id={}", event.build_id),
         &format!("{:?}", event.pod_state),
     );
@@ -875,9 +876,81 @@ pub async fn run_protocol(
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
+    // ── MMA consensus cache: check if we've already diagnosed this problem ──
+    let env_fp = crate::knowledge_base::fingerprint_env(event.build_id);
+    let problem_hash = crate::knowledge_base::compute_stable_hash(&issue_key, &env_fp);
+    if let Ok(cache) = crate::mma_cache::MmaCache::open(crate::knowledge_base::KB_PATH) {
+        if let Some(entry) = cache.get(&problem_hash, event.build_id) {
+            // Cache hit — return the cached consensus without re-running Steps 1-3.
+            // The caller (tier_engine) will still verify the fix works.
+            if let Ok(consensus) = serde_json::from_str::<StepConsensus>(&entry.consensus_json) {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    issue_key = %issue_key,
+                    prior_cost = entry.total_cost,
+                    "MMA cache HIT — returning cached consensus (saved ${:.2})",
+                    entry.total_cost
+                );
+                return MmaProtocolResult::Success {
+                    consensus,
+                    total_cost: 0.0, // No new cost — cached
+                    backtracks: 0,
+                };
+            }
+        }
+    }
+
     let mut total_cost = 0.0f64;
     let mut backtracks = 0u8;
     let mut backtrack_evidence: Vec<String> = Vec::new();
+
+    // ── MMA checkpoint resume: check for prior crash mid-diagnosis ──
+    // If a checkpoint exists for the same issue_key, resume from where we left off
+    // to avoid re-spending the cost of completed steps.
+    let mut resumed_step1: Option<StepConsensus> = None;
+    let mut resumed_step2: Option<StepConsensus> = None;
+    if let Some(checkpoint) = load_checkpoint() {
+        if checkpoint.issue_key == issue_key {
+            let age_secs = chrono::DateTime::parse_from_rfc3339(&checkpoint.timestamp)
+                .map(|ts| (chrono::Utc::now() - ts.with_timezone(&chrono::Utc)).num_seconds())
+                .unwrap_or(i64::MAX);
+
+            // Only resume if checkpoint is less than 10 minutes old
+            if age_secs < 600 {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    issue_key = %issue_key,
+                    completed_step = checkpoint.completed_step,
+                    prior_cost = checkpoint.total_cost,
+                    age_secs,
+                    "Resuming MMA from checkpoint (step {} complete, ${:.2} already spent)",
+                    checkpoint.completed_step,
+                    checkpoint.total_cost
+                );
+                total_cost = checkpoint.total_cost;
+                backtracks = checkpoint.backtracks;
+                backtrack_evidence = checkpoint.backtrack_evidence;
+                resumed_step1 = checkpoint.step1_consensus;
+                resumed_step2 = checkpoint.step2_consensus;
+            } else {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    age_secs,
+                    "MMA checkpoint found but too old ({}s) — starting fresh",
+                    age_secs
+                );
+                clear_checkpoint();
+            }
+        } else {
+            tracing::debug!(
+                target: LOG_TARGET,
+                checkpoint_key = %checkpoint.issue_key,
+                current_key = %issue_key,
+                "MMA checkpoint for different issue — clearing"
+            );
+            clear_checkpoint();
+        }
+    }
 
     loop {
         tracing::info!(
@@ -888,89 +961,126 @@ pub async fn run_protocol(
             backtracks
         );
 
-        // ── Step 1: DIAGNOSE ──
-        let step1_cost_est = estimate_step_cost(domain, 1);
-        {
-            let mut bt = budget.write().await;
-            if !bt.can_spend(step1_cost_est) {
-                return MmaProtocolResult::BudgetExhausted { step: 1, spent: total_cost };
+        // ── Step 1: DIAGNOSE (skip if resuming from checkpoint) ──
+        let step1 = if let Some(s1) = resumed_step1.take() {
+            tracing::info!(
+                target: LOG_TARGET,
+                findings = s1.majority_findings.len(),
+                "Step 1 DIAGNOSE: resumed from checkpoint ({} findings)",
+                s1.majority_findings.len()
+            );
+            s1
+        } else {
+            let step1_cost_est = estimate_step_cost(domain, 1);
+            {
+                let mut bt = budget.write().await;
+                if !bt.can_spend(step1_cost_est) {
+                    return MmaProtocolResult::BudgetExhausted { step: 1, spent: total_cost };
+                }
             }
-        }
 
-        let step1 = run_step(
-            &client, &api_key, 1, "DIAGNOSE", domain,
-            &symptoms, &backtrack_evidence, None,
-        ).await;
-        total_cost += step1.total_cost;
-        {
-            let mut bt = budget.write().await;
-            bt.record_spend(step1.total_cost);
-        }
-
-        if step1.majority_findings.is_empty() {
-            tracing::info!(target: LOG_TARGET, "Step 1: no problems found by consensus — issue may be transient");
-            return MmaProtocolResult::Success {
-                consensus: step1,
-                total_cost,
+            // MMA audit trail: checkpoint at Step 1 ENTRY (crash mid-step still leaves a record)
+            save_checkpoint(&MmaCheckpoint {
+                issue_key: issue_key.clone(),
+                domain: domain_str.clone(),
+                completed_step: 0, // 0 = entered Step 1 but not completed
                 backtracks,
-            };
-        }
+                total_cost,
+                step1_consensus: None,
+                step2_consensus: None,
+                backtrack_evidence: backtrack_evidence.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
 
-        tracing::info!(
-            target: LOG_TARGET,
-            findings = step1.majority_findings.len(),
-            iterations = step1.iterations_completed,
-            cost = step1.total_cost,
-            "Step 1 DIAGNOSE complete: {} findings in {} iterations",
-            step1.majority_findings.len(),
-            step1.iterations_completed
-        );
+            let s1 = run_step(
+                &client, &api_key, 1, "DIAGNOSE", domain,
+                &symptoms, &backtrack_evidence, None,
+            ).await;
+            total_cost += s1.total_cost;
+            {
+                let mut bt = budget.write().await;
+                bt.record_spend(s1.total_cost);
+            }
 
-        // MMA-13: Checkpoint after Step 1
-        save_checkpoint(&MmaCheckpoint {
-            issue_key: crate::knowledge_base::normalize_problem_key(&event.trigger),
-            domain: domain_str.clone(),
-            completed_step: 1,
-            backtracks,
-            total_cost,
-            step1_consensus: Some(step1.clone()),
-            step2_consensus: None,
-            backtrack_evidence: backtrack_evidence.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        });
+            if s1.majority_findings.is_empty() {
+                tracing::info!(target: LOG_TARGET, "Step 1: no problems found by consensus — issue may be transient");
+                return MmaProtocolResult::Success {
+                    consensus: s1,
+                    total_cost,
+                    backtracks,
+                };
+            }
 
-        // ── Step 2: PLAN ──
-        let step1_json = serde_json::to_string(&step1).unwrap_or_default();
-        let step2 = run_step(
-            &client, &api_key, 2, "PLAN", domain,
-            &step1_json, &[], Some(&step1),
-        ).await;
-        total_cost += step2.total_cost;
-        {
-            let mut bt = budget.write().await;
-            bt.record_spend(step2.total_cost);
-        }
+            tracing::info!(
+                target: LOG_TARGET,
+                findings = s1.majority_findings.len(),
+                iterations = s1.iterations_completed,
+                cost = s1.total_cost,
+                "Step 1 DIAGNOSE complete: {} findings in {} iterations",
+                s1.majority_findings.len(),
+                s1.iterations_completed
+            );
 
-        tracing::info!(
-            target: LOG_TARGET,
-            plans = step2.fix_plans.len(),
-            cost = step2.total_cost,
-            "Step 2 PLAN complete: {} plans",
-            step2.fix_plans.len()
-        );
+            // MMA-13: Checkpoint after Step 1
+            save_checkpoint(&MmaCheckpoint {
+                issue_key: issue_key.clone(),
+                domain: domain_str.clone(),
+                completed_step: 1,
+                backtracks,
+                total_cost,
+                step1_consensus: Some(s1.clone()),
+                step2_consensus: None,
+                backtrack_evidence: backtrack_evidence.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
 
-        // MMA-13: Checkpoint after Step 2
-        save_checkpoint(&MmaCheckpoint {
-            issue_key: crate::knowledge_base::normalize_problem_key(&event.trigger),
-            domain: domain_str.clone(),
-            completed_step: 2,
-            backtracks,
-            total_cost,
-            step1_consensus: Some(step1.clone()),
-            step2_consensus: Some(step2.clone()),
-            backtrack_evidence: backtrack_evidence.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        });
+            s1
+        };
+
+        // ── Step 2: PLAN (skip if resuming from checkpoint with step >= 2) ──
+        let step2 = if let Some(s2) = resumed_step2.take() {
+            tracing::info!(
+                target: LOG_TARGET,
+                plans = s2.fix_plans.len(),
+                "Step 2 PLAN: resumed from checkpoint ({} plans)",
+                s2.fix_plans.len()
+            );
+            s2
+        } else {
+            let step1_json = serde_json::to_string(&step1).unwrap_or_default();
+            let s2 = run_step(
+                &client, &api_key, 2, "PLAN", domain,
+                &step1_json, &[], Some(&step1),
+            ).await;
+            total_cost += s2.total_cost;
+            {
+                let mut bt = budget.write().await;
+                bt.record_spend(s2.total_cost);
+            }
+
+            tracing::info!(
+                target: LOG_TARGET,
+                plans = s2.fix_plans.len(),
+                cost = s2.total_cost,
+                "Step 2 PLAN complete: {} plans",
+                s2.fix_plans.len()
+            );
+
+            // MMA-13: Checkpoint after Step 2
+            save_checkpoint(&MmaCheckpoint {
+                issue_key: issue_key.clone(),
+                domain: domain_str.clone(),
+                completed_step: 2,
+                backtracks,
+                total_cost,
+                step1_consensus: Some(step1.clone()),
+                step2_consensus: Some(s2.clone()),
+                backtrack_evidence: backtrack_evidence.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+
+            s2
+        };
 
         // ── Steps 3+4 with partial backtrack (MMA-05 / Gap 5) ──
         // If Step 4 fails, retry Steps 3-4 once with different models before
@@ -1057,6 +1167,13 @@ pub async fn run_protocol(
 
             // MMA-13: Clear checkpoint on success
             clear_checkpoint();
+
+            // Cache the consensus for future lookups (saves re-running Steps 1-3)
+            if let Ok(cache) = crate::mma_cache::MmaCache::open(crate::knowledge_base::KB_PATH) {
+                if let Ok(json) = serde_json::to_string(&final_consensus) {
+                    let _ = cache.put(&problem_hash, &json, total_cost, event.build_id);
+                }
+            }
 
             return MmaProtocolResult::Success {
                 consensus: final_consensus,

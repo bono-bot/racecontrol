@@ -1,496 +1,277 @@
 # Pitfalls Research
 
-**Domain:** Multi-layer autonomous healing — adding 3-layer survival system to existing Windows fleet management (v31.0)
-**Researched:** 2026-03-30
-**Confidence:** HIGH — all pitfalls drawn from documented incidents in this exact codebase (CLAUDE.md standing rules, MEMORY.md, git history, existing code in `crates/rc-watchdog/`, `crates/rc-agent/`, `crates/racecontrol/`). No hypothetical pitfalls.
+**Domain:** Game Intelligence System — adding per-pod game inventory, proactive combo validation, launch timeline telemetry, reliability scoring, and fleet game matrix dashboard to the existing Racing Point eSports venue management system (v41.0).
+**Researched:** 2026-04-03
+**Confidence:** HIGH — all pitfalls drawn from documented incidents in this exact codebase: CLAUDE.md standing rules, MEMORY.md incident log, git history, and direct code inspection of `crates/rc-agent/src/content_scanner.rs`, `tier_engine.rs`, `diagnostic_engine.rs`, `game_launcher.rs`, `steam_checks.rs`, `ws/mod.rs`, `fleet_health.rs`, `preset_library.rs`, `crates/rc-common/src/types.rs`, `protocol.rs`, `fleet_event.rs`. No hypothetical pitfalls.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Recovery System Fight — Five Independent Healers on the Same Patient
+### Pitfall 1: Serde Silently Drops Unknown Fields — New Payload Fields Never Reach Agent
 
 **What goes wrong:**
-v31.0 adds Layer 1 (Smart Watchdog MMA), Layer 2 (Fleet Healer SSH), and Layer 3 (External Guardian) on top of the EXISTING recovery systems that have not been removed: `rc-sentry` watchdog (breadcrumb file at `C:\RacingPoint\sentry-restart-breadcrumb.txt`), `RCWatchdog` Windows service (5s poll, `restart_grace_active` + `sentry_breadcrumb_active` deconfliction), and `server pod_monitor/WoL`. With 5 independent healers:
-
-- Layer 1 Smart Watchdog detects crash-loop → triggers MMA → recommends rollback → starts rolling back
-- Simultaneously Layer 2 Fleet Healer SSHes in to collect diagnostics → sees the binary swap in progress
-- rc-sentry also wakes up → writes its breadcrumb → tries to restart via existing path
-- Layer 3 External Guardian sees server not reporting healthy pods → escalates
-- The MMA cycle from Layer 1 runs for 30-60s → by the time it completes, rc-sentry has already restarted the agent in a corrupted state (new binary half-written due to OTA_DEPLOYING not being checked)
-
-This is not theoretical. It already happened during v17.1: "Self-restart + watchdog + WoL created an infinite restart loop that took 45 minutes to diagnose." The new layers multiply the competing actors from 3 to 5+.
+Adding new fields to `ContentManifest`, `AcLaunchParams`, or any struct sent over the WS protocol will silently produce the zero/default value on the receiving side if the receiver has an older binary that doesn't have the field. Worse: adding a field to the kiosk JSON payload that doesn't match the exact Rust field name in rc-common types means the selection is ignored with `{ok: true}` returned and the game launching with default config. This already caused the `ai_difficulty` / `ai_level` mismatch bug (kiosk sent `ai_difficulty: "easy"`, agent expected `ai_level: u32` — zero AI opponents launched with no error).
 
 **Why it happens:**
-Each new layer is added incrementally to fix a new failure mode, with deconfliction added as an afterthought. The existing breadcrumb mechanism (`sentry-restart-breadcrumb.txt`) only deconflicts between rc-sentry and RCWatchdog. It is invisible to Layer 1 MMA, Layer 2 SSH healer, and Layer 3 Guardian.
+Serde's default behavior is `#[serde(deny_unknown_fields)]` is NOT set, so extra fields from a newer sender are silently dropped by an older receiver. The inverse — a new receiver expecting a field the sender doesn't send — produces the struct's `Default::default()` value with no warning log.
 
 **How to avoid:**
-Implement a single `HEAL_IN_PROGRESS` sentinel file at `C:\RacingPoint\HEAL_IN_PROGRESS` before any autonomous healing action at ANY layer. Every recovery system (existing and new) must check this file before acting. Contents: JSON with `{"layer": 1, "started_at": "ISO8601", "action": "mma_diagnosis", "ttl_secs": 120}`. TTL is mandatory — sentinel expires automatically if healing crashes mid-way.
-
-```rust
-// In rc-watchdog, before MMA diagnosis:
-fn try_acquire_heal_lock(ttl_secs: u64) -> bool {
-    let path = Path::new(r"C:\RacingPoint\HEAL_IN_PROGRESS");
-    // Check existing lock first
-    if let Ok(contents) = fs::read_to_string(&path) {
-        if let Ok(lock) = serde_json::from_str::<HealLock>(&contents) {
-            if lock.started_at.elapsed_secs() < lock.ttl_secs {
-                return false; // Another layer is healing
-            }
-        }
-    }
-    // Write our lock
-    fs::write(&path, serde_json::to_string(&HealLock {
-        layer: 1,
-        started_at: Utc::now(),
-        ttl_secs,
-    }).unwrap_or_default()).is_ok()
-}
-```
-
-Also extend the existing `OTA_DEPLOYING` sentinel check — all three new layers must skip ALL healing actions when `OTA_DEPLOYING` is present. The existing rc-watchdog service already respects `MAINTENANCE_MODE`; the new MMA-triggered actions must too.
+- Before adding any field to a WS protocol struct in `rc-common`, grep `buildLaunchArgs()` and all JSON payload constructors in kiosk/PWA/admin to verify the field name matches exactly (standing rule already exists for this).
+- Add a `#[serde(deny_unknown_fields)]` annotation to new structs where forward-compat is not needed.
+- After adding new protocol fields: verify the generated payload on a pod by reading back the actual file (race.ini, game state) — API success is NOT proof of correct config.
+- Run `cargo test -p rc-common` to catch roundtrip failures before deploy.
 
 **Warning signs:**
-- `restart_count` incrementing faster than possible (2+ restarts per 10s window)
-- `HEAL_IN_PROGRESS` file exists with age > TTL (healing crashed, stale lock)
-- Layer 2 SSH diagnostics return "binary not found" — Layer 1 was mid-swap when Layer 2 ran
-- Server fleet health shows pod flip-flopping between `ws_connected: true` and `ws_connected: false` every 5-15s
+- Game launches successfully with `{ok: true}` but customer sees wrong car count, AI level, or track config.
+- New field always shows its default value in logs despite kiosk sending a different value.
+- `ContentManifest` for Steam games shows 0 entries despite games being installed.
 
-**Phase to address:** Phase 1 (Smart Watchdog core) — the sentinel protocol must be defined BEFORE any healing logic is written. Every subsequent phase references it.
+**Phase to address:** Phase adding new WS protocol fields for game inventory (per-pod manifest extension, `InstalledGame` variants). Must verify roundtrip in tests AND on-pod behavior.
 
 ---
 
-### Pitfall 2: MAINTENANCE_MODE Has No Timeout — Smart Watchdog MMA Triggers It Then Locks Itself Out
+### Pitfall 2: `ok: true` Means WS Queued, Not Delivered — Launch Commands Silently Lost
 
 **What goes wrong:**
-The existing `MAINTENANCE_MODE` file blocks ALL restarts permanently (no TTL). The Smart Watchdog MMA loop detects a crash-loop (>3 restarts in 10 min), runs MMA diagnosis, then recommends "block further restarts while we analyze." If the watchdog writes `MAINTENANCE_MODE` as part of the analysis pause, it then cannot restart the agent after the fix is identified — the fix is correct but the sentinel blocks execution of the fix indefinitely.
-
-This is not a new risk — v17.1 explicitly addressed it: "MAINTENANCE_MODE sentinel written after 3 restarts in 10 min, but has no auto-clear mechanism, no TTL, no timeout." However, v31.0 adds a new actor (Layer 1 MMA) that will interact with this sentinel in a new way: the MMA cycle itself takes 30-120s, meaning a pod can be in "analyzing" state much longer than the existing 10-min MAINTENANCE_MODE window anticipates.
+The server returns `{ok: true}` from `/games/launch` when the WS message is queued for send, not when the agent receives and acknowledges it. If WS drops between queue and delivery, the launch command is lost. `GameTracker` stays in `Launching` permanently, blocking all future launches on that pod. v40.0 added ACK protocol (Phase 312) to fix this for the basic launch path, but any new WS messages introduced for v41.0 (inventory push, combo validation request, launch timeline events) will NOT have ACK wiring unless explicitly added.
 
 **Why it happens:**
-The MMA loop is slow by design (multi-model consensus). The sentinel was designed for human-in-the-loop operation where a human clears it. With autonomous operation, no human clears it.
+The ACK protocol (using `pending_command_acks` and `CoreMessage::command_id`) was retrofitted for `LaunchGame` in v40.0. New message types added in v41.0 will use the simpler fire-and-forget `tx.send(msg).await` path by default.
 
 **How to avoid:**
-The v17.1 fix added a 30-minute auto-clear TTL to MAINTENANCE_MODE. v31.0 must ensure:
-
-1. MMA diagnosis uses a SEPARATE sentinel (`MMA_DIAGNOSING`) with its own TTL (= MMA_TIMEOUT + 30s buffer), distinct from MAINTENANCE_MODE.
-2. MAINTENANCE_MODE is NEVER written by the Smart Watchdog during autonomous MMA — it is only written by rc-agent itself after crash-loop detection. The watchdog reads it (to know healing is blocked) but does not write it.
-3. If MMA recommends a fix and MAINTENANCE_MODE is present, the Smart Watchdog calls the server's new direct-report endpoint to have the server send a CLEAR_SENTINEL command to the pod via rc-sentry (bypassing the dead rc-agent).
-
-```rust
-// In rc-watchdog MMA completion:
-fn apply_mma_fix(fix: &MmaFix) {
-    // Check for blocking sentinels first
-    if Path::new(r"C:\RacingPoint\MAINTENANCE_MODE").exists() {
-        // Cannot act locally — escalate to server to clear via rc-sentry
-        self.report_to_server(WatchdogReport {
-            action_blocked_by: Some("MAINTENANCE_MODE".into()),
-            recommended_fix: fix.clone(),
-            ..
-        });
-        return;
-    }
-    // Proceed with fix
-}
-```
+- For any new server-to-agent message that requires confirmation (combo validation request, inventory rescan trigger), wire through `CoreMessage::wrap()` + `pending_command_acks` ACK pattern.
+- For informational pushes from agent to server (inventory report, launch timeline event), no ACK needed — but add retry on reconnect: send latest state after each WS reconnect.
+- Test: deliberately drop WS mid-operation and verify the system recovers (tracker unsticks, inventory resends).
 
 **Warning signs:**
-- Pod stays in `ws_connected: false` indefinitely after MMA reports "fix identified"
-- `MMA_DIAGNOSING` file age > 3 minutes (MMA stalled or crashed)
-- `MAINTENANCE_MODE` present AND `HEAL_IN_PROGRESS` present simultaneously (two blocking sentinels)
-- Server watchdog report endpoint receives `action_blocked_by: MAINTENANCE_MODE` repeatedly
+- Pod shows stale inventory after reconnect.
+- Combo validation result never arrives but no error is logged.
+- `GameTracker` state does not progress after a new trigger message is sent.
 
-**Phase to address:** Phase 1 (Smart Watchdog core) — sentinel inventory and interaction protocol must be defined before MMA integration.
+**Phase to address:** Phase adding launch timeline WS events and combo validation request/response messages.
 
 ---
 
-### Pitfall 3: Windows Service Cannot Make HTTP Calls to OpenRouter Without Proxy Config
+### Pitfall 3: Single-Fetch-at-Boot Without Retry — Inventory Stale Forever After Server Restart
 
 **What goes wrong:**
-The Smart Watchdog runs as a Windows service (`RCWatchdog`, `NT AUTHORITY\SYSTEM`). The SYSTEM account on pod machines does NOT have WinHTTP proxy settings configured. The `reqwest` client in the existing `openrouter.rs` uses the system default trust store and proxy settings. When the SYSTEM account makes an outbound HTTPS request to `https://openrouter.ai`, three failure modes occur:
+`content_scanner.rs` currently scans AC content at startup and sends a single `ContentManifest` WS message. If the server is down at boot, the manifest is never sent and `pod_manifests` in `AppState` stays empty for that pod indefinitely. When v41.0 adds Steam + non-Steam scanning, the same pattern will produce `GameManager` serving an empty game list to the kiosk until the pod is manually restarted.
 
-1. **Proxy redirect:** Venue WiFi has a captive portal or transparent proxy; SYSTEM doesn't get the `INTERNET_DEFAULT_PROXY` settings that the user account has
-2. **Certificate validation:** SYSTEM's certificate store may not have the intermediate CA chain for OpenRouter's TLS cert, causing `certificate verify failed`
-3. **TLS timeouts:** SYSTEM-context HTTP is subject to different timeout behavior — the `PER_ATTEMPT_TIMEOUT_SECS = 30` in `openrouter.rs` may not apply correctly from a service
-
-The rc-agent already calls OpenRouter successfully but rc-agent runs in Session 1 (user context), not as SYSTEM. This distinction will cause the Smart Watchdog to fail on its first real MMA call in production even though it works in testing (where testing is done interactively).
+This is the exact same pattern as the allowlist incident: "if the server is down at boot, pods get empty default but self-heal within 5 minutes once server is back" — but only because the allowlist already has the periodic re-fetch (commit `821c3031`). Content manifests do NOT have periodic re-fetch.
 
 **Why it happens:**
-Service context vs user context HTTP differences are only visible at runtime. `cargo test` and local development run in user context. The service only runs on the pod hardware. The failure does not appear until a real crash-loop triggers MMA.
+Content scanning is triggered once at startup and on WS reconnect (per the module doc comment). WS reconnect does resend, but if the server restarts while pods are running, the pods don't automatically retrigger a scan — they wait for the next WS reconnect event, which may be hours away if the connection was already established.
 
 **How to avoid:**
-```rust
-// In rc-watchdog openrouter client initialization:
-fn build_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        // Explicit timeout — don't rely on system defaults from SYSTEM context
-        .timeout(Duration::from_secs(45))
-        // Load system certs AND bundled Mozilla root certs (fallback for SYSTEM store gaps)
-        .tls_built_in_root_certs(true)
-        // Disable proxy for direct API calls from service context
-        // (venue proxy only applies to user-context browsing)
-        .no_proxy()
-        .build()
-        .expect("reqwest client construction failed")
-}
-```
-
-Test this BEFORE any MMA feature goes to production: deploy a service-context version that calls `https://openrouter.ai/api/v1/models` and verify the response in the watchdog log. This test call should be in the watchdog startup sequence.
+- Add a periodic re-fetch for the content manifest: re-scan and re-send on every WS reconnect (already triggered in the reconnect path) AND add a 24-hour periodic rescan for content changes (game installs/uninstalls are rare but happen).
+- On the server side, when a pod reconnects (registers), proactively request a fresh manifest via `RequestContentScan` message.
+- Never assume the first scan is authoritative.
 
 **Warning signs:**
-- Watchdog log shows `WARN openrouter — attempt 1/4 error: certificate verify failed`
-- MMA diagnosis never completes, pod stays in crash-loop
-- OpenRouter calls succeed when tested from rc-agent (Session 1) but fail from watchdog (SYSTEM)
-- `reqwest::Error { kind: Connect }` from service context but not from user context
+- Kiosk shows no games for a pod that was running when server restarted.
+- `pod_manifests` map in server debug shows an entry from boot time that is hours old.
+- Fleet game matrix dashboard shows zeroes for pods that were already running.
 
-**Phase to address:** Phase 1 (Smart Watchdog core) — verify SYSTEM-context HTTP in a canary deploy before wiring MMA. A startup connectivity check (`POST /api/v1/models`) must pass before MMA is enabled.
+**Phase to address:** Phase 1 (content scanner extension). Must add rescan-on-reconnect and periodic rescan before this phase ships.
 
 ---
 
-### Pitfall 4: Rollback Loop — `rc-agent-prev.exe` Is Also Broken
+### Pitfall 4: Steam Library Path Hardcoding — Custom Library Locations Silently Missed
 
 **What goes wrong:**
-The Smart Watchdog detects a crash in <30s, rolls back to `rc-agent-prev.exe`. If `rc-agent-prev.exe` is ALSO broken (corrupted download, same bug, or binary from before a required DB migration), the rollback itself crashes in <30s. The watchdog detects this, decides to "roll forward" — but the new binary is already marked bad. Net result: the watchdog alternates between two broken binaries, incrementing `restart_count` until MAINTENANCE_MODE fires.
-
-This is different from the existing crash-loop detection because the crash-loop counter does not distinguish between "new binary is bad" and "both binaries are bad." After rollback, `restart_count` should reset (new state), but the existing counter is session-scoped and increments regardless.
+`steam_checks.rs` checks three hardcoded Steam library paths (`C:\...\steamapps`, `D:\SteamLibrary\steamapps`, `E:\SteamLibrary\steamapps`) for `appmanifest_*.acf` files. The code has a comment: "custom Steam library paths require full `libraryfolders.vdf` parsing." When `content_scanner.rs` is extended to scan Steam games for the full inventory, using the same hardcoded path list will silently miss games installed in custom library locations — the pod will appear to not have a game it actually has.
 
 **Why it happens:**
-The deploy sequence creates `rc-agent-prev.exe` by renaming the outgoing binary. If two successive deploys both ship bad binaries, both `rc-agent.exe` AND `rc-agent-prev.exe` are bad. The rollback mechanism has no concept of "how many rollback depth levels" exist.
+Hardcoded paths are a common shortcut because they cover 90% of cases. But `libraryfolders.vdf` parsing is required for correctness. The existing code explicitly acknowledges this gap and returns a non-error to avoid blocking (standing rule: "not returning Err here — custom Steam library paths exist and we don't want to block").
 
 **How to avoid:**
-1. Maintain a `rollback-state.json` at `C:\RacingPoint\rollback-state.json`:
-   ```json
-   {
-     "current_hash": "abc123",
-     "prev_hash": "def456",
-     "rollback_attempted_at": null,
-     "rollback_succeeded": null,
-     "rollback_depth": 0
-   }
-   ```
-2. After rollback, reset the crash-loop counter to 0 (new binary, new chance). If rollback binary also crashes in <30s, set `rollback_depth: 1` and do NOT attempt another rollback.
-3. At `rollback_depth: 1` (both binaries bad), escalate to Layer 2 (server fleet healer) via the direct-report endpoint — do NOT loop. The watchdog sends: `{"action": "both_binaries_bad", "current_hash": "...", "prev_hash": "..."}`.
-4. Layer 2 response: push a known-good binary from the server's staging area via its own download channel.
-
-```rust
-// In rc-watchdog rollback logic:
-fn handle_crash_loop(state: &mut WatchdogState) {
-    if state.rollback_depth == 0 && prev_binary_exists() {
-        attempt_rollback();
-        state.rollback_depth += 1;
-        state.crash_count = 0; // Reset for rollback binary
-    } else {
-        // rollback_depth >= 1: both binaries bad
-        // Do NOT write MAINTENANCE_MODE — escalate to server instead
-        report_to_server(WatchdogReport {
-            escalation_reason: "both_binaries_bad",
-            ..
-        });
-        // Stop restarting — wait for server to push binary
-        state.healing_paused = true;
-    }
-}
-```
+- Parse `C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf` to discover all registered Steam library paths before scanning.
+- VDF format is simple key-value — a basic regex or line-by-line parser (no external crate needed).
+- Fall back to hardcoded paths only if VDF is missing or unparseable, logging a warning.
+- Test: install a game to `D:\SteamLibrary` on Pod 8, verify inventory scanner finds it.
 
 **Warning signs:**
-- `restart_count` > 10 in watchdog report (alternating between two binaries)
-- Log shows alternating "rolling back to prev" and "rolling forward to current"
-- `rc-agent-prev.exe` crash time matches `rc-agent.exe` crash time (same code path failing)
-- Pod dark for >15 minutes despite watchdog active (both binaries bad, paused)
+- Kiosk shows game unavailable on pod where game is visually installed (Steam library on D: or E: drive).
+- Fleet game matrix shows inconsistent presence across pods that all have the same game.
+- Reliability score shows zero launches for a game that customers have played.
 
-**Phase to address:** Phase 1 (Smart Watchdog rollback logic) — depth tracking and "both bad" escalation path must be designed before rollback is implemented.
+**Phase to address:** Phase adding Steam library scanning to `content_scanner.rs`.
 
 ---
 
-### Pitfall 5: Split-Brain Between James (Layer 3) and Bono (Layer 3)
+### Pitfall 5: Combo Validation at Boot Fires Before Agent Is Fully Initialized
 
 **What goes wrong:**
-Both James (.27) and Bono VPS are defined as "External Guardian" (Layer 3). Both watch the server. Both can trigger restart via SSH/schtasks. If the server is slow to respond (high CPU, network jitter), both guardians independently conclude the server is down and simultaneously:
+Boot-time proactive combo validation cross-references presets against the content manifest. The manifest is built during boot scanning. But if validation is triggered before the WS connection is established (and thus before the server has pushed current presets), or before the Steam library scan completes, the validation runs against an empty or stale preset list and silently auto-disables combos that are actually valid.
 
-1. James sends `schtasks /Run /TN StartRCOnBoot` via Tailscale SSH to the server
-2. Bono sends the same command via its own SSH connection 30 seconds later
-3. Two racecontrol instances attempt to bind port 8080 simultaneously → `os error 10048 (address in use)` → both crash
-4. Both guardians now see the server as down and escalate again
-
-This is the "16 orphan watchdog instances" incident from 2026-03-24 but at the inter-AI level instead of the intra-machine level.
+This is analogous to the MAINTENANCE_MODE pitfall: a guard that fires during boot before its inputs are ready will produce incorrect results that persist indefinitely.
 
 **Why it happens:**
-Distributed guardians without a coordination protocol independently observe the same symptom and independently apply the same fix. The fix itself (starting racecontrol) requires a "confirm kill" step that takes 15s. If both guardians start within that 15s window, they both "win" and create a conflict.
+Boot sequencing in `rc-agent` has multiple async tasks starting in parallel. There is no formal synchronization point that says "content scan done AND presets received AND Steam checks complete — now validate." The easy implementation is to trigger validation as soon as the manifest is built, which may be before presets arrive from the server.
 
 **How to avoid:**
-One guardian owns server restarts. The other is in "standby" mode — it only acts if the primary guardian is itself unreachable. Concrete assignment: **Bono VPS is primary for server-level recovery** (24/7 always-on). James is secondary, only activates if Bono's VPS goes dark.
-
-Implementation:
-```
-# Bono Layer 3 Guardian checks:
-1. Is James's relay alive? (curl http://James:8766/relay/health)
-2. If YES: Is James already acting on this? (check shared GUARDIAN_ACTING sentinel in comms-link)
-3. If James acting: skip, let James finish
-4. If neither acting: Bono acquires GUARDIAN_ACTING sentinel (written to comms-link INBOX.md)
-5. Bono performs recovery
-6. Bono clears GUARDIAN_ACTING sentinel
-```
-
-The `GUARDIAN_ACTING` sentinel must be in the shared comms-link channel (INBOX.md commit or a dedicated sentinel endpoint), NOT a local file on either machine. A local file only coordinates with the local process — it does nothing to coordinate between two different machines.
+- Gate combo validation behind: (1) content manifest scan complete AND (2) first preset push from server received (or a 30s timeout with warning, not silent skip).
+- Use a `tokio::sync::watch` or barrier pattern to sequence: `scan_complete → presets_loaded → validate`.
+- If server is down at boot and presets can't be fetched, log a WARNING and defer validation rather than running on empty — same pattern as allowlist.
+- Add a startup log event: "Combo validation deferred: waiting for preset push from server."
 
 **Warning signs:**
-- Server log shows `os error 10048` within 60 seconds of a restart attempt
-- Both James and Bono WhatsApp notifications show "server restarted" at nearly identical timestamps
-- `start-racecontrol.bat` logs show two simultaneous executions
-- Server health endpoint alternates between available and `connection refused`
+- Combos show as invalid immediately after pod boot but become valid 30 seconds later.
+- Admin receives WhatsApp alert about broken combos that were valid the day before.
+- Validation runs with zero presets (log: "Validated 0 combos").
 
-**Phase to address:** Phase 5 (External Guardian / Layer 3) — guardian coordination protocol must be the FIRST thing defined before either guardian's recovery logic is written.
+**Phase to address:** Phase adding proactive boot-time combo validation.
 
 ---
 
-### Pitfall 6: SSH Into Dark Pods — Fleet Healer SSH Concurrency Causes `MaxSessions` Exhaustion
+### Pitfall 6: DiagnosticTrigger Enum Addition Breaks Serde Deserialization of Old KB Entries
 
 **What goes wrong:**
-Layer 2 (Server Fleet Healer) SSHes into dark pods for diagnostics. The existing OpenSSH on Windows pods defaults to `MaxSessions 10` and `MaxStartups 10:30:100`. With 8 pods potentially all dark simultaneously, the Fleet Healer might spawn parallel SSH connections. Additionally:
-
-1. SSH to Windows pods uses a password or key (`ssh User@<pod_ip>`). The known-good path is Tailscale SSH (`ssh User@<tailscale_ip>`). But Tailscale on pods may also be down (if it's a deep crash where the pod can't connect to Tailscale coordination server).
-2. The Fleet Healer is inside `racecontrol.exe` running on the server. `std::process::Command::new("ssh")` in a Rust async context blocks the calling thread. Spawning 8 concurrent `ssh` processes from Axum's async runtime causes thread pool starvation.
-3. `ssh` in a non-interactive context (no TTY) may hang waiting for a password prompt if key auth fails, blocking indefinitely.
+`DiagnosticTrigger` is serialized into the Knowledge Base (SQLite) as JSON. Adding new variants (`GameLaunchTimeout`, `CrashLoop`) without `#[serde(other)]` or handling for unknown variants means the KB deserialization will fail or panic when reading old entries stored under old variant names. This silently corrupts the KB replay on boot or produces `serde_json::Error` that gets swallowed.
 
 **Why it happens:**
-Fleet healing was designed in the v26.0 MESHED-INTELLIGENCE spec but the SSH implementation details were deferred. The `pod_healer.rs` currently uses `rc-agent /exec` for diagnostics — it assumes rc-agent is alive. For the v31.0 use case (dark pods where rc-agent is dead), SSH is needed but not yet implemented.
+Enum serde in Rust has no forward-compat by default. A DB entry serialized as `"GameLaunchFail"` deserializes fine, but if someone added a new variant that shadows an old one, or if the variant serialization format changed, all historical KB entries for that trigger become unreadable.
 
 **How to avoid:**
-```rust
-// In fleet_healer SSH diagnostics:
-async fn ssh_diagnose_pod(pod_ip: &str, tailscale_ip: &str) -> Result<PodDiagnostics> {
-    // Use tokio::process (non-blocking), not std::process
-    let mut cmd = tokio::process::Command::new("ssh");
-    cmd.args([
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",      // Fail fast — don't hang on dead pod
-        "-o", "BatchMode=yes",          // No interactive prompts — key auth only
-        "-o", "ServerAliveInterval=5",
-        "-o", "ServerAliveCountMax=2",
-        &format!("User@{}", tailscale_ip),
-        "tasklist /FI \"IMAGENAME eq rc-agent.exe\" && dir C:\\RacingPoint\\"
-    ]);
-
-    // EXPLICIT timeout: 20s max per SSH command
-    tokio::time::timeout(Duration::from_secs(20), cmd.output()).await
-        .map_err(|_| anyhow!("SSH to {} timed out", tailscale_ip))?
-}
-
-// Limit concurrency — max 2 SSH connections at a time
-static SSH_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(2));
-```
-
-For Tailscale-down scenarios: maintain a second attempt path using LAN IP with `ping -n 1 -w 500` first, then SSH. If neither path reaches the pod, report as `unreachable` and use WoL if MAC address is known — do not hang.
+- Add `#[serde(other)]` to a catch-all variant on `DiagnosticTrigger` (e.g. `Unknown`) before adding new variants.
+- Write a migration in `db.rs` that reads existing KB entries, verifies they deserialize, and repairs any that fail.
+- In `tier_engine.rs`, `match trigger { DiagnosticTrigger::Unknown => { log warning; return NotApplicable } }`.
+- Test: write a KB entry with an unknown trigger name, start the tier engine, verify it doesn't panic.
 
 **Warning signs:**
-- Fleet healer cycle takes >2 minutes (multiple SSH hangs)
-- `ssh` processes accumulate in `tasklist` on the server
-- Fleet health check endpoint (:8080/api/v1/fleet/health) becomes slow (blocked on SSH in healer loop)
-- Pod shows `unreachable` in fleet health but is actually up (Tailscale IP vs LAN IP confusion)
+- `knowledge_base.rs` logs errors at startup: "Failed to deserialize KB entry."
+- Tier 1/2 hit rate drops after adding new trigger variants (stale KB entries silently excluded).
+- KB solution count visible in admin dashboard drops after deploy.
 
-**Phase to address:** Phase 3 (Server Fleet Healer SSH diagnostics) — concurrency limit and timeout must be in the initial implementation, not added later.
+**Phase to address:** Phase adding `GameLaunchTimeout` and `CrashLoop` trigger variants.
 
 ---
 
-### Pitfall 7: MMA Budget Overrun in Service Context — No User to Approve
+### Pitfall 7: Crash Loop Detection Already in `fleet_health.rs` — Parallel Implementation Will Diverge
 
 **What goes wrong:**
-The existing `budget_tracker.rs` in rc-agent has a `$10/day/pod` hard cap. When the cap hits, the existing code falls back to the mechanical (local Ollama) path. In v31.0, the Smart Watchdog adds its OWN MMA calls that also bill to the same OpenRouter API key. In a crash-loop scenario:
-
-- Pod enters crash loop → watchdog MMA fires (5 models, ~$4/run)
-- MMA recommends rollback → rollback binary also crashes → watchdog MMA fires AGAIN
-- If this happens at 2am: 3 iterations = $12 before the existing rc-agent budget tracker even sees it (the budget tracker is inside rc-agent, which is dead during the crash loop)
-
-The watchdog operates OUTSIDE the rc-agent process, so the existing `budget_tracker.rs` state is inaccessible to the watchdog. Two independent callers share one API key with no shared budget tracking.
+`fleet_health.rs` already detects crash loops: `recent_count > 3 && uptime < 30s` sets `crash_loop: true` on the `PodFleetStatus`. The v41.0 plan says to "wire crash loop detection into Meshed Intelligence." If this is implemented as a new `CrashLoop` variant in `DiagnosticTrigger` that re-implements the detection logic, there will be two independent crash loop detectors that can disagree, producing duplicate alerts or conflicting state.
 
 **Why it happens:**
-The v26.0 budget tracker was designed for rc-agent only. The watchdog was not an AI caller at that time. v31.0 makes the watchdog an AI caller, but the budget tracker doesn't know about it.
+Two teams (or two milestones) implementing the same detection independently without checking what already exists. The Meshed Intelligence tier engine runs in `rc-agent` (pod side), while `fleet_health.rs` runs in `racecontrol` (server side). Both have access to startup report data but via different paths.
 
 **How to avoid:**
-1. The watchdog must maintain its OWN budget file at `C:\RacingPoint\watchdog-budget.json` (separate from rc-agent's budget state), with `$5/day` hard cap (half the pod budget).
-2. Before any MMA call, the watchdog reads BOTH budget files (its own + rc-agent's, if accessible) and aborts MMA if combined daily spend > $8.
-3. Budget file is shared via the server's direct-report endpoint — the watchdog sends its spend in every report so the server can aggregate fleet-wide AI spend.
-
-```rust
-struct WatchdogBudget {
-    daily_spend_usd: f32,
-    last_reset: NaiveDate,
-    hard_cap_usd: f32, // = 5.0
-}
-
-fn can_run_mma(&self) -> bool {
-    let today = Utc::now().date_naive();
-    if self.last_reset < today {
-        return true; // New day, reset
-    }
-    self.daily_spend_usd < self.hard_cap_usd
-}
-```
+- Audit `fleet_health.rs` lines 379-390 BEFORE designing the `CrashLoop` trigger.
+- The server-side detection in `fleet_health.rs` is the right place to emit the `FleetEvent` that triggers the agent-side `DiagnosticTrigger`.
+- Wire: server detects crash loop → emits `FleetEvent::CrashLoopDetected { pod_id }` → WS push to agent → agent `DiagnosticTrigger::CrashLoop` → tier engine.
+- Do NOT replicate the detection heuristic on both sides — single source of truth.
 
 **Warning signs:**
-- OpenRouter API key returns 402 (payment required) across ALL layers simultaneously
-- Watchdog log shows MMA calls at high frequency (>3/hour)
-- No budget file exists at `C:\RacingPoint\watchdog-budget.json` (budget never persisted)
-- rc-agent budget tracker shows $0 spend but OpenRouter bills show high usage (watchdog spend uncounted)
+- Agent receives a `CrashLoop` trigger but the server fleet health shows `crash_loop: false` (or vice versa).
+- Uday receives two WhatsApp alerts for the same crash loop from different code paths.
+- `crash_loop` flag in fleet health auto-clears but tier engine is still mid-diagnosis.
 
-**Phase to address:** Phase 1 (Smart Watchdog MMA integration) — budget file must exist before the first MMA call. Never add MMA without a spend cap.
+**Phase to address:** Phase adding crash loop wiring to Meshed Intelligence.
 
 ---
 
-### Pitfall 8: Binary Manifest TOCTOU — Check Happens on Disk, Launch Happens Seconds Later
+### Pitfall 8: WhatsApp Chain Failure Alert Goes Through Bono VPS Relay — Direct Path Will Fail
 
 **What goes wrong:**
-The Smart Watchdog validates the SHA256 of `rc-agent.exe` against a manifest before launching. This is correct. However:
-
-1. The check happens at T=0: hash matches manifest → OK
-2. Between T=0 and T=2s (when the watchdog calls `spawn_in_session1()`), an interrupted download or partial OTA write overwrites `rc-agent.exe` with a partially-written file
-3. The watchdog launches the partially-written binary
-4. The binary crashes instantly (PE header corrupted) → crash-loop starts
-
-The TOCTOU window is especially large if the watchdog is throttling between the check and the launch (e.g., waiting for MAINTENANCE_MODE to clear, running MMA, etc.).
-
-A secondary case: the manifest distribution path. The server serves the manifest at an endpoint like `/api/v1/manifest`. If the manifest is fetched AFTER the binary is downloaded (instead of before), the binary has already been written by the time the hash is checked against a fresh manifest — a corrupted download could match an older manifest entry if the server is serving a cached response.
+The v41.0 plan mentions "chain failure WhatsApp alerts." The existing `send_whatsapp()` function in `whatsapp_alerter.rs` calls the Evolution API directly. However, per MEMORY.md standing rule: "Promotions/deals/marketing must go via Bono VPS Evolution API, not venue tunnel." And per `whatsapp_escalation.rs`, Tier 5 escalation goes through `EscalationRequest` → server → Bono relay. If a new direct WhatsApp call is added in rc-agent for crash loop / chain failure, it will fail silently when the venue Evolution API is down (it's on Bono VPS, not venue).
 
 **Why it happens:**
-Manifest checks are added as a pre-condition check, not as a "load-and-lock" operation. The binary is treated as immutable between check and launch, but it is not.
+The correct alert path for agent-side events is: `agent emits EscalationRequest via WS → server receives → routes to whatsapp_escalation.rs → Bono relay`. The tempting shortcut is to call Evolution API directly from rc-agent using a hardcoded URL — this worked in an early prototype but the API endpoint moved to Bono VPS.
 
 **How to avoid:**
-```rust
-fn validate_and_prepare_binary(path: &Path) -> Result<ValidatedBinary> {
-    // 1. Open file with FILE_FLAG_SEQUENTIAL_SCAN (no write sharing)
-    // 2. Hash the open file descriptor (not the path)
-    // 3. Keep file handle open until spawn — no window for replacement
-    // Actually in Windows, rename() is used for atomic swap (delete prev, rename new)
-    // So the correct check is: hash THEN immediately rename to a temp name for launch
-
-    let hash = sha256_file(path)?;
-    let manifest = fetch_manifest_from_server()?;
-    if manifest.get_hash_for(path) != Some(&hash) {
-        return Err(anyhow!("Binary hash mismatch — abort launch"));
-    }
-    // Atomically rename to a "validated" copy that OTA cannot overwrite
-    let validated_path = path.with_extension("validated.exe");
-    fs::rename(path, &validated_path)?; // Atomic on same volume
-    // ... launch from validated_path
-    Ok(ValidatedBinary { path: validated_path })
-}
-```
-
-For manifest distribution: fetch the manifest FIRST from the server (with auth), then download and verify the binary against the fetched manifest. Never check a downloaded binary against a manifest fetched after the download.
+- All WhatsApp alerts from rc-agent MUST route through `EscalationRequest` WS message → server → `whatsapp_escalation.rs` → Bono relay.
+- Never add a direct HTTP client call to Evolution API in rc-agent.
+- Verify in testing: disconnect Bono VPS relay, trigger a chain failure, verify the alert is queued (not lost) and delivered when relay reconnects.
+- The `EscalationRequest` struct already exists in `rc-common/src/protocol.rs` — use it.
 
 **Warning signs:**
-- `rc-agent.exe` file size changes between watchdog check and launch
-- `OTA_DEPLOYING` file is absent but binary content is inconsistent with manifest hash
-- Crash at T < 5s with exit code -1073741795 (0xC000007B — invalid image format)
-- Multiple hash-check failures in rapid succession (active OTA in progress)
+- Chain failure WhatsApp alerts arrive when venue is online but not when Bono VPS is briefly down.
+- Alert sent from rc-agent but Uday never receives it (no log in whatsapp_escalation.rs for the incident).
+- Two WhatsApp messages for the same incident (direct + relay both fire).
 
-**Phase to address:** Phase 1 (Smart Watchdog binary validation) — the check-then-launch must be made atomic before rollback logic is added.
+**Phase to address:** Phase adding crash loop and chain failure WhatsApp alerts.
 
 ---
 
-### Pitfall 9: Layer 2 Fleet Healer SSH Runs During Active Customer Sessions
+### Pitfall 9: Reliability Score Aggregates Across ALL Pods — Per-Pod Filtering Hidden in SQL
 
 **What goes wrong:**
-Layer 2 SSH diagnostics are triggered when a pod appears "dark" to the server (no WS connection). However, a pod can appear dark to the server while STILL HAVING AN ACTIVE BILLING SESSION if:
+`list_presets_with_reliability()` in `preset_library.rs` computes reliability by averaging across ALL pods for a combo: `AVG(success_rate) FROM combo_reliability WHERE sim_type = ?`. A combo that works on 7 pods but crashes on 1 will have high average reliability but still fail for customers on that one pod. The kiosk game filter needs per-pod availability, not fleet-average — but the existing API returns only the fleet aggregate.
 
-- The WebSocket connection dropped (brief network glitch) but rc-agent is still running
-- The billing timer is persisting to SQLite on the pod (heartbeat every 60s)
-- A customer is mid-session
-
-If the Fleet Healer SSHes in and starts running diagnostics (`tasklist`, `netstat`, reading log files), it competes for I/O with the billing heartbeat. Worse, if the Fleet Healer decides to push a new binary and restart rc-agent, it kills an active billing session — the customer loses their remaining session time and the venue loses the revenue.
-
-The existing `pod_healer.rs` already has this check:
-```rust
-const PROTECTED_PROCESSES: &[&str] = &["rc-agent.exe", "acs.exe", ...];
-```
-But this protection is at the "kill process" level. The Layer 2 SSH healer operates at a lower level (direct SSH commands) and bypasses this protection entirely.
+This same issue affects the "fleet game matrix" dashboard — if it queries fleet-aggregate reliability rather than per-pod, it will show "reliable" for combos that are actually broken on specific pods.
 
 **Why it happens:**
-Layer 2 SSH is designed for "dark pods" — the assumption is that if SSH is needed, rc-agent is dead. But a pod can be dark to the server without rc-agent being dead (WS disconnected ≠ rc-agent dead).
+Fleet-aggregate is the current design for the reliability score (it was the correct MVP). v41.0 adds per-pod inventory filtering, which requires per-pod reliability queries. The existing API endpoint and SQL query don't support this distinction.
 
 **How to avoid:**
-Before any Layer 2 SSH action that modifies the pod (binary push, process kill, restart):
-1. Attempt to reach the pod via HTTP directly: `curl http://<pod_ip>:8090/health` — if this succeeds, rc-agent IS alive, WS merely disconnected. Switch to WS reconnect path, not SSH intervention.
-2. Read `C:\RacingPoint\billing_active.sentinel` via SSH before any disruptive action — if this file exists and is <120s old, a billing session is active. SSH diagnostics only, no restarts.
-3. The billing session drain from the OTA pipeline (`has_active_billing_session()`) must also be called from the Layer 2 healer before any binary push.
+- Add `pod_id` parameter to the reliability query path for kiosk-facing endpoints.
+- The `combo_reliability` table already has a `pod_id` column (unique index: `pod_id, sim_type, car, track`).
+- For the fleet game matrix, show both: per-pod status AND fleet-aggregate score as separate columns.
+- Do NOT change the existing fleet-aggregate query that powers the admin dashboard — additive only.
 
 **Warning signs:**
-- Pod shows `ws_connected: false` but `http_reachable: true` — this is WS glitch, NOT dead pod
-- Fleet Healer SSH log shows "session drain: 0" but billing DB has an active session (check times)
-- Customer complains about session ending unexpectedly during Fleet Healer cycle
-- `billing_active.sentinel` present on pod at time of SSH healer action
+- Kiosk on Pod 3 shows Forza available despite Forza not being installed on Pod 3 (uses fleet average which includes pods where it is installed).
+- Reliability dashboard shows 85% success rate for a combo that always fails on Pod 7.
+- `combo_reliability` queries show `pod_id = NULL` entries (fleet aggregate row was accidentally created).
 
-**Phase to address:** Phase 3 (Server Fleet Healer) — "dark pod" must have three definitions: WS-only dark (WS down, HTTP up), partially dark (WS down, HTTP up but unhealthy), and truly dark (WS down, HTTP unreachable). Each requires a different healer response.
+**Phase to address:** Phase adding kiosk game filtering by pod availability and fleet game matrix.
 
 ---
 
-### Pitfall 10: OpenRouter API Rate Limits and 503s During a Fleet Crash Storm
+### Pitfall 10: Content Manifest Only Covers AC — Non-AC Games Require Different Detection Logic
 
 **What goes wrong:**
-A firmware update, power event, or network issue takes down all 8 pods simultaneously. All 8 Smart Watchdog instances independently detect the crash and independently trigger MMA diagnosis. OpenRouter receives 8 parallel requests for 5-model consensus, each spawning 5 API calls = 40 concurrent API calls from one key. OpenRouter rate limits at the API key level (not per-IP). Result:
+`ContentManifest` currently has `cars: Vec<CarManifestEntry>` and `tracks: Vec<TrackManifestEntry>` — it is AC-specific by design. When v41.0 extends `content_scanner.rs` to all games, adding `installed_games: Vec<InstalledGame>` as a new field is the natural approach. But the server stores manifests in `pod_manifests: RwLock<HashMap<String, ContentManifest>>` — if the type is extended, ALL downstream readers of `pod_manifests` must be audited for the cascade (standing rule: cascade updates are recursive).
 
-- 6 of 8 watchdog MMA calls get 429 errors
-- The existing `MAX_RETRIES: 4` + exponential backoff in `openrouter.rs` retries with up to 10s delays
-- All 8 watchdogs are now in retry loops simultaneously, retrying at nearly synchronized intervals (thundering herd)
-- The retries themselves cause more 429s
-- No pod gets an MMA result for 5-10 minutes
+Additionally, for non-AC games, "installed" means different things:
+- Steam games: `appmanifest_<app_id>.acf` exists in a Steam library folder
+- Non-Steam games (iRacing): presence of `iRacingSim64DX11.exe` in a known path
+- Forza (Windows Store): presence of game package — no `.acf` file
 
-The existing `TIER4_SEMAPHORE: Semaphore::new(2)` in `openrouter.rs` limits concurrency within ONE rc-agent process. It does NOT limit concurrency across 8 pod watchdogs.
-
-**Why it happens:**
-The semaphore in `openrouter.rs` is a static within one process. Cross-process coordination requires a different mechanism.
+Each detection method needs its own probe function.
 
 **How to avoid:**
-1. Stagger watchdog MMA triggers by pod number. Pod 1 waits 0s, Pod 2 waits 15s, Pod 3 waits 30s, etc. After the first MMA result, Layer 2 (Fleet Healer) detects the fleet-wide pattern and can provide the same root cause to all pods without running 8 separate MMA cycles.
-2. Fleet-wide pattern detection (already in the v31.0 spec: "same failure on 3+ pods = systemic issue") should SHORT-CIRCUIT individual pod MMA. The Fleet Healer runs ONE MMA on the pattern, distributes the result to all affected pods.
-3. In the watchdog retry logic, add full jitter: `delay = rand(0, BASE_DELAY_MS * 2^attempt)` (not just `BASE_DELAY_MS * 2^attempt`). The existing `openrouter.rs` uses fixed base delay multiplied by attempt — add randomization to spread retries.
-
-```rust
-// Add to rc-watchdog openrouter client:
-fn backoff_with_jitter(attempt: u32) -> Duration {
-    let base = BASE_DELAY_MS * (1u64 << attempt.min(5));
-    let jitter = rand::random::<u64>() % base;
-    Duration::from_millis((base + jitter).min(MAX_DELAY_MS))
-}
-```
+- Extend `ContentManifest` in `rc-common/src/types.rs` with `installed_games: Vec<InstalledGame>` field.
+- Run `cargo test -p rc-common` to find all consumers via compile errors.
+- Audit `ws/mod.rs` (line 920, `ContentManifest` handler), `catalog.rs`, any API routes that serialize `pod_manifests`.
+- Write per-game detector functions in `content_scanner.rs` with explicit tests for each detection method.
+- For Windows Store games (Forza), use `winreg` or file path probing — NOT Steam ACF check.
 
 **Warning signs:**
-- 8 pods all enter crash-loop within 60s of each other (fleet-wide event)
-- OpenRouter API logs show >20 requests from same key in <10s
-- Watchdog logs show "429 Too Many Requests — attempt N/4" on most pods
-- Fleet Healer detects fleet-wide pattern but continues running pod-by-pod MMA anyway
+- `cargo build` succeeds but runtime panics on manifest deserialization (new field not present in old JSON).
+- Server-side code that reads `manifest.cars` compiles but produces incorrect results because the new game type uses `installed_games` instead.
+- Forza always shows as "not installed" even when it is.
 
-**Phase to address:** Phase 2 (Unified MMA Protocol) — staggering and fleet-pattern short-circuit must be in the MMA spec before implementation.
+**Phase to address:** Phase 1 (content scanner extension). Cascade audit is mandatory before shipping.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Using `tasklist` polling to detect crashes (current rc-watchdog) | Simple, no extra dependencies | Cannot determine WHY the crash happened (exit code, exception type) | Acceptable for restart detection; NEVER as input for MMA diagnosis |
-| Hardcoding `C:\RacingPoint` path in watchdog | Simpler code | All machines must use this exact path | Acceptable for pods (all configured this way); NOT acceptable for server or James |
-| Single OpenRouter key for all layers | One thing to manage | Budget overrun between layers invisible; key rotation affects everything | Only acceptable with cross-layer spend tracking (Pitfall 7) |
-| Writing MAINTENANCE_MODE from watchdog | Stops restart storms | Watchdog locks itself out of applying the fix | Never — watchdog must NOT write MAINTENANCE_MODE |
-| Using sentry breadcrumb file for all deconfliction | Already exists | Does not scale to 3+ recovery layers | Never for v31.0 — extend to HEAL_IN_PROGRESS sentinel |
-| Running MMA on every single crash (not just crash-loops) | More diagnosis data | $4/crash × 8 pods × 3 crashes/day = $96/day | Never — MMA only on confirmed crash-loops (>3 restarts / 10 min) |
+| Single-fetch-at-boot for content manifest | Simpler code | Stale game list after server restart | Never — use periodic re-fetch pattern (already exists for allowlist, feature flags) |
+| Fleet-average reliability only (no per-pod) | Simpler SQL | Kiosk shows unavailable games on specific pods | Only in MVP; per-pod needed before kiosk filtering goes live |
+| Hardcoded Steam library paths | Works for 90% of installs | Silently misses custom library locations | Only as fallback after VDF parse fails |
+| Combining crash loop detection in both fleet_health.rs and DiagnosticTrigger | Faster | Two disagreeing detectors, duplicate alerts | Never — wire fleet_health as the single source |
+| Skip `#[serde(other)]` on new DiagnosticTrigger variants | Less code | KB deserialization panics on old entries | Never for enums stored in DB |
+| Direct Evolution API call from rc-agent | Simpler | Alert path silently fails when Bono VPS is down | Never — always route through EscalationRequest |
 
 ---
 
 ## Integration Gotchas
 
-Common mistakes when connecting the new layers to existing systems.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Watchdog → Server direct-report endpoint | Adding endpoint to `public_routes` (no auth) | Behind `require_service_key` middleware; watchdog sends `RCSENTRY_SERVICE_KEY` header |
-| Fleet Healer SSH → Windows pods | Using password auth (may prompt) | Key-based auth only; `BatchMode=yes` SSH flag; `rc-watchdog` key pre-authorized on all pods |
-| External Guardian → Server schtasks | Calling `schtasks /Run /TN StartRCOnBoot` directly | Use `deploy-server.sh` logic: disable watchdog → confirmed kill → swap → start → verify |
-| Layer 1 MMA → OpenRouter | Using rc-agent's `openrouter.rs` unchanged | Separate client with SYSTEM-context certificate handling and no-proxy setting |
-| Layer 2 SSH → Pod exec | Running arbitrary commands | Whitelist: `tasklist`, `dir`, `netstat -an`, `type C:\RacingPoint\*.log` — never arbitrary shell |
-| Manifest server → Pods | Serving unsigned manifest over HTTP | Manifest must be signed with HMAC-SHA256 using the service key; watchdog verifies before trusting |
+| content_scanner → WS protocol → server pod_manifests | Extend ContentManifest type without auditing all downstream consumers | Extend type, compile, let compiler find all readers; cascade-audit each |
+| DiagnosticTrigger new variants → KB persistence | Add variants without serde forward-compat | Add `#[serde(other)]` variant first, then add new variants |
+| crash_loop detection → tier_engine | Re-implement detection in rc-agent, bypassing fleet_health | Emit FleetEvent from server fleet_health, push to agent via WS as a trigger |
+| WhatsApp alerts from rc-agent | Direct HTTP call to Evolution API | Route through EscalationRequest → server → whatsapp_escalation.rs → Bono relay |
+| combo_reliability queries for kiosk filtering | Use fleet-aggregate AVG (no pod_id filter) | Query per-pod rows using existing pod_id column |
+| Steam library scan | Hardcoded paths C/D/E | Parse libraryfolders.vdf first, fall back to hardcoded |
+| Boot-time combo validation | Trigger as soon as manifest scan completes | Gate on: manifest complete AND presets received from server |
+| Launch timeline events via WS | Fire-and-forget new WS message type | Resend on reconnect; for commands needing confirmation, use ACK pattern |
 
 ---
 
@@ -498,10 +279,11 @@ Common mistakes when connecting the new layers to existing systems.
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Synchronous SSH in async healer | Fleet health endpoint becomes slow during pod-down events | `tokio::process::Command` + `tokio::time::timeout(20s)` | When >2 pods go dark simultaneously |
-| MMA on every watchdog cycle | $100+/day API bills | MMA gated behind crash-loop threshold (>3 restarts/10min) | Immediately if trigger threshold is too low |
-| Loading full pod diagnostics into MMA prompt | Token limits exceeded for complex cases | Cap diagnostic context at 4000 tokens; summarize log tail | When pod has 100MB of crash logs |
-| Fleet healer collecting ALL pod logs via SSH | Server memory pressure from 8× multi-MB log transfers | Collect last 50 lines only; stream via SSH, don't buffer | When pods have verbose logging enabled |
+| Full filesystem scan on every WS reconnect | Pod WS reconnects cause 2-5s freeze (scanning thousands of AC car folders) | Cache manifest in memory; rescan only on explicit trigger or 24h timer | Any pod with large AC install (500+ cars) |
+| Reliability query per-preset in a loop (N+1) | `/api/v1/presets` response time grows linearly with preset count | Batch reliability query: one JOIN across all presets, not one query per preset | >50 presets |
+| Launch timeline events logged to SQLite per event | High-frequency launch events fill launch_events table | Keep `launch_events` schema but use JSONL dual-write for high-frequency timeline data; SQLite for aggregation | >100 launches/day |
+| Fleet game matrix loading all pod manifests | Admin page loads all 8 manifests on every render | Cache fleet matrix in server memory, invalidate on ContentManifest receive | N/A at 8 pods, but bad pattern |
+| Re-validating all combos on every content scan | Boot takes 30+ seconds validating thousands of AC combos | Validate only combos that changed (compare manifest diff, not full rescan) | AC installs with 200+ presets |
 
 ---
 
@@ -509,40 +291,49 @@ Common mistakes when connecting the new layers to existing systems.
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| OpenRouter key in watchdog registry or toml | Key exposed to any local admin process | Environment variable only, set via service properties; NEVER in config file |
-| Watchdog direct-report endpoint without auth | Any LAN client can inject false crash reports | `RCSENTRY_SERVICE_KEY` header required on all new Layer 1 endpoints |
-| SSH private key stored on server in plain text | Compromised server = fleet access | Key stored in `C:\RacingPoint\fleet-ssh-key` with ACL limiting to ADMIN user only |
-| Guardian executing arbitrary server commands via SSH | Compromise of guardian machine = full server access | Guardian whitelist: `schtasks`, `netstat`, `dir C:\RacingPoint\`; no arbitrary shell |
-| Manifest served over unauthenticated HTTP | MITM can swap manifest, watchdog accepts corrupted binary | HMAC-SHA256 signed manifest; watchdog verifies signature with pre-shared key |
+| Exposing full content manifest via public API | Information disclosure: reveals pod hardware and software configuration to customers on venue WiFi | Game availability endpoint returns only `available: bool` per game, not full manifest. Full manifest stays internal. |
+| Allowing kiosk to request arbitrary game inventory scans | DoS: customer-triggered filesystem scan on every kiosk interaction | Inventory scan is triggered server-side only (agent push); kiosk only reads cached availability |
+| Storing car/track names from manifest into preset validation without sanitization | INI injection: a malicious mod folder name `ferrari\n[RACE]` could corrupt race.ini | Whitelist validation (standing rule: INI injection whitelist for car/track names) — already exists in v27.0 |
+| Unguarded `/api/v1/games/fleet-matrix` endpoint returning pod details | Information disclosure: exposes per-pod capability to unauthorized callers | Route behind staff JWT (not public) — pod capability data is operational, not customer-facing |
+
+---
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Showing game as "unavailable" when inventory scan hasn't completed yet | Customer sees empty game list on first boot, assumes nothing is installed | Show "Checking availability..." spinner for up to 30s on boot; fall back to all-games-visible if scan times out |
+| Showing reliability score as % to customers | Customers avoid a game with 70% reliability that is perfectly fine today | Reliability score is staff/admin only; kiosk only shows available/unavailable |
+| Kiosk flickering when pod availability changes mid-session | Customer sees game list change while browsing | Debounce kiosk availability updates: apply new manifest only between sessions, not during active browsing |
+| Displaying "Game unavailable on this pod" with no alternative | Customer walk-away | Show alternative available pod: "Available on Pod 5 — ask staff" |
+| Crash loop alert to Uday with no actionable context | Uday calls staff who don't know which pod or what to do | Alert format: "Pod 3 crash loop — 5 restarts in 3 min. Last error: acs.exe segfault. Recommend reboot." |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **HEAL_IN_PROGRESS sentinel:** All 5 recovery systems check it before acting — verify by grepping `HEAL_IN_PROGRESS` appears in: `rc-watchdog/src/service.rs`, `rc-sentry/src/`, `racecontrol/src/pod_healer.rs`, `racecontrol/src/fleet_health.rs`, and the External Guardian script.
-- [ ] **Rollback depth tracking:** `rollback-state.json` exists and `rollback_depth` field is checked before the second rollback attempt — verify by grepping `rollback_depth` in watchdog code.
-- [ ] **Budget file bootstrapping:** `watchdog-budget.json` is created on first start if missing (do not crash on missing file) — verify watchdog starts cleanly on a fresh pod with no budget file.
-- [ ] **SYSTEM-context HTTP test:** Watchdog startup runs `GET https://openrouter.ai/api/v1/models` as SYSTEM and logs the result before MMA is enabled — verify this test appears in watchdog boot log.
-- [ ] **Session awareness in Layer 2:** Fleet Healer checks `billing_active.sentinel` before ANY binary push — verify by grepping `billing_active` in `racecontrol/src/` fleet healer code.
-- [ ] **Guardian coordination:** `GUARDIAN_ACTING` is written to comms-link (shared channel) not to a local file — verify by grepping `GUARDIAN_ACTING` in both James and Bono guardian scripts.
-- [ ] **MMA stagger:** Watchdog MMA trigger is staggered by pod number — verify by reading pod-ID-based delay calculation in watchdog code.
-- [ ] **Manifest signature verification:** Watchdog rejects manifests without valid HMAC-SHA256 — verify test exists for malformed manifest handling.
+- [ ] **Content scanner extended:** verify by SSH to a pod and checking `GET /api/v1/fleet/manifest/pod-3` returns Steam games, not just AC content.
+- [ ] **Kiosk game filter:** verify on the ACTUAL kiosk browser (not curl) — open `/kiosk` on Pod 3 and confirm Forza is absent if not installed. `curl` proves the API; the kiosk proves the UI.
+- [ ] **Combo validation at boot:** verify validation log appears AFTER "Preset push received" log, not before. Check timing of log entries on Pod 8.
+- [ ] **Crash loop WhatsApp alert:** trigger a crash loop on Pod 8 (3 fast restarts) and verify Uday receives a WhatsApp message with pod number and context. `fleet_health.crash_loop: true` is a proxy; the alert arriving is the behavior.
+- [ ] **Reliability dashboard:** open admin dashboard in browser from James's machine (NOT from server itself) and verify per-pod scores render. Static file serving issues are only visible from a remote browser.
+- [ ] **DiagnosticTrigger new variants:** deploy, then read back KB entries from SQLite and verify they deserialize without error. `cargo test` proves struct, not DB roundtrip.
+- [ ] **Steam VDF parsing:** install a game to a non-default Steam library path on Pod 8 and verify it appears in the inventory. Hardcoded path check is the trap.
+- [ ] **WhatsApp chain failure path:** disconnect Bono VPS relay (`CTRL+C comms-link`) and trigger a Tier 5 escalation. Verify alert is queued and delivered when relay reconnects. Alert during relay-down is the failure mode.
 
 ---
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Recovery system fight | MEDIUM | (1) `del C:\RacingPoint\HEAL_IN_PROGRESS` on affected pod, (2) restart rc-watchdog service, (3) manually clear breadcrumb file |
-| MAINTENANCE_MODE lockout | LOW | `del C:\RacingPoint\MAINTENANCE_MODE` via rc-sentry exec; `schtasks /Run /TN StartRCAgent` via SSH |
-| Both binaries bad | HIGH | SSH to pod → `scp` known-good binary from server → `ren rc-agent.exe rc-agent-prev.exe && ren rc-agent-good.exe rc-agent.exe && schtasks /Run /TN StartRCAgent` |
-| Split-brain double-restart | MEDIUM | SSH to server → `taskkill /F /IM racecontrol.exe` → wait 5s → `schtasks /Run /TN StartRCDirect` → verify one instance in tasklist |
-| OpenRouter rate limit storm | LOW | Wait 60s for backoff to clear; manually trigger `del C:\RacingPoint\MMA_DIAGNOSING` on affected pods to unblock |
-| SSH session exhaustion | LOW | Restart OpenSSH service on affected pods via WoL + scheduled task |
-| Budget overrun | MEDIUM | Delete `watchdog-budget.json` ONLY if day has rolled over; otherwise wait for midnight reset; check OpenRouter dashboard for anomalous spend |
+| Serde field mismatch (kiosk sent wrong field name) | LOW — kiosk redeploy only | Update field name in kiosk `buildLaunchArgs()`, rebuild and deploy kiosk Next.js app. No Rust rebuild needed. |
+| Stale inventory after server restart | LOW — automatic | Pod re-sends ContentManifest on next WS reconnect. If periodic rescan is implemented, self-heals within 24h. Manual: fleet exec `RequestContentScan` via server. |
+| Crash loop detector conflict (double alerts) | LOW | Disable new detector, keep fleet_health.rs as single source. One-line config change. |
+| DiagnosticTrigger serde failure on KB entries | MEDIUM | Write a one-time migration script: read all KB entries, skip those that fail deserialization with a WARNING, write back. Or clear KB entirely if entries are few. |
+| WhatsApp alert going to wrong path (direct vs relay) | LOW | Change rc-agent to emit EscalationRequest instead of direct HTTP call. Rust rebuild + fleet deploy. |
+| Boot combo validation auto-disabled correct combos | MEDIUM | Re-enable combos via admin preset library UI. Add boot sequencing gate to prevent recurrence. |
+| Steam library scan missed custom path | LOW | Add VDF parsing. Rebuild rc-agent, deploy to fleet. Manual: admin re-enables affected presets. |
 
 ---
 
@@ -550,33 +341,34 @@ When pitfalls occur despite prevention, how to recover.
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Recovery system fight (Pitfall 1) | Phase 1 — Smart Watchdog core | `grep HEAL_IN_PROGRESS` in all recovery system source files |
-| MAINTENANCE_MODE lockout (Pitfall 2) | Phase 1 — Smart Watchdog core | Test: trigger crash-loop → verify MMA completes → verify fix applied without MAINTENANCE_MODE blocking |
-| SYSTEM-context HTTP failure (Pitfall 3) | Phase 1 — Smart Watchdog core | Deploy watchdog canary on Pod 8 → verify OpenRouter HTTP succeeds from service log |
-| Rollback loop (Pitfall 4) | Phase 1 — Smart Watchdog rollback | Test: deploy two bad binaries in sequence → verify watchdog escalates at depth=1, not loops |
-| Split-brain guardians (Pitfall 5) | Phase 5 — External Guardian | Test: simulate server down with both guardians active → verify only one restart occurs |
-| SSH concurrency exhaustion (Pitfall 6) | Phase 3 — Fleet Healer SSH | Load test: 8 dark pods → verify SSH semaphore prevents >2 concurrent connections |
-| Budget overrun in service (Pitfall 7) | Phase 2 — Unified MMA Protocol | Verify `watchdog-budget.json` created on first start; verify MMA blocked after cap |
-| Binary manifest TOCTOU (Pitfall 8) | Phase 1 — Smart Watchdog binary validation | Test: corrupt `rc-agent.exe` between check and launch → verify watchdog detects mismatch |
-| Active session disruption by Layer 2 (Pitfall 9) | Phase 3 — Fleet Healer | Test: create active billing session → verify fleet healer does NOT push binary or restart |
-| OpenRouter thundering herd (Pitfall 10) | Phase 2 — Unified MMA Protocol | Test: trigger fleet-wide crash → verify pod-staggered MMA calls and fleet-pattern short-circuit |
+| Serde silently drops new fields | Phase adding WS protocol extension (ContentManifest + InstalledGame) | `cargo test -p rc-common` roundtrip tests + on-pod file readback |
+| `ok: true` means queued not delivered | Phase adding launch timeline WS events | Drop-WS-mid-operation test; verify resend on reconnect |
+| Single-fetch-at-boot, no retry | Phase 1: content scanner extension | Restart server while pods are running; verify game list repopulates within 24h without pod restart |
+| Steam library hardcoded paths | Phase 1: content scanner extension | Install game to D: drive on Pod 8; verify scanner finds it |
+| Boot combo validation fires before presets loaded | Phase adding proactive combo validation | Check log ordering: "Presets received" before "Combo validation complete" |
+| DiagnosticTrigger enum serde compat | Phase adding CrashLoop/GameLaunchTimeout variants | DB roundtrip test: write old variant to SQLite, upgrade, read back — must not error |
+| Crash loop detection duplication | Phase wiring crash loop to Meshed Intelligence | grep for duplicate detection logic; single FleetEvent emission path |
+| WhatsApp via wrong path | Phase adding crash loop/chain failure alerts | Bono VPS relay-down test; verify alert queued not lost |
+| Fleet-average reliability, not per-pod | Phase adding kiosk game filtering | Open kiosk on Pod 3; verify game absent if not installed on Pod 3 specifically |
+| ContentManifest type cascade | Phase 1: content scanner extension (type extension) | `cargo build` after type change; fix ALL compiler errors before proceeding |
 
 ---
 
 ## Sources
 
-- CLAUDE.md standing rules — all incidents marked "Why:" — direct evidence from this codebase
-- MEMORY.md — shipped milestones v17.1, v26.0, v27.0, v28.0 incident history
-- PROJECT.md v31.0 milestone definition — architecture and constraints
-- `crates/rc-watchdog/src/service.rs` — current deconfliction implementation (breadcrumb file, grace window)
-- `crates/rc-agent/src/openrouter.rs` — existing MMA client (semaphore, retry logic, SYSTEM context gap)
-- `crates/racecontrol/src/pod_healer.rs` — existing fleet healer (protected processes, WoL interaction)
-- `crates/racecontrol/src/fleet_health.rs` — crash-loop detection implementation
-- `.planning/research/PITFALLS-v17.1-watchdog-ai.md` — prior watchdog AI pitfalls (Session 0/1, spawn verification)
-- 2026-03-24 incident: 16 orphan PowerShell watchdog instances (split-brain pattern at intra-machine scale)
-- 2026-03-26 incident: MAINTENANCE_MODE blocked 3 pods for 1.5h without alert
-- 2026-03-29 incident: both racecontrol instances attempted to bind port 8080 simultaneously
+- `crates/rc-agent/src/content_scanner.rs` — AC-only scanner, no Steam or non-Steam support
+- `crates/rc-agent/src/steam_checks.rs` — hardcoded Steam library paths, acknowledged VDF gap (line 301-310)
+- `crates/rc-agent/src/diagnostic_engine.rs` — DiagnosticTrigger enum, existing trigger set
+- `crates/rc-agent/src/tier_engine.rs` — WhatsApp escalation via EscalationRequest (line 2525-2590), existing WS escalation path
+- `crates/racecontrol/src/game_launcher.rs` — ACK protocol (line 440-467), fire-and-forget history
+- `crates/racecontrol/src/fleet_health.rs` — existing crash_loop detection (lines 379-390, 531-538)
+- `crates/racecontrol/src/preset_library.rs` — fleet-aggregate reliability SQL (no pod_id filter)
+- `crates/racecontrol/src/ws/mod.rs` — ContentManifest handler (line 920-928), single insert on receive
+- `crates/racecontrol/src/state.rs` — pod_manifests: HashMap (line 189)
+- `crates/rc-common/src/protocol.rs` — EscalationRequest (line 135), ContentManifest (line 147)
+- CLAUDE.md standing rules: serde field mismatch (ai_difficulty/ai_level incident), ok:true desync (GameTracker stuck), process guard empty allowlist (single-fetch-at-boot), Session 0 launch failure, WhatsApp routing (Bono VPS not venue), cascade updates (recursive), DiagnosticTrigger serde risk (enum in DB), boot sequencing (MAINTENANCE_MODE fires before inputs ready)
+- MEMORY.md: v40.0 WS ACK Protocol, v41.0 constraints, known pitfalls list (serde, ok:true, Session 0, process guard, single-fetch, manual fix regression)
 
 ---
-*Pitfalls research for: v31.0 Autonomous Survival System — 3-Layer MI Independence*
-*Researched: 2026-03-30*
+*Pitfalls research for: Game Intelligence System (v41.0) — game inventory, combo validation, launch telemetry, reliability scoring*
+*Researched: 2026-04-03*

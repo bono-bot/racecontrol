@@ -1,102 +1,93 @@
-# Architecture Patterns: v31.0 Autonomous Survival System (3-Layer MI Independence)
+# Architecture Research: v41.0 Game Intelligence System
 
-**Domain:** Self-healing fleet management — Rust/Axum monorepo with Windows pod agents
-**Researched:** 2026-03-30
-**Confidence:** HIGH — based on direct code inspection of all relevant source files
-
----
-
-## Current Architecture Baseline
-
-The existing codebase already has significant MI infrastructure. v31.0 adds a survival layer
-on top of it, not a replacement. Key existing modules per crate:
-
-### rc-agent (pod, :8090)
-
-Relevant existing modules:
-- `diagnostic_engine.rs` — anomaly detection, emits `DiagnosticEvent` via mpsc
-- `tier_engine.rs` — 5-tier decision tree, reads DiagnosticEvent, has circuit breaker + budget pre-check
-- `knowledge_base.rs` — local SQLite KB per pod
-- `openrouter.rs` — OpenRouter API client
-- `budget_tracker.rs` — per-node cost tracking
-- `mesh_gossip.rs` — gossip broadcast over existing WS
-- `self_heal.rs` — startup config/bat self-repair (boot-time only)
-- `self_monitor.rs` — self-health monitoring loop
-- `failure_monitor.rs` — failure state tracking
-
-### racecontrol (server, :8080)
-
-Relevant existing modules:
-- `pod_monitor.rs` — heartbeat detector, pure detection, delegates repair to pod_healer
-- `pod_healer.rs` — graduated AI-driven recovery (kill zombies, WoL, AI escalation)
-- `fleet_kb.rs` — fleet-wide SQLite KB, gossip storage + promotion pipeline
-- `mesh_handler.rs` — processes incoming MeshSolution*/MeshExperiment*/MeshHeartbeat messages
-- `maintenance_engine.rs` — predictive maintenance signals
-
-### rc-watchdog (Windows service, pods + james mode)
-
-- `service.rs` — Windows SYSTEM service, polls rc-agent liveness every 5s, restarts via Session 1
-- `james_monitor.rs` — James machine mode, monitors 9 services, graduated AI recovery via Ollama
-- `reporter.rs` — sends `WatchdogCrashReport` to server via HTTP POST `/pods/{id}/watchdog-crash`
-
-### rc-common (shared lib)
-
-- `mesh_types.rs` — `MeshSolution`, `SolutionStatus`, `FixType`, `DiagnosisTier`
-- `verification.rs` — `ColdVerificationChain`, `VerifyStep`
-- `recovery.rs` — `RecoveryAction`, `RecoveryAuthority`, `RecoveryDecision`, `RecoveryLogger`
-- `watchdog.rs` — `EscalatingBackoff`
-- `protocol.rs` — `AgentMessage`, `CoreToAgentMessage`, `DashboardEvent`
-- `types.rs` — `WatchdogCrashReport`, `PodInfo`, `PodStatus`
+**Domain:** Per-pod game inventory, proactive combo validation, launch timeline tracing, crash loop detection, reliability dashboard — integrated into existing Meshed Intelligence Rust/Axum monorepo
+**Researched:** 2026-04-03 IST
+**Confidence:** HIGH — based on direct inspection of all relevant source files in the deployed codebase
 
 ---
 
-## v31.0 Architecture: 3-Layer Survival System
+> Note: This file supersedes the v31.0 architecture for this milestone. The v31.0 survival architecture (survival_coordinator, rc-guardian, smart_watchdog) is already shipped. This document focuses exclusively on v41.0 integration points.
+
+---
+
+## Standard Architecture
 
 ### System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  LAYER 3: EXTERNAL GUARDIAN  (Bono VPS srv1422716.hstgr.cloud)          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  guardian_daemon (new standalone binary: rc-guardian)           │    │
-│  │  - WS subscriber to server /ws/guardian                         │    │
-│  │  - Polls server :8080/api/v1/health every 60s (outside LAN)     │    │
-│  │  - WhatsApp alert escalation (Evolution API)                     │    │
-│  │  - Cross-venue KB sync endpoint                                  │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-└───────────────────────────────────┬─────────────────────────────────────┘
-                                    │ HTTPS/WS (public internet)
-┌───────────────────────────────────▼─────────────────────────────────────┐
-│  LAYER 2: SERVER FLEET HEALER  (Server 192.168.31.23:8080)              │
-│  ┌────────────────────────────┐  ┌────────────────────────────────────┐ │
-│  │  pod_monitor.rs (existing) │  │  survival_coordinator.rs (NEW)     │ │
-│  │  - heartbeat detection     │  │  - Layer 1 report ingestion        │ │
-│  └────────────┬───────────────┘  │  - cross-pod pattern detection     │ │
-│               │ delegates        │  - server self-check loop          │ │
-│  ┌────────────▼───────────────┐  │  - guardian push channel           │ │
-│  │  pod_healer.rs (extended)  │  └────────────────────────────────────┘ │
-│  │  + MMA diagnosis path      │                                         │
-│  │  + Layer1Report ingestion  │  ┌────────────────────────────────────┐ │
-│  │  + survival_action API     │  │  fleet_kb.rs (existing, extended)  │ │
-│  └────────────────────────────┘  │  + survival_events table           │ │
-│                                  └────────────────────────────────────┘ │
-└──────────────────────┬──────────────────────────────────────────────────┘
-                       │ WS + HTTP (LAN)
-┌──────────────────────▼──────────────────────────────────────────────────┐
-│  LAYER 1: SMART WATCHDOG  (each pod: Windows SYSTEM service)            │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  rc-watchdog/src/service.rs (extended — NOT a new binary)        │    │
-│  │                                                                  │    │
-│  │  ┌──────────────────────┐   ┌─────────────────────────────────┐ │    │
-│  │  │  existing: liveness  │   │  NEW: smart_watchdog.rs module  │ │    │
-│  │  │  poll + Session 1    │   │  - binary validation (SHA256)   │ │    │
-│  │  │  restart             │   │  - OpenRouter MMA diagnosis     │ │    │
-│  │  └──────────────────────┘   │  - HTTP crash report to server  │ │    │
-│  │                             │  - survival_state.rs            │ │    │
-│  │                             └─────────────────────────────────┘ │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ADMIN DASHBOARD (:3201)                   KIOSK (:3300)                    │
+│  /reliability page (NEW)                   game selection panel (MODIFIED)  │
+│  - Fleet game matrix                       - Filter by installed_games       │
+│  - Flagged combo list                      - Show flagged combo badges        │
+│  - Launch timeline viewer                                                   │
+│  - Per-combo success rates                                                  │
+└─────────────────────────────────┬───────────────────────┬───────────────────┘
+                                  │ HTTP REST             │ WebSocket
+┌─────────────────────────────────▼───────────────────────▼───────────────────┐
+│  RACECONTROL SERVER (:8080)                                                  │
+│                                                                              │
+│  ws/mod.rs (MODIFIED)           state.rs (MODIFIED)                         │
+│  - Handle ContentManifest       - pod_manifests: HashMap<pod_id, ExtManifest>│
+│  - Write pod_game_inventory     - combo_validation_flags: in-memory cache    │
+│                                                                              │
+│  NEW endpoints:                 EXTENDED endpoints:                         │
+│  GET /api/v1/fleet/game-matrix  GET /games/catalog (already exists)         │
+│  GET /api/v1/presets/{id}/valid GET /games/alternatives (already exists)    │
+│  GET /api/v1/launch-timeline/*  GET /api/v1/metrics/launch-stats (exists)   │
+│  POST /api/v1/fleet/combo-scan                                               │
+│                                                                              │
+│  NEW modules:                   EXTENDED modules:                            │
+│  combo_validator.rs             preset_library.rs (add per-pod queries)     │
+│  game_inventory.rs              api/metrics.rs (add timeline endpoints)     │
+│                                 ws/mod.rs (handle new WS messages)          │
+│                                                                              │
+│  NEW DB tables:                 EXISTING DB tables:                          │
+│  pod_game_inventory             combo_reliability (extended)                 │
+│  launch_timeline_spans          launch_events (existing)                     │
+│  combo_validation_flags         game_presets (existing)                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                  │ WebSocket (LAN)
+┌─────────────────────────────────▼───────────────────────────────────────────┐
+│  RC-AGENT (each pod, :8090)                                                  │
+│                                                                              │
+│  content_scanner.rs (EXTENDED)  game_doctor.rs (EXTENDED)                   │
+│  - scan_ac_content (exists)     - diagnose_and_fix (exists, reactive)       │
+│  - scan_steam_library (NEW)     - run_boot_validation (NEW, proactive)       │
+│  - scan_non_steam (NEW)         - validate_combo_filesystem (NEW)            │
+│  - build_full_manifest (NEW)                                                 │
+│                                                                              │
+│  tier_engine.rs (EXTENDED)      game_launch_retry.rs (EXTENDED)             │
+│  - GameLaunchFail (exists)      - retry_game_launch (exists, 60s limit)     │
+│  - GameLaunchTimeout (NEW)      - timeout_watchdog wraps launch (NEW)       │
+│  - CrashLoop (NEW)                                                           │
+│                                                                              │
+│  NEW modules:                   EXISTING passing through:                    │
+│  launch_timeline.rs             diagnostic_engine.rs (add CrashLoop emit)   │
+│  crash_loop_detector.rs         failure_monitor.rs (feeds crash_loop count) │
+│                                                                              │
+│  NEW WS messages (AgentMessage variants):                                    │
+│  GameInventoryUpdate { installed_games, manifest }                           │
+│  LaunchTimelineReport { launch_id, spans }                                   │
+│  ComboValidationResult { preset_id, flags }                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Component Responsibilities
+
+| Component | Responsibility | Location |
+|-----------|----------------|----------|
+| `content_scanner.rs` (extended) | Filesystem scan — AC + Steam + non-Steam. Produces `ExtendedManifest`. | `crates/rc-agent/src/` |
+| `game_inventory.rs` (new, server) | Persists `pod_game_inventory` table; answers fleet matrix queries | `crates/racecontrol/src/` |
+| `combo_validator.rs` (new, server) | Crosses presets vs content manifest at boot; writes `combo_validation_flags` | `crates/racecontrol/src/` |
+| `launch_timeline.rs` (new, agent) | Captures per-phase launch spans; INSERT INTO launch_timeline_spans | `crates/rc-agent/src/` |
+| `crash_loop_detector.rs` (new, agent) | Rolling-window failure counter; emits `CrashLoop` DiagnosticTrigger | `crates/rc-agent/src/` |
+| `tier_engine.rs` (extended) | Handles `GameLaunchTimeout` and `CrashLoop` triggers with Tier 0-5 escalation | `crates/rc-agent/src/` |
+| `game_doctor.rs` (extended) | `run_boot_validation()` — proactive filesystem check at startup (not reactive) | `crates/rc-agent/src/` |
+| `ws/mod.rs` (extended, server) | Handles new `GameInventoryUpdate`, `LaunchTimelineReport`, `ComboValidationResult` messages | `crates/racecontrol/src/ws/` |
+| `preset_library.rs` (extended) | Per-pod reliability query + auto-disable when `combo_validation_flags` exists | `crates/racecontrol/src/` |
+| `/reliability` admin page (new) | Fleet game matrix + flagged combos + launch timeline viewer | `racingpoint-admin/src/app/` |
+| kiosk game selection (modified) | Filter `GAME_DISPLAY` by `pod.installed_games`; show flagged badge on preset | `kiosk/src/components/` |
 
 ---
 
@@ -104,442 +95,438 @@ Relevant existing modules:
 
 ### New Modules
 
-| Module | Crate | Type | Purpose |
-|--------|-------|------|---------|
-| `crates/rc-watchdog/src/smart_watchdog.rs` | rc-watchdog | NEW module | OpenRouter client, binary validation, MMA diagnosis inside watchdog |
-| `crates/rc-watchdog/src/survival_state.rs` | rc-watchdog | NEW module | Persistent state across watchdog cycles (crash count, last_diagnosis, budget spent) |
-| `crates/racecontrol/src/survival_coordinator.rs` | racecontrol | NEW module | Layer 1 report ingestion, cross-pod pattern detection, server self-check loop, guardian push channel |
-| `crates/racecontrol/src/api/survival.rs` | racecontrol | NEW module | HTTP endpoints for Layer 1 reports + guardian health queries |
-| `crates/rc-common/src/survival_types.rs` | rc-common | NEW module | Shared types: `Layer1Report`, `SurvivalAction`, `GuardianEvent`, `SurvivalState` |
-| `crates/rc-guardian/` | NEW CRATE | New standalone binary | External guardian daemon (Bono VPS) — separate deploy target |
+| File | Crate | What It Does |
+|------|-------|-------------|
+| `crates/rc-agent/src/launch_timeline.rs` | rc-agent | `LaunchTimeline` struct + `record_span()`. Wraps game launch to checkpoint each phase (`process_start`, `steam_overlay_dismissed`, `first_telemetry_frame`, `billing_playable`). Persists to pod-local rusqlite and emits `AgentMessage::LaunchTimelineReport` at end. |
+| `crates/rc-agent/src/crash_loop_detector.rs` | rc-agent | Rolling 10-minute window counter per `sim_type`. On `N >= 3` failures, emits `DiagnosticTrigger::CrashLoop { sim_type, fail_count, window_secs }`. State persisted to `C:\RacingPoint\crash_loop_state.json` (survives rc-agent restart). |
+| `crates/racecontrol/src/game_inventory.rs` | racecontrol | Persists `pod_game_inventory` from incoming `GameInventoryUpdate` WS message. Answers `GET /api/v1/fleet/game-matrix` with pod × game matrix + install status. |
+| `crates/racecontrol/src/combo_validator.rs` | racecontrol | Called at server boot and on each `GameInventoryUpdate`. Crosses `game_presets` against `pod_manifests` in AppState. Writes `combo_validation_flags` rows. Auto-sets `enabled = false` on presets with missing car/track/ai_lines. |
 
 ### Modified Modules
 
-| Module | Crate | What Changes |
-|--------|-------|-------------|
-| `crates/rc-watchdog/src/service.rs` | rc-watchdog | Add `smart_watchdog::SmartWatchdogContext` field; after restart, call `smart_watchdog::run_diagnosis()` if crash count >= 2 |
-| `crates/rc-watchdog/src/james_monitor.rs` | rc-watchdog | Add `survival_state` persistence; extend Ollama diagnosis to use `smart_watchdog::diagnose_with_openrouter()` as fallback when Ollama fails |
-| `crates/racecontrol/src/pod_healer.rs` | racecontrol | Ingest `Layer1Report` from survival_coordinator; Layer 1 diagnosis feeds Tier 2 KB lookup before healer runs its own AI path |
-| `crates/racecontrol/src/fleet_kb.rs` | racecontrol | Add `survival_events` table; add `record_survival_event()` and `query_survival_pattern()` functions |
-| `crates/rc-common/src/types.rs` | rc-common | Extend `WatchdogCrashReport` with `diagnosis_summary: Option<String>` and `mma_cost: Option<f64>` |
-| `crates/rc-common/src/lib.rs` | rc-common | Export `survival_types` module |
-| `crates/Cargo.toml` (workspace) | workspace | Add `crates/rc-guardian` to members |
+| File | Crate | What Changes |
+|------|-------|-------------|
+| `crates/rc-agent/src/content_scanner.rs` | rc-agent | Add `scan_steam_library()`, `scan_non_steam_games()`, `build_full_manifest()`. AC scan stays unchanged. New `ExtendedManifest` struct wraps `ContentManifest` + `Vec<InstalledGame>`. |
+| `crates/rc-agent/src/game_doctor.rs` | rc-agent | Add `run_boot_validation(manifest: &ExtendedManifest) -> Vec<ComboFlag>`. Called at startup after content scan. Checks AC combos for ai_lines, pit stalls, surfaces.ini. Non-AC games checked for exe existence only. |
+| `crates/rc-agent/src/tier_engine.rs` | rc-agent | Add match arms for `DiagnosticTrigger::GameLaunchTimeout` (Tier 1: kill stale process + retry once, Tier 2: KB lookup, Tier 3+: MMA) and `DiagnosticTrigger::CrashLoop` (Tier 0: disable combo + WhatsApp alert, skip retry). |
+| `crates/rc-agent/src/game_launch_retry.rs` | rc-agent | Wrap `retry_game_launch()` with `tokio::time::timeout`. On timeout: emit `GameLaunchTimeout` trigger to diagnostic_engine channel. |
+| `crates/rc-agent/src/diagnostic_engine.rs` | rc-agent | Add `CrashLoop` and `GameLaunchTimeout` to `DiagnosticTrigger` enum. Add emission path in the diagnostic loop for crash_loop_detector output. |
+| `crates/rc-agent/src/main.rs` | rc-agent | At boot after `scan_ac_content()`: call `build_full_manifest()`, run `game_doctor::run_boot_validation()`, send `AgentMessage::GameInventoryUpdate`. |
+| `crates/racecontrol/src/ws/mod.rs` | racecontrol | Handle `GameInventoryUpdate` → call `game_inventory::upsert_pod_inventory()` + `combo_validator::run_for_pod()`. Handle `LaunchTimelineReport` → insert into `launch_timeline_spans`. Handle `ComboValidationResult` → upsert `combo_validation_flags`. |
+| `crates/racecontrol/src/preset_library.rs` | racecontrol | In `list_presets_with_reliability()`: JOIN with `combo_validation_flags` to add `is_flagged` and `flag_reason` to `GamePresetWithReliability`. Add per-pod variant `list_presets_for_pod(pod_id)` that additionally filters by `pod_game_inventory`. |
+| `crates/racecontrol/src/state.rs` | racecontrol | `pod_manifests` type changes from `HashMap<String, ContentManifest>` to `HashMap<String, ExtendedManifest>` (backward compatible — `ContentManifest` is embedded in `ExtendedManifest`). |
+| `crates/rc-common/src/types.rs` | rc-common | Add `ExtendedManifest { ac_manifest: ContentManifest, installed_games: Vec<InstalledGame> }`. Add `InstalledGame { sim_type: SimType, install_path: String, verified_at: String }`. Extend `GamePresetWithReliability` with `is_flagged: bool, flag_reason: Option<String>`. Add new `AgentMessage` variants: `GameInventoryUpdate`, `LaunchTimelineReport`, `ComboValidationResult`. Add `DiagnosticTrigger::CrashLoop` and `DiagnosticTrigger::GameLaunchTimeout`. |
 
 ---
 
-## Component Boundaries
-
-### Layer 1: Smart Watchdog (rc-watchdog, pod-side)
-
-**Location:** `crates/rc-watchdog/src/smart_watchdog.rs` — new module within existing crate.
-
-**Why not a new crate:** rc-watchdog is already the Windows service binary on pods. Adding a new crate would require a new binary deployed to all 8 pods. The smart watchdog logic belongs in the same process that already owns restart authority. Adding a module costs zero deploy complexity.
-
-**What it owns:**
-- Binary validation: SHA256 check of `rc-agent.exe` against manifest before restart
-- Crash count tracking: persisted to `C:\RacingPoint\watchdog-survival.json` (survives watchdog restart)
-- MMA diagnosis trigger: after crash_count >= 2 in a 10-minute window, call OpenRouter
-- HTTP report to server: POST to `/api/v1/survival/layer1-report` (non-blocking, fire-and-forget)
-
-**What it does NOT own:**
-- Fleet-level decisions (belongs to Layer 2)
-- Solution storage in fleet KB (belongs to Layer 2)
-- External alerting (belongs to Layer 3)
-
-**Interaction with existing code:**
-
-```rust
-// service.rs modification — pseudocode, not full implementation
-// After restart loop detects crash:
-if self.smart_ctx.crash_count_in_window() >= 2 {
-    let report = self.smart_ctx.run_diagnosis(&agent_log_tail).await;
-    // fire-and-forget — watchdog cannot block the restart loop
-    tokio::spawn(async move { report_to_server(report).await; });
-}
-```
-
-### Layer 2: Server Fleet Healer (racecontrol, server-side)
-
-**Location:** `crates/racecontrol/src/survival_coordinator.rs` — new module within existing crate.
-
-**Why not a new crate:** racecontrol already owns pod_monitor + pod_healer. The survival coordinator reads from the same AppState channels and writes to the same fleet_kb. Splitting would require IPC. No benefit for a single-server deployment.
-
-**What it owns:**
-- Layer 1 report ingestion: receives `Layer1Report` from pods via POST `/api/v1/survival/layer1-report`
-- Cross-pod pattern detection: "3 pods same crash within 5 minutes = systemic, alert guardian"
-- Server self-check loop: every 60s, verify own DB connectivity + WS broker health + guardian reachability
-- Guardian push channel: mpsc sender feeding `guardian_event_tx` for Layer 3 notifications
-
-**Interaction with existing pod_healer.rs:**
-
-Layer 1 reports feed into pod_healer's existing graduated recovery tracker. The healer already has a Tier 2 KB lookup path. Layer 1 diagnosis results are injected as synthetic `DiagnosticEvent` entries, allowing the healer's existing tier logic to consume them without architectural changes.
-
-```rust
-// survival_coordinator.rs feeds pod_healer via AppState channel
-// AppState gets new field: layer1_report_tx: mpsc::Sender<Layer1Report>
-// pod_healer spawns a receiver task that converts Layer1Report → DiagnosticEvent
-```
-
-**Interaction with existing fleet_kb.rs:**
-
-New `survival_events` table appended to fleet_kb migration. Existing tables untouched. Pattern detection queries over `survival_events` to find cross-pod correlation.
-
-### Layer 3: External Guardian (rc-guardian, Bono VPS)
-
-**Location:** `crates/rc-guardian/` — NEW crate, new binary, deployed to Bono VPS.
-
-**Why a new crate:** This runs on a different machine (Bono VPS, Linux), has different dependencies (no Windows APIs, no rc-watchdog service code), and is a separate deploy target. It cannot be a module of rc-watchdog or racecontrol. A new crate is the correct boundary.
-
-**What it owns:**
-- WS connection to server `/ws/guardian` — receives `GuardianEvent` stream
-- External health polling: GET `https://racingpoint.cloud/api/v1/health` every 60s (internet path)
-- WhatsApp escalation: POST to Evolution API on Bono VPS when events require human response
-- Cross-venue KB sync endpoint: future (Phase 2+)
-
-**Deploy target:** pm2 on Bono VPS, same pattern as existing `racecontrol` pm2 service.
-
-### Unified MMA Protocol Placement
-
-**Lives in:** `crates/rc-watchdog/src/smart_watchdog.rs` (pod-side, Layer 1) and
-`crates/racecontrol/src/survival_coordinator.rs` (server-side, Layer 2).
-
-**Shared types in:** `crates/rc-common/src/survival_types.rs`
-
-The existing `openrouter.rs` in rc-agent already has a working OpenRouter client. rc-watchdog currently uses Ollama via james_monitor.rs. The smart watchdog needs an OpenRouter client too, but importing rc-agent from rc-watchdog creates a circular dependency (rc-watchdog already imports rc-common, not rc-agent).
-
-**Resolution:** Extract the OpenRouter client logic into `rc-common` as `crates/rc-common/src/openrouter.rs`. Both rc-agent's existing `openrouter.rs` and the new `smart_watchdog.rs` will use this shared implementation. The rc-agent module becomes a thin wrapper.
-
----
-
-## Data Flow: Diagnosis Event (Watchdog to Server to Guardian)
-
-```
-[rc-agent crash detected by rc-watchdog service.rs]
-    │
-    ▼
-[smart_watchdog.rs: increment crash_count in survival_state.rs]
-    │
-    ├── crash_count < 2: standard restart (existing path), no diagnosis
-    │
-    ▼ crash_count >= 2 within 10-min window
-[smart_watchdog.rs: collect_symptoms()]
-    │  - tail last 200 lines of C:\RacingPoint\rc-agent-*.log
-    │  - read survival_state.json for crash history
-    │  - capture process exit code from Windows event log
-    │
-    ▼
-[smart_watchdog.rs: try_ollama_diagnosis()]
-    │  - POST http://192.168.31.27:11434 (James local Ollama)
-    │  - timeout: 8s (watchdog cannot block restart loop)
-    │  - if timeout/fail: fall through to OpenRouter
-    │
-    ▼ (on Ollama timeout or failure)
-[smart_watchdog.rs: diagnose_with_openrouter()]
-    │  - Tier 3: Qwen3 only (Scanner) — cheapest, <$0.05
-    │  - Tier 4: all 4 models in parallel — only if Tier 3 inconclusive
-    │  - budget check against survival_state.daily_watchdog_spend
-    │
-    ▼
-[smart_watchdog.rs: build Layer1Report]
-    │  struct Layer1Report {
-    │      pod_id, crash_count, symptoms, diagnosis_summary,
-    │      mma_cost, fix_suggestion, fix_type, timestamp
-    │  }
-    │
-    ▼ (fire-and-forget tokio::spawn — MUST NOT block restart)
-[reporter.rs: POST http://192.168.31.23:8080/api/v1/survival/layer1-report]
-    │  - 5s timeout
-    │  - on failure: write to C:\RacingPoint\watchdog-offline-reports.jsonl
-    │                (server picks up when back online via poll at reconnect)
-    │
-    ▼
-[racecontrol/api/survival.rs: POST handler]
-    │  - validate Layer1Report struct
-    │  - write to fleet_kb.survival_events
-    │  - send to survival_coordinator via mpsc
-    │
-    ▼
-[survival_coordinator.rs: ingest_layer1_report()]
-    │  - check cross-pod correlation: query survival_events WHERE
-    │    problem_key = $key AND created_at > (now - 5min) GROUP BY pod_id HAVING count >= 3
-    │
-    ├── no correlation: inject as DiagnosticEvent into pod_healer channel
-    │       pod_healer proceeds with existing Tier 2 KB lookup → Tier 3/4 if needed
-    │
-    ▼ systemic pattern detected (3+ pods, same issue, 5-min window)
-[survival_coordinator.rs: escalate_to_guardian()]
-    │  - build GuardianEvent { severity: Critical, pattern: Systemic, ... }
-    │  - send via guardian_event_tx mpsc channel
-    │
-    ▼
-[rc-guardian: receive GuardianEvent via /ws/guardian]
-    │  - classify severity: Info / Warning / Critical / Emergency
-    │
-    ├── Info/Warning: log only, no alert
-    ├── Critical: WhatsApp alert to Uday + Bono
-    ▼ Emergency (server unreachable from external + 3+ pods down)
-[rc-guardian: escalate()]
-    │  - WhatsApp: immediate alert to Uday
-    │  - Attempt comms-link WS message to James
-    │  - Record in guardian incident log on Bono VPS
-```
-
-### Offline Report Recovery
-
-When the watchdog cannot reach the server (server down, LAN issue):
-
-```
-[Layer1Report fails to POST]
-    │
-    ▼
-[smart_watchdog.rs: write to C:\RacingPoint\watchdog-offline-reports.jsonl]
-    │  (append-only, one JSON object per line)
-    │
-    ▼ on next successful server connection (ws_handler.rs or reporter.rs)
-[service.rs: flush_offline_reports()]
-    │  - read watchdog-offline-reports.jsonl
-    │  - POST each to /api/v1/survival/layer1-report
-    │  - on success: clear the file
-```
-
----
-
-## New API Endpoints
-
-All endpoints added to `crates/racecontrol/src/api/survival.rs`, registered in `routes.rs`.
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/api/v1/survival/layer1-report` | service key | Receive Layer 1 crash report from watchdog |
-| GET | `/api/v1/survival/status` | staff JWT | Current survival state for all pods + server |
-| GET | `/api/v1/survival/events` | staff JWT | Paginated survival event log |
-| WS | `/ws/guardian` | guardian token | Guardian daemon event stream |
-
-**Auth note:** `/api/v1/survival/layer1-report` uses `X-Service-Key` (same as other pod-to-server endpoints). The guardian WS uses a dedicated `GUARDIAN_TOKEN` env var on Bono VPS — separate from the pod service key, so a compromised pod cannot impersonate the guardian.
-
----
-
-## Recommended Project Structure Changes
+## Recommended Project Structure
 
 ```
 crates/
 ├── rc-common/src/
-│   ├── survival_types.rs    # NEW — Layer1Report, SurvivalAction, GuardianEvent, SurvivalState
-│   ├── openrouter.rs        # NEW — extracted from rc-agent/src/openrouter.rs (shared client)
-│   └── lib.rs               # MODIFIED — export survival_types, openrouter
+│   └── types.rs                     MODIFIED — ExtendedManifest, InstalledGame,
+│                                               new AgentMessage variants,
+│                                               CrashLoop + GameLaunchTimeout triggers
 │
-├── rc-watchdog/src/
-│   ├── smart_watchdog.rs    # NEW — binary validation, symptom collection, MMA diagnosis
-│   ├── survival_state.rs    # NEW — persistent state (crash counts, spend, last diagnosis)
-│   ├── service.rs           # MODIFIED — inject SmartWatchdogContext, call diagnosis on threshold
-│   ├── james_monitor.rs     # MODIFIED — use openrouter fallback from rc-common
-│   └── reporter.rs          # MODIFIED — extend WatchdogCrashReport fields, add flush_offline
+├── rc-agent/src/
+│   ├── content_scanner.rs           MODIFIED — add Steam + non-Steam scan
+│   ├── game_doctor.rs               MODIFIED — add run_boot_validation()
+│   ├── game_launch_retry.rs         MODIFIED — add timeout wrapper
+│   ├── tier_engine.rs               MODIFIED — add CrashLoop + GameLaunchTimeout arms
+│   ├── diagnostic_engine.rs         MODIFIED — add new trigger variants + emission
+│   ├── main.rs                      MODIFIED — boot scan + GameInventoryUpdate send
+│   ├── launch_timeline.rs           NEW — LaunchTimeline, record_span, WS emit
+│   └── crash_loop_detector.rs       NEW — rolling window, CrashLoop emit, state persist
 │
-├── racecontrol/src/
-│   ├── survival_coordinator.rs  # NEW — Layer1 ingestion, pattern detection, guardian channel
-│   ├── api/survival.rs          # NEW — HTTP endpoints for layer1-report, status, events
-│   ├── pod_healer.rs            # MODIFIED — consume Layer1Report via new mpsc channel
-│   ├── fleet_kb.rs              # MODIFIED — survival_events table + query_survival_pattern()
-│   └── state.rs                 # MODIFIED — add guardian_event_tx, layer1_report_tx to AppState
-│
-└── rc-guardian/                 # NEW CRATE
-    ├── Cargo.toml
-    └── src/
-        ├── main.rs              # Binary entry point, pm2 target
-        ├── ws_client.rs         # WS connection to server /ws/guardian with reconnect
-        ├── health_poller.rs     # External health polling (internet path)
-        ├── escalation.rs        # WhatsApp + comms-link alert routing
-        └── incident_log.rs      # Persistent incident log on Bono VPS
+└── racecontrol/src/
+    ├── game_inventory.rs             NEW — pod_game_inventory table, fleet matrix query
+    ├── combo_validator.rs            NEW — preset x manifest cross-ref, flag writes
+    ├── ws/mod.rs                     MODIFIED — handle 3 new AgentMessage variants
+    ├── preset_library.rs             MODIFIED — add is_flagged, list_presets_for_pod
+    ├── state.rs                      MODIFIED — pod_manifests type to ExtendedManifest
+    └── api/
+        ├── routes.rs                 MODIFIED — register new endpoints
+        └── metrics.rs                MODIFIED — add launch_timeline_spans endpoints
+
+Frontend:
+racingpoint-admin/src/app/
+└── reliability/
+    └── page.tsx                      NEW — fleet game matrix + flagged combos + timeline
+kiosk/src/components/
+├── GamePickerPanel.tsx               MODIFIED — filter by installedGames (already has prop)
+└── GamePresetCard.tsx (or equivalent) MODIFIED — show flagged badge from is_flagged
 ```
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Module Injection over New Crate
+### Pattern 1: Boot-Time Proactive Check via Existing Startup Sequence
 
-**What:** Add new capability as a module inside an existing crate rather than creating a new binary.
+**What:** Extend the existing boot scan path (`scan_ac_content()` → `AgentMessage::ContentManifest`) to call `build_full_manifest()` and `game_doctor::run_boot_validation()` in the same startup function, then emit `AgentMessage::GameInventoryUpdate` instead of (or in addition to) `ContentManifest`.
 
-**When to use:** When the new logic needs to run in the same process, shares memory with existing code, and doesn't have conflicting platform requirements.
+**When to use:** When the new check shares the same trigger point (WS connect/reconnect) and same data source (filesystem) as the existing check. No new scheduling or polling needed.
 
-**Applied here:** `smart_watchdog.rs` is a module in rc-watchdog (not a new crate). `survival_coordinator.rs` is a module in racecontrol. This avoids 2 new binaries that would need separate deploy pipelines to 8 pods + server.
+**Why not a separate timer:** `scan_ac_content()` already runs at startup AND on WS reconnect (line 1950 in main.rs). Piggybacking onto this call site means the inventory is always fresh when the server gets it. A separate 5-minute timer would leave the server with stale data after a pod reconnect.
 
-**Trade-offs:** Increases binary size slightly. Tighter coupling — a panic in smart_watchdog could crash the service loop. Mitigate with `tokio::spawn` for all MMA calls (panics stay contained).
+**Example (pseudocode):**
+```rust
+// In main.rs, ws_connect path (existing call site at line ~1950)
+let ac_manifest = content_scanner::scan_ac_content();
+let steam_games = content_scanner::scan_steam_library();
+let non_steam = content_scanner::scan_non_steam_games(&config);
+let extended = ExtendedManifest { ac_manifest, installed_games: [steam_games, non_steam].concat() };
 
-### Pattern 2: Fire-and-Forget Diagnosis (Non-Blocking Restart Loop)
+// Boot validation: deterministic filesystem check, no AI
+let flags = game_doctor::run_boot_validation(&extended);
 
-**What:** All MMA calls inside rc-watchdog are spawned in a separate tokio task. The restart loop never awaits diagnosis results.
-
-**When to use:** When the primary function (restart rc-agent within seconds) must not be delayed by a secondary function (diagnosis taking up to 30s for 4-model parallel).
-
-**Applied here:** `tokio::spawn(async move { diagnose_and_report(symptoms).await; })` is called immediately after the decision to diagnose. The restart proceeds in parallel.
-
-**Critical constraint:** smart_watchdog.rs cannot use `tokio::runtime::Handle::current()` inside service.rs's std::thread context. The watchdog service.rs uses a `std::thread` loop, not an async runtime. Diagnosis must either be synchronous (blocking reqwest) with a short timeout, OR service.rs must spawn a Tokio runtime for the diagnosis task.
-
-**Resolution:** Add a `tokio::runtime::Builder::new_multi_thread()` runtime inside smart_watchdog's diagnosis path, kept alive for the watchdog process lifetime. This mirrors the pattern in james_monitor.rs.
-
-### Pattern 3: Offline-First Report Queue
-
-**What:** If the report destination is unreachable, persist reports locally to a JSONL file. Flush on next successful connection.
-
-**When to use:** When the reporter (watchdog) may outlive the reportee (server) and reports must not be lost.
-
-**Applied here:** `watchdog-offline-reports.jsonl` on each pod. Prevents survival data loss during server restarts or LAN issues.
-
-**Constraint:** File must be append-only and bounded. Cap at 200 entries (rotate oldest). A server that's been down for days should not receive a flood of stale reports on reconnect.
-
-### Pattern 4: Shared OpenRouter Client in rc-common
-
-**What:** Extract the OpenRouter HTTP client from rc-agent into rc-common so both rc-agent and rc-watchdog can use it without creating a crate dependency from rc-watchdog on rc-agent.
-
-**When to use:** When two crates need the same external API client and neither should depend on the other.
-
-**Applied here:** `rc-common/src/openrouter.rs` contains `OpenRouterClient` struct with `diagnose()` method. Both rc-agent's existing `openrouter.rs` (becomes a re-export or thin wrapper) and the new `smart_watchdog.rs` import from `rc_common::openrouter`.
-
-**Dependency graph result:**
+let msg = AgentMessage::GameInventoryUpdate { manifest: extended, combo_flags: flags };
+ws_send(msg);
 ```
-rc-guardian → rc-common
-rc-watchdog → rc-common
-rc-agent    → rc-common
-racecontrol → rc-common
+
+### Pattern 2: Server-Side Cross-Reference on Inventory Arrival
+
+**What:** When `GameInventoryUpdate` arrives at the server's WS handler, immediately run `combo_validator::run_for_pod(pod_id, &manifest, &state.db)`. This computes which presets are broken for THAT pod and writes `combo_validation_flags` rows. No polling, no scheduled job.
+
+**When to use:** When the validation is O(preset_count × filesystem checks) and the dataset is small (Racing Point has ~20-50 presets). The event-driven approach means validation happens exactly when new inventory data arrives — not on a timer that may race with the WS message.
+
+**Trade-off:** If a pod sends `GameInventoryUpdate` on every reconnect, combo_validator runs each time. This is acceptable: validation is a pure DB write (idempotent UPSERT), and pods reconnect rarely (boot, WS drop recovery).
+
+### Pattern 3: New DiagnosticTrigger Arms in Existing Tier Engine
+
+**What:** Add `GameLaunchTimeout` and `CrashLoop` to the `DiagnosticTrigger` enum and add match arms in `tier_engine.rs` using the SAME structure as existing arms.
+
+**When to use:** The tier engine's match arms are already the canonical integration point for any new diagnostic scenario. Adding a new trigger arm is two changes: (1) extend the enum in rc-common/types.rs, (2) add a match arm in tier_engine.rs. No new execution paths, no new channels.
+
+**Critical constraint — CrashLoop arm must be Tier 0, not Tier 1:** A crash loop means the game is persistently broken on this pod. Tier 1 (diagnose and retry) would cause infinite retries. Tier 0 (hardened response, no AI, no cost) should: disable the combo via `combo_validation_flags`, send `WhatsApp` alert via Tier 5 path, and return `TierResult::Fixed` to stop the loop. The WhatsApp path already exists in the EscalationRequest WS message.
+
+**Example:**
+```rust
+// In tier_engine.rs run_tier1() match
+DiagnosticTrigger::GameLaunchTimeout => {
+    // Kill orphan processes (same as GameLaunchFail Tier 1)
+    let killed = kill_orphan_game_processes();
+    if killed > 0 {
+        TierResult::Fixed { tier: 1, action: format!("killed {} orphan processes", killed) }
+    } else {
+        TierResult::FailedToFix { tier: 1, reason: "no orphan processes found".into() }
+    }
+}
+DiagnosticTrigger::CrashLoop { sim_type, fail_count, .. } => {
+    // Tier 0: disable combo, do NOT retry
+    disable_combo_local(sim_type);
+    emit_escalation_request(format!("CrashLoop: {} failed {} times", sim_type, fail_count));
+    TierResult::Fixed { tier: 0, action: "combo disabled, staff alerted".into() }
+}
 ```
-No circular dependencies. rc-common remains a leaf crate.
+
+### Pattern 4: Launch Timeline as Inline Instrumentation
+
+**What:** `launch_timeline.rs` provides a `LaunchTimeline` struct that wraps game launch execution. Each phase in the existing launch code calls `timeline.record("label")` which captures elapsed millis since launch start. No new threads, no new channels — purely additive to the existing launch function body.
+
+**When to use:** When the cost of instrumentation must be near-zero (no allocation on the hot path, no IO until launch completes). Timeline data is written to rusqlite only after the launch succeeds or fails — not during.
+
+**Critical:** Do not instrument the timeout watchdog itself. If the timeout fires, the timeline's final span is `timeout_fired`. The incomplete timeline is still written to rusqlite (partial data is useful for diagnosis).
+
+---
+
+## Data Flow
+
+### Flow 1: Boot Inventory Scan
+
+```
+[rc-agent starts / WS reconnects]
+    ↓
+content_scanner::build_full_manifest()
+    ├── scan_ac_content_at(AC_CONTENT_PATH)          [existing]
+    ├── scan_steam_library(STEAM_PATH)               [new]
+    └── scan_non_steam_games(&config.game_paths)     [new]
+    ↓
+game_doctor::run_boot_validation(&manifest)           [new, sync, filesystem-only]
+    ├── For each AC preset: check car folder, track folder, ai_lines, pit stalls
+    └── For each non-AC game: check exe exists at install_path
+    ↓
+AgentMessage::GameInventoryUpdate { manifest, combo_flags }  [new WS message]
+    ↓ (WS to server)
+ws/mod.rs: handle GameInventoryUpdate
+    ├── game_inventory::upsert_pod_inventory(pod_id, &manifest, &db)
+    │     → INSERT OR REPLACE INTO pod_game_inventory
+    ├── state.pod_manifests.write().insert(pod_id, manifest)
+    └── combo_validator::run_for_pod(pod_id, &manifest, &state.db)
+          → UPSERT INTO combo_validation_flags
+          → auto-disable: UPDATE game_presets SET enabled=0 WHERE preset has critical flag
+```
+
+### Flow 2: Game Launch Timeout
+
+```
+[kiosk triggers /games/launch]
+    ↓
+game_launcher.rs: send LaunchGame WS command to agent
+    ↓
+rc-agent: game_launch_retry::retry_game_launch() wrapped in tokio::time::timeout(90s)
+    ├── OK path: game launches → LaunchTimeline records spans → emit LaunchTimelineReport
+    │
+    └── TIMEOUT path:
+          ↓
+        game_launch_retry: emit DiagnosticTrigger::GameLaunchTimeout to diagnostic_engine channel
+          ↓
+        tier_engine: match GameLaunchTimeout
+          - Tier 1: kill_orphan_game_processes()
+          - Tier 2: KB lookup for known fixes
+          - Tier 3/4: MMA (if Tier 1-2 fail)
+          - Tier 5: EscalationRequest WhatsApp
+          ↓
+        LaunchTimeline records "timeout_fired" span → emit partial LaunchTimelineReport
+```
+
+### Flow 3: Crash Loop Detection
+
+```
+[rc-agent: game launch fails (any cause)]
+    ↓
+crash_loop_detector::record_failure(sim_type)
+    ├── Append to rolling window (in-memory + crash_loop_state.json)
+    └── fail_count < 3: return None (no action)
+        fail_count >= 3 within 10 minutes:
+          ↓
+        Emit DiagnosticTrigger::CrashLoop { sim_type, fail_count, window_secs }
+          ↓
+        tier_engine: match CrashLoop
+          - Tier 0: disable combo locally
+          - Tier 5: EscalationRequest { reason: "crash_loop", sim_type, fail_count }
+          ↓
+        ws: AgentMessage::EscalationRequest (existing message type)
+          ↓
+        Server: forward to Tier 5 WhatsApp via Bono relay (existing path)
+```
+
+### Flow 4: Kiosk Showing Per-Pod Games
+
+```
+[customer opens kiosk booking wizard for Pod N]
+    ↓
+kiosk fetches pod state (existing WS or REST)
+    ↓
+pod.installed_games: Vec<SimType> (populated from GameInventoryUpdate, persisted in pod_game_inventory)
+    ↓
+GamePickerPanel: filter GAME_DISPLAY keys by installedGames prop  [already has prop, already passes it]
+    ↓
+Only installed games shown. AC launches preset wizard. Non-AC launches directly.
+    ↓
+Preset selection: GET /api/v1/presets?pod_id=N
+    ↓
+preset_library::list_presets_for_pod(pod_id) — filters by pod inventory + JOIN combo_validation_flags
+    ↓
+Presets with is_flagged=true show warning badge. Auto-disabled presets not returned.
+```
+
+---
+
+## Integration Points: New vs Modified Summary
+
+### What is Purely New (no existing code touched)
+
+| Component | Crate | Why New |
+|-----------|-------|---------|
+| `launch_timeline.rs` | rc-agent | No existing timeline tracing exists anywhere |
+| `crash_loop_detector.rs` | rc-agent | No existing crash loop detection; failure_monitor tracks state but does not count consecutive launch failures per sim_type |
+| `game_inventory.rs` | racecontrol | `pod_game_inventory` table and fleet matrix query have no existing counterpart |
+| `combo_validator.rs` | racecontrol | No existing proactive cross-ref of presets vs manifest; `game_doctor.diagnose_and_fix()` is reactive-only |
+| `/reliability` admin page | racingpoint-admin | No existing reliability dashboard page |
+| `pod_game_inventory` table | racecontrol SQLite | New DB table |
+| `launch_timeline_spans` table | rc-agent + racecontrol SQLite | New DB table (both sides) |
+| `combo_validation_flags` table | racecontrol SQLite | New DB table |
+
+### What is Extended (existing code touched, additive)
+
+| Component | Crate | Extension Point |
+|-----------|-------|-----------------|
+| `content_scanner.rs` | rc-agent | Add 2 new scan functions; `build_full_manifest()` wraps existing `scan_ac_content_at()` unchanged |
+| `game_doctor.rs` | rc-agent | Add `run_boot_validation()` as a new public function; existing `diagnose_and_fix()` unchanged |
+| `game_launch_retry.rs` | rc-agent | Wrap existing `retry_game_launch()` call site with timeout; retry logic unchanged |
+| `tier_engine.rs` | rc-agent | Add 2 match arms to existing match block; all other arms unchanged |
+| `diagnostic_engine.rs` | rc-agent | Extend enum with 2 new variants; add 2 emission paths in detector loop |
+| `main.rs` | rc-agent | Replace `scan_ac_content()` call with `build_full_manifest()` call at same call site (line ~1950) |
+| `ws/mod.rs` | racecontrol | Add 3 new match arms to the `AgentMessage` match block; existing arms unchanged |
+| `preset_library.rs` | racecontrol | Add `list_presets_for_pod(pod_id)` as new function; `list_presets_with_reliability()` gets JOIN extension |
+| `state.rs` | racecontrol | `pod_manifests` type change from `HashMap<String, ContentManifest>` to `HashMap<String, ExtendedManifest>`. Backward compatible because `ExtendedManifest.ac_manifest` is the original `ContentManifest`. |
+| `types.rs` | rc-common | Additive struct/enum extensions; no existing fields removed or renamed |
+| `GamePickerPanel.tsx` | kiosk | Already receives `installedGames` prop (line 53); currently shows all games that have a GAME_DISPLAY entry. Change: filter is already implemented at line 58 (`installedGames.filter(g => GAME_DISPLAY[g] !== undefined)`). No structural change needed — the `installedGames` field just needs to be populated from `pod.installed_games` (which is already in `PodInfo`). |
+
+### What Must NOT Change (risk of regression)
+
+| Component | Risk if touched | Safe boundary |
+|-----------|----------------|---------------|
+| `combo_reliability` table schema | `preset_library.rs` and `api/metrics.rs` both query it with specific column names | Add new tables alongside it; do not ALTER this table |
+| `AgentMessage::ContentManifest` variant | Already has tests (rc-common/src/protocol.rs:2046-2218); kiosk book page may reference it | Keep `ContentManifest` variant for backward compat with old agents. `GameInventoryUpdate` is additive — old servers that don't know `GameInventoryUpdate` will ignore it. |
+| `GamePresetWithReliability` existing fields | `PresetPushPayload` is sent over WS to agents; kiosk renders `reliability_score` + `flagged_unreliable` | Only ADD fields (`is_flagged`, `flag_reason`) with `#[serde(default)]` |
+| `game_launch_retry::retry_game_launch()` signature | Called from tier_engine.rs; caller uses `RetryResult` enum | Do not change function signature; wrap the call site instead |
+| `DiagnosticTrigger` existing variants | tier_engine match arms already handle them; changing variants breaks exhaustive match | Only ADD new variants; Rust compiler enforces this |
+
+---
+
+## Build Order (Considers Dependencies)
+
+Dependencies drive this order: rc-common is the leaf crate — everything depends on it. Agent changes must compile before deploy. Server endpoint must exist before agent can send to it. Frontend is always last.
+
+```
+Phase 1 — rc-common Types Foundation (UNBLOCKS ALL)
+    Files: crates/rc-common/src/types.rs
+    Add: ExtendedManifest, InstalledGame
+         GameInventoryUpdate / LaunchTimelineReport / ComboValidationResult AgentMessage variants
+         DiagnosticTrigger::CrashLoop, DiagnosticTrigger::GameLaunchTimeout
+         is_flagged + flag_reason fields on GamePresetWithReliability (#[serde(default)])
+    Verify: cargo check -p rc-common (must compile clean)
+    Deploy: None (lib-only change)
+    Rationale: Everything else imports rc-common types. Doing this first means
+               all downstream cargo check passes from the start.
+
+Phase 2 — Agent Content Scanner Extension
+    Files: crates/rc-agent/src/content_scanner.rs
+           crates/rc-agent/src/game_doctor.rs (add run_boot_validation)
+    Add: scan_steam_library(), scan_non_steam_games(), build_full_manifest()
+         game_doctor::run_boot_validation()
+    Verify: cargo test -p rc-agent -- content_scanner (all existing tests still pass)
+    Deploy: Pod 8 canary — verify GameInventoryUpdate received by server via server logs
+    Rationale: Must be before Phase 3 (server endpoints) because Phase 3 uses the
+               same WS message type defined here.
+
+Phase 3 — Server Inventory + Combo Validation
+    Files: crates/racecontrol/src/game_inventory.rs (NEW)
+           crates/racecontrol/src/combo_validator.rs (NEW)
+           crates/racecontrol/src/ws/mod.rs (add 3 new message handlers)
+           crates/racecontrol/src/preset_library.rs (add list_presets_for_pod, JOIN flags)
+           crates/racecontrol/src/state.rs (pod_manifests type)
+           DB migration: pod_game_inventory, combo_validation_flags
+    Verify: cargo test -p racecontrol -- game_inventory combo_validator
+    Deploy: Server only. No pod changes needed yet.
+    Rationale: Server endpoints must exist before agents send GameInventoryUpdate at scale.
+               Deploying server first means even if old agents don't send new messages,
+               the server handles them correctly when agents are updated.
+
+Phase 4 — Agent rc-agent main.rs + Retry Timeout + Tier Engine
+    Files: crates/rc-agent/src/main.rs (replace scan_ac_content with build_full_manifest)
+           crates/rc-agent/src/game_launch_retry.rs (wrap with timeout)
+           crates/rc-agent/src/crash_loop_detector.rs (NEW)
+           crates/rc-agent/src/launch_timeline.rs (NEW)
+           crates/rc-agent/src/diagnostic_engine.rs (add new trigger emission)
+           crates/rc-agent/src/tier_engine.rs (add CrashLoop + GameLaunchTimeout arms)
+    Verify: cargo test -p rc-agent (all existing tests pass)
+    Deploy: Pod 8 canary first. Verify:
+            - Server receives GameInventoryUpdate with non-empty installed_games
+            - Server logs show combo_validator ran
+            - game_launch triggers timeout on forced-slow launch (manual test)
+    Rationale: This is the most change-dense phase in rc-agent. Canary-first is critical.
+               Phase 3 (server) must be live first — if old agents still on Phase 2 code
+               continue running, no WS messages are lost or rejected.
+
+Phase 5 — Fleet-Wide Agent Deploy
+    Files: None new — Phase 4 binary to all pods
+    Deploy: All 8 pods + POS
+    Verify: Fleet health check — all pods show GameInventoryUpdate received
+            GET /api/v1/fleet/game-matrix returns populated matrix
+    Rationale: Fleet deploy after canary validation is standing rule (Pod 8 first).
+
+Phase 6 — Frontend: Admin Reliability Dashboard
+    Files: racingpoint-admin/src/app/reliability/page.tsx (NEW)
+           Extend /api/v1/fleet/game-matrix endpoint if not yet done
+           GET /api/v1/launch-timeline endpoint in api/metrics.rs
+    Verify: UI review gate (gsd-ui-auditor per standing rules)
+            fleet matrix renders all 8 pods × 8 games
+            flagged combos list shows entries from combo_validation_flags
+    Rationale: Frontend last — depends on all backend endpoints being live.
+
+Phase 7 — Frontend: Kiosk Game Filtering
+    Files: kiosk/src/components/GamePickerPanel.tsx (minor)
+           kiosk/src/app/book/page.tsx (pass installed_games from pod state)
+    Verify: UI review gate
+            Book a pod — only games installed on that pod show in picker
+            Flagged preset shows warning badge
+    Rationale: Kiosk changes are highest customer-impact — validate last with full
+               backend data in place.
+```
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Diagnosis Blocking the Restart Loop
+### Anti-Pattern 1: Rewriting ContentManifest Instead of Extending
 
-**What people do:** `await diagnose_with_openrouter(&symptoms).await` directly in the service poll loop before calling restart.
+**What people do:** Replace `AgentMessage::ContentManifest(ContentManifest)` with a new `GameInventoryUpdate` and stop sending `ContentManifest`.
 
-**Why it's wrong:** OpenRouter Tier 4 (4 models parallel) can take 15-30 seconds. rc-agent stays dead during that window. Customer sessions are disrupted. The primary job of the watchdog is to restart fast.
+**Why it's wrong:** The server's `ws/mod.rs` already handles `ContentManifest` (line 920), stores it in `pod_manifests`, and calls `log_pod_activity`. Old rc-agent binaries on pods that haven't been updated yet still send `ContentManifest`. Removing the variant breaks backward compatibility for a mixed fleet during rolling deploy.
 
-**Do this instead:** `tokio::spawn(...)` or run in a separate thread with `std::thread::spawn`. The restart executes immediately; diagnosis runs in parallel.
+**Do this instead:** Keep `ContentManifest` handling unchanged. Add `GameInventoryUpdate` as a NEW variant. The server handles both — old agents get `ContentManifest` handling, new agents get `GameInventoryUpdate` handling. After all pods are on the new binary, `ContentManifest` can be deprecated (but not removed until next major milestone).
 
-### Anti-Pattern 2: New Binary for Layer 1 Smart Watchdog
+### Anti-Pattern 2: Running Boot Validation as a Blocking Call in the WS Reconnect Path
 
-**What people do:** Create a new `rc-smart-watchdog` crate that replaces rc-watchdog.
+**What people do:** Call `game_doctor::run_boot_validation(&manifest)` synchronously in the WS reconnect handler and wait for it to complete before sending the manifest.
 
-**Why it's wrong:** rc-watchdog is a Windows service registered by name `RCWatchdog`. Replacing it requires uninstalling the service on all 8 pods (SSH access needed), re-registering, and updating the `start-rcagent.bat` that references it. The existing binary validation, Session 1 restart logic, and sentry breadcrumb coordination would need to be re-implemented. High deploy risk for no structural benefit.
+**Why it's wrong:** Boot validation walks the filesystem for every AC preset (car folder, track folder, ai_lines, pit stalls). With 50+ AC presets, this could take 500ms-2s. The WS reconnect must be fast — the server considers a pod offline until it receives `Register`. Blocking here delays all other pod-to-server sync.
 
-**Do this instead:** Add `smart_watchdog.rs` as a module inside rc-watchdog. Deploy the updated rc-watchdog binary via the normal pod deploy pipeline. Service name stays `RCWatchdog`.
+**Do this instead:** Run `build_full_manifest()` synchronously (fast, just `read_dir` calls). Send `GameInventoryUpdate` with `combo_flags: vec![]` (empty). Then spawn `tokio::task::spawn_blocking(|| game_doctor::run_boot_validation(&manifest))` in a background task. When it completes, send a second `AgentMessage::ComboValidationResult { pod_id, flags }`. The server handles both messages independently.
 
-### Anti-Pattern 3: Guardian Directly Accessing Pod Endpoints
+### Anti-Pattern 3: Crash Loop State in Memory Only
 
-**What people do:** rc-guardian polls each pod directly (curl pod1:8090/health, etc.) from Bono VPS.
+**What people do:** Store crash loop counts in a `RwLock<HashMap<SimType, u32>>` in rc-agent's AppState.
 
-**Why it's wrong:** Pod endpoints are LAN-only (192.168.31.x). Bono VPS is on the public internet. This would require Tailscale access from Bono to all pods — fragile and creates a large attack surface. Also, if the server is down but pods are fine, the guardian should know the server is the problem, not the pods.
+**Why it's wrong:** rc-agent restarts frequently (crash recovery, OTA deploy, MAINTENANCE_MODE clear). In-memory state is reset on every restart. A crash loop that crosses a restart boundary (game crashes 2x, rc-agent restarts, game crashes 1x more) is NOT detected because the counter resets.
 
-**Do this instead:** Guardian only talks to the server. The server aggregates pod state and exposes it via `/ws/guardian`. The guardian's job is to observe the server's view of the world from an external vantage point.
+**Do this instead:** Persist crash loop state to `C:\RacingPoint\crash_loop_state.json` (same pattern as `watchdog-survival.json`). Read on startup, write on every failure. Clear the rolling window entries older than 10 minutes on read (lazy expiry). This is what `crash_loop_detector.rs` implements.
 
-### Anti-Pattern 4: Layer 1 Reports Flowing Through WS (Instead of HTTP)
+### Anti-Pattern 4: Per-Pod Preset Filtering in the Kiosk API Call
 
-**What people do:** Encode Layer1Report as a new `AgentMessage::Layer1Report` variant and send it over the existing rc-agent WS connection.
+**What people do:** Kiosk calls `/api/v1/presets` and then client-side filters by `pod.installed_games`.
 
-**Why it's wrong:** The Layer 1 watchdog is a separate process from rc-agent. The WS connection belongs to rc-agent, not to rc-watchdog. rc-watchdog sends reports because rc-agent is DEAD or crash-looping — there is no WS to use. The report mechanism must be independent of rc-agent's WS connection.
+**Why it's wrong:** The kiosk already receives `installed_games` from pod state. But the filtering also needs to respect `combo_validation_flags` (auto-disabled presets should not appear). Client-side filtering requires the kiosk to know the flag logic. Two sources of truth for what is "launchable."
 
-**Do this instead:** rc-watchdog uses its own HTTP client (blocking reqwest, already used in reporter.rs) to POST directly to the server. This path works even when rc-agent is completely down.
+**Do this instead:** Server-side `list_presets_for_pod(pod_id)` does BOTH filters: (1) sim_type must be in `pod_game_inventory` for that pod, (2) preset must not have an active `combo_validation_flags.resolved_at IS NULL AND auto_disabled=1` row. The kiosk just shows what the server returns. No client-side filter logic.
 
----
+### Anti-Pattern 5: Adding GameLaunchTimeout as a Timer in game_launcher.rs (Server Side)
 
-## Integration Points
+**What people do:** Server-side `game_launcher.rs` starts a 90-second timer when it sends `LaunchGame` to the agent. If no `GameStateUpdate::Launched` comes back, server declares timeout.
 
-### External Services
+**Why it's wrong:** The server already has a `GameTracker` state machine stuck-in-Launching problem (v40.0 bug). Adding ANOTHER timer on the server adds a second overlapping timeout. The agent is closer to the actual launch — it knows when `acs.exe` is expected to appear, not just when the WS command was sent.
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| OpenRouter API | HTTPS POST from rc-watchdog (new) and rc-agent (existing) | Use shared `rc_common::openrouter::OpenRouterClient`; key from `OPENROUTER_API_KEY` env var |
-| Evolution API (WhatsApp) | HTTPS POST from rc-guardian on Bono VPS | Same path as existing `whatsapp_alerter.rs` in racecontrol; rc-guardian gets its own client |
-| comms-link WS | WS from rc-guardian for James notification | Use existing comms-link relay at ws://srv1422716.hstgr.cloud:8765 |
-| Ollama (James .27) | HTTP from rc-watchdog james_monitor (existing) + smart_watchdog Tier 3 fallback | `http://127.0.0.1:11434` — only accessible from James machine, not pods |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| rc-watchdog → racecontrol (Layer 1 report) | HTTP POST `/api/v1/survival/layer1-report` | reqwest blocking client, 5s timeout, offline JSONL queue on failure |
-| rc-watchdog → racecontrol (crash report, existing) | HTTP POST `/api/v1/pods/{id}/watchdog-crash` | Extended with `diagnosis_summary`, `mma_cost` fields in `WatchdogCrashReport` |
-| survival_coordinator → pod_healer | tokio mpsc `Sender<Layer1Report>` in AppState | Layer1Report converted to synthetic DiagnosticEvent in pod_healer |
-| survival_coordinator → rc-guardian | WS push `/ws/guardian` | `GuardianEvent` enum with severity classification |
-| rc-guardian → server (external poll) | HTTP GET `https://racingpoint.cloud/api/v1/health` | Bono VPS → public internet path; uses Bono's outbound HTTP |
-| rc-common (openrouter) ← rc-watchdog + rc-agent | Shared library (crate dependency) | rc-watchdog gains `rc-common` dependency for openrouter module |
-
----
-
-## Build Order (Phase Dependencies)
-
-Build order is driven by: (1) shared types must compile before consumers, (2) no new crates that block other phases, (3) server endpoints must exist before watchdog reports to them, (4) guardian is independent and can ship last.
-
-```
-Phase 1 (Foundation — unblocks all other phases)
-    └── rc-common: add survival_types.rs + openrouter.rs extraction
-        - SurvivalState, Layer1Report, SurvivalAction, GuardianEvent
-        - OpenRouterClient moved from rc-agent/src/openrouter.rs to rc-common
-        - rc-agent/src/openrouter.rs becomes thin re-export wrapper
-        - Compile-verified: cargo check -p rc-common -p rc-agent
-        - No deploy needed yet (lib change only)
-
-Phase 2 (Layer 2 Server — establishes report ingestion endpoint)
-    └── racecontrol:
-        - survival_coordinator.rs (new module)
-        - api/survival.rs (new endpoints)
-        - fleet_kb.rs: survival_events migration
-        - state.rs: new AppState fields
-        - routes.rs: register /api/v1/survival/* + /ws/guardian
-        Deploy: server only. Pods don't report yet but endpoints exist.
-
-Phase 3 (Layer 1 Watchdog — pods start reporting)
-    └── rc-watchdog:
-        - smart_watchdog.rs (new module)
-        - survival_state.rs (new module)
-        - service.rs: inject SmartWatchdogContext
-        - reporter.rs: extend WatchdogCrashReport, add flush_offline
-        Deploy: all 8 pods + POS. Uses canary (Pod 8 first).
-        Server endpoints from Phase 2 must be live before deploy.
-
-Phase 4 (Layer 2 Integration — healer consumes Layer 1 data)
-    └── racecontrol:
-        - pod_healer.rs: consume Layer1Report channel
-        - survival_coordinator.rs: cross-pod pattern detection active
-        Deploy: server only.
-
-Phase 5 (Layer 3 Guardian — external survival view)
-    └── rc-guardian (new crate):
-        - ws_client.rs, health_poller.rs, escalation.rs, incident_log.rs
-        Deploy: Bono VPS (pm2, new process). Zero pod/server changes.
-```
-
-**Why this order:**
-- Phase 1 first: rc-common is a leaf dep; compiling new shared types before anything uses them prevents "type not found" errors cascade.
-- Phase 2 before Phase 3: Pods cannot send reports to an endpoint that doesn't exist. Deploying the watchdog first would cause 8 failed HTTP POSTs per crash event and fill offline JSONL queues unnecessarily.
-- Phase 4 after Phase 3: pod_healer integration only adds value once Layer 1 reports are actually arriving.
-- Phase 5 last: Guardian is pure consumer, no producer. No other phase depends on it. It can ship incrementally — even a basic "ping server + WhatsApp on failure" guardian provides immediate value.
+**Do this instead:** Agent-side timeout (Phase 4 above). The agent wraps `retry_game_launch()` with `tokio::time::timeout(90s)`. On timeout: emits `GameLaunchTimeout` trigger locally, sends `GameStateUpdate::Failed` to server (existing message). Server's GameTracker transitions from `Launching` to `Failed` on this message — no new server-side timer needed.
 
 ---
 
 ## Scaling Considerations
 
-This is a fixed fleet (8-10 pods, 1-2 servers, 1-2 venues). Not a user-scaling problem.
+Racing Point is a fixed fleet (8 pods, 1 server). These considerations are for operational scale only.
 
-| Concern | Current Scale (8 pods) | Future Scale (3 venues, 24 pods) |
-|---------|------------------------|-----------------------------------|
-| Layer 1 HTTP reports | Each watchdog POSTs on crash only — negligible | Same pattern; server can handle 100+ reports/min |
-| survival_events table | Low write volume (crash events are rare) | Partition by venue_id when multi-venue ships |
-| Guardian WS | 1 persistent WS connection | 1 per venue server; guardian fans out WhatsApp per venue |
-| OpenRouter cost (Layer 1) | $0.05-$3.01 per diagnosis, only on crash_count >= 2 | Budget-gated; per-venue budget tracked in survival_state |
+| Concern | At 8 pods | At 3 venues (24 pods) |
+|---------|-----------|----------------------|
+| `pod_game_inventory` table size | 8 × 8 = 64 rows max | 24 × 8 = 192 rows — trivially small |
+| `combo_validation_flags` write rate | Only on WS connect/reconnect (rare) | Same rate per pod; no fan-out issue |
+| `launch_timeline_spans` write rate | ~10 spans × N launches/day | Add `venue_id` column when multi-venue ships |
+| Boot validation filesystem cost | 50 presets × 4 checks = 200 `metadata()` calls, ~50-100ms | Same cost per pod; no server load |
+| Fleet game matrix query | 1 query spanning 64 rows | Add index on `(pod_id, sim_type)` when >8 pods |
 
 ---
 
 ## Sources
 
-- Direct code inspection: `crates/rc-watchdog/src/service.rs`, `james_monitor.rs`, `reporter.rs`
-- Direct code inspection: `crates/rc-agent/src/diagnostic_engine.rs`, `tier_engine.rs`, `openrouter.rs`
-- Direct code inspection: `crates/racecontrol/src/pod_healer.rs`, `pod_monitor.rs`, `fleet_kb.rs`, `mesh_handler.rs`
-- Direct code inspection: `crates/rc-common/src/mesh_types.rs`, `recovery.rs`, `verification.rs`, `types.rs`
-- `.planning/MESHED-INTELLIGENCE.md` — v26.0 MI design spec
-- `CLAUDE.md` standing rules — deploy pipeline, Session 1 constraints, WatchdogCrashReport HTTP path
+- Direct code inspection: `crates/rc-agent/src/content_scanner.rs` — AC-only scope, std::fs pattern, existing call site in main.rs:1950
+- Direct code inspection: `crates/rc-agent/src/game_doctor.rs` — diagnose_and_fix(), reactive-only, AC_CONTENT_PATH constant
+- Direct code inspection: `crates/rc-agent/src/tier_engine.rs` — DiagnosticTrigger enum, existing match arms, GameLaunchFail arm
+- Direct code inspection: `crates/rc-agent/src/game_launch_retry.rs` — retry structure, TOTAL_TIMEOUT_SECS=60, MAX_RETRY_ATTEMPTS=2
+- Direct code inspection: `crates/rc-agent/src/diagnostic_engine.rs` — full DiagnosticTrigger enum (lines 49-108), emission paths
+- Direct code inspection: `crates/racecontrol/src/ws/mod.rs:920-929` — ContentManifest handler, pod_manifests.write()
+- Direct code inspection: `crates/racecontrol/src/api/routes.rs:5402-5445` — games_catalog, installed_games usage
+- Direct code inspection: `crates/racecontrol/src/api/metrics.rs:427-490` — query_launch_matrix, combo_reliability table schema
+- Direct code inspection: `crates/racecontrol/src/api/metrics.rs:595-641` — launch_events schema, combo_reliability schema
+- Direct code inspection: `crates/racecontrol/src/preset_library.rs:23,38,82-107` — list_presets_with_reliability, reliability JOIN
+- Direct code inspection: `crates/racecontrol/src/state.rs:135,189` — AppState, pod_manifests field type
+- Direct code inspection: `crates/rc-common/src/types.rs:83-122,897-1031` — PodInfo.installed_games, ContentManifest, GamePresetWithReliability
+- Direct code inspection: `crates/rc-common/src/protocol.rs:83-147,628,881` — AgentMessage enum, CoreToAgentMessage, ContentManifest variant
+- Direct code inspection: `kiosk/src/components/GamePickerPanel.tsx:53-58` — installedGames prop, GAME_DISPLAY filter
+- Direct code inspection: `kiosk/src/components/GameCatalogLoader.tsx` — loadGameCatalog pattern
+- `.planning/PROJECT.md` — v41.0 constraints, target features, existing architecture description
+- `.planning/research/STACK-v41.md` — stack decisions for this milestone (no new deps)
 
 ---
-*Architecture research for: v31.0 Autonomous Survival System (3-Layer MI Independence)*
-*Researched: 2026-03-30*
+*Architecture research for: v41.0 Game Intelligence System*
+*Researched: 2026-04-03 IST*

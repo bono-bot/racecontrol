@@ -20,18 +20,54 @@ const formatINR = (paise: number) =>
   "\u20B9" +
   (paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 
+function generatePin(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function loadEmployees() {
     fetchApi<{ employees: Employee[] }>("/hr/employees")
       .then((res) => {
         setEmployees(res.employees || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { loadEmployees(); }, []);
+
+  async function handleAddEmployee() {
+    if (addName.trim().length < 2) { setAddError("Name must be at least 2 characters"); return; }
+    if (addPhone.trim().length < 10) { setAddError("Enter a valid 10-digit phone number"); return; }
+    setAddSubmitting(true);
+    setAddError(null);
+    try {
+      const res = await fetchApi<{ status?: string; error?: string }>("/staff", {
+        method: "POST",
+        body: JSON.stringify({ name: addName.trim(), phone: addPhone.trim(), pin: generatePin() }),
+      });
+      if (res.error) {
+        setAddError(res.error);
+      } else {
+        setShowAddModal(false);
+        setAddName("");
+        setAddPhone("");
+        loadEmployees();
+      }
+    } catch {
+      setAddError("Network error. Try again.");
+    } finally {
+      setAddSubmitting(false);
+    }
+  }
 
   return (
     <DashboardLayout>
@@ -43,13 +79,64 @@ export default function EmployeesPage() {
         <div className="flex items-center gap-3">
           <span className="text-xs text-rp-grey">{employees.length} employees</span>
           <button
-            onClick={() => alert("Coming soon")}
+            onClick={() => { setShowAddModal(true); setAddError(null); }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
           >
             Add Employee
           </button>
         </div>
       </div>
+
+      {/* Add Employee Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-rp-card border border-rp-border rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h2 className="text-lg font-bold text-white mb-4">Add Employee</h2>
+
+            <label className="block text-xs text-neutral-400 mb-1">Name</label>
+            <input
+              type="text"
+              value={addName}
+              onChange={(e) => setAddName(e.target.value)}
+              placeholder="Chavan Vishal"
+              className="w-full bg-rp-surface border border-rp-border rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-3"
+              autoFocus
+            />
+
+            <label className="block text-xs text-neutral-400 mb-1">Phone</label>
+            <input
+              type="tel"
+              value={addPhone}
+              onChange={(e) => setAddPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              placeholder="9876543210"
+              inputMode="numeric"
+              className="w-full bg-rp-surface border border-rp-border rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-4"
+            />
+
+            {addError && <p className="text-red-400 text-xs mb-3">{addError}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowAddModal(false); setAddName(""); setAddPhone(""); }}
+                className="flex-1 rounded-lg py-2 text-sm font-medium bg-rp-surface text-neutral-400 hover:text-white border border-rp-border transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddEmployee}
+                disabled={addSubmitting}
+                className="flex-1 rounded-lg py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors"
+              >
+                {addSubmitting ? "Adding..." : "Add"}
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-500 mt-3 text-center">
+              A login PIN will be sent via WhatsApp daily at 10 AM
+            </p>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-rp-grey text-sm">Loading employees...</div>

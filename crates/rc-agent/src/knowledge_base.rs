@@ -268,6 +268,18 @@ impl KnowledgeBase {
             "CREATE INDEX IF NOT EXISTS idx_solutions_stable_hash ON solutions(problem_key);"
         ).ok();
 
+        // KB hit rate metrics table — tracks Q1 hit/miss for quality assessment
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS kb_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                problem_key TEXT NOT NULL,
+                result TEXT NOT NULL,
+                tier INTEGER NOT NULL,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_kb_metrics_ts ON kb_metrics(timestamp);"
+        )?;
+
         // CGP + Plan Manager tables (v32.0)
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS diagnosis_plans (
@@ -510,6 +522,39 @@ impl KnowledgeBase {
             "Solution outcome recorded — confidence recalculated"
         );
         Ok(())
+    }
+
+    /// Record a KB hit or miss for metrics tracking.
+    ///
+    /// Called by `mma_decision()` in tier_engine to track Q1 lookup quality.
+    /// `result` should be "hit" or "miss". `tier` is the tier that handled it.
+    pub fn record_kb_metric(&self, problem_key: &str, result: &str, tier: u8) {
+        if let Err(e) = self.conn.execute(
+            "INSERT INTO kb_metrics (problem_key, result, tier, timestamp) VALUES (?1, ?2, ?3, datetime('now'))",
+            params![problem_key, result, tier as i64],
+        ) {
+            tracing::debug!(target: LOG_TARGET, error = %e, "Failed to record KB metric");
+        }
+    }
+
+    /// Get KB hit rate for the last 24 hours.
+    ///
+    /// Returns (hits, misses, hit_rate).
+    #[allow(dead_code)]
+    pub fn kb_hit_rate_24h(&self) -> anyhow::Result<(u64, u64, f64)> {
+        let hits: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM kb_metrics WHERE result = 'hit' AND timestamp > datetime('now', '-24 hours')",
+            [],
+            |r| r.get(0),
+        )?;
+        let misses: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM kb_metrics WHERE result = 'miss' AND timestamp > datetime('now', '-24 hours')",
+            [],
+            |r| r.get(0),
+        )?;
+        let total = hits + misses;
+        let rate = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
+        Ok((hits as u64, misses as u64, rate))
     }
 
     /// Archive solutions unused for > ttl_days.

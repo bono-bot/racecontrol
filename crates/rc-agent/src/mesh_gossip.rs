@@ -60,6 +60,16 @@ pub fn handle_server_message(msg: &CoreToAgentMessage) -> bool {
             handle_systemic_alert(problem_key, affected_pods, timestamp);
             true
         }
+        CoreToAgentMessage::MeshInterimBroadcast {
+            problem_key,
+            step_number,
+            consensus_json,
+            source_node,
+            cost_so_far,
+        } => {
+            handle_interim_broadcast(problem_key, *step_number, consensus_json, source_node, *cost_so_far);
+            true
+        }
         _ => false,
     }
 }
@@ -191,6 +201,49 @@ fn handle_systemic_alert(problem_key: &str, affected_pods: &[String], timestamp:
         "SYSTEMIC ALERT: fleet-wide issue detected"
     );
     // Future: trigger immediate Tier 4 diagnosis + WhatsApp to Uday
+}
+
+/// Handle an interim MMA result broadcast from another pod.
+///
+/// Stores the consensus in the local MMA cache so that if this pod encounters
+/// the same problem, it can skip already-completed MMA steps.
+fn handle_interim_broadcast(
+    problem_key: &str,
+    step_number: u8,
+    consensus_json: &str,
+    source_node: &str,
+    cost_so_far: f64,
+) {
+    tracing::info!(
+        target: LOG_TARGET,
+        problem_key,
+        step_number,
+        source_node,
+        cost_so_far,
+        "Received interim MMA result (step {}) from {} — caching locally",
+        step_number, source_node
+    );
+
+    // Store in local MMA cache so this pod can skip Steps 1-3 if the same problem occurs.
+    // We use a synthetic problem_hash since we only have problem_key.
+    // The cache will match when this pod's run_protocol() computes the same hash.
+    if let Ok(cache) = crate::mma_cache::MmaCache::open(KB_PATH) {
+        // Use problem_key as a simple hash — the real run_protocol will compute the proper
+        // stable_hash and may or may not match. This is a best-effort optimization.
+        let build_id = std::env::var("RACECONTROL_BUILD_ID").unwrap_or_default();
+        if let Err(e) = cache.put(
+            &format!("interim_{}_{}", problem_key, step_number),
+            consensus_json,
+            cost_so_far,
+            &build_id,
+        ) {
+            tracing::warn!(
+                target: LOG_TARGET,
+                error = %e,
+                "Failed to cache interim result from fleet"
+            );
+        }
+    }
 }
 
 /// Build an AgentMessage::MeshSolutionAnnounce from a local solution.

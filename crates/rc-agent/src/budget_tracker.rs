@@ -6,6 +6,8 @@
 //!
 //! Phase 232 — Meshed Intelligence BUDGET-01 to BUDGET-06.
 
+use std::collections::HashMap;
+
 use chrono::{FixedOffset, NaiveDate, Utc};
 use serde::Serialize;
 
@@ -45,6 +47,7 @@ pub struct BudgetStatus {
     pub budget_date: String,
     pub ceiling_hit: bool,
     pub model_calls_today: u32,
+    pub cost_by_tier: HashMap<u8, f64>,
 }
 
 /// Per-node budget tracker. Thread-safe via Arc<RwLock<BudgetTracker>> in AppState.
@@ -55,30 +58,137 @@ pub struct BudgetTracker {
     monthly_spent: f64,
     model_calls_today: u32,
     budget_date: NaiveDate,
+    /// Per-tier cost breakdown for observability. Key = tier number (3 or 4).
+    cost_by_tier: HashMap<u8, f64>,
+    /// Path to SQLite DB for persistence. None = in-memory only (tests).
+    /// We open a fresh connection for each save/load because rusqlite::Connection
+    /// is not Send — embedding it would make BudgetTracker !Send, breaking tokio::spawn.
+    db_path: Option<String>,
 }
 
 impl BudgetTracker {
     /// Create a new budget tracker with the given daily limit.
+    ///
+    /// Attempts to load persisted state from SQLite. If the stored date matches today,
+    /// restores spent_today/monthly_spent/model_calls_today. Otherwise starts fresh.
     pub fn new(daily_limit: f64) -> Self {
         let today = ist_today();
+
+        // Try to load persisted state from SQLite
+        let db_path = crate::budget_tracker_store::BUDGET_DB_PATH;
+        let (has_db, spent_today, monthly_spent, model_calls_today) =
+            match crate::budget_tracker_store::BudgetTrackerStore::open(db_path) {
+                Ok(store) => match store.load() {
+                    Ok(Some(row)) => {
+                        let stored_date = NaiveDate::parse_from_str(&row.budget_date, "%Y-%m-%d");
+                        if let Ok(d) = stored_date {
+                            if d == today {
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    spent = row.spent_today,
+                                    calls = row.model_calls_today,
+                                    "Budget restored from SQLite (same day)"
+                                );
+                                (true, row.spent_today, row.monthly_spent, row.model_calls_today)
+                            } else {
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    stored_date = %d,
+                                    today = %today,
+                                    "Budget day changed — resetting daily, carrying monthly"
+                                );
+                                let monthly = row.monthly_spent + row.spent_today;
+                                (true, 0.0, monthly, 0)
+                            }
+                        } else {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                raw = %row.budget_date,
+                                "Budget store: unparseable date — starting fresh"
+                            );
+                            (true, 0.0, 0.0, 0)
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::info!(target: LOG_TARGET, "Budget store: no prior state — starting fresh");
+                        (true, 0.0, 0.0, 0)
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            error = %e,
+                            "Budget store: load failed — starting fresh"
+                        );
+                        (true, 0.0, 0.0, 0)
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        error = %e,
+                        "Budget store: init failed — using in-memory only"
+                    );
+                    (false, 0.0, 0.0, 0)
+                }
+            };
+
         tracing::info!(
             target: LOG_TARGET,
-            daily_limit = daily_limit,
+            daily_limit,
             date = %today,
+            spent_today,
+            monthly_spent,
+            model_calls_today,
+            persistent = has_db,
             "Budget tracker initialized"
         );
+
         Self {
             daily_limit,
-            spent_today: 0.0,
-            monthly_spent: 0.0,
-            model_calls_today: 0,
+            spent_today,
+            monthly_spent,
+            model_calls_today,
             budget_date: today,
+            cost_by_tier: HashMap::new(),
+            db_path: if has_db { Some(db_path.to_string()) } else { None },
         }
     }
 
     /// Create with default pod budget ($10/day)
     pub fn new_pod() -> Self {
         Self::new(DEFAULT_POD_DAILY_LIMIT)
+    }
+
+    /// Persist current state to SQLite (best-effort — logs warning on failure).
+    ///
+    /// Opens a fresh connection each time because rusqlite::Connection is !Send.
+    /// SQLite opens are fast (~0.1ms) so this is fine for the low frequency of budget saves.
+    fn persist(&self) {
+        if let Some(ref path) = self.db_path {
+            match crate::budget_tracker_store::BudgetTrackerStore::open(path) {
+                Ok(store) => {
+                    if let Err(e) = store.save(
+                        self.spent_today,
+                        self.monthly_spent,
+                        self.model_calls_today,
+                        &self.budget_date.to_string(),
+                    ) {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            error = %e,
+                            "Failed to persist budget state to SQLite"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        error = %e,
+                        "Failed to open budget store for persistence"
+                    );
+                }
+            }
+        }
     }
 
     /// Check if we should reset for a new day (midnight IST crossing)
@@ -95,7 +205,9 @@ impl BudgetTracker {
             self.monthly_spent += self.spent_today;
             self.spent_today = 0.0;
             self.model_calls_today = 0;
+            self.cost_by_tier.clear();
             self.budget_date = today;
+            self.persist();
         }
     }
 
@@ -134,6 +246,12 @@ impl BudgetTracker {
         true
     }
 
+    /// Record actual spend with tier attribution for per-tier cost breakdown.
+    pub fn record_spend_with_tier(&mut self, actual_cost: f64, tier: u8) {
+        *self.cost_by_tier.entry(tier).or_insert(0.0) += actual_cost;
+        self.record_spend(actual_cost);
+    }
+
     /// Record actual spend after a model call completes.
     /// BUDGET-02: Per-incident cost tracking.
     pub fn record_spend(&mut self, actual_cost: f64) {
@@ -149,6 +267,9 @@ impl BudgetTracker {
             calls_today = self.model_calls_today,
             "Budget: cost recorded"
         );
+
+        // Persist immediately after every spend — survives crashes
+        self.persist();
 
         // Monthly soft alert (BUDGET-05)
         let total_month = self.monthly_spent + self.spent_today;
@@ -175,6 +296,7 @@ impl BudgetTracker {
             budget_date: self.budget_date.to_string(),
             ceiling_hit: remaining < MIN_RESERVE,
             model_calls_today: self.model_calls_today,
+            cost_by_tier: self.cost_by_tier.clone(),
         }
     }
 
@@ -184,6 +306,20 @@ impl BudgetTracker {
         self.maybe_reset();
         (self.daily_limit - self.spent_today).max(0.0)
     }
+
+    /// Create a budget tracker without SQLite persistence (for tests).
+    #[cfg(test)]
+    pub fn new_in_memory(daily_limit: f64) -> Self {
+        Self {
+            daily_limit,
+            spent_today: 0.0,
+            monthly_spent: 0.0,
+            model_calls_today: 0,
+            budget_date: ist_today(),
+            cost_by_tier: HashMap::new(),
+            db_path: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_new_tracker() {
-        let t = BudgetTracker::new(10.0);
+        let t = BudgetTracker::new_in_memory(10.0);
         assert!((t.daily_limit - 10.0).abs() < f64::EPSILON);
         assert!((t.spent_today - 0.0).abs() < f64::EPSILON);
         assert_eq!(t.model_calls_today, 0);
@@ -200,20 +336,20 @@ mod tests {
 
     #[test]
     fn test_can_spend_within_budget() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         assert!(t.can_spend(3.0), "Should allow $3 spend on fresh $10 budget");
     }
 
     #[test]
     fn test_can_spend_ceiling_hit() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         t.record_spend(9.0); // Spent $9 of $10
         assert!(!t.can_spend(3.0), "Should block $3 when only $1 left");
     }
 
     #[test]
     fn test_can_spend_reserve_protection() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         t.record_spend(7.5); // $2.50 remaining, reserve is $2.00
         // $0.60 would leave $1.90 (below $2 reserve)
         assert!(!t.can_spend(0.60), "Should block when result would breach $2 reserve");
@@ -221,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_can_spend_respects_reserve_always() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         // $9 spend would leave $1 remaining — below $2 reserve
         assert!(!t.can_spend(9.0), "Should block when result breaches reserve, even first call");
         // $7.50 would leave $2.50 — above reserve
@@ -230,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_record_spend_tracks_cost() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         t.record_spend(0.05);
         t.record_spend(3.01);
         assert!((t.spent_today - 3.06).abs() < 0.001);
@@ -239,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_status_format() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         t.record_spend(4.50);
         let s = t.status();
         assert!((s.daily_limit - 10.0).abs() < f64::EPSILON);
@@ -251,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_status_ceiling_hit_flag() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         t.record_spend(9.50); // Only $0.50 left, below $2 reserve
         let s = t.status();
         assert!(s.ceiling_hit, "ceiling_hit should be true when remaining < reserve");
@@ -259,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_remaining() {
-        let mut t = BudgetTracker::new(10.0);
+        let mut t = BudgetTracker::new_in_memory(10.0);
         assert!((t.remaining() - 10.0).abs() < f64::EPSILON);
         t.record_spend(3.0);
         assert!((t.remaining() - 7.0).abs() < f64::EPSILON);
@@ -267,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_new_pod_default() {
-        let t = BudgetTracker::new_pod();
+        let t = BudgetTracker::new_in_memory(DEFAULT_POD_DAILY_LIMIT);
         assert!((t.daily_limit - 10.0).abs() < f64::EPSILON);
     }
 }

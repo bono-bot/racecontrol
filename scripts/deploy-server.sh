@@ -241,8 +241,29 @@ for i in $(seq 1 12); do
             pass "build_id matches expected (${EXPECTED_BUILD_ID})"
         fi
         echo ""
-        echo -e "${GREEN}=== Deploy successful! ===${NC}"
+        echo -e "${GREEN}=== Venue server deploy successful! ===${NC}"
         echo -e "${YELLOW}NOTE: Verify the EXACT fix, not just health. Test the specific endpoint/behavior that changed.${NC}"
+
+        # ─── Cloud sync (standing rule: deploy ALL targets) ──────────
+        CLOUD_SCRIPT="${SCRIPT_DIR}/deploy-cloud.sh"
+        if [ -f "$CLOUD_SCRIPT" ]; then
+            echo ""
+            if [ "${SKIP_CLOUD:-}" = "1" ]; then
+                echo -e "  ${YELLOW}>>>${NC}   SKIP_CLOUD=1 — cloud deploy skipped"
+            elif [ -t 0 ]; then
+                read -p "  Deploy to cloud (Bono VPS) too? (Y/n) " -n 1 -r
+                echo ""
+                if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                    bash "$CLOUD_SCRIPT"
+                else
+                    echo -e "  ${YELLOW}>>>${NC}   Cloud deploy skipped — run: bash scripts/deploy-cloud.sh"
+                fi
+            else
+                echo -e "  ${CYAN}>>>${NC}   Auto-deploying to cloud (non-interactive)..."
+                bash "$CLOUD_SCRIPT"
+            fi
+        fi
+
         exit 0
     fi
     echo "    Attempt $i/12 — waiting..."

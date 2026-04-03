@@ -1,197 +1,232 @@
-# Feature Landscape: Racing Point UI Redesign
+# Feature Research
 
-**Domain:** Premium motorsport simulator venue management system
-**Researched:** 2026-03-30
-**Scope:** Design features only — what to ADD or UPGRADE visually and UX-wise. Existing functional logic is NOT in scope.
-
----
-
-## Existing System Inventory
-
-The system has 25+ pages across two Next.js apps. These already exist and work. The redesign adds premium design features ON TOP, not instead of.
-
-**Web Dashboard (staff-facing, :3200)**
-Pages: Live Overview, Pods, Games, Telemetry, AC LAN Race, AC Results, Sessions, Drivers, Leaderboards, Events, Billing, Pricing, History, Bookings, AI Insights, Cameras, Playback, Cafe Menu, Settings, Feature Flags, OTA Releases, Presenter View, HR, Analytics, Maintenance
-
-**Kiosk App (customer-facing, :3300)**
-Pages: Landing/Pod Grid, Booking, PIN Redeem, Staff Login, Spectator, Pod Detail, Fleet Display, Settings, Control
-
-**Current design baseline:**
-- Dark theme using `rp-black`, `rp-card`, `rp-border` palette with `#E10600` red accent
-- Sidebar navigation with emoji icons and plain text labels
-- PodCard: border-color state changes (emerald idle, red active, yellow pending)
-- StatusBadge: colored dot + label pill (pulsing on active states)
-- No page-level visual hierarchy beyond `text-2xl font-bold text-white` headings
-- Kiosk ActivePodCard: 2-column telemetry grid with monospace numbers
+**Domain:** Gaming cafe per-pod game inventory, combo validation, launch telemetry, reliability dashboard
+**Milestone:** v41.0 Game Intelligence System
+**Researched:** 2026-04-03
+**Confidence:** HIGH (based on codebase audit + domain knowledge)
 
 ---
 
-## Table Stakes
+## What Already Exists (Do Not Rebuild)
 
-Features that staff or customers will immediately notice are missing. Absence makes the product feel unfinished relative to comparable premium venues.
-
-### Staff Dashboard
-
-| Feature | Why Expected | Complexity | Upgrade Path |
-|---------|--------------|------------|--------------|
-| SVG icon set in sidebar | Emoji icons read as low-effort at premium price points; Lucide or Heroicons are standard in 2025 dark dashboards | Low | Replace emoji strings in `Sidebar.tsx` nav array with `<svg>` or Lucide icon component imports |
-| Left-side accent bar on active nav item | Currently only `border-r-2` right border — standard pattern is `border-l-4` left bar with subtle full-width background fill | Low | One-line Tailwind change in `Sidebar.tsx` active class |
-| Page-level stat summary row | Every ops dashboard has a 3-5 stat header bar (e.g. "6 active / 2 idle / Rs.4,200 revenue today") before main content | Medium | Shared `StatsBar` component; data from `/api/v1/fleet/health` + billing summary endpoint |
-| Skeleton loading states | "Loading pods..." plain text is jarring; skeleton shimmer cards are expected | Medium | `PodCard` skeleton variant; reusable `<Skeleton>` component used across all data-fetching pages |
-| Empty state components | Currently `<p>No pods registered</p>` — should be icon + headline + action hint | Low | Consistent `<EmptyState icon label hint />` component applied across all pages |
-| Toast / notification system | No feedback on actions (cancel token, stop session, launch game) — just silent state updates | Medium | Global `useToast` hook + top-right toast stack; renders in `DashboardLayout` |
-| Breadcrumb navigation | Deep pages (billing/history, billing/pricing) have only a back arrow | Low | `<Breadcrumb>` component in `DashboardLayout.tsx` for sub-pages |
-| Persistent WS connection indicator | Hidden in individual pages; should be a persistent status dot in the sidebar footer visible at all times | Low | Move WS status from per-page components to `Sidebar.tsx` footer |
-
-### Kiosk
-
-| Feature | Why Expected | Complexity | Upgrade Path |
-|---------|--------------|------------|--------------|
-| Pricing displayed on idle pod cards | Customers need to see cost before tapping; currently only shows "Tap to Enter PIN" with no context | Low | Add tier pricing (minutes + price) from `/api/v1/billing/pricing` to idle card footer |
-| Session remaining time visible on active pod | Active pod shows elapsed time but not remaining time; customers glancing at the floor screen want to see how long the driver has left | Medium | Use `billingTimers.remaining_seconds` already in `BillingSession` type in `ActivePodCard` |
-| "Almost done" visual warning | No alert when session has < 5 min remaining — industry standard is red countdown pulse | Low | Threshold check in `ActivePodCard` timer logic; add `animate-pulse text-rp-red` class when `remaining_seconds < 300` |
-| Touch press feedback animation | Pod card buttons use `transition-colors` only; physical kiosk touch on large displays needs explicit press state so customers know they tapped | Low | Add `active:scale-[0.97]` transform to idle pod card button |
-| Offline pod count in header | Header shows Available and Racing counts but not how many pods are offline — staff need this | Low | Add third count pill using `pod.status === 'offline'` filter in kiosk header |
+| Component | Location | What It Does |
+|-----------|----------|--------------|
+| AC content scanner | `crates/rc-agent/src/content_scanner.rs` | Scans cars + tracks dirs, produces `ContentManifest` |
+| Game preset library | `crates/racecontrol/src/preset_library.rs` | CRUD API, `GamePresetWithReliability` type |
+| `combo_reliability` table | `preset_library.rs` tests | `success_rate`, `total_launches` per `(pod_id, sim_type, car, track)` |
+| Game Doctor | `crates/rc-agent/src/game_doctor.rs` | 12-point diagnostic, `GameDiagnosis`, `RetryHint` |
+| Launch retry orchestrator | `crates/rc-agent/src/game_launch_retry.rs` | 2 retries + backoff + MMA escalation (60s bound) |
+| 5-tier Meshed Intelligence | `crates/rc-agent/src/tier_engine.rs` | `GameLaunchFail`, `PreFlightFailed` handled |
+| Crash loop detection | `crates/racecontrol/src/fleet_health.rs` | Flag set at >3 startups within 5 min (uptime <30s) |
+| `launch_events` table | `crates/racecontrol/src/api/metrics.rs` | `outcome`, `error_taxonomy`, `duration_to_playable_ms` |
+| `installed_games` field | `rc-common/src/types.rs` (PodStatus) | `Vec<SimType>` on each pod, already gated at launch |
+| Steam appmanifest check | `crates/rc-agent/src/steam_checks.rs` | Checks C/D/E SteamLibrary paths for `appmanifest_{id}.acf` |
+| Game catalog endpoint | `routes.rs:games_catalog` | Returns all games + per-game pod install count |
+| WhatsApp crash loop alert | `ws/mod.rs:crash_loop_just_detected` | Fires on transition false to true |
 
 ---
 
-## Differentiators
+## Feature Landscape
 
-Features that set Racing Point apart from generic management software. Not expected, but create "premium motorsport venue" perception when present.
+### Table Stakes (Users Expect These)
 
-### Staff Dashboard
+Features the admin and kiosk operators assume exist. Missing = product feels broken or causes customer complaints.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| F1 Timing Tower layout on Live Overview | The defining motorsport UI pattern — one horizontal row per pod with position number, driver name, current lap time, best lap time, and sector-colored cells; customers and staff recognize it immediately from F1 broadcasts | High | New `TimingTower` component; data already flows from billing WS + telemetry WS; replaces or augments current pod card grid on the overview page |
-| F1 color coding on sector time cells | F1-native system: purple = session best lap, green = personal best, yellow = slower than personal best; apply to lap time display in telemetry and leaderboard pages | Medium | Color logic is straightforward; apply to existing `TelemetryPage` sector fields and `Leaderboards` page cells; no backend change needed |
-| Animated countdown arc on active PodCard | Visual countdown as a circular SVG progress arc around the pod number, depleting in red as time runs out — makes remaining time readable at a glance from across the room | Medium | SVG `<circle>` with `stroke-dashoffset` animation; data from `billing.remaining_seconds` already available |
-| Fleet health heatmap strip in sidebar | 8 colored cells at sidebar footer showing pod status (green/red/grey) — gives staff instant fleet awareness without leaving any page | Low | 8 colored dots in `Sidebar.tsx` footer; data from fleet health WebSocket already connected on the dashboard |
-| Driver rating with trend indicator | Show driver skill tier (Beginner / Intermediate / Pro / Elite) with +/- delta arrow since last session — gamification hook that encourages return visits | Medium | Data exists in `driver_ratings` table shipped in v28.0; needs a `<DriverTierBadge>` component in Drivers and Sessions pages |
-| Achievement overlay on track record broken | When a driver sets a track record, a celebratory banner overlay fires — current WS already emits `RecordBrokenEvent` but there is no UI response | Medium | Use existing `RecordBrokenEvent` type already imported in leaderboard page; add a `<RecordBanner>` overlay with a glow burst or pulsing border animation |
-| Revenue sparkline in billing header | Small inline SVG chart of today's revenue by hour — instant ops awareness without opening the analytics page | Medium | Needs chart rendering (inline SVG path or Recharts); billing history endpoint already exists |
-| Command palette for rapid ops | Staff can assign pods, end sessions, and restart games from a keyboard shortcut without navigating away — reduces multi-step workflows to seconds | High | Global `Cmd+K` command palette overlay wrapping existing API calls; high complexity but very high staff productivity payoff |
+| Feature | Why Expected | Complexity | Depends On (existing) |
+|---------|--------------|------------|----------------------|
+| **Per-pod kiosk game filter** — kiosk shows ONLY games installed on that pod | Customers click Forza on pods without it, get silent error or bad state | MEDIUM | `installed_games` field (exists), kiosk API + frontend filter (missing) |
+| **Boot-time combo validation** — Game Doctor runs proactively at rc-agent startup, not only post-failure | Game launches silently fail 15 seconds in when AC car/track folder does not exist; staff do not know until customer complaint | MEDIUM | `game_doctor.rs` (exists, reactive only), `content_scanner.rs` (AC only) |
+| **Non-functional combo flag** — invalid AC combos (missing car dir, missing track dir, no AI lines, no pit stalls) marked `valid: false` in preset library | Staff keep showing combos that never work; reliability score alone does not explain WHY | MEDIUM | `combo_reliability` table (exists), `ContentManifest` (exists), `GamePresetWithReliability` (exists) |
+| **Per-pod available combos API** — server exposes which presets are valid on EACH pod (not fleet-wide) | Server currently returns fleet catalog; Pod 3 may have a car that Pod 7 does not; kiosk must know which pod the customer is at | MEDIUM | `content_scanner.rs` (AC), per-pod `ContentManifest` pushed via WS (exists for AC) |
+| **Launch timeout watchdog** — kill and escalate if game process does not reach playable state within N seconds | Currently 60s bound in retry orchestrator but no intermediate timeout on the launch itself; pod locks indefinitely if acs.exe hangs mid-load | LOW | `game_launch_retry.rs` (exists), `DiagnosticTrigger` (exists) |
 
-### Kiosk
+### Differentiators (Competitive Advantage)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Leaderboard ticker on idle screen | When all pods are idle or between customer interactions, cycle through top 5 lap times per sim — creates competitive atmosphere and motivates bookings | Medium | Idle-state overlay on kiosk landing page; data from existing leaderboard API; show when `activeCount === 0` or after 30s inactivity |
-| Driver personal best shown on PIN success | After PIN validated, show the driver's personal best for the sim type they are about to race — sets competitive context before sitting down | Low | Add to existing `PinModal` success step; requires one extra call to `/api/v1/leaderboards?driver_id=...` |
-| Sim game logo / track art badge on active pod | Replace the text abbreviation ("AC", "F1") with a game logo image badge — visual recognition for spectators who can read it from a distance | Medium | Static image map keyed by `sim_type`; game logo assets (AC, F1, iRacing, LMU, Forza) must be sourced and placed in `public/` |
-| Ambient race-mode background when venue is full | When the majority of pods are active, a subtle CSS animation (slow horizontal speed lines, or pulsing red glow on the header border) gives the room an "in-race" atmosphere on the floor screen | Medium | Pure CSS animation triggered by `activeCount > idleCount`; no performance cost; add/remove a CSS class on the root container |
+Features that go beyond table stakes. Not assumed, but create measurably better operations.
 
----
+| Feature | Value Proposition | Complexity | Depends On |
+|---------|-------------------|------------|------------|
+| **Steam library scanner for all games** — extend `content_scanner.rs` to detect F1 25, iRacing, Forza, LMU by appmanifest or known install paths | Replaces the manual `installed_games` TOML config (error-prone, stale); auto-discovers what is actually installed vs. what someone configured | MEDIUM | `steam_checks.rs` (appmanifest logic exists), `content_scanner.rs` (AC only) |
+| **Launch timeline tracing** — structured log per launch: `WsCommandSent`, `AgentAckReceived`, `ProcessSpawned`, `TelemetryFirstPacket`, `PlayableConfirmed` with millisecond timestamps | Enables root cause per step (WS drop? Steam launch? Game boot? Telemetry init?) instead of just "launch failed" | HIGH | `launch_events` table (exists, lacks step-level columns), v40.0 WS ACK (in progress) |
+| **Chain failure WhatsApp alert** — when 3+ consecutive launches on same pod fail within 10 min, alert staff with pod number, game, error taxonomy | Currently crash loop alerts on agent restart storms; game chain failures (game failing, not agent) are silent | LOW | `error_aggregator.rs` (exists), WhatsApp alerts (exists), `launch_events` table (exists) |
+| **Reliability dashboard** — Next.js page showing: combo success rates heatmap, fleet game matrix (8 pods x 8 games grid), flagged combos list, recent chain failures | Gives Uday a one-glance view of what works across the fleet before venue opens | HIGH | `combo_reliability` (exists), `launch_events` (exists), `/api/v1/metrics/launch-matrix` (exists per metrics.rs audit) |
+| **Dynamic launch timeout per combo** — timeout scales with combo history (new combo: 90s default; combo with p95 launch time 45s: use 65s) | Prevents 90s wait for combos that consistently launch in 20s; gives more time to combos that legitimately need it | MEDIUM | `launch_events.duration_to_playable_ms` (exists), needs p95 query + config injection |
 
-## Anti-Features
+### Anti-Features (Commonly Requested, Often Problematic)
 
-Features to explicitly NOT build in this redesign.
-
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| Light mode toggle | Racing venues operate in controlled dim lighting; a light mode would wash out screens and break the motorsport aesthetic at Rs.700/session price points | Lock to dark theme; brand palette only |
-| Drag-and-drop pod reordering | Pods have fixed physical positions (Pod 1 = physical rig 1); visual reordering creates dangerous staff confusion when assigning customers | Keep pod `number` field as the primary and only sort key |
-| Animated route transitions (page slide or fade) | Full-page transitions add 200-400ms perceived latency; in ops context staff need instant response; they also cause layout shift on the sidebar area | Animate WITHIN page components only (skeleton loading to content); instant route switching |
-| Notification inbox / bell icon | Too much UI complexity for an ops tool; Uday's goal is automation so he doesn't need to watch a dashboard | Toast for immediate in-session feedback; WhatsApp alerts for async staff notification (already built) |
-| User preference panels or theme customization | One venue, one brand, one theme; customization adds maintenance surface with zero operational benefit | Hard-code brand tokens; expose only operationally necessary settings via existing Settings page |
-| Customer-visible billing amounts in rupees on kiosk pod cards | Displaying Rs.700 on a public touchscreen is uncomfortable in an Indian venue context and can lead to sticker-shock abandonment | Show session duration (30 min / 60 min) not price; price appears on the booking flow page only where context is appropriate |
-| Social sharing or photo upload features | Out of scope for venue management; adds auth, storage, and moderation complexity | Let customers use their phones; the personal-best-on-success-screen serves the same social sharing motivation indirectly |
-| 3D animations or WebGL effects | Adds bundle size and reduces performance on the server machine (:3200) which also runs 8 WS connections + billing engine | Use CSS transforms and SVG animations only; stays fast on constrained hardware |
+| Anti-Feature | Why Requested | Why Problematic | Alternative |
+|--------------|---------------|-----------------|-------------|
+| **Real-time filesystem watcher** — ReadDirectoryChangesW watching the AC content directory for instant manifest updates | "Keep manifest always fresh without restart" | Windows filesystem watchers on Steam dirs are unreliable (Steam file locking + VSS shadow operations fire thousands of spurious events); adds a persistent background thread with complex error recovery | Periodic 5-min rescan + rescan on WS reconnect (already the boot pattern for allowlist and feature flags) |
+| **Cross-pod combo sync** — when Pod 1 runs a combo successfully, auto-push that combo to all other pods' preset libraries | "Fleet self-improvement" | Combos depend on per-pod content; a car installed on Pod 1 may not exist on Pod 7. Gossiping "works here" to pods where it does not exist creates false availability. Already caused a class of bug (staff-triggered broadcast to all pods) that needed gating to Tier 2+ confidence | Keep combo availability pod-local; only gossip fix KB entries (not availability) — already gated in `tier_engine.rs` |
+| **Full AC config validation** — parse `data/car.ini`, `data/engine.ini`, etc. for every car in manifest | "Catch corrupt game installs" | ~500 cars x 10 files = 5000 file reads at boot; blocks rc-agent startup for 30-90s; 99% of corruption is at folder/AI-lines level, not ini contents | Validate folder existence + `data/` dir + `ai/` dir only (fast, covers 95% of launch failures per Game Doctor history) |
+| **Automated combo disable** — when combo fails 3 times, auto-set `enabled: false` in DB | "Stop showing broken combos" | Auto-disabling without human review hides transient failures (network blip, pod reboot mid-session) as permanent. A combo with `enabled: false` from a bad day is invisible until a customer asks for it | Flag `flagged_unreliable: true` (already in `GamePresetWithReliability`) + surface in admin UI + alert staff; human makes the call |
+| **Per-combo reliability push notifications** — WhatsApp every time a combo rolling success rate crosses a threshold | "Proactive alerting" | With 8 pods x 100+ AC combos, this generates dozens of alerts per session; alert fatigue kills the channel. WhatsApp is already used for crash loops and system health | Chain failure alerts (3+ consecutive fails on same pod+game, 10-min window) — actionable, not statistical |
 
 ---
 
 ## Feature Dependencies
 
 ```
-SVG icon set               --> no dependencies, independent swap in Sidebar.tsx
-StatsBar component         --> fleet health WS + billing summary endpoint
-Skeleton loading states    --> no dependencies, pure UI layer
-Toast system               --> consumed by all action-based components (cancel token, end session, launch game)
-Breadcrumb component       --> DashboardLayout.tsx; parentMap already defined there
-TimingTower component      --> billing WS + telemetry WS (both already subscribed in overview page)
-F1 color coding            --> existing sector_ms fields in telemetry type (no backend change)
-Countdown arc SVG          --> billing.remaining_seconds in BillingSession type (already flows)
-Fleet heatmap sidebar      --> fleet health WS (already polled on dashboard; needs sidebar access)
-Driver rating badge        --> driver_ratings table (v28.0, data exists)
-Achievement overlay        --> RecordBrokenEvent (WS message type already imported in leaderboard page)
-Leaderboard kiosk ticker   --> existing /api/v1/leaderboards endpoint
-Driver PB on PIN success   --> existing leaderboard API + driver_id from PIN validation response
-Sim logo badges            --> static image assets needed; no API dependency
-Ambient race animation     --> activeCount derived from pods WS (already computed in kiosk page)
+Steam library scanner (all games)
+    └──enables──> Per-pod game inventory (auto, not manual TOML)
+                      └──enables──> Per-pod kiosk game filter (accurate)
+                      └──enables──> Fleet game matrix dashboard column (accurate)
+
+Non-functional combo flag (filesystem validation)
+    └──requires──> ContentManifest per pod (exists for AC, needs validity extension)
+    └──enables──> Flagged combos list in dashboard
+    └──enhances──> Boot-time combo validation (flag result stored, not re-checked each launch)
+
+Launch timeline tracing
+    └──requires──> WS ACK protocol (v40.0 Phase 312 -- adds AgentAckReceived step)
+    └──enhances──> Dynamic launch timeout (p95 computed from timeline data)
+    └──enables──> Launch timeline viewer in dashboard
+
+Chain failure WhatsApp alert
+    └──requires──> launch_events table (exists)
+    └──independent of crash_loop detection (different trigger: game fails, not agent crashes)
+
+Reliability dashboard
+    └──requires──> combo_reliability (exists)
+    └──requires──> fleet game matrix data (per-pod installed_games, already in PodStatus)
+    └──requires──> flagged combos API (new endpoint on top of existing flag column)
+    └──optional──> launch timeline viewer (high complexity, can ship without)
 ```
 
----
+### Dependency Notes
 
-## Component Upgrade Map
-
-Existing components that need design upgrades. These are additive changes to existing files, not rewrites.
-
-| Component | File | Current State | Target Upgrade |
-|-----------|------|---------------|----------------|
-| `PodCard` | `web/src/components/PodCard.tsx` | Border-color state + key-value rows | Add countdown arc SVG (active state); add sim logo badge; add driver rating pill |
-| `StatusBadge` | `web/src/components/StatusBadge.tsx` | Colored dot + text pill | Already clean — no changes needed |
-| `Sidebar` | `web/src/components/Sidebar.tsx` | Emoji + text links | Replace emoji with Lucide icons; left-border active item style; add fleet heatmap strip at footer; add persistent WS status dot |
-| `DashboardLayout` | `web/src/components/DashboardLayout.tsx` | Sidebar + main content + AI panel | Add `<Breadcrumb>` for sub-pages; render `<ToastStack>` here |
-| Login page | `web/src/app/login/page.tsx` | PIN numpad, functional | Add Racing Point wordmark above numpad; subtle CSS speed-line background animation |
-| Pods page | `web/src/app/pods/page.tsx` | Static grid, one-time fetch | Add 5s auto-refresh or convert to WS subscription; add `StatsBar` at top |
-| Telemetry page | `web/src/app/telemetry/page.tsx` | Raw numbers, existing chart | Apply F1 color coding (purple/green/yellow) to sector time cells |
-| Leaderboards page | `web/src/app/leaderboards/page.tsx` | Table with lap times | Add mini-sector columns with F1 colors; add `<RecordBanner>` overlay for RecordBrokenEvent |
-| Kiosk `ActivePodCard` | `kiosk/src/app/page.tsx` (inline component) | 2-col telemetry grid | Add remaining timer row with red pulse when < 5 min; add game logo badge |
-| Kiosk idle pod card | `kiosk/src/app/page.tsx` (inline) | Number + "Available" pill | Add pricing from API; add `active:scale-[0.97]` press feedback |
-| Kiosk `PinModal` success step | `kiosk/src/app/page.tsx` (inline) | Rig number + driver name | Add driver's personal best for the current sim below rig number |
+- **Per-pod kiosk filter requires Steam scanner:** Without auto-detection, `installed_games` is what is in TOML config — operators forget to update it. The filter would be inaccurate. Build scanner first, then filter.
+- **Timeline viewer requires v40.0 WS ACK:** The `WsCommandSent` to `AgentAckReceived` step only exists after v40.0 ships (Phase 312 adds ACK protocol). Dashboard can ship without timeline viewer; add viewer as a later phase.
+- **Combo flag is independent of Game Doctor:** Game Doctor runs at launch time. The filesystem validation for flag runs at boot time and stores result in DB. They share the same validation logic but are separate code paths.
+- **Chain failure alert is independent of crash loop:** Crash loop = agent restarts (already exists). Chain failure = game process fails to reach playable state (new trigger). Both use WhatsApp but different detection logic.
 
 ---
 
-## MVP Build Order
+## MVP Definition
 
-Highest staff-visible and customer-visible impact first. Each phase is independently shippable.
+### Launch With (Phase 1 -- Core Inventory)
 
-**Phase 1 — Foundation (zero logic changes, pure visual polish):**
-1. Lucide SVG icons in sidebar + left-border active item style
-2. Empty state component applied across all no-data views
-3. Skeleton loading component for pod cards and table rows
-4. Toast notification system in DashboardLayout
-5. Persistent WS status dot in sidebar footer
+Minimum to stop showing customers unplayable games.
 
-**Phase 2 — Kiosk premium feel (small data additions):**
-6. Pricing on idle pod cards
-7. Remaining time display on active pod cards
-8. "Almost done" red pulse at < 5 min remaining
-9. Driver personal best shown on PIN success screen
-10. Touch press feedback animation on pod card buttons
+- [ ] Steam library scanner for all 8 SimTypes — replace manual TOML `installed_games`
+- [ ] Per-pod `ContentManifest` includes non-AC game presence (boolean installed, not full file tree)
+- [ ] Server API: `GET /api/v1/games/inventory/{pod_id}` — returns installed games for that pod
+- [ ] Kiosk game selector filters by pod installed games (not global catalog)
 
-**Phase 3 — Operator differentiation (higher complexity, highest wow factor):**
-11. Fleet heatmap strip in sidebar footer (8 dots, data already flows)
-12. F1 color coding on sector times in Telemetry + Leaderboards pages
-13. Achievement overlay on track record broken (WS event already exists)
-14. F1 Timing Tower layout on Live Overview page
+### Launch With (Phase 2 -- Combo Validation)
 
-**Defer to later milestone:**
-- Command palette (high complexity, low urgency)
-- Ambient race-mode background on kiosk
-- Sim game logo assets (requires asset sourcing)
-- Revenue sparkline (requires chart library decision)
-- Countdown arc SVG on PodCard (medium complexity, lower urgency than timing tower)
+Minimum to stop showing unlaunchable AC combos.
+
+- [ ] Boot-time combo validation — cross-reference active presets vs ContentManifest at rc-agent startup
+- [ ] Filesystem validation checks: car folder exists, track folder exists, `ai/` subdir exists
+- [ ] `combo_valid: bool` and `invalid_reason: Option<String>` added to `GamePresetWithReliability`
+- [ ] Admin UI: flagged combos list (filter on `combo_valid: false`)
+
+### Launch With (Phase 3 -- Observability)
+
+Minimum to understand and alert on launch failures.
+
+- [ ] Launch timeout watchdog per combo (90s default, configurable via racecontrol.toml)
+- [ ] Chain failure detection: 3+ consecutive failures on same pod+game in 10 min
+- [ ] Chain failure WhatsApp alert
+- [ ] Reliability dashboard: combo success rates + fleet game matrix (8x8 grid) + flagged combos list
+
+### Add After Validation (Phase 4 -- Intelligence)
+
+After core is stable and operators are using the dashboard.
+
+- [ ] Dynamic timeout per combo (computed from p95 of `duration_to_playable_ms`)
+- [ ] Launch timeline tracing with step-level milestones (requires v40.0 ACK shipped + fleet deployed)
+- [ ] Launch timeline viewer in dashboard
+
+### Future Consideration (v42+)
+
+Defer — requires either more data or adjacent milestones.
+
+- [ ] Non-Steam iRacing inventory via registry-based detection (`HKLM\SOFTWARE\iRacing Sim Racing Simulator\InstallDir`)
+- [ ] Predictive combo degradation — flag combos trending toward unreliability before they fail
+- [ ] AI-powered fix suggestion from launch timeline data fed to Tier 3/4 MMA
 
 ---
 
-## Confidence Assessment
+## Feature Prioritization Matrix
 
-| Area | Confidence | Reason |
-|------|------------|--------|
-| Table stakes list | HIGH | Derived directly from reading existing source code; gaps are unambiguous |
-| F1 timing tower pattern | HIGH | Verified from f1-dash help docs + F1 sector color system well-documented |
-| Kiosk UX patterns | MEDIUM | SRL VMS features list + general kiosk UX research; no direct inspection of competitor kiosk code |
-| Component upgrade paths | HIGH | Based on actual file reads; all named files confirmed to exist at stated paths |
-| Anti-features | HIGH | Based on domain knowledge + specific operational constraints from CLAUDE.md (Windows, constrained server hardware, fixed pod numbering) |
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| Per-pod kiosk game filter | HIGH | MEDIUM | P1 |
+| Steam library scanner (all games) | HIGH | MEDIUM | P1 |
+| Boot-time combo validation | HIGH | MEDIUM | P1 |
+| Non-functional combo flag (filesystem) | HIGH | MEDIUM | P1 |
+| Chain failure WhatsApp alert | HIGH | LOW | P1 |
+| Launch timeout watchdog | MEDIUM | LOW | P2 |
+| Reliability dashboard (combo heatmap + fleet matrix) | HIGH | HIGH | P2 |
+| Dynamic timeout per combo | MEDIUM | MEDIUM | P3 |
+| Launch timeline tracing + viewer | HIGH | HIGH | P3 |
+
+**Priority key:**
+- P1: Must have for milestone
+- P2: Should have, included in scope
+- P3: Add after core validated
+
+---
+
+## Competitor Feature Analysis
+
+This is a custom-built venue management system. Reference points are existing tools in the sim racing ecosystem.
+
+| Feature | SimHub / Garage61 | Commercial cafe POS (e.g. Antamedia) | Our Approach |
+|---------|-------------------|--------------------------------------|--------------|
+| Game inventory | Per-PC config file, manually maintained | Title-level enable/disable in admin | Auto-detect via Steam appmanifest at boot; rescan every 5 min |
+| Combo validation | Not applicable (single-game tools) | Not applicable (no sim-specific combos) | Filesystem check at boot + flag in DB; AC-specific (car/track/ai dirs) |
+| Launch observability | Structured telemetry log (SimHub) | None | `launch_events` table (exists); extend with step milestones in Phase 4 |
+| Reliability tracking | None | Basic session success/fail | Per-combo `combo_reliability` table with rolling `success_rate` (exists) |
+| Fleet visibility | None (single-PC) | Pod grid (connected/disconnected) | 8-pod game matrix: installed + working + reliability per game per pod |
+
+---
+
+## Implementation Notes (Complexity Qualifiers)
+
+**Steam library scanner — MEDIUM, not HIGH:**
+- `steam_checks.rs` already has the multi-path appmanifest lookup (C/D/E drives)
+- For F1 25, iRacing, Forza, LMU: only need `appmanifest_{app_id}.acf` existence check
+- No need to parse game content (no car/track trees for non-AC games)
+- Risk: iRacing is not on Steam (standalone installer). Need registry-based fallback: `HKLM\SOFTWARE\iRacing Sim Racing Simulator\InstallDir`
+
+**Boot-time combo validation — MEDIUM, not LOW:**
+- Game Doctor has sync filesystem checks; safe to call from boot init path
+- Risk: need to call ONLY the filesystem checks, not the process/WMI checks (those need a running game)
+- Must not block rc-agent startup — run in `tokio::spawn` after init, write results to DB async
+- Validation results written back to server via new WS message type; server updates `combo_valid` column
+
+**Reliability dashboard — HIGH:**
+- Multiple query types (combo heatmap, fleet matrix, flagged list, recent failures)
+- Fleet game matrix requires joining `combo_reliability` with `PodStatus.installed_games` — different data sources (DB + in-memory state)
+- New Next.js page in admin app — requires UI-SPEC.md and UI-REVIEW.md per subagent gate rules
+
+**Launch timeline tracing — HIGH (hard dependency on v40.0):**
+- `AgentAckReceived` step does not exist until v40.0 Phase 312 ships WS ACK protocol
+- Do not start Phase 4 until v40.0 is confirmed shipped and fleet-deployed
+- `launch_events` table needs new columns: `ws_sent_at`, `agent_ack_at`, `process_spawned_at`, `telemetry_first_at`
+- DB migration required: `ALTER TABLE launch_events ADD COLUMN ws_sent_at INTEGER` etc.
+
+**Chain failure detection — LOW, done at server level:**
+- Query `launch_events` in rolling 10-min window per (pod_id, sim_type)
+- Runs as a background task in racecontrol (similar to metrics alert thresholds)
+- Reuses existing WhatsApp alert plumbing from `ws/mod.rs`
 
 ---
 
 ## Sources
 
-- [f1-dash help documentation](https://f1-dash.com/help) — F1 timing tower color system (purple/green/yellow), mini-sector design rationale; MEDIUM confidence (help page content, not code)
-- [SRL Venue Management System V5.0](https://www.simracing.co.uk/features.html) — kiosk mode patterns, leaderboard display, phone telemetry feature validation; MEDIUM confidence
-- [AVIXA Kiosk UX Checklist](https://xchange.avixa.org/posts/kiosk-ux-ui-design-checklist) — touch target sizing, session duration research
-- [Flow Racers — F1 sector color explanation](https://flowracers.com/blog/yellow-sector-in-f1/) — purple/green/yellow semantics; HIGH confidence (authoritative F1 explanation)
-- [F1 Chronicle — purple sector meaning](https://f1chronicle.com/what-does-purple-sector-mean-in-f1/) — color coding confirmation; HIGH confidence
-- Codebase: `PodCard.tsx`, `StatusBadge.tsx`, `Sidebar.tsx`, `DashboardLayout.tsx`, `login/page.tsx`, `pods/page.tsx`, `telemetry/page.tsx`, `leaderboards/page.tsx`, `kiosk/src/app/page.tsx` — all read directly; HIGH confidence
+- Codebase audit: `crates/rc-agent/src/content_scanner.rs`, `game_doctor.rs`, `game_launch_retry.rs`, `tier_engine.rs`
+- Codebase audit: `crates/racecontrol/src/preset_library.rs`, `api/metrics.rs`, `fleet_health.rs`, `ws/mod.rs`
+- Codebase audit: `crates/rc-common/src/types.rs` (SimType enum, PodStatus.installed_games, ContentManifest)
+- Codebase audit: `crates/rc-agent/src/steam_checks.rs` (appmanifest multi-path logic)
+- v41.0 milestone definition in `.planning/PROJECT.md` lines 68-88
+- Prior anti-pattern documented in CLAUDE.md: staff-triggered broadcast requiring Tier 2+ gate
+- Prior anti-pattern documented in CLAUDE.md: `.spawn().is_ok()` not meaning child started
+- Prior anti-pattern documented in CLAUDE.md: single-fetch-at-boot without periodic retry
+
+---
+*Feature research for: v41.0 Game Intelligence System — Racing Point eSports*
+*Researched: 2026-04-03*

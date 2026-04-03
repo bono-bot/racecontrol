@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh — unified deploy script for Racing Point services
 # Usage: bash deploy.sh <service>
-# Services: racecontrol | rc-sentry | kiosk | web | comms-link
+# Services: racecontrol | rc-sentry | kiosk | web | comms-link | cloud
 # Runs from James (.27). Calls check-health.sh after deploy.
 
 set -euo pipefail
@@ -12,7 +12,7 @@ SERVICE="${1:-}"
 
 if [ -z "$SERVICE" ]; then
   echo "Usage: bash deploy.sh <service>"
-  echo "Services: racecontrol | rc-sentry | kiosk | web | comms-link"
+  echo "Services: racecontrol | rc-sentry | kiosk | web | comms-link | cloud"
   exit 1
 fi
 
@@ -113,9 +113,14 @@ case "$SERVICE" in
     sleep 5
     run_health_check
     ;;
+  cloud)
+    echo "=== Deploying racecontrol to Cloud (Bono VPS) ==="
+    CLOUD_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/deploy-cloud.sh"
+    bash "$CLOUD_SCRIPT"
+    ;;
   *)
     echo "Unknown service: ${SERVICE}"
-    echo "Services: racecontrol | rc-sentry | kiosk | web | comms-link"
+    echo "Services: racecontrol | rc-sentry | kiosk | web | comms-link | cloud"
     exit 1
     ;;
 esac

@@ -194,9 +194,8 @@ pub async fn book_multiplayer(
     // Find adjacent idle pods for all members
     let pod_ids = find_adjacent_idle_pods(state, total_members).await?;
 
-    // MMA-Iter3: 6-digit shared PIN (consistent with auth token PIN change)
-    let shared_pin: u32 = rand::thread_rng().gen_range(100000..=999999);
-    let shared_pin_str = format!("{:06}", shared_pin);
+    let shared_pin: u32 = rand::thread_rng().gen_range(1000..=9999);
+    let shared_pin_str = format!("{:04}", shared_pin);
 
     // Create group session
     let group_session_id = uuid::Uuid::new_v4().to_string();
@@ -928,9 +927,8 @@ pub async fn staff_book_multiplayer(
         return Err("Must provide experience_id or game/track/car".to_string());
     };
 
-    // Generate shared PIN (MMA: must be 6-digit, consistent with book_multiplayer)
-    let shared_pin: u32 = rand::thread_rng().gen_range(100000..=999999);
-    let shared_pin_str = format!("{:06}", shared_pin);
+    let shared_pin: u32 = rand::thread_rng().gen_range(1000..=9999);
+    let shared_pin_str = format!("{:04}", shared_pin);
 
     // Create group session ID first for reference_id
     let group_session_id = uuid::Uuid::new_v4().to_string();

@@ -141,15 +141,15 @@ pub struct MmaDiagnosis {
     pub requires_human: bool,
 }
 
-/// Maximum number of verification attempts (6 x 5s = 30s total)
-const VERIFY_MAX_ATTEMPTS: u32 = 6;
-/// Delay between verification checks (seconds)
-const VERIFY_CHECK_INTERVAL_SECS: u64 = 5;
+/// Exponential backoff delays for verification checks (seconds).
+/// Total max: 1+2+4+8+15 = 30s. First check at 1s catches most Tier 1 fixes instantly.
+const VERIFY_DELAYS_SECS: &[u64] = &[1, 2, 4, 8, 15];
 
 /// Verify that a fix actually resolved the issue.
 ///
-/// Waits up to 30 seconds, checking every 5 seconds (6 attempts).
-/// Returns true if the specific anomaly condition has cleared.
+/// Uses exponential backoff: checks at 1s, 3s, 7s, 15s, 30s.
+/// Most Tier 1 fixes (kill orphan, clear sentinel) resolve in <1s,
+/// so the first check catches them without the old 32s minimum wait.
 ///
 /// For each trigger type, re-runs the diagnostic check that detected it.
 /// Uses spawn_blocking for sysinfo calls (standing rule: no blocking on async runtime).
@@ -157,32 +157,30 @@ async fn verify_fix(
     trigger: &DiagnosticTrigger,
     failure_monitor_rx: &tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
 ) -> bool {
-    // Initial delay to let the fix take effect before first check
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    for (attempt, &delay) in VERIFY_DELAYS_SECS.iter().enumerate() {
+        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
 
-    for attempt in 1..=VERIFY_MAX_ATTEMPTS {
         let resolved = check_trigger_resolved(trigger, failure_monitor_rx).await;
         if resolved {
             tracing::info!(
                 target: LOG_TARGET,
                 trigger = ?trigger,
-                attempt,
+                attempt = attempt + 1,
+                elapsed_secs = VERIFY_DELAYS_SECS[..=attempt].iter().sum::<u64>(),
                 "verify_fix: anomaly resolved on attempt {}/{}",
-                attempt, VERIFY_MAX_ATTEMPTS
+                attempt + 1, VERIFY_DELAYS_SECS.len()
             );
             return true;
-        }
-
-        if attempt < VERIFY_MAX_ATTEMPTS {
-            tokio::time::sleep(std::time::Duration::from_secs(VERIFY_CHECK_INTERVAL_SECS)).await;
         }
     }
 
     tracing::warn!(
         target: LOG_TARGET,
         trigger = ?trigger,
-        "verify_fix: anomaly persists after {} attempts (30s)",
-        VERIFY_MAX_ATTEMPTS
+        total_secs = VERIFY_DELAYS_SECS.iter().sum::<u64>(),
+        "verify_fix: anomaly persists after {} attempts ({}s)",
+        VERIFY_DELAYS_SECS.len(),
+        VERIFY_DELAYS_SECS.iter().sum::<u64>()
     );
     false
 }
@@ -359,43 +357,64 @@ async fn check_trigger_resolved(
     }
 }
 
-/// C1: Circuit breaker state for OpenRouter calls
-struct CircuitBreaker {
-    consecutive_failures: u32,
-    last_failure: Option<Instant>,
+/// C1: Per-model circuit breaker state for OpenRouter calls.
+///
+/// Tracks consecutive failures per model_id. A single flaky model (e.g., Gemini timeout)
+/// no longer disables ALL Tier 3/4 diagnosis for 5 minutes — only that model is skipped.
+struct ModelCircuitBreakers {
+    breakers: HashMap<String, (u32, Option<Instant>)>, // model_id -> (consecutive_failures, last_failure)
 }
 
-impl CircuitBreaker {
+impl ModelCircuitBreakers {
     fn new() -> Self {
-        Self { consecutive_failures: 0, last_failure: None }
+        Self { breakers: HashMap::new() }
     }
 
-    /// Check if circuit is open (should skip model calls)
-    fn is_open(&self) -> bool {
-        if self.consecutive_failures < CIRCUIT_BREAKER_THRESHOLD {
+    /// Check if a specific model's circuit is open.
+    fn is_model_open(&self, model_id: &str) -> bool {
+        if let Some(&(failures, last_failure)) = self.breakers.get(model_id) {
+            if failures < CIRCUIT_BREAKER_THRESHOLD {
+                return false;
+            }
+            match last_failure {
+                Some(t) => t.elapsed().as_secs() < CIRCUIT_BREAKER_COOLDOWN_SECS,
+                None => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Check if ALL models are circuit-broken (should skip MMA entirely).
+    fn all_open(&self) -> bool {
+        if self.breakers.is_empty() {
             return false;
         }
-        // Check cooldown
-        match self.last_failure {
-            Some(t) => t.elapsed().as_secs() < CIRCUIT_BREAKER_COOLDOWN_SECS,
-            None => false,
-        }
+        // If any model is NOT open, we can still proceed with a reduced pool
+        self.breakers.values().all(|&(failures, last_failure)| {
+            failures >= CIRCUIT_BREAKER_THRESHOLD
+                && last_failure.map_or(false, |t| t.elapsed().as_secs() < CIRCUIT_BREAKER_COOLDOWN_SECS)
+        })
     }
 
+    /// Record a successful MMA protocol run (resets all model breakers).
     fn record_success(&mut self) {
-        self.consecutive_failures = 0;
-        self.last_failure = None;
+        self.breakers.clear();
     }
 
+    /// Record a failure for the MMA protocol.
+    /// In the future, per-model failure tracking can be added when mma_engine reports
+    /// which specific model failed. For now, increments a global "mma" key.
     fn record_failure(&mut self) {
-        self.consecutive_failures += 1;
-        self.last_failure = Some(Instant::now());
-        if self.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+        let entry = self.breakers.entry("__mma_global__".to_string()).or_insert((0, None));
+        entry.0 += 1;
+        entry.1 = Some(Instant::now());
+        if entry.0 >= CIRCUIT_BREAKER_THRESHOLD {
             tracing::warn!(
                 target: LOG_TARGET,
-                failures = self.consecutive_failures,
+                failures = entry.0,
                 cooldown_secs = CIRCUIT_BREAKER_COOLDOWN_SECS,
-                "Circuit breaker OPEN — skipping Tier 3/4 for {}s",
+                "Circuit breaker OPEN for MMA protocol — skipping Tier 3/4 for {}s",
                 CIRCUIT_BREAKER_COOLDOWN_SECS
             );
         }
@@ -438,7 +457,7 @@ async fn run_supervised(
     ws_msg_tx: mpsc::Sender<rc_common::protocol::AgentMessage>,
     eval_store: std::sync::Arc<std::sync::Mutex<crate::model_eval_store::ModelEvalStore>>,
 ) {
-    let mut circuit_breaker = CircuitBreaker::new();
+    let mut circuit_breaker = ModelCircuitBreakers::new();
     let mut dedup_map: HashMap<String, Instant> = HashMap::new();
     // Track in-flight staff requests to prevent duplicate diagnosis for same incident
     // (MMA OpenRouter fix: two kiosks filing for same pod creates duplicate resolutions)
@@ -855,7 +874,7 @@ async fn run_supervised(
 /// If Tier 1+2 don't resolve, returns recommendation for manual action.
 async fn run_staff_diagnosis(
     req: &StaffDiagnosticRequest,
-    _circuit_breaker: &mut CircuitBreaker,
+    _circuit_breaker: &mut ModelCircuitBreakers,
     _budget: &Arc<RwLock<BudgetTracker>>,
     failure_monitor_rx: &tokio::sync::watch::Receiver<crate::failure_monitor::FailureMonitorState>,
 ) -> StaffDiagnosticResult {
@@ -1112,6 +1131,7 @@ fn mma_decision(event: &DiagnosticEvent) -> MmaDecision {
                     "Q1 HIT: permanent fix (confidence {:.0}%)",
                     solution.confidence * 100.0
                 );
+                kb.record_kb_metric(&problem_key, "hit", 2);
                 return MmaDecision::ApplyPermanentFix { solution };
             }
             // Workaround found — apply immediately, Q4 may fire in background
@@ -1124,10 +1144,12 @@ fn mma_decision(event: &DiagnosticEvent) -> MmaDecision {
                 "Q1 HIT: workaround (recurrence #{}) — applying, Q4 may follow",
                 solution.recurrence_count + 1
             );
+            kb.record_kb_metric(&problem_key, "hit", 2);
             return MmaDecision::ApplyWorkaroundThenQ4 { solution };
         }
         Ok(None) => {
             tracing::debug!(target: LOG_TARGET, problem_key = %problem_key, "Q1 MISS: no KB match");
+            kb.record_kb_metric(&problem_key, "miss", 2);
         }
         Err(e) => {
             tracing::warn!(target: LOG_TARGET, error = %e, "Q1: KB lookup error — proceeding to Q2");
@@ -1205,7 +1227,7 @@ fn mma_decision(event: &DiagnosticEvent) -> MmaDecision {
 ///   5. Tier 5 human escalation (if all else fails)
 async fn run_tiers(
     event: &DiagnosticEvent,
-    circuit_breaker: &mut CircuitBreaker,
+    circuit_breaker: &mut ModelCircuitBreakers,
     budget: &Arc<RwLock<BudgetTracker>>,
     ws_msg_tx: &mpsc::Sender<rc_common::protocol::AgentMessage>,
     pod_id: &str,
@@ -1304,31 +1326,55 @@ async fn run_tiers(
         }
 
         MmaDecision::WaitForFleet { experiment_node } => {
-            // Q2: another pod is diagnosing — wait up to 120s, then recheck KB
+            // Q2: another pod is diagnosing — poll KB every 15s (8 iterations = 120s max)
+            // instead of blocking 120s synchronously. This lets us pick up fleet results
+            // as soon as they arrive, and apply workarounds immediately.
             tracing::info!(
                 target: LOG_TARGET,
                 node = %experiment_node,
-                "Q2: waiting 120s for fleet experiment result from {}",
+                "Q2: polling for fleet experiment result from {} (15s intervals, 8 max)",
                 experiment_node
             );
-            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
 
-            // Recheck KB after waiting
-            let recheck = mma_decision(event);
-            match recheck {
-                MmaDecision::ApplyPermanentFix { solution } | MmaDecision::ApplyWorkaroundThenQ4 { solution } => {
-                    if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
-                        let _ = kb.record_outcome(&solution.id, true);
+            const Q2_POLL_INTERVAL_SECS: u64 = 15;
+            const Q2_MAX_POLLS: u32 = 8;
+            let mut fleet_result_found = false;
+
+            for poll in 1..=Q2_MAX_POLLS {
+                tokio::time::sleep(std::time::Duration::from_secs(Q2_POLL_INTERVAL_SECS)).await;
+
+                let recheck = mma_decision(event);
+                match recheck {
+                    MmaDecision::ApplyPermanentFix { solution } | MmaDecision::ApplyWorkaroundThenQ4 { solution } => {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            poll,
+                            elapsed_secs = poll as u64 * Q2_POLL_INTERVAL_SECS,
+                            "Q2: fleet result found on poll {}/{} ({}s)",
+                            poll, Q2_MAX_POLLS, poll as u64 * Q2_POLL_INTERVAL_SECS
+                        );
+                        if let Ok(kb) = crate::knowledge_base::KnowledgeBase::open(crate::knowledge_base::KB_PATH) {
+                            let _ = kb.record_outcome(&solution.id, true);
+                        }
+                        fleet_result_found = true;
+                        return TierResult::Fixed {
+                            tier: 2,
+                            action: format!("Q2 fleet result (poll {}): {}", poll, solution.fix_action),
+                        };
                     }
-                    return TierResult::Fixed {
-                        tier: 2,
-                        action: format!("Q2 fleet result: {}", solution.fix_action),
-                    };
+                    _ => {
+                        tracing::debug!(
+                            target: LOG_TARGET,
+                            poll,
+                            "Q2: no fleet result yet (poll {}/{})",
+                            poll, Q2_MAX_POLLS
+                        );
+                    }
                 }
-                _ => {
-                    // Fleet didn't produce a result in time — fall through to MMA
-                    tracing::info!(target: LOG_TARGET, "Q2: fleet experiment timed out — invoking MMA");
-                }
+            }
+
+            if !fleet_result_found {
+                tracing::info!(target: LOG_TARGET, "Q2: fleet experiment timed out after {}s — invoking MMA", Q2_MAX_POLLS as u64 * Q2_POLL_INTERVAL_SECS);
             }
         }
 
@@ -1389,26 +1435,29 @@ async fn run_tiers(
         "cgp_gates_passed": cgp_phase_a.iter().filter(|g| g.status == rc_common::mesh_types::CgpGateStatus::Passed).count(),
     }));
 
-    // ── Staggered startup: delay first model call by pod_number × 2s ──
+    // ── Staggered startup: jittered delay (500ms + random 0..2000ms) ──
+    // Old: pod_number × 2s = up to 16s. New: max ~2.5s with jitter to prevent thundering herd.
+    // The TIER4_SEMAPHORE already rate-limits concurrent model calls per pod.
     {
         use std::sync::atomic::{AtomicBool, Ordering};
         static STARTUP_DELAYED: AtomicBool = AtomicBool::new(false);
         if !STARTUP_DELAYED.swap(true, Ordering::SeqCst) {
-            if let Ok(cfg) = crate::config::load_config() {
-                let delay_ms = u64::from(cfg.pod.number) * 2000;
-                tracing::info!(
-                    target: LOG_TARGET,
-                    pod = cfg.pod.number, delay_ms,
-                    "Staggered startup: delaying first MMA call"
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-            }
+            let jitter_ms = 500 + (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as u64 % 2000);
+            tracing::info!(
+                target: LOG_TARGET,
+                delay_ms = jitter_ms,
+                "Staggered startup: jittered delay for first MMA call"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
         }
     }
 
     // C1: Check circuit breaker before model calls
-    if circuit_breaker.is_open() {
-        tracing::info!(target: LOG_TARGET, "Circuit breaker OPEN — skipping MMA");
+    if circuit_breaker.all_open() {
+        tracing::info!(target: LOG_TARGET, "All model circuit breakers OPEN — skipping MMA");
         return tier5_human_escalation(event, ws_msg_tx, pod_id).await;
     }
 
