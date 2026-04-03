@@ -47,7 +47,7 @@ export function middleware(request: NextRequest) {
 
   if (!staffJwt?.value) {
     const url = request.nextUrl.clone();
-    url.pathname = "/kiosk";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
@@ -56,7 +56,7 @@ export function middleware(request: NextRequest) {
   if (parts.length !== 3) {
     // Malformed — not a real JWT (forged cookie)
     const url = request.nextUrl.clone();
-    url.pathname = "/kiosk";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
@@ -66,7 +66,7 @@ export function middleware(request: NextRequest) {
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
       // Expired JWT — force re-login
       const url = request.nextUrl.clone();
-      url.pathname = "/kiosk";
+      url.pathname = "/";
       const response = NextResponse.redirect(url);
       response.cookies.delete("kiosk_staff_jwt");
       return response;
@@ -74,7 +74,7 @@ export function middleware(request: NextRequest) {
   } catch {
     // Can't decode payload — reject
     const url = request.nextUrl.clone();
-    url.pathname = "/kiosk";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
