@@ -114,3 +114,62 @@ export function getLaunchMatrix(game: string): Promise<LaunchMatrixRow[]> {
   const qs = new URLSearchParams({ game }).toString();
   return metricsGet<LaunchMatrixRow[]>(`/admin/launch-matrix?${qs}`);
 }
+
+// ─── Fleet Game Matrix (DASH-01) ──────────────────────────────────────────────
+
+export interface GameMatrixPodEntry {
+  installed: boolean;
+  launchable: boolean;
+  scanned_at: string;
+}
+
+export interface GameMatrixGame {
+  game_id: string;
+  display_name: string;
+  sim_type: string;
+  pods: Record<string, GameMatrixPodEntry>;
+}
+
+export interface GameMatrixResponse {
+  games: GameMatrixGame[];
+}
+
+/**
+ * GET /api/v1/fleet/game-matrix
+ * Returns which games are installed on which pods.
+ */
+export function getGameMatrix(): Promise<GameMatrixResponse> {
+  return metricsGet<GameMatrixResponse>("/fleet/game-matrix");
+}
+
+// ─── Combo Reliability List (DASH-02) ─────────────────────────────────────────
+
+export interface ComboListRow {
+  pod_id: string;
+  sim_type: string;
+  car: string | null;
+  track: string | null;
+  success_rate: number;
+  avg_time_ms: number | null;
+  total_launches: number;
+  flagged: boolean;
+}
+
+/**
+ * GET /api/v1/admin/combo-list?game=&sort_by=&order=
+ * Returns per-combo reliability rows, sortable, flagged if success_rate < 70%.
+ */
+export function getComboList(params?: {
+  game?: string;
+  sort_by?: string;
+  order?: string;
+}): Promise<ComboListRow[]> {
+  const qs = params
+    ? new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== "")
+        ) as Record<string, string>
+      ).toString()
+    : "";
+  return metricsGet<ComboListRow[]>(`/admin/combo-list${qs ? `?${qs}` : ""}`);
+}
