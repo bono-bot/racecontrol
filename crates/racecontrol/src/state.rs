@@ -132,6 +132,32 @@ pub struct BackupStatus {
     pub staleness_hours: Option<f64>,
 }
 
+/// Phase 317 (LAUNCH-04): Tracks consecutive game launch failures per pod+SimType.
+/// Resets when launch succeeds (GameState::Running) or 10-minute window expires.
+#[derive(Debug, Clone, Default)]
+pub struct ChainFailureState {
+    pub consecutive_failures: u32,
+    pub window_start: Option<std::time::Instant>,
+    /// true once EscalationRequest sent for this chain — prevents re-alert within window
+    pub alerted: bool,
+}
+
+impl ChainFailureState {
+    /// Returns true if the 10-minute failure window has expired.
+    pub fn is_window_expired(&self) -> bool {
+        self.window_start
+            .map(|t| t.elapsed().as_secs() >= 600)
+            .unwrap_or(true)
+    }
+
+    /// Reset to clean state (launch succeeded or window expired).
+    pub fn reset(&mut self) {
+        self.consecutive_failures = 0;
+        self.window_start = None;
+        self.alerted = false;
+    }
+}
+
 pub struct AppState {
     pub config: Config,
     pub db: SqlitePool,
@@ -279,6 +305,10 @@ pub struct AppState {
     /// Initialized from DB at startup (most recent entry_hash), or "GENESIS" if no hashed entries.
     /// Held briefly inside tokio::spawn to serialize hash chain writes. Never held across .await.
     pub audit_last_hash: std::sync::Mutex<String>,
+    /// Phase 317 (LAUNCH-04): Consecutive launch failure tracker per pod+SimType.
+    /// Key: "{pod_id}:{sim_type:?}". Resets on success or 10-min window expiry.
+    /// Never held across .await — clone/snapshot before async work.
+    pub chain_failure_tracker: RwLock<HashMap<String, ChainFailureState>>,
 }
 
 impl AppState {
@@ -369,6 +399,7 @@ impl AppState {
             backup_status: RwLock::new(BackupStatus::default()),
             // Phase 307: Initialized to GENESIS; main.rs loads actual last hash from DB after init_db()
             audit_last_hash: std::sync::Mutex::new("GENESIS".to_string()),
+            chain_failure_tracker: RwLock::new(HashMap::new()),
         }
     }
 
@@ -722,6 +753,86 @@ mod tests {
                 i
             );
         }
+    }
+
+    // ── ChainFailureState tests (Phase 317 LAUNCH-04) ───────────────────────
+
+    #[test]
+    fn test_chain_failure_state_window_expired_when_no_start() {
+        let state = ChainFailureState::default();
+        assert!(
+            state.is_window_expired(),
+            "ChainFailureState with no window_start should report expired"
+        );
+    }
+
+    #[test]
+    fn test_chain_failure_state_window_not_expired_recently() {
+        let mut state = ChainFailureState::default();
+        state.window_start = Some(std::time::Instant::now());
+        assert!(
+            !state.is_window_expired(),
+            "ChainFailureState with freshly-set window_start should NOT be expired"
+        );
+    }
+
+    #[test]
+    fn test_chain_failure_state_reset_clears_all() {
+        let mut state = ChainFailureState {
+            consecutive_failures: 5,
+            window_start: Some(std::time::Instant::now()),
+            alerted: true,
+        };
+        state.reset();
+        assert_eq!(state.consecutive_failures, 0, "reset() should zero consecutive_failures");
+        assert!(state.window_start.is_none(), "reset() should clear window_start");
+        assert!(!state.alerted, "reset() should clear alerted flag");
+    }
+
+    #[test]
+    fn test_chain_failure_state_three_failures_triggers_alert() {
+        let mut state = ChainFailureState::default();
+        // Simulate first failure
+        if state.is_window_expired() { state.reset(); }
+        if state.window_start.is_none() { state.window_start = Some(std::time::Instant::now()); }
+        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+        let should1 = state.consecutive_failures >= 3 && !state.alerted;
+        assert!(!should1, "Should not escalate on 1st failure");
+        // Second failure
+        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+        let should2 = state.consecutive_failures >= 3 && !state.alerted;
+        assert!(!should2, "Should not escalate on 2nd failure");
+        // Third failure
+        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+        let should3 = state.consecutive_failures >= 3 && !state.alerted;
+        assert!(should3, "Should escalate on 3rd failure");
+        if should3 { state.alerted = true; }
+        assert!(state.alerted, "alerted should be true after 3rd failure escalation");
+        assert_eq!(state.consecutive_failures, 3, "consecutive_failures should be 3");
+    }
+
+    #[test]
+    fn test_chain_failure_state_running_resets() {
+        let mut state = ChainFailureState {
+            consecutive_failures: 2,
+            window_start: Some(std::time::Instant::now()),
+            alerted: false,
+        };
+        state.reset();
+        assert_eq!(state.consecutive_failures, 0, "Running (reset) should zero failures");
+    }
+
+    #[test]
+    fn test_chain_failure_state_no_double_alert() {
+        let mut state = ChainFailureState {
+            consecutive_failures: 3,
+            window_start: Some(std::time::Instant::now()),
+            alerted: true,
+        };
+        // 4th failure
+        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+        let should4 = state.consecutive_failures >= 3 && !state.alerted;
+        assert!(!should4, "4th failure should NOT trigger escalation again (alerted=true)");
     }
 
     // ── Backoff tests (existing) ─────────────────────────────────────────────
