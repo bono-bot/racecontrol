@@ -79,8 +79,9 @@ export default function Sidebar() {
     let mounted = true;
     const fetchFleet = async () => {
       try {
-        const data = await fetchPublic<PodFleetStatus[]>("/fleet/health");
-        if (mounted) setFleet(data);
+        const data = await fetchPublic<{ pods: PodFleetStatus[] } | PodFleetStatus[]>("/fleet/health");
+        const pods = Array.isArray(data) ? data : (data?.pods ?? []);
+        if (mounted) setFleet(pods);
       } catch {
         if (mounted) setFleet([]);
       }

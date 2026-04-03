@@ -358,8 +358,10 @@ export const api = {
   getPod: (id: string) => fetchApi<{ pod: Pod }>(`/pods/${id}`),
 
   // Fleet Health
-  fleetHealth: () =>
-    fetchApi<PodFleetStatus[]>("/fleet/health"),
+  fleetHealth: async (): Promise<PodFleetStatus[]> => {
+    const data = await fetchApi<{ pods: PodFleetStatus[] } | PodFleetStatus[]>("/fleet/health");
+    return Array.isArray(data) ? data : (data?.pods ?? []);
+  },
 
   // Drivers
   listDrivers: (search?: string) => {
