@@ -1024,6 +1024,14 @@ pub struct GamePresetWithReliability {
     pub total_launches: i64,
     /// Whether this preset is flagged unreliable (score < threshold AND total_launches >= 5).
     pub flagged_unreliable: bool,
+    /// Phase 317: Fleet-wide availability based on combo_validation_flags.
+    /// "valid" = all pods have Available, "partial" = some pods, "invalid" = no pods, "unknown" = no data yet.
+    #[serde(default = "default_fleet_validity")]
+    pub fleet_validity: String,
+}
+
+fn default_fleet_validity() -> String {
+    "unknown".to_string()
 }
 
 /// Phase 298 PRESET-02: Payload pushed server→agent on WS connect.
@@ -1861,6 +1869,7 @@ mod tests {
             reliability_score: Some(0.85),
             total_launches: 10,
             flagged_unreliable: false,
+            fleet_validity: "unknown".to_string(),
         };
         let payload = PresetPushPayload { presets: vec![preset_with_rel] };
         let json = serde_json::to_string(&payload).unwrap();
@@ -1890,6 +1899,7 @@ mod tests {
                 reliability_score: None,
                 total_launches: 0,
                 flagged_unreliable: false,
+                fleet_validity: "unknown".to_string(),
             }],
         };
         let msg = CoreToAgentMessage::PresetPush(payload);
@@ -1923,6 +1933,7 @@ mod tests {
             reliability_score: Some(0.72),
             total_launches: 25,
             flagged_unreliable: false,
+            fleet_validity: "unknown".to_string(),
         };
         let json = serde_json::to_string(&with_rel).unwrap();
         assert!(json.contains("\"reliability_score\":0.72"), "reliability_score missing: {}", json);
@@ -2272,6 +2283,7 @@ mod process_guard_types_tests {
             reliability_score: Some(0.9),
             total_launches: 10,
             flagged_unreliable: false,
+            fleet_validity: "unknown".to_string(),
         };
         let msg = CoreToAgentMessage::PresetPush(PresetPushPayload {
             presets: vec![with_reliability],
@@ -2307,6 +2319,7 @@ mod process_guard_types_tests {
             reliability_score: None, // None = less than 5 launches
             total_launches: 3,
             flagged_unreliable: false,
+            fleet_validity: "unknown".to_string(),
         };
         let json = serde_json::to_string(&with_reliability).expect("should serialize");
         // Flattened fields from GamePreset must be present at top level

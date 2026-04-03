@@ -72,6 +72,7 @@ pub mod process_guard;
 pub mod driver_rating;
 pub mod lap_tracker;
 pub mod pod_healer;
+pub mod game_inventory;
 pub mod pod_monitor;
 pub mod pod_reservation;
 pub mod preset_library;

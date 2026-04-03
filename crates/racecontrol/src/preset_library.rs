@@ -99,11 +99,17 @@ pub async fn list_presets_with_reliability(
             None => false, // not enough data to flag
         };
 
+        // Phase 317: Fleet-wide availability from combo_validation_flags
+        let fleet_validity = crate::game_inventory::compute_fleet_validity(db, &preset.id)
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+
         result.push(GamePresetWithReliability {
             preset,
             reliability_score,
             total_launches,
             flagged_unreliable,
+            fleet_validity,
         });
     }
     Ok(result)
