@@ -190,6 +190,14 @@ export interface MultiplayerGroupStatus {
   pod_ids: string[];
 }
 
+// ─── Pod Inventory (Phase 320 — INV-03, COMBO-05) ────────────────────────────
+
+export interface PodInventoryResponse {
+  pod_id: string;
+  installed_sim_types: string[];  // snake_case SimType strings e.g. "assetto_corsa"
+  preset_validity: Record<string, "valid" | "invalid">;  // preset_id → valid/invalid
+}
+
 // ─── Kiosk Experiences ────────────────────────────────────────────────────
 
 export interface KioskExperience {

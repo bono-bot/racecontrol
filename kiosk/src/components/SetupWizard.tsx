@@ -22,13 +22,15 @@ interface SetupWizardProps {
   isLaunching?: boolean;
   buildLaunchArgs: () => string;
   onCancel: () => void;
+  /** Phase 320 COMBO-05: per-preset validity from server pod inventory */
+  presetValidity?: Record<string, "valid" | "invalid">;
 }
 
 const STEP_TITLES: Record<string, string> = {
-  register_driver: "Register Driver",
+  register_driver: "Select Driver",
   select_plan: "Select Plan",
   select_game: "Select Game",
-  session_splits: "Session Format",
+  // session_splits removed (Act 2: one continuous timer)
   player_mode: "Player Mode",
   session_type: "Session Type",
   ai_config: "AI Opponents",
@@ -53,6 +55,7 @@ export function SetupWizard({
   isLaunching,
   buildLaunchArgs,
   onCancel,
+  presetValidity = {},
 }: SetupWizardProps) {
   // ─── Shared Data ─────────────────────────────────────────────────────
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -60,26 +63,13 @@ export function SetupWizard({
   const [catalog, setCatalog] = useState<AcCatalog | null>(null);
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
 
-  // Split options
-  const [splitOptions, setSplitOptions] = useState<{ count: number; duration_minutes: number; label: string }[]>([]);
 
   // Search/filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [driverName, setDriverName] = useState("");
-  const [driverPhone, setDriverPhone] = useState("");
   const [trackSearch, setTrackSearch] = useState("");
   const [trackCategory, setTrackCategory] = useState("Featured");
   const [carSearch, setCarSearch] = useState("");
   const [carCategory, setCarCategory] = useState("Featured");
-
-  // Fetch split options when entering session_splits step
-  useEffect(() => {
-    if (ws.currentStep === "session_splits" && ws.selectedTier) {
-      api.getSplitOptions(ws.selectedTier.duration_minutes).then((res) => {
-        setSplitOptions(res.options || []);
-      }).catch(() => setSplitOptions([]));
-    }
-  }, [ws.currentStep, ws.selectedTier]);
 
   // Reliability warning — fetch when entering review step with car+track selected
   const [comboSuccessRate, setComboSuccessRate] = useState<number | null>(null);
@@ -170,18 +160,6 @@ export function SetupWizard({
   const carCategories = ["Featured", ...(catalog?.categories.cars || []), "All"];
 
   // ─── Handlers ────────────────────────────────────────────────────────
-  async function handleCreateDriver() {
-    if (!driverName.trim()) return;
-    const result = await api.createDriver({
-      name: driverName.trim(),
-      phone: driverPhone.trim() || undefined,
-    });
-    if (result.id) {
-      setField("selectedDriver", { id: result.id, name: result.name, total_laps: 0, total_time_ms: 0 });
-      goNext();
-    }
-  }
-
   function handleSelectDriver(driver: Driver) {
     setField("selectedDriver", driver);
     goNext();
@@ -196,15 +174,8 @@ export function SetupWizard({
     setField("selectedGame", gameId);
     // Navigate explicitly — goNext() would use stale selectedGame in getFlow()
     // because React hasn't flushed the setField state update yet.
-    // AC: first step is session_splits (getFlow will filter it if tier <20min on next render).
-    // Non-AC: skip all AC steps, go straight to review.
-    goToStep(gameId === "assetto_corsa" ? "session_splits" : "review");
-  }
-
-  function handleSelectSplit(count: number, durationMinutes: number) {
-    setField("splitCount", count);
-    setField("splitDurationMinutes", count > 1 ? durationMinutes : null);
-    goNext();
+    // AC: go to player_mode. Non-AC: skip all AC steps, go straight to review.
+    goToStep(gameId === "assetto_corsa" ? "player_mode" : "review");
   }
 
   function handleSelectPlayerMode(mode: "single" | "multi") {
@@ -301,37 +272,12 @@ export function SetupWizard({
               )}
             </div>
 
-            <div className="flex items-center gap-3 text-xs text-rp-grey">
-              <div className="flex-1 h-px bg-rp-border" />
-              <span>or create new</span>
-              <div className="flex-1 h-px bg-rp-border" />
-            </div>
-
-            <div className="space-y-3">
-              <input
-                data-testid="new-driver-name"
-                type="text"
-                placeholder="Driver name *"
-                value={driverName}
-                onChange={(e) => setDriverName(e.target.value)}
-                className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-              />
-              <input
-                type="text"
-                placeholder="Phone (optional)"
-                value={driverPhone}
-                onChange={(e) => setDriverPhone(e.target.value)}
-                className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-              />
-              <button
-                data-testid="create-driver-btn"
-                onClick={handleCreateDriver}
-                disabled={!driverName.trim()}
-                className="w-full py-2.5 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded text-sm transition-colors"
-              >
-                Continue
-              </button>
-            </div>
+            {/* Linked racers shown under parent */}
+            {filteredDrivers.length === 0 && searchQuery.trim().length > 0 && (
+              <p className="text-xs text-rp-grey mt-2">
+                No drivers found. Register via PWA or venue registration first.
+              </p>
+            )}
           </div>
         )}
 
@@ -368,51 +314,7 @@ export function SetupWizard({
           </div>
         )}
 
-        {/* ─── SESSION SPLITS (AC only) ────────────────────────── */}
-        {step === "session_splits" && (
-          <div data-testid="step-session-splits" className="space-y-4">
-            <p className="text-sm text-rp-grey">
-              Split your {ws.selectedTier?.duration_minutes}-minute session into shorter sub-sessions.
-              The game restarts between each split.
-            </p>
-            <div className="space-y-2">
-              {splitOptions.map((opt) => (
-                <button
-                  key={opt.count}
-                  data-testid={`split-option-${opt.count}`}
-                  onClick={() => handleSelectSplit(opt.count, opt.duration_minutes)}
-                  className={`w-full flex items-center justify-between px-4 py-3 bg-rp-surface border rounded transition-colors ${
-                    ws.splitCount === opt.count
-                      ? "border-rp-red bg-rp-red/10"
-                      : "border-rp-border hover:border-rp-red/50"
-                  }`}
-                >
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-white">{opt.label}</p>
-                    {opt.count === 1 && (
-                      <p className="text-xs text-rp-grey">Full session, no restarts</p>
-                    )}
-                    {opt.count > 1 && (
-                      <p className="text-xs text-rp-grey">
-                        {opt.count} races of {opt.duration_minutes} min each
-                      </p>
-                    )}
-                  </div>
-                  {opt.count > 1 && (
-                    <span className="text-xs text-rp-red font-medium">
-                      {opt.count} races
-                    </span>
-                  )}
-                </button>
-              ))}
-              {splitOptions.length === 0 && (
-                <div className="text-center py-8">
-                  <p className="text-sm text-rp-grey">Loading split options...</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Session splits removed — Act 2: one continuous timer */}
 
         {/* ─── PLAYER MODE ──────────────────────────────────────── */}
         {step === "player_mode" && (
@@ -706,12 +608,22 @@ export function SetupWizard({
               {gameExperiences.length === 0 ? (
                 <p className="text-sm text-rp-grey text-center py-8">No experiences configured for {GAME_LABELS[ws.selectedGame] || ws.selectedGame}</p>
               ) : (
-                gameExperiences.map((exp) => (
+                gameExperiences.map((exp) => {
+                  // Phase 320 COMBO-05: mark experience unavailable if preset combo is invalid for this pod
+                  const isUnavailable = exp.ac_preset_id
+                    ? presetValidity[exp.ac_preset_id] === "invalid"
+                    : false;
+                  return (
                   <button
                     key={exp.id}
                     data-testid={`experience-option-${exp.id}`}
-                    onClick={() => handleSelectExperience(exp)}
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-rp-surface border border-rp-border rounded hover:border-rp-red/50 transition-colors text-left"
+                    onClick={() => { if (!isUnavailable) handleSelectExperience(exp); }}
+                    disabled={isUnavailable}
+                    className={`w-full flex items-center gap-3 px-4 py-3 bg-rp-surface border border-rp-border rounded transition-colors text-left ${
+                      isUnavailable
+                        ? "opacity-60 cursor-not-allowed"
+                        : "hover:border-rp-red/50"
+                    }`}
                   >
                     {exp.car_class && (
                       <span
@@ -730,13 +642,19 @@ export function SetupWizard({
                       </p>
                       )}
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isUnavailable && (
+                        <span className="px-2 py-0.5 rounded text-xs font-semibold text-white bg-[#E10600]">
+                          Unavailable
+                        </span>
+                      )}
                       <p className="text-xs text-rp-grey">
                         {exp.duration_minutes}min
                       </p>
                     </div>
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -935,9 +853,6 @@ export function SetupWizard({
               <ReviewRow label="Driver" value={ws.selectedDriver?.name || ""} />
               <ReviewRow label="Plan" value={ws.selectedTier?.name || ""} />
               <ReviewRow label="Game" value={GAME_LABELS[ws.selectedGame] || ws.selectedGame} />
-              {ws.splitCount > 1 && ws.splitDurationMinutes && (
-                <ReviewRow label="Format" value={`${ws.splitCount} × ${ws.splitDurationMinutes} min`} />
-              )}
               {isAc && (
                 <>
                   <ReviewRow label="Mode" value={ws.playerMode === "multi" ? "Multiplayer" : "Singleplayer"} />

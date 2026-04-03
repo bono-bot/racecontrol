@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -558,4 +558,8 @@ export const api = {
     fetchApi<{ combo_success_rate: number; alternatives: AlternativeCombo[] }>(
       `/games/alternatives?game=${encodeURIComponent(params.game)}&car=${encodeURIComponent(params.car)}&track=${encodeURIComponent(params.track)}&pod_id=${encodeURIComponent(params.pod_id)}`
     ),
+
+  // Pod Inventory (Phase 320 — INV-03, COMBO-05)
+  podInventory: (podId: string) =>
+    fetchApi<PodInventoryResponse>(`/fleet/pod-inventory/${encodeURIComponent(podId)}`),
 };

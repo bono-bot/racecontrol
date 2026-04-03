@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { useSetupWizard } from "@/hooks/useSetupWizard";
 import { KioskHeader } from "@/components/KioskHeader";
@@ -14,7 +14,7 @@ import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
 import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
-import type { AuthTokenInfo, PanelMode, RecentSession } from "@/lib/types";
+import type { AuthTokenInfo, PanelMode, RecentSession, PodInventoryResponse } from "@/lib/types";
 
 export default function StaffTerminal() {
   const [staffName, setStaffName] = useState<string | null>(null);
@@ -78,6 +78,10 @@ export default function StaffTerminal() {
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>(null);
 
+  // ─── Pod Inventory (Phase 320 — INV-03, COMBO-05) ────────────────────
+  const [podInventory, setPodInventory] = useState<PodInventoryResponse | null>(null);
+  const podInventoryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Pending assign: holds driver/pricing data until game is selected, then billing starts
   const [pendingAssign, setPendingAssign] = useState<{
     pod_id: string;
@@ -110,6 +114,36 @@ export default function StaffTerminal() {
     const interval = setInterval(fetchRecentSessions, 30000);
     return () => clearInterval(interval);
   }, [fetchRecentSessions]);
+
+  // Fetch pod inventory when a pod is selected; refresh every 30s (INV-03, SC-3)
+  useEffect(() => {
+    if (podInventoryIntervalRef.current) {
+      clearInterval(podInventoryIntervalRef.current);
+      podInventoryIntervalRef.current = null;
+    }
+    if (!selectedPodId) {
+      setPodInventory(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchInventory = async () => {
+      try {
+        const inv = await api.podInventory(selectedPodId);
+        if (!cancelled) setPodInventory(inv);
+      } catch {
+        // Non-fatal — falls back to pod.installed_games from WS state
+      }
+    };
+    fetchInventory();
+    podInventoryIntervalRef.current = setInterval(fetchInventory, 30_000);
+    return () => {
+      cancelled = true;
+      if (podInventoryIntervalRef.current) {
+        clearInterval(podInventoryIntervalRef.current);
+        podInventoryIntervalRef.current = null;
+      }
+    };
+  }, [selectedPodId]);
 
   // Sort pods by number for consistent 4x2 grid
   const sortedPods = Array.from(pods.values()).sort((a, b) => a.number - b.number);
@@ -153,22 +187,7 @@ export default function StaffTerminal() {
   // ─── Split Continuation ──────────────────────────────────────────────
   // When a sub-session completes and more splits remain, auto-open the setup wizard
   // for the same pod so staff can pick the next track/car.
-  const [isSplitContinuation, setIsSplitContinuation] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
-
-  useEffect(() => {
-    if (pendingSplitContinuation) {
-      setSelectedPodId(pendingSplitContinuation.pod_id);
-      setIsSplitContinuation(true);
-      wizard.reset();
-      // Pre-select AC as the game (splits are AC-only)
-      wizard.setField("selectedGame", "assetto_corsa");
-      setPanelMode("setup");
-      // Skip to experience or track selection — game is already known.
-      // Let user pick experience (preset) or track/car (custom) for the next split.
-      wizard.goToStep("select_experience");
-    }
-  }, [pendingSplitContinuation]);
 
   // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
@@ -176,26 +195,8 @@ export default function StaffTerminal() {
     setIsLaunching(true);
 
     try {
-      if (isSplitContinuation && pendingSplitContinuation) {
-        // Split continuation — no billing start, just continue the split
-        try {
-          const result = await api.continueSplit({
-            pod_id: selectedPodId,
-            sim_type: simType,
-            launch_args: launchArgs,
-          });
-          if (result.error) {
-            toastError(`Continue split failed: ${result.error}`);
-            return;
-          }
-        } catch (err) {
-          toastError(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
-          return;
-        }
-        setIsSplitContinuation(false);
-        clearPendingSplitContinuation();
-      } else {
-        // Normal billing start
+      {
+        // Normal billing start (Act 2: one continuous timer, no splits)
         const driver = wizard.state.selectedDriver;
         const tier = wizard.state.selectedTier;
         let billingSessionId: string | undefined;
@@ -206,10 +207,6 @@ export default function StaffTerminal() {
               driver_id: driver.id,
               pricing_tier_id: tier.id,
               staff_id: staffId || undefined,
-              ...(wizard.state.splitCount > 1 && {
-                split_count: wizard.state.splitCount,
-                split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
-              }),
             });
 
             if (result.error) {
@@ -490,6 +487,7 @@ export default function StaffTerminal() {
               isLaunching={isLaunching}
               buildLaunchArgs={wizard.buildLaunchArgs}
               onCancel={closePanel}
+              presetValidity={podInventory?.preset_validity ?? {}}
             />
           )}
 
@@ -498,7 +496,11 @@ export default function StaffTerminal() {
             <GamePickerPanel
               podId={selectedPodId!}
               podNumber={selectedPod.number}
-              installedGames={selectedPod.installed_games ?? ["assetto_corsa"]}
+              installedGames={
+                podInventory?.installed_sim_types && podInventory.installed_sim_types.length > 0
+                  ? podInventory.installed_sim_types
+                  : (selectedPod.installed_games ?? ["assetto_corsa"])
+              }
               onLaunch={async (podId, simType) => {
                 if (simType === "assetto_corsa") {
                   // AC uses the full setup wizard
