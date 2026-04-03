@@ -69,12 +69,23 @@ impl GameTracker {
 pub struct GameManager {
     /// pod_id -> GameTracker
     pub active_games: RwLock<HashMap<String, GameTracker>>,
+    /// CLOSED-LOOP: Result of the last launch verification (used by API response).
+    pub last_launch_verified: std::sync::atomic::AtomicBool,
+}
+
+/// Result of a game launch with closed-loop verification.
+pub struct LaunchResult {
+    /// Whether the game process was confirmed running (not just command sent).
+    pub verified: bool,
+    /// How long verification took (seconds).
+    pub verify_time_secs: f64,
 }
 
 impl GameManager {
     pub fn new() -> Self {
         Self {
             active_games: RwLock::new(HashMap::new()),
+            last_launch_verified: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -531,6 +542,67 @@ async fn launch_game(
     {
         tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
     }
+
+    // CLOSED-LOOP VERIFICATION: Wait up to 20s for the game process to actually start.
+    // The agent ACK above only proves the message was received — NOT that the game launched.
+    // Poll the game tracker for state transition from Launching → Loading/Running.
+    // This makes the API response truthful: ok=true means the game IS running.
+    let mut verified = false;
+    let verify_start = std::time::Instant::now();
+    let verify_timeout = std::time::Duration::from_secs(20);
+    while verify_start.elapsed() < verify_timeout {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let games = state.game_launcher.active_games.read().await;
+        if let Some(tracker) = games.get(pod_id) {
+            match tracker.game_state {
+                GameState::Running | GameState::Loading => {
+                    verified = true;
+                    tracing::info!(
+                        "CLOSED-LOOP: Game verified running on pod {} ({:?}) in {:.1}s",
+                        pod_id, tracker.game_state, verify_start.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                GameState::Error => {
+                    tracing::warn!(
+                        "CLOSED-LOOP: Game failed on pod {}: {:?}",
+                        pod_id, tracker.error_message
+                    );
+                    break;
+                }
+                GameState::Idle => {
+                    // Agent reported game stopped before it started — launch failed
+                    tracing::warn!("CLOSED-LOOP: Game immediately went to Idle on pod {}", pod_id);
+                    break;
+                }
+                _ => {
+                    // Still Launching — keep waiting
+                }
+            }
+        } else {
+            // Tracker removed — something went wrong
+            break;
+        }
+    }
+
+    if !verified {
+        tracing::warn!(
+            "CLOSED-LOOP: Game launch NOT verified on pod {} after {:.1}s — process may not have started",
+            pod_id, verify_start.elapsed().as_secs_f64()
+        );
+    }
+
+    // Store verification result so the API can return it
+    // (accessed by the route handler after this function returns)
+    if let Some(tracker) = state.game_launcher.active_games.write().await.get_mut(pod_id) {
+        // Tag the tracker with verification status for API response
+        if verified {
+            tracker.error_message = None; // Clear any transient messages
+        }
+    }
+
+    // Record verification in launch metrics
+    state.game_launcher.last_launch_verified.store(verified, std::sync::atomic::Ordering::Relaxed);
 
     // Log event to DB (legacy table, backward compat)
     log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None).await;

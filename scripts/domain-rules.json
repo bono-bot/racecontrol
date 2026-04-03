@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "description": "Machine-readable domain rules for plan validation. Every test combination must be validated against these rules BEFORE execution.",
+
+  "trial_rules": {
+    "allowed_games": ["assetto_corsa"],
+    "duration_minutes": 5,
+    "cost_paise": 0,
+    "max_per_driver": 1,
+    "max_per_account_group": 4,
+    "description": "Trial is AC ONLY. 5 minutes. Free. Cannot select other games."
+  },
+
+  "game_tier_compatibility": {
+    "assetto_corsa": ["tier_trial", "tier_30min", "tier_60min", "tier_per_minute"],
+    "f1_25": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "iracing": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "le_mans_ultimate": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "assetto_corsa_evo": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "assetto_corsa_rally": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "forza_horizon_5": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "forza_motorsport": ["tier_30min", "tier_60min", "tier_per_minute"],
+    "wrc": ["tier_30min", "tier_60min", "tier_per_minute"]
+  },
+
+  "game_processes": {
+    "assetto_corsa": "acs.exe",
+    "f1_25": "F1_25.exe",
+    "iracing": "iRacingSim64DX11.exe",
+    "le_mans_ultimate": "LMU.exe",
+    "assetto_corsa_evo": "AssettoCorsa2.exe",
+    "assetto_corsa_rally": "ac_rally.exe",
+    "forza_horizon_5": "ForzaHorizon5.exe",
+    "forza_motorsport": "ForzaMotorsport.exe",
+    "wrc": "WRC.exe"
+  },
+
+  "billing_triggers": {
+    "assetto_corsa": {"type": "smart", "signal": "AcStatus::Live shared memory"},
+    "f1_25": {"type": "smart", "signal": "UDP 20777, speed > 0"},
+    "iracing": {"type": "smart", "signal": "IsOnTrack = true, iRSDK"},
+    "le_mans_ultimate": {"type": "smart", "signal": "IsOnTrack = true, rF2 shared memory"},
+    "forza_horizon_5": {"type": "fallback", "signal": "180s process alive"},
+    "forza_motorsport": {"type": "fallback", "signal": "180s process alive"},
+    "assetto_corsa_evo": {"type": "fallback", "signal": "180s process alive"},
+    "assetto_corsa_rally": {"type": "fallback", "signal": "180s process alive"},
+    "wrc": {"type": "fallback", "signal": "180s process alive"}
+  },
+
+  "pod_games": {
+    "description": "Installed games per pod — source of truth. Updated from WS pod_list.",
+    "note": "This is a SNAPSHOT. Always verify against live WS data before testing."
+  },
+
+  "fleet_targets": {
+    "description": "ALL targets for fleet operations — NEVER derive from code.",
+    "targets": [
+      {"id": "server", "ip": "192.168.31.23", "type": "server"},
+      {"id": "pod_1", "ip": "192.168.31.89", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_2", "ip": "192.168.31.33", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_3", "ip": "192.168.31.28", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_4", "ip": "192.168.31.88", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_5", "ip": "192.168.31.86", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_6", "ip": "192.168.31.87", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_7", "ip": "192.168.31.38", "type": "pod", "ssh_user": "User"},
+      {"id": "pod_8", "ip": "192.168.31.91", "type": "pod", "ssh_user": "User"},
+      {"id": "pos", "ip": "192.168.31.20", "type": "pos", "ssh_user": "POS"},
+      {"id": "cloud", "ip": "100.70.177.44", "type": "cloud", "ssh_user": "root"},
+      {"id": "james", "ip": "192.168.31.27", "type": "ops", "ssh_user": "bono"}
+    ]
+  },
+
+  "verification_requirements": {
+    "game_launch": {
+      "must_check": ["process_running_on_pod", "debug_endpoint_game_state", "ws_pod_status_not_idle"],
+      "not_sufficient": ["api_ok_true", "health_200", "build_id_match", "ws_connected_true"]
+    },
+    "deploy": {
+      "must_check": ["process_running", "build_id_from_pod_health", "session_context_console"],
+      "not_sufficient": ["scp_exit_0", "schtasks_success", "fleet_health_ws_true"]
+    },
+    "billing_start": {
+      "must_check": ["session_in_active_list", "pod_status_not_idle_via_ws"],
+      "not_sufficient": ["api_ok_true", "wallet_debit_paise_returned"]
+    },
+    "session_end": {
+      "must_check": ["no_game_process", "edge_count_gt_0", "pod_status_idle_via_ws"],
+      "not_sufficient": ["api_ok_true", "billing_stop_returned"]
+    }
+  }
+}

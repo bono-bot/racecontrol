@@ -5476,7 +5476,20 @@ async fn launch_game(
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
         Ok(()) => {
-            let mut resp = json!({ "ok": true });
+            // CLOSED-LOOP: Include verification status in response.
+            // verified=true means game process confirmed running on pod.
+            // verified=false means command sent but process not yet confirmed.
+            let verified = state.game_launcher.last_launch_verified
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let mut resp = json!({
+                "ok": true,
+                "verified": verified,
+            });
+            if !verified {
+                resp["verification_warning"] = json!(
+                    "Game launch command sent but process not confirmed running within 20s. Check pod manually."
+                );
+            }
             if let Some(w) = reliability_warning {
                 resp["warning"] = json!(w);
             }
