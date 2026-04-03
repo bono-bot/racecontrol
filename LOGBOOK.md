@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-03 16:32 IST | James | da0942cd | feat: per-minute billing engine + visits table + Acts 1-4 data model. BillingTimer per-minute mode, debit_wallet(), Default impl, 326 lines added. |
 | 2026-04-03 15:02 IST | James | c0193f2e | feat: Act 1+2 customer workflow — billing redesign, per-minute pricing, 7 conflict fixes, F1 25 billing fix, 180s grace, 30s crash recovery |
 | 2026-04-03 14:28 IST | James | d4a3a6c2 | feat(319-02): /games/timeline page — expandable launch timeline viewer, 30s auto-refresh, color-coded outcomes |
 | 2026-04-03 14:28 IST | James | 2c0f2578 | feat(319-02): GET /api/v1/launch-timeline/recent endpoint — returns 50 most recent launches by started_at DESC |
