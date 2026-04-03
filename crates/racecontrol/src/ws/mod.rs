@@ -18,6 +18,14 @@ use tokio::time::{interval, Duration, MissedTickBehavior};
 static SENTINEL_ALERT_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+// Reconnect storm throttle: prevent the same pod from re-registering within 2 seconds.
+// Normal reconnects take 5-10s minimum. Rapid re-registration indicates a reconnect storm
+// (e.g., all 8 pods restarted simultaneously) that can crash the server.
+static REGISTER_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+const REGISTER_COOLDOWN_SECS: u64 = 2;
+
 /// MI Phase 1: Count of currently connected dashboard WebSocket clients.
 /// Incremented on WS connect, decremented on disconnect.
 /// Used by detect_fleet_anomalies() to detect "kiosk healthy but no WS clients" (DASHBOARD_ORPHAN).
@@ -340,6 +348,25 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         AgentMessage::Register(pod_info) => {
                             // Normalize pod_id to canonical form (pod_N) at registration entry
                             let canonical_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
+
+                            // Reconnect storm throttle: skip re-registration if <2s since last
+                            {
+                                let mut cooldown = REGISTER_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
+                                let now = Instant::now();
+                                if let Some(last) = cooldown.get(&canonical_id) {
+                                    if now.duration_since(*last).as_secs() < REGISTER_COOLDOWN_SECS {
+                                        tracing::warn!(
+                                            target: "fleet-health",
+                                            "Register throttled for {} — {}ms since last register (reconnect storm protection)",
+                                            canonical_id,
+                                            now.duration_since(*last).as_millis()
+                                        );
+                                        continue;
+                                    }
+                                }
+                                cooldown.insert(canonical_id.clone(), now);
+                            }
+
                             tracing::info!("Pod {} registered (conn_id={}): {}", pod_info.number, conn_id, pod_info.name);
                             registered_pod_id = Some(canonical_id.clone());
                             // Phase 306: Tell rotation task which pod this connection serves
@@ -1154,6 +1181,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     store, version, *uptime_secs, *crash_recovery,
                                     *lock_screen_port_bound, *remote_ops_port_bound,
                                     *hid_detected, udp_ports_bound,
+                                    *windows_session_id,
                                 );
                                 // Newly detected crash loop (transition false → true)
                                 !was_looping && store.crash_loop

@@ -312,6 +312,9 @@ if [ "$TARGET" = "all" ]; then
     # Never skip POS. Source: MEMORY.md "Deploy all targets" rule.
     for i in $(seq 1 8); do
         deploy_pod "pod-$i"
+        # Reconnect storm prevention: stagger pod restarts by 3 seconds
+        # to avoid thundering herd on racecontrol WS handler
+        [ "$i" -lt 8 ] && sleep 3
     done
     echo ""
     echo "─── POS Terminal ───"
@@ -320,6 +323,7 @@ elif [ "$TARGET" = "pods-only" ]; then
     # Explicit opt-out for pod-only deploys (e.g., pod-specific binary)
     for i in $(seq 1 8); do
         deploy_pod "pod-$i"
+        [ "$i" -lt 8 ] && sleep 3
     done
 else
     deploy_pod "$TARGET"

@@ -39,9 +39,9 @@ try {
 let stagedFiles;
 if (isTestMode) {
   stagedFiles = [
-    'crates/rc-core/src/db/mod.rs',
-    'crates/rc-core/src/api/routes.rs',
-    'crates/rc-core/src/cloud_sync.rs'
+    'crates/racecontrol/src/db/mod.rs',
+    'crates/racecontrol/src/api/routes.rs',
+    'crates/racecontrol/src/cloud_sync.rs'
   ];
   console.log(`${CYAN}[TEST MODE] Simulating staged files:${RESET}`);
   stagedFiles.forEach(f => console.log(`  ${f}`));
@@ -178,7 +178,7 @@ for (const impact of impacts) {
     console.log(`${BOLD}Changed:${RESET} ${impact.file} (sync boundary: ${dirLabel})`);
     console.log(`${BOLD}Tables synced:${RESET} ${impact.tables.join(', ')}`);
     console.log(`${RED}${BOLD}WARNING:${RESET} Cloud-venue sync boundary modified!`);
-    console.log(`${BOLD}Action:${RESET} James must be notified — venue rc-core must be rebuilt.`);
+    console.log(`${BOLD}Action:${RESET} James must be notified — venue racecontrol must be rebuilt.`);
     console.log('');
   }
 }

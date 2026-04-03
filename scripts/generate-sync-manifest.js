@@ -159,7 +159,7 @@ for (const file of changedFiles) {
 
 // Build command map
 const buildCommands = {
-  'racecontrol': 'cargo build --release -p rc-core',
+  'racecontrol': 'cargo build --release -p racecontrol-crate',
   'racingpoint-admin': 'npm run build',
   'racingpoint-dashboard': 'npm run build',
   'racecontrol-pwa': 'npm run build',
@@ -222,7 +222,7 @@ if (affectedServices.length > 0) {
 
 // Always include a basic verification
 if (testingRequired.length === 0) {
-  testingRequired.push('Verify build succeeds: cargo build --release -p rc-core');
+  testingRequired.push('Verify build succeeds: cargo build --release -p racecontrol-crate');
   testingRequired.push('Verify health endpoint: curl http://localhost:8080/api/v1/health');
 }
 

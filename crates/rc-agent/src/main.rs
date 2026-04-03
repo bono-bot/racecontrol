@@ -475,9 +475,10 @@ async fn main() -> Result<()> {
         let pid = unsafe { winapi::um::processthreadsapi::GetCurrentProcessId() };
         let ok = unsafe { winapi::um::processthreadsapi::ProcessIdToSessionId(pid, &mut session_id) };
         if ok != 0 && session_id == 0 {
-            eprintln!("WARNING: rc-agent is running in Session 0 (non-interactive/services). \
+            eprintln!("FATAL: rc-agent is running in Session 0 (non-interactive/services). \
                        GUI features (lock screen, game launch, overlay) WILL NOT WORK. \
-                       rc-agent must run in Session 1 via HKLM Run key or RCWatchdog service.");
+                       rc-agent must run in Session 1 via HKLM Run key or RCWatchdog service. \
+                       Exiting with code 2. Set RC_ALLOW_SESSION0=1 to override.");
             // Log to file since tracing isn't initialized yet
             let _ = std::fs::OpenOptions::new()
                 .create(true)
@@ -485,9 +486,15 @@ async fn main() -> Result<()> {
                 .open(r"C:\RacingPoint\rc-bot-events.log")
                 .and_then(|mut f| {
                     use std::io::Write;
-                    writeln!(f, "[{}] [SESSION-0-WARNING] rc-agent started in Session 0 — GUI disabled!",
+                    writeln!(f, "[{}] [SESSION-0-FATAL] rc-agent started in Session 0 — refusing to run! \
+                        RCWatchdog will restart in Session 1.",
                         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
                 });
+            // Allow override for testing/CI: RC_ALLOW_SESSION0=1
+            if std::env::var("RC_ALLOW_SESSION0").unwrap_or_default() != "1" {
+                std::process::exit(2);
+            }
+            eprintln!("RC_ALLOW_SESSION0=1 set — continuing in Session 0 (testing mode)");
         }
     }
 

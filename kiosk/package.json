@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3300 -H 0.0.0.0 --webpack",
+    "prebuild": "bash ../scripts/validate-frontend-env.sh",
     "build": "next build",
     "start": "next start -p 3300",
     "lint": "next lint",

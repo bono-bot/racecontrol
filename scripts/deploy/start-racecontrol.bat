@@ -18,4 +18,6 @@ timeout /t 1 /nobreak 1>nul
 if exist racecontrol.exe del /Q racecontrol.exe 1>nul 2>nul
 ren "%STAGED%" racecontrol.exe 1>nul
 :startrc
+rem --- Ensure Node.exe firewall rule exists (kiosk :3300, web :3200, admin :3201) ---
+netsh advfirewall firewall add rule name="NodeJS RaceControl" dir=in action=allow program="C:\RacingPoint\nodejs\node-v22.14.0-win-x64\node.exe" enable=yes 1>nul 2>nul
 start "" /B powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\RacingPoint\start-racecontrol-watchdog.ps1

@@ -939,9 +939,14 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
 
     let timeout_ms = req.timeout_ms.unwrap_or(DEFAULT_EXEC_TIMEOUT_MS);
 
+    // Normalize double-escaped backslashes from JSON→bash→curl chain.
+    // JSON encoding turns C:\Path into C:\\Path, then bash may double it to C:\\\\Path.
+    // cmd.exe needs single backslashes: C:\Path.
+    let normalized_cmd = req.cmd.replace("\\\\", "\\");
+
     let result = timeout(Duration::from_millis(timeout_ms), async {
         let mut cmd = Command::new("cmd");
-        cmd.args(["/C", &req.cmd])
+        cmd.args(["/C", &normalized_cmd])
             .kill_on_drop(true);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
