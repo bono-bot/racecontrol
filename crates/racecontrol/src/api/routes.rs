@@ -386,6 +386,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))
         .route("/billing/{id}/extend", post(extend_billing))
+        // Act 2: Package upgrade (30→60 only, charges difference)
+        .route("/billing/{id}/upgrade", post(upgrade_billing))
+        // Act 3: Visit lifecycle
+        .route("/visits/end/{id}", post(end_visit))
         // STAFF-01: Discount approval — cashier+ access, manager approval code required above threshold
         .route("/billing/{id}/discount", post(apply_billing_discount))
         .route("/billing/{id}/refund", post(refund_billing_session))
@@ -4325,6 +4329,42 @@ async fn extend_billing(
     // FATM-07: Call extend_billing_session directly (not via DashboardCommand) to propagate errors
     match billing::extend_billing_session(&state, &id, additional_seconds).await {
         Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// Act 2: Upgrade a package billing session to a higher tier (e.g. 30min → 60min).
+async fn upgrade_billing(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let new_tier_id = body.get("new_tier_id").and_then(|v| v.as_str()).unwrap_or("");
+    if new_tier_id.is_empty() {
+        return Json(json!({ "ok": false, "error": "new_tier_id is required" }));
+    }
+    match billing::upgrade_billing_tier(&state, &id, new_tier_id).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// Act 3: End a customer visit — closes visit, calculates totals, triggers receipt.
+async fn end_visit(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let end_method = body.get("end_method").and_then(|v| v.as_str()).unwrap_or("staff");
+    match crate::visits::end_visit(&state, &id, end_method).await {
+        Ok(summary) => Json(json!({
+            "ok": true,
+            "visit_id": summary.visit_id,
+            "total_sessions": summary.total_sessions,
+            "total_spent_paise": summary.total_spent_paise,
+            "wallet_balance_paise": summary.wallet_balance_paise,
+            "end_method": summary.end_method,
+        })),
         Err(e) => Json(json!({ "ok": false, "error": e })),
     }
 }

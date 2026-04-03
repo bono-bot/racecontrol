@@ -97,6 +97,7 @@ pub mod whatsapp_escalation;
 pub mod udp_heartbeat;
 pub mod venue_shutdown;
 pub mod venue_state;
+pub mod visits;
 pub mod wol;
 pub mod tls;
 pub mod ws;

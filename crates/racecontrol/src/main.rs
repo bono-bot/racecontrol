@@ -785,6 +785,18 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(racecontrol_crate::api::routes::queue_expire_task(queue_db));
     }
 
+    // Act 3: Auto-close stale visits (runs every 5 minutes, closes visits idle > 1 hour)
+    {
+        let visit_state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                racecontrol_crate::visits::auto_close_stale_visits(&visit_state).await;
+            }
+        });
+    }
+
     // First-boot email test: verify Gmail OAuth works on initial setup
     maybe_send_first_boot_email(&state).await;
 

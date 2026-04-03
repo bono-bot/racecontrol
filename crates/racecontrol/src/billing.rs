@@ -248,6 +248,41 @@ pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> 
 ///
 /// Called from all refund paths (end_billing_session early-end + disconnect timeout)
 /// to ensure consistent, auditable refund calculations from a single source of truth.
+/// Act 2: Compute the best applicable rate for minutes used (early exit pricing).
+/// Package customers who end early pay the best rate for their actual usage:
+/// - 0-29 min: per-minute rate (e.g. 2500p/min)
+/// - 30-59 min: 30-min package price + per-minute for extra minutes
+/// - 60+ min: 60-min package price (always the best deal)
+///
+/// Config values (paise): per_min_rate, pkg_30_price, pkg_60_price.
+/// Returns the actual cost in paise for the minutes used.
+pub fn best_rate_for_minutes(
+    minutes_used: u32,
+    per_min_rate_paise: i64,
+    pkg_30_price_paise: i64,
+    pkg_60_price_paise: i64,
+) -> i64 {
+    if minutes_used == 0 {
+        return 0;
+    }
+    if minutes_used >= 60 {
+        // At 60+ minutes, the 60-min package is always cheapest
+        return pkg_60_price_paise;
+    }
+    if minutes_used >= 30 {
+        // 30-59 min: 30-min package + per-minute for the extra
+        let extra_minutes = (minutes_used - 30) as i64;
+        let tiered_cost = pkg_30_price_paise + extra_minutes * per_min_rate_paise;
+        // But cap at 60-min package (in case tiered_cost exceeds it)
+        return tiered_cost.min(pkg_60_price_paise);
+    }
+    // 0-29 min: straight per-minute
+    (minutes_used as i64) * per_min_rate_paise
+}
+
+/// Compute refund for a package session that ended early.
+/// Uses best_rate_for_minutes to determine actual cost, then refunds the difference.
+/// Returns refund amount in paise (0 if no refund, i.e. package was better deal).
 pub fn compute_refund(
     allocated_seconds: i64,
     driving_seconds: i64,
@@ -256,8 +291,13 @@ pub fn compute_refund(
     if allocated_seconds <= 0 || wallet_debit_paise <= 0 || driving_seconds >= allocated_seconds {
         return 0;
     }
-    let remaining = allocated_seconds - driving_seconds;
-    (remaining * wallet_debit_paise) / allocated_seconds
+    // Use best-rate formula: charge for actual minutes used at best applicable rate
+    let minutes_used = ((driving_seconds + 59) / 60) as u32; // round up to complete minutes
+    // Default pricing (paise): ₹25/min, ₹700/30min, ₹900/60min
+    // TODO: make these configurable from DB pricing_tiers
+    let actual_cost = best_rate_for_minutes(minutes_used, 2500, 75000, 90000);
+    let refund = wallet_debit_paise - actual_cost;
+    if refund > 0 { refund } else { 0 }
 }
 
 /// Get tiers for a specific game. Falls back to universal tiers if no game-specific tiers exist.
