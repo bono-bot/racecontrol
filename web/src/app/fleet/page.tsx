@@ -141,13 +141,13 @@ export default function FleetHealthPage() {
                   <div className="flex justify-between">
                     <span className="text-rp-grey">Build</span>
                     <span className="font-mono text-neutral-300">
-                      {pod.build_id.slice(0, 8)}
+                      {pod.build_id ? pod.build_id.slice(0, 8) : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-rp-grey">Uptime</span>
                     <span className="text-neutral-300">
-                      {formatUptime(pod.uptime_secs)}
+                      {pod.uptime_secs != null ? formatUptime(pod.uptime_secs) : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between">
