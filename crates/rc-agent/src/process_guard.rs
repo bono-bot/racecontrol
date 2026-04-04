@@ -553,9 +553,16 @@ pub(crate) fn is_self_excluded(_own_pid: u32, _parent_pid: u32, name: &str) -> b
 }
 
 /// Returns true if a process name is in the whitelist (case-insensitive).
+/// Supports simple prefix wildcards: "am_delta_patch_*" matches "am_delta_patch_1.447.152.0.exe".
 pub(crate) fn is_whitelisted(name: &str, allowed: &[String]) -> bool {
     let lower = name.to_lowercase();
-    allowed.iter().any(|a| a == &lower)
+    allowed.iter().any(|a| {
+        if let Some(prefix) = a.strip_suffix('*') {
+            lower.starts_with(prefix)
+        } else {
+            a == &lower
+        }
+    })
 }
 
 /// Returns true if this process is a CRITICAL violation with zero grace period.
@@ -1172,6 +1179,15 @@ mod tests {
     fn not_whitelisted_absent_process() {
         let allowed = vec!["explorer.exe".to_string()];
         assert!(!is_whitelisted("steam.exe", &allowed));
+    }
+
+    #[test]
+    fn whitelisted_wildcard_prefix() {
+        let allowed = vec!["am_delta_patch_*".to_string(), "explorer.exe".to_string()];
+        assert!(is_whitelisted("am_delta_patch_1.447.152.0.exe", &allowed));
+        assert!(is_whitelisted("AM_DELTA_PATCH_2.0.EXE", &allowed));
+        assert!(!is_whitelisted("delta_patch_1.exe", &allowed)); // no match — different prefix
+        assert!(is_whitelisted("explorer.exe", &allowed)); // exact still works
     }
 
     #[test]
