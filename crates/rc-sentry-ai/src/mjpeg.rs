@@ -24,7 +24,6 @@ use crate::nvr::NvrClient;
 /// Cached snapshot with timestamp for staleness detection.
 struct CachedSnapshot {
     data: Bytes,
-    #[allow(dead_code)]
     fetched_at: Instant,
 }
 
@@ -44,6 +43,12 @@ impl SnapshotCache {
     pub async fn get(&self, channel: u32) -> Option<Bytes> {
         let guard = self.entries.read().await;
         guard.get(&channel).map(|s| s.data.clone())
+    }
+
+    /// Get the age of the cached snapshot in seconds. Returns None if no snapshot exists.
+    pub async fn age_secs(&self, channel: u32) -> Option<f64> {
+        let guard = self.entries.read().await;
+        guard.get(&channel).map(|s| s.fetched_at.elapsed().as_secs_f64())
     }
 
     /// Update the cache for a channel.
@@ -238,6 +243,7 @@ async fn cameras_list_handler(State(state): State<Arc<MjpegState>>) -> Json<serd
     let mut cameras = Vec::with_capacity(state.cameras.len());
 
     for cam in &state.cameras {
+        // Status priority: RTSP frame buffer (active streaming) > NVR snapshot cache (probe)
         let status = match state.frame_buf.get(&cam.name).await {
             Some(frame) => {
                 let age = now.duration_since(frame.timestamp).as_secs_f64();
@@ -249,7 +255,18 @@ async fn cameras_list_handler(State(state): State<Arc<MjpegState>>) -> Json<serd
                     "disconnected"
                 }
             }
-            None => "offline",
+            None => {
+                // No RTSP stream — check if NVR snapshot probe succeeded recently
+                match cam.nvr_channel {
+                    Some(ch) => match state.snapshot_cache.age_secs(ch).await {
+                        Some(age) if age < 15.0 => "connected",
+                        Some(age) if age < 60.0 => "reconnecting",
+                        Some(_) => "disconnected",
+                        None => "offline",
+                    },
+                    None => "offline",
+                }
+            }
         };
 
         cameras.push(CameraInfo {
