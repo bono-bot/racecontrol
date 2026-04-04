@@ -1149,8 +1149,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/staff", get(|| async { axum::response::Redirect::permanent("/kiosk/staff") }))
         .route("/spectator", get(|| async { axum::response::Redirect::permanent("/kiosk/spectator") }))
         .route("/control", get(|| async { axum::response::Redirect::permanent("/kiosk/control") }))
-        .route("/fleet", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
-        .route("/cameras", get(|| async { axum::response::Redirect::permanent("/kiosk/fleet") }))
+        .route("/fleet", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3200/fleet") }))
+        .route("/cameras", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3200/cameras") }))
         .route("/book", get(|| async { axum::response::Redirect::permanent("/kiosk/book") }))
         // MMA consensus: /kiosk without trailing slash misses proxy, add redirect
         .route("/kiosk", get(|| async { axum::response::Redirect::temporary("/kiosk/") }))
