@@ -86,7 +86,7 @@ These gates help when followed but have no structural block. They are explicitly
 
 ---
 
-## 13 Standing Rules (consolidated from 147)
+## 15 Standing Rules (consolidated from 147)
 
 Each rule is here because it prevented a documented incident AND cannot be automated away.
 
@@ -105,6 +105,10 @@ Each rule is here because it prevented a documented incident AND cannot be autom
 ### Operate  
 9. **Fix one system, fix ALL.** After fixing anything on one machine: does this apply to all pods/POS/server/cloud? If yes, roll out fleet-wide in the same step.
 10. **Auto-push + notify.** Every commit → `git push` → comms-link WS message → INBOX.md. No ranking "important" vs "minor."
+
+### Permanence & Sync
+11. **Permanence Gate: every fix must survive redeploy.** Before claiming "fixed": (a) Is the fix in committed source code? → Permanent. (b) Is it a manual edit on a deployed artifact (server.js, .env, schtask, registry)? → TEMPORARY. Temporary fixes MUST have either a deploy script that re-applies them OR the root cause fixed in source. _Why: Admin RC_URL manually injected into server.js — overwritten on next deploy. Two admin schtasks created manually — will drift._
+12. **Universal rule sync: every rule/protocol update must sync to ALL locations. No exceptions.** After ANY change to CGP, CLAUDE.md, standing rules, hooks, or operational protocols: sync to ALL of these locations in the SAME session: (a) `racecontrol/COGNITIVE-GATE-PROTOCOL.md` (source of truth), (b) `~/.claude/hooks/cgp-session-inject.js` (hook injection), (c) `~/.claude/projects/*/CLAUDE.md` (all project contexts), (d) `comms-link/CLAUDE.md` (Bono's context), (e) Bono VPS via comms-link relay (`git_pull`), (f) memory files that reference the rule. Missing ANY location = rule drift = silent protocol divergence between James and Bono. _Why: Permanence Gate existed only in memory for weeks. H3 v4.2 was added to hook+protocol but not synced to Bono. Rules that exist in one place but not another cause contradictory behavior._
 
 ### Verify (domain-specific)
 11. **Use verification scripts when they exist.** `verify-action.sh` (game-launch, deploy, session-end, blanking), `pod-verify.sh` (Session context, edge count). If the script exists and returns PASS/FAIL, use it. If it doesn't exist, say so — don't pretend you verified. Script FAIL = do NOT claim done.
