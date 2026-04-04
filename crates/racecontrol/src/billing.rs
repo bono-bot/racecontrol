@@ -6284,6 +6284,7 @@ mod tests {
             attempt: 1,
             group_session_id: group_session_id.map(|s| s.to_string()),
         sim_type: None,
+        launch_args: None,
         pre_committed: None,
         }
     }
