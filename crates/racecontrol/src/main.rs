@@ -99,6 +99,25 @@ async fn seed_pods_on_startup(state: &Arc<AppState>) {
         .await;
     }
 
+    // Sync display names from DB → in-memory (DB may have custom names like "POS 1").
+    let db_names: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, name FROM pods WHERE name IS NOT NULL",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    if !db_names.is_empty() {
+        let mut pods = state.pods.write().await;
+        for (id, db_name) in &db_names {
+            if let Some(pod) = pods.get_mut(id) {
+                if pod.name != *db_name {
+                    tracing::info!("Pod {} name overridden from DB: {} → {}", id, pod.name, db_name);
+                    pod.name = db_name.clone();
+                }
+            }
+        }
+    }
+
     // Broadcast individual pod updates
     for pod in &seeded {
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));

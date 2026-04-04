@@ -1773,19 +1773,19 @@ async fn send_multi_channel_escalation(
     }
 }
 
-/// Run domain-specific deterministic checks that cannot lie.
+/// Run domain-specific deterministic checks that verify actual behavior (CGP v4.0 H3).
+///
+/// H3 anti-theater: process liveness (rc-agent.exe in tasklist) is a PROXY metric.
+/// These checks verify the behavior the fix was supposed to restore, not just that
+/// something is running. Each domain has specific behavioral checks.
 fn run_deterministic_checks(
-    _domain: IssueDomain,
+    domain: IssueDomain,
     diagnosis: &StepConsensus,
     concerns: &mut Vec<String>,
 ) -> bool {
-    // For now, basic checks. James will add Windows-specific checks.
-    // These run on the pod itself (not via models).
-
     let mut all_passed = true;
 
-    // Check 1: Are we still running? (basic process liveness)
-    // On Linux (VPS), this always passes. On Windows pods, check rc-agent process.
+    // Check 1: Process liveness (baseline — necessary but NOT sufficient)
     #[cfg(windows)]
     {
         use sysinfo::{System, ProcessesToUpdate};
@@ -1794,19 +1794,83 @@ fn run_deterministic_checks(
         let rc_agent_alive = sys.processes().values()
             .any(|p| p.name().to_string_lossy().eq_ignore_ascii_case("rc-agent.exe"));
         if !rc_agent_alive {
-            concerns.push("rc-agent.exe not running after fix".to_string());
+            concerns.push("rc-agent.exe not running after fix (CRITICAL — process dead)".to_string());
             all_passed = false;
+            return all_passed; // No point checking behavior if process is dead
+        }
+
+        // Check 2: Domain-specific BEHAVIORAL checks (H3: actual behavior, not proxies)
+        match domain {
+            IssueDomain::RustBackend => {
+                // Verify no WerFault processes (crash handlers gone)
+                let werfault_count = sys.processes().values()
+                    .filter(|p| {
+                        let n = p.name().to_string_lossy().to_lowercase();
+                        n.contains("werfault") || n.contains("werreport")
+                    })
+                    .count();
+                if werfault_count > 0 {
+                    concerns.push(format!(
+                        "H3: {} WerFault/WerReport processes still active — crash not fully resolved",
+                        werfault_count
+                    ));
+                    all_passed = false;
+                }
+            }
+            IssueDomain::Frontend => {
+                // Verify Edge is actually running (blanking screen behavioral check)
+                let edge_count = sys.processes().values()
+                    .filter(|p| p.name().to_string_lossy().eq_ignore_ascii_case("msedge.exe"))
+                    .count();
+                if edge_count == 0 {
+                    concerns.push(
+                        "H3: msedge.exe not running — blanking screen not displaying".to_string()
+                    );
+                    all_passed = false;
+                }
+            }
+            IssueDomain::Network => {
+                // Verify we can reach the server (not just "WS connected" flag)
+                let server_reachable = std::net::TcpStream::connect_timeout(
+                    &"192.168.31.23:8080".parse().unwrap(),
+                    std::time::Duration::from_secs(3),
+                ).is_ok();
+                if !server_reachable {
+                    concerns.push(
+                        "H3: Cannot TCP connect to server :8080 — network fix not verified".to_string()
+                    );
+                    all_passed = false;
+                }
+            }
+            IssueDomain::Security => {
+                // Verify sentinel files are clean
+                let bad_sentinels = ["MAINTENANCE_MODE", "FORCE_CLEAN", "SAFE_MODE"];
+                for s in &bad_sentinels {
+                    if std::path::Path::new(&format!(r"C:\RacingPoint\{}", s)).exists() {
+                        concerns.push(format!(
+                            "H3: Sentinel {} still exists — security concern not cleared", s
+                        ));
+                        // Warning only, not failure — sentinel may be intentional
+                    }
+                }
+            }
+            _ => {
+                // Generic: no domain-specific behavioral check available
+                concerns.push(format!(
+                    "H3: No domain-specific behavioral check for {:?} — relying on model verification",
+                    domain
+                ));
+            }
         }
     }
 
-    // Check 2: Do the verification_steps from diagnosis make sense?
+    // Check 3: Verification steps quality (advisory)
     for finding in &diagnosis.majority_findings {
         if finding.verification_steps.is_empty() {
             concerns.push(format!(
                 "Finding {} has no verification steps — cannot confirm fix",
                 finding.id
             ));
-            // This is a warning, not a failure
         }
     }
 

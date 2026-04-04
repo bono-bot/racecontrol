@@ -456,7 +456,7 @@ function renderFleet(pods) {
     var header = el('div', { className: 'pod-header' });
     var nameDiv = el('div', { className: 'pod-name' });
     nameDiv.appendChild(dot(dotCls));
-    nameDiv.appendChild(document.createTextNode(' Pod ' + p.pod_number));
+    nameDiv.appendChild(document.createTextNode(' ' + (p.name || ('Pod ' + p.pod_number))));
     header.appendChild(nameDiv);
     header.appendChild(el('div', { className: 'pod-ip', textContent: p.ip_address || '' }));
     card.appendChild(header);

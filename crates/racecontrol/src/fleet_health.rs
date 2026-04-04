@@ -277,6 +277,9 @@ impl ViolationStore {
 pub struct PodFleetStatus {
     pub pod_number: u32,
     pub pod_id: Option<String>,
+    /// Display name from DB (e.g. "Pod 1", "POS 1"). Used by status page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub ws_connected: bool,
     pub http_reachable: bool,
     pub version: Option<String>,
@@ -1131,6 +1134,7 @@ pub async fn fleet_health_handler(
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: None,
+                    name: None,
                     ws_connected: false,
                     http_reachable: false,
                     version: None,
@@ -1223,6 +1227,7 @@ pub async fn fleet_health_handler(
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
+                    name: Some(info.name.clone()),
                     ws_connected,
                     http_reachable,
                     version,

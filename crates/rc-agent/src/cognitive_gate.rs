@@ -233,6 +233,33 @@ impl CgpEngine {
     // ─── Phase D Gates ──────────────────────────────────────────────────────
 
     /// G1: Outcome Verification — was the fix actually applied and verified?
+    /// CGP v4.0 H3: Evidence must include actual behavior tested, before/after state,
+    /// and the verification method — NOT just "verify_fix() returned true."
+    pub fn gate_g1_outcome_verification_with_evidence(
+        fix_description: &str,
+        evidence: &crate::tier_engine::VerifyEvidence,
+    ) -> CgpGateResult {
+        let start = std::time::Instant::now();
+
+        CgpGateResult {
+            gate: CgpGateId::G1OutcomeVerification,
+            status: if evidence.resolved { CgpGateStatus::Passed } else { CgpGateStatus::Failed },
+            evidence: json!({
+                "behavior_tested": evidence.behavior_tested,
+                "state_before": evidence.state_before,
+                "state_after": evidence.state_after,
+                "method": evidence.method,
+                "attempts": evidence.attempts,
+                "elapsed_secs": evidence.elapsed_secs,
+                "fix_description": fix_description,
+                "resolved": evidence.resolved,
+            }),
+            timestamp: Utc::now(),
+            duration_ms: start.elapsed().as_millis() as u64,
+        }
+    }
+
+    /// G1 legacy path for Tier 4/5 deferred verification.
     fn gate_g1_outcome_verification(fix_applied: bool, fix_description: &str) -> CgpGateResult {
         let start = std::time::Instant::now();
 
@@ -240,8 +267,8 @@ impl CgpEngine {
             gate: CgpGateId::G1OutcomeVerification,
             status: if fix_applied { CgpGateStatus::Passed } else { CgpGateStatus::Failed },
             evidence: json!({
-                "behavior_tested": fix_applied,
-                "method": if fix_applied { "verify_fix() returned true" } else { "fix was not applied or verification failed" },
+                "behavior_tested": "deferred — Tier 4/5 verification pending",
+                "method": "verification_deferred",
                 "fix_description": fix_description,
             }),
             timestamp: Utc::now(),
@@ -250,7 +277,9 @@ impl CgpEngine {
     }
 
     /// G2: Fleet Scope — identify which other pods/targets this fix applies to.
-    fn gate_g2_fleet_scope(event: &DiagnosticEvent, tier: DiagnosisTier) -> CgpGateResult {
+    /// CGP v4.0 H4: MUST be checked before any fleet-wide broadcast.
+    /// Returns fleet_applicable=false for pod-specific triggers.
+    pub fn gate_g2_fleet_scope(event: &DiagnosticEvent, tier: DiagnosisTier) -> CgpGateResult {
         let start = std::time::Instant::now();
 
         // Tier 3 is single-pod scope by default; Tier 4 uses fleet gossip
@@ -376,7 +405,8 @@ impl CgpEngine {
     }
 
     /// G9: Retrospective — root cause + prevention + similar past incidents.
-    fn gate_g9_retrospective(
+    /// CGP v4.0 H5: Called when staff corrections occur (implicit autonomous failure).
+    pub fn gate_g9_retrospective(
         event: &DiagnosticEvent,
         fix_applied: bool,
         fix_description: &str,

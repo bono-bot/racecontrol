@@ -68,6 +68,20 @@ pub enum DiagnosisTier {
     Human,
 }
 
+impl DiagnosisTier {
+    /// Convert tier number (1-5) to enum variant.
+    pub fn from_u8(tier: u8) -> Self {
+        match tier {
+            1 => Self::Deterministic,
+            2 => Self::KnowledgeBase,
+            3 => Self::SingleModel,
+            4 => Self::MultiModel,
+            5 => Self::Human,
+            _ => Self::Deterministic,
+        }
+    }
+}
+
 // ─── Mesh Solution ──────────────────────────────────────────────────────────
 
 /// A diagnosed and verified solution to a specific problem.
