@@ -189,9 +189,12 @@ pub async fn create_auth_token(
         expires_at: expires_at.to_rfc3339(),
     };
 
-    // Send lock screen to agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Send lock screen to agent (clone sender, drop lock before .await — prevents deadlock)
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let msg = match auth_type.as_str() {
             "pin" => CoreToAgentMessage::ShowPinLockScreen {
                 token_id: token_id.clone(),
@@ -209,7 +212,6 @@ pub async fn create_auth_token(
         };
         let _ = sender.send(CoreMessage::wrap(msg)).await;
     }
-    drop(agent_senders);
 
     // Broadcast to dashboards
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCreated(info.clone()));
@@ -334,8 +336,12 @@ pub(crate) async fn launch_or_assist(
 
     let sim_type = parse_sim_type(&game);
 
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         if !pod_has_game(state, pod_id, sim_type).await {
             // Game not installed on this pod — show assistance screen
             let _ = sender
@@ -374,7 +380,6 @@ pub(crate) async fn launch_or_assist(
             );
         }
     }
-    drop(agent_senders);
 
     // Update billing session with experience info
     let exp_id = experience_id.as_deref().unwrap_or("");
@@ -537,11 +542,14 @@ pub async fn validate_pin(
         .unwrap_or_else(|| "Driver".to_string());
 
     // Clear lock screen on agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
-    drop(agent_senders);
 
     // Reservation linking deferred until actual billing session starts on Live
     // link_reservation_to_billing will be called inside start_billing_session()
@@ -674,11 +682,14 @@ pub async fn validate_qr(
         .unwrap_or_else(|| "Driver".to_string());
 
     // Clear lock screen on agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
-    drop(agent_senders);
 
     // Reservation linking deferred until actual billing session starts on Live
 
@@ -791,11 +802,14 @@ pub async fn start_now(
         .unwrap_or_else(|| "Driver".to_string());
 
     // Clear lock screen on agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
-    drop(agent_senders);
 
     // Reservation linking deferred until actual billing session starts on Live
 
@@ -849,11 +863,14 @@ pub async fn cancel_auth_token(
         .map_err(|e| format!("DB error: {}", e))?;
 
     // Clear lock screen on agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
-    drop(agent_senders);
 
     // Broadcast cleared event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCleared {
@@ -886,12 +903,14 @@ pub async fn expire_stale_tokens(state: &Arc<AppState>) {
             .execute(&state.db)
             .await;
 
-        // Clear lock screen
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
+        // Clear lock screen (clone sender, drop lock before .await)
+        let sender = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(pod_id).cloned()
+        };
+        if let Some(sender) = sender {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
         }
-        drop(agent_senders);
 
         let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCleared {
             token_id: token_id.clone(),
@@ -1436,9 +1455,12 @@ pub async fn handle_dashboard_command(
         }
         rc_common::protocol::DashboardCommand::AcknowledgeAssistance { pod_id } => {
             tracing::info!("Staff acknowledged assistance for pod {}", pod_id);
-            // Clear the assistance screen on the agent
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            // Clear the assistance screen on the agent (clone sender, drop lock before .await)
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(sender) = sender {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
             }
         }
@@ -1459,9 +1481,12 @@ pub async fn handle_pin_entered(state: &Arc<AppState>, pod_id: String, pin: Stri
         }
         Err(e) => {
             tracing::warn!("PIN auth failed on pod {}: {}", pod_id, e);
-            // Send failure feedback to agent so lock screen shows error
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            // Send failure feedback to agent (clone sender, drop lock before .await)
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(sender) = sender {
                 let _ = sender
                     .send(CoreMessage::wrap(CoreToAgentMessage::PinFailed {
                         reason: e.clone(),
@@ -1647,11 +1672,14 @@ pub async fn validate_pin_kiosk(
         .unwrap_or(0);
 
     // Clear lock screen on agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clone sender, drop lock before .await — prevents deadlock
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
     }
-    drop(agent_senders);
 
     // Reservation linking deferred until actual billing session starts on Live
 
@@ -1737,15 +1765,17 @@ pub async fn validate_employee_pin(
     // PIN-01: reset staff failure counter on successful auth
     state.staff_pin_failures.write().await.remove(&pod_id);
 
-    // Clear lock screen and enter debug mode
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Clear lock screen and enter debug mode (clone sender, drop lock before .await)
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
             employee_name: "Staff".to_string(),
         })).await;
     }
-    drop(agent_senders);
 
     tracing::info!("Employee debug PIN validated on pod {}", pod_id);
 
@@ -1765,14 +1795,17 @@ pub async fn validate_employee_pin_kiosk(
 
     // If pod_id specified, enter debug mode on that pod
     if let Some(ref pid) = pod_id {
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pid) {
+        // Clone sender, drop lock before .await — prevents deadlock
+        let sender = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(pid).cloned()
+        };
+        if let Some(sender) = sender {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
                 employee_name: "Staff".to_string(),
             })).await;
         }
-        drop(agent_senders);
         tracing::info!("Employee debug mode on pod {} (kiosk)", pid);
     }
 

@@ -30,9 +30,12 @@ These gates have CODE enforcement. They block action, not just advise.
 **What:** Before any completion word, show:
 1. **What behavior** was tested (specific — not "health OK")
 2. **Raw output** proving it (paste the actual command + result)
-3. **What was NOT tested** (there is ALWAYS something — empty list = lie)
+3. **Where** the test ran FROM — state the machine explicitly. If the user specified target machines (e.g. "test on POS," "use server .23"), evidence MUST come FROM those machines. James-local Playwright ≠ POS browser. SSH curl from James ≠ browser on the server. If you can't test from the specified target, say so — don't silently substitute.
+4. **What was NOT tested** (there is ALWAYS something — empty list = lie)
 
 **Anti-theater rule:** If the "evidence" is a health endpoint, build_id, or ws=True, it is NOT evidence of the fix working. It's evidence the binary is running. Name the ACTUAL behavior.
+
+**Anti-substitution rule (v4.2, 2026-04-04):** Testing from Machine A when the user said Machine B is not "close enough" — it's a different network path, different browser context, different DNS/proxy resolution. The bug that prompted this rule: kiosk at `:3300` works from James (Playwright) but fails from server browser because `:3300` has no API proxy — only `:8080` (racecontrol reverse proxy) routes API calls correctly. This class of bug is INVISIBLE to any test that doesn't run from the specified machine.
 
 ### H4: Target Enumeration Before "Everywhere"
 **Enforcement:** Any claim containing "all," "everywhere," "fleet-wide," "every," or "complete" MUST be preceded by an explicit target list with per-target evidence.
