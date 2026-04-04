@@ -99,8 +99,8 @@ pub fn live_stream_router(state: Arc<LiveStreamState>) -> axum::Router {
         .allow_headers(Any);
 
     axum::Router::new()
-        .route("/api/v1/stream/mjpeg/{channel}", get(mjpeg_proxy))
-        .route("/api/v1/stream/ws/{channel}", get(ws_live_handler))
+        .route("/api/v1/stream/mjpeg/:channel", get(mjpeg_proxy))
+        .route("/api/v1/stream/ws/:channel", get(ws_live_handler))
         .with_state(state)
         .layer(cors)
 }

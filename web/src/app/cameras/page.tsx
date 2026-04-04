@@ -476,6 +476,19 @@ export default function CamerasPage() {
     return () => clearInterval(statusInterval);
   }, [loading, cameras.length]);
 
+  // ── Start MJPEG when fallback is triggered mid-stream ─────────────────────────
+  useEffect(() => {
+    if (useMjpegFallback && fullscreenCamera && fullscreenCamera.nvr_channel) {
+      // Wait for the img element to mount after state change
+      setTimeout(() => {
+        if (mjpegImgRef.current) {
+          mjpegImgRef.current.src = `${SENTRY_BASE}/api/v1/stream/mjpeg/${fullscreenCamera.nvr_channel}?subtype=1`;
+          setStreamStatus("connected");
+        }
+      }, 0);
+    }
+  }, [useMjpegFallback, fullscreenCamera]);
+
   // ── Keyboard and lifecycle event listeners ────────────────────────────────────
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent) => {

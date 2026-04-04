@@ -1516,8 +1516,8 @@ pub async fn run(
                 if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::info!(target: LOG_TARGET, "Skipping idle PinEntry reset — billing is active");
                 } else {
-                    tracing::info!(target: LOG_TARGET, "Resetting to idle PinEntry after session summary (SESSION-02)");
-                    state.lock_screen.show_idle_pin_entry();
+                    tracing::info!(target: LOG_TARGET, "Blanking screen after session summary (SESSION-02)");
+                    state.lock_screen.show_blank_screen();
                     ffb_controller::safe_session_end(&state.ffb).await;
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
