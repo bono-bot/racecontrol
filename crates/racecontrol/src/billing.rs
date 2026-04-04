@@ -1316,8 +1316,19 @@ async fn multiplayer_billing_timeout(state: &Arc<AppState>, group_session_id: &s
 
 /// Called every 1 second to tick all active billing timers
 pub async fn tick_all_timers(state: &Arc<AppState>) {
+    // FIX: Use try_write to prevent deadlock — if lock is contended, skip this tick.
+    // The billing tick runs every 1s, so skipping one cycle is harmless.
+    // Root cause: active_timers.write() can block for seconds when
+    // handle_game_status_update holds it during DB operations.
     let rate_tiers = state.billing.rate_tiers.read().await;
-    let mut timers = state.billing.active_timers.write().await;
+    let mut timers = match state.billing.active_timers.try_write() {
+        Ok(t) => t,
+        Err(_) => {
+            drop(rate_tiers);
+            // Lock contended — skip this tick cycle
+            return;
+        }
+    };
     let mut events_to_broadcast = Vec::new();
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
@@ -1598,8 +1609,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // BILL-05: Broadcast WaitingForGame status each tick so kiosk shows "Loading..."
     // WaitingForGame entries are NOT in active_timers — they live in the waiting_for_game map.
-    {
-        let waiting = state.billing.waiting_for_game.read().await;
+    if let Ok(waiting) = state.billing.waiting_for_game.try_read() {
         for (pod_id, entry) in waiting.iter() {
             let info = rc_common::types::BillingSessionInfo {
                 id: format!("deferred-{}", pod_id),
@@ -1624,7 +1634,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             };
             events_to_broadcast.push(DashboardEvent::BillingTick(info));
         }
-    }
+    } // waiting_for_game try_read block — if lock contended, broadcast skipped this tick
 
     // Trigger any pending (deferred) rolling deploys for pods whose sessions just ended
     for (pod_id, _, _, _) in &expired_sessions {
@@ -1665,15 +1675,25 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // BILL-13 FIX: Also refund wallet for pre-committed sessions that were debited but never activated.
     // LBILL-01/02/03: Check GameTracker before cancelling waiting_for_game sessions — game-aware stale cancel.
     {
-        let stale_sessions: Vec<(String, String, Option<i64>, String, String, String, Option<String>)> = sqlx::query_as(
+        let stale_sessions: Vec<(String, String, Option<i64>, String, String, String, Option<String>)> = match sqlx::query_as(
             "SELECT id, driver_id, wallet_debit_paise, pod_id, created_at, status, wallet_owner_id FROM billing_sessions \
              WHERE status IN ('pending', 'waiting_for_game') \
              AND created_at < datetime('now', '-5 minutes') \
              AND ended_at IS NULL",
         )
         .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+        .await {
+            Ok(rows) => {
+                if !rows.is_empty() {
+                    tracing::info!("LBILL: found {} stale sessions to evaluate", rows.len());
+                }
+                rows
+            }
+            Err(e) => {
+                tracing::error!("LBILL: DB query failed: {}", e);
+                Vec::new()
+            }
+        };
 
         if !stale_sessions.is_empty() {
             // LBILL-01: Snapshot active_games — never hold lock across .await

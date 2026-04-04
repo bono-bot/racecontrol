@@ -1163,14 +1163,16 @@ async fn main() -> anyhow::Result<()> {
         // MMA consensus: use 307 (not 308) to avoid permanent cache of hardcoded IP
         .route("/admin", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
         .route("/admin/", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
-        .route("/pos", get(|| async { axum::response::Redirect::permanent("/billing") }))
-        .route("/dashboard", get(|| async { axum::response::Redirect::permanent("/billing") }))
-        .route("/staff", get(|| async { axum::response::Redirect::permanent("/kiosk/staff") }))
-        .route("/spectator", get(|| async { axum::response::Redirect::permanent("/kiosk/spectator") }))
-        .route("/control", get(|| async { axum::response::Redirect::permanent("/kiosk/control") }))
+        .route("/pos", get(|| async { axum::response::Redirect::temporary("/billing") }))
+        .route("/dashboard", get(|| async { axum::response::Redirect::temporary("/billing") }))
+        .route("/staff", get(|| async { axum::response::Redirect::temporary("/kiosk/staff") }))
+        .route("/spectator", get(|| async { axum::response::Redirect::temporary("/kiosk/spectator") }))
+        .route("/control", get(|| async { axum::response::Redirect::temporary("/kiosk/control") }))
         .route("/fleet", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3200/fleet") }))
         .route("/cameras", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3200/cameras") }))
-        .route("/book", get(|| async { axum::response::Redirect::permanent("/kiosk/book") }))
+        // Catch browser-cached 308s from old /cameras→/kiosk/fleet redirect
+        .route("/kiosk/fleet", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3200/cameras") }))
+        .route("/book", get(|| async { axum::response::Redirect::temporary("/kiosk/book") }))
         // MMA consensus: /kiosk without trailing slash misses proxy, add redirect
         .route("/kiosk", get(|| async { axum::response::Redirect::temporary("/kiosk/") }))
         // Root → portal directory page (so 192.168.31.23 shows all links)
