@@ -242,14 +242,21 @@ export default function CamerasPage() {
   }, []);
 
   // ── Snapshot refresh loop ────────────────────────────────────────────────────
+  const refreshInFlightRef = useRef(false);
+
   const startRefreshLoop = useCallback((rate: number) => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
 
     const doRefresh = () => {
+      // Skip if previous batch still loading — prevents request flooding
+      if (refreshInFlightRef.current) return;
+
       const cams = camerasRef.current;
-      let ok = 0;
-      let fail = 0;
+      if (cams.length === 0) return;
+
+      let completed = 0;
       let total = 0;
+      refreshInFlightRef.current = true;
 
       cams.forEach((camera) => {
         const ch = camera.nvr_channel;
@@ -259,26 +266,27 @@ export default function CamerasPage() {
         const preload = new Image();
         const url = `${SENTRY_BASE}/api/v1/cameras/nvr/${ch}/snapshot?t=${Date.now()}`;
 
-        preload.onload = () => {
+        const onDone = () => {
           const imgEl = imgRefs.current[ch];
           if (imgEl) imgEl.src = preload.src;
-          ok++;
-          if (ok + fail === total) {
-            setStatusText(`${ok}/${cams.length} online`);
+          completed++;
+          if (completed === total) {
+            refreshInFlightRef.current = false;
           }
         };
 
+        preload.onload = onDone;
         preload.onerror = () => {
-          fail++;
-          if (ok + fail === total) {
-            setStatusText(`${ok}/${cams.length} online`);
+          completed++;
+          if (completed === total) {
+            refreshInFlightRef.current = false;
           }
         };
 
         preload.src = url;
       });
 
-      if (total === 0) setStatusText(`0/${cams.length} online`);
+      if (total === 0) refreshInFlightRef.current = false;
     };
 
     doRefresh();
@@ -403,12 +411,12 @@ export default function CamerasPage() {
           // Layout fetch failed — proceed with defaults
         }
 
-        setLoading(false);
+        // Set status text from API response (reflects real NVR connectivity)
+        const onlineCount = sorted.filter((c) => c.status === "connected").length;
+        setStatusText(`${onlineCount}/${sorted.length} online`);
 
-        // 3. Start snapshot polling
-        startRefreshLoop(refreshRate);
-        void finalCameras; // suppress unused warning
-        void finalMode;
+        setLoading(false);
+        // Snapshot polling started by the useEffect below when loading becomes false
 
       } catch (err) {
         if (!cancelled) {
@@ -435,6 +443,30 @@ export default function CamerasPage() {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     };
   }, [refreshRate, loading, cameras.length, startRefreshLoop]);
+
+  // ── Periodic camera status re-fetch (updates dot colors + status text) ───────
+  useEffect(() => {
+    if (loading || cameras.length === 0) return;
+    const statusInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`${SENTRY_BASE}/api/v1/cameras`);
+        if (!res.ok) return;
+        const data = (await res.json()) as CameraInfo[];
+        // Update status fields in existing camera order
+        setCameras((prev) =>
+          prev.map((cam) => {
+            const updated = data.find((c) => c.name === cam.name);
+            return updated ? { ...cam, status: updated.status } : cam;
+          }),
+        );
+        const onlineCount = data.filter((c) => c.status === "connected").length;
+        setStatusText(`${onlineCount}/${data.length} online`);
+      } catch {
+        // Silently ignore — snapshot polling continues regardless
+      }
+    }, 30_000);
+    return () => clearInterval(statusInterval);
+  }, [loading, cameras.length]);
 
   // ── Keyboard and lifecycle event listeners ────────────────────────────────────
   useEffect(() => {
